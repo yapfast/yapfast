@@ -93,6 +93,12 @@ pub fn command(
     let Some(command) = own_profile::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::account_tools::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::screening::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = gifs::command(command, discord, events) else {
         return;
     };
@@ -152,13 +158,22 @@ pub fn command(
         | Command::Around { room, .. }
         | Command::Present(room) => room.clone(),
         Command::Forward {
+            request,
             room,
             item,
             target,
             note,
             silent,
         } => {
-            forward(discord, room, item, target, note, *silent, events);
+            forward(
+                discord,
+                *request,
+                (room, item),
+                target,
+                note,
+                *silent,
+                events,
+            );
             return;
         }
         _ => return,
@@ -338,7 +353,12 @@ pub fn command(
             item, index, path, ..
         } => channel.save(discord, done, &item, index, path),
         Command::CopyAttachment { item, index, .. } => channel.copy(discord, done, &item, index),
-        Command::ViewImage { item, index, .. } => channel.view_image(discord, done, item, index),
+        Command::ViewImage {
+            request,
+            item,
+            index,
+            ..
+        } => channel.view_image(discord, done, request, item, index),
         Command::Earlier(room) if !channel.earlier(discord, done) => {
             let _ = events.send(Event::HistoryLoaded {
                 room,
@@ -512,6 +532,7 @@ pub fn finished(
         }
         (
             Done::Image {
+                request,
                 item,
                 index,
                 picture,
@@ -520,6 +541,7 @@ pub fn finished(
             _,
         ) => {
             let _ = events.send(Event::Image {
+                request,
                 room,
                 item,
                 index,
@@ -901,8 +923,8 @@ fn send_poll(
 
 fn forward(
     discord: Result<&Discord, &str>,
-    room: &str,
-    item: &str,
+    request: u64,
+    (room, item): (&str, &str),
     target: &str,
     note: &Option<String>,
     silent: bool,
@@ -910,6 +932,7 @@ fn forward(
 ) {
     let fail = |why: String| {
         let _ = events.send(Event::Forwarded {
+            request,
             room: target.to_owned(),
             result: Err(ForwardFailure::Forward(why)),
         });
@@ -961,6 +984,10 @@ fn forward(
                     ForwardFailure::Note(error.to_string())
                 });
         }
-        let _ = events.send(Event::Forwarded { room, result });
+        let _ = events.send(Event::Forwarded {
+            request,
+            room,
+            result,
+        });
     });
 }

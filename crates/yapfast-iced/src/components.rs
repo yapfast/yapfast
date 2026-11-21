@@ -21,6 +21,7 @@ use crate::{
     pictures::Icon,
     theme::rgb,
 };
+use yapfast_core::i18n::tr;
 
 /// A framed card at its widest, a section's thumbnail, a gallery's room
 /// inside a card, a menu's box at its widest.
@@ -173,9 +174,10 @@ pub fn app_card<'a>(
                             line = line.push(attachments::pressed(ctx, index, message, at, shot));
                         }
                     }
-                    Some(Beside::Button(button)) => {
+                    Some(Beside::Button(button)) if !is_purchase(button) => {
                         line = line.push(card_button(ctx, message, button, busy));
                     }
+                    Some(Beside::Button(_)) => {}
                     None => {}
                 }
                 line.into()
@@ -215,7 +217,7 @@ pub fn app_card<'a>(
             }
             CardRow::Buttons(buttons) => {
                 let mut line = row![].spacing(8);
-                for button in buttons {
+                for button in buttons.iter().filter(|button| !is_purchase(button)) {
                     line = line.push(card_button(ctx, message, button, busy));
                 }
                 line.into()
@@ -250,7 +252,7 @@ pub fn app_card<'a>(
             CardRow::Unknown => {
                 let accent = theme.accent;
                 container(
-                    text("Yapfast can't show this part of the message yet.")
+                    text(tr("Yapfast does not know this part of the message."))
                         .size(14)
                         .color(theme.secondary),
                 )
@@ -287,9 +289,15 @@ pub fn app_card<'a>(
     container(shown).padding(Padding::ZERO.top(4)).into()
 }
 
-/// An app's button: a link's with its icon opens its page, a store's offers
-/// to open in Discord, one that asks its app does, unless another of the
-/// message's is waiting for its app.
+/// Whether a button asks for a purchase: a premium one, or one that names
+/// a product. Yapfast has no checkout, so it shows none of them rather than
+/// a button that cannot do what it says.
+fn is_purchase(button: &CardButton) -> bool {
+    button.style == ButtonStyle::Premium || button.sku_id.is_some()
+}
+
+/// An app's button: a link's with its icon opens its page, one that asks
+/// its app does, unless another of the message's is waiting for its app.
 fn card_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     message: &ChatMessage,
@@ -303,19 +311,6 @@ fn card_button<'a>(
         ButtonStyle::Danger => Kind::Danger,
         ButtonStyle::Secondary | ButtonStyle::Link | ButtonStyle::Premium => Kind::Plain,
     };
-    // A bot's message that doesn't say its app is the bot's own.
-    let app = message.application_id.as_deref().or_else(|| {
-        message
-            .bot
-            .then(|| yapfast_core::discord::sender_user(&message.sender))
-            .flatten()
-    });
-    let store = match (&card_button.sku_id, app) {
-        (Some(sku), Some(app)) => Some(format!(
-            "https://discord.com/application-directory/{app}/store/{sku}"
-        )),
-        _ => None,
-    };
     let press = if card_button.disabled {
         None
     } else if let Some(custom_id) = &card_button.custom_id {
@@ -325,24 +320,15 @@ fn card_button<'a>(
                 custom_id.clone(),
             ))
         })
-    } else if let Some(store) = store {
-        Some(Message::Link(store, Point::ORIGIN))
     } else {
         card_button
             .url
             .clone()
             .map(|url| Message::Link(url, Point::ORIGIN))
     };
-    let label = if card_button.style == ButtonStyle::Premium {
-        "Open in Discord"
-    } else {
-        card_button.label.as_str()
-    };
-    let mut face = action(theme, label, kind, press).small();
-    match card_button.style {
-        ButtonStyle::Link => face = face.icon(ctx.look.icon(Icon::Link, 16, rgb(theme.text))),
-        ButtonStyle::Premium => face = face.icon(ctx.look.icon(Icon::Shop, 16, rgb(theme.text))),
-        _ => {}
+    let mut face = action(theme, card_button.label.as_str(), kind, press).small();
+    if card_button.style == ButtonStyle::Link {
+        face = face.icon(ctx.look.icon(Icon::Link, 16, rgb(theme.text)));
     }
     face.into()
 }

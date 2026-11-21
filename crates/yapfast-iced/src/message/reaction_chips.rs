@@ -16,24 +16,24 @@ use crate::{
 };
 
 use super::REACTION_EMOJI;
+use yapfast_core::i18n::{self, tr};
 
 /// What a reaction's tooltip says, worded as Discord's client words it.
 pub fn reaction_words(emoji: &str, names: &[String], count: usize) -> String {
     let others = count.saturating_sub(names.len());
-    let more = match others {
-        1 => "1 other".to_owned(),
-        others => format!("{others} others"),
-    };
+    let more = i18n::trn("{n} other", "{n} others", others);
     let people = match (names, others) {
         ([one], 0) => one.clone(),
-        ([one], _) => format!("{one} and {more}"),
-        ([one, two], 0) => format!("{one} and {two}"),
-        ([one, two], _) => format!("{one}, {two}, and {more}"),
-        ([one, two, three], 0) => format!("{one}, {two}, and {three}"),
-        ([one, two, three, ..], _) => format!("{one}, {two}, {three}, and {more}"),
-        _ => format!("{count} people"),
+        ([one], _) => i18n::fill(tr("{0} and {1}"), &[&one, &more]),
+        ([one, two], 0) => i18n::fill(tr("{0} and {1}"), &[&one, &two]),
+        ([one, two], _) => i18n::fill(tr("{0}, {1}, and {2}"), &[&one, &two, &more]),
+        ([one, two, three], 0) => i18n::fill(tr("{0}, {1}, and {2}"), &[&one, &two, &three]),
+        ([one, two, three, ..], _) => {
+            i18n::fill(tr("{0}, {1}, {2}, and {3}"), &[&one, &two, &three, &more])
+        }
+        _ => i18n::fill(tr("{} people"), &[&count]),
     };
-    format!("{emoji} reacted by {people}")
+    i18n::fill(tr("{0} reacted by {1}"), &[&emoji, &people])
 }
 
 /// A reaction's emoji as Discord's client names it: `:name:` for a custom
@@ -111,7 +111,10 @@ pub(super) fn reactions<'a>(
         let chip = container(
             row![
                 face,
-                text(reaction.count.to_string()).font(BOLD).color(count)
+                text(reaction.count.to_string())
+                    .size(14)
+                    .font(BOLD)
+                    .color(count)
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -219,12 +222,16 @@ pub(super) fn reaction_tip<'a>(
     let theme = ctx.look.theme;
     let names = tip_of.names.as_deref().unwrap_or_default();
     let words = reaction_words(&emoji_shortcode(key), names, reaction.count);
-    let picture = emojis::get(key)
-        .map(emojis::Emoji::as_str)
-        .and_then(|key| ctx.emoji_picture(key, 32));
-    let face: Element<'a, Message> = match picture {
-        Some(picture) => Pic::square(picture, 32.0).into(),
-        None => text(key.to_owned()).size(26).into(),
+    let face: Element<'a, Message> = if key.contains(':') {
+        crate::suggest::emoji_face(ctx, key, 32)
+    } else {
+        match emojis::get(key)
+            .map(emojis::Emoji::as_str)
+            .and_then(|key| ctx.emoji_picture(key, 32))
+        {
+            Some(picture) => Pic::square(picture, 32.0).into(),
+            None => text(key.to_owned()).size(26).into(),
+        }
     };
     Some(
         container(
@@ -267,5 +274,24 @@ mod tests {
             ":tada: reacted by Alice, Bob, Carol, and 1 other"
         );
         assert_eq!(emoji_shortcode("🎉"), ":tada:");
+    }
+
+    #[test]
+    fn a_reactions_tooltip_reads_in_the_language_chosen() {
+        // On a thread of its own, so the language stays out of other tests.
+        std::thread::spawn(|| {
+            i18n::pin_language(Some(i18n::Language::from_code("de").expect("German")));
+            let names = ["Alice", "Bob", "Carol"].map(String::from);
+            assert_eq!(
+                reaction_words(":tada:", &names, 4),
+                ":tada: reagierte, von Alice, Bob, Carol und 1 weitere Person"
+            );
+            assert_eq!(
+                reaction_words(":tada:", &names, 5),
+                ":tada: reagierte, von Alice, Bob, Carol und 2 weitere Personen"
+            );
+        })
+        .join()
+        .expect("the German reading");
     }
 }

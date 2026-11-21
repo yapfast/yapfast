@@ -154,6 +154,13 @@ and the choice shows only then. docs.discord.food doesn't say which
 channel Discord's client picks for a server, so Yapfast takes the one it
 would open.
 
+The dialog lists the account's friends, each with Invite, as Discord's
+does. Invite sends that friend the dialog's own link: `POST
+/users/@me/channels` with their id, which finds the DM or starts it, then
+`POST /channels/{dm}/messages` with the link as its content. The button
+turns to Invited at once, and back to Invite with a notice if sending
+failed.
+
 ## Invite to server
 
 Someone's menu has an Invite to server submenu, as Discord's has, in a
@@ -187,9 +194,24 @@ client also offers a server without the permission when it has a vanity
 URL, and sends that instead; Yapfast doesn't keep servers' vanity codes, so it
 leaves those out.
 
+## Creating a server
+
+The server rail's plus opens Create Your Server. Create My Own uses the
+service's default channels. Gaming, Friends, Study Group, School Club,
+Local Community and Artists & Creators use starter layouts defined in
+Yapfast. The form lists the layout's initial channels. Give the server a
+name and optionally choose a local PNG, JPG or WebP icon. The server opens
+when Discord's gateway lists it.
+
+Creation uses the linked user session's
+[Create Guild](https://docs.discord.food/resources/guild#create-guild)
+request, `POST /guilds`. Yapfast crops a local icon to a square at up to
+128 × 128 pixels. The name, optional icon and starter channels are sent
+together. A declined request leaves the form open with the error.
+
 ## Joining by invite
 
-The "+" at the foot of the server rail opens Join a Server, which takes an
+Join a Server, the button under Already have an invite? in Create Your Server, opens Join a Server, which takes an
 invite link or a bare code, a server's vanity code too, as Discord's dialog
 does: `discord.gg/{code}`, or `/invite/{code}` on discord.com, discordapp.com,
 canary and ptb, with any query left off; otherwise the last part after a `/`
@@ -201,6 +223,10 @@ when it has fewer than five members and none online, as Discord's invite
 card does; nothing joins until the Join Server click. Discord's docs warn
 that accounts joining many servers in a short time get flagged, so Yapfast
 never joins by itself.
+
+Editing the code in the manual join form clears the preview until the new code
+has been looked up. A response for the discarded code cannot confirm the new
+invite.
 
 - `GET /invites/{code}?with_counts=true&with_expiration=true&with_permissions=true`,
   as Discord's client resolves an invite, with `&inputValue=` and what was
@@ -222,9 +248,22 @@ expired invite (10006, 50020), a ban (40007), too many servers (30001), a
 full server (30019) and paused invites (40069).
 
 When the answer has `show_verification_form`, the server asks new members
-to fill in its form, such as accepting its rules, before they may talk.
-Yapfast doesn't show forms or onboarding questions yet, so the dialog says
-so and opens the channel in Discord's web app, where the form waits. A voice
+to fill in its form (membership screening), such as accepting its rules,
+before they may talk. The dialog stays open and shows the form natively
+(`server_dialogs/screening.rs`): the server's description, its rules with a
+switch to agree to them, text and paragraph questions and multiple choice,
+with required ones starred. Submit is enabled once every required question
+is answered. The form is read with
+`GET /guilds/{id}/member-verification?with_guild=false&invite_code=` and
+handed in with `PUT /guilds/{id}/requests/@me` carrying its `version` and
+the `form_fields` with their `response`
+(`yapfast-discord/src/screening.rs`). Discord's answer is `APPROVED` (the
+dialog closes and the server's channel opens), `REJECTED` (the dialog says
+the server turned the answers down) or a pending state (the dialog says the
+server's moderators decide). A failed load shows its error with a Try again
+button. These two endpoints and the status names are written from
+Discord's client behaviour and have not been run against Discord. Onboarding
+questions, which are a separate feature, are not shown. A voice
 channel's invite joins the server and opens the channel without joining the
 call. Discord's client also sends `invite_instance_id` from a message's
 invite card, which Yapfast doesn't show yet, so it leaves that out.
@@ -298,10 +337,38 @@ Discord also shows the scallop at level 0 once a server has a boost ("No
 Level"); Yapfast doesn't.
 
 When the owner shows the boost progress bar (`premium_progress_bar_enabled`),
-a 26px pill under the header reads "Boost Goal" and "N/33 Boosts", with a pink
-fill for the share of the goal reached. `N` is `premium_subscription_count`
-from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
-showed for a server without boosts; it has no per-level goals here.
+a native Boost Goal button under the header shows its total. The count is
+`premium_subscription_count` from GUILD_CREATE and GUILD_UPDATE, already
+shared through `ChatServer::boosts`. Clicking opens a progress summary from
+the selected server's current snapshot, with the account's own boosts under it. It shows the reported
+`premium_tier`, total, standard level thresholds of 2, 7 and 14 boosts, and
+how far the total is below the next threshold. The total is not treated as
+an allocation: boosts assigned to separate perks and grace periods can
+explain a different reported level. At level 3 the meter caps at 14.
+
+Viewing the summary needs no Manage Server permission. If the bar stops
+being shared, the count becomes unavailable rather than zero. An offline,
+missing or unavailable server, or an unknown tier, shows no current progress
+and none of the account's boosts. The progress itself reads the existing
+snapshot without new requests or retained server copies.
+
+Under the progress, YOUR BOOSTS says what the account's Nitro lets it give.
+Opening the summary asks Discord for the account's boost slots
+(`GET /users/@me/guilds/premium/subscription-slots`, `Action::LoadBoosts`,
+`DiscordCommand::LoadBoosts`, kept in `AppState::boosts`; a read for another
+server is dropped). A slot counts as free when it is not canceled, not on a
+server and not resting after a move (`cooldown_ends_at` in the future; one
+that cannot be read counts as resting); `yapfast_discord::boost::slots`
+sorts them into free, on this server, on other servers and resting. With a
+free boost the summary offers **Boost this server**
+(`PUT /guilds/{id}/premium/subscriptions` with the first free slot's id,
+`Action::BoostServer`), once at a time, and reads the slots again when Discord
+answers; the server's count follows from the gateway. Without one it says so,
+and says boosts come with Nitro when the account has none at all. A refusal
+shows Discord's reason with a Retry. Buying boosts or Nitro is not offered
+(no checkout), and removing a boost is not offered either. The slot list's
+shape and the PUT body are taken from the public API documentation and
+have not been checked against a real account.
 
 Under the header, in a server with events, or one where this account may
 create them (Create Events, or Administrator; Manage Events alone isn't
@@ -429,7 +496,7 @@ channels in a server that hides them (`AppState::scoped_rooms`).
 
 ### Browse Channels
 
-A Community server's channel list starts with Browse channels, as
+A Community server's channel list starts with Channels & Roles, as
 Discord's client has it, which opens Browse Channels in place of the
 conversation: every text and voice channel the account sees, but threads,
 under its category's heading in the channel list's order, with a search of
@@ -509,7 +576,9 @@ and Windows, so Yapfast asks the X server, or Windows, while files hover. Its
 button shows it in place of the channel, and closing it, or opening another
 channel, brings the member list back. A thread the account isn't in is read
 with `GET /channels/{id}` and listed while it shows, so it reads and marks read
-like any other; writing in it joins it, as Discord does.
+like any other; writing in it joins it, as Discord does. The side panel
+acknowledges the thread only when its newest message is visible in the focused
+window and is still the newest known to the gateway.
 
 A thread's menu offers Join thread, or Leave thread for one the account is in,
 after Mark as read, as Discord's client does (its `thread-context` menu). So
@@ -540,6 +609,7 @@ its owner and when it was last active. On the right are a few of its
 members' avatars and how many are in it. Clicking a row opens the thread in
 place of the channel, and Shift-click beside it, as Discord's does; a
 thread the account isn't in opens as any other does, without joining it.
+The Create action opens the thread form using the channel named by the list.
 Sized as in Discord's client (its CSS and list in the web bundle): each
 thread is a card 72px tall with 8px under it, the first section's heading
 32px tall and later ones 64px, and the popout 35% of the window wide, from

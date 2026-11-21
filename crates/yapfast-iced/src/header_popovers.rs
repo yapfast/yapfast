@@ -16,6 +16,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::{ListedThread, Permission, Presence},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -27,19 +28,26 @@ use crate::{
     found::Found,
     markdown::{self, Body},
     pictures::{Face, Icon},
-    style::{hex, raised_shadow, scrollbar},
+    style::{hex, scrollbar},
     theme::rgb,
 };
 
 /// A popover's head, taller with a line under its heading.
 const HEAD: f32 = 48.0;
 const HEAD_DETAIL: f32 = 64.0;
+/// Pinned Messages' head, as Discord's: 55 px and its line.
+const HEAD_PINS: f32 = 56.0;
 /// The frame's corners.
-const RADIUS: f32 = 10.0;
+const RADIUS: f32 = 8.0;
 /// The gap under the header, and kept to the window's edges.
 const GAP: f32 = 6.0;
+/// Pinned Messages sits against the header, and 2 px beyond its button's
+/// right edge (measured in Discord).
+const PINS_GAP: f32 = 0.0;
+const PINS_OVERHANG: f32 = 2.0;
 const MARGIN: f32 = 8.0;
-const PINS_WIDTH: f32 = 420.0;
+/// Discord's, with its 1 px edge.
+const PINS_WIDTH: f32 = 422.0;
 const PINS_MOST: f32 = 560.0;
 const PEOPLE_WIDTH: f32 = 440.0;
 const PEOPLE_MOST: f32 = 520.0;
@@ -180,7 +188,6 @@ impl Popovers {
                 cx.dispatch(Action::MoreThreads);
             }
             Event::CreateThread => {
-                cx.dispatch(Action::ShowThreads(false));
                 cx.dispatch(crate::thread::start_from(
                     yapfast_core::application::ThreadFrom::List,
                 ));
@@ -247,21 +254,27 @@ impl Popovers {
             rows.extend(found.iter().map(|thread| thread_row(thread, now)));
         } else {
             let headed = [
-                (&sections.joined, "joined thread", "joined threads"),
+                (
+                    &sections.joined,
+                    i18n::trn(
+                        "{n} joined thread",
+                        "{n} joined threads",
+                        sections.joined.len(),
+                    ),
+                ),
                 (
                     &sections.other,
-                    "other active thread",
-                    "other active threads",
+                    i18n::trn(
+                        "{n} other active thread",
+                        "{n} other active threads",
+                        sections.other.len(),
+                    ),
                 ),
             ];
-            for (threads, one, many) in headed {
-                let heading = match threads.len() {
-                    1 => format!("1 {one}"),
-                    count => format!("{count} {many}"),
-                };
+            for (threads, heading) in headed {
                 section(&mut rows, threads, heading.to_uppercase(), now);
             }
-            section(&mut rows, &sections.older, "OLDER THREADS".into(), now);
+            section(&mut rows, &sections.older, tr("OLDER THREADS").into(), now);
         }
         self.threads = rows;
     }
@@ -467,6 +480,18 @@ pub fn popover_pictures(app: &App) -> Vec<&str> {
     urls
 }
 
+/// A popover's shadow, as Discord's: soft and close.
+fn popover_shadow() -> iced::Shadow {
+    iced::Shadow {
+        color: iced::Color {
+            a: 0.3,
+            ..iced::Color::BLACK
+        },
+        offset: iced::Vector::new(0.0, 4.0),
+        blur_radius: 12.0,
+    }
+}
+
 /// The open popover, placed under its button.
 pub fn view<'a>(
     popovers: &'a Popovers,
@@ -495,7 +520,8 @@ impl<'a> View<'a> {
         if let Some(topic) = &self.s.topic {
             return Some(self.topic_layer(topic));
         }
-        let (panel, width, most) = if pins_open(self.cx.state) {
+        let pins = pins_open(self.cx.state);
+        let (panel, width, most) = if pins {
             (self.pins_view(), PINS_WIDTH, PINS_MOST)
         } else if self.cx.state.thread_list().is_some() {
             // As Discord's: 35% of the window wide, from 480 to 600 px.
@@ -507,8 +533,8 @@ impl<'a> View<'a> {
             return None;
         };
         let width = width.min(self.cx.look.window.width - 2.0 * MARGIN);
-        let top = crate::header::HEIGHT + GAP;
-        let x = (self.s.right - width)
+        let top = crate::header::HEIGHT + if pins { PINS_GAP } else { GAP };
+        let x = (self.s.right + if pins { PINS_OVERHANG } else { 0.0 } - width)
             .min(self.cx.look.window.width - width - MARGIN)
             .max(MARGIN);
         let height = most.min(self.cx.look.window.height - top - 2.0 * MARGIN);
@@ -527,9 +553,8 @@ impl<'a> View<'a> {
         )
     }
 
-    /// A popover's frame: its icon, heading and detail over a line, Close,
-    /// and what it holds; as tall as what it holds, or as its place with
-    /// `fill`.
+    /// A popover's frame: its icon, heading and detail over a line and what
+    /// it holds, as tall as its contents or as its place with `fill_place`.
     pub fn frame(
         self,
         fill_place: bool,
@@ -545,26 +570,36 @@ impl<'a> View<'a> {
         if let Some(detail) = detail {
             words = words.push(elide(detail).size(13).color(theme.muted));
         }
+        // Pinned Messages' icon is bigger, and nearer its heading.
+        let pins = icon == Icon::Pin;
         let mut head = row![
-            self.cx.look.glyph(icon, 20, theme.secondary),
+            self.cx
+                .look
+                .glyph(icon, if pins { 24 } else { 20 }, theme.secondary),
             container(words).width(Length::Fill),
         ]
-        .spacing(10)
+        .spacing(if pins { 8 } else { 10 })
         .align_y(Alignment::Center);
         if let Some(end) = end {
             head = head.push(end);
         }
-        head = head.push(
-            self.cx
-                .look
-                .icon_button(Icon::X, "Close", Message::Popover(Event::Close))
-                .below(),
-        );
-        let panel_ground = theme.panel;
+        let (ground, panel_ground) = if theme.dark || theme.bonfire {
+            (theme.raised, theme.raised)
+        } else {
+            (theme.sidebar, theme.panel)
+        };
         let head = column![
             container(head)
                 .padding(Padding::ZERO.left(16).right(10))
-                .height(if tall { HEAD_DETAIL } else { HEAD } - 1.0)
+                .height(
+                    if tall {
+                        HEAD_DETAIL
+                    } else if pins {
+                        HEAD_PINS
+                    } else {
+                        HEAD
+                    } - 1.0,
+                )
                 .align_y(Alignment::Center)
                 .style(move |_| {
                     crate::style::rounded(
@@ -574,7 +609,6 @@ impl<'a> View<'a> {
                 }),
             bar(theme.edge, Length::Fill, 1),
         ];
-        let (ground, edge) = (theme.sidebar, theme.edge);
         let panel = container(column![head, body])
             .height(if fill_place {
                 Length::Fill
@@ -583,9 +617,15 @@ impl<'a> View<'a> {
             })
             .clip(true)
             .style(move |_| container::Style {
-                shadow: raised_shadow(),
+                shadow: popover_shadow(),
                 ..crate::style::rounded(ground, RADIUS)
             });
+        // Bonfire's popovers have an edge a shade darker than its lines.
+        let edge = if theme.bonfire {
+            hex(0x29292c)
+        } else {
+            theme.edge
+        };
         iced::widget::opaque(controls::edged(panel, edge, RADIUS))
     }
 
@@ -614,23 +654,34 @@ impl<'a> View<'a> {
             .into()
     }
 
-    /// Discord's answer to a channel with no pins: a big pin and a line,
-    /// and its tip on a lighter band under them.
+    /// Discord's answer to a channel with no pins: its sad face with a pin
+    /// in it and a line, and its tip on a lighter band under them.
     fn no_pins(self, note: String) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        // The face is drawn for the dark themes; the others keep the pin.
+        let picture: Element<'a, Message> = if theme.dark || theme.bonfire {
+            self.cx.look.drawn(Icon::PinsEmpty, 120).into()
+        } else {
+            self.cx.look.glyph(Icon::Pin, 80, theme.faint).into()
+        };
         let place = container(
             column![
-                self.cx.look.glyph(Icon::Pin, 80, theme.faint),
-                text(note).size(16).font(BOLD).color(theme.text).center(),
+                picture,
+                text(note)
+                    .size(16)
+                    .font(BOLD)
+                    .line_height(iced::Pixels(20.0))
+                    .width(Length::Fixed(230.0))
+                    .color(theme.text)
+                    .center(),
             ]
-            .spacing(20)
+            .spacing(11)
             .align_x(Alignment::Center),
         )
-        .padding(32)
+        .padding(Padding::ZERO.top(17))
         .width(Length::Fill)
         .height(228)
-        .center_x(Length::Fill)
-        .center_y(228);
+        .center_x(Length::Fill);
         let ground = if theme.bonfire {
             crate::style::hex(0x313137)
         } else {
@@ -638,28 +689,26 @@ impl<'a> View<'a> {
         };
         let tip = container(
             column![
-                text("Protip:")
-                    .size(14)
+                text(tr("Protip:"))
+                    .size(13)
                     .font(BOLD)
+                    .line_height(iced::Pixels(16.0))
                     .color(crate::style::hex(0x5eb479)),
-                text("Users with the \"Pin Messages\" permission can pin a message from its context menu.")
-                    .size(14)
-                    .color(theme.text)
-                    .center(),
+                text(tr(
+                    "Users with the \"Pin Messages\" permission can pin a message from its context menu."
+                ))
+                .size(13)
+                .line_height(iced::Pixels(16.0))
+                .color(theme.text)
+                .center(),
             ]
-            .spacing(2)
             .align_x(Alignment::Center),
         )
-        .padding(Padding {
-            top: 16.0,
-            right: 16.0,
-            bottom: 17.0,
-            left: 16.0,
-        })
+        .padding(Padding::ZERO.left(16).right(16))
         .width(Length::Fill)
-        .height(103)
+        .height(102)
         .center_x(Length::Fill)
-        .center_y(103)
+        .center_y(102)
         .style(move |_| container::Style {
             background: Some(ground.into()),
             ..Default::default()
@@ -671,13 +720,13 @@ impl<'a> View<'a> {
         let state = self.cx.state;
         let pins = state.pins.as_ref().map(|pins| &pins.messages);
         let note = match pins {
-            Some(None) => Some("Loading pinned messages...".to_owned()),
+            Some(None) => Some(tr("Loading pinned messages...").to_owned()),
             Some(Some(Err(error))) => Some(error.clone()),
             Some(Some(Ok(pinned))) if pinned.is_empty() => Some(
                 if state.selected_room().is_some_and(|room| room.direct) {
-                    "This conversation doesn't have any pinned messages yet."
+                    tr("This conversation doesn't have any pinned messages yet.")
                 } else {
-                    "This channel doesn't have any pinned messages yet."
+                    tr("This channel doesn't have any pinned messages yet.")
                 }
                 .to_owned(),
             ),
@@ -703,7 +752,7 @@ impl<'a> View<'a> {
         self.frame(
             false,
             Icon::Pin,
-            self.heading("Pinned Messages"),
+            self.heading(tr("Pinned Messages")),
             None,
             None,
             body,
@@ -760,7 +809,7 @@ impl<'a> View<'a> {
         let searchable = app.may(&list.room, Permission::ReadHistory);
         let (public, private) = app.thread_starts(&list.room);
         let can_create = public || private;
-        let mut heading = row![text("Threads").size(16).font(BOLD).color(theme.text)]
+        let mut heading = row![text(tr("Threads")).size(16).font(BOLD).color(theme.text)]
             .spacing(10)
             .align_y(Alignment::Center);
         if searchable {
@@ -769,7 +818,7 @@ impl<'a> View<'a> {
                 .push(crate::search::search_field(
                     self.cx,
                     THREADS_SEARCH,
-                    "Search for Thread Name",
+                    tr("Search for Thread Name"),
                     &self.s.threads_query,
                     |query| Message::Popover(Event::ThreadsQuery(query)),
                     Message::Popover(Event::SearchThreads),
@@ -779,7 +828,7 @@ impl<'a> View<'a> {
         let create = can_create.then(|| {
             controls::action(
                 theme,
-                "Create",
+                tr("Create"),
                 Kind::Primary,
                 Some(Message::Popover(Event::CreateThread)),
             )
@@ -789,10 +838,10 @@ impl<'a> View<'a> {
         let sections_empty = self.s.threads.is_empty();
         let found = list.search.as_ref().map(|search| &search.found);
         let note = match found {
-            Some(None) => Some("Searching...".to_owned()),
+            Some(None) => Some(tr("Searching...").to_owned()),
             Some(Some(Err(error))) => Some(error.clone()),
             Some(Some(Ok(_))) => None,
-            None if sections_empty && list.loading => Some("Loading threads...".into()),
+            None if sections_empty && list.loading => Some(tr("Loading threads...").into()),
             None if sections_empty => list.error.clone(),
             None => None,
         };
@@ -801,14 +850,16 @@ impl<'a> View<'a> {
         } else if sections_empty {
             let mut empty = column![
                 self.cx.look.glyph(Icon::Thread, 48, theme.faint),
-                text("There are no threads.")
+                text(tr("There are no threads."))
                     .size(17)
                     .font(BOLD)
                     .color(theme.text),
-                text("Stay focused on a conversation with a thread - a temporary text channel.")
-                    .size(14)
-                    .color(theme.muted)
-                    .center(),
+                text(tr(
+                    "Stay focused on a conversation with a thread - a temporary text channel."
+                ))
+                .size(14)
+                .color(theme.muted)
+                .center(),
             ]
             .spacing(8)
             .align_x(Alignment::Center);
@@ -816,7 +867,7 @@ impl<'a> View<'a> {
                 empty = empty.push(
                     container(controls::action(
                         theme,
-                        "Create Thread",
+                        tr("Create Thread"),
                         Kind::Primary,
                         Some(Message::Popover(Event::CreateThread)),
                     ))
@@ -847,7 +898,7 @@ impl<'a> View<'a> {
             }
             if list.loading {
                 rows = rows.push(
-                    container(text("Loading...").size(13).color(theme.muted))
+                    container(text(tr("Loading...")).size(13).color(theme.muted))
                         .padding(8)
                         .center_x(Length::Fill),
                 );
@@ -997,14 +1048,17 @@ impl<'a> View<'a> {
         let chosen = picker.chosen.len();
         let left = room.saturating_sub(chosen);
         let detail = match left {
-            0 => "This group has no room for more.".to_owned(),
-            1 => "You can add 1 more friend.".to_owned(),
-            left => format!("You can add {left} more friends."),
+            0 => tr("This group has no room for more.").to_owned(),
+            left => i18n::trn(
+                "You can add {n} more friend.",
+                "You can add {n} more friends.",
+                left,
+            ),
         };
         let field = controls::field(
             theme,
             PEOPLE_FIELD,
-            "Type the name of a friend",
+            tr("Type the name of a friend"),
             &self.s.people_query,
             false,
             true,
@@ -1024,9 +1078,9 @@ impl<'a> View<'a> {
         }
         if self.s.people.is_empty() {
             let words = if self.s.people_query.is_empty() {
-                "All your friends are here already."
+                tr("All your friends are here already.")
             } else {
-                "No friends match."
+                tr("No friends match.")
             };
             list = list.push(container(text(words).size(14).color(theme.secondary)).padding(8));
         }
@@ -1042,11 +1096,11 @@ impl<'a> View<'a> {
             body = body.push(crate::form::error(theme, error.as_str()));
         }
         let label = if picker.adding {
-            "Adding..."
+            tr("Adding...")
         } else if state.one_to_one().is_some() {
-            "Create Group DM"
+            tr("Create Group DM")
         } else {
-            "Add to Group"
+            tr("Add to Group")
         };
         body = body.push(
             controls::action(
@@ -1060,7 +1114,7 @@ impl<'a> View<'a> {
         self.frame(
             true,
             Icon::UserPlus,
-            self.heading("Select Friends"),
+            self.heading(tr("Select Friends")),
             Some(detail),
             None,
             body.height(Length::Fill).into(),
@@ -1128,9 +1182,14 @@ fn thread_row(thread: &ListedThread, now: u64) -> ThreadRow {
     let ago = ago(thread.active_ms, now);
     let (person, lead, words, time) = match (&thread.recent, &thread.owner, thread.archived) {
         (Some(recent), _, false) => (Some(&recent.author), "", recent.text.as_str(), ago),
-        (None, _, false) => (None, "", "No recent messages", ago),
-        (_, Some(owner), true) => (Some(owner), "Started by ", "", format!("Last active {ago}")),
-        (_, None, true) => (None, "", "", format!("Last active {ago}")),
+        (None, _, false) => (None, "", tr("No recent messages"), ago),
+        (_, Some(owner), true) => (
+            Some(owner),
+            tr("Started by "),
+            "",
+            i18n::fill(tr("Last active {}"), &[&ago]),
+        ),
+        (_, None, true) => (None, "", "", i18n::fill(tr("Last active {}"), &[&ago])),
     };
     ThreadRow {
         room: thread.room.clone(),
@@ -1151,12 +1210,12 @@ fn thread_row(thread: &ListedThread, now: u64) -> ThreadRow {
 pub fn ago(at_ms: u64, now_ms: u64) -> String {
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        seconds if seconds < 60 => format!("{seconds}s ago"),
-        seconds if seconds < 3600 => format!("{}m ago", seconds / 60),
-        seconds if seconds < 86400 => format!("{}h ago", seconds / 3600),
-        seconds if seconds <= 30 * 86400 => format!("{}d ago", seconds / 86400),
-        seconds if seconds < 365 * 86400 => ">30d ago".into(),
-        _ => ">1y ago".into(),
+        seconds if seconds < 60 => i18n::fill(tr("{}s ago"), &[&seconds]),
+        seconds if seconds < 3600 => i18n::fill(tr("{}m ago"), &[&(seconds / 60)]),
+        seconds if seconds < 86400 => i18n::fill(tr("{}h ago"), &[&(seconds / 3600)]),
+        seconds if seconds <= 30 * 86400 => i18n::fill(tr("{}d ago"), &[&(seconds / 86400)]),
+        seconds if seconds < 365 * 86400 => tr(">30d ago").into(),
+        _ => tr(">1y ago").into(),
     }
 }
 

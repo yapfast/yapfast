@@ -36,6 +36,7 @@ use sha2::{Digest, Sha256};
 use yapfast_core::runtime::BackgroundRuntime;
 
 use super::{Asset, Release, Source, signature};
+use yapfast_core::i18n::{self, later, tr};
 
 /// What an update will replace, and with which of the release's files.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,15 +54,30 @@ impl Target {
         }
     }
 
-    /// Where the download goes until it is checked: beside the AppImage, so the
-    /// rename stays on one filesystem; in the temporary folder for the installer.
-    pub fn part(&self) -> PathBuf {
+    fn staging_dir(&self) -> PathBuf {
         match self {
-            Target::AppImage { current, .. } => current.with_file_name(".yapfast-update.part"),
-            Target::Installer { asset, .. } => std::env::temp_dir()
-                .join("yapfast-update")
-                .join(&asset.name),
+            Target::AppImage { current, .. } => current
+                .parent()
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_owned(),
+            Target::Installer { .. } => std::env::temp_dir().join("yapfast-update"),
         }
+    }
+
+    /// A file owned by this attempt, on the same filesystem as the AppImage.
+    fn staging(&self) -> std::io::Result<tempfile::TempPath> {
+        let folder = self.staging_dir();
+        std::fs::create_dir_all(&folder)?;
+        let suffix = match self {
+            Target::AppImage { .. } => ".part",
+            Target::Installer { .. } => ".exe",
+        };
+        tempfile::Builder::new()
+            .prefix(".yapfast-download-")
+            .suffix(suffix)
+            .tempfile_in(&folder)
+            .map(tempfile::NamedTempFile::into_temp_path)
     }
 }
 
@@ -106,13 +122,14 @@ pub fn target_for(
         Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
         Source::Installer if cfg!(target_arch = "x86_64") => "-windows-x64-setup.exe",
         Source::AppImage | Source::Installer => {
-            return Err("There's no download for your system yet.".into());
+            return Err(tr("There's no download for your system yet.").into());
         }
-        Source::Manager(name) => return Err(format!("{name} updates this copy.")),
+        Source::Manager(name) => return Err(i18n::fill(tr("{} updates this copy."), &[&tr(name)])),
         Source::Other => {
-            return Err(
-                "This copy can't update itself. Get the new version from the release page.".into(),
-            );
+            return Err(tr(
+                "This copy can't update itself. Get the new version from the release page.",
+            )
+            .into());
         }
     };
     let asset = release
@@ -120,35 +137,37 @@ pub fn target_for(
         .iter()
         .find(|asset| of_flavour(&asset.name, suffix, flavour))
         .ok_or_else(|| match source {
-            Source::Installer => "There's no Windows installer for this version yet.".to_owned(),
-            _ => "There's no AppImage for this version yet.".to_owned(),
+            Source::Installer => {
+                tr("There's no Windows installer for this version yet.").to_owned()
+            }
+            _ => tr("There's no AppImage for this version yet.").to_owned(),
         })?
         .clone();
-    sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
-    signature_of(release).ok_or(UNSIGNED)?;
+    sums_of(release).ok_or(tr("This release doesn't publish SHA256SUMS.txt."))?;
+    signature_of(release).ok_or(tr(UNSIGNED))?;
     match source {
         Source::AppImage => {
             let current = appimage
-                .ok_or("The AppImage's own path isn't known.")?
+                .ok_or(tr("The AppImage's own path isn't known."))?
                 .to_path_buf();
-            let folder = current.parent().ok_or("The AppImage has no folder.")?;
+            let folder = current.parent().ok_or(tr("The AppImage has no folder."))?;
             if !writable(folder) {
-                return Err("Yapfast can't write to the AppImage's folder.".into());
+                return Err(tr("Yapfast can't write to the AppImage's folder.").into());
             }
             Ok(Target::AppImage { asset, current })
         }
         _ => {
-            let folder = program.parent().ok_or("Yapfast has no folder.")?;
+            let folder = program.parent().ok_or(tr("Yapfast has no folder."))?;
             // The installer left its uninstaller there; a folder without one
             // was unpacked by hand or installed by something else.
             if !folder.join("unins000.exe").is_file() {
-                return Err(
-                    "This copy can't update itself. Get the new version from the release page."
-                        .into(),
-                );
+                return Err(tr(
+                    "This copy can't update itself. Get the new version from the release page.",
+                )
+                .into());
             }
             if !writable(folder) {
-                return Err("Yapfast can't write to its own folder.".into());
+                return Err(tr("Yapfast can't write to its own folder.").into());
             }
             Ok(Target::Installer {
                 asset,
@@ -201,7 +220,7 @@ fn signature_of(release: &Release) -> Option<&Asset> {
 }
 
 /// Why a release without a signature isn't installed.
-const UNSIGNED: &str = "This release isn't signed, so it can't be installed from here.";
+const UNSIGNED: &str = later("This release isn't signed, so it can't be installed from here.");
 
 /// Reads `sha256sum`'s output: a hash, then the file's name, which a `*`
 /// marks as read in binary mode.
@@ -223,6 +242,7 @@ pub enum Stage {
     Downloading,
     Testing,
     Installing,
+    Cancelled,
 }
 
 /// Progress the update task writes and About reads on a timer, so no event
@@ -235,8 +255,21 @@ pub struct Progress {
 }
 
 impl Progress {
-    fn stage(&self, stage: Stage) {
-        self.stage.store(stage as u8, Ordering::Relaxed);
+    fn stage(&self, stage: Stage) -> Result<(), String> {
+        self.stage
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                (current != Stage::Cancelled as u8).then_some(stage as u8)
+            })
+            .map(|_| ())
+            .map_err(|_| tr("The update stopped partway.").to_owned())
+    }
+
+    pub fn cancel(&self) -> bool {
+        self.stage
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                (current <= Stage::Downloading as u8).then_some(Stage::Cancelled as u8)
+            })
+            .is_ok()
     }
 
     /// The stage now, and how much of the download is done (0 to 1), or
@@ -246,6 +279,7 @@ impl Progress {
             1 => Stage::Downloading,
             2 => Stage::Testing,
             3 => Stage::Installing,
+            4 => Stage::Cancelled,
             _ => Stage::Starting,
         };
         let total = self.total.load(Ordering::Relaxed);
@@ -258,7 +292,7 @@ impl Progress {
 /// Reads a small file of the release's, the sums or their signature, whole;
 /// one over `limit` bytes isn't the release's.
 async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<String, String> {
-    const TOO_LARGE: &str = "The release's sums are too large to be right.";
+    const TOO_LARGE: &str = later("The release's sums are too large to be right.");
     let mut response = client
         .get(url)
         .send()
@@ -269,7 +303,7 @@ async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<
         .content_length()
         .is_some_and(|length| length > limit)
     {
-        return Err(TOO_LARGE.into());
+        return Err(tr(TOO_LARGE).into());
     }
     let mut bytes = Vec::new();
     while let Some(chunk) = response
@@ -278,11 +312,11 @@ async fn fetch_small(client: &reqwest::Client, url: &str, limit: u64) -> Result<
         .map_err(|error| error.without_url().to_string())?
     {
         if (bytes.len() + chunk.len()) as u64 > limit {
-            return Err(TOO_LARGE.into());
+            return Err(tr(TOO_LARGE).into());
         }
         bytes.extend_from_slice(&chunk);
     }
-    String::from_utf8(bytes).map_err(|_| "The release's sums aren't text.".to_owned())
+    String::from_utf8(bytes).map_err(|_| tr("The release's sums aren't text.").to_owned())
 }
 
 /// Downloads `url` to `to` a chunk at a time, hashing as it goes; returns the
@@ -347,16 +381,16 @@ fn smoke_test(program: &Path) -> Result<(), String> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|error| format!("The new version wouldn't start: {error}."))?;
+        .map_err(|error| i18n::fill(tr("The new version wouldn't start: {}."), &[&error]))?;
     let started = std::time::Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(_)) => return Err("The new version didn't pass its start-up check.".into()),
+            Ok(Some(_)) => return Err(tr("The new version didn't pass its start-up check.").into()),
             Ok(None) if started.elapsed() > std::time::Duration::from_secs(60) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("The new version's start-up check took too long.".into());
+                return Err(tr("The new version's start-up check took too long.").into());
             }
             Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
             Err(error) => return Err(error.to_string()),
@@ -365,14 +399,14 @@ fn smoke_test(program: &Path) -> Result<(), String> {
 }
 
 /// What [`prepare`] left ready, for the program to finish once it has quit.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Prepared {
     /// The AppImage was replaced; start this file.
     #[cfg_attr(not(unix), allow(dead_code))]
     Replaced(PathBuf),
     /// The installer is checked and waiting; running it replaces the program.
     Installer {
-        installer: PathBuf,
+        installer: tempfile::TempPath,
         program: PathBuf,
     },
 }
@@ -387,47 +421,31 @@ pub async fn prepare(
     target: &Target,
     progress: Arc<Progress>,
 ) -> Result<Prepared, String> {
-    let part = target.part();
-    let result = prepare_in(runtime, client, release, target, &part, &progress).await;
-    if result.is_err() {
-        let _ = std::fs::remove_file(&part);
-    }
-    result
-}
-
-async fn prepare_in(
-    runtime: &BackgroundRuntime,
-    client: &reqwest::Client,
-    release: &Release,
-    target: &Target,
-    part: &Path,
-    progress: &Arc<Progress>,
-) -> Result<Prepared, String> {
     let asset = target.asset();
-    progress.stage(Stage::Starting);
-    let sums = sums_of(release).ok_or("This release doesn't publish SHA256SUMS.txt.")?;
-    let signed = signature_of(release).ok_or(UNSIGNED)?;
+    let sums = sums_of(release).ok_or(tr("This release doesn't publish SHA256SUMS.txt."))?;
+    let signed = signature_of(release).ok_or(tr(UNSIGNED))?;
     let sums = fetch_small(client, &sums.url, 1 << 20).await?;
     let signed = fetch_small(client, &signed.url, signature::LIMIT).await?;
     signature::verify(&signature::KEYS, sums.as_bytes(), &signed, release)?;
     let sums = parse_sums(&sums);
     let expected = sums.get(&asset.name).ok_or_else(|| {
-        format!(
-            "The download of {} couldn't be verified, so it wasn't installed.",
-            asset.name
+        i18n::fill(
+            tr("The download of {} couldn't be verified, so it wasn't installed."),
+            &[&asset.name],
         )
     })?;
-    progress.stage(Stage::Downloading);
-    let actual = download(client, &asset.url, part, asset.size, progress).await?;
+    progress.stage(Stage::Downloading)?;
+    let part = target.staging().map_err(|error| error.to_string())?;
+    let actual = download(client, &asset.url, &part, asset.size, &progress).await?;
     if &actual != expected {
-        return Err(format!(
-            "{} doesn't match the sum the release published.",
-            asset.name
+        return Err(i18n::fill(
+            tr("{} doesn't match the sum the release published."),
+            &[&asset.name],
         ));
     }
     match target {
         Target::AppImage { current, .. } => {
-            progress.stage(Stage::Testing);
+            progress.stage(Stage::Testing)?;
             #[cfg(unix)]
             {
                 let (new, to) = (part.to_path_buf(), current.clone());
@@ -439,22 +457,20 @@ async fn prepare_in(
                         std::fs::rename(&new, &to).map_err(|error| error.to_string())
                     })
                     .await
-                    .map_err(|_| "The update stopped partway.".to_owned())??;
-                progress.stage(Stage::Installing);
+                    .map_err(|_| tr("The update stopped partway.").to_owned())??;
+                progress.stage(Stage::Installing)?;
                 Ok(Prepared::Replaced(current.clone()))
             }
             #[cfg(not(unix))]
             {
                 let _ = (runtime, current);
-                Err("AppImages are for Linux.".into())
+                Err(tr("AppImages are for Linux.").into())
             }
         }
-        Target::Installer { asset, program } => {
-            let installer = part.with_file_name(&asset.name);
-            std::fs::rename(part, &installer).map_err(|error| error.to_string())?;
-            progress.stage(Stage::Installing);
+        Target::Installer { program, .. } => {
+            progress.stage(Stage::Installing)?;
             Ok(Prepared::Installer {
-                installer,
+                installer: part,
                 program: program.clone(),
             })
         }
@@ -502,8 +518,9 @@ pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> 
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let log = installer.with_extension("log");
-    let line = windows_command(installer, program, arguments, &log)
-        .ok_or("The update's path has a character the installer can't be started with.")?;
+    let line = windows_command(installer, program, arguments, &log).ok_or(tr(
+        "The update's path has a character the installer can't be started with.",
+    ))?;
     // `/S` makes `cmd` strip the outer quotes only, leaving the inner ones.
     std::process::Command::new("cmd.exe")
         .args(["/D", "/S", "/C"])
@@ -520,7 +537,7 @@ pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> 
 /// Only Windows has an installer to run.
 #[cfg(not(windows))]
 pub fn run_installer(_: &Path, _: &Path, _: &[String]) -> Result<(), String> {
-    Err("Installers are for Windows.".into())
+    Err(tr("Installers are for Windows.").into())
 }
 
 #[cfg(test)]
@@ -529,12 +546,60 @@ mod tests {
     use crate::update::Version;
     use yapfast_core::runtime::BackgroundRuntime;
 
+    #[test]
+    fn aborting_an_update_cleans_only_its_own_staging_file() {
+        let folder = tempfile::tempdir().unwrap();
+        let target = Target::AppImage {
+            asset: asset("Yapfast.AppImage"),
+            current: folder.path().join("current.AppImage"),
+        };
+        let first = target.staging().unwrap();
+        let retry = target.staging().unwrap();
+        let cancelled_path = first.to_path_buf();
+        assert_ne!(&*first, &*retry);
+        drop(first);
+        assert!(!cancelled_path.exists());
+        assert!(retry.exists());
+    }
+
+    #[test]
+    fn a_cancelled_update_cannot_begin_installing() {
+        let progress = Progress::default();
+        assert!(progress.stage(Stage::Downloading).is_ok());
+        assert!(progress.cancel());
+        assert!(progress.stage(Stage::Installing).is_err());
+
+        let progress = Progress::default();
+        assert!(progress.stage(Stage::Testing).is_ok());
+        assert!(!progress.cancel());
+    }
+
     fn asset(name: &str) -> Asset {
         Asset {
             name: name.into(),
             url: format!("https://example.test/{name}"),
             size: 1,
         }
+    }
+
+    fn staging_files(target: &Target) -> Vec<PathBuf> {
+        let mut files: Vec<_> = std::fs::read_dir(target.staging_dir())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter(|file| {
+                file.file_name()
+                    .to_string_lossy()
+                    .starts_with(".yapfast-download-")
+                    && file
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext == "exe" || ext == "part")
+            })
+            .map(|file| file.path())
+            .collect();
+        files.sort();
+        files
     }
 
     fn release() -> Release {
@@ -571,7 +636,7 @@ mod tests {
         // An AppImage in a folder that can be written to.
         let target = target_for(&release, Source::AppImage, &program, Some(&app), "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-x86_64.AppImage");
-        assert_eq!(target.part(), folder.path().join(".yapfast-update.part"));
+        assert_eq!(target.staging_dir(), folder.path());
         assert!(
             target_for(&release, Source::AppImage, &program, None, "")
                 .unwrap_err()
@@ -585,13 +650,9 @@ mod tests {
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
         let target = target_for(&release, Source::Installer, &program, None, "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-windows-x64-setup.exe");
-        assert!(
-            target
-                .part()
-                .ends_with("yapfast-update/Yapfast-0.4.1-windows-x64-setup.exe")
-                || target
-                    .part()
-                    .ends_with(r"yapfast-update\Yapfast-0.4.1-windows-x64-setup.exe")
+        assert_eq!(
+            target.staging_dir(),
+            std::env::temp_dir().join("yapfast-update")
         );
     }
 
@@ -834,12 +895,13 @@ mod tests {
                     program: folder.path().join("yapfast.exe"),
                 };
                 let progress = Arc::new(Progress::default());
+                let before = staging_files(&target);
                 let result = prepare(&runtime, &client(), &release, &target, progress.clone())
                     .await
                     .unwrap_err();
                 assert!(result.contains(error), "{result}");
                 assert_eq!(progress.read().0, Stage::Starting, "nothing was downloaded");
-                assert!(!target.part().exists());
+                assert_eq!(staging_files(&target), before);
             }
         });
     }
@@ -892,7 +954,9 @@ mod tests {
         let (stage, fraction) = progress.read();
         assert_eq!(stage, Stage::Installing);
         assert_eq!(fraction, Some(1.0));
-        let _ = std::fs::remove_dir_all(installer.parent().unwrap());
+        let path = installer.to_path_buf();
+        drop(installer);
+        assert!(!path.exists());
     }
 
     #[test]
@@ -924,6 +988,7 @@ mod tests {
                 .clone(),
             program: folder.path().join("yapfast.exe"),
         };
+        let before = staging_files(&target);
         let error = prepare(
             runtime,
             &client(),
@@ -934,7 +999,7 @@ mod tests {
         .await
         .unwrap_err();
         assert!(error.contains("doesn't match"), "{error}");
-        assert!(!target.part().exists());
+        assert_eq!(staging_files(&target), before);
         // A release that publishes no sum for the file isn't trusted either.
         let base = serve(vec![
             ("Yapfast-0.4.1-windows-x64-setup.exe", b"x".to_vec()),
@@ -999,9 +1064,9 @@ mod tests {
                 Arc::new(Progress::default()),
             )
             .await;
-            assert!(!target.part().exists());
+            assert!(staging_files(&target).is_empty());
             if works {
-                assert_eq!(result, Ok(Prepared::Replaced(current.clone())));
+                assert!(matches!(result, Ok(Prepared::Replaced(path)) if path == current));
                 assert_eq!(std::fs::read(&current).unwrap(), script);
                 assert_eq!(
                     std::fs::metadata(&current).unwrap().permissions().mode() & 0o111,

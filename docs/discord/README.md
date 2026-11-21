@@ -2,21 +2,26 @@
 
 | Area | Works on Linux | Open |
 | --- | --- | --- |
-| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; unlinking; Discord's captcha, in the browser | Verify the reported two-captcha ticket rejection against real Discord |
+| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; [several accounts](#several-accounts), switched from the account card as in Discord; unlinking; Discord's captcha, in the browser | Verify the reported two-captcha ticket rejection against real Discord |
 | [Voice](voice.md) | Server voice channels, [a card of who is in one](voice.md#who-is-in-a-voice-channel), [how long each one's call has gone on](voice.md#how-long-a-channels-call-has-gone-on), mute, deafen, per-person volume, [moving people to another channel](servers.md#someones-menu-in-a-voice-channel) from their menu or [by dragging them](servers.md#dragging-someone-to-another-voice-channel), voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) and [keybinds](../keybinds.md) for mute, deafen and the input mode, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and keybinds on real Windows, and of keybinds on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
-| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state and [marking a message unread](messages.md#mark-unread-and-message-links), notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers, [bots' buttons, dropdown menus and forms](messages.md#bots-buttons-menus-and-forms), their radio groups, checkboxes and file uploads included, [apps' slash commands](messages.md#apps-commands), [context-menu commands](messages.md#apps) and [who used one](messages.md#who-used-an-apps-command) | The rest of a server's settings and its privacy, membership forms when joining |
+| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state and [marking a message unread](messages.md#mark-unread-and-message-links), notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), pinning channels to the top, [following channels](servers.md#following-channels), invites, [creating a server](servers.md#creating-a-server), [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers, [bots' buttons, dropdown menus and forms](messages.md#bots-buttons-menus-and-forms), their radio groups, checkboxes and file uploads included, [apps' slash commands](messages.md#apps-commands), [context-menu commands](messages.md#apps) and [who used one](messages.md#who-used-an-apps-command) | The rest of a server's settings and its privacy, membership forms when joining |
+| [Boost progress](servers.md#the-server-header-events-and-private-channels) | Clickable goal, native summary from the current snapshot, the account's free boosts and giving the server one | Buying boosts (no checkout), removing a boost, perk allocations |
 | [DMs](people.md#dms) | DMs, group DMs, message requests and spam, starting a DM, [a DM's menu](people.md#a-dms-menu): pinning, muting, closing and leaving a group | |
-| [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and their servers' cards, the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring, blocking and unblocking, also [from a profile](people.md#profiles), [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
+| [Composer gifts and apps](composer-tools.md) | Gift: the gifts the account bought and can still give, the chosen one's link put in the message; Apps: the native command picker | Buying a gift, activities and the App Directory are not offered and nothing opens in a browser; the gift list's shape is checked only against the fake server |
+| [Nitro, Shop, Quests and Discover](storefront.md) | Screens on the DM home with their own tabs: the quests with their progress, accepting one and claiming its reward, Discover's server list with its search, categories and joining a server, the Shop's categories, products, Orbs and search, what Nitro gives and each server's boost progress | Paying money (subscribing, gifting, boosts, products priced in money) is not offered and no button sends anyone to discord.com; Shop prices and the Orbs balance not checked against a real account |
+| [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges, others' server tags and their servers' cards, the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring, blocking and unblocking, also [from a profile](people.md#profiles), [the blocked list](people.md#friends-and-requests) | A list of the ignored |
+| [Account settings](account-settings.md) | Native account tabs: changing the username, email and password, the apps the account authorized and revoking them, the devices it is signed in on and signing them out, the linked services with their visibility, activity switch and disconnecting, linking one on the service's own sign-in page; the existing main and server profile editors | Phone number, two-factor authentication and billing are not offered; Nitro and payment are not offered either |
 | [Mirroring](#mirroring-into-matrix) | | Planned and not started |
+| [Privacy and accessibility settings](../client/privacy.md) | Native Yapfast preferences and the existing game-sharing account setting | Discord-only privacy permissions (friend request audience, sensitive-media and DM filters), Family Center and automatic streamer masking: no page or link is offered for them |
 
 Each area has a doc of its own: [voice](voice.md) and calls, [Go
 Live](go-live.md), [channels and messages](messages.md), [servers](servers.md)
 with their menus, invites, channels, threads and forums, [server
 settings](server-settings.md) with channel settings and two-factor
 authentication, and [DMs, friends and profiles](people.md) with presence, game
-detection and Spotify. The [later list](#later) has what's left to do, and
+detection and Spotify, and [Nitro, Shop, Quests and Discover](storefront.md). The [later list](#later) has what's left to do, and
 [adding a feature](adding-a-feature.md) walks a new one through each layer.
 
 Yapfast connects to Discord directly, so a person who links their Discord account
@@ -33,6 +38,9 @@ does, for example in `pages/gateway/gateway-events.mdx`,
 `pages/remote-authentication/desktop.mdx` and `pages/topics/cloud-uploads.mdx`.
 The settings protobuf is in
 [discord-protos](https://github.com/discord-userdoccers/discord-protos).
+
+Windows also has an explicit [desktop account import](account-import.md) flow.
+Its storage formats, limits and cancellation behavior are documented separately.
 
 ## Risk to accounts
 
@@ -192,7 +200,40 @@ even encrypted. A device that links appears in Discord as its own session.
 
 Unlinking a device, from Settings or by signing out of a build without Matrix,
 leaves any Discord call, ends the session with `POST /auth/logout`, and deletes
-its token.
+the tokens of every account.
+
+### Several accounts
+
+A device links several accounts, as Discord's apps do. The account's popover
+(`crates/yapfast-iced/src/status.rs`) has Switch Accounts, which opens a list
+beside the card: each account with its picture and name, a check on the
+active one, and Manage Accounts. Manage Accounts opens a dialog
+(`crates/yapfast-iced/src/accounts.rs`) with a row for each account, the
+active one marked, a menu on each row (Switch Account, Log Out) and Add
+Account, which links another by the same QR code or token as the first.
+Adding an account switches to it.
+
+Each account has an entry of its own in the credential store
+(`discord-account-<id>`), with an index of the ids and the active one
+(`discord-accounts`), so no entry outgrows what Windows allows one to hold. The
+id is the user id its token spells, or a hash of it. A device that linked
+before this keeps its account: the old entry is moved into the new layout the
+first time it's read. The name and picture each row shows are kept with the
+account once it has connected, so the list is complete without connecting
+every account. `crates/yapfast-discord/src/token.rs` holds all of it; a login
+Discord refreshes (`auth_token` in READY) goes to the account it belongs to,
+whichever is active by then.
+
+Only the active account is connected. Switching drops its session and starts
+the other's, and the chat actor (`DiscordCommand::SwitchAccount` in
+`crates/yapfast-core/src/chat.rs`) drops the old session before the new one
+starts, so the old one saves what it kept under its own login. What Yapfast
+keeps to show while it connects holds one account at a time, labelled by its
+login: after a switch the other account's files read as empty, and the first
+connect fills them again. Logging out of the account in use ends its session
+on Discord and activates the next one; logging out of another ends its
+session with that account's own token and leaves the connection alone. Logging
+out of the last one is unlinking.
 
 ## Later
 
@@ -251,7 +292,9 @@ channel on screen. Measure settled idle and a Discord call with the method in
 HTTP API Yapfast uses, a voice server that answers the handshake without DAVE,
 Go Live signalling, and the remote login gateway. Set
 `YAPFAST_DISCORD_TEST_SERVER` to it, and Yapfast uses a test token instead of
-the linked account, kept in memory. With `YAPFAST_DISCORD_TEST_UNLINKED=1` too,
+the linked account, kept in memory. `YAPFAST_DISCORD_TEST_SECOND_ACCOUNT=1`
+links a second one, Bea, whose login the fake takes beside Alice's and answers
+as hers, to show the account switcher. With `YAPFAST_DISCORD_TEST_UNLINKED=1` too,
 Yapfast starts unlinked and links against the fake, whose controls scan and
 confirm the code. The fake resumes a dropped gateway session, replaying what it
 missed, and can send op 7. The tests in `crates/yapfast-discord/tests/fake_server/`

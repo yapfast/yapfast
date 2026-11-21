@@ -77,6 +77,11 @@ impl Application {
         match action {
             Action::SlashQuery(query) => self.slash_query_action(query),
             Action::PickCommand(index) => self.pick_command(index),
+            Action::PickBrowsedCommand {
+                room,
+                command,
+                path,
+            } => self.pick_browsed_command(room, &command, &path),
             Action::SetCommandOption { index, value } => self.set_command_option(index, value),
             Action::FocusCommandOption(index) => self.focus_option(index),
             Action::CloseCommand(back) => self.close_command(back),

@@ -36,6 +36,7 @@ use crate::{
     timeline::{ASIDE, Edge, Marks, RowLook},
     widgets::{Found, Rows, Watch},
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The panel's header, its least and most width, and the width it opens at.
 pub const HEAD: f32 = 48.0;
@@ -72,6 +73,7 @@ pub struct Aside {
     pub from_end: f32,
     pub height: f32,
     pub width: f32,
+    shown: bool,
     reported: Option<Instant>,
     /// A report held back by the throttle is due: the view as it is then
     /// goes, so where a scroll stopped is told.
@@ -95,6 +97,7 @@ impl Aside {
             from_end: 0.0,
             height: 400.0,
             width,
+            shown: false,
             reported: None,
             report_due: false,
         }
@@ -378,9 +381,11 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
         }
         app.drafts.aside_known = draft;
     }
+    let shown = aside_shown(app);
     let Some(aside) = &mut app.aside else {
         return Task::none();
     };
+    let visibility_changed = std::mem::replace(&mut aside.shown, shown) != shown;
     let edge_changed =
         (aside.ready, aside.loading, aside.start, aside.failed) != (ready, loading, start, failed);
     aside.name = name;
@@ -389,10 +394,13 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
     aside.start = start;
     aside.failed = failed;
     let mut due = Task::none();
-    if edge_changed || !Arc::ptr_eq(&aside.messages, &messages) {
+    let rows_changed = edge_changed || !Arc::ptr_eq(&aside.messages, &messages);
+    if rows_changed {
         let old = std::mem::replace(&mut aside.messages, messages);
         app.seen_aside = seen;
         measure_aside(app, &old, edge_changed);
+    }
+    if rows_changed || visibility_changed {
         // The rows in view are told as they change, as the timeline's are:
         // a thread whose rows all fit never scrolls, so its scrollable
         // never reports a viewport, and without this its pictures wouldn't
@@ -558,6 +566,7 @@ enum Told {
 /// The core hears which of the thread's rows are in view, unless the
 /// throttle holds the report back.
 fn tell_rows(app: &mut App) -> Told {
+    let shown = aside_shown(app);
     let Some(aside) = &mut app.aside else {
         return Told::Later(Task::none());
     };
@@ -589,7 +598,7 @@ fn tell_rows(app: &mut App) -> Told {
     app.client.dispatch(Action::VisibleMessages {
         room,
         items,
-        at_end: false,
+        at_end: shown && last == end + 1,
     });
     Told::Now
 }
@@ -739,7 +748,7 @@ impl<'a> SideComposer<'a> {
             line = line.push(lift(crate::composer::composer_button(
                 cx,
                 Icon::CirclePlus,
-                "Attach files",
+                tr("Attach files"),
                 22,
                 theme.secondary,
                 attach,
@@ -783,6 +792,7 @@ impl<'a> SideComposer<'a> {
                 reply,
                 Message::Thread(Event::TogglePing),
                 Message::Thread(Event::CancelReply),
+                10.0,
             ));
         }
         container(compose.push(frame))
@@ -859,17 +869,17 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         )
         .width(Length::Fill),
         ctx.look
-            .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
+            .icon_button(Icon::Ellipsis, tr("More"), Message::Thread(Event::More))
             .below(),
         ctx.look
             .icon_button(
                 Icon::Maximize,
-                "Open in full view",
+                tr("Open in full view"),
                 Message::Thread(Event::Expand)
             )
             .below(),
         ctx.look
-            .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
+            .icon_button(Icon::X, tr("Close thread"), Message::Thread(Event::Close))
             .below(),
     ];
     let body = column![
@@ -927,10 +937,13 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         if !aside.ready {
             return crate::timeline::view::messages_skeleton(ctx);
         }
-        let words = text(format!("This is the start of the {} thread.", aside.name))
-            .size(14)
-            .color(theme.muted)
-            .center();
+        let words = text(i18n::fill(
+            tr("This is the start of the {} thread."),
+            &[&aside.name],
+        ))
+        .size(14)
+        .color(theme.muted)
+        .center();
         return container(words)
             .padding([0, 16])
             .center(Length::Fill)
@@ -979,16 +992,20 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
     let writes = state.can_write_in(&aside.room);
     let reply = crate::composer::reply_bar_info(state.aside_compose());
     let placeholder = if reply.is_some() {
-        "Write a reply".to_owned()
+        tr("Write a reply").to_owned()
     } else {
-        format!("Message {}", aside.name)
+        i18n::fill(tr("Message {}"), &[&aside.name])
     };
     let can_send = state.can_send_in(&aside.room);
     let sending = state.sending.is_some();
     let mut composer = SideComposer::new(Writing::Aside, placeholder)
         .enabled(writes)
         .send(
-            if sending { "Sending..." } else { "Send" },
+            if sending {
+                tr("Sending...")
+            } else {
+                tr("Send")
+            },
             can_send.then_some(Message::Thread(Event::Send)),
             can_send,
         );
@@ -1012,9 +1029,15 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     let theme = ctx.look.theme;
     let head = row![
         ctx.look.glyph(Icon::Thread, 18, theme.muted),
-        container(elide("New Thread").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+        container(
+            elide(tr("New Thread"))
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+        )
+        .width(Length::Fill),
         ctx.look
-            .icon_button(Icon::X, "Close", Message::Thread(Event::CloseForm))
+            .icon_button(Icon::X, tr("Close"), Message::Thread(Event::CloseForm))
             .below(),
     ];
     let mut fields = column![].spacing(16).padding(16).width(Length::Fill);
@@ -1026,7 +1049,7 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
         ));
     }
     let placeholder = if form.default_name.is_empty() {
-        "New Thread"
+        tr("New Thread")
     } else {
         form.default_name.as_str()
     };
@@ -1041,9 +1064,9 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
             form::heading(
                 theme,
                 if form.message.is_some() {
-                    "THREAD NAME (OPTIONAL)"
+                    tr("THREAD NAME (OPTIONAL)")
                 } else {
-                    "THREAD NAME"
+                    tr("THREAD NAME")
                 }
             ),
             name,
@@ -1052,13 +1075,15 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     );
     if form.can_private {
         let words = if form.private {
-            "Only people you invite and moderators can see. You can invite new people by @mentioning them."
+            tr(
+                "Only people you invite and moderators can see. You can invite new people by @mentioning them.",
+            )
         } else {
-            "Only people you invite and moderators can see"
+            tr("Only people you invite and moderators can see")
         };
         fields = fields.push(
             form::switch(
-                "Private Thread",
+                tr("Private Thread"),
                 form.private,
                 (!form.only_private && !form.starting)
                     .then_some(Message::Thread(Event::Private(!form.private))),
@@ -1075,14 +1100,14 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     let written = !ctx.drafts.first.is_empty() || !form.files.is_empty();
     let mut composer = SideComposer::new(
         Writing::NewThread,
-        "Enter a message to start the conversation!".to_owned(),
+        tr("Enter a message to start the conversation!").to_owned(),
     )
     .enabled(!form.starting)
     .send(
         if form.starting {
-            "Creating..."
+            tr("Creating...")
         } else {
-            "Create Thread"
+            tr("Create Thread")
         },
         (!form.starting).then_some(Message::Thread(Event::Create)),
         !form.starting && written,
@@ -1131,17 +1156,17 @@ pub fn leave_question<'a>(
     let (ground, edge) = (theme.sidebar, theme.edge);
     let card = container(
         column![
-            text("Are you sure you want to go?")
+            text(tr("Are you sure you want to go?"))
                 .size(17)
                 .font(BOLD)
                 .color(theme.text),
-            text("Any changes you made will be lost if you exit now.")
+            text(tr("Any changes you made will be lost if you exit now."))
                 .size(14)
                 .color(theme.secondary),
             container(
                 row![
-                    controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),
-                    controls::action(theme, "Exit", Kind::Danger, Some(leave)),
+                    controls::action(theme, tr("Back to editing"), Kind::Ghost, Some(stay)),
+                    controls::action(theme, tr("Exit"), Kind::Danger, Some(leave)),
                 ]
                 .spacing(8)
             )

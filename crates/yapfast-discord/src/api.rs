@@ -293,6 +293,9 @@ pub struct Api {
     http: Client,
     /// Empty without a login; Discord may refresh it in READY.
     token: RwLock<String>,
+    /// The hash of this login's session, which READY names and the list of
+    /// signed-in devices marks this device by.
+    session_hash: RwLock<Option<String>>,
     /// The API's base URL: Discord's, or the test server's.
     pub(crate) base: String,
     limits: Limits,
@@ -329,6 +332,7 @@ impl Api {
         Ok(Self {
             http,
             token: RwLock::new(token),
+            session_hash: RwLock::new(None),
             base,
             limits: Limits::default(),
             refusals: Refusals::default(),
@@ -413,6 +417,28 @@ impl Api {
         self.token
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The login requests go with now, which is the one Discord refreshed
+    /// it to, or the new one a password change gave.
+    pub(crate) fn current_token(&self) -> String {
+        self.token().clone()
+    }
+
+    /// Keeps the hash of this login's session, which READY gives.
+    pub(crate) fn remember_session(&self, hash: Option<&str>) {
+        *self
+            .session_hash
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hash.map(str::to_owned);
+    }
+
+    /// The hash of this login's session, when READY gave one.
+    pub(crate) fn session_hash(&self) -> Option<String> {
+        self.session_hash
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// Asks with `token` from now on: Discord refreshed the login to it.
@@ -740,6 +766,175 @@ impl Api {
     pub async fn wishlist(&self, id: &str) -> Result<Value> {
         let path = format!("/wishlists/{id}?source=user_profile");
         self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// The quests this account may take, as Quest Home lists them:
+    /// `{quests: [...], excluded_quests: [...], quest_enrollment_blocked_until}`.
+    pub async fn quests(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/quests/@me")).await
+    }
+
+    /// The quests this account claimed the rewards of: `{quests: [...]}`.
+    pub async fn claimed_quests(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/quests/@me/claimed"))
+            .await
+    }
+
+    /// Accepts a quest, from Quest Home as Discord's client sends it; the
+    /// account's status for it.
+    pub async fn enroll_quest(&self, id: &str) -> Result<Value> {
+        let path = format!("/quests/{}/enroll", encode(id));
+        let body = json!({
+            "location": crate::quests::QUEST_HOME_DESKTOP,
+            "is_targeted": false,
+        });
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map_err(quest_gone)
+    }
+
+    /// Reports how many seconds of a quest's video the account has watched,
+    /// as the video player of Quest Home does every few seconds; the
+    /// account's status for the quest, with its progress and, once the
+    /// video was watched long enough, when it was completed. Discord counts
+    /// no more than the time that passed since the quest was accepted.
+    pub async fn quest_video_progress(&self, id: &str, seconds: u64) -> Result<Value> {
+        let path = format!("/quests/{}/video-progress", encode(id));
+        let body = json!({"timestamp": seconds});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map_err(quest_gone)
+    }
+
+    /// Tells Discord the account still plays the game of the quest `id`,
+    /// which is `application`, as its client does about every minute; the
+    /// account's status for the quest.
+    pub async fn quest_heartbeat(&self, id: &str, application: &str) -> Result<Value> {
+        let path = format!("/quests/{}/heartbeat", encode(id));
+        let body = json!({"application_id": application, "terminal": false});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+            .map_err(quest_gone)
+    }
+
+    /// Claims the reward of a finished quest, as Quest Home does: `{claimed_at,
+    /// entitlements, errors}`. Discord may ask for a [`Captcha`] first, whose
+    /// solution goes with the next try.
+    pub async fn claim_quest(&self, id: &str, solved: Option<(&Captcha, &str)>) -> Result<Value> {
+        let path = format!("/quests/{}/claim-reward", encode(id));
+        let body = json!({
+            "location": crate::quests::QUEST_HOME_DESKTOP,
+            // Cross platform: the reward isn't tied to a console.
+            "platform": 0,
+            "is_targeted": false,
+        });
+        let mut request = with_json(self.request(Method::POST, &path), &body);
+        if let Some((captcha, solution)) = solved {
+            for (name, value) in captcha.headers(solution) {
+                request = request.header(name, value);
+            }
+        }
+        self.json(request).await.map_err(quest_gone)
+    }
+
+    /// The Shop's collectible categories with their products, bundles
+    /// among them: a list of categories.
+    pub async fn collectibles_categories(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/collectibles-categories?include_bundles=true"))
+            .await
+    }
+
+    /// Buys a Shop product with Orbs, as the checkout does when the account
+    /// pays with them: the entitlements it now has. Nothing is charged in
+    /// money, and Discord refuses when the Orbs fall short.
+    pub async fn buy_with_orbs(&self, sku: &str) -> Result<Value> {
+        let path = format!("/virtual-currency/skus/{}/redeem", encode(sku));
+        let body = json!({"checkout_session_id": crate::client::uuid(0)});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// The boosts this account has, as slots, whether placed or free; see
+    /// [`crate::boost::slots`].
+    pub async fn boost_slots(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/guilds/premium/subscription-slots"))
+            .await
+    }
+
+    /// Gives the server `guild` the boosts of these slots.
+    pub async fn boost_guild(&self, guild: &str, slots: &[String]) -> Result<Value> {
+        let path = format!("/guilds/{}/premium/subscriptions", encode(guild));
+        let body = json!({"user_premium_guild_subscription_slot_ids": slots});
+        self.json(with_json(self.request(Method::PUT, &path), &body))
+            .await
+    }
+
+    /// A page of the servers Discord's Discover page lists, `{guilds,
+    /// total}`, from the `offset`th on, within a category when one is asked
+    /// for; see [`crate::discovery::parse`].
+    pub async fn discoverable_guilds(
+        &self,
+        category: Option<u32>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Value> {
+        let mut path = format!("/discoverable-guilds?limit={limit}&offset={offset}");
+        if let Some(category) = category {
+            let _ = write!(path, "&categories={category}");
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// The same list narrowed to what matches `query`, as the Discover
+    /// page's search box asks for it.
+    pub async fn search_discoverable_guilds(
+        &self,
+        query: &str,
+        category: Option<u32>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Value> {
+        let mut path = format!(
+            "/discoverable-guilds/search?query={}&limit={limit}&offset={offset}",
+            encode(query)
+        );
+        if let Some(category) = category {
+            let _ = write!(path, "&category_id={category}");
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Discord's categories of servers, `[{id, name, is_primary}]`.
+    pub async fn discovery_categories(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/discovery/categories"))
+            .await
+    }
+
+    /// Joins a discoverable server, as the Discover page's Join does. Discord
+    /// may ask for a [`Captcha`] first, whose solution goes with the next
+    /// try.
+    pub async fn join_discoverable(
+        &self,
+        guild: &str,
+        solved: Option<(&Captcha, &str)>,
+    ) -> Result<()> {
+        let path = format!(
+            "/guilds/{}/members/@me?lurker=false&location=Guild%20Discovery",
+            encode(guild)
+        );
+        let mut request = self.request(Method::PUT, &path);
+        if let Some((captcha, solution)) = solved {
+            for (name, value) in captcha.headers(solution) {
+                request = request.header(name, value);
+            }
+        }
+        self.empty(request).await
+    }
+
+    /// How many Orbs this account holds: `{balance}`.
+    pub async fn orbs_balance(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/virtual-currency/balance"))
+            .await
     }
 
     /// Applications' public objects, with their names and icons, as the
@@ -1328,6 +1523,64 @@ impl Api {
             .await
     }
 
+    /// The apps this account let into it, as User Settings > Authorized
+    /// Apps lists them: each authorization with its scopes and app.
+    pub(crate) async fn authorized_apps(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/oauth2/tokens")).await
+    }
+
+    /// Takes back what the authorization `id` let its app do.
+    pub(crate) async fn revoke_authorized_app(&self, id: &str) -> Result<()> {
+        let path = format!("/oauth2/tokens/{}", encode(id));
+        self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// The devices this account is signed in on, as User Settings > Devices
+    /// lists them.
+    pub(crate) async fn auth_sessions(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/auth/sessions")).await
+    }
+
+    /// Signs the devices whose sessions have these hashes out.
+    pub(crate) async fn log_out_sessions(&self, hashes: &[String]) -> Result<()> {
+        let body = json!({ "session_id_hashes": hashes });
+        self.empty(with_json(
+            self.request(Method::POST, "/auth/sessions/logout"),
+            &body,
+        ))
+        .await
+    }
+
+    /// Unlinks the connected account `id` of a service.
+    pub(crate) async fn disconnect_account(&self, service: &str, id: &str) -> Result<()> {
+        let path = format!("/users/@me/connections/{}/{}", encode(service), encode(id));
+        self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// Changes how a connected account shows: on the profile, and as an
+    /// activity.
+    pub(crate) async fn update_connection(
+        &self,
+        service: &str,
+        id: &str,
+        body: &Value,
+    ) -> Result<()> {
+        let path = format!("/users/@me/connections/{}/{}", encode(service), encode(id));
+        self.empty(with_json(self.request(Method::PATCH, &path), body))
+            .await
+    }
+
+    /// The address of a service's own page that links an account of it, to
+    /// open in a browser: Discord finishes the link when it's done.
+    pub(crate) async fn connection_authorize_url(&self, service: &str) -> Result<String> {
+        let path = format!("/connections/{}/authorize", encode(service));
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        answer["url"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord gave no address to link the account at")
+    }
+
     /// A token for the linked Spotify account `id`, which Discord renews.
     pub(crate) async fn spotify_access_token(&self, id: &str) -> Result<String> {
         let path = format!("/users/@me/connections/spotify/{}/access-token", encode(id));
@@ -1632,6 +1885,11 @@ impl Api {
     /// settings lists them.
     pub async fn guild_emojis(&self, guild: &str) -> Result<Value> {
         let path = format!("/guilds/{guild}/emojis");
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    pub async fn guild_top_emojis(&self, guild: &str) -> Result<Value> {
+        let path = format!("/guilds/{guild}/top-emojis");
         self.json(self.request(Method::GET, &path)).await
     }
 
@@ -2009,6 +2267,22 @@ impl Api {
         self.json(self.request(Method::GET, &path)).await
     }
 
+    /// The entitlements Discord says this account can give.
+    pub async fn giftable_entitlements(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/entitlements/gifts"))
+            .await
+    }
+
+    /// Existing gift codes for one SKU and optionally one subscription plan.
+    pub async fn gift_codes(&self, sku: &str, plan: Option<&str>) -> Result<Value> {
+        let mut path = format!("/users/@me/entitlements/gift-codes?sku_id={}", encode(sku));
+        if let Some(plan) = plan {
+            path.push_str("&subscription_plan_id=");
+            path.push_str(&encode(plan));
+        }
+        self.json(self.request(Method::GET, &path)).await
+    }
+
     /// Redeems a gift code for this account, in the channel its link was
     /// opened in when it was one, as Discord's client sends it without a
     /// payment source; the entitlement it grants.
@@ -2071,10 +2345,36 @@ impl Api {
         self.json(request).await
     }
 
+    /// The form a server asks new members to fill in (its member
+    /// screening), as Discord's client asks for it after joining by
+    /// `code`: `{version, description, form_fields}`.
+    pub async fn member_verification(&self, guild: &str, code: &str) -> Result<Value> {
+        let path = format!(
+            "/guilds/{guild}/member-verification?with_guild=false&invite_code={}",
+            encode(code)
+        );
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Sends a server's filled-in form, `{version, form_fields}`, as its
+    /// join request; Discord answers with it, and its `application_status`.
+    pub async fn submit_member_verification(&self, guild: &str, form: &Value) -> Result<Value> {
+        let path = format!("/guilds/{guild}/requests/@me");
+        self.json(with_json(self.request(Method::PUT, &path), form))
+            .await
+    }
+
     /// A channel object, as `GET /channels/{id}` gives it.
     pub async fn channel(&self, channel: &str) -> Result<Value> {
         let path = format!("/channels/{channel}");
         self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Creates a guild from its name and optional starting channels.
+    /// Discord also sends GUILD_CREATE for the new server.
+    pub async fn create_guild(&self, body: &Value) -> Result<Value> {
+        self.json(with_json(self.request(Method::POST, "/guilds"), body))
+            .await
     }
 
     /// Makes a channel or category in a server from `body`, a channel
@@ -2338,6 +2638,8 @@ impl Api {
 
     /// Sends a request for a file as [`Self::get_file`] does.
     async fn send_file(&self, request: RequestBuilder) -> Result<Response> {
+        // Keep the payload's byte offsets and advertised length for downloads.
+        let request = request.header(header::ACCEPT_ENCODING, "identity");
         let response = tokio::time::timeout(self.stall, request.send())
             .await
             .map_err(|_| Stalled)?
@@ -2456,6 +2758,18 @@ async fn checked(response: Response) -> Result<Response> {
         return Ok(response);
     }
     Err(refusal(status, &body(response).await))
+}
+
+/// What a refusal of a request about a quest means when Discord doesn't
+/// know the quest: it ended, or was taken back. Discord's generic words for
+/// that talk of messages and channels.
+fn quest_gone(error: anyhow::Error) -> anyhow::Error {
+    match error.downcast_ref::<Refused>() {
+        Some(refused) if refused.gone() => {
+            anyhow!("This quest has ended or isn't available any more.")
+        }
+        _ => error,
+    }
 }
 
 /// An answer's JSON body, or null.

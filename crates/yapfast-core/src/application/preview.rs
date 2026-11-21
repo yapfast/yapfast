@@ -208,6 +208,7 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         ringing: vec![],
         incoming: false,
         avatar: None,
+        group_avatars: None,
         decoration: None,
         nameplate: None,
         style: None,

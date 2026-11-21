@@ -3,13 +3,17 @@
 ## Writing
 
 The composer (`composer.rs`) shows, in a message
-request's place, its Accept and Ignore; over the field, the reply's bar
-with "@ On" or "@ Off" (whether the reply mentions its author) and its
-cancel; in a channel this account may not write in, Discord's one bar
+request's place, its Accept and Ignore; over the field, in one card with
+it, the reply's bar as Discord's: "Replying to" and the author (not the
+message), "@ ON" or "@ OFF" (whether the reply mentions its author) and
+its cancel, and, where the replied-to message answers a chain of five or
+more, "Would you like to follow this series of N replies more easily?" with
+a Create Thread link (`Application::reply_chain_to_thread`; Discord's own
+length for the offer is not known); in a channel this account may not write in, Discord's one bar
 saying so; on the strip over it, why it can't send (timed out until a
-time in the clock Settings chose, Discord disconnected) when it can't,
-and in a build with Matrix whether the room is end-to-end encrypted (with
-a lock if it is; an unencrypted Matrix room is read only), which someone
+time in the clock Settings chose, Discord disconnected) when it can't, and
+in a build with Matrix whether the room is end-to-end encrypted (with a
+lock if it is; an unencrypted Matrix room is read only), which someone
 typing takes the place of. The field writes the core's
 draft for the open room, which
 also tells the room this account is typing; its outline lightens while
@@ -21,6 +25,9 @@ Shift held extends the selection, text selected with the pointer becomes
 the desktop's primary selection, and a middle click pastes it at the
 pointer, taking no autoscroll; the field that took the keys last, by any
 button, holds them alone.
+
+Files already accepted by Matrix's send queue leave the composer even if a
+later attachment or the message text fails. A retry sends only what remains.
 
 Files go with the next message (`uploads.rs`) from the system's file
 dialog (the + where nothing else can start, or the + menu's "Upload a
@@ -80,6 +87,13 @@ and Backspace in the empty first option puts the
 command's name back. What they show and do is the core's
 (`application/slash.rs`): the draft carries the query and each option's
 text, and `Action::Send` runs the command.
+
+The Discord composer's **Gift** and **Apps** icon buttons run inside Yapfast.
+**Gift** lists the gifts the account can still give and puts the chosen
+one's link in the message at the caret. **Apps** searches the apps and slash
+commands available in the current chat while keeping the draft in place.
+Picking a command prepares its options when the composer is empty or showing
+a slash query. See [composer gifts and apps](../discord/composer-tools.md).
 
 The expression picker (`picker/`): in a Discord
 room the composer's GIF, sticker and emoji buttons open one panel of three

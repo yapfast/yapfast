@@ -48,6 +48,22 @@ pub(super) fn command(
     let (server, work) = match command {
         Command::Discord(DiscordCommand::Emoji { server, action }) => (server, Ok(action)),
         Command::Discord(DiscordCommand::Stickers { server, action }) => (server, Err(*action)),
+        Command::Discord(DiscordCommand::PopularEmoji(server)) => {
+            let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let _ = events.send(Event::PopularEmoji { server, result });
+                return None;
+            };
+            let (discord, guild, events) = (discord.clone(), guild.to_owned(), events.clone());
+            tokio::spawn(async move {
+                let result = discord
+                    .guild_top_emojis(&guild)
+                    .await
+                    .map_err(|error| error.to_string());
+                let _ = events.send(Event::PopularEmoji { server, result });
+            });
+            return None;
+        }
         // A server's preview, for the card that an emoji of it opens.
         Command::Discord(DiscordCommand::ServerPreview { server }) => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {

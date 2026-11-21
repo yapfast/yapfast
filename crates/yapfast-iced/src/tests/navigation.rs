@@ -28,8 +28,8 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     let servers = app.client.state().servers.len();
     assert_eq!(
         app.rail.items.len(),
-        servers + 2,
-        "the line, the servers and the tile that adds one"
+        servers + 3,
+        "the line, the servers and their two action tiles"
     );
     assert_eq!(
         app.rail.items[0].kind,
@@ -114,7 +114,7 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
             .collect()
     };
     let closed = kinds(&app);
-    assert_eq!(closed.len(), 3, "the line, the folder and the add tile");
+    assert_eq!(closed.len(), 4, "the line, the folder and the action tiles");
     assert_eq!(
         app.rail.items[1].name, "Friends, Co-op crew",
         "named by its servers"
@@ -132,13 +132,34 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
             ("friends".into(), true),
             ("coop".into(), true),
             ("+".into(), false),
+            ("discover".into(), false),
         ]
     );
     // Opened, it stays open the next time.
     let again = start(&folder, true);
     assert!(again.layout.open_folders.contains("discord-folder:7"));
     let _ = app.update(Message::Rail(Event::Folder("discord-folder:7".into())));
-    assert_eq!(kinds(&app).len(), 3);
+    assert_eq!(kinds(&app).len(), 4);
+}
+
+#[test]
+fn server_discovery_is_a_rail_action_that_opens_the_discover_screen() {
+    use crate::rail::{Event, Kind};
+    use yapfast_core::application::DmScreen;
+    let (mut app, _folder) = preview();
+    let item = app.rail.items.last().expect("the discovery tile");
+    assert_eq!(item.kind, Kind::Discover);
+    assert_eq!(item.name, "Explore Discoverable Servers");
+    let _ = app.update(Message::Rail(Event::Server("coop".into())));
+    assert_eq!(
+        app.client.state().navigation,
+        Navigation::Server("coop".into())
+    );
+    let _ = app.update(Message::Rail(Event::Discover));
+    // The screen opens in the place of a conversation, with no browser.
+    assert_eq!(app.client.state().navigation, Navigation::DirectMessages);
+    assert_eq!(app.client.state().dm_screen, Some(DmScreen::Discover));
+    assert!(crate::browser::take_opened().is_empty());
 }
 
 #[test]
@@ -587,9 +608,9 @@ fn a_dms_nameplate_fills_its_row_to_the_edges() {
 fn the_account_cards_carets_sit_at_the_middle_of_their_toggles() {
     use crate::call::{Event, Popup};
     let (app, _folder) = preview();
-    // The microphone's caret is the 20 px after its 32 px toggle, and a
-    // press 8 px above or below the card's middle is on it.
-    for off in [-8.0, 8.0] {
+    // The 16 px caret follows the microphone's 32 px toggle. Both
+    // points are inside its hit area, near the top and bottom edges.
+    for off in [-7.0, 7.0] {
         let mut ui = account_card(&app);
         ui.point_at(iced::Point::new(174.0, crate::account::HEIGHT / 2.0 + off));
         ui.simulate(iced_test::simulator::click());
@@ -794,4 +815,347 @@ fn a_busy_servers_tooltip_lists_its_voice_channels_under_the_pointer() {
             "Lounge, with Ann's and Ben's faces"
         );
     });
+}
+
+#[test]
+fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
+    use iced_test::{Simulator, selector::Candidate};
+    use yapfast_core::chat::{ChatServer, Picture, Pixels, ServerFolder};
+
+    let (mut app, _folder) = preview();
+    let in_folder = ServerFolder {
+        id: "discord-folder:7".into(),
+        name: None,
+        color: Some(0xff0000),
+    };
+    change(&mut app, |state| {
+        let channels = state.servers[0].channels.clone();
+        state.servers = ["Alpha", "Beta", "Gamma", "Delta"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                Arc::new(ChatServer {
+                    id: if index == 0 {
+                        "friends".into()
+                    } else {
+                        format!("s{index}")
+                    },
+                    name: name.into(),
+                    channels: if index == 0 {
+                        channels.clone()
+                    } else {
+                        Vec::new()
+                    },
+                    folder: Some(in_folder.clone()),
+                    ..Default::default()
+                })
+            })
+            .collect();
+    });
+
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut folder_bounds = None;
+    let mut initials: [Option<iced::Rectangle>; 4] = [None; 4];
+    let _ = ui.find(|candidate: Candidate<'_>| {
+        match candidate {
+            Candidate::Container {
+                visible_bounds: Some(bounds),
+                ..
+            } if bounds.x < crate::rail::WIDTH
+                && (bounds.width - crate::rail::FOLDER).abs() < 0.5
+                && (bounds.height - crate::rail::FOLDER).abs() < 0.5 =>
+            {
+                folder_bounds = Some(bounds);
+            }
+            Candidate::Text {
+                content,
+                visible_bounds: Some(bounds),
+                ..
+            } if bounds.x < crate::rail::WIDTH => {
+                if let Some(slot) = ["A", "B", "G", "D"]
+                    .iter()
+                    .position(|label| *label == content)
+                {
+                    initials[slot] = Some(bounds);
+                }
+            }
+            _ => {}
+        }
+        None::<()>
+    });
+
+    let folder = folder_bounds.expect("the closed 48x48 folder");
+    let slots = initials.map(|slot| slot.expect("folder preview initial in view"));
+    for (index, bounds) in slots.iter().enumerate() {
+        assert!(
+            bounds.width > 0.0 && bounds.height > 0.0,
+            "slot {index} has non-empty bounds: {bounds:?}"
+        );
+        assert!(
+            bounds.x >= folder.x
+                && bounds.y >= folder.y
+                && bounds.x + bounds.width <= folder.x + folder.width
+                && bounds.y + bounds.height <= folder.y + folder.height,
+            "slot {index} ({bounds:?}) sits inside the 48x48 folder ({folder:?})"
+        );
+    }
+    // Top-left (0), top-right (1), bottom-left (2), bottom-right (3).
+    assert!(slots[1].center_x() > slots[0].center_x());
+    assert!((slots[1].center_y() - slots[0].center_y()).abs() < 2.0);
+    assert!(slots[2].center_y() > slots[0].center_y());
+    assert!((slots[2].center_x() - slots[0].center_x()).abs() < 2.0);
+    assert!(slots[3].center_x() > slots[2].center_x());
+    assert!(slots[3].center_y() > slots[1].center_y());
+    drop(ui);
+
+    // Picture icons also render in all 4 quadrants of the 48x48 folder.
+    let green = Arc::new(Picture {
+        width: 19,
+        height: 19,
+        rgba: Pixels::new(19, 19, [0_u8, 255, 0, 255].repeat(19 * 19)),
+        ..Default::default()
+    });
+    change(&mut app, |state| {
+        for (index, server) in state.servers.iter_mut().enumerate() {
+            let url = format!("https://example.invalid/folder-{index}.png");
+            Arc::make_mut(server).icon = Some(url.clone());
+            state.pictures.insert(url, Arc::clone(&green));
+        }
+    });
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let (width, _, rgba) = super::drawn(&mut ui);
+    let pixel = |x: f32, y: f32| {
+        let px = (x * 2.0) as usize;
+        let py = (y * 2.0) as usize;
+        let at = (py * width as usize + px) * 4;
+        [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+    };
+    for index in 0..4 {
+        let cx = folder.x + 4.0 + (index % 2) as f32 * 21.0 + 9.5;
+        let cy = folder.y + 4.0 + (index / 2) as f32 * 21.0 + 9.5;
+        let [r, g, b, _] = pixel(cx, cy);
+        assert!(
+            g > 200 && g > r.saturating_add(100) && g > b.saturating_add(100),
+            "slot {index} picture at ({cx}, {cy}) should be green, got [{r}, {g}, {b}]"
+        );
+    }
+}
+
+#[test]
+fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rail() {
+    use crate::pictures::GroupIcon;
+    use yapfast_core::{
+        application::Navigation,
+        chat::{ChatRoom, GroupAvatar, Presence},
+    };
+    let (mut app, _folder) = preview();
+    let template = (*app.client.state().rooms[0]).clone();
+    let pair = [
+        GroupAvatar {
+            id: "2".into(),
+            name: "Ann".into(),
+            avatar: "https://cdn.example/a2.png".into(),
+        },
+        GroupAvatar {
+            id: "5".into(),
+            name: "Cy".into(),
+            avatar: "https://cdn.example/a5.png".into(),
+        },
+    ];
+    change(&mut app, |state| {
+        state.navigation = Navigation::DirectMessages;
+        state.selected = Some("discord:@me:two".into());
+        state.rooms = vec![
+            Arc::new(ChatRoom {
+                id: "discord:@me:custom".into(),
+                name: "Custom".into(),
+                direct: true,
+                person: None,
+                members: 4,
+                unread: 1,
+                mentions: 1,
+                avatar: Some("https://cdn.example/custom.png".into()),
+                group_avatars: None,
+                presence: Some(Presence::Online),
+                ..template.clone()
+            }),
+            Arc::new(ChatRoom {
+                id: "discord:@me:two".into(),
+                name: "Two".into(),
+                direct: true,
+                person: None,
+                members: 2,
+                unread: 1,
+                mentions: 1,
+                avatar: None,
+                group_avatars: None,
+                presence: Some(Presence::Online),
+                ..template.clone()
+            }),
+            Arc::new(ChatRoom {
+                id: "discord:@me:five".into(),
+                name: "Five".into(),
+                direct: true,
+                person: None,
+                members: 5,
+                unread: 1,
+                mentions: 1,
+                avatar: None,
+                group_avatars: Some(pair.clone()),
+                presence: Some(Presence::Online),
+                ..template
+            }),
+        ];
+    });
+
+    let side_room = |app: &App, id: &str| {
+        app.sidebar
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                crate::sidebar::SideRow::Room(room) if room.id == id => Some(room.clone()),
+                _ => None,
+            })
+            .expect("sidebar room")
+    };
+    assert_eq!(side_room(&app, "discord:@me:custom").group_icon, None);
+    assert_eq!(
+        side_room(&app, "discord:@me:custom").avatar.as_deref(),
+        Some("https://cdn.example/custom.png")
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:two").group_icon,
+        Some(GroupIcon::Placeholder)
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:two").presence,
+        Some(Presence::Online)
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:five").group_icon,
+        Some(GroupIcon::Pair(pair.clone()))
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:five").presence,
+        Some(Presence::Online)
+    );
+
+    // Header reflects the currently selected group DM's icon variant.
+    assert_eq!(app.header.group_icon, Some(GroupIcon::Placeholder));
+    assert_eq!(app.header.presence, Some(Presence::Online));
+
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:five".into());
+    });
+    assert_eq!(app.header.group_icon, Some(GroupIcon::Pair(pair.clone())));
+    assert_eq!(app.header.presence, Some(Presence::Online));
+
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:custom".into());
+    });
+    assert_eq!(app.header.group_icon, None);
+    assert_eq!(
+        app.header.avatar.as_deref(),
+        Some("https://cdn.example/custom.png")
+    );
+
+    // Unread DM tiles on the rail carry the same group icon variant.
+    let rail_item = |id: &str| {
+        app.rail
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .expect("rail item")
+    };
+    assert_eq!(rail_item("discord:@me:custom").group_icon, None);
+    assert_eq!(
+        rail_item("discord:@me:two").group_icon,
+        Some(GroupIcon::Placeholder)
+    );
+    assert_eq!(
+        rail_item("discord:@me:five").group_icon,
+        Some(GroupIcon::Pair(pair))
+    );
+}
+
+#[test]
+fn group_dm_icons_render_placeholder_and_overlapping_pair_with_cutout() {
+    use crate::pictures::{Face, GroupFace};
+    use iced::{Color, Point, Settings, Size, widget::container};
+    use yapfast_core::chat::{GroupAvatar, Picture, Pixels, Presence};
+    let (mut app, _folder) = preview();
+    let solid = |value: u8| {
+        Arc::new(Picture {
+            width: 32,
+            height: 32,
+            rgba: Pixels::new(32, 32, vec![value; 32 * 32 * 4]),
+            ..Default::default()
+        })
+    };
+    let pair = [
+        GroupAvatar {
+            id: "2".into(),
+            name: "Ann".into(),
+            avatar: "back.png".into(),
+        },
+        GroupAvatar {
+            id: "5".into(),
+            name: "Cy".into(),
+            avatar: "front.png".into(),
+        },
+    ];
+    change(&mut app, |state| {
+        state.pictures.insert("back.png".into(), solid(200));
+        state.pictures.insert("front.png".into(), solid(80));
+    });
+
+    fn sample(app: &App, face: Face<'_>) -> (u32, u32, Vec<u8>) {
+        let el = container(app.ctx().face(face))
+            .width(32)
+            .height(32)
+            .style(|_| crate::style::fill(Color::BLACK));
+        let mut ui =
+            iced_test::Simulator::with_size(Settings::default(), Size::new(32.0, 32.0), el);
+        super::drawn(&mut ui)
+    }
+    let at = |width: u32, rgba: &[u8], x: u32, y: u32| -> [u8; 4] {
+        let i = ((y * width + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+
+    // 2-member placeholder: green circle, white group glyph in middle, online dot bottom-right.
+    let (w, _, placeholder) = sample(
+        &app,
+        Face::new(None, "Two", 32.0)
+            .group(Some(GroupFace::Placeholder))
+            .dot(Some((Presence::Online, 0x000000, Point::new(20.0, 20.0)))),
+    );
+    let top = at(w, &placeholder, 32, 8);
+    assert!(
+        top[1] > top[0] + 40 && top[1] > top[2] + 20,
+        "expected green placeholder circle, got {top:?}"
+    );
+    let dot = at(w, &placeholder, 54, 54);
+    assert!(
+        dot[1] > dot[0] + 30 && dot[1] > dot[2] + 20,
+        "expected online dot bottom-right, got {dot:?}"
+    );
+
+    // >2-member overlapping pair: back top-left, transparent cutout gap, front bottom-right.
+    let (w, _, overlap) = sample(
+        &app,
+        Face::new(None, "Five", 32.0).group(Some(GroupFace::Pair(&pair))),
+    );
+    let back = at(w, &overlap, 14, 14);
+    assert!(back[0] > 170, "expected bright back avatar, got {back:?}");
+    let cutout = at(w, &overlap, 26, 26);
+    assert!(
+        cutout[0] < 20 && cutout[1] < 20 && cutout[2] < 20,
+        "expected transparent cutout revealing black ground, got {cutout:?}"
+    );
+    let front = at(w, &overlap, 43, 43);
+    assert!(
+        (60..=100).contains(&front[0]),
+        "expected darker front avatar, got {front:?}"
+    );
 }

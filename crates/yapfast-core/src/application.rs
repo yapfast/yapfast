@@ -1,4 +1,27 @@
 //! Shared client behavior. UI adapters dispatch actions and render the resulting state.
+
+/// A status message carries its meaning independently of its wording.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Notice {
+    Info(String),
+    Error(String),
+}
+
+impl Notice {
+    pub fn is_error(&self) -> bool {
+        matches!(self, Self::Error(_))
+    }
+}
+
+impl std::ops::Deref for Notice {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Info(message) | Self::Error(message) => message,
+        }
+    }
+}
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -17,6 +40,7 @@ use crate::{
     voice::{self, JoinSound, Phase},
 };
 
+mod account_tools;
 mod activity_panel;
 mod arrange;
 mod aside;
@@ -50,10 +74,12 @@ mod reactions;
 mod rooms;
 mod scheduled_event;
 mod server;
+mod server_creation;
 mod server_settings;
 mod session;
 mod slash;
 mod stickers;
+mod storefront;
 mod threads;
 
 pub use arrange::{Landing, MoveSync};
@@ -68,7 +94,7 @@ pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
-pub use join::JoinDialog;
+pub use join::{JoinDialog, ScreeningAnswer, ScreeningDialog};
 pub use link_prompts::{EventPrompt, GiftPrompt, OAuthPrompt, permission_names};
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -91,6 +117,7 @@ pub use profile_editor::{
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
 pub use scheduled_event::EventDialog;
+pub use server_creation::{ServerCreation, valid_server_name};
 pub use server_settings::{
     ADD_MEMBERS_LIMIT, AFK_TIMEOUTS, AUDIT_ACTIONS, AUDIT_PAGE, AddMembers, AuditInput, AuditKind,
     AuditLine, AuditLogPage, AuditRow, AuditSpan, AuditWords, BANS_BATCH, BANS_PER_PAGE, BOOSTED,
@@ -159,6 +186,10 @@ pub enum DiscordLink {
     Starting,
     /// Discord is checking a pasted token.
     Checking,
+    /// Yapfast is reading and validating the desktop client's saved accounts.
+    Importing,
+    /// Cancellation waits for a credential save that has already started.
+    CancellingImport,
     /// The code to scan, as the address it carries.
     Code(String),
     /// Someone scanned it, by their username, and confirms on their phone.
@@ -167,6 +198,15 @@ pub enum DiscordLink {
     /// at this address, open in the browser.
     Captcha(String),
     Failed(String),
+    ImportFailed(String),
+}
+
+/// Manage Accounts, the dialog that lists the Discord accounts linked on
+/// this device, while it's open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ManageAccounts {
+    /// The account whose "more" menu is open, by id.
+    pub menu: Option<String>,
 }
 
 /// The dialog that sends a friend request by Discord username.
@@ -374,6 +414,7 @@ pub struct PlacesUsed {
 
 /// A forward sent, until each conversation it went to answers.
 struct ForwardSent {
+    request: u64,
     forwarding: Forwarding,
     waiting: Vec<String>,
     /// Where it wasn't forwarded, and why.
@@ -386,11 +427,57 @@ struct ForwardSent {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Viewer {
     pub item: String,
+    request: u64,
+    attachments: Vec<ViewedAttachment>,
     /// The attachment shown, by its place in the message.
     pub index: usize,
     /// Images at viewing size by attachment: `None` while one downloads,
     /// else the image or why it can't show.
     pub pictures: HashMap<usize, Option<Result<Arc<Picture>, &'static str>>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ViewedAttachment {
+    name: String,
+    size: Option<u64>,
+    image: bool,
+    url: Option<String>,
+}
+
+impl Viewer {
+    /// Indexes and cached pictures are valid only for the same attachment list.
+    pub fn showing(&self, message: &ChatMessage) -> bool {
+        message.attachments.len() == self.attachments.len()
+            && message
+                .attachments
+                .iter()
+                .zip(&self.attachments)
+                .all(|(file, kept)| {
+                    file.name == kept.name
+                        && file.size == kept.size
+                        && file.image == kept.image
+                        && attachment_address(file) == kept.url.as_deref()
+                })
+    }
+}
+
+fn attachment_address(file: &chat::Attachment) -> Option<&str> {
+    let url = file.url.as_deref()?;
+    // The signature on a Discord attachment can change without changing the file.
+    if url.starts_with("https://cdn.discordapp.com/attachments/")
+        || url.starts_with("https://media.discordapp.net/attachments/")
+    {
+        Some(url.split_once('?').map_or(url, |(path, _)| path))
+    } else {
+        Some(url)
+    }
+}
+
+#[derive(Default)]
+struct DiscordComposers {
+    drafts: HashMap<String, String>,
+    replies: HashMap<String, Compose>,
+    files: HashMap<String, Vec<chat::Staged>>,
 }
 
 /// A person's profile card: beside the member list, or large over the window.
@@ -420,12 +507,20 @@ pub enum ProfileTab {
 }
 
 /// A screen the top of the DM list opens in place of a conversation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum DmScreen {
     /// The Discord friends list.
     Friends,
     /// Friend requests, message requests and spam.
     Requests,
+    /// Discord Nitro status, perks and server boost overview.
+    Nitro,
+    /// Profile cosmetics, worn items and cosmetic rendering switches.
+    Shop,
+    /// Active games, rich presence and Discord quests.
+    Quests,
+    /// The servers anyone may join, searched and joined.
+    Discover,
 }
 
 /// Somewhere the main area shows, which the title bar's back and forward
@@ -516,6 +611,8 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// Add a server, from choosing a layout through confirming creation.
+    pub server_creation: Option<ServerCreation>,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -524,9 +621,23 @@ pub struct AppState {
     pub scheduled_event: Option<EventDialog>,
     /// The gift a clicked gift link opened, while its dialog is open.
     pub gift: Option<GiftDialog>,
+    /// The gifts the account bought and can still give, read when the
+    /// composer's Gift button opens.
+    pub gifts: crate::storefront::GiftInventory,
+    /// What My Account's tabs list and change, read when they open.
+    pub account_tools: crate::account_tools::AccountTools,
     /// The codes of the gifts being redeemed, until Discord answers, so a
     /// dialog closed and opened again meanwhile shows the answer.
     pub redeeming_gifts: Vec<String>,
+    /// What the Quests screen lists, loaded when it opens.
+    pub quests: crate::storefront::QuestsPage,
+    /// What the Shop screen lists, loaded when it opens.
+    pub shop: crate::storefront::ShopPage,
+    /// The boosts the account can give the server whose boost progress is
+    /// open, loaded when it opens.
+    pub boosts: crate::storefront::BoostPage,
+    /// What the Discover screen lists, loaded when it opens.
+    pub discover: crate::storefront::DiscoverPage,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -574,6 +685,11 @@ pub struct AppState {
     /// connected, and linking one, while that's under way.
     pub discord_linked: bool,
     pub discord_link: Option<DiscordLink>,
+    /// The Discord accounts linked on this device, in the order they were
+    /// linked, and the active one's id, which is empty while none is.
+    pub discord_accounts: Vec<chat::DiscordAccount>,
+    pub discord_active: String,
+    pub manage_accounts: Option<ManageAccounts>,
     pub add_friend: Option<AddFriend>,
     /// A screen of the DM list open in place of a conversation.
     pub dm_screen: Option<DmScreen>,
@@ -648,7 +764,7 @@ pub struct AppState {
     pub trusted: bool,
     pub online: bool,
     pub storage: Option<&'static str>,
-    pub notice: Option<String>,
+    pub notice: Option<Notice>,
     /// Shared with the networks' lists they're shown from.
     pub rooms: Vec<Arc<ChatRoom>>,
     pub servers: Vec<Arc<ChatServer>>,
@@ -656,6 +772,8 @@ pub struct AppState {
     /// by server id, once Discord answered for it: how many of its members are
     /// online, and whether Discover lists it.
     pub server_previews: HashMap<String, chat::ServerPreview>,
+    /// Ranked custom emoji ids for the servers whose pickers were opened.
+    pub popular_emojis: HashMap<String, Vec<String>>,
     /// What Discord last answered for a server tag's card, by the id of the
     /// server it asked about; the card shows it while it's for its server.
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
@@ -996,10 +1114,12 @@ impl AppState {
             || self.forwarding.is_some()
             || self.new_dm.is_some()
             || self.add_friend.is_some()
+            || self.manage_accounts.is_some()
             || self.status_editor.is_some()
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.server_creation.is_some()
             || self.oauth.is_some()
             || self.scheduled_event.is_some()
             || self.gift.is_some()
@@ -1498,6 +1618,20 @@ impl AppState {
         }
     }
 
+    /// A Discord user's username, such as `ann`, as far as it's known.
+    pub fn discord_username(&self, user: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        return self
+            .discord_names
+            .as_ref()
+            .and_then(|names| names.read().username(user).map(str::to_owned));
+        #[cfg(not(feature = "discord"))]
+        {
+            let _ = user;
+            None
+        }
+    }
+
     /// Whether this Discord account blocked a Discord user.
     pub fn is_blocked(&self, user: &str) -> bool {
         self.discord_blocked
@@ -1672,6 +1806,12 @@ pub enum Action {
     SlashQuery(String),
     /// One of the commands the picker offers, by its place.
     PickCommand(usize),
+    /// Starts a command selected in the Apps browser for this room.
+    PickBrowsedCommand {
+        room: String,
+        command: String,
+        path: Vec<String>,
+    },
     /// What the person entered for an option of the command being written.
     SetCommandOption {
         index: usize,
@@ -1908,6 +2048,8 @@ pub enum Action {
     /// The emoji picker opened: every custom emoji's picture not yet in the
     /// disk cache is fetched to it, once a session, after whatever shows.
     CacheEmojiPictures,
+    /// Load the custom emoji rankings for the selected server's picker.
+    LoadPopularEmoji,
     Login {
         homeserver: String,
         username: String,
@@ -1935,6 +2077,72 @@ pub enum Action {
     Befriend(String),
     /// Show a screen of the DM list in place of the conversation.
     OpenDmScreen(DmScreen),
+    /// Load the Quests screen's quests again, or the Shop's categories;
+    /// accept a quest that is on offer, by its id, or claim the reward of
+    /// a finished one.
+    RefreshQuests,
+    RefreshShop,
+    AcceptQuest(String),
+    ClaimQuest(String),
+    /// Play the video of an accepted quest of watching, by its id, at most
+    /// `width` by `height` pixels, in the window's viewer. Its controls are
+    /// [`Action::Video`]'s.
+    PlayQuestVideo {
+        id: String,
+        width: u32,
+        height: u32,
+    },
+    /// The quest's video playing is this many milliseconds in: Discord
+    /// counts the watching of it.
+    QuestVideoAt(u64),
+    /// Buy a Shop product with Orbs, by its SKU.
+    BuyProduct(String),
+    /// Read the boosts the account can give the Discord server with this id.
+    LoadBoosts(String),
+    /// Give the Discord server with this id one of the account's free boosts.
+    BoostServer(String),
+    /// List the discoverable servers for these words, within this category
+    /// of Discord's, from the first; the whole list for no words.
+    LoadDiscover {
+        query: String,
+        category: Option<u32>,
+    },
+    /// List the next page of the discoverable servers.
+    MoreDiscover,
+    /// Join the discoverable Discord server with this id.
+    JoinDiscovered(String),
+    /// Read the gifts the account bought and can still give.
+    LoadGifts,
+    /// Read My Account's lists: the authorized apps, the signed-in devices
+    /// and the connected accounts.
+    LoadAuthorizedApps,
+    LoadDevices,
+    LoadConnections,
+    /// Take an authorization back, by its id.
+    RevokeAuthorizedApp(String),
+    /// Sign devices out, by their session hashes.
+    LogOutDevices(Vec<String>),
+    /// Unlink a connected account.
+    DisconnectAccount {
+        service: String,
+        id: String,
+    },
+    /// Show a connected account on the profile or not, and as an activity
+    /// or not; `None` leaves it.
+    ShowConnection {
+        service: String,
+        id: String,
+        visible: Option<bool>,
+        activity: Option<bool>,
+    },
+    /// Open the page that links an account of a service, in the browser.
+    LinkConnection(String),
+    /// Change the username, email or password, with the current password.
+    ChangeAccount {
+        field: crate::account_tools::AccountField,
+        value: String,
+        password: String,
+    },
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -2163,18 +2371,35 @@ pub enum Action {
         user: String,
         server: String,
     },
+    /// Send a friend, by their user id, the invite dialog's link in their
+    /// DM, from its friend list's Invite button.
+    InviteFriend(String),
     /// Open Join a Server; look up the invite in what was typed or pasted
     /// into it; open it for a clicked invite link, by its code; join by
     /// the invite it shows, or open the server for a member; open the
-    /// captcha Discord asked for again; open the server's form in the
-    /// browser; or close it.
+    /// captcha Discord asked for again; fill in the server's form; or close
+    /// it.
     OpenJoinServer,
     FindInvite(String),
+    EditInvite(String),
     OpenInviteLink(String),
     JoinServer,
     OpenJoinCaptcha,
-    OpenJoinForm,
+    /// Answers a question of the joined server's form, by its place.
+    AnswerScreening(usize, ScreeningAnswer),
+    /// Hands in the joined server's form, or reads it again when it didn't
+    /// load.
+    SubmitScreening,
     CloseJoin,
+    /// Open the rail's server setup, choose a layout or return to its list,
+    /// confirm creation, or dismiss the dialog.
+    OpenAddServer,
+    ChooseServerLayout(Option<chat::ServerLayout>),
+    CreateServer {
+        name: String,
+        icon: Option<PathBuf>,
+    },
+    CloseAddServer,
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -2192,11 +2417,9 @@ pub enum Action {
     ToggleEventInterest,
     CloseEvent,
     /// Open a clicked gift link, by its code; redeem the gift it
-    /// shows, when asked; open it in the browser, for a gift only Discord
-    /// can redeem; or close its dialog.
+    /// shows, when asked; or close its dialog.
     OpenGiftLink(String),
     RedeemGift,
-    OpenGiftInBrowser,
     CloseGift,
     /// Open the dialog that makes a channel of this kind, from a Discord
     /// server's menu, by its server id, or one like a channel in its
@@ -2246,6 +2469,8 @@ pub enum Action {
     UndoProfileEdits,
     SaveProfile,
     UnlockNitro,
+    /// Leave the profile editor for the Shop, which sets its decorations.
+    OpenProfileShop,
     CloseProfileEditor,
     /// Open a Discord server's settings, by its server id or one of its
     /// channels' room ids; go to another page; change a text of the page,
@@ -2253,6 +2478,8 @@ pub enum Action {
     /// what changed, as the bar's Reset and Save Changes do; or close
     /// them. Leaving a page with unsaved changes shakes the bar instead.
     OpenServerSettings(String),
+    /// Open a server's Emoji page to add a custom emoji.
+    OpenServerEmojiSettings(String),
     ServerSettingsSection(chat::SettingsSection),
     WriteServerSetting {
         field: SettingsText,
@@ -2352,9 +2579,22 @@ pub enum Action {
     /// again; stop linking; or forget the linked account on this device.
     LinkDiscord,
     LinkDiscordToken(String),
+    /// Import the accounts already signed in to the vanilla Discord client on
+    /// this device.
+    ImportDiscord,
     OpenDiscordCaptcha,
     CancelDiscordLink,
     UnlinkDiscord,
+    /// Open Manage Accounts, or close it. Closing it stops linking too.
+    OpenManageAccounts,
+    CloseManageAccounts,
+    /// Open one account's "more" menu in Manage Accounts, or close the one
+    /// open with an empty id.
+    OpenAccountMenu(String),
+    /// Make this Discord account, by id, the active one.
+    SwitchDiscordAccount(String),
+    /// Log this Discord account, by id, out on this device.
+    LogOutDiscordAccount(String),
     /// Open the custom status dialog, set the status, clear it, or close it.
     /// The emoji is a Unicode one or a custom one's `:name:`, which needs Nitro.
     OpenStatusEditor,
@@ -2497,6 +2737,13 @@ pub enum Effect {
     /// under way. The same with a pasted token. Stop linking.
     LinkDiscord,
     LinkDiscordToken(String),
+    /// Import the accounts the vanilla Discord client keeps on this device,
+    /// with `crate::discord_link::import`, reporting through
+    /// `Application::linking` as linking does.
+    ImportDiscord,
+    /// Request cooperative cancellation of the import, with a bounded save grace period.
+    CancelDiscordImport,
+    /// Abort the current QR or token-link task.
     StopDiscordLink,
     /// Open this web page in the browser.
     OpenPage(String),
@@ -2524,6 +2771,8 @@ pub struct DiscordEmojiLists {
 
 #[derive(Default)]
 pub struct Application {
+    /// Drafts and attachments of Discord accounts other than the active one.
+    discord_composers: HashMap<String, DiscordComposers>,
     pub state: AppState,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
@@ -2549,6 +2798,8 @@ pub struct Application {
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
+    forward_request: u64,
+    viewer_request: u64,
     /// The selected room's timeline with the blocked messages
     /// [`AppState::hide_blocked`] left out, to show them again.
     /// Kept with the timeline shown from it, so it's used only while that
@@ -2579,6 +2830,10 @@ pub struct Application {
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
     pending_open: Option<String>,
+    /// A just-created server to open once its gateway snapshot lists it.
+    pending_server: Option<String>,
+    /// Distinguishes server creation responses across dialog or account changes.
+    server_creation_request: u64,
     /// A thread to show beside the selected channel once it's listed.
     pending_aside: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
@@ -2586,6 +2841,8 @@ pub struct Application {
     first_message: Option<String>,
     /// The items in or near the thread beside's view, as last reported.
     aside_visible: Vec<String>,
+    /// The newest side-thread message confirmed visible by the viewport.
+    aside_latest_visible: Option<String>,
     /// The thread beside's timeline as its pictures were last asked for.
     pictured_aside: Arc<Vec<Arc<ChatMessage>>>,
     /// [`AppState::list_changes`], the navigation and the selected room
@@ -2695,6 +2952,13 @@ fn pictures_on_screen<'a>(
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
+        // The accounts the switcher lists.
+        .chain(
+            state
+                .discord_accounts
+                .iter()
+                .filter_map(|account| account.avatar.as_deref()),
+        )
         .chain(cosmetics.decoration(state.account_decoration.as_deref()))
         .chain(
             state
@@ -2715,8 +2979,11 @@ fn pictures_on_screen<'a>(
                 .into_iter()
                 .flatten()
                 .flat_map(move |room| {
+                    let group = room.group_avatars.as_ref();
                     [
                         room.avatar.as_deref(),
+                        group.map(|pair| pair[0].avatar.as_str()),
+                        group.map(|pair| pair[1].avatar.as_str()),
                         cosmetics.decoration(room.decoration.as_deref()),
                         tag_badge(cosmetics, &room.tag),
                     ]
@@ -2724,11 +2991,14 @@ fn pictures_on_screen<'a>(
                 .flatten()
                 .take(LISTED_PICTURES),
         )
-        .chain(
-            state
-                .selected_room()
-                .and_then(|room| room.avatar.as_deref()),
-        )
+        .chain(state.selected_room().into_iter().flat_map(|room| {
+            room.avatar.as_deref().into_iter().chain(
+                room.group_avatars
+                    .iter()
+                    .flatten()
+                    .map(|member| member.avatar.as_str()),
+            )
+        }))
         // A DM's row shows its nameplate only selected or under the pointer.
         .chain(
             state
@@ -3064,6 +3334,12 @@ impl Application {
 
     pub fn apply(&mut self, event: Event) -> Vec<Effect> {
         let mut effects = self.apply_event(event);
+        if let Some(server) = self
+            .pending_server
+            .take_if(|id| self.state.servers.iter().any(|server| &server.id == id))
+        {
+            effects.extend(self.dispatch(Action::Navigate(Navigation::Server(server))));
+        }
         // A DM just started, or a thread asked for, opens once the lists
         // have it.
         if let Some(room) = self
@@ -3390,6 +3666,7 @@ impl Application {
             Action::SubmitModal => self.submit_modal(),
             Action::SlashQuery(_)
             | Action::PickCommand(_)
+            | Action::PickBrowsedCommand { .. }
             | Action::SetCommandOption { .. }
             | Action::RunAppCommand { .. }
             | Action::AskAppCommands
@@ -3421,15 +3698,17 @@ impl Application {
                 .as_ref()
                 .is_some_and(|aside| aside.room == room) =>
             {
-                if self.aside_visible == items {
-                    return vec![];
+                self.aside_latest_visible = if at_end { items.last().cloned() } else { None };
+                let mut effects = self.mark_aside_read();
+                if self.aside_visible != items {
+                    self.aside_visible.clone_from(&items);
+                    effects.push(Effect::Backend(Command::VisibleMessages {
+                        room,
+                        items,
+                        at_end,
+                    }));
                 }
-                self.aside_visible.clone_from(&items);
-                vec![Effect::Backend(Command::VisibleMessages {
-                    room,
-                    items,
-                    at_end,
-                })]
+                effects
             }
             Action::VisibleMessages {
                 room,
@@ -3449,6 +3728,39 @@ impl Application {
             }
             Action::Navigate(navigation) => self.navigate(navigation),
             Action::OpenDmScreen(screen) => self.open_dm_screen(screen),
+            Action::RefreshQuests => self.load_quests(),
+            Action::RefreshShop => self.load_shop(),
+            Action::AcceptQuest(id) => self.accept_quest(id),
+            Action::ClaimQuest(id) => self.claim_quest(id),
+            Action::PlayQuestVideo { id, width, height } => {
+                self.play_quest_video(id, width, height)
+            }
+            Action::QuestVideoAt(at_ms) => self.quest_video_at(at_ms),
+            Action::BuyProduct(sku) => self.buy_product(sku),
+            Action::LoadBoosts(server) => self.load_boosts(server),
+            Action::BoostServer(server) => self.boost_server(server),
+            Action::LoadDiscover { query, category } => self.load_discover(query, category, 0),
+            Action::MoreDiscover => self.more_discover(),
+            Action::JoinDiscovered(id) => self.join_discovered(id),
+            Action::LoadGifts => self.load_gifts(),
+            Action::LoadAuthorizedApps => self.load_authorized_apps(),
+            Action::LoadDevices => self.load_devices(),
+            Action::LoadConnections => self.load_connections(),
+            Action::RevokeAuthorizedApp(id) => self.revoke_authorized_app(id),
+            Action::LogOutDevices(ids) => self.log_out_devices(ids),
+            Action::DisconnectAccount { service, id } => self.disconnect_account(service, id),
+            Action::ShowConnection {
+                service,
+                id,
+                visible,
+                activity,
+            } => self.show_connection(service, id, visible, activity),
+            Action::LinkConnection(service) => self.link_connection(service),
+            Action::ChangeAccount {
+                field,
+                value,
+                password,
+            } => self.change_account(field, value, password),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -3648,6 +3960,7 @@ impl Application {
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
             Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
             Action::CacheEmojiPictures => self.cache_emoji_pictures(),
+            Action::LoadPopularEmoji => self.load_popular_emoji(),
             Action::Earlier => self.earlier(),
             Action::Login {
                 homeserver,
@@ -3670,10 +3983,14 @@ impl Application {
                 vec![Effect::Backend(Command::RefreshTrust)]
             }
             Action::RetrySync => {
-                if self.state.busy || self.state.preview || self.state.account.is_none() {
+                if self.state.busy || self.state.preview {
                     vec![]
-                } else {
+                } else if self.state.discord_linked && !self.state.discord_online {
+                    vec![Effect::Backend(Command::Discord(DiscordCommand::Reconnect))]
+                } else if self.state.account.is_some() {
                     vec![Effect::Backend(Command::RetrySync)]
+                } else {
+                    vec![]
                 }
             }
             Action::Logout => self.logout(),
@@ -3848,12 +4165,19 @@ impl Application {
                 vec![]
             }
             Action::InviteToServer { user, server } => self.invite_to_server(user, server),
+            Action::InviteFriend(user) => self.invite_friend(user),
+            Action::OpenAddServer => self.open_add_server(),
+            Action::ChooseServerLayout(layout) => self.choose_server_layout(layout),
+            Action::CreateServer { name, icon } => self.create_server(name, icon),
+            Action::CloseAddServer => self.close_add_server(),
             Action::OpenJoinServer => self.open_join(),
             Action::FindInvite(typed) => self.find_invite(typed),
+            Action::EditInvite(typed) => self.edit_invite(&typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
-            Action::OpenJoinForm => self.open_join_form(),
+            Action::AnswerScreening(field, answer) => self.answer_screening(field, answer),
+            Action::SubmitScreening => self.submit_screening(),
             Action::CloseJoin => {
                 self.state.join = None;
                 vec![]
@@ -3866,7 +4190,6 @@ impl Application {
             }
             Action::OpenGiftLink(code) => self.open_gift_link(code),
             Action::RedeemGift => self.redeem_gift(),
-            Action::OpenGiftInBrowser => self.open_gift_in_browser(),
             Action::CloseGift => {
                 self.state.gift = None;
                 vec![]
@@ -3922,12 +4245,16 @@ impl Application {
             }
             Action::SaveProfile => self.save_profile(),
             Action::UnlockNitro => self.unlock_nitro(),
+            Action::OpenProfileShop => self.open_profile_shop(),
             Action::CloseProfileEditor => {
                 self.state.profile_editor_changed();
                 self.state.profile_editor = None;
                 vec![]
             }
-            Action::OpenServerSettings(place) => self.open_server_settings(place),
+            Action::OpenServerSettings(place) => self.open_server_settings(place, None),
+            Action::OpenServerEmojiSettings(place) => {
+                self.open_server_settings(place, Some(chat::SettingsSection::Emoji))
+            }
             Action::ServerSettingsSection(section) => self.server_settings_section(section),
             Action::WriteServerSetting { field, text } => {
                 self.write_server_setting(field, text);
@@ -3999,14 +4326,14 @@ impl Application {
                 change,
             } => self.change_member(place, user, change),
             Action::LinkDiscord => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if !self.can_link_discord() {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Starting);
                 vec![Effect::LinkDiscord]
             }
             Action::LinkDiscordToken(token) => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if !self.can_link_discord() {
                     return vec![];
                 }
                 if token.trim().is_empty() {
@@ -4015,20 +4342,70 @@ impl Application {
                 self.state.discord_link = Some(DiscordLink::Checking);
                 vec![Effect::LinkDiscordToken(token)]
             }
+            Action::ImportDiscord => {
+                if !self.can_link_discord() {
+                    return vec![];
+                }
+                self.state.discord_link = Some(DiscordLink::Importing);
+                vec![Effect::ImportDiscord]
+            }
             Action::OpenDiscordCaptcha => match &self.state.discord_link {
                 Some(DiscordLink::Captcha(page)) => vec![Effect::OpenPage(page.clone())],
                 _ => vec![],
             },
-            Action::CancelDiscordLink => match self.state.discord_link.take() {
-                Some(_) => vec![Effect::StopDiscordLink],
-                None => vec![],
-            },
+            Action::CancelDiscordLink => self.cancel_discord_link(),
             Action::UnlinkDiscord => {
                 if self.state.discord_linked && self.state.account.is_some() {
-                    vec![Effect::Backend(Command::Discord(DiscordCommand::Unlink))]
+                    // Only the active account, as logging out in Discord does.
+                    vec![Effect::Backend(Command::Discord(
+                        if self.state.discord_active.is_empty() {
+                            DiscordCommand::Unlink
+                        } else {
+                            DiscordCommand::RemoveAccount(self.state.discord_active.clone())
+                        },
+                    ))]
                 } else {
                     vec![]
                 }
+            }
+            Action::OpenManageAccounts => {
+                if !self.state.discord_accounts.is_empty() {
+                    self.state.manage_accounts = Some(ManageAccounts::default());
+                }
+                vec![]
+            }
+            Action::CloseManageAccounts => {
+                self.state.manage_accounts = None;
+                self.cancel_discord_link()
+            }
+            Action::OpenAccountMenu(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    let open = dialog.menu.as_deref() == Some(id.as_str());
+                    dialog.menu = (!id.is_empty() && !open).then_some(id);
+                }
+                vec![]
+            }
+            Action::SwitchDiscordAccount(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    dialog.menu = None;
+                }
+                if id == self.state.discord_active || !self.linked_account(&id) {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::SwitchAccount(id),
+                ))]
+            }
+            Action::LogOutDiscordAccount(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    dialog.menu = None;
+                }
+                if !self.linked_account(&id) {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::RemoveAccount(id),
+                ))]
             }
             Action::OpenAddFriend => {
                 if self.state.discord_user.is_some() {
@@ -4382,6 +4759,7 @@ impl Application {
                 return self.show_lists();
             }
             Event::Image {
+                request,
                 room,
                 item,
                 index,
@@ -4392,13 +4770,19 @@ impl Application {
                 if self.state.room_of(&item) == Some(&room)
                     && let Some(viewer) = &mut self.state.viewer
                     && viewer.item == item
+                    && viewer.request == request
                 {
                     viewer.pictures.insert(index, Some(picture));
                 }
             }
             Event::Picture { url, picture } => self.keep_picture(url, picture),
             Event::Video(video) => {
-                self.state.video = video.filter(|video| self.state.shows_room(&video.room));
+                // A quest's video belongs to the Quests screen, not to a
+                // conversation.
+                self.state.video = video.filter(|video| {
+                    video.room == chat::QUEST_VIDEO_ROOM || self.state.shows_room(&video.room)
+                });
+                return self.quest_video_ended();
             }
             Event::VoiceMessage(playback) => {
                 self.state.voice_message =
@@ -4452,7 +4836,7 @@ impl Application {
                         .as_ref()
                         .is_some_and(|aside| aside.room == room)
                 {
-                    self.state.notice = Some(message);
+                    self.state.notice = Some(Notice::Error(message));
                 }
             }
             Event::Profile { user, result } => return self.show_fetched_profile(user, result),
@@ -4565,10 +4949,17 @@ impl Application {
                     return self.invites_after(&room);
                 }
             }
-            Event::InviteSent { result, .. } => self.invite_sent(result),
+            Event::InviteSent { user, room, result } => self.invite_sent(user, room, result),
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::ScreeningLoaded { server, result } => {
+                return self.screening_loaded(server, result);
+            }
+            Event::ScreeningSubmitted { server, result } => {
+                return self.screening_submitted(server, result);
+            }
+            Event::ServerCreated { request, result } => self.server_created(request, result),
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
             Event::OAuthAuthorized { query, result } => {
                 return self.oauth_authorized(query, result);
@@ -4579,6 +4970,51 @@ impl Application {
                 interested,
                 result,
             } => return self.event_interest_set(event, interested, result),
+            Event::QuestsLoaded { result } => return self.quests_loaded(result),
+            Event::QuestAccepted { id, result } => return self.quest_accepted(id, result),
+            Event::QuestCaptcha { id, page } => return self.quest_captcha(id, page),
+            Event::QuestClaimed { id, result } => return self.quest_claimed(id, result),
+            Event::QuestProgress { id, result } => return self.quest_progress(id, result),
+            Event::ProductBought { sku, result } => return self.product_bought(sku, result),
+            Event::BoostsLoaded { server, result } => return self.boosts_loaded(server, result),
+            Event::ServerBoosted { server, result } => return self.server_boosted(server, result),
+            Event::DiscoverLoaded {
+                query,
+                category,
+                offset,
+                result,
+            } => return self.discover_loaded(query, category, offset, result),
+            Event::DiscoverCaptcha { id, page } => return self.discover_captcha(id, page),
+            Event::DiscoverJoined { id, result } => return self.discover_joined(id, result),
+            Event::ShopLoaded { result } => return self.shop_loaded(result),
+            Event::GiftsLoaded { result } => return self.gifts_loaded(result),
+            Event::AuthorizedAppsLoaded { result } => return self.authorized_apps_loaded(result),
+            Event::AuthorizedAppRevoked { id, result } => {
+                return self.authorized_app_revoked(id, result);
+            }
+            Event::DevicesLoaded { result } => return self.devices_loaded(result),
+            Event::DevicesLoggedOut { ids, result } => {
+                return self.devices_logged_out(ids, result);
+            }
+            Event::ConnectionsLoaded { result } => return self.connections_loaded(result),
+            Event::AccountDisconnected {
+                service,
+                id,
+                result,
+            } => return self.account_disconnected(service, id, result),
+            Event::ConnectionShown {
+                service,
+                id,
+                visible,
+                activity,
+                result,
+            } => return self.connection_shown(service, id, visible, activity, result),
+            Event::ConnectionLink { service, result } => {
+                return self.connection_link(service, result);
+            }
+            Event::AccountChanged { field, result } => {
+                return self.account_changed(field, result);
+            }
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),
@@ -4650,6 +5086,7 @@ impl Application {
             } => self.invite_revoked(server, code, result),
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
+            Event::PopularEmoji { server, result } => self.popular_emoji_loaded(server, result),
             Event::TagServer { server, result } => self.show_tag_server(server, result),
             Event::EmojisChanged {
                 server,
@@ -4691,6 +5128,34 @@ impl Application {
                 }
             }
             Event::DiscordUnlinked => return self.forget_discord(),
+            Event::DiscordSwitched => return self.switched_discord(),
+            Event::DiscordAccounts { accounts, active } => {
+                self.discord_composers
+                    .retain(|id, _| accounts.iter().any(|account| account.id == *id));
+                if let Some(kept) = self.discord_composers.remove(&active) {
+                    self.state.drafts.extend(kept.drafts);
+                    self.state.compose.extend(kept.replies);
+                    self.state.staged.extend(kept.files);
+                }
+                self.state.discord_accounts = accounts;
+                self.state.discord_active = active;
+                // The list is what was stored, which may not have the connected
+                // account's name yet.
+                let own = self.discord.as_deref().and_then(|snapshot| {
+                    let account = snapshot.account.as_ref()?;
+                    Some((
+                        account.username.clone(),
+                        account.name.clone(),
+                        account.avatar.clone(),
+                    ))
+                });
+                if let Some((username, name, avatar)) = own {
+                    self.describe_active_account(&username, &name, &avatar);
+                }
+                if self.state.discord_accounts.is_empty() {
+                    self.state.manage_accounts = None;
+                }
+            }
             Event::Note { user, result } => {
                 if let Ok(note) = &result {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]
@@ -4737,14 +5202,20 @@ impl Application {
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {
-                    self.state.notice = Some(format!("Couldn't change your status: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't change your status: {error}"
+                    )));
                 }
             }
             Event::SoundboardVolumeSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change the soundboard volume: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't change the soundboard volume: {error}"
+                )));
             }
             Event::JoinSoundSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change your entrance sound: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't change your entrance sound: {error}"
+                )));
             }
             Event::SoundboardVolumeSet(Ok(())) | Event::JoinSoundSet(Ok(())) => {}
             Event::SoundCatalog(result) => match result {
@@ -4759,16 +5230,17 @@ impl Application {
                     return self.load_pictures(pictures);
                 }
                 Err(error) => {
-                    self.state.notice =
-                        Some(format!("Couldn't list the soundboard's sounds: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't list the soundboard's sounds: {error}"
+                    )));
                 }
             },
             Event::ShowGameSet(result) => {
                 if let Err(error) = result {
                     self.state.discord_show_game = !self.state.discord_show_game;
-                    self.state.notice = Some(format!(
+                    self.state.notice = Some(Notice::Error(format!(
                         "Couldn't change sharing the game you play: {error}"
-                    ));
+                    )));
                 }
             }
             Event::CustomStatusSet(Err(error)) => {
@@ -4784,7 +5256,7 @@ impl Application {
                 } else if std::mem::take(&mut self.starting_dm) {
                     self.pending_call = false;
                     self.pending_message = None;
-                    self.state.notice = Some(error);
+                    self.state.notice = Some(Notice::Error(error));
                 }
             }
             Event::RoleMembers {
@@ -4842,6 +5314,11 @@ impl Application {
                     return self.history_loaded(direction, history);
                 }
             }
+            Event::AttachmentsQueued { room, files } => {
+                if let Some(staged) = self.state.staged.get_mut(&room) {
+                    staged.retain(|file| !files.contains(&file.path));
+                }
+            }
             Event::SendResult { room, body, result } => {
                 if self.state.sending.as_ref() == Some(&room) {
                     self.state.sending = None;
@@ -4862,7 +5339,7 @@ impl Application {
                         }
                         self.state.notice = None;
                     }
-                    Err(error) => self.state.notice = Some(error.into()),
+                    Err(error) => self.state.notice = Some(Notice::Error(error.into())),
                 }
             }
             Event::EditResult { room, item, result } => {
@@ -4881,10 +5358,14 @@ impl Application {
                         }
                         self.state.notice = None;
                     }
-                    Err(error) => self.state.notice = Some(error),
+                    Err(error) => self.state.notice = Some(Notice::Error(error)),
                 }
             }
-            Event::Forwarded { room, result } => self.forwarded(room, result),
+            Event::Forwarded {
+                request,
+                room,
+                result,
+            } => self.forwarded(request, room, result),
             Event::PollPosted { room, result } => self.poll_posted(room, result),
             Event::Draft { room, body } => {
                 // Text typed since opening the room wins over the saved draft.
@@ -4897,27 +5378,27 @@ impl Application {
             Event::Saved { room, name, result } => {
                 if self.state.selected.as_ref() == Some(&room) {
                     self.state.notice = Some(match result {
-                        Ok(()) => format!("Saved {name}."),
-                        Err(error) => error.into(),
+                        Ok(()) => Notice::Info(format!("Saved {name}.")),
+                        Err(error) => Notice::Error(error.into()),
                     });
                 }
             }
             // Asked for just now, from the conversation or the thread beside it.
             Event::Copied(picture) => match picture {
                 Ok(picture) => return vec![Effect::CopyPicture(picture)],
-                Err(error) => self.state.notice = Some(error.into()),
+                Err(error) => self.state.notice = Some(Notice::Error(error.into())),
             },
             Event::Trust { trusted, error } => {
                 self.state.busy = false;
                 self.state.trusted = trusted;
-                self.state.notice = error.map(str::to_owned).or_else(|| {
-                    (!trusted).then(|| "This device is still unverified. Verify it in another client or enter your recovery key.".into())
+                self.state.notice = error.map(|error| Notice::Error(error.into())).or_else(|| {
+                    (!trusted).then(|| Notice::Info("This device is still unverified. Verify it in another client or enter your recovery key.".into()))
                 });
             }
             Event::Sync(online) => self.state.online = online,
             Event::Error(error) => {
                 self.state.busy = false;
-                self.state.notice = Some(error);
+                self.state.notice = Some(Notice::Error(error));
             }
             Event::LoggedOut => self.reset(),
         }
@@ -4926,11 +5407,11 @@ impl Application {
 
     fn start(&mut self, start: chat::Start) -> Vec<Effect> {
         self.state.busy = true;
-        self.state.notice = Some(if cfg!(feature = "matrix") {
+        self.state.notice = Some(Notice::Info(if cfg!(feature = "matrix") {
             "Connecting to Matrix...".into()
         } else {
             "Connecting to Discord...".into()
-        });
+        }));
         vec![Effect::Start(start)]
     }
 
@@ -5157,10 +5638,10 @@ impl Application {
                 favorites.remove(index);
             }
             None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
-                self.state.notice = Some(format!(
+                self.state.notice = Some(Notice::Error(format!(
                     "You can have up to {} favourite emoji.",
                     yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
-                ));
+                )));
                 return vec![];
             }
             None => favorites.push(name),

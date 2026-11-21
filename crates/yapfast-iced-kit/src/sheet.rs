@@ -1,8 +1,8 @@
 //! The frame of a server's and a channel's settings: a card over the
 //! dimmed window, the pages down its left on the sidebar's ground under
-//! their groups' headings, the chosen page on the right with the round
-//! close button and "ESC" beside it, and an editor's bar over the page's
-//! foot. Settings' own card shares the [`backdrop`] and the [`nav_row`].
+//! their groups' headings, the chosen page on the right with the close
+//! button at its top right, and an editor's bar over the page's foot.
+//! Settings' own card shares the [`backdrop`] and the [`nav_row`].
 
 use crate::widgets::scroll_view;
 use std::borrow::Cow;
@@ -15,7 +15,7 @@ use iced::{
 use crate::look::Look;
 use crate::{
     controls::{self, lights},
-    fonts::{BOLD, MEDIUM},
+    fonts::MEDIUM,
     form,
     icons::Icon,
     style::{corners, rounded, scrollbar},
@@ -33,8 +33,18 @@ pub const DIM: Color = Color {
     r: 0.0,
     g: 0.0,
     b: 0.0,
-    a: 0.7,
+    a: 0.72,
 };
+/// The grounds of the pages' column and of the page. Discord's Dark lifts
+/// both a step over the window's (measured): the column on the chat's ground
+/// and the page on the panels'.
+pub fn grounds(theme: &crate::theme::Theme) -> (Color, Color) {
+    if theme.bonfire {
+        (theme.chat, theme.panel)
+    } else {
+        (theme.sidebar, theme.chat)
+    }
+}
 /// The pages' column and a page's row in it, as a channel's row.
 const NAV: f32 = 232.0;
 const NAV_TOP: f32 = 56.0;
@@ -50,9 +60,8 @@ const BOTTOM_BAR: f32 = 140.0;
 /// The bar at its widest, and how far it floats in from the page's edges.
 const BAR: f32 = 700.0;
 const BAR_INSET: f32 = 24.0;
-/// The close button, and the column it sits in at the card's right.
-const CLOSE: f32 = 36.0;
-const CLOSE_COLUMN: f32 = 56.0;
+/// The close button at the card's top right.
+const CLOSE: f32 = 32.0;
 
 /// A row of the pages' column.
 pub enum Nav<'a, M> {
@@ -146,24 +155,20 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
                 .height(Length::Fill)
                 .into()
         };
-        let close = column![
-            controls_close(look, self.label, self.close.clone()),
-            text("ESC")
-                .size(12)
-                .font(BOLD)
-                .color(theme.muted)
-                .width(Length::Fill)
-                .align_x(Alignment::Center),
-        ]
-        .spacing(6)
-        .width(CLOSE_COLUMN)
-        .align_x(Alignment::Center);
+        let close = look
+            .icon_button(
+                Icon::X,
+                crate::words::say_with("Close {}", self.label),
+                self.close.clone(),
+            )
+            .size(CLOSE, 18)
+            .below();
         let mut content = stack![
             body,
             container(close)
                 .padding(Padding {
-                    top: 48.0,
-                    right: 24.0,
+                    top: 12.0,
+                    right: 12.0,
                     ..Padding::ZERO
                 })
                 .align_right(Length::Fill)
@@ -189,7 +194,7 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
                     .align_bottom(Length::Fill),
             );
         }
-        let sidebar = theme.sidebar;
+        let (sidebar, chat) = grounds(theme);
         let nav = container(
             scroll_view(
                 column(
@@ -212,7 +217,6 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         .width(NAV)
         .height(Length::Fill)
         .style(move |_| rounded(sidebar, corners([RADIUS, 0.0, 0.0, RADIUS])));
-        let chat = theme.chat;
         let card = container(row![
             nav,
             container(content).width(Length::Fill).height(Length::Fill)
@@ -226,26 +230,6 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
 
 /// The page's scrollable, which a new page snaps to its top.
 pub const PAGE: &str = "sheet-page";
-
-/// The round close button at the card's top right.
-fn controls_close<'a, M: Clone + 'a>(look: Look<'a>, label: &'a str, close: M) -> Element<'a, M> {
-    let theme = look.theme;
-    let (raised, lit) = (theme.raised, theme.hover);
-    let tip = format!("Close {label}");
-    iced::widget::tooltip(
-        button(look.glyph(Icon::X, 18, theme.secondary).boxed(CLOSE))
-            .padding(0)
-            .on_press(close)
-            .style(move |_, status| button::Style {
-                background: Some(if lights(status) { lit } else { raised }.into()),
-                border: Border::default().rounded(CLOSE / 2.0),
-                ..Default::default()
-            }),
-        controls::tip(theme, tip),
-        iced::widget::tooltip::Position::Bottom,
-    )
-    .into()
-}
 
 /// A row of the pages' column.
 fn nav_entry<'a, M: Clone + 'a>(look: Look<'a>, row: Nav<'a, M>, first: bool) -> Element<'a, M> {
@@ -376,7 +360,14 @@ pub fn backdrop<'a, M: Clone + 'a>(
     margin: f32,
     close: M,
 ) -> Element<'a, M> {
-    let (edge, ground) = (theme.edge, theme.chat);
+    let ground = grounds(theme).1;
+    // Discord's dark card is ringed in 4 % white over its page (41, 41, 45),
+    // not the theme's edge (measured).
+    let edge = if theme.dark {
+        crate::theme::mix(Color::WHITE, ground, 0.04)
+    } else {
+        theme.edge
+    };
     // Its parts round their own grounds to its corners; its edge goes over
     // them. The ground under them is opaque, so its shadow is drawn only
     // round it.
@@ -390,8 +381,13 @@ pub fn backdrop<'a, M: Clone + 'a>(
         });
     opaque(stack![
         controls::dimmed(close, DIM),
+        // `margin` in from the whole window's edges, its top too, which the
+        // window's title bar covers.
         container(crate::widgets::motion::grow(opaque(card)))
-            .padding(margin)
+            .padding(iced::Padding {
+                top: (margin - crate::widgets::motion::bar()).max(0.0),
+                ..iced::Padding::new(margin)
+            })
             .center_x(Length::Fill)
             .height(Length::Fill)
     ])

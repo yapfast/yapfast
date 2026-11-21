@@ -62,6 +62,7 @@ impl App {
             call: &self.call,
             header_spot: &self.header_spot,
             friends: &self.friends,
+            pages: &self.pages,
             active_now: &self.active_now,
             account_pointed: self.account_pointed,
             browse_filter: &self.sidebar.browse_filter,
@@ -104,13 +105,19 @@ impl App {
         if let Event::Reopen = event {
             return self.open_settings(self.win.settings_section);
         }
+        // The Connections tab opens Settings first, where they're closed.
+        let opened = if let Event::Connections = event {
+            self.open_settings(Section::Account)
+        } else {
+            Task::none()
+        };
         let mut cx = cx!(self);
         let Some(settings) = self.win.settings.get_mut() else {
-            return Task::none();
+            return opened;
         };
         let task = settings.update(event, &mut cx);
         self.win.settings_section = settings.section();
-        Task::batch([task, self.settle()])
+        Task::batch([opened, task, self.settle()])
     }
 
     pub fn settings_escape(&mut self) -> Task<Message> {
@@ -269,6 +276,9 @@ impl App {
             Screen::TagCard => {
                 self.win.tag_card.close(&mut cx, why);
             }
+            Screen::BoostGoal => {
+                self.win.boost_goal.close(&mut cx, why);
+            }
         }
     }
 
@@ -277,7 +287,7 @@ impl App {
     fn changed(&mut self, pref: Pref) -> Task<Message> {
         let mut task = Task::none();
         match pref {
-            Pref::Clock | Pref::Rows => {
+            Pref::Clock | Pref::Rows | Pref::Language => {
                 let none = super::Messages::default();
                 self.measure(&none, true);
                 self.dirty = true;

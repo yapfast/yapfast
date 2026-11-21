@@ -8,12 +8,13 @@ use crate::widgets::scroll_view;
 use std::collections::HashMap;
 
 use iced::{
-    Alignment, Element, Length, Padding, Point,
+    Alignment, Element, Length, Padding,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::{AppState, DmScreen},
     chat::{Activity, ActivityKind, ChatRoom, Friend, Presence},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -23,12 +24,11 @@ use crate::{
     people::voice_spots,
     pictures::{Face, initials, tint},
     style::{hex, rounded, scrollbar},
-    theme::rgb,
     widgets::Pic,
 };
 
 /// The conversation's width from which Active Now shows, and its own.
-pub const ROOM: f32 = 1000.0;
+pub const ROOM: f32 = 900.0;
 pub const WIDTH: f32 = 360.0;
 /// The most faces a row shows before "+N".
 const FACES: usize = 3;
@@ -134,11 +134,13 @@ fn since(seconds: u64) -> String {
 
 /// "01:19:45 elapsed".
 fn elapsed(seconds: u64) -> String {
-    format!(
-        "{:02}:{:02}:{:02} elapsed",
-        seconds / 3600,
-        seconds / 60 % 60,
-        seconds % 60
+    i18n::fill(
+        tr("{0}:{1}:{2} elapsed"),
+        &[
+            &format!("{:02}", seconds / 3600),
+            &format!("{:02}", seconds / 60 % 60),
+            &format!("{:02}", seconds % 60),
+        ],
     )
 }
 
@@ -147,10 +149,10 @@ fn names(names: &[&str]) -> String {
     match names {
         [] => String::new(),
         [one] => (*one).to_owned(),
-        [one, two] => format!("{one} and {two}"),
+        [one, two] => i18n::fill(tr("{0} and {1}"), &[&one, &two]),
         [one, two, rest @ ..] => {
-            let others = if rest.len() == 1 { "other" } else { "others" };
-            format!("{one}, {two}, and {} {others}", rest.len())
+            let others = i18n::trn("{n} other", "{n} others", rest.len());
+            i18n::fill(tr("{0}, {1}, and {2}"), &[&one, &two, &others])
         }
     }
 }
@@ -355,7 +357,7 @@ fn voice_card(
     );
     card(
         friends,
-        activity.map_or("In a Voice Channel".to_owned(), self::doing),
+        activity.map_or(tr("In a Voice Channel").to_owned(), self::doing),
         activity
             .and_then(|activity| activity.start)
             .map(|ms| ms / 1000),
@@ -387,7 +389,7 @@ fn doing_card(friends: &[&Friend], doing: &[Doing<'_>]) -> Card {
         rows.push(CardRow {
             kind: RowKind::Game,
             title: what.clone(),
-            detail: format!("{} People", first.friends.len()),
+            detail: i18n::fill(tr("{} People"), &[&first.friends.len()]),
             icon: activity.large_image.as_deref().map(str::to_owned),
             named: what.clone(),
             start: None,
@@ -445,10 +447,10 @@ fn detail_row(activity: &Activity) -> CardRow {
     CardRow {
         kind: RowKind::Detail,
         title: title.to_owned(),
-        detail: activity
-            .state
-            .as_deref()
-            .map_or_else(|| format!("with {}", activity.name), str::to_owned),
+        detail: activity.state.as_deref().map_or_else(
+            || i18n::fill(tr("with {}"), &[&activity.name]),
+            str::to_owned,
+        ),
         icon: activity
             .small_image
             .as_deref()
@@ -483,7 +485,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     // Discord's cards run from 17 px in to 16 px short of the right, and a
     // dark theme's column is a shade under the chat's.
-    let mut page = column![text("Active Now").size(20).font(BOLD).color(theme.text)]
+    let mut page = column![text(tr("Active Now")).size(20).font(BOLD).color(theme.text)]
         .spacing(10)
         .padding(Padding {
             top: 13.0,
@@ -495,15 +497,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if ctx.active_now.is_empty() {
         page = page.push(
             column![
-                text("It's quiet for now...")
+                text(tr("It's quiet for now..."))
                     .size(16)
                     .font(BOLD)
                     .color(theme.text)
                     .width(Length::Fill)
                     .align_x(Alignment::Center),
-                text(
-                    "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!"
-                )
+                text(tr(
+                    "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!",
+                ))
                 .size(13)
                 .color(theme.muted)
                 .width(Length::Fill)
@@ -556,11 +558,8 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         (theme.raised, theme.raised, theme.edge)
     };
     let face = Face::new(card.face.avatar.as_deref(), &card.face.name, 32.0);
-    let face = ctx.face(match card.presence {
-        // The ring takes the head's colour at rest.
-        Some(presence) => face.dot(Some((presence, rgb(head_ground), Point::new(20.0, 20.0)))),
-        None => face,
-    });
+    // Discord shows no presence dot on the card's avatar.
+    let face = ctx.face(face);
     let mut head = row![
         face,
         column![
@@ -642,7 +641,7 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
             entry.icon.as_deref(),
             &entry.named,
             entry.kind == RowKind::Voice,
-            32.0
+            48.0
         ),
         words
     ]
@@ -775,6 +774,7 @@ mod tests {
                 activity
             ])),
             since: None,
+            tag: None,
         };
         let game = |party: Option<&str>| {
             let mut game =

@@ -16,17 +16,19 @@ use iced::{
     widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
     window,
 };
-use yapfast_core::application::DmScreen;
+use yapfast_core::application::{DmScreen, Navigation};
 
 use crate::{
     app::{App, Message},
     controls::{self, lit_style},
     elide::elide,
     fonts::BOLD,
-    pictures::Icon,
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
+    settings::Section,
     style::{faded, scrollbar},
     widgets::{Hover, Rows},
 };
+use yapfast_core::i18n::tr;
 
 /// The bar's height, which moves the window's content down.
 pub const HEIGHT: f32 = 32.0;
@@ -42,9 +44,6 @@ const INBOX_MOST: f32 = 560.0;
 const INBOX_ROW: f32 = 56.0;
 /// Round the inbox's rows.
 const INBOX_PAD: f32 = 4.0;
-
-/// Where Discord's help opens.
-const HELP: &str = "https://support.discord.com";
 
 /// How far the pointer moves with the button down before the window moves,
 /// so a double click still maximizes it.
@@ -125,6 +124,7 @@ pub struct InboxRow {
     pub avatar_name: String,
     pub place: String,
     pub picture: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub mentions: u64,
 }
 
@@ -254,10 +254,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.inbox = None;
             Task::none()
         }
-        Event::Help => {
-            crate::browser::open(HELP);
-            Task::none()
-        }
+        // Yapfast's own help is its keybinds page; nothing opens in a
+        // browser.
+        Event::Help => app.open_settings(Section::Keybinds),
         Event::Press => {
             app.bar_drag.armed = Some(None);
             Task::none()
@@ -367,6 +366,7 @@ pub fn inbox_sync(app: &mut App) {
                 .map(|place| (*place).to_owned())
                 .unwrap_or_default(),
             picture: room.direct.then(|| room.avatar.clone()).flatten(),
+            group_icon: room.direct.then(|| room_group_icon(room)).flatten(),
             mentions: room.mentions,
         })
         .collect();
@@ -384,12 +384,9 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     let workspace = crate::signin::workspace(app);
     let state = app.client.state();
     let settings_open = app.win.settings.is_open();
-    let place = if !workspace {
-        "Yapfast".to_owned()
-    } else if app.sidebar.header.server.is_none() {
-        "Direct Messages".to_owned()
-    } else {
-        app.sidebar.header.name.clone()
+    let server = match &state.navigation {
+        Navigation::Server(id) if workspace => state.servers.iter().find(|server| &server.id == id),
+        _ => None,
     };
     let ink = if !app.shell.focused {
         theme.faint
@@ -398,30 +395,45 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     } else {
         theme.secondary
     };
-    // The Friends page names the bar "Friends", as Discord's does.
-    let friends = workspace
-        && app.sidebar.header.server.is_none()
-        && crate::friends::dm_screen(app) == Some(DmScreen::Friends);
-    let place = if friends { "Friends".to_owned() } else { place };
-    let middle = row![
-        app.look()
-            .glyph(
-                if friends { Icon::Users } else { Icon::Dm },
-                16,
-                theme.secondary
-            )
-            .boxed(16.0),
-        elide(place).size(12).font(BOLD).color(ink).shrink()
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center);
+    let (place, crumb): (&str, Element<'_, Message>) = if let Some(server) = server {
+        (
+            server.name.as_str(),
+            app.ctx()
+                .avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+        )
+    } else {
+        let (place, icon) = if !workspace {
+            ("Yapfast", Icon::Dm)
+        } else if let Some(screen) = crate::friends::dm_screen(app) {
+            match screen {
+                DmScreen::Friends => (tr("Friends"), Icon::Friends),
+                DmScreen::Requests => (tr("Message Requests"), Icon::Mail),
+                DmScreen::Nitro => ("Nitro", Icon::Nitro),
+                DmScreen::Shop => ("Shop", Icon::Shop),
+                DmScreen::Quests => ("Quests", Icon::Wreath),
+                DmScreen::Discover => (tr("Discover"), Icon::Compass),
+            }
+        } else {
+            (tr("Direct Messages"), Icon::Dm)
+        };
+        (
+            place,
+            app.look()
+                .glyph(icon, 16, theme.secondary)
+                .boxed(16.0)
+                .into(),
+        )
+    };
+    let middle = row![crumb, elide(place).size(14).font(BOLD).color(ink).shrink()]
+        .spacing(8)
+        .align_y(Alignment::Center);
     let back = workspace && !settings_open && state.can_go_back();
     let forward = workspace && !settings_open && state.can_go_forward();
     let left = row![
         bar_button(
             app,
             Icon::ArrowLeft,
-            "Back",
+            tr("Back"),
             back.then_some(Event::Back),
             false,
             BarSize::Arrow
@@ -429,7 +441,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowRight,
-            "Forward",
+            tr("Forward"),
             forward.then_some(Event::Forward),
             false,
             BarSize::Arrow
@@ -447,7 +459,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Inbox,
-                    "Inbox",
+                    tr("Inbox"),
                     Some(Event::Inbox),
                     app.inbox.is_some(),
                     BarSize::Tool
@@ -455,7 +467,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Help,
-                    "Help",
+                    tr("Keybinds"),
                     Some(Event::Help),
                     false,
                     BarSize::Tool
@@ -732,10 +744,10 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         .into()
     };
     let head = row![
-        text("Inbox").size(16).font(BOLD).color(theme.text),
+        text(tr("Inbox")).size(16).font(BOLD).color(theme.text),
         Space::new().width(Length::Fill),
-        tab("Unreads", Tab::Unreads, 80.0),
-        tab("Mentions", Tab::Mentions, 92.0),
+        tab(tr("Unreads"), Tab::Unreads, 80.0),
+        tab(tr("Mentions"), Tab::Mentions, 92.0),
     ]
     .spacing(8)
     .padding([0, 16])
@@ -744,8 +756,8 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     let body: Element<'_, Message> = if inbox.rows.is_empty() {
         container(
             text(match inbox.tab {
-                Tab::Unreads => "Unread messages from your unmuted channels show up here.",
-                Tab::Mentions => "Nothing mentions you right now.",
+                Tab::Unreads => tr("Unread messages from your unmuted channels show up here."),
+                Tab::Mentions => tr("Nothing mentions you right now."),
             })
             .size(14)
             .color(theme.muted)
@@ -814,19 +826,22 @@ fn inbox_line<'a>(app: &'a App, entry: &'a InboxRow) -> Element<'a, Message> {
     if !entry.place.is_empty() {
         names = names.push(elide(entry.place.as_str()).size(12).color(theme.muted));
     }
-    let mut line = row![
-        app.ctx().avatar_tinted(
+    let avatar = match &entry.group_icon {
+        Some(group) => app
+            .ctx()
+            .face(Face::new(None, &entry.avatar_name, 32.0).group(Some(group.as_face()))),
+        None => app.ctx().avatar_tinted(
             entry.picture.as_deref(),
             &entry.avatar_name,
             &entry.id,
             32.0,
             16.0,
-            1.0
+            1.0,
         ),
-        container(names.spacing(2)).width(Length::Fill)
-    ]
-    .spacing(12)
-    .align_y(Alignment::Center);
+    };
+    let mut line = row![avatar, container(names.spacing(2)).width(Length::Fill)]
+        .spacing(12)
+        .align_y(Alignment::Center);
     if entry.mentions > 0 {
         line = line.push(controls::count_pill(
             theme,

@@ -1445,6 +1445,7 @@ impl OpenChannel {
         &mut self,
         discord: &Discord,
         done: &UnboundedSender<Done>,
+        request: u64,
         item: String,
         index: usize,
     ) {
@@ -1454,6 +1455,7 @@ impl OpenChannel {
             .and_then(|attachment| attachment.view_url.clone())
         else {
             let _ = done.send(Done::Image {
+                request,
                 room,
                 item,
                 index,
@@ -1494,6 +1496,7 @@ impl OpenChannel {
                 }
             };
             let _ = done.send(Done::Image {
+                request,
                 room,
                 item,
                 index,
@@ -1630,6 +1633,11 @@ impl OpenChannel {
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
                         tag: discord::server_tag(discord.server_tag(&original.author_id)),
+                        style: discord
+                            .style(Some(&self.guild), &original.author_id)
+                            .map(|style| Arc::new(style.into())),
+                        forwarded: original.forwarded,
+                        has_media: !original.attachments.is_empty() || !original.embeds.is_empty(),
                     })
                 }),
                 attachments: pending
@@ -1757,6 +1765,8 @@ impl OpenChannel {
                 author_id,
                 author,
                 content,
+                forwarded,
+                has_media,
             } => {
                 let (body, emoji) = reply_snippet(discord, server, content);
                 Reply {
@@ -1767,6 +1777,11 @@ impl OpenChannel {
                     item: Some(format!("d:{id}")),
                     color: server.and_then(|server| discord.color(server, author_id)),
                     tag: discord::server_tag(discord.server_tag(author_id)),
+                    style: discord
+                        .style(Some(&self.guild), author_id)
+                        .map(|style| Arc::new(style.into())),
+                    forwarded: *forwarded,
+                    has_media: *has_media,
                 }
             }
             DiscordReply::Deleted => Reply {
@@ -1777,6 +1792,7 @@ impl OpenChannel {
                 item: None,
                 color: None,
                 tag: None,
+                ..Default::default()
             },
             DiscordReply::Unknown { id } => Reply {
                 author: String::new(),
@@ -1791,6 +1807,7 @@ impl OpenChannel {
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
                 tag: None,
+                ..Default::default()
             },
         });
         let timestamp = message.timestamp();

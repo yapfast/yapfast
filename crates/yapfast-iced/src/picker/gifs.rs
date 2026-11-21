@@ -21,11 +21,12 @@ use super::{
 use crate::{
     app::Message,
     ctx::{Cx, Focus, Request},
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
     pictures::Icon,
     style::rounded,
 };
+use yapfast_core::i18n::tr;
 
 /// The home's tiles' height, and how many placeholders a search shows
 /// while it loads.
@@ -171,7 +172,7 @@ impl Picker {
                 } else if let Some(error) = &gifs.error {
                     note.clone_from(error);
                 } else if gifs.results.is_empty() {
-                    note = "No GIFs match your search.".into();
+                    note = tr("No GIFs match your search.").into();
                 }
                 for gif in gifs.results.iter().filter(|_| !gifs.loading) {
                     tile(
@@ -189,11 +190,11 @@ impl Picker {
                 Some(all) => {
                     let shown = state.shown_favorite_gifs();
                     if all.is_empty() {
-                        note = "Click the star in the corner of a GIF to favorite it. \
-                                Favorites will show up here!"
-                            .into();
+                        note = tr("Click the star in the corner of a GIF to favorite it. \
+                                Favorites will show up here!")
+                        .into();
                     } else if shown.is_empty() {
-                        note = "No favorite GIFs match your search.".into();
+                        note = tr("No favorite GIFs match your search.").into();
                     }
                     for favorite in shown {
                         tile(
@@ -358,28 +359,30 @@ impl<'a> View<'a> {
         };
         let state = self.cx.state;
         let view = state.gifs.view;
-        // The header: Back off the home, the field (in Trending, its title).
+        // The header: Back off the home, the Favorites title, and search
+        // (behind the title in Trending).
         let mut header = row![].spacing(8).align_y(Alignment::Center);
         if view != GifView::Home {
             header = header.push(
                 self.cx
                     .look
-                    .icon_button(Icon::ChevronLeft, "Back", Message::Picker(Event::Back))
+                    .icon_button(Icon::ChevronLeft, tr("Back"), Message::Picker(Event::Back))
                     .size(34.0, 20),
             );
         }
         let placeholder = if view == GifView::Favorites {
-            "Search Favorites"
+            header = header.push(text(tr("Favorites")).size(16).font(BOLD).color(theme.text));
+            tr("Search Favorites")
         } else {
-            "Search Klipy"
+            tr("Search Klipy")
         };
-        let field = kit::search_field(&picker.field, placeholder, theme);
+        let field = kit::search_field(&picker.field, placeholder, self.cx.look);
         if view == GifView::Trending {
             let raised = theme.raised;
             let title = container(
-                text("Trending GIFs")
+                text(tr("Trending GIFs"))
                     .size(16)
-                    .font(crate::fonts::BOLD)
+                    .font(BOLD)
                     .color(theme.text),
             )
             .height(34)
@@ -407,7 +410,9 @@ impl<'a> View<'a> {
         } else {
             stack![kit::note(tab.note.clone(), theme), kit::grid(rows, theme)].into()
         };
-        column![header, body].height(Length::Fill).into()
+        column![header, kit::divider(theme), body]
+            .height(Length::Fill)
+            .into()
     }
 
     fn gif_tile(
@@ -443,8 +448,8 @@ impl<'a> View<'a> {
         // The home's tiles are labelled over a dimmed picture, dimmer under
         // the pointer.
         let label = match item {
-            Item::Favorites(_) => Some((Some(Icon::StarFilled), "Favorites".to_owned())),
-            Item::Trending(_) => Some((Some(Icon::TrendingUp), "Trending GIFs".to_owned())),
+            Item::Favorites(_) => Some((Some(Icon::StarFilled), tr("Favorites").to_owned())),
+            Item::Trending(_) => Some((Some(Icon::TrendingUp), tr("Trending GIFs").to_owned())),
             Item::Term { name, .. } => Some((None, name.clone())),
             _ => None,
         };
@@ -489,9 +494,9 @@ impl<'a> View<'a> {
             && hovered
         {
             let tip = if *favorite {
-                "Remove from Favorites"
+                tr("Remove from Favorites")
             } else {
-                "Add to Favorites"
+                tr("Add to Favorites")
             };
             let star = kit::star(
                 self.cx.look,
@@ -537,11 +542,13 @@ impl<'a> View<'a> {
             );
         }
         column![
-            text("Your perfect GIF is in another castle. Try the suggested keywords below!")
-                .size(14)
-                .color(theme.secondary)
-                .align_x(Alignment::Center)
-                .width(Length::Fill),
+            text(tr(
+                "Your perfect GIF is in another castle. Try the suggested keywords below!"
+            ))
+            .size(14)
+            .color(theme.secondary)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
             container(terms.wrap()).center_x(Length::Fill)
         ]
         .spacing(10)

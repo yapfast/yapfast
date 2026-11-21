@@ -30,7 +30,7 @@ impl<'a> crate::look::Look<'a> {
                 .color(self.theme.text)
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
-            self.icon_button(crate::icons::Icon::X, "Close", close)
+            self.icon_button(crate::icons::Icon::X, crate::words::say("Close"), close)
                 .below(),
         ]
         .align_y(Alignment::Center)
@@ -118,7 +118,21 @@ pub fn dialog<'a, M: Clone + 'a>(
     width: f32,
     on_outside: M,
 ) -> Element<'a, M> {
-    let (ground, edge) = (theme.raised, theme.edge);
+    // Discord's dialog on a dark theme is ringed in (59, 59, 65), a step
+    // lighter than the theme's edge: the raised ground (36, 36, 41) and
+    // (23, 23, 24) of 255.
+    let ground = theme.raised;
+    let edge = if theme.dark {
+        let lift = |channel: f32, by: f32| (channel + by / 255.0).min(1.0);
+        iced::Color {
+            r: lift(ground.r, 23.0),
+            g: lift(ground.g, 23.0),
+            b: lift(ground.b, 24.0),
+            a: ground.a,
+        }
+    } else {
+        theme.edge
+    };
     let card = opaque(
         container(body)
             .width(width)
@@ -129,11 +143,16 @@ pub fn dialog<'a, M: Clone + 'a>(
                 ..Default::default()
             }),
     );
-    // Kept inside the window, by its padding, both ways.
+    // Kept inside the window, by its padding, both ways, and centred in
+    // the whole window, as Discord's are: the content lays out under the
+    // window's title bar, so its foot is padded by the bar's height.
     opaque(stack![
         outside(on_outside, true),
         container(crate::widgets::motion::grow(card))
-            .padding(ROOM / 2.0)
+            .padding(iced::Padding {
+                bottom: ROOM / 2.0 + crate::widgets::motion::bar(),
+                ..iced::Padding::new(ROOM / 2.0)
+            })
             .center(Length::Fill)
     ])
 }
@@ -168,6 +187,12 @@ pub fn panel<'a, M: Clone + 'a>(
     }
     opaque(stack![
         crate::controls::dimmed(on_outside, PANEL_DIM),
-        container(crate::widgets::motion::grow(opaque(card))).center(Length::Fill)
+        // Centred in the whole window, as the dialog is.
+        container(crate::widgets::motion::grow(opaque(card)))
+            .padding(iced::Padding {
+                bottom: crate::widgets::motion::bar(),
+                ..iced::Padding::ZERO
+            })
+            .center(Length::Fill)
     ])
 }

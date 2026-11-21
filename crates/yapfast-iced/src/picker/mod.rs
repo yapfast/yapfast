@@ -66,6 +66,12 @@ pub enum Event {
     Star(usize),
     /// A section on the rail, by its place.
     Jump(usize),
+    /// A section's heading folded or opened, by its place.
+    Fold(usize),
+    ToggleSkinTones,
+    SkinTone(usize),
+    AddEmoji,
+    EmojiServer(String),
     /// The pointer came onto a section on the rail, or left it.
     RailHover(usize),
     RailLeft(usize),
@@ -128,11 +134,13 @@ impl Picker {
         }
     }
 
-    /// The tab's own grid's width, beside its rail.
+    /// The tab's own grid's width, beside its rail, inside the panel's 1 px
+    /// edge.
     fn grid_width(&self) -> f32 {
+        let inside = self.size().width - 2.0;
         match self.tab {
-            Tab::Gifs => self.size().width,
-            Tab::Emoji | Tab::Stickers => self.size().width - kit::RAIL,
+            Tab::Gifs => inside,
+            Tab::Emoji | Tab::Stickers => inside - kit::RAIL,
         }
     }
 
@@ -292,6 +300,14 @@ impl Picker {
                 }
                 self.jump(index, cx)
             }
+            Event::Fold(index) => {
+                self.emoji_fold(index, cx);
+                Task::none()
+            }
+            Event::ToggleSkinTones => self.emoji_toggle_tones(cx),
+            Event::SkinTone(tone) => self.emoji_tone(tone, cx),
+            Event::AddEmoji => self.emoji_add(cx),
+            Event::EmojiServer(server) => self.emoji_open_server(server, cx),
             Event::RailHover(index) => {
                 self.rail_hover = Some(index);
                 Task::none()
@@ -304,6 +320,7 @@ impl Picker {
             }
             Event::Pressed => Task::none(),
             Event::Field(field::Event::Escape) => match tab {
+                Tab::Emoji => self.emoji_escape(cx),
                 Tab::Gifs => self.gifs_escape(cx),
                 _ => self.ask_close(cx),
             },
@@ -441,6 +458,7 @@ fn open_tab(tab: Tab, cx: &mut Cx<'_>) -> String {
         }
         Tab::Emoji => {
             cx.dispatch(Action::CacheEmojiPictures);
+            cx.dispatch(Action::LoadPopularEmoji);
             String::new()
         }
     }

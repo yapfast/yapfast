@@ -260,6 +260,7 @@ fn the_viewer_steps_through_a_messages_images() {
         "and around backwards"
     );
     app.apply(Event::Image {
+        request: 1,
         room: "dm".into(),
         item: "e:m".into(),
         index: 2,

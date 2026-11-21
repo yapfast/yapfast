@@ -3,6 +3,53 @@
 use super::*;
 
 #[test]
+fn a_side_thread_only_acknowledges_its_visible_newest_message() {
+    let mut app = connected();
+    let room = "discord:10:22";
+    app.state.rooms.push(Arc::new(ChatRoom {
+        id: room.into(),
+        network: Network::Discord,
+        unread: 1,
+        ..(*app.state.rooms[0]).clone()
+    }));
+    app.state.aside = Some(aside::Aside {
+        room: room.into(),
+        ready: true,
+        messages: Arc::new(timeline(vec![
+            message("d:10", false),
+            message("d:11", false),
+        ])),
+        ..Default::default()
+    });
+    let report = |at_end| Action::VisibleMessages {
+        room: room.into(),
+        items: vec!["d:10".into(), "d:11".into()],
+        at_end,
+    };
+    let marks = |effect: &Effect| {
+        matches!(
+            effect,
+            Effect::Backend(Command::Discord(DiscordCommand::MarkThreadRead {
+                newest: 11,
+                ..
+            }))
+        )
+    };
+    assert!(!app.dispatch(report(false)).iter().any(marks));
+    assert!(!app.mark_aside_read().iter().any(marks));
+    assert!(app.dispatch(report(true)).iter().any(marks));
+    app.apply(Event::Timeline {
+        room: room.into(),
+        messages: timeline(vec![
+            message("d:10", false),
+            message("d:11", false),
+            message("d:12", false),
+        ]),
+    });
+    assert!(app.mark_aside_read().is_empty());
+}
+
+#[test]
 #[cfg(feature = "discord")]
 fn discord_threads_open_once_listed() {
     use yapfast_discord::{
@@ -207,6 +254,7 @@ fn discord_threads_show_beside_their_channel() {
         [Effect::Backend(Command::ViewImage { room, .. })] if room == "discord:10:30"
     ));
     app.apply(Event::Image {
+        request: 1,
         room: "discord:10:30".into(),
         item: "d:5".into(),
         index: 0,

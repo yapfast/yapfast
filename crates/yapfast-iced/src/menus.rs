@@ -8,9 +8,9 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Element, Length, Padding, Point, Task,
+    Alignment, Border, Element, Length, Padding, Point, Task,
     keyboard::key,
-    widget::{Space, column, container, mouse_area, opaque, operation, row},
+    widget::{Space, button, column, container, mouse_area, opaque, operation, row, text},
 };
 use yapfast_core::application::{Action, ThreadFrom};
 
@@ -24,13 +24,29 @@ use crate::{
     style::blend,
     widgets::{Anchor, Place},
 };
+use yapfast_core::i18n::tr;
 
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
 
-/// A message's menu's width; the composer's is wider.
+/// A menu's width; the composer's and a message's are wider.
 pub const WIDTH: f32 = 224.0;
 pub const FIELD_WIDTH: f32 = 255.0;
+/// A server's header's dropdown, as Discord's: 220 px whatever its words
+/// are, which are cut to "…" where they don't fit.
+pub const HEADER_WIDTH: f32 = 220.0;
+/// Someone's menu, as Discord's: as wide as its rows need, 177 px at the
+/// least.
+pub const PERSON_WIDTH: f32 = 177.0;
+/// A message's menu as Discord's: 280 px, its rows 36 px with a 20 px
+/// icon and a 16 px chevron, its quick reactions 44 px tiles with a 20 px
+/// emoji.
+pub const MESSAGE_WIDTH: f32 = 280.0;
+const MESSAGE_ROW: f32 = 36.0;
+const MESSAGE_ICON: u32 = 20;
+const MESSAGE_CHEVRON: u32 = 16;
+const QUICK_TILE: f32 = 44.0;
+const QUICK_EMOJI: u32 = 20;
 /// How many of the reactions this device uses most a message's menu
 /// offers over its rows (the core fills them with Discord's until it has
 /// reacted); the first three are on its hover bar.
@@ -47,6 +63,10 @@ pub struct Menu {
     /// A message's menu in the timeline, opened before its room's apps'
     /// commands came: its Apps row goes in once they have.
     pub apps_due: bool,
+    /// The composer's Gift menu, whose rows follow the gifts as they are
+    /// read (`composer::tools::gifts_sync`).
+    pub gifts: bool,
+    pub composer_apps: Option<crate::composer::apps::Browser>,
     /// The quick reactions above the rows, the most used first, taken as
     /// it opens; none for a menu without them.
     pub reactions: Vec<String>,
@@ -59,6 +79,13 @@ pub struct Menu {
     /// How its point is read, and its width.
     pub anchor: Anchor,
     pub width: f32,
+    /// Its width is its own whatever its rows need, and its words are cut
+    /// to what it leaves them.
+    pub fixed: bool,
+    /// Whether a row's icon stands alone: someone's menu as Discord draws
+    /// it has none but its Copy ID, and the rows without keep no room for
+    /// one.
+    pub lone_icons: bool,
     /// Someone in a call, by its room and their id: their voice menu, with
     /// their volumes over its rows while they're someone else.
     pub voice: Option<(String, String)>,
@@ -83,12 +110,16 @@ impl Menu {
             lit: None,
             item: None,
             apps_due: false,
+            gifts: false,
+            composer_apps: None,
             reactions: Vec::new(),
             place: None,
             header: false,
             location: crate::person_menu::CONTEXT_MENU,
             anchor: Anchor::Pointer,
             width: WIDTH,
+            fixed: false,
+            lone_icons: false,
             voice: None,
             volumes: None,
             sub: None,
@@ -99,25 +130,29 @@ impl Menu {
     }
 
     /// Whether its rows leave room for an icon or tick: a message's always,
-    /// others when a row has one.
+    /// others when a row has one, unless the icons stand alone.
     fn slot(&self) -> bool {
-        self.place.is_none() || ticks(&self.rows) || self.rows.iter().any(|row| row.icon.is_some())
+        self.place.is_none()
+            || ticks(&self.rows)
+            || (!self.lone_icons && self.rows.iter().any(|row| row.icon.is_some()))
     }
 
     /// How wide the menu (`None`) or row `sub`'s submenu shows.
     fn fit(&self, sub: Option<usize>) -> f32 {
+        let message = self.item.is_some();
         let fits = self.fits.get_or_init(|| {
-            std::iter::once(fit(&self.rows, self.slot()))
+            std::iter::once(fit(&self.rows, self.slot(), message))
                 .chain(self.rows.iter().map(|row| {
                     if row.submenu.is_empty() {
                         0.0
                     } else {
-                        fit(&row.submenu, ticks(&row.submenu))
+                        fit(&row.submenu, ticks(&row.submenu), message)
                     }
                 }))
                 .collect()
         });
         match sub {
+            None if self.fixed => self.width,
             None => fits[0].max(self.width),
             Some(sub) => fits.get(sub + 1).copied().unwrap_or(0.0).max(SUB_WIDTH),
         }
@@ -130,6 +165,19 @@ impl Menu {
 
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Exactly `width` wide, its words cut to "…" where they don't fit.
+    pub fn fixed(mut self, width: f32) -> Self {
+        self.width = width;
+        self.fixed = true;
+        self
+    }
+
+    /// Its icons stand alone: a row without one keeps no room for it.
+    pub fn lone_icons(mut self) -> Self {
+        self.lone_icons = true;
         self
     }
 
@@ -175,6 +223,9 @@ pub enum MenuAct {
     Field(crate::composer::Writing, MenuEdit),
     /// The composer's + menu.
     Upload,
+    /// A gift of the composer's Gift menu, by its room and code in the
+    /// row's `key`: its link goes in the message being written.
+    GiftLink,
     /// Create Thread, from the composer's + or a message; View Thread.
     NewThread,
     ViewThread,
@@ -359,24 +410,39 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     }
     let row = MenuRow::new;
     let mut rows = Vec::new();
+    let mut group: Option<u8> = None;
+    let mut push = |section: u8, mut entry: MenuRow| {
+        entry.separated = group.replace(section).is_some_and(|last| last != section);
+        rows.push(entry);
+    };
     let state = app.client.state();
     let writes = crate::composer::composer_look(app.ctx()).enabled;
     let sent = message.delivery == yapfast_core::chat::Delivery::default();
     let reacts = message.can_react && adds_reactions(app, index);
+    // Its chevron as Discord's; a click opens the picker.
     if reacts {
-        rows.push(row(MenuAct::AddReaction, "Add reaction", Icon::SmilePlus));
+        push(
+            1,
+            MenuRow {
+                check: crate::controls::Check::Submenu,
+                ..row(MenuAct::AddReaction, tr("Add reaction"), Icon::SmilePlus)
+            },
+        );
     }
     if !message.reactions.is_empty() {
-        rows.push(row(MenuAct::ViewReactions, "View Reactions", Icon::Smile));
+        push(
+            1,
+            row(MenuAct::ViewReactions, tr("View Reactions"), Icon::Smile),
+        );
     }
     if message.can_edit && writes {
-        rows.push(row(MenuAct::Edit, "Edit message", Icon::Pencil));
+        push(2, row(MenuAct::Edit, tr("Edit message"), Icon::Pencil));
     }
     if message.can_reply && writes {
-        rows.push(row(MenuAct::Reply, "Reply", Icon::Reply));
+        push(2, row(MenuAct::Reply, tr("Reply"), Icon::Reply));
     }
     if message.can_forward && crate::forward::allowed(app.client.state()) {
-        rows.push(row(MenuAct::Forward, "Forward", Icon::Forward));
+        push(2, row(MenuAct::Forward, tr("Forward"), Icon::Forward));
     }
     // A message someone wrote starts a thread, or leads to its own.
     if index < crate::timeline::ASIDE
@@ -385,30 +451,42 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         && sent
         && message.thread.is_none()
     {
-        rows.push(row(MenuAct::NewThread, "Create Thread", Icon::Thread));
+        push(
+            2,
+            row(MenuAct::NewThread, tr("Create Thread"), Icon::Thread),
+        );
     }
     if message.can_reply && message.thread.is_some() {
-        rows.push(row(MenuAct::ViewThread, "View Thread", Icon::Thread));
+        push(2, row(MenuAct::ViewThread, tr("View Thread"), Icon::Thread));
     }
     if !message.body.is_empty() {
-        rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
+        push(3, row(MenuAct::CopyText, tr("Copy text"), Icon::Copy));
     }
     if crate::timeline::selection::copied_selection(app).is_some() {
-        rows.push(row(
-            MenuAct::CopySelection,
-            "Copy selection",
-            Icon::TextSelect,
-        ));
+        push(
+            3,
+            row(
+                MenuAct::CopySelection,
+                tr("Copy selection"),
+                Icon::TextSelect,
+            ),
+        );
     }
     if message.poll.as_ref().is_some_and(|poll| poll.can_end) {
-        rows.push(row(MenuAct::EndPoll, "End Poll Now", Icon::CircleStop));
+        push(
+            3,
+            row(MenuAct::EndPoll, tr("End Poll Now"), Icon::CircleStop),
+        );
     }
     if message.can_pin && sent {
-        rows.push(if message.pinned {
-            row(MenuAct::Pin, "Unpin message", Icon::PinOff)
-        } else {
-            row(MenuAct::Pin, "Pin message", Icon::Pin)
-        });
+        push(
+            3,
+            if message.pinned {
+                row(MenuAct::Pin, tr("Unpin message"), Icon::PinOff)
+            } else {
+                row(MenuAct::Pin, tr("Pin message"), Icon::Pin)
+            },
+        );
     }
     // The apps' message commands, beside it as Discord's are; not in
     // the thread beside, whose room the index isn't for, nor on an answer
@@ -418,28 +496,35 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         && message.flags & (crate::message::EPHEMERAL | crate::message::LOADING) == 0;
     let apps = takes_apps.then(|| apps_row(app)).flatten();
     let apps_due = takes_apps && apps.is_none();
-    rows.extend(apps);
+    if let Some(apps) = apps {
+        push(3, apps);
+    }
     // After Apps, as in Discord's menu.
     if app.client.app.marks_unread(&message.item) {
-        rows.push(row(MenuAct::MarkUnread, "Mark Unread", Icon::MessageCircle));
+        push(
+            3,
+            row(MenuAct::MarkUnread, tr("Mark Unread"), Icon::MessageCircle),
+        );
     }
     let link = state.message_link(&message.item);
     if link.is_some() {
-        rows.push(row(MenuAct::CopyLink, "Copy Message Link", Icon::Chain));
+        push(
+            3,
+            row(MenuAct::CopyLink, tr("Copy Message Link"), Icon::Chain),
+        );
     }
     if message.can_delete && writes {
-        rows.push(MenuRow {
-            danger: true,
-            separated: true,
-            ..row(MenuAct::Delete, "Delete message", Icon::Trash)
-        });
+        push(
+            4,
+            MenuRow {
+                danger: true,
+                ..row(MenuAct::Delete, tr("Delete message"), Icon::Trash)
+            },
+        );
     }
     // Last, as Discord's client puts it.
     if link.is_some() {
-        rows.push(MenuRow {
-            separated: true,
-            ..row(MenuAct::CopyId, "Copy Message ID", Icon::Id)
-        });
+        push(5, row(MenuAct::CopyId, tr("Copy Message ID"), Icon::Id));
     }
     if rows.is_empty() {
         return Task::none();
@@ -452,6 +537,7 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
         } else {
             Vec::new()
         },
+        width: MESSAGE_WIDTH,
         ..Menu::new(at, rows)
     });
     // Its Apps follow the permissions as they are now.
@@ -475,7 +561,7 @@ fn apps_row(app: &App) -> Option<MenuRow> {
         .collect();
     (!apps.is_empty()).then(|| MenuRow {
         submenu: apps,
-        ..MenuRow::new(MenuAct::App, "Apps", Icon::Slash)
+        ..MenuRow::new(MenuAct::App, tr("Apps"), Icon::Slash)
     })
 }
 
@@ -484,21 +570,49 @@ fn apps_row(app: &App) -> Option<MenuRow> {
 /// rest of the menu (a picture's rows, the light, an open submenu)
 /// stays as it is.
 pub fn menu_apps_sync(app: &mut App) -> Task<Message> {
+    crate::composer::apps::sync(app);
     if !app.win.menu.as_ref().is_some_and(|menu| menu.apps_due) {
         return Task::none();
     }
-    let Some(apps) = apps_row(app) else {
+    let Some(mut apps) = apps_row(app) else {
         return Task::none();
     };
     let Some(menu) = &mut app.win.menu else {
         return Task::none();
     };
-    // Before Mark Unread, Copy Message Link and what's set apart.
+    // Before Mark Unread, Copy Message Link, link/media rows, Delete and Copy Message ID.
     let at = menu
         .rows
         .iter()
-        .position(|row| row.separated || matches!(row.act, MenuAct::MarkUnread | MenuAct::CopyLink))
+        .position(|row| {
+            matches!(
+                row.act,
+                MenuAct::MarkUnread
+                    | MenuAct::CopyLink
+                    | MenuAct::CopyTextLink
+                    | MenuAct::OpenTextLink
+                    | MenuAct::CopyImage
+                    | MenuAct::SaveMedia
+                    | MenuAct::CopyMediaLink
+                    | MenuAct::OpenMediaLink
+                    | MenuAct::Delete
+                    | MenuAct::DeleteNow
+                    | MenuAct::CopyId
+            )
+        })
         .unwrap_or(menu.rows.len());
+    // Apps belongs to Group 3: separate it if it becomes the first row of Group 3.
+    let starts_group = at > 0
+        && !matches!(
+            menu.rows[at - 1].act,
+            MenuAct::CopyText | MenuAct::CopySelection | MenuAct::EndPoll | MenuAct::Pin
+        );
+    apps.separated = starts_group;
+    if let Some(next) = menu.rows.get_mut(at)
+        && matches!(next.act, MenuAct::MarkUnread | MenuAct::CopyLink)
+    {
+        next.separated = false;
+    }
     menu.rows.insert(at, apps);
     menu.apps_due = false;
     // Rows after it moved down one.
@@ -661,6 +775,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
+        MenuAct::GiftLink => crate::composer::tools::give(app, &row.key),
         MenuAct::SearchSort => {
             let sort = crate::search::sort_of(&row.key);
             app.client
@@ -687,6 +802,27 @@ pub fn web_address(link: &str) -> Option<&str> {
         .then_some(link)
 }
 
+/// Where link or media rows go in a message's menu: before Delete,
+/// Copy Message ID, or any link/media rows already spliced in.
+pub(crate) fn message_tail(rows: &[MenuRow]) -> usize {
+    rows.iter()
+        .position(|row| {
+            matches!(
+                row.act,
+                MenuAct::Delete
+                    | MenuAct::DeleteNow
+                    | MenuAct::CopyId
+                    | MenuAct::CopyTextLink
+                    | MenuAct::OpenTextLink
+                    | MenuAct::CopyImage
+                    | MenuAct::SaveMedia
+                    | MenuAct::CopyMediaLink
+                    | MenuAct::OpenMediaLink
+            )
+        })
+        .unwrap_or(rows.len())
+}
+
 /// Adds Copy Link and Open Link to the message's menu just opened, for the
 /// link in its text the pointer was on, before Delete and Copy Message ID.
 pub fn add_link_rows(app: &mut App, link: &str) {
@@ -694,17 +830,16 @@ pub fn add_link_rows(app: &mut App, link: &str) {
         return;
     };
     let row = |act, label, icon| MenuRow::new(act, label, icon).key(address.to_owned());
-    let at = menu
-        .rows
-        .iter()
-        .position(|row| row.separated)
-        .unwrap_or(menu.rows.len());
+    let at = message_tail(&menu.rows);
+    if let Some(after) = menu.rows.get_mut(at) {
+        after.separated = true;
+    }
     let rows = [
         MenuRow {
-            separated: true,
-            ..row(MenuAct::CopyTextLink, "Copy Link", Icon::Chain)
+            separated: at > 0,
+            ..row(MenuAct::CopyTextLink, tr("Copy Link"), Icon::Chain)
         },
-        row(MenuAct::OpenTextLink, "Open Link", Icon::Link),
+        row(MenuAct::OpenTextLink, tr("Open Link"), Icon::Link),
     ];
     menu.rows.splice(at..at, rows);
 }
@@ -827,6 +962,7 @@ pub fn act(
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
+        | MenuAct::GiftLink
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
@@ -855,6 +991,13 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
     let Some(menu) = &mut app.win.menu else {
         return Task::none();
     };
+    if menu.composer_apps.is_some() {
+        return if named == Some(key::Named::Escape) {
+            app.escape()
+        } else {
+            Task::none()
+        };
+    }
     // In a submenu the keys move through its rows.
     if let Some(sub) = menu.sub {
         let rows = &menu.rows[sub].submenu;
@@ -923,6 +1066,9 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
 
 /// The menu open, at its place, with its submenu beside its row.
 pub fn view<'a>(menu: &'a Menu, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    if let Some(apps) = &menu.composer_apps {
+        return crate::composer::apps::view(apps, menu.at, cx);
+    }
     View { s: menu, cx }.view()
 }
 
@@ -945,30 +1091,44 @@ impl<'a> View<'a> {
         if !menu.reactions.is_empty()
             && let Some(item) = &menu.item
         {
-            let mut quick = row![].spacing(4).padding(Padding {
-                top: 0.0,
-                right: 2.0,
-                bottom: 4.0,
-                left: 2.0,
-            });
-            // The quick reactions: the field's ground, lifted under the
-            // pointer.
-            let (ground, lifted) = (theme.field, blend(theme.field, theme.wash(0.12)));
-            for key in &menu.reactions {
-                quick = quick.push(crate::suggest::emoji_button(
-                    self.cx,
-                    key,
-                    24,
-                    44.0,
-                    (Some(ground), lifted),
-                    Message::Menu(Event::React(item.clone(), key.clone())),
-                ));
+            // The quick reactions as Discord's: 44 px tiles a step over the
+            // menu's ground, round by 8, lifted under the pointer, spread
+            // across the menu 15 px in from its rows' edges.
+            let mut quick = row![]
+                .width(Length::Fill)
+                .align_y(Alignment::Center)
+                .padding(Padding {
+                    top: 8.0,
+                    right: 15.0,
+                    bottom: 8.0,
+                    left: 15.0,
+                });
+            let (ground, lifted) = (
+                blend(theme.menu, theme.wash(0.06)),
+                blend(theme.menu, theme.wash(0.12)),
+            );
+            for (index, key) in menu.reactions.iter().enumerate() {
+                if index > 0 {
+                    quick = quick.push(Space::new().width(Length::Fill));
+                }
+                quick = quick.push(
+                    button(
+                        container(crate::suggest::emoji_face(self.cx, key, QUICK_EMOJI))
+                            .center(QUICK_TILE),
+                    )
+                    .padding(0)
+                    .width(QUICK_TILE)
+                    .height(QUICK_TILE)
+                    .style(crate::controls::lit_style(Some(ground), lifted, 8.0))
+                    .on_press(Message::Menu(Event::React(item.clone(), key.clone()))),
+                );
             }
             rows = rows.push(quick);
         }
         // Rows line up past a tick's room when one row has a tick, and the
         // menu widens to its widest row.
         let (slot, width) = (menu.slot(), menu.fit(None));
+        let message = menu.item.is_some();
         // The child of the rows' column the open submenu lines up with.
         let mut children = usize::from(!menu.reactions.is_empty() && menu.item.is_some());
         let mut sub_child = None;
@@ -981,10 +1141,11 @@ impl<'a> View<'a> {
                 (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
             let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.context_item(
-                    self.menu_entry(entry, slot),
+                mouse_area(self.item(
+                    self.menu_entry(entry, slot, menu.fixed.then_some(width)),
                     light,
                     Message::Menu(Event::Choose(index)),
+                    message,
                 ))
                 .on_enter(Message::Menu(Event::Light(index))),
             );
@@ -1032,11 +1193,31 @@ impl<'a> View<'a> {
         Some(place.into())
     }
 
+    /// A row: a message's menu's as Discord's ([`message_item`]), any
+    /// other's as [`App::menu_item`] draws a context menu's.
+    fn item(
+        self,
+        item: Item<'a>,
+        light: Light,
+        press: Message,
+        message: bool,
+    ) -> Element<'a, Message> {
+        if message {
+            message_item(self.cx, item, light, press)
+        } else {
+            self.cx.look.context_item(item, light, press)
+        }
+    }
+
     /// A menu row as [`App::menu_item`] draws it, with its submenu's
     /// chevron.
-    fn menu_entry(self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
+    fn menu_entry(self, entry: &'a MenuRow, slot: bool, room: Option<f32>) -> Item<'a> {
+        let label: &'a str = &entry.label;
         Item {
-            label: entry.label.as_ref().into(),
+            label: match room {
+                Some(width) => cut(entry, label, slot, width),
+                None => label.into(),
+            },
             icon: entry.icon,
             danger: entry.danger,
             slot,
@@ -1062,10 +1243,11 @@ impl<'a> View<'a> {
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.context_item(
-                    self.menu_entry(entry, slot),
+                mouse_area(self.item(
+                    self.menu_entry(entry, slot, None),
                     light,
                     Message::Menu(Event::SubChoose(index)),
+                    menu.item.is_some(),
                 ))
                 .on_enter(Message::Menu(Event::SubLight(index))),
             );
@@ -1077,66 +1259,205 @@ impl<'a> View<'a> {
     }
 }
 
+/// A message's menu's row as Discord's: 36 px (51 with a second line), a
+/// 20 px icon in the secondary ink (a tick in the accent for the chosen
+/// row), 14 px semibold words, a 16 px muted chevron for a submenu; the
+/// overlay's wash when lit, a red one for a destructive row, round by 4.
+fn message_item<'a>(
+    cx: Ctx<'a>,
+    item: Item<'a>,
+    light: Light,
+    press: Message,
+) -> Element<'a, Message> {
+    use crate::controls::Check;
+    let look = cx.look;
+    let theme = look.theme;
+    let lit = light == Light::Lit(true);
+    let ink = if item.danger {
+        theme.danger_text
+    } else {
+        theme.text
+    };
+    let icon_ink = if item.danger || lit {
+        ink
+    } else {
+        theme.secondary
+    };
+    let current = item.check == Check::Current;
+    let mut face = row![].spacing(ROW_GAP).align_y(Alignment::Center);
+    match item.icon {
+        _ if current => face = face.push(look.glyph(Icon::Check, MESSAGE_ICON, theme.accent)),
+        Some(icon) => face = face.push(look.glyph(icon, MESSAGE_ICON, icon_ink)),
+        None if item.slot => {
+            let slot = MESSAGE_ICON as f32;
+            face = face.push(Space::new().width(slot).height(slot));
+        }
+        None => {}
+    }
+    let label = text(item.label)
+        .size(14)
+        .font(if current {
+            crate::fonts::BOLD
+        } else {
+            crate::fonts::SEMIBOLD
+        })
+        .wrapping(text::Wrapping::None);
+    let tall = item.subtitle.is_some();
+    let words: Element<'a, Message> = match item.subtitle {
+        Some(subtitle) => column![
+            label,
+            text(subtitle)
+                .size(12)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None)
+        ]
+        .spacing(3)
+        .into(),
+        None => label.into(),
+    };
+    face = face.push(container(words).width(Length::Fill).clip(true));
+    if let Check::Box(ticked) = item.check {
+        face = face.push(look.checkbox(ticked, lit));
+    }
+    if item.check == Check::Submenu {
+        face = face.push(look.glyph(Icon::ChevronRight, MESSAGE_CHEVRON, theme.muted));
+    }
+    let light_fill = match (item.danger, theme.bonfire) {
+        (true, true) => crate::style::hex(0x34282d),
+        (true, false) => crate::style::faded(theme.danger, 0.1),
+        (false, _) => theme.wash(0.06),
+    };
+    // A disabled row: the whole of it at .45.
+    let ink = if item.disabled {
+        crate::style::faded(ink, 0.45)
+    } else {
+        ink
+    };
+    button(
+        container(face)
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+    )
+    .padding([0, 8])
+    .width(Length::Fill)
+    .height(if tall { 51.0 } else { MESSAGE_ROW })
+    .on_press_maybe((!item.disabled).then_some(press))
+    .style(move |_, status| {
+        let on = match light {
+            Light::Pointer => crate::controls::lights(status),
+            Light::Lit(lit) => lit,
+        } && !matches!(status, button::Status::Disabled);
+        button::Style {
+            background: on.then(|| light_fill.into()),
+            text_color: ink,
+            border: Border::default().rounded(4),
+            ..Default::default()
+        }
+    })
+    .into()
+}
+
 /// Whether a row of `rows` has a tick, so that all leave room for one.
 fn ticks(rows: &[MenuRow]) -> bool {
     rows.iter()
         .any(|row| row.check == crate::controls::Check::Current)
 }
 
-/// How wide a menu of `rows` has to be to show each whole: a row's padding,
-/// its icon or tick's room, its words, and its checkbox or chevron, inside
-/// the panel's padding.
-fn fit(rows: &[MenuRow], slot: bool) -> f32 {
-    use crate::controls::{Check, ITEM_ICON};
+/// How wide `content` is in `font` at `size`.
+fn measure(content: &str, size: f32, font: iced::Font) -> f32 {
     use iced::advanced::{
         graphics::text::Paragraph,
         text::{self, LineHeight, Paragraph as _, Shaping, Wrapping},
     };
-    let words = |content: &str, size: f32, font| {
-        Paragraph::with_text(text::Text {
-            content,
-            bounds: iced::Size::INFINITE,
-            size: size.into(),
-            line_height: LineHeight::default(),
-            font,
-            align_x: text::Alignment::Default,
-            align_y: iced::alignment::Vertical::Top,
-            shaping: Shaping::Advanced,
-            wrapping: Wrapping::None,
-        })
-        .min_width()
+    Paragraph::with_text(text::Text {
+        content,
+        bounds: iced::Size::INFINITE,
+        size: size.into(),
+        line_height: LineHeight::default(),
+        font,
+        align_x: text::Alignment::Default,
+        align_y: iced::alignment::Vertical::Top,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::None,
+    })
+    .min_width()
+}
+
+/// The font a row's words are in.
+fn row_font(row: &MenuRow, message: bool) -> iced::Font {
+    if row.check == crate::controls::Check::Current {
+        crate::fonts::BOLD
+    } else if message {
+        crate::fonts::SEMIBOLD
+    } else {
+        crate::fonts::MEDIUM
+    }
+}
+
+/// What a row keeps beside its words: the room of its icon or tick and its
+/// checkbox or chevron, with the gaps between.
+fn beside(row: &MenuRow, slot: bool, message: bool) -> f32 {
+    use crate::controls::{Check, ITEM_ICON};
+    let current = row.check == Check::Current;
+    let (glyph, chevron) = if message {
+        (MESSAGE_ICON, MESSAGE_CHEVRON)
+    } else {
+        (ITEM_ICON, crate::controls::SUBMENU_ARROW)
     };
+    let icon = if slot || row.icon.is_some() || current {
+        glyph as f32 + ROW_GAP
+    } else {
+        0.0
+    };
+    let end = match row.check {
+        Check::Box(_) => CHECKBOX + ROW_GAP,
+        Check::Submenu => chevron as f32 + ROW_GAP,
+        _ if !row.submenu.is_empty() => chevron as f32 + ROW_GAP,
+        _ => 0.0,
+    };
+    icon + end
+}
+
+/// How wide a menu of `rows` has to be to show each whole: a row's padding,
+/// its icon or tick's room, its words, and its checkbox or chevron, inside
+/// the panel's padding; a `message`'s menu's rows as [`message_item`]
+/// draws them.
+fn fit(rows: &[MenuRow], slot: bool, message: bool) -> f32 {
     rows.iter()
         .map(|row| {
-            let current = row.check == Check::Current;
-            let font = if current {
-                crate::fonts::BOLD
-            } else {
-                crate::fonts::MEDIUM
-            };
-            let label = words(&row.label, 14.0, font);
-            let subtitle = row
-                .subtitle
-                .as_deref()
-                .map_or(0.0, |subtitle| words(subtitle, 12.0, crate::fonts::REGULAR));
-            let icon = if slot || row.icon.is_some() || current {
-                ITEM_ICON as f32 + ROW_GAP
-            } else {
-                0.0
-            };
-            let end = match row.check {
-                Check::Box(_) => CHECKBOX + ROW_GAP,
-                _ if !row.submenu.is_empty() => crate::controls::SUBMENU_ARROW as f32 + ROW_GAP,
-                _ => 0.0,
-            };
-            2.0 * (ROW_PAD + PAD) + icon + label.max(subtitle) + end
+            let label = measure(&row.label, 14.0, row_font(row, message));
+            let subtitle = row.subtitle.as_deref().map_or(0.0, |subtitle| {
+                measure(subtitle, 12.0, crate::fonts::REGULAR)
+            });
+            2.0 * (ROW_PAD + PAD) + beside(row, slot, message) + label.max(subtitle)
         })
         .fold(MENU_NARROWEST, f32::max)
         .ceil()
 }
 
-/// The narrowest a menu is, as Discord's.
-const MENU_NARROWEST: f32 = 188.0;
+/// `label`, a row's words, cut to "…" where they don't fit the room a menu
+/// `width` wide leaves them.
+fn cut<'a>(row: &MenuRow, label: &'a str, slot: bool, width: f32) -> std::borrow::Cow<'a, str> {
+    let font = row_font(row, false);
+    let room = width - 2.0 * (ROW_PAD + PAD) - beside(row, slot, false);
+    if measure(label, 14.0, font) <= room {
+        return label.into();
+    }
+    let mut kept: Vec<char> = label.chars().collect();
+    while kept.pop().is_some() {
+        let mut shorter: String = kept.iter().collect();
+        shorter.truncate(shorter.trim_end().len());
+        shorter.push('…');
+        if measure(&shorter, 14.0, font) <= room {
+            return shorter.into();
+        }
+    }
+    "…".into()
+}
+
+/// The narrowest a menu is: someone's menu in Discord measures 177 px
+/// across with its widest row ("Zu Server einladen" and its arrow).
+const MENU_NARROWEST: f32 = 177.0;
 
 /// A row's padding at each side, the gap between its parts, and its
 /// checkbox, as [`App::menu_item`] draws them.

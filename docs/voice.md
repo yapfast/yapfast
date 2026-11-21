@@ -5,16 +5,18 @@ the connection while browsing text channels, other servers and DMs. Each join
 starts muted and turns the microphone on as the call connects, unless Settings
 › Voice & video turns that off. The dock under the rail and sidebar exposes
 mute, deafen, audio devices and Leave. A caret beside mute and beside deafen
-opens a menu, as Vesktop's: the input or output device chosen, which a click
-opens into the list of devices in place, the microphone or speaker volume
-(the same as Settings › Voice & video, saved as the slider is let go), and a
-way into the voice settings. The input menu adds the microphone's level, and
-with Discord linked, its noise suppression. Deafen also mutes the microphone,
-and undeafening leaves the mute as it was before, as Discord's client does:
-the microphone comes back unless you had muted it yourself. Unmuting when
-deafened undeafens too. A call joined deafened, by the account card's
-toggle out of a call, undeafens to the microphone its other toggle asks for.
-The voice view shows the participants and their mute, deafen and speaking state; a
+opens a compact menu, as Discord's: the input or output device chosen, which
+a click turns into a page listing the devices (a back row returns), the
+microphone or speaker volume (the same as Settings › Voice & video, saved as
+the slider is let go), and a way into the voice settings. With Discord linked
+the input menu adds its profile, the noise suppression, on a page of its own
+the same way. While a caret's menu is open the caret points up on a lit
+ground. Deafen also mutes the microphone, and undeafening leaves the mute as
+it was before, as Discord's client does: the microphone comes back unless you
+had muted it yourself. Unmuting when deafened undeafens too. A call joined
+deafened, by the account card's toggle out of a call, undeafens to the
+microphone its other toggle asks for. The
+voice view shows the participants and their mute, deafen and speaking state; a
 deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
@@ -39,12 +41,15 @@ them.
 
 ## Microphone test
 
-Settings › Voice & video has Discord's mic test, wherever Discord voice
-runs (`discord_audio::AVAILABLE`), without a call or a linked account:
-Let's check plays the chosen microphone back through the chosen speakers
-until Stop testing, Voice & video is left or Settings close. Choosing
-another microphone or speakers restarts it on them. Wear headphones, or it
-echoes.
+Settings › Voice & video offers Test microphone wherever Discord voice
+runs (`discord_audio::AVAILABLE`). With a microphone and speakers
+available, it plays the chosen microphone back through the chosen speakers
+until Stop microphone test, leaving the page, or closing Settings. No
+call or linked account is required. Choosing another microphone or
+speakers restarts the test on those devices. Use headphones to avoid
+feedback.
+Connecting to a call stops playback and disables the test until the connection
+is ready.
 
 It plays the microphone as a Discord call's processing leaves it (noise
 suppression and its strength, the room's echo, leveling, the microphone's
@@ -54,11 +59,10 @@ playback, it sends each processed block to a playback thread through a
 channel four blocks deep, dropping blocks rather than falling behind.
 Tests open no device.
 
-As in Discord's client, a meter of notches lights to the microphone's
-level while it plays, under "Playing back your beautiful voice"; after two
-seconds with nothing at all from the device it says it isn't detecting
-any input from your mic. Before it starts in a call, a note says the call
-will be muted and deafened. Started in a call that isn't deafened, it
+The meter lights to the microphone's level while it plays. After two
+seconds without input from the device, it reads "No microphone signal
+detected." Before it starts in a call, a note says the test temporarily
+mutes microphone and call audio. Started in a call that isn't deafened, it
 deafens it (and so mutes it), and as it ends it undeafens it and puts its
 mute back as it was. The call undeafened while it plays, or joined
 undeafened, ends it, as Discord's does; the change ends it, not the state,
@@ -274,13 +278,6 @@ Yapfast calls suppress noise with WebRTC's own suppressor, inside LiveKit's
 WebRTC. Discord calls use DeepFilterNet, which also takes out typing; see the
 Microphone section of [Discord](discord/voice.md#microphone). Yapfast calls could share
 it through the capture hook, which now only returns a gain for each block.
-
-The input menu's level meter reads the chosen microphone locally through
-`audio_io.rs`, raw and before any processing, only while the menu is open. It
-works while muted, outside calls and in the preview, and it never touches the
-call: muted, nothing is published or sent. It shows as "Input level" in the
-system's recording streams on Linux. On Windows it reads the microphone
-through WASAPI.
 
 ## Run the local demo
 

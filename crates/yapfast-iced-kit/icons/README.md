@@ -26,7 +26,8 @@ glyphs such as check, x and chevrons.
   Solar's monitor with an arrow cut out of its screen, and screen-share-off
   that monitor with the slash; search is the
   Linear magnifier with a 2-unit stroke.
-- Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
+- Drawn for Yapfast in Solar's manner: user-circle (a filled disc with a
+  person cut out, for Switch Accounts), gif, hash, mic and mic-off, the
   signal-high, signal-medium and signal-low bars, soundboard (the speaker of
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
@@ -75,3 +76,8 @@ sketches: a comic shout balloon with typing dots cut out of it.
 - Drawn for Yapfast: pen, for the profile editor name field.
 - Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
   Styles and Hide Styles.
+- Drawn for Yapfast: compass, after Discord's, for the rail's Discover tile.
+- Drawn for Yapfast: orbs, after Discord's Orbs mark, for the Shop and the quests' rewards.
+- From Solar, unchanged (Bold): gift, apps (widget-5), heart, book and academic-cap (square-academic-cap).
+- Drawn for Yapfast: channels-roles, four lines of falling length with a magnifier, for the sidebar's Channels & Roles row.
+- Drawn for Yapfast, after the shapes of Discord's DM list rows and not copied from them: friends (a person with a raised arm), mail (a solid envelope with a cut-out flap), nitro (a disc with a ringed hole and a tab) and wreath (two laurel branches round a ring), for the Friends, Message Requests, Nitro and Quests rows.

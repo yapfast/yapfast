@@ -14,7 +14,8 @@ use iced::{
 };
 use yapfast_core::{
     application::{AppState, Relation},
-    chat::{Presence, Topic},
+    chat::{NotificationChange, Presence, Topic},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -24,7 +25,7 @@ use crate::{
     looks::Status,
     markdown::{self, Body},
     people::StatusInk,
-    pictures::{Face, Icon},
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     piece::Piece,
     sidebar::room_icon,
     style::rounded,
@@ -33,7 +34,7 @@ use crate::{
 };
 
 /// The header's height; the line under it is one more pixel.
-pub const HEIGHT: f32 = 50.0;
+pub const HEIGHT: f32 = 49.0;
 /// A DM's avatar, and the icons before a name.
 const AVATAR: f32 = 26.0;
 const ROOM_ICON: u32 = 22;
@@ -50,6 +51,7 @@ pub struct Header {
     /// A thread, under its channel.
     pub thread: bool,
     pub avatar: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub presence: Option<Presence>,
     pub icon: Option<Icon>,
     /// A thread's channel: its id, name, and whether it's a forum.
@@ -116,6 +118,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         one_to_one: room.person.is_some(),
         thread: room.parent.is_some(),
         avatar: room.avatar.clone(),
+        group_icon: room_group_icon(room),
         // As in the DM list: Discord sends the presence of friends and of
         // those sharing a server, and anyone else in a one-to-one DM shows
         // offline.
@@ -158,9 +161,8 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         members_available: state.lists_members(),
         members: match room.members {
             _ if room.forum => String::new(),
-            0 => "Members".to_owned(),
-            1 => "1 member".to_owned(),
-            count => format!("{count} members"),
+            0 => tr("Members").to_owned(),
+            count => i18n::trn("{n} member", "{n} members", count as usize),
         },
         profile_available: state.one_to_one().is_some(),
         search: state.conversation_that(|can| can.search).map(|_| {
@@ -169,7 +171,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
                 .as_deref()
                 .and_then(|place| state.servers.iter().find(|server| server.id == place))
                 .map_or(room.name.as_str(), |server| server.name.as_str());
-            format!("Search {looks_in}")
+            i18n::fill(tr("Search {}"), &[&looks_in])
         }),
     }
 }
@@ -229,15 +231,16 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let mut head = row![].spacing(10).align_y(Alignment::Center);
     if header.direct {
-        head = head.push(
-            ctx.face(
-                Face::new(header.avatar.as_deref(), &header.name, AVATAR).dot(
-                    header
-                        .presence
-                        .map(|presence| (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))),
+        head =
+            head.push(
+                ctx.face(
+                    Face::new(header.avatar.as_deref(), &header.name, AVATAR)
+                        .group(header.group_icon.as_ref().map(GroupIcon::as_face))
+                        .dot(header.presence.map(|presence| {
+                            (presence, rgb(theme.chat), iced::Point::new(14.0, 14.0))
+                        })),
                 ),
-            ),
-        );
+            );
     }
     if let Some((id, name, forum)) = &header.parent {
         let icon = if *forum { Icon::ForumPost } else { Icon::Hash };
@@ -255,10 +258,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     // A forum's post has no icon after its breadcrumb.
     let in_forum = header.parent.as_ref().is_some_and(|(_, _, forum)| *forum);
-    if let Some(icon) = header.icon.filter(|_| !in_forum) {
-        head = head.push(ctx.look.glyph(icon, ROOM_ICON, theme.channel_read));
-    }
     let fills = header.topic.is_none() && header.activity.is_empty();
+    // Discord sets the icon 7 px from the name that follows it, closer
+    // than the 10 px between the header's other items.
+    let mut title = row![].spacing(7).align_y(Alignment::Center);
+    if let Some(icon) = header.icon.filter(|_| !in_forum) {
+        title = title.push(ctx.look.glyph(icon, ROOM_ICON, theme.channel_read));
+    }
     let name = container(
         text(header.name.as_str())
             .size(16)
@@ -267,10 +273,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .wrapping(text::Wrapping::None),
     )
     .clip(true);
-    head = head.push(if fills {
+    title = title.push(if fills {
         name.width(Length::Fill)
     } else {
         name
+    });
+    head = head.push(if fills {
+        title.width(Length::Fill)
+    } else {
+        title
     });
     if let Some((_, topic)) = &header.topic {
         // A click shows it in full under the line, as Discord does;
@@ -298,8 +309,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         );
     }
     head = head.extend(header_buttons(ctx));
+    // Measured in Discord: the icon starts 14 px in, the search box ends
+    // 8 px from the window's edge.
     container(head)
-        .padding([0, 16])
+        .padding(iced::Padding {
+            top: 0.0,
+            right: 8.0,
+            bottom: 0.0,
+            left: 14.0,
+        })
         .width(Length::Fill)
         .height(HEIGHT)
         .align_y(Alignment::Center)
@@ -357,17 +375,17 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     let theme = ctx.look.theme;
     let shown = ctx.open.members;
     let members = if shown {
-        "Hide member list"
+        tr("Hide member list")
     } else {
-        "Show member list"
+        tr("Show member list")
     };
     let mut buttons: Vec<Element<'a, Message>> = Vec::new();
     // A voice channel's chat, or its call again.
     if let Some(chat) = header.voice_chat {
         let (icon, label) = if chat {
-            (Icon::Volume, "Show voice channel")
+            (Icon::Volume, tr("Show voice channel"))
         } else {
-            (Icon::Forum, "Open chat")
+            (Icon::Forum, tr("Open chat"))
         };
         buttons.push(
             ctx.look
@@ -383,9 +401,9 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     }
     if header.can_call {
         let label = if header.call_going {
-            "Join Voice Call"
+            tr("Join Voice Call")
         } else {
-            "Start Voice Call"
+            tr("Start Voice Call")
         };
         let call = |video| {
             header
@@ -403,7 +421,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             buttons.push(header_icon_button(
                 ctx,
                 Icon::Video,
-                "Start Video Call",
+                tr("Start Video Call"),
                 call(true),
                 false,
             ));
@@ -416,42 +434,60 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         let open = ctx.state.thread_list().is_some();
         push(
             Icon::Thread,
-            "Threads",
+            tr("Threads"),
             Message::Popover(crate::header_popovers::Event::Threads),
             open,
         );
     }
+    let place_menu = ctx
+        .menu
+        .filter(|menu| !menu.header && menu.place.is_some() && menu.place == ctx.state.selected);
+    // The bell puts notification levels in the menu itself; the thread's
+    // More and channel context menus put them in a submenu.
+    let bell_open = place_menu.is_some_and(|menu| {
+        menu.rows.iter().any(|row| {
+            matches!(
+                row.act,
+                crate::menus::MenuAct::Notify(NotificationChange::Level(_))
+            )
+        })
+    });
     if header.can_notify {
         if header.muted {
             push(
                 Icon::BellOff,
-                "Notification settings, muted",
+                tr("Notification settings, muted"),
                 Message::Bell,
-                false,
+                bell_open,
             );
         } else {
-            push(Icon::Bell, "Notification settings", Message::Bell, false);
+            push(
+                Icon::Bell,
+                tr("Notification settings"),
+                Message::Bell,
+                bell_open,
+            );
         }
     }
     if header.can_pin {
         push(
             Icon::Pin,
-            "Pinned messages",
+            tr("Pinned messages"),
             Message::Popover(crate::header_popovers::Event::Pins),
-            false,
+            ctx.state.pins.is_some(),
         );
     }
     if let Some(one_to_one) = header.add_people {
         let label = if one_to_one {
-            "Add friends to DM"
+            tr("Add friends to DM")
         } else {
-            "Add friends to the group"
+            tr("Add friends to the group")
         };
         push(
             Icon::UserPlus,
             label,
             Message::Popover(crate::header_popovers::Event::AddPeople),
-            false,
+            ctx.state.add_people.is_some(),
         );
     }
     // The call's signal, in the conversation it's in, as in Discord's
@@ -474,14 +510,18 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     if header.thread {
         push(
             Icon::Ellipsis,
-            "More",
+            tr("More"),
             Message::Popover(crate::header_popovers::Event::ThreadMore),
-            false,
+            place_menu.is_some_and(|menu| ctx.header_spot.get().contains(menu.at)),
         );
     }
     if header.profile_available {
         let open = ctx.state.profile_panel;
-        let label = if open { "Hide profile" } else { "Show profile" };
+        let label = if open {
+            tr("Hide profile")
+        } else {
+            tr("Show profile")
+        };
         push(
             Icon::User,
             label,
@@ -493,11 +533,19 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         buttons.push(members_toggle(ctx, members, shown));
     }
     if let Some(placeholder) = &header.search {
-        buttons.push(crate::search::header_search(
-            ctx.searching,
-            placeholder,
-            ctx,
-        ));
+        // Discord's box sits 3 px further from the last button.
+        buttons.push(
+            container(crate::search::header_search(
+                ctx.searching,
+                placeholder,
+                ctx,
+            ))
+            .padding(iced::Padding {
+                left: 3.0,
+                ..iced::Padding::ZERO
+            })
+            .into(),
+        );
     }
     if !header.members_available && !header.profile_available && !header.members.is_empty() {
         buttons.push(

@@ -14,11 +14,12 @@ use std::path::Path;
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Size, Task,
-    widget::{Space, button, container, row, text},
+    widget::{Space, button, container, row, scrollable, text},
 };
 use yapfast_core::{
     application::{Action, AppState},
     chat::Attachment,
+    i18n::tr,
     links,
 };
 
@@ -52,6 +53,10 @@ pub enum Event {
     Open(String, usize),
     Close,
     Step(isize),
+    /// Toggle between fitted view and zoomed view in the image viewer.
+    ToggleZoom,
+    /// Open the viewed attachment's URL in the system browser.
+    OpenBrowser(String),
     /// Save a message's attachment, or copy its picture.
     Save(String, usize),
     Copy(String, usize),
@@ -69,10 +74,12 @@ pub enum Event {
 }
 
 /// What the window keeps of the viewer: the size it opened at, for its
-/// message's item and attachment, which the full picture coming keeps.
+/// message's item and attachment, which the full picture coming keeps, and
+/// whether it is zoomed in.
 #[derive(Default)]
 pub struct Viewed {
     pub size: Option<(String, usize, Size)>,
+    pub zoomed: bool,
 }
 
 impl Viewed {
@@ -81,15 +88,26 @@ impl Viewed {
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Open(item, index) => {
+                self.zoomed = false;
                 cx.dispatch(Action::ViewImage { item, index });
                 return iced::widget::operation::focus(crate::app::NOBODY);
             }
             Event::Close => {
                 cx.dispatch(Action::CloseImage);
                 self.size = None;
+                self.zoomed = false;
                 cx.request(Request::Focus(Focus::Default));
             }
-            Event::Step(step) => cx.dispatch(Action::StepImage(step)),
+            Event::Step(step) => {
+                self.zoomed = false;
+                cx.dispatch(Action::StepImage(step));
+            }
+            Event::ToggleZoom => {
+                self.zoomed = !self.zoomed;
+            }
+            Event::OpenBrowser(url) => {
+                crate::browser::open(&url);
+            }
             Event::Saved(item, index, path) => {
                 if let Some(path) = path {
                     cx.dispatch(Action::SaveAttachment { item, index, path });
@@ -113,11 +131,16 @@ impl Viewed {
         let state = cx.state();
         let Some(viewer) = state.viewer.as_ref() else {
             self.size = None;
+            self.zoomed = false;
             return Task::none();
         };
-        if state.message(&viewer.item).is_none() {
+        if !state
+            .message(&viewer.item)
+            .is_some_and(|message| viewer.showing(message))
+        {
             cx.dispatch(Action::CloseImage);
             self.size = None;
+            self.zoomed = false;
             cx.request(Request::Focus(Focus::Default));
             return Task::none();
         }
@@ -141,6 +164,7 @@ impl Viewed {
         if full.is_none() && attachment.dimensions.is_none() && attachment.preview.is_none() {
             return Task::none();
         }
+        self.zoomed = false;
         self.size = Some((
             viewer.item.clone(),
             viewer.index,
@@ -178,7 +202,7 @@ pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
     Task::perform(
         async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Save attachment")
+                .set_title(tr("Save attachment"))
                 .set_file_name(name)
                 .save_file()
                 .await
@@ -192,6 +216,7 @@ pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
 pub fn view<'a>(viewed: &'a Viewed, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     View {
         s: &viewed.size,
+        zoomed: viewed.zoomed,
         cx,
     }
     .view()
@@ -201,6 +226,7 @@ pub fn view<'a>(viewed: &'a Viewed, cx: Ctx<'a>) -> Option<Element<'a, Message>>
 #[derive(Clone, Copy)]
 struct View<'a> {
     s: &'a Option<(String, usize, Size)>,
+    zoomed: bool,
     cx: Ctx<'a>,
 }
 
@@ -218,7 +244,7 @@ impl<'a> View<'a> {
         };
         let note = match loaded {
             Some(Some(Err(error))) => *error,
-            Some(None) => "Loading the full image...",
+            Some(None) => tr("Loading the full image..."),
             _ => "",
         };
         let natural = self
@@ -233,9 +259,14 @@ impl<'a> View<'a> {
             (self.cx.look.window.width - SIDES).max(1.0),
             (self.cx.look.window.height - ENDS).max(1.0),
         );
-        let scale = 1f32
+        let fit_scale = 1f32
             .min(room.width / natural.width)
             .min(room.height / natural.height);
+        let scale = if self.zoomed {
+            1.0_f32.max(fit_scale * 1.5)
+        } else {
+            fit_scale
+        };
         let size = Size::new(
             (natural.width * scale).round().max(1.0),
             (natural.height * scale).round().max(1.0),
@@ -247,9 +278,31 @@ impl<'a> View<'a> {
             ..Shot::new(shown, size)
         });
         let (item, index) = (viewer.item.clone(), viewer.index);
-        let picture = RightPress::new(picture, move |_| {
+        let picture: Element<'a, Message> = RightPress::new(picture, move |_| {
             Message::Image(Event::Menu(item.clone(), index, false))
-        });
+        })
+        .into();
+        let (content, box_size): (Element<'a, Message>, Size) =
+            if self.zoomed && (size.width > room.width || size.height > room.height) {
+                let viewport = Size::new(size.width.min(room.width), size.height.min(room.height));
+                let bar = || scrollable::Scrollbar::new().width(6).scroller_width(6);
+                let scrolled = scrollable(
+                    container(picture)
+                        .width(size.width.max(viewport.width))
+                        .height(size.height.max(viewport.height))
+                        .align_x(Alignment::Center)
+                        .align_y(Alignment::Center),
+                )
+                .direction(scrollable::Direction::Both {
+                    vertical: bar(),
+                    horizontal: bar(),
+                })
+                .width(Length::Fill)
+                .height(Length::Fill);
+                (scrolled.into(), viewport)
+            } else {
+                (picture, size)
+            };
         let images: Vec<usize> = message
             .attachments
             .iter()
@@ -258,7 +311,44 @@ impl<'a> View<'a> {
             .map(|(index, _)| index)
             .collect();
         let place = images.iter().position(|index| *index == viewer.index);
-        let mut buttons: Vec<Element<'a, Message>> = Vec::new();
+        let mut buttons: Vec<Element<'a, Message>> = vec![
+            self.cx
+                .look
+                .face_button(
+                    self.cx.look.glyph(
+                        if self.zoomed {
+                            Icon::Minimize
+                        } else {
+                            Icon::Maximize
+                        },
+                        20,
+                        Color::WHITE,
+                    ),
+                    32.0,
+                    if self.zoomed {
+                        tr("Zoom out")
+                    } else {
+                        tr("Zoom in")
+                    },
+                    Message::Image(Event::ToggleZoom),
+                )
+                .below()
+                .into(),
+        ];
+        if let Some(url) = attachment.url.as_deref().filter(|url| !url.is_empty()) {
+            buttons.push(
+                self.cx
+                    .look
+                    .face_button(
+                        self.cx.look.glyph(Icon::Link, 20, Color::WHITE),
+                        32.0,
+                        tr("Open in Browser"),
+                        Message::Image(Event::OpenBrowser(url.to_owned())),
+                    )
+                    .below()
+                    .into(),
+            );
+        }
         if !state.preview {
             buttons.push(
                 self.cx
@@ -266,7 +356,7 @@ impl<'a> View<'a> {
                     .face_button(
                         self.cx.look.glyph(Icon::Download, 20, Color::WHITE),
                         32.0,
-                        "Save",
+                        tr("Save"),
                         Message::Image(Event::Save(viewer.item.clone(), viewer.index)),
                     )
                     .below()
@@ -279,13 +369,13 @@ impl<'a> View<'a> {
                 .face_button(
                     self.cx.look.glyph(Icon::X, 20, Color::WHITE),
                     32.0,
-                    "Close",
+                    tr("Close"),
                     Message::Image(Event::Close),
                 )
                 .below()
                 .into(),
         );
-        let mut shown = Viewer::new(GROUND, picture, size, Message::Image(Event::Close))
+        let mut shown = Viewer::new(GROUND, content, box_size, Message::Image(Event::Close))
             .title(attachment.name.clone(), buttons);
         if images.len() > 1
             && let Some(place) = place
@@ -386,13 +476,12 @@ pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool)
         let mut extra = rows.into_iter();
         if let Some(first) = extra.next() {
             // Before Delete and Copy Message ID.
-            let at = menu
-                .rows
-                .iter()
-                .position(|row| row.separated)
-                .unwrap_or(menu.rows.len());
+            let at = crate::menus::message_tail(&menu.rows);
+            if let Some(after) = menu.rows.get_mut(at) {
+                after.separated = true;
+            }
             let mut inserted = vec![MenuRow {
-                separated: true,
+                separated: at > 0,
                 ..first
             }];
             inserted.extend(extra);
@@ -433,18 +522,22 @@ pub fn media_rows(index: usize, video: bool, preview: bool, link: bool) -> Vec<M
     let mut rows = Vec::new();
     let row = |act, label, icon| MenuRow::new(act, label, icon).key(key.clone());
     if link && !video && !preview {
-        rows.push(row(MenuAct::CopyImage, "Copy Image", Icon::Image));
+        rows.push(row(MenuAct::CopyImage, tr("Copy Image"), Icon::Image));
     }
     if !preview {
         rows.push(row(
             MenuAct::SaveMedia,
-            if video { "Save Video" } else { "Save Image" },
+            if video {
+                tr("Save Video")
+            } else {
+                tr("Save Image")
+            },
             Icon::Download,
         ));
     }
     if link {
-        rows.push(row(MenuAct::CopyMediaLink, "Copy Link", Icon::Chain));
-        rows.push(row(MenuAct::OpenMediaLink, "Open Link", Icon::Link));
+        rows.push(row(MenuAct::CopyMediaLink, tr("Copy Link"), Icon::Chain));
+        rows.push(row(MenuAct::OpenMediaLink, tr("Open Link"), Icon::Link));
     }
     rows
 }

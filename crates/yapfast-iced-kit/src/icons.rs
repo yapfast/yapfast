@@ -111,6 +111,8 @@ pub enum Icon {
     VoiceLock,
     VoiceWarning,
     Forum,
+    /// The sidebar's two overlapping round speech bubbles.
+    ForumBubbles,
     ForumLock,
     ForumWarning,
     Announcement,
@@ -131,12 +133,18 @@ pub enum Icon {
     HeadphoneOff,
     Settings,
     Community,
+    /// The server header's pink badge with a white house.
+    CommunityBadge,
+    /// Missing game artwork, a white die with a question mark.
+    UnknownGame,
     Verified,
     /// A scalloped badge, which holds a server's boost level.
     Scallop,
     /// The note's filled info disc, the friends' kebab and the new group
     /// DM, which Discord draws in these shapes.
     CircleInfoFilled,
+    /// The reply bar's cancel: a disc with an X cut out of it.
+    CircleXFilled,
     EllipsisVertical,
     MessageCirclePlus,
     UserCheck,
@@ -160,6 +168,11 @@ pub enum Icon {
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
     ReplySpine,
+    /// Sidebar connectors spanning a 32 px thread row and its 2 px gap.
+    ThreadBranch,
+    ThreadEnd,
+    /// The rounded top of a thread connector in the gap below its parent.
+    ThreadCap,
     File,
     Download,
     /// A filled triangle, the mark over a video's poster.
@@ -232,8 +245,33 @@ pub enum Icon {
     AtSign,
     UserMinus,
     UserX,
+    /// A disc with a person cut out: Switch Accounts'.
+    UserCircle,
     FolderPlus,
     CopyPlus,
+    /// Discord's sad face with a pin in it, for a channel without pins.
+    PinsEmpty,
+    /// A disc with a needle cut from it: the rail's Discover tile.
+    Compass,
+    /// Discord's Orbs: a ring round a four-pointed star.
+    Orbs,
+    /// A wrapped present, the composer's gift tool.
+    Gift,
+    /// Four rounded tiles, the composer's apps tool.
+    Apps,
+    Heart,
+    Book,
+    AcademicCap,
+    /// Four lines of falling length with a magnifier: Channels & Roles.
+    ChannelsRoles,
+    /// One person with a raised arm: the DM list's Friends row.
+    Friends,
+    /// A solid envelope: the DM list's Message Requests row.
+    Mail,
+    /// A disc with a ringed hole and a tab, after Discord's Nitro swirl.
+    Nitro,
+    /// Two laurel branches round an open ring: the DM list's Quests row.
+    Wreath,
 }
 
 impl Icon {
@@ -315,8 +353,20 @@ impl Icon {
                 r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6" /></svg>"#
             }
             Icon::ChevronRight => icon!("chevron-right.svg"),
+            // Its stem stops 3.5 px short of the avatar below, as Discord's does.
             Icon::ReplySpine => {
-                r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 14 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="33" height="33" viewBox="0 0 33 33" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 10.5 V7 A6 6 0 0 1 7 1 H33" /></svg>"#
+            }
+            // A single silhouette keeps the 2 px stem and arm joined.
+            // The terminal bend has a taller outer curve than its inner one.
+            Icon::ThreadBranch => {
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V12 A3.25 3 0 0 0 21.25 15 H25.4 A.6 .6 0 0 1 26 15.6 V16.4 A.6 .6 0 0 1 25.4 17 H21.25 A3.25 3 0 0 0 18 20 V34 H16 Z" /></svg>"#
+            }
+            Icon::ThreadEnd => {
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" fill="currentColor"><path d="M16 0 H18 V12 A3.25 3 0 0 0 21.25 15 H24.6 A1.4 1 0 0 1 26 16 A1.05 1 0 0 1 24.95 17 H20.75 A4.75 6.75 0 0 1 16 10.25 Z" /></svg>"#
+            }
+            Icon::ThreadCap => {
+                r#"<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2" viewBox="0 0 2 2" fill="currentColor"><path d="M0 1 A1 1 0 0 1 2 1 Z" /></svg>"#
             }
             Icon::UserPlus => icon!("user-plus.svg"),
             Icon::Calendar => icon!("calendar.svg"),
@@ -332,6 +382,7 @@ impl Icon {
             Icon::VoiceLock => icon!("volume-2-lock.svg"),
             Icon::VoiceWarning => icon!("volume-2-warning.svg"),
             Icon::Forum => icon!("message-square-text.svg"),
+            Icon::ForumBubbles => icon!("forum-bubbles.svg"),
             Icon::ForumLock => icon!("message-square-text-lock.svg"),
             Icon::ForumWarning => icon!("message-square-text-warning.svg"),
             Icon::Announcement => icon!("megaphone.svg"),
@@ -352,9 +403,12 @@ impl Icon {
             Icon::HeadphoneOff => icon!("headphone-off.svg"),
             Icon::Settings => icon!("settings.svg"),
             Icon::Community => icon!("community.svg"),
+            Icon::CommunityBadge => icon!("community-badge.svg"),
+            Icon::UnknownGame => icon!("unknown-game.svg"),
             Icon::Verified => icon!("verified.svg"),
             Icon::Scallop => icon!("scallop.svg"),
             Icon::CircleInfoFilled => icon!("circle-info-filled.svg"),
+            Icon::CircleXFilled => icon!("circle-x-filled.svg"),
             Icon::EllipsisVertical => icon!("ellipsis-vertical.svg"),
             Icon::MessageCirclePlus => icon!("message-circle-plus.svg"),
             Icon::UserCheck => icon!("user-check.svg"),
@@ -394,8 +448,22 @@ impl Icon {
             Icon::AtSign => icon!("at-sign.svg"),
             Icon::UserMinus => icon!("user-minus.svg"),
             Icon::UserX => icon!("user-x.svg"),
+            Icon::UserCircle => icon!("user-circle.svg"),
             Icon::FolderPlus => icon!("folder-plus.svg"),
             Icon::CopyPlus => icon!("copy-plus.svg"),
+            Icon::PinsEmpty => icon!("pins-empty.svg"),
+            Icon::Compass => icon!("compass.svg"),
+            Icon::Orbs => icon!("orbs.svg"),
+            Icon::Gift => icon!("gift.svg"),
+            Icon::Apps => icon!("apps.svg"),
+            Icon::Heart => icon!("heart.svg"),
+            Icon::Book => icon!("book.svg"),
+            Icon::AcademicCap => icon!("academic-cap.svg"),
+            Icon::ChannelsRoles => icon!("channels-roles.svg"),
+            Icon::Friends => icon!("friends.svg"),
+            Icon::Mail => icon!("mail.svg"),
+            Icon::Nitro => icon!("nitro.svg"),
+            Icon::Wreath => icon!("wreath.svg"),
             Icon::VideoOff => icon!("video-off.svg"),
             Icon::Maximize => icon!("maximize.svg"),
             Icon::Minimize => icon!("minimize.svg"),

@@ -127,6 +127,9 @@ pub enum MenuChoice {
     /// Open a Discord server's settings, to the pages this account may
     /// change.
     ServerSettings,
+    /// Open a Discord server's boost summary: only its header's dropdown
+    /// offers it.
+    ServerBoost,
 }
 
 /// How long [`MenuChoice::Mute`] mutes for, as Discord's client offers.
@@ -476,9 +479,8 @@ impl Application {
                 .find(|server| server.channels.contains(&id))
                 .map(|server| Navigation::Server(server.id.clone()))
         };
-        // Crossing to another server or the direct messages restores a
-        // conversation there first, which is no stop of its own: the history
-        // notes the one that gives way to this conversation instead.
+        // An explicit destination opens directly, without showing the
+        // destination server's previously selected channel first.
         let crossing = !self.state.nav_walking
             && navigation
                 .as_ref()
@@ -489,10 +491,10 @@ impl Application {
                 .record_visit(previous, &HistoryPlace::Room(id.clone()));
             self.state.nav_walking = true;
         }
-        let mut effects = navigation
-            .map(|navigation| self.dispatch(Action::Navigate(navigation)))
-            .unwrap_or_default();
-        effects.extend(self.select_showing(id, chat));
+        if let Some(navigation) = navigation {
+            self.state.navigation = navigation;
+        }
+        let effects = self.select_showing(id, chat);
         if crossing {
             self.state.nav_walking = false;
         }
@@ -584,7 +586,7 @@ impl Application {
             let opening = self.pending_open.take_if(|pending| *pending == room);
             let beside = self.pending_aside.take_if(|pending| *pending == room);
             if opening.is_some() || beside.is_some() {
-                self.state.notice = Some(error);
+                self.state.notice = Some(super::Notice::Error(error));
             }
         }
     }
@@ -1042,8 +1044,9 @@ impl Application {
             // Discord would refuse its messages, and refusals count against
             // the account, so Yapfast doesn't ask.
             self.state.room_ready = true;
-            self.state.notice =
-                Some("Your roles on this Discord server don't let you read this channel.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Your roles on this Discord server don't let you read this channel.".into(),
+            ));
             effects.push(Effect::Backend(Command::CloseRoom));
         } else {
             effects.push(Effect::Backend(Command::Open(id)));
@@ -1150,6 +1153,13 @@ impl Application {
             &mut self.state.servers,
             self.matrix_servers.iter().chain(discord_servers),
         );
+        if servers && !self.state.discover.joined.is_empty() {
+            let memberships = &self.state.servers;
+            self.state.discover.joined.retain(|raw| {
+                let id = discord::server_id(raw);
+                !memberships.iter().any(|server| server.id == id)
+            });
+        }
         if rooms || servers {
             self.state.list_changes = self.state.list_changes.wrapping_add(1);
         }

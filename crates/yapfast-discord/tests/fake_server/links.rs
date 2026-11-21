@@ -2,6 +2,82 @@
 
 use super::*;
 
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn creates_a_server_with_its_starting_channels() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("creates_a_server_with_its_starting_channels").await;
+    assert!(discord.create_server("X", &[], None).await.is_err());
+
+    let basic = discord
+        .create_server("Basic workspace", &[], None)
+        .await
+        .unwrap();
+    let icon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+    let gaming = discord
+        .create_server(
+            "Raid Night",
+            &["general", "looking-for-group", "clips"],
+            Some(icon),
+        )
+        .await
+        .unwrap();
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.servers.iter().any(|known| known.id == gaming)
+    })
+    .await;
+    let basic = snapshot
+        .servers
+        .iter()
+        .find(|known| known.id == basic)
+        .unwrap();
+    assert!(
+        basic
+            .text_channels
+            .iter()
+            .any(|channel| channel.name == "general")
+    );
+    let gaming = snapshot
+        .servers
+        .iter()
+        .find(|known| known.id == gaming)
+        .unwrap();
+    assert_eq!(gaming.name, "Raid Night");
+    assert!(
+        gaming
+            .icon
+            .as_deref()
+            .is_some_and(|url| url.contains("test-server-icon"))
+    );
+    assert_eq!(gaming.owner_id, snapshot.user_id);
+    assert_eq!(
+        gaming
+            .text_channels
+            .iter()
+            .map(|channel| channel.name.as_str())
+            .collect::<Vec<_>>(),
+        ["general", "looking-for-group", "clips"]
+    );
+    assert!(
+        gaming
+            .voice_channels
+            .iter()
+            .any(|channel| channel.name == "General")
+    );
+
+    let requests: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/server-creations", "")).unwrap();
+    let requests = requests.as_array().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0], serde_json::json!({"name": "Basic workspace"}));
+    assert_eq!(requests[1]["system_channel_id"], 2);
+    assert_eq!(requests[1]["icon"], icon);
+}
+
 /// Joins "Server" again by an invite to #general, as Join a Server does
 /// with a vanity code: Discord asks for a captcha first, which a page
 /// shows, and the server comes back with its GUILD_CREATE.
@@ -230,6 +306,19 @@ async fn redeems_a_gift() {
     // redeem it.
     let paid = discord.gift("AbCdEfGhIjKlMnOp").await.unwrap();
     assert!(paid.in_discord && !paid.redeemable());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_the_gifts_the_account_can_still_give() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("lists_the_gifts_the_account_can_still_give").await;
+
+    // Alice bought two gifts; someone used the second up.
+    let gifts = discord.gifts_to_give().await.unwrap();
+    assert_eq!(gifts.len(), 1, "{gifts:?}");
+    assert_eq!(gifts[0].code, "Qw3rTyUiOpAsDfGhJkLzXcVb");
+    assert_eq!(gifts[0].name, "Nitro Monthly");
 }
 
 #[tokio::test(flavor = "multi_thread")]

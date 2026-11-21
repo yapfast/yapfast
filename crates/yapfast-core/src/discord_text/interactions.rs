@@ -297,7 +297,7 @@ pub(super) fn live(live: Live, events: &UnboundedSender<Event>) -> Option<Live> 
         Live::InteractionModal(form) => Event::InteractionModal(form),
         Live::InteractionPage(page) => Event::InteractionFailed {
             nonce: page["nonce"].as_str().unwrap_or_default().to_owned(),
-            reason: "This app opens a page Yapfast can't show. Use it in Discord.".into(),
+            reason: "This app opens a page Yapfast can't show.".into(),
         },
         // Only the newest autocomplete's, which [`autocomplete`] passes on.
         Live::AutocompleteChoices { .. } => return None,

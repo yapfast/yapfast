@@ -14,6 +14,7 @@ use crate::{
     ctx::Cx,
     form::{self, switch},
 };
+use yapfast_core::i18n::tr;
 
 /// A custom game's name, at its longest.
 pub(super) const GAME_NAME: usize = 128;
@@ -121,19 +122,19 @@ impl<'a> Page<'a> {
         let draft = &settings.game;
         let shown = state.discord_show_game;
         let mut parts = vec![
-            form::title(theme, "Game activity"),
+            form::title(theme, tr("Game activity")),
             switch(
-                "Share the game you play",
+                tr("Share the game you play"),
                 shown,
                 linked.then(|| Message::Settings(Event::Game(GameEvent::Show(!shown)))),
             )
-            .description("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.")
-            .locked("Link a Discord account first.")
+            .description(tr("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."))
+            .locked(tr("Link a Discord account first."))
             .view(self.cx.look),
-            form::heading(theme, "CUSTOM GAMES"),
+            form::heading(theme, tr("CUSTOM GAMES")),
             form::note(
                 theme,
-                "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first.",
+                tr("Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."),
             ),
         ];
         for (index, (executable, name)) in self.cx.layout.prefs.game_executables.iter().enumerate()
@@ -148,14 +149,14 @@ impl<'a> Page<'a> {
                             .wrapping(text::Wrapping::None),
                         action(
                             theme,
-                            "Edit",
+                            tr("Edit"),
                             Kind::Plain,
                             Some(game_message(GameEvent::Edit(index)))
                         )
                         .small(),
                         action(
                             theme,
-                            "Remove",
+                            tr("Remove"),
                             Kind::Plain,
                             Some(game_message(GameEvent::Remove(index)))
                         )
@@ -173,7 +174,7 @@ impl<'a> Page<'a> {
             form::field(
                 theme,
                 "settings-game-executable",
-                "Executable name or full path",
+                tr("Executable name or full path"),
                 &draft.executable,
             )
             .on_input(|text| game_message(GameEvent::Executable(text)))
@@ -183,7 +184,7 @@ impl<'a> Page<'a> {
             form::field(
                 theme,
                 "settings-game-name",
-                "Text after Playing (up to 128 characters)",
+                tr("Text after Playing (up to 128 characters)"),
                 &draft.name,
             )
             .on_input(|text| game_message(GameEvent::Name(text)))
@@ -192,7 +193,7 @@ impl<'a> Page<'a> {
         if draft.invalid {
             parts.push(form::note(
                 theme,
-                "Enter an executable and a name of up to 128 characters, without line breaks.",
+                tr("Enter an executable and a name of up to 128 characters, without line breaks."),
             ));
         }
         let ready = !draft.executable.is_empty() && !draft.name.is_empty();
@@ -200,9 +201,9 @@ impl<'a> Page<'a> {
             action(
                 theme,
                 if draft.editing.is_some() {
-                    "Save game"
+                    tr("Save game")
                 } else {
-                    "Add game"
+                    tr("Add game")
                 },
                 Kind::Plain,
                 ready.then(|| game_message(GameEvent::Save)),
@@ -213,7 +214,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Cancel",
+                    tr("Cancel"),
                     Kind::Plain,
                     Some(game_message(GameEvent::Cancel)),
                 )

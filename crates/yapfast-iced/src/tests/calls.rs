@@ -255,20 +255,18 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
 }
 
 #[test]
-fn the_input_menu_measures_the_microphone_only_while_it_shows() {
+fn the_device_menus_open_their_pages() {
+    use crate::call::popups::device::Page;
     let (mut app, _folder) = preview();
-    assert!(!crate::call::metering(&app));
     let _ = crate::call::update(&mut app, Event::Open(Popup::Input));
-    assert!(crate::call::metering(&app), "the level shows");
-    assert!(shows(&app, "INPUT LEVEL"));
     assert!(shows(&app, "Input Device"));
+    assert!(shows(&app, "Input Volume"));
+    assert!(!shows(&app, "INPUT LEVEL"), "the level is in Settings only");
+    let _ = crate::call::update(&mut app, Event::Page(Page::Devices));
+    assert!(!shows(&app, "Input Volume"), "the devices' page alone");
     let _ = crate::call::update(&mut app, Event::Close);
-    assert!(!crate::call::metering(&app));
+    assert_eq!(app.call.page, Page::Main);
     let _ = crate::call::update(&mut app, Event::Open(Popup::Output));
-    assert!(
-        !crate::call::metering(&app),
-        "the speakers' menu has no level"
-    );
     assert!(shows(&app, "Output Volume"));
 }
 
@@ -426,7 +424,9 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
 fn the_banners_show_over_a_voice_channels_call_too() {
     let (mut app, _folder, _) = in_call();
     super::change(&mut app, |state| {
-        state.notice = Some("Discord asked Yapfast to slow down.".into());
+        state.notice = Some(yapfast_core::application::Notice::Error(
+            "Discord asked Yapfast to slow down.".into(),
+        ));
     });
     assert!(crate::call::stage::voice_panel(&app), "the call's view");
     assert!(shows(&app, "Discord asked Yapfast to slow down."));
@@ -636,4 +636,133 @@ fn someones_voice_menu_keeps_the_cores_order_with_an_icon_on_each_row() {
     for row in &menu.rows {
         assert!(row.icon.is_some(), "{} has its icon", row.label);
     }
+}
+
+#[test]
+fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
+    use crate::call::stage::MEMBERS_TOGGLE;
+    use iced::widget::Id;
+    use iced_test::selector::Candidate;
+
+    let (mut app, _folder, _) = in_call();
+    let bob_feed = yapfast_core::picture::Feed::new();
+    let bob_camera = bob_feed.clone();
+    super::change(&mut app, move |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = Some(bob_camera);
+        state.voice.participants.push(bob);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+
+    let on_stage = |app: &App, name: &str| {
+        let left = crate::conversation::chat_left(app);
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        let mut found = false;
+        let _ = ui.find(|candidate: Candidate<'_>| {
+            if let Candidate::Text {
+                content,
+                visible_bounds: Some(bounds),
+                ..
+            } = candidate
+                && content == name
+                && bounds.x >= left
+            {
+                found = true;
+            }
+            None::<()>
+        });
+        found
+    };
+
+    // Grid mode has no strip to hide.
+    interact(&mut app, |ui| {
+        assert!(ui.find(Id::new(MEMBERS_TOGGLE)).is_err());
+    });
+
+    // Focus the local tile: Bob sits in the bottom strip and his camera decodes.
+    let _ = crate::call::update(&mut app, Event::Focus(Some(0)));
+    let (_, _, before_tiles, _) = crate::call::stage::stage(&app);
+    assert!(before_tiles[1].width > 0.0 && before_tiles[1].height > 0.0);
+    assert!(bob_feed.shown_at().is_some(), "strip camera decodes");
+    assert!(on_stage(&app, "Bob"), "Bob shows in the strip");
+
+    let mut shown_toggle = None;
+    interact(&mut app, |ui| {
+        let target = ui
+            .find(Id::new(MEMBERS_TOGGLE))
+            .expect("Hide Members button");
+        let bounds = target.visible_bounds().expect("in view");
+        assert_eq!(bounds.size(), Size::new(60.0, 32.0));
+        let tip_area = Rectangle::new(
+            Point::new(bounds.x - 40.0, bounds.y - 44.0),
+            Size::new(140.0, 38.0),
+        );
+        assert!(
+            super::hover_draws(ui, bounds.center(), tip_area),
+            "Hide Members tooltip"
+        );
+        shown_toggle = Some(bounds);
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(MEMBERS_TOGGLE))
+            .expect("click Hide Members");
+    });
+
+    assert!(app.call.hide_members);
+    let (_, _, after_tiles, _) = crate::call::stage::stage(&app);
+    assert_eq!(after_tiles[1].size(), Size::ZERO);
+    assert_eq!(
+        bob_feed.shown_at(),
+        None,
+        "hidden participant camera stops decoding"
+    );
+    assert!(after_tiles[0].height > before_tiles[0].height);
+    assert!(after_tiles[0].width > before_tiles[0].width);
+    assert!(!on_stage(&app, "Bob"), "Bob is hidden from the stage");
+
+    interact(&mut app, |ui| {
+        let target = ui
+            .find(Id::new(MEMBERS_TOGGLE))
+            .expect("Show Members button");
+        let bounds = target.visible_bounds().expect("in view");
+        assert_eq!(bounds.size(), Size::new(60.0, 32.0));
+        assert!(
+            bounds.y > shown_toggle.unwrap().y,
+            "Show Members sits just above the controls"
+        );
+        let tip_area = Rectangle::new(
+            Point::new(bounds.x - 40.0, bounds.y - 44.0),
+            Size::new(140.0, 38.0),
+        );
+        assert!(
+            super::hover_draws(ui, bounds.center(), tip_area),
+            "Show Members tooltip"
+        );
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(MEMBERS_TOGGLE))
+            .expect("click Show Members");
+    });
+
+    assert!(!app.call.hide_members);
+    let (_, _, restored_tiles, _) = crate::call::stage::stage(&app);
+    assert_eq!(restored_tiles, before_tiles);
+    assert!(
+        bob_feed.shown_at().is_some(),
+        "participant camera resumes decoding"
+    );
+    assert!(on_stage(&app, "Bob"), "Bob returns to the strip");
+
+    // Leaving the call resets the toggle.
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    assert!(app.call.hide_members);
+    let _ = crate::call::update(&mut app, Event::Leave);
+    assert!(!app.call.hide_members);
 }

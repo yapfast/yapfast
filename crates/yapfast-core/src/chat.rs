@@ -25,6 +25,11 @@ pub const FOUND_PICTURES: usize = 4;
 pub const VIEW_WIDTH: u32 = 1920;
 pub const VIEW_HEIGHT: u32 = 1200;
 
+/// What Settings says about where a Discord login is kept. The interface
+/// translates it where it shows it (`tr` there), since it is sent once.
+pub const DISCORD_STORAGE: &str =
+    crate::i18n::later("The Discord token is stored in the OS credential store.");
+
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.
 #[cfg(feature = "discord")]
@@ -58,6 +63,15 @@ pub use yapfast_discord::commands::CommandIndex;
 #[cfg(not(feature = "discord"))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum CommandIndex {}
+
+/// One of the two members shown on a group DM's fallback icon when it has no
+/// custom icon and more than two members.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct GroupAvatar {
+    pub id: String,
+    pub name: String,
+    pub avatar: String,
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
@@ -121,6 +135,9 @@ pub struct ChatRoom {
     /// The address of a Discord DM's picture: the other person's avatar or
     /// the group's icon. See [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// When a group DM has no custom icon and more than two members, the two
+    /// members whose overlapping avatars form its fallback icon.
+    pub group_avatars: Option<[GroupAvatar; 2]>,
     /// The address of the decoration the other person in a one-to-one DM
     /// wears around their avatar, their nameplate, and how they draw their
     /// name.
@@ -297,6 +314,8 @@ pub struct Friend {
     /// When they became friends, in Unix milliseconds; written out only for
     /// the profile on screen.
     pub since: Option<u64>,
+    /// The server tag they wear beside their name.
+    pub tag: Option<ServerTag>,
 }
 
 /// A file waiting in the composer to go with the next message.
@@ -993,11 +1012,7 @@ pub struct RecentActivity {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileWidget {
     pub title: String,
-    /// The application it shows, whose name is its title once it's asked.
-    pub application: Option<String>,
     pub games: Vec<ProfileGame>,
-    /// It lists games, rather than something shown only in Discord.
-    pub lists_games: bool,
 }
 
 /// A game on a widget.
@@ -1232,6 +1247,12 @@ pub struct Reply {
     pub color: Option<u32>,
     /// The author's server tag, which Discord's quote shows after the name.
     pub tag: Option<ServerTag>,
+    /// The original author's display name style.
+    pub style: Option<Arc<NameStyle>>,
+    /// Its preview text comes from a forwarded snapshot.
+    pub forwarded: bool,
+    /// Its original has attachments or embeds.
+    pub has_media: bool,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -1794,6 +1815,10 @@ pub enum VideoCommand {
     Stop,
 }
 
+/// The room of the video of a quest, which plays in the Quests screen and
+/// belongs to no conversation; its item is the quest's id.
+pub const QUEST_VIDEO_ROOM: &str = "quests";
+
 /// The video playing in the conversation view.
 #[derive(Clone, Debug)]
 pub struct Video {
@@ -2281,6 +2306,7 @@ pub enum Command {
     /// as a message of its own, if any. On Discord, `silent` notifies
     /// nobody of either, as `@silent` does.
     Forward {
+        request: u64,
         room: String,
         item: String,
         target: String,
@@ -2370,6 +2396,7 @@ pub enum Command {
     /// Download an image attachment at viewing size; it arrives as
     /// [`Event::Image`].
     ViewImage {
+        request: u64,
         room: String,
         item: String,
         index: usize,
@@ -2630,6 +2657,32 @@ pub struct TagServer {
 /// for a server that shows it only to its members, or why it failed.
 pub type TagServerAnswer = Result<Option<TagServer>, String>;
 
+/// Initial channels offered when creating a Discord server.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServerLayout {
+    Basic,
+    Gaming,
+    Friends,
+    Study,
+    SchoolClub,
+    LocalCommunity,
+    Creators,
+}
+
+impl ServerLayout {
+    pub fn text_channels(self) -> &'static [&'static str] {
+        match self {
+            Self::Basic => &[],
+            Self::Gaming => &["general", "looking-for-group", "clips"],
+            Self::Friends => &["general", "plans", "photos"],
+            Self::Study => &["general", "questions", "resources"],
+            Self::SchoolClub => &["general", "announcements", "meetings"],
+            Self::LocalCommunity => &["general", "local-events", "recommendations"],
+            Self::Creators => &["general", "showcase", "feedback"],
+        }
+    }
+}
+
 /// A Discord server joined by an invite.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedServer {
@@ -2640,6 +2693,75 @@ pub struct JoinedServer {
     /// Whether the server asks new members to fill in its form, such as
     /// accepting its rules, before they may talk.
     pub form: bool,
+}
+
+/// What a question of a server's form asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreeningKind {
+    /// Rules to agree to.
+    Terms,
+    /// A line of text.
+    Text,
+    /// A longer text.
+    Paragraph,
+    /// One of a few choices.
+    Choice,
+}
+
+/// A question of the form a server asks new members to fill in, with what
+/// was answered to it so far.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreeningField {
+    pub kind: ScreeningKind,
+    pub label: String,
+    pub description: Option<String>,
+    pub required: bool,
+    /// The rules of Terms, or the choices of Choice.
+    pub values: Vec<String>,
+    /// The answer: whether the rules are agreed to, the words, or the
+    /// choice, by its place in `values`, by the kind.
+    pub agreed: bool,
+    pub text: String,
+    pub choice: Option<usize>,
+}
+
+impl ScreeningField {
+    /// Whether the answer is there: agreement to rules, a pick, or words.
+    pub fn answered(&self) -> bool {
+        match self.kind {
+            ScreeningKind::Terms => self.agreed,
+            ScreeningKind::Choice => self.choice.is_some(),
+            ScreeningKind::Text | ScreeningKind::Paragraph => !self.text.trim().is_empty(),
+        }
+    }
+}
+
+/// The form a server asks new members to fill in before they may talk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreeningForm {
+    /// Which edition of the form it is; handed back with the answers.
+    pub version: String,
+    pub description: String,
+    pub fields: Vec<ScreeningField>,
+}
+
+impl ScreeningForm {
+    /// Whether every question that has to be answered is.
+    pub fn complete(&self) -> bool {
+        self.fields
+            .iter()
+            .all(|field| !field.required || field.answered())
+    }
+}
+
+/// What came of handing in a server's form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreeningReview {
+    /// The server let the account in.
+    Approved,
+    /// The server's moderators decide.
+    Waiting,
+    Rejected,
 }
 
 /// What a Discord server's scheduled event shows from its link.
@@ -2807,6 +2929,14 @@ pub struct CommandRun {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Retry a disconnected gateway without resetting its limits.
+    Reconnect,
+    /// Acknowledge the thread only if its newest message is the one shown.
+    MarkThreadRead {
+        room: String,
+        newest: u64,
+        sync: bool,
+    },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.
     ActivityFeed,
@@ -3118,6 +3248,21 @@ pub enum DiscordCommand {
         user: String,
         room: String,
     },
+    /// Send a Discord friend the invite dialog's link to the channel by
+    /// its room id, as its Invite button does: in a message to their DM,
+    /// opening the DM if need be; [`Event::InviteSent`] follows.
+    SendInviteLink {
+        user: String,
+        room: String,
+        link: String,
+    },
+    /// Create a Discord server after confirmation. [`Event::ServerCreated`] follows.
+    CreateServer {
+        request: u64,
+        name: String,
+        layout: ServerLayout,
+        icon: Option<PathBuf>,
+    },
     /// Look up an invite to a Discord server by its code, before joining
     /// by it; `typed` is what someone typed into Join a Server, if they
     /// did. [`Event::InviteResolved`] follows.
@@ -3134,6 +3279,18 @@ pub enum DiscordCommand {
         preview: Box<InvitePreview>,
         from_link: bool,
     },
+    /// Read the form a server asks new members to fill in, which joining by
+    /// the invite with this code showed. [`Event::ScreeningLoaded`] follows.
+    LoadScreening {
+        server: String,
+        code: String,
+    },
+    /// Hand in the server's form, with its answers.
+    /// [`Event::ScreeningSubmitted`] follows.
+    SubmitScreening {
+        server: String,
+        form: Box<ScreeningForm>,
+    },
     /// Look up a Discord server's scheduled event by its server and
     /// event ids, with whether this account is interested in it.
     /// [`Event::EventResolved`] follows.
@@ -3147,6 +3304,117 @@ pub enum DiscordCommand {
     SetEventInterest {
         preview: Box<EventPreview>,
         interested: bool,
+    },
+    /// Load the Quests screen's quests, the ones on offer and the ones
+    /// claimed. [`Event::QuestsLoaded`] follows.
+    LoadQuests,
+    /// Accept the quest with this id. [`Event::QuestAccepted`] follows.
+    AcceptQuest {
+        id: String,
+    },
+    /// Play the video of the accepted quest with this id, which is at
+    /// `url`, at most `width` by `height` pixels, on `speakers`, stopping
+    /// any other; it goes as [`Event::Video`] in the room
+    /// [`QUEST_VIDEO_ROOM`], with the quest's id as its item.
+    PlayQuestVideo {
+        id: String,
+        url: String,
+        width: u32,
+        height: u32,
+        speakers: Option<String>,
+    },
+    /// Tell Discord the account watched `seconds` of the quest's video,
+    /// of the `target` the quest asks. [`Event::QuestProgress`] follows.
+    ReportQuestVideo {
+        id: String,
+        seconds: u64,
+        target: u64,
+    },
+    /// Claim the reward of the finished quest with this id.
+    /// [`Event::QuestCaptcha`] follows for each captcha Discord asks for
+    /// first, and [`Event::QuestClaimed`] at the end.
+    ClaimQuest {
+        id: String,
+    },
+    /// Load the Shop screen's categories and this account's Orbs.
+    /// [`Event::ShopLoaded`] follows.
+    LoadShop,
+    /// Read the gifts the account bought and can still give.
+    /// [`Event::GiftsLoaded`] follows.
+    LoadGifts,
+    /// Read the apps the account authorized. [`Event::AuthorizedAppsLoaded`]
+    /// follows.
+    LoadAuthorizedApps,
+    /// Take the authorization with this id back.
+    /// [`Event::AuthorizedAppRevoked`] follows.
+    RevokeAuthorizedApp {
+        id: String,
+    },
+    /// Read the devices the account is signed in on.
+    /// [`Event::DevicesLoaded`] follows.
+    LoadDevices,
+    /// Sign the devices with these session hashes out.
+    /// [`Event::DevicesLoggedOut`] follows.
+    LogOutDevices {
+        ids: Vec<String>,
+    },
+    /// Read the services the account linked. [`Event::ConnectionsLoaded`]
+    /// follows.
+    LoadConnections,
+    /// Unlink a connected account. [`Event::AccountDisconnected`] follows.
+    DisconnectAccount {
+        service: String,
+        id: String,
+    },
+    /// Show a connected account on the profile or not, and let it show as an
+    /// activity or not; `None` leaves it. [`Event::ConnectionShown`] follows.
+    ShowConnection {
+        service: String,
+        id: String,
+        visible: Option<bool>,
+        activity: Option<bool>,
+    },
+    /// Ask for the page that links an account of a service.
+    /// [`Event::ConnectionLink`] follows.
+    LinkConnection {
+        service: String,
+    },
+    /// Change the account's username, email or password; `password` is the
+    /// current one. [`Event::AccountChanged`] follows.
+    ChangeAccount {
+        field: crate::account_tools::AccountField,
+        value: String,
+        password: String,
+    },
+    /// Buy the Shop product with this SKU with Orbs.
+    /// [`Event::ProductBought`] follows.
+    BuyProduct {
+        sku: String,
+    },
+    /// Read the boosts the account can give the Discord server with this
+    /// id. [`Event::BoostsLoaded`] follows.
+    LoadBoosts {
+        server: String,
+    },
+    /// Give the Discord server with this id one of the account's free
+    /// boosts. [`Event::ServerBoosted`] follows.
+    BoostServer {
+        server: String,
+    },
+    /// List the discoverable servers for these words, within this category,
+    /// from the `offset`th on; Discord's categories come too when
+    /// `categories` asks. [`Event::DiscoverLoaded`] follows.
+    LoadDiscover {
+        query: String,
+        category: Option<u32>,
+        offset: u32,
+        categories: bool,
+    },
+    /// Join the discoverable Discord server with this id.
+    /// [`Event::DiscoverCaptcha`] follows for each captcha Discord asks for
+    /// first, and [`Event::DiscoverJoined`] at the end.
+    JoinDiscovered {
+        id: String,
     },
     /// Look up a Discord gift by its code, before offering to redeem
     /// it. [`Event::GiftResolved`] follows.
@@ -3271,10 +3539,24 @@ pub enum DiscordCommand {
         since: Option<u64>,
         show_idle: bool,
     },
-    /// Connect the Discord account that was just linked.
+    /// Connect the Discord account that is active on this device, in place
+    /// of the one running: after linking another, which becomes the active
+    /// one. [`Event::DiscordAccounts`] follows.
     Start,
-    /// Forget the linked Discord account on this device, ending its session
-    /// on Discord; [`Event::DiscordUnlinked`] follows.
+    /// Refresh the linked accounts without interrupting the active connection.
+    ListAccounts,
+    /// Make the linked Discord account with this id the active one and
+    /// connect it in place of the one running; [`Event::DiscordSwitched`]
+    /// and [`Event::DiscordAccounts`] follow, or [`Event::Error`] when it
+    /// can't.
+    SwitchAccount(String),
+    /// Forget the linked Discord account with this id on this device, ending
+    /// its session on Discord. [`Event::DiscordAccounts`] follows; so does
+    /// [`Event::DiscordSwitched`] when it was the active one and another
+    /// takes its place, or [`Event::DiscordUnlinked`] when it was the last.
+    RemoveAccount(String),
+    /// Forget every linked Discord account on this device, ending their
+    /// sessions on Discord; [`Event::DiscordUnlinked`] follows.
     Unlink,
     /// Change a member of a Discord server, by its server id; a nickname,
     /// a timeout, a kick or a ban answers with [`Event::PersonSaved`], and
@@ -3399,6 +3681,8 @@ pub enum DiscordCommand {
         server: String,
         action: EmojiAction,
     },
+    /// Get the custom emoji rankings for a server.
+    PopularEmoji(String),
     /// A server's preview, for the card that an emoji of it opens: how many of
     /// its members are online, and whether Discover lists it.
     /// [`Event::ServerPreview`] follows.
@@ -4285,6 +4569,7 @@ pub enum Event {
     VoiceMessage(Option<VoicePlayback>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
     Image {
+        request: u64,
         room: String,
         item: String,
         index: usize,
@@ -4337,8 +4622,19 @@ pub enum Event {
     SoundCatalog(Result<Arc<[crate::voice::SoundGroup]>, String>),
     /// Whether [`DiscordCommand::SetJoinSound`] changed it, or why not.
     JoinSoundSet(Result<(), String>),
-    /// [`DiscordCommand::Unlink`] forgot the account.
+    /// [`DiscordCommand::Unlink`] forgot the account, or
+    /// [`DiscordCommand::RemoveAccount`] forgot the last one.
     DiscordUnlinked,
+    /// The Discord accounts linked on this device, and which is active. Sent
+    /// when Yapfast starts with any, and after each change to them.
+    DiscordAccounts {
+        accounts: Vec<DiscordAccount>,
+        /// The active account's id; empty when none is linked.
+        active: String,
+    },
+    /// The active Discord account is another now: what Yapfast showed of the
+    /// one before belongs to it no longer.
+    DiscordSwitched,
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {
@@ -4537,6 +4833,11 @@ pub enum Event {
         server: String,
         result: Result<ServerPreview, String>,
     },
+    /// The server's most-used custom emoji, or why they didn't load.
+    PopularEmoji {
+        server: String,
+        result: Result<Vec<String>, String>,
+    },
     /// What a server tag's card shows of the server it's from, as
     /// [`DiscordCommand::TagServer`] asked.
     TagServer {
@@ -4626,6 +4927,11 @@ pub enum Event {
         room: String,
         result: Result<(), String>,
     },
+    /// The created server's id, or the error returned by Discord.
+    ServerCreated {
+        request: u64,
+        result: Result<String, String>,
+    },
     /// What the invite [`DiscordCommand::ResolveInvite`] looked up by its
     /// code shows, or why Discord showed nothing.
     InviteResolved {
@@ -4644,6 +4950,17 @@ pub enum Event {
         code: String,
         result: Result<JoinedServer, String>,
     },
+    /// The form of a joined server, as [`DiscordCommand::LoadScreening`]
+    /// read it, or why it didn't.
+    ScreeningLoaded {
+        server: String,
+        result: Result<ScreeningForm, String>,
+    },
+    /// What came of [`DiscordCommand::SubmitScreening`].
+    ScreeningSubmitted {
+        server: String,
+        result: Result<ScreeningReview, String>,
+    },
     /// What the scheduled event [`DiscordCommand::ResolveEvent`] looked
     /// up by its id shows, or why Discord showed nothing.
     EventResolved {
@@ -4655,6 +4972,137 @@ pub enum Event {
     EventInterestSet {
         event: String,
         interested: bool,
+        result: Result<(), String>,
+    },
+    /// The quests [`DiscordCommand::LoadQuests`] listed, those on offer
+    /// and those claimed, or why Discord listed none.
+    QuestsLoaded {
+        result: Result<(Vec<crate::storefront::Quest>, Vec<crate::storefront::Quest>), String>,
+    },
+    /// Whether [`DiscordCommand::AcceptQuest`] accepted the quest with
+    /// this id, or why it didn't.
+    QuestAccepted {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// How far Discord counts the quest's video watched after
+    /// [`DiscordCommand::ReportQuestVideo`], as its status and seconds
+    /// done, or why it didn't take it.
+    QuestProgress {
+        id: String,
+        result: Result<(crate::storefront::QuestStatus, u64), String>,
+    },
+    /// The address of the page with a captcha Discord asked for before
+    /// giving the reward of the quest with this id.
+    QuestCaptcha {
+        id: String,
+        page: String,
+    },
+    /// Whether [`DiscordCommand::ClaimQuest`] claimed the reward of the
+    /// quest with this id, or why it didn't.
+    QuestClaimed {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// Whether [`DiscordCommand::BuyProduct`] bought the product with this
+    /// SKU, or why it didn't.
+    ProductBought {
+        sku: String,
+        result: Result<(), String>,
+    },
+    /// The account's boosts that [`DiscordCommand::LoadBoosts`] read for the
+    /// server, or why Discord showed none.
+    BoostsLoaded {
+        server: String,
+        result: Result<crate::storefront::BoostSlots, String>,
+    },
+    /// Whether [`DiscordCommand::BoostServer`] gave the server a boost, or
+    /// why it didn't.
+    ServerBoosted {
+        server: String,
+        result: Result<(), String>,
+    },
+    /// The page of discoverable servers that [`DiscordCommand::LoadDiscover`]
+    /// asked for the words and category, from the `offset`th on, or why
+    /// Discord listed none.
+    DiscoverLoaded {
+        query: String,
+        category: Option<u32>,
+        offset: u32,
+        result: Result<crate::storefront::DiscoverBatch, String>,
+    },
+    /// The address of the page with a captcha Discord asked for before
+    /// joining the discoverable server with this id.
+    DiscoverCaptcha {
+        id: String,
+        page: String,
+    },
+    /// Whether [`DiscordCommand::JoinDiscovered`] joined the server with
+    /// this id, or why it didn't.
+    DiscoverJoined {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// The Shop's categories and this account's Orbs that
+    /// [`DiscordCommand::LoadShop`] read, or why Discord showed none.
+    ShopLoaded {
+        result: Result<(Vec<crate::storefront::Category>, Option<u64>), String>,
+    },
+    /// The gifts [`DiscordCommand::LoadGifts`] read, or why Discord listed
+    /// none.
+    GiftsLoaded {
+        result: Result<Vec<crate::storefront::GiftToGive>, String>,
+    },
+    /// The apps [`DiscordCommand::LoadAuthorizedApps`] read, or why Discord
+    /// listed none.
+    AuthorizedAppsLoaded {
+        result: Result<Vec<crate::account_tools::AuthorizedApp>, String>,
+    },
+    /// Whether [`DiscordCommand::RevokeAuthorizedApp`] took the
+    /// authorization with this id back.
+    AuthorizedAppRevoked {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// The devices [`DiscordCommand::LoadDevices`] read, or why Discord
+    /// listed none.
+    DevicesLoaded {
+        result: Result<Vec<crate::account_tools::Device>, String>,
+    },
+    /// Whether [`DiscordCommand::LogOutDevices`] signed these sessions out.
+    DevicesLoggedOut {
+        ids: Vec<String>,
+        result: Result<(), String>,
+    },
+    /// The services [`DiscordCommand::LoadConnections`] read, or why
+    /// Discord listed none.
+    ConnectionsLoaded {
+        result: Result<Vec<crate::account_tools::Connection>, String>,
+    },
+    /// Whether [`DiscordCommand::DisconnectAccount`] unlinked the account.
+    AccountDisconnected {
+        service: String,
+        id: String,
+        result: Result<(), String>,
+    },
+    /// Whether [`DiscordCommand::ShowConnection`] changed how the account
+    /// shows.
+    ConnectionShown {
+        service: String,
+        id: String,
+        visible: Option<bool>,
+        activity: Option<bool>,
+        result: Result<(), String>,
+    },
+    /// The page [`DiscordCommand::LinkConnection`] asked for, to open in the
+    /// browser, or why Discord gave none.
+    ConnectionLink {
+        service: String,
+        result: Result<String, String>,
+    },
+    /// Whether [`DiscordCommand::ChangeAccount`] changed the account.
+    AccountChanged {
+        field: crate::account_tools::AccountField,
         result: Result<(), String>,
     },
     /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
@@ -4737,6 +5185,11 @@ pub enum Event {
         body: String,
         result: Result<(), &'static str>,
     },
+    /// The Matrix queue accepted these files before the rest of the send failed.
+    AttachmentsQueued {
+        room: String,
+        files: Vec<PathBuf>,
+    },
     EditResult {
         room: String,
         item: String,
@@ -4760,6 +5213,7 @@ pub enum Event {
     /// A message was forwarded to `room`, with the message added to it, or
     /// what fell short.
     Forwarded {
+        request: u64,
         room: String,
         result: Result<(), ForwardFailure>,
     },
@@ -5284,6 +5738,37 @@ pub fn can_restore(root: &std::path::Path) -> bool {
     }
 }
 
+/// A Discord account linked on this device, as the account switcher lists it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscordAccount {
+    /// Discord's id for the account, or an id of Yapfast's own for a login
+    /// that hasn't said whose it is yet.
+    pub id: String,
+    /// The account's username, which is empty until it has connected once.
+    pub username: String,
+    /// The name it shows, which is the username when it has none.
+    pub name: String,
+    /// The address of its picture, if it has one; see [`DiscordCommand::Pictures`].
+    pub avatar: Option<String>,
+}
+
+impl DiscordAccount {
+    /// What the switcher calls the account: its username, as Discord lists
+    /// accounts, else its name. An account that hasn't said either yet is
+    /// shown by its user id, and as "Account" when it hasn't even one, so a
+    /// row is never blank.
+    pub fn label(&self) -> &str {
+        [self.username.as_str(), self.name.as_str()]
+            .into_iter()
+            .find(|label| !label.is_empty())
+            .or_else(|| {
+                Some(self.id.as_str())
+                    .filter(|id| !id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit()))
+            })
+            .unwrap_or("Account")
+    }
+}
+
 /// A new message that should notify the person, by their notification settings on its
 /// network.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -5394,11 +5879,13 @@ pub async fn run(
     if let Some(error) = &discord_error {
         let _ = events.send(Event::Error(error.clone()));
     }
+    #[cfg(feature = "discord")]
+    send_discord_accounts(&events);
     #[cfg(not(feature = "matrix"))]
     let _ = events.send(Event::Connected {
         user: "Discord".into(),
         trusted: true,
-        storage: "The Discord token is stored in the OS credential store.",
+        storage: DISCORD_STORAGE,
     });
 
     // The actor waits on network events rather than polling the account or the UI.
@@ -5448,31 +5935,84 @@ pub async fn run(
                 #[cfg(feature = "discord")]
                 Route::Discord => match command {
                     Command::Discord(DiscordCommand::Start) => {
-                        if discord.is_none() {
-                            // Linking saved the login just before.
-                            let started = crate::discord_text::Chat::start().and_then(|started| {
-                                started.ok_or_else(|| anyhow::anyhow!("its login wasn't saved"))
-                            });
-                            match started {
-                                Ok(started) => {
-                                    discord = Some(started);
+                        // Linking saved the login and made it the active one.
+                        let replacing = discord.is_some();
+                        connect_discord(&mut discord, &mut discord_error, &linked, &voice, &events);
+                        if replacing {
+                            let _ = events.send(Event::DiscordSwitched);
+                        }
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::ListAccounts) => {
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::SwitchAccount(id)) => {
+                        match yapfast_discord::token::switch(&id) {
+                            Ok(()) => {
+                                connect_discord(
+                                    &mut discord,
+                                    &mut discord_error,
+                                    &linked,
+                                    &voice,
+                                    &events,
+                                );
+                                let _ = events.send(Event::DiscordSwitched);
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, "could not switch the Discord account");
+                                let _ = events.send(Event::Error(
+                                    "Could not switch to that Discord account.".into(),
+                                ));
+                            }
+                        }
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::RemoveAccount(id)) => {
+                        let active = yapfast_discord::token::listing()
+                            .ok()
+                            .and_then(|listing| listing.active);
+                        if active.as_deref() == Some(id.as_str()) {
+                            // Its session ends and the next account, if any, takes its place.
+                            stop_discord(&mut discord, &linked, &voice, true);
+                            let remaining = yapfast_discord::token::forget_account(&id);
+                            match remaining {
+                                Ok(Some(_)) => {
+                                    connect_discord(
+                                        &mut discord,
+                                        &mut discord_error,
+                                        &linked,
+                                        &voice,
+                                        &events,
+                                    );
+                                    let _ = events.send(Event::DiscordSwitched);
+                                }
+                                Ok(None) => {
                                     discord_error = None;
+                                    let _ = events.send(Event::DiscordUnlinked);
                                 }
                                 Err(error) => {
-                                    let error = discord_failed(&error);
-                                    let _ = events.send(Event::Error(error.clone()));
-                                    discord_error = Some(error);
+                                    tracing::warn!(%error, "could not forget the Discord login");
+                                    let _ = events.send(Event::Error(
+                                        "Could not log out of that Discord account.".into(),
+                                    ));
                                 }
                             }
-                            linked.send_replace(
-                                discord.as_ref().map(crate::discord_text::Chat::service),
-                            );
+                        } else {
+                            end_other_session(&id);
+                            if let Err(error) = yapfast_discord::token::forget_account(&id) {
+                                tracing::warn!(%error, "could not forget the Discord login");
+                                let _ = events.send(Event::Error(
+                                    "Could not log out of that Discord account.".into(),
+                                ));
+                            }
                         }
+                        send_discord_accounts(&events);
                     }
                     Command::Discord(DiscordCommand::Unlink) => {
                         unlink_discord(&mut discord, &linked, &voice);
                         discord_error = None;
                         let _ = events.send(Event::DiscordUnlinked);
+                        send_discord_accounts(&events);
                     }
                     command => match discord.as_mut() {
                         Some(discord) => discord.command(command, &events),
@@ -5494,8 +6034,32 @@ pub async fn run(
                 #[cfg(not(feature = "matrix"))]
                 Route::Matrix => {
                     if let Command::Logout = command {
+                        // Only the active account logs out; another one, if
+                        // linked, takes its place.
                         #[cfg(feature = "discord")]
-                        unlink_discord(&mut discord, &linked, &voice);
+                        {
+                            let active = yapfast_discord::token::listing()
+                                .ok()
+                                .and_then(|listing| listing.active);
+                            if let Some(active) = active {
+                                stop_discord(&mut discord, &linked, &voice, true);
+                                if matches!(
+                                    yapfast_discord::token::forget_account(&active),
+                                    Ok(Some(_))
+                                ) {
+                                    connect_discord(
+                                        &mut discord,
+                                        &mut discord_error,
+                                        &linked,
+                                        &voice,
+                                        &events,
+                                    );
+                                    let _ = events.send(Event::DiscordSwitched);
+                                    send_discord_accounts(&events);
+                                    continue;
+                                }
+                            }
+                        }
                         let _ = events.send(Event::LoggedOut);
                         break;
                     }
@@ -5531,13 +6095,72 @@ fn discord_failed(error: &anyhow::Error) -> String {
     format!("Discord couldn't start: {error}")
 }
 
-/// Forgets the linked Discord account on this device: leaves its call, ends
-/// its session on Discord, and stops it.
+/// Connects the active Discord account in place of the one running, which
+/// is stopped first so that what it kept goes to disk before the next one
+/// takes its files. Why it couldn't connect answers the commands that need it.
 #[cfg(feature = "discord")]
-fn unlink_discord(
+fn connect_discord(
+    discord: &mut Option<crate::discord_text::Chat>,
+    discord_error: &mut Option<String>,
+    linked: &tokio::sync::watch::Sender<Option<yapfast_discord::service::Discord>>,
+    voice: &voice::Controller,
+    events: &UnboundedSender<Event>,
+) {
+    stop_discord(discord, linked, voice, false);
+    let started = crate::discord_text::Chat::start()
+        .and_then(|started| started.ok_or_else(|| anyhow::anyhow!("its login wasn't saved")));
+    match started {
+        Ok(started) => {
+            *discord = Some(started);
+            *discord_error = None;
+        }
+        Err(error) => {
+            let error = discord_failed(&error);
+            let _ = events.send(Event::Error(error.clone()));
+            *discord_error = Some(error);
+        }
+    }
+    linked.send_replace(discord.as_ref().map(crate::discord_text::Chat::service));
+}
+
+/// Says which Discord accounts are linked, and which is active.
+#[cfg(feature = "discord")]
+fn send_discord_accounts(events: &UnboundedSender<Event>) {
+    let listing = match yapfast_discord::token::listing() {
+        Ok(listing) => listing,
+        Err(error) => {
+            tracing::warn!(%error, "could not list the Discord accounts");
+            return;
+        }
+    };
+    let accounts = listing
+        .accounts
+        .into_iter()
+        .map(|account| DiscordAccount {
+            avatar: Some(account.avatar).filter(|avatar| !avatar.is_empty()),
+            id: account.id,
+            name: if account.name.is_empty() {
+                account.username.clone()
+            } else {
+                account.name
+            },
+            username: account.username,
+        })
+        .collect();
+    let _ = events.send(Event::DiscordAccounts {
+        accounts,
+        active: listing.active.unwrap_or_default(),
+    });
+}
+
+/// Stops the running Discord account: leaves its call and, with `log_out`,
+/// ends its session on Discord.
+#[cfg(feature = "discord")]
+fn stop_discord(
     discord: &mut Option<crate::discord_text::Chat>,
     linked: &tokio::sync::watch::Sender<Option<yapfast_discord::service::Discord>>,
     voice: &voice::Controller,
+    log_out: bool,
 ) {
     if voice
         .states
@@ -5549,7 +6172,9 @@ fn unlink_discord(
         voice.command(voice::Command::Leave);
     }
     linked.send_replace(None);
-    if let Some(chat) = discord.take() {
+    if let Some(chat) = discord.take()
+        && log_out
+    {
         let service = chat.service();
         tokio::spawn(async move {
             if let Err(error) = service.logout().await {
@@ -5560,6 +6185,37 @@ fn unlink_discord(
             }
         });
     }
+}
+
+/// Ends the session on Discord of a linked account that isn't running.
+#[cfg(feature = "discord")]
+fn end_other_session(id: &str) {
+    let Ok(token) = yapfast_discord::token::token_of(id) else {
+        return;
+    };
+    tokio::spawn(async move {
+        let ended = match yapfast_discord::api::Api::new(token) {
+            Ok(api) => api.logout().await,
+            Err(error) => Err(error),
+        };
+        if let Err(error) = ended {
+            tracing::warn!(
+                error = format!("{error:#}"),
+                "could not end the Discord session"
+            );
+        }
+    });
+}
+
+/// Forgets every linked Discord account on this device: leaves the call,
+/// ends the running session on Discord, and stops it.
+#[cfg(feature = "discord")]
+fn unlink_discord(
+    discord: &mut Option<crate::discord_text::Chat>,
+    linked: &tokio::sync::watch::Sender<Option<yapfast_discord::service::Discord>>,
+    voice: &voice::Controller,
+) {
+    stop_discord(discord, linked, voice, true);
     if let Err(error) = yapfast_discord::token::forget() {
         tracing::warn!(%error, "could not forget the Discord login");
     }
@@ -5603,6 +6259,7 @@ mod tests {
             files: vec![],
         };
         let forward = |room: &String, target: &String| Command::Forward {
+            request: 1,
             room: room.clone(),
             item: "1".into(),
             target: target.clone(),

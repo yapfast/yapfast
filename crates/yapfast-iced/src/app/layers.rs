@@ -23,6 +23,8 @@ use crate::{
 pub enum Layer {
     Inbox,
     Mfa,
+    /// Manage Accounts, with Add Account's linking in it.
+    ManageAccounts,
     ConfirmDelete,
     /// A bot's select menu, over the app's form it may be on.
     SelectMenu,
@@ -34,6 +36,7 @@ pub enum Layer {
     Poll,
     LinkDialog,
     ServerDialog,
+    BoostGoal,
     /// A search's Filters dialog.
     SearchFilters,
     StatusEditor,
@@ -71,9 +74,10 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 42] = [
+const LAYERS: [Layer; 44] = [
     Layer::Inbox,
     Layer::Mfa,
+    Layer::ManageAccounts,
     Layer::ConfirmDelete,
     Layer::SelectMenu,
     Layer::Modal,
@@ -83,6 +87,7 @@ const LAYERS: [Layer; 42] = [
     Layer::Poll,
     Layer::LinkDialog,
     Layer::ServerDialog,
+    Layer::BoostGoal,
     Layer::SearchFilters,
     Layer::StatusEditor,
     Layer::AccountPopover,
@@ -165,11 +170,13 @@ impl Layer {
         matches!(
             self,
             Layer::Mfa
+                | Layer::ManageAccounts
                 | Layer::Switcher
                 | Layer::NewDm
                 | Layer::Poll
                 | Layer::LinkDialog
                 | Layer::ServerDialog
+                | Layer::BoostGoal
                 | Layer::SearchFilters
                 | Layer::StatusEditor
                 | Layer::HeaderPopover
@@ -231,6 +238,7 @@ impl Layer {
         matches!(
             self,
             Layer::AddFriend
+                | Layer::ManageAccounts
                 | Layer::PersonDialog
                 | Layer::Forwarding
                 | Layer::Settings
@@ -247,6 +255,7 @@ impl Layer {
                 | Layer::HeaderPopover
                 | Layer::Search
                 | Layer::TagsMenu
+                | Layer::Menu
                 | Layer::Modal
         )
     }
@@ -259,6 +268,7 @@ impl App {
         match layer {
             Layer::Inbox => self.inbox.is_some(),
             Layer::Mfa => self.client.app.mfa_prompt().is_some(),
+            Layer::ManageAccounts => state.manage_accounts.is_some(),
             Layer::ConfirmDelete => state.confirm_delete.is_some(),
             Layer::SelectMenu => state.select_menu.is_some(),
             Layer::Modal => state.interaction_modal.is_some() && state.select_menu.is_none(),
@@ -269,6 +279,7 @@ impl App {
             Layer::LinkDialog => crate::link_dialogs::is_open(state),
             Layer::SearchFilters => crate::search_filters::is_open(self),
             Layer::ServerDialog => crate::server_dialogs::is_open(state),
+            Layer::BoostGoal => self.win.boost_goal.is_open(),
             Layer::StatusEditor => state.status_editor.is_some(),
             Layer::AccountPopover => self.status.popover.is_some(),
             Layer::HeaderPopover => crate::header_popovers::popover_open(self),
@@ -541,6 +552,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(mfa::Event::Cancel, &mut cx)
             }
+            Layer::ManageAccounts => crate::accounts::escape(self),
             Layer::SelectMenu => {
                 let mut cx = crate::ctx::cx!(self);
                 crate::bot_select::update(crate::bot_select::Event::Close, &mut cx)
@@ -597,6 +609,7 @@ impl App {
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
             Layer::TagCard => self.tag_card_event(crate::tag_card::Event::Close),
+            Layer::BoostGoal => self.boost_goal_event(crate::boost_goal::Event::Close),
             Layer::Card => {
                 self.profiles.revert_note();
                 self.update(Message::Profile(crate::profile::Event::Close))

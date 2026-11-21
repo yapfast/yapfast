@@ -29,6 +29,7 @@ use crate::{
     theme::rgb,
     widgets::{Above, Fold, Pic},
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The selection row the bio's pieces say they're in: none of the
 /// timeline's.
@@ -153,7 +154,7 @@ pub(super) fn profile_body<'a>(
         names = names.push(line);
     }
     if under {
-        names = names.push(badge_rows(ctx, shown));
+        names = names.push(badge_rows_in(ctx, shown, mode));
     }
     body = body.push(names);
     if mode.large()
@@ -162,7 +163,7 @@ pub(super) fn profile_body<'a>(
         body = body.push(actions);
     }
     if !profile.badges.is_empty() && !beside && !under {
-        body = body.push(badge_rows(ctx, shown));
+        body = body.push(badge_rows_in(ctx, shown, mode));
     }
     if !mode.large() && !look.activities.is_empty() {
         let mut activities = column![].spacing(12);
@@ -183,13 +184,16 @@ pub(super) fn profile_body<'a>(
     if let Some(bio) = &look.bio {
         body = body.push(bio_view(ctx, bio, &inks, mode));
     }
+    if !mode.large() && !profile.widgets.is_empty() {
+        body = body.push(game_collection(ctx, shown, &inks, mode));
+    }
     if mode.full() && (profile.created.is_some() || profile.joined.is_some()) {
         // The DM's panel writes the account's date as plain text in the
         // card's ink, 7 px under its title.
         let panel = mode == Mode::Docked;
         body = body.push(
             column![
-                title("Member Since", inks.ink),
+                title(tr("Member Since"), inks.ink),
                 member_since(ctx, shown, &inks, panel)
             ]
             .spacing(if panel { 7 } else { 6 }),
@@ -198,7 +202,7 @@ pub(super) fn profile_body<'a>(
     if mode.large() && !look.friends_since.is_empty() {
         body = body.push(
             column![
-                title("Friends Since", inks.ink),
+                title(tr("Friends Since"), inks.ink),
                 text(look.friends_since.as_str()).size(14).color(inks.ink2),
             ]
             .spacing(6),
@@ -207,7 +211,7 @@ pub(super) fn profile_body<'a>(
     if !profile.roles.is_empty() {
         let mut roles = column![].spacing(6);
         if mode.full() {
-            roles = roles.push(title("Roles", inks.ink));
+            roles = roles.push(title(tr("Roles"), inks.ink));
         }
         body = body.push(roles.push(role_chips(ctx, shown, &inks)));
     }
@@ -225,7 +229,7 @@ pub(super) fn profile_body<'a>(
         body = body.push(
             action(
                 theme,
-                "Edit Profile",
+                tr("Edit Profile"),
                 Kind::Primary,
                 Some(Message::Profile(Event::EditProfile)),
             )
@@ -262,7 +266,7 @@ fn private_bar<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message
     container(
         row![
             ctx.look.glyph(Icon::Lock, 14, Color::WHITE),
-            text("Private Profile")
+            text(tr("Private Profile"))
                 .size(14)
                 .font(BOLD)
                 .color(Color::WHITE)
@@ -286,13 +290,22 @@ fn private_note<'a>(profile: &chat::Profile, inks: &Inks) -> Element<'a, Message
     } else {
         profile.handle.as_str()
     };
-    let words = format!(
-        "{who}'s profile is private, so some information is hidden. Add them as a friend to see more."
+    let words = i18n::fill(
+        tr(
+            "{}'s profile is private, so some information is hidden. Add them as a friend to see more.",
+        ),
+        &[&who],
     );
     container(text(words).size(14).color(inks.ink))
         .padding(12)
         .width(Length::Fill)
-        .style(|_| rounded(Color::from_rgba8(255, 255, 255, 20.0 / 255.0), 8))
+        .style(|_| {
+            crate::style::outlined(
+                Color::from_rgba8(255, 255, 255, 20.0 / 255.0),
+                Color::from_rgba8(255, 255, 255, 30.0 / 255.0),
+                8.0,
+            )
+        })
         .into()
 }
 
@@ -432,10 +445,7 @@ pub(super) fn profile_avatar<'a>(
             avatar = avatar.push(Pic::new(still, ring_size).at(at));
         }
     }
-    if let Some(presence) = shown
-        .look
-        .presence
-        .filter(|presence| *presence != Presence::Offline)
+    if let Some(presence) = shown.look.presence
         && let Some(dot) = ctx.mark(Mark::Dot(presence, rgb(ground)))
     {
         // The phone stands 5 px taller than the dot.
@@ -456,7 +466,7 @@ pub(super) fn profile_avatar<'a>(
 
 /// What they're up to, a thought beside the picture: two lines at most,
 /// all of it while pointed at, as Discord's.
-fn thought_bubble<'a>(
+pub(crate) fn thought_bubble<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
     mode: Mode,
@@ -571,7 +581,7 @@ fn banner_buttons<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Element<'a,
     if !id.is_empty() {
         buttons = buttons.push(round(
             Icon::Ellipsis,
-            "More actions",
+            tr("More actions"),
             Some(Message::Profile(Event::More(id))),
         ));
     }
@@ -731,7 +741,7 @@ fn profile_actions<'a>(
         return Some(
             action(
                 theme,
-                "Edit Profile",
+                tr("Edit Profile"),
                 Kind::Primary,
                 Some(Message::Profile(Event::EditProfile)),
             )
@@ -810,9 +820,26 @@ fn profile_actions<'a>(
 /// 20 px icons 2 px apart, each row a pill of its own; a badge's name
 /// shows over it, and a click opens its page when it has one.
 pub(crate) fn badge_rows<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Element<'a, Message> {
+    badge_rows_in(ctx, shown, Mode::Card)
+}
+
+/// The badges as `mode` shows them. The DM's panel keeps five on one row,
+/// bare, with a `+N` chip for the rest; the others wrap in pills.
+fn badge_rows_in<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &'a Shown,
+    mode: Mode,
+) -> Element<'a, Message> {
     let profile = shown.look.profile();
+    let docked = mode == Mode::Docked;
     let mut rows = column![].spacing(4);
-    for chunk in profile.badges.chunks(12) {
+    let (kept, rest) = if docked && profile.badges.len() > 5 {
+        profile.badges.split_at(5)
+    } else {
+        (profile.badges.as_slice(), &profile.badges[..0])
+    };
+    let chunk_size = if docked { 5 } else { 12 };
+    for chunk in kept.chunks(chunk_size) {
         let mut pill = row![].spacing(2);
         for badge in chunk {
             let picture: Element<'a, Message> =
@@ -839,6 +866,19 @@ pub(crate) fn badge_rows<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Elem
                     .gap(6)
                     .delay(BADGE_TIP_DELAY),
             );
+        }
+        if docked {
+            if !rest.is_empty() {
+                let muted = ctx.look.theme.muted;
+                pill = pill.push(
+                    text(format!("+{}", rest.len()))
+                        .size(12)
+                        .font(BOLD)
+                        .color(muted),
+                );
+            }
+            rows = rows.push(container(pill).height(24).align_y(Alignment::Center));
+            continue;
         }
         let (ground, edge) = (
             crate::style::MEMBER_HOVER,
@@ -1026,7 +1066,7 @@ pub(super) fn bio_view<'a>(
             ink: inks.ink,
         },
     );
-    if mode.full() {
+    if mode.large() {
         return shown;
     }
     // Cut to three lines as laid out, with the link under them only
@@ -1034,14 +1074,85 @@ pub(super) fn bio_view<'a>(
     let three = line_height * 3.0;
     Fold::new(
         shown,
-        button(text("View full bio").size(12).font(BOLD).color(inks.ink))
-            .padding(0)
-            .on_press(Message::Profile(Event::Enlarge(None, false)))
-            .style(|_, _| iced::widget::button::Style::default()),
+        button(
+            text(tr("View full bio"))
+                .size(12)
+                .font(MEDIUM)
+                .color(inks.ink),
+        )
+        .padding(0)
+        .on_press(Message::Profile(Event::Enlarge(None, mode == Mode::Docked)))
+        .style(|_, _| iced::widget::button::Style::default()),
         true,
         (three + 2.0, three, 6.0),
     )
     .into()
+}
+
+/// A compact summary of the Discord board on the card and the DM's panel:
+/// the first games' pictures and a `+N` for the rest. A click opens the
+/// board on the full profile.
+fn game_collection<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shown: &'a Shown,
+    inks: &Inks,
+    mode: Mode,
+) -> Element<'a, Message> {
+    const SHOWN: usize = 4;
+    let profile = shown.look.profile();
+    let games: Vec<&chat::ProfileGame> = profile
+        .widgets
+        .iter()
+        .flat_map(|widget| widget.games.iter())
+        .collect();
+    let mut thumbs = row![].spacing(4).align_y(Alignment::Center);
+    for game in games.iter().take(SHOWN) {
+        let picture = game
+            .icon
+            .as_deref()
+            .and_then(|icon| crate::profile::profile_picture(ctx, shown, icon, 32, 32, true));
+        let thumb: Element<'a, Message> = match picture {
+            Some(picture) => Pic::square(picture, 32.0).radius(6.0).into(),
+            None => {
+                let ground = inks.hover;
+                container(Space::new().width(32).height(32))
+                    .style(move |_| rounded(ground, 6))
+                    .into()
+            }
+        };
+        thumbs = thumbs.push(thumb);
+    }
+    if games.len() > SHOWN {
+        let ground = inks.hover;
+        thumbs = thumbs.push(
+            container(
+                text(format!("+{}", games.len() - SHOWN))
+                    .size(12)
+                    .font(BOLD)
+                    .color(inks.ink),
+            )
+            .center(32)
+            .style(move |_| rounded(ground, 6)),
+        );
+    }
+    let (tile, edge) = (inks.tile, faded(inks.ink, 0.12));
+    button(column![title(tr("Game Collection"), inks.ink), thumbs].spacing(8))
+        .padding(12)
+        .width(Length::Fill)
+        .on_press(Message::Profile(Event::Enlarge(
+            Some(Tab::Board),
+            mode == Mode::Docked,
+        )))
+        .style(move |_, _| iced::widget::button::Style {
+            background: Some(tile.into()),
+            border: iced::Border {
+                color: edge,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
 }
 
 /// Member Since's dates in one row, as Discord's: the Discord logo and
@@ -1136,7 +1247,7 @@ fn connections<'a>(
     inks: &Inks,
 ) -> Element<'a, Message> {
     let profile = shown.look.profile();
-    let mut list = column![title("Connections", inks.ink)].spacing(8);
+    let mut list = column![title(tr("Connections"), inks.ink)].spacing(8);
     for connection in &profile.connections {
         let mut name = row![
             text(connection.name.as_str())
@@ -1156,7 +1267,7 @@ fn connections<'a>(
         let mut words = column![name];
         if let Some(since) = &connection.since {
             words = words.push(
-                text(format!("Member since {since}"))
+                text(i18n::fill(tr("Member since {}"), &[&since]))
                     .size(12)
                     .color(inks.ink3),
             );
@@ -1181,7 +1292,7 @@ fn connections<'a>(
 /// profile closes.
 fn note_editor<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message> {
     let (ground, ink, hint, accent) = (inks.field, inks.ink, inks.ink3, ctx.look.theme.accent);
-    let field = text_input("Click to add a note", &ctx.profiles.note)
+    let field = text_input(tr("Click to add a note"), &ctx.profiles.note)
         .id(iced::widget::Id::new(NOTE_FIELD))
         .size(14)
         .padding(8)
@@ -1203,7 +1314,7 @@ fn note_editor<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message
             value: ink,
             selection: Color { a: 0.35, ..accent },
         });
-    column![title("Note (only visible to you)", inks.ink), field]
+    column![title(tr("Note (only visible to you)"), inks.ink), field]
         .spacing(6)
         .into()
 }

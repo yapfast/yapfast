@@ -17,6 +17,7 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
     assert_eq!(
         app.header_choices("discord:10"),
         [
+            ServerBoost,
             ServerSettings,
             ServerNotifications,
             EditServerProfile,
@@ -214,10 +215,65 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
     assert_eq!(editor.picture(ProfilePicture::Avatar), (None, None));
     let change = saved(app.dispatch(Action::SaveProfile));
     assert!(matches!(change.avatar, Some(None)));
-    assert!(matches!(
-        app.dispatch(Action::UnlockNitro).as_slice(),
-        [Effect::OpenPage(page)] if page == "https://discord.com/nitro"
-    ));
+    app.apply(Event::ProfileSaved {
+        server: Some("discord:10".into()),
+        result: Ok(()),
+    });
+    app.apply(Event::OwnProfile {
+        server: Some("discord:10".into()),
+        result: Ok(OwnProfile {
+            avatar: None,
+            ..profile
+        }),
+    });
+    // The Nitro offer opens Yapfast's own Nitro screen, with nothing open
+    // in a browser.
+    let effects = app.dispatch(Action::UnlockNitro);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::OpenPage(_)))
+    );
+    assert!(app.state.profile_editor.is_none());
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Nitro));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn the_editor_leaves_for_the_shop_only_with_nothing_unsaved() {
+    use chat::OwnProfile;
+    let mut app = discord_server();
+    app.dispatch(Action::EditProfile);
+    app.apply(Event::OwnProfile {
+        server: None,
+        result: Ok(OwnProfile {
+            name: "Alice".into(),
+            ..Default::default()
+        }),
+    });
+    app.dispatch(Action::WriteProfile {
+        field: ProfileText::Name,
+        text: "Ally".into(),
+    });
+    // Leaving would lose "Ally": the editor stays and says why.
+    assert!(app.dispatch(Action::OpenProfileShop).is_empty());
+    let editor = app.state.profile_editor.as_ref().unwrap();
+    assert_eq!(
+        editor.error.as_deref(),
+        Some("Save or undo your changes first.")
+    );
+    assert_eq!(app.state.dm_screen, None);
+
+    app.dispatch(Action::UndoProfileEdits);
+    let effects = app.dispatch(Action::OpenProfileShop);
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::OpenPage(_)))
+    );
+    assert!(app.state.profile_editor.is_none());
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Shop));
 }
 
 #[test]
@@ -629,13 +685,11 @@ fn the_profile_editor_names_its_boards_games_once() {
     );
     let widgets = vec![chat::ProfileWidget {
         title: "Want to Play".into(),
-        lists_games: true,
         games: vec![chat::ProfileGame {
             id: "7".into(),
             name: "Unknown game".into(),
             ..Default::default()
         }],
-        ..Default::default()
     }];
     let profile = OwnProfile {
         fallback: Profile {

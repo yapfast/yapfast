@@ -24,6 +24,16 @@ use crate::{
     picker::{Event, Tab, Target, kit::FIELD},
 };
 
+/// What the open picker's foot says at rest: the first emoji's name, or its
+/// hint when there is none.
+fn resting_foot(app: &App) -> String {
+    app.win
+        .picker
+        .get()
+        .and_then(|picker| picker.resting_name())
+        .unwrap_or_else(|| "Pick an emoji for your message.".into())
+}
+
 /// The test server's #general open, and the composer's picker on its GIFs.
 fn gifs_open(app: &mut App) {
     change(app, |state| {
@@ -200,11 +210,12 @@ fn ctrl_g_closes_the_gif_picker_its_search_passing_it_on() {
 fn a_click_in_the_picker_leaves_the_keys_with_its_search() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
-    // A press on its foot, which takes no click itself.
+    // A press on its foot, which takes no click itself. At rest it names
+    // the first emoji, as Discord's does.
+    let rest = resting_foot(&app);
     let pressed: Vec<Message> = {
         let mut ui = Simulator::with_size(Default::default(), app.shell.frame, app.view());
-        ui.click("Pick an emoji for your message.")
-            .expect("the foot");
+        ui.click(rest.as_str()).expect("the foot");
         ui.into_messages().collect()
     };
     assert!(
@@ -259,7 +270,8 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
     let (mut app, _folder, _) = server_with_emoji(3);
     gifs_open(&mut app);
     let _ = app.update(Message::Picker(Event::Tab(Tab::Emoji)));
-    let hint = "Pick an emoji for your message.";
+    let hint = resting_foot(&app);
+    let hint = hint.as_str();
     assert!(shows(&app, hint));
     // The pointer down the rail, under the search, comes onto each
     // section's button in turn.
@@ -273,6 +285,11 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
                 position: at,
             })]);
         }
+        let outside = Point::ORIGIN;
+        ui.point_at(outside);
+        ui.simulate([iced::Event::Mouse(mouse::Event::CursorMoved {
+            position: outside,
+        })]);
         ui.into_messages().collect()
     };
     let mut named = Vec::new();
@@ -292,8 +309,117 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
         named.contains(&"Smileys & emotion") && named.contains(&"People & body"),
         "{named:?}"
     );
-    let _ = app.update(Message::Picker(Event::RailLeft(4)));
     assert!(shows(&app, hint), "and the hint again once it leaves");
+}
+
+#[test]
+fn emoji_skin_tone_is_kept_and_applied_to_the_search_pick() {
+    let (mut app, folder) = preview();
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    // The hand alone is the button, as Discord's.
+    let _ = app.update(Message::Picker(Event::ToggleSkinTones));
+    for label in [
+        "Default",
+        "Light",
+        "Medium light",
+        "Medium",
+        "Medium dark",
+        "Dark",
+    ] {
+        assert!(shows(&app, label), "{label}");
+    }
+    interact(&mut app, |ui| {
+        ui.click("Medium").expect("medium skin tone");
+    });
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).emoji_skin_tone,
+        3
+    );
+    interact(&mut app, |ui| {
+        ui.click(Id::new(FIELD)).expect("the picker's search");
+        ui.typewrite("clapping hands");
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(FIELD)).expect("the picker's search");
+        ui.tap_key(keyboard::Key::Named(key::Named::Enter));
+    });
+    assert!(app.composer.draft.text().contains("👏🏽"));
+}
+
+#[test]
+fn add_emoji_opens_the_servers_upload_page_for_allowed_accounts() {
+    use yapfast_core::{
+        chat::{Event as CoreEvent, GuildSettings, ServerSettingsPage, SettingsSection},
+        yapfast_discord::ready::permission,
+    };
+
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    assert!(!shows(&app, "Add Emoji"));
+    let _ = app.update(Message::Picker(Event::EmojiServer("discord:10".into())));
+    assert!(app.client.state().server_settings.is_none());
+
+    let (mut app, _folder) = super::server::discord_server(
+        permission::MANAGE_GUILD | permission::CREATE_GUILD_EXPRESSIONS,
+        |_, _| {},
+    );
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    interact(&mut app, |ui| {
+        ui.click("Add Emoji").expect("add a custom emoji");
+    });
+    assert!(!app.win.picker.is_open());
+    let page = app
+        .client
+        .state()
+        .server_settings
+        .as_ref()
+        .expect("Emoji settings");
+    assert_eq!(page.server, "discord:10");
+    assert_eq!(page.section, SettingsSection::Emoji);
+    app.client.apply(CoreEvent::ServerSettingsLoaded {
+        server: "discord:10".into(),
+        section: SettingsSection::Emoji,
+        result: Ok(ServerSettingsPage::Emoji {
+            emojis: Vec::new(),
+            settings: GuildSettings::default(),
+        }),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Upload Emoji"));
+}
+
+#[test]
+fn the_emoji_picker_shows_the_open_servers_ranked_emoji() {
+    let (mut app, _folder, _) = server_with_emoji(3);
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:11".into());
+        state.room_ready = true;
+    });
+    app.client.sent.clear();
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    assert!(app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::PopularEmoji(server)) if server == "discord:10"
+    )));
+    assert!(!shows(&app, "Popular in Test"));
+    app.client.apply(yapfast_core::chat::Event::PopularEmoji {
+        server: "discord:10".into(),
+        result: Ok(vec!["8888".into(), "5002".into(), "5001".into()]),
+    });
+    let _ = app.sync();
+    assert!(shows(&app, "Popular in Test"));
+    assert_eq!(resting_foot(&app), ":e002:");
+    let _ = app.update(Message::Picker(Event::Pick(1)));
+    assert!(app.composer.draft.text().contains(":e002:"));
+
+    app.client.sent.clear();
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
+    assert!(
+        !app.client
+            .sent
+            .iter()
+            .any(|command| matches!(command, Command::Discord(DiscordCommand::PopularEmoji(_))))
+    );
 }
 
 #[test]

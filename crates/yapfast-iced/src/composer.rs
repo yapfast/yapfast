@@ -8,12 +8,16 @@
 //! empties it. A message of one's own is edited in its row (`edit.rs`), in
 //! a field of its own beside the draft.
 
+pub mod apps;
+pub mod tools;
+
 use iced::{
     Alignment, Element, Length, Padding, Task, keyboard,
     widget::{Id, Space, button, column, container, operation, row, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, Compose},
+    i18n::{self, tr},
     network::Network,
 };
 
@@ -32,8 +36,11 @@ use crate::{
 /// The composer's field and the inline edit's, for the app's focus tasks.
 pub const COMPOSER: &str = "composer";
 pub const EDIT: &str = "edit";
-/// The reply bar's height.
-pub const BAR: f32 = 36.0;
+/// The reply bar's height, and the thread offer's under it.
+pub const BAR: f32 = 37.0;
+const OFFER: f32 = 32.0;
+/// Inside the reply card's 10 px corners and its 1 px outline.
+const CARD_INNER: f32 = 9.0;
 /// The composer's least height (`ClientStyle.composer-height`), the room
 /// over and under its text, beside it, and under its buttons.
 pub const HEIGHT: f32 = 58.0;
@@ -51,8 +58,6 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
-    /// Whether the composer's field has the keys, which its outline shows.
-    pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
     /// edit's own field.
     pub editing: Option<String>,
@@ -90,6 +95,9 @@ pub enum Event {
     Answer(bool),
     /// The +.
     Plus,
+    /// Opens the gift list or Apps browser.
+    Tools(tools::Kind),
+    Apps(apps::Event),
     /// The edit's hint: cancel or save; its emoji button.
     CancelEdit,
     SaveEdit,
@@ -131,29 +139,19 @@ pub struct Look {
     pub plus: bool,
 }
 
-/// What the reply bar over a composer shows: whom it replies to, the first
-/// line's text and custom emoji, and whether it mentions them.
+/// What the reply bar over a composer shows: whom it replies to, and
+/// whether it mentions them. Discord's bar does not show the message's
+/// text.
 pub struct ReplyBar<'a> {
     pub author: &'a str,
-    pub body: &'a str,
-    pub emoji: &'a [yapfast_core::chat::CustomEmoji],
     pub ping: bool,
 }
 
-/// A reply's bar over a composer: its author, first line, custom emoji, and
-/// whether it mentions them.
+/// A reply's bar over a composer: its author and whether it mentions them.
 pub fn reply_bar_info(compose: Option<&Compose>) -> Option<ReplyBar<'_>> {
-    let Compose::Reply {
-        author,
-        body,
-        emoji,
-        ping,
-        ..
-    } = compose?;
+    let Compose::Reply { author, ping, .. } = compose?;
     Some(ReplyBar {
         author,
-        body: body.lines().next().unwrap_or_default(),
-        emoji,
         ping: *ping,
     })
 }
@@ -211,6 +209,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), refocus(app)])
         }
         Event::Plus => plus(app),
+        Event::Tools(kind) => tools::open(app, kind),
+        Event::Apps(event) => apps::update(app, event),
         Event::CancelEdit => {
             app.client.dispatch(Action::CancelEdit);
             Task::batch([app.sync(), operation::focus(COMPOSER)])
@@ -452,23 +452,23 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
             if writing(app.ctx(), which).selection().is_some() {
                 rows.push(row(
                     MenuAct::Field(which, MenuEdit::Cut),
-                    "Cut",
+                    tr("Cut"),
                     Icon::Scissors,
                 ));
                 rows.push(row(
                     MenuAct::Field(which, MenuEdit::Copy),
-                    "Copy",
+                    tr("Copy"),
                     Icon::Copy,
                 ));
             }
             rows.push(row(
                 MenuAct::Field(which, MenuEdit::Paste),
-                "Paste",
+                tr("Paste"),
                 Icon::Paste,
             ));
             rows.push(row(
                 MenuAct::Field(which, MenuEdit::SelectAll),
-                "Select All",
+                tr("Select All"),
                 Icon::TextSelect,
             ));
             app.win.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
@@ -486,9 +486,6 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
         field::Event::UpToMessages => crate::timeline::keys::step_into_messages(app),
         field::Event::Paste => paste(app, which),
         field::Event::Focus(focused) => {
-            if which == Writing::Draft {
-                app.composer.focused = focused;
-            }
             if focused {
                 crate::timeline::keys::leave_messages(app);
             }
@@ -548,14 +545,14 @@ fn plus(app: &mut App) -> Task<Message> {
         disabled: !look.attach,
         subtitle: None,
         check: crate::controls::Check::None,
-        ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
+        ..MenuRow::new(MenuAct::Upload, tr("Upload a File"), Icon::File)
     }];
     if app.client.app.can_start_threads() {
         rows.push(MenuRow {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
+            ..MenuRow::new(MenuAct::NewThread, tr("Create Thread"), Icon::Thread)
         });
     }
     if app.client.app.can_create_polls() {
@@ -563,7 +560,7 @@ fn plus(app: &mut App) -> Task<Message> {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
+            ..MenuRow::new(MenuAct::NewPoll, tr("Create Poll"), Icon::ChartBar)
         });
     }
     let at = iced::Point::new(
@@ -691,14 +688,6 @@ pub fn insert(app: &mut App, which: Writing, inserted: &str) {
     crate::suggest::caret_moved(app, which, &text, caret);
 }
 
-/// A composer button, kept [`BUTTON_INSET`] off the box's foot, so it stays
-/// on the last line as the field grows.
-fn lift<'a>(button: Element<'a, Message>) -> Element<'a, Message> {
-    container(button)
-        .padding(Padding::ZERO.bottom(BUTTON_INSET))
-        .into()
-}
-
 /// What the composer shows for the open room.
 pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     let state = ctx.state;
@@ -718,16 +707,19 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
         .and_then(|room| room.timed_out_until)
         .filter(|_| discord)
         .map(|until| {
-            format!(
-                "You're timed out in this server until {}.",
-                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock)
+            i18n::fill(
+                tr("You're timed out in this server until {}."),
+                &[&crate::place_menus::until(
+                    until / 1000,
+                    ctx.layout.prefs.twelve_hour_clock,
+                )],
             )
         });
     let request = room.filter(|room| room.request).map(|room| {
         if room.category == yapfast_core::discord::SPAM {
-            format!("Discord thinks {} may be spam", room.name)
+            i18n::fill(tr("Discord thinks {} may be spam"), &[&room.name])
         } else {
-            format!("{} wants to message you", room.name)
+            i18n::fill(tr("{} wants to message you"), &[&room.name])
         }
     });
     let locked = timed_out.is_none()
@@ -740,37 +732,46 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     // Each with whether it only informs, as the lines on encryption do,
     // rather than saying why this account can't send.
     let (hint, note) = if room.is_none() {
-        ("Choose a DM or server channel to write a message.", false)
+        (
+            tr("Choose a DM or server channel to write a message."),
+            false,
+        )
     } else if state.preview {
         ("", false)
     } else if request.is_some() {
         if discord_only {
             ("", false)
         } else {
-            ("Discord · not end-to-end encrypted.", true)
+            (tr("Discord · not end-to-end encrypted."), true)
         }
     } else if let Some(timed_out) = &timed_out {
         (timed_out.as_str(), false)
     } else if locked {
         ("", false)
     } else if discord && !state.discord_online {
-        ("Discord is disconnected. Yapfast is reconnecting.", false)
+        (
+            tr("Discord is disconnected. Yapfast is reconnecting."),
+            false,
+        )
     } else if discord_only {
         ("", false)
     } else if discord {
         (
-            "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line.",
+            tr("Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."),
             true,
         )
     } else if !state.trusted {
-        ("Sending is locked until this device is verified.", false)
+        (
+            tr("Sending is locked until this device is verified."),
+            false,
+        )
     } else if room.is_some_and(|room| room.encrypted) {
         (
-            "End-to-end encrypted. Enter to send, Shift+Enter for a new line.",
+            tr("End-to-end encrypted. Enter to send, Shift+Enter for a new line."),
             true,
         )
     } else {
-        ("Unencrypted room. Reading only in this build.", false)
+        (tr("Unencrypted room. Reading only in this build."), false)
     };
     let hint = hint.to_owned();
     Look {
@@ -842,13 +843,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
-        if let Some(reply) = reply_bar_info(ctx.state.compose()) {
-            compose = compose.push(reply_bar(ctx, reply));
-        }
-        compose = compose.push(if look.locked {
-            locked_bar(ctx)
-        } else {
-            composer_box(ctx, &look)
+        compose = compose.push(match reply_bar_info(ctx.state.compose()) {
+            _ if look.locked => locked_bar(ctx),
+            Some(reply) => reply_card(ctx, &look, reply),
+            None => composer_box(ctx, &look, false),
         });
     }
     container(compose.push(Space::new().height(GUTTER)))
@@ -856,22 +854,35 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .into()
 }
 
-/// The box with the field and its buttons, and the suggestions over it.
-fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Message> {
+/// The box with the field and its buttons, and the suggestions over it; in
+/// the reply's card (`carded`) it has no outline of its own, the card's
+/// bottom corners inside the card's.
+fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look, carded: bool) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let header = ctx.header;
-    let replying = ctx.state.compose().is_some();
-    // Discord's words: `Message @sam` in a DM, `Message #general` in a
-    // channel, and a group's or thread's own name as it is.
-    let name = &header.name;
-    let placeholder = if replying {
-        "Write a reply".to_owned()
+    // Without its own outline the box is 2 px lower inside: its text and
+    // buttons keep their places, the field a pixel less at the top and foot.
+    let pad = if carded { PAD - 1.0 } else { PAD };
+    let inset = if carded {
+        BUTTON_INSET - 1.0
     } else {
-        match (header.direct, header.one_to_one, header.thread) {
-            (true, true, _) => format!("Message @{name}"),
-            (false, _, false) => format!("Message #{name}"),
-            _ => format!("Message {name}"),
-        }
+        BUTTON_INSET
+    };
+    // A button kept `inset` off the box's foot ([`BUTTON_INSET`]), so it
+    // stays on the last line as the field grows.
+    let lift = move |button: Element<'a, Message>| -> Element<'a, Message> {
+        container(button)
+            .padding(Padding::ZERO.bottom(inset))
+            .into()
+    };
+    // Discord's words: `Message @sam` in a DM, `Message #general` in a
+    // channel, a quoted thread name, and a group's own name as it is.
+    let name = &header.name;
+    let placeholder = match (header.direct, header.one_to_one, header.thread) {
+        (true, true, _) => i18n::fill(tr("Message @{}"), &[&name]),
+        (false, _, true) => i18n::fill(tr("Message \"{}\""), &[&name]),
+        (false, _, false) => i18n::fill(tr("Message #{}"), &[&name]),
+        _ => i18n::fill(tr("Message {}"), &[&name]),
     };
     let commanding = ctx.state.command_draft().is_some();
     let placeholder = crate::commands::command_placeholder(ctx).unwrap_or(placeholder);
@@ -889,10 +900,10 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     )
     .padding(Padding {
         // Under the pills, 10 px from them.
-        top: if commanding { 10.0 } else { PAD },
+        top: if commanding { 10.0 } else { pad },
         right: 6.0,
-        bottom: PAD,
-        left: 6.0,
+        bottom: pad,
+        left: 12.0,
     })
     .enabled(look.enabled)
     .pastes()
@@ -919,11 +930,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         ctx,
         Icon::Add,
         if look.plus {
-            "More options"
+            tr("More options")
         } else {
-            "Attach files"
+            tr("Attach files")
         },
-        27,
+        20,
         theme.secondary,
         (look.attach || look.plus).then_some(Message::Write(Event::Plus)),
     );
@@ -935,11 +946,17 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
+    // As Discord's, left to right: the gift, the GIFs, the stickers, the
+    // emoji, the apps.
+    let has_tools = tools::available(ctx);
+    if has_tools {
+        buttons = buttons.push(lift(tools::button(ctx, tools::Kind::Gift)));
+    }
     if state.can_pick_gifs() {
         buttons = buttons.push(lift(composer_button(
             ctx,
             Icon::Gif,
-            "Open GIF picker",
+            tr("Open GIF picker"),
             22,
             tint(Tab::Gifs),
             opens(Tab::Gifs),
@@ -949,20 +966,23 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         buttons = buttons.push(lift(composer_button(
             ctx,
             Icon::Sticker,
-            "Open sticker picker",
+            tr("Open sticker picker"),
             22,
             tint(Tab::Stickers),
             opens(Tab::Stickers),
         )));
     }
-    let emoji = buttons.push(lift(composer_button(
+    let mut emoji = buttons.push(lift(composer_button(
         ctx,
         Icon::Smile,
-        "Add an emoji",
+        tr("Add an emoji"),
         22,
         tint(Tab::Emoji),
         opens(Tab::Emoji),
     )));
+    if has_tools {
+        emoji = emoji.push(lift(tools::button(ctx, tools::Kind::Apps)));
+    }
     let line = row![lift(plus), field, emoji]
         .spacing(6)
         .align_y(Alignment::End)
@@ -972,24 +992,17 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     } else {
         theme.field
     };
-    // Discord's outline: faint, and a notch lighter with the keys.
-    let edge = if ctx.composer.focused {
-        faded(theme.muted, 0.55)
-    } else {
-        theme.outline_field
-    };
-    let radius = if replying {
-        corners([0.0, 0.0, 10.0, 10.0])
-    } else {
-        10.0.into()
-    };
+    let edge = theme.outline_field;
     let mut inside = column![];
     if let Some(tray) = crate::uploads::tray(ctx) {
         inside = inside.push(tray);
     }
-    let frame = container(inside.push(line))
-        .width(Length::Fill)
-        .style(move |_| crate::style::outlined(ground, edge, radius));
+    let frame = container(inside.push(line)).width(Length::Fill);
+    let frame = if carded {
+        frame.style(move |_| rounded(ground, corners([0.0, 0.0, CARD_INNER, CARD_INNER])))
+    } else {
+        frame.style(move |_| crate::style::outlined(ground, edge, 10.0))
+    };
     Popover::new(
         frame,
         crate::suggest::suggestions_view(ctx, Writing::Draft),
@@ -998,78 +1011,146 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     .into()
 }
 
-/// The bar over the field while replying: who to, the mention's toggle,
-/// and the cancel.
-fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, reply: ReplyBar<'a>) -> Element<'a, Message> {
-    reply_bar_for(
+/// The card Discord puts a reply's bar and the composer in: a 1 px
+/// outline round the bar (who to, the mention's toggle and the cancel), the
+/// offer of a thread where the chain of replies is long, and the composer's
+/// box, a rule between each.
+fn reply_card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    look: &Look,
+    reply: ReplyBar<'a>,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (ground, edge) = (theme.menu, theme.outline_field);
+    let mut card = column![reply_bar_for(
         ctx,
         reply,
         Message::Write(Event::TogglePing),
         Message::Write(Event::CancelReply),
-    )
+        CARD_INNER,
+    )];
+    if let (Some(count), Some(Compose::Reply { item, .. })) =
+        (ctx.app.reply_chain_to_thread(), ctx.state.compose())
+    {
+        card = card.push(rule(ctx)).push(thread_offer(ctx, item, count));
+    }
+    card = card.push(rule(ctx)).push(composer_box(ctx, look, true));
+    container(card)
+        .width(Length::Fill)
+        .padding(1)
+        .style(move |_| crate::style::outlined(ground, edge, 10.0))
+        .into()
 }
 
-/// A reply's bar over a composer: who to, the mention's toggle
-/// (`toggle`) and the cancel (`cancel`).
+/// The 1 px line between the card's rows.
+fn rule<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let line = ctx.look.theme.menu_line;
+    container(Space::new())
+        .width(Length::Fill)
+        .height(1)
+        .style(move |_| rounded(line, 0.0))
+        .into()
+}
+
+/// Discord's offer under a reply's bar, where it answers a long chain of
+/// replies: a thread from the message, which holds them together.
+fn thread_offer<'a>(ctx: crate::ctx::Ctx<'a>, item: &str, count: usize) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let ground = theme.menu;
+    let words = i18n::fill(
+        tr("Would you like to follow this series of {} replies more easily?"),
+        &[&count],
+    );
+    let link = button(text(tr("Create Thread")).size(14).font(MEDIUM))
+        .padding(0)
+        .on_press(Message::Thread(crate::thread::Event::Start(
+            item.to_owned(),
+        )))
+        .style(controls::ink_style(theme.link, theme.text));
+    container(
+        row![
+            text(words)
+                .size(14)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None),
+            link,
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+    )
+    .padding(Padding::ZERO.left(16).right(16))
+    .width(Length::Fill)
+    .height(OFFER)
+    .clip(true)
+    .align_y(Alignment::Center)
+    .style(move |_| rounded(ground, 0.0))
+    .into()
+}
+
+/// A reply's bar: who to, the mention's toggle (`toggle`) and the cancel
+/// (`cancel`), as Discord's: the toggle's words and a rule before the
+/// cancel's disc on the right. Its top corners are `radius` round.
 pub fn reply_bar_for<'a>(
     ctx: crate::ctx::Ctx<'a>,
     reply: ReplyBar<'a>,
     toggle: Message,
     cancel: Message,
+    radius: f32,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let ground = theme.sidebar;
-    let ink = if reply.ping {
-        theme.accent
-    } else {
-        theme.muted
-    };
+    let ground = theme.menu;
+    let ink = if reply.ping { theme.link } else { theme.muted };
     let toggle = button(
-        text(if reply.ping { "@ On" } else { "@ Off" })
-            .size(13)
+        text(if reply.ping { tr("@ ON") } else { tr("@ OFF") })
+            .size(14)
             .font(BOLD)
             .color(ink),
     )
-    .padding([0, 8])
+    .padding([0, 6])
     .height(28)
     .on_press(toggle)
     .style(lit_style(None, theme.hover, 6.0));
     let toggle = tooltip(
         container(toggle).height(28).align_y(Alignment::Center),
-        controls::tip(theme, "Mention the person you reply to"),
+        controls::tip(theme, tr("Mention the person you reply to")),
         tooltip::Position::Top,
     )
     .gap(6);
+    let line = theme.menu_line;
+    let words = row![
+        text(tr("Replying to"))
+            .size(14)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+        text(reply.author)
+            .size(14)
+            .font(BOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    ]
+    .spacing(4);
     container(
         row![
-            ctx.look.glyph(Icon::Reply, 16, theme.muted),
-            container(ctx.inline_emoji_line(
-                &["Replying to ", reply.author, ": "],
-                reply.body,
-                reply.emoji,
-                crate::markdown::Look {
-                    size: 14.0,
-                    line_height: 20.0,
-                    ink: theme.secondary,
-                },
-                16,
-                false,
-            ))
-            .width(Length::Fill)
-            .clip(true),
+            container(words).width(Length::Fill).clip(true),
             toggle,
+            Space::new().width(6),
+            container(Space::new())
+                .width(1)
+                .height(20)
+                .style(move |_| rounded(line, 0.0)),
+            Space::new().width(7),
             ctx.look
-                .icon_button(Icon::X, "Cancel reply", cancel)
-                .size(28.0, 16),
+                .icon_button(Icon::CircleXFilled, tr("Cancel reply"), cancel)
+                .size(24.0, 17),
         ]
-        .spacing(8)
         .align_y(Alignment::Center),
     )
-    .padding(Padding::ZERO.left(14).right(4))
+    .padding(Padding::ZERO.left(16).right(12))
+    .width(Length::Fill)
     .height(BAR)
     .clip(true)
     .align_y(Alignment::Center)
-    .style(move |_| rounded(ground, corners([10.0, 10.0, 0.0, 0.0])))
+    .style(move |_| rounded(ground, corners([radius, radius, 0.0, 0.0])))
     .into()
 }
 
@@ -1079,10 +1160,12 @@ fn locked_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (ground, edge) = (theme.field, theme.outline_field);
     container(
-        text("You do not have permission to send messages in this channel.")
-            .size(16)
-            .color(theme.muted)
-            .wrapping(text::Wrapping::None),
+        text(tr(
+            "You do not have permission to send messages in this channel.",
+        ))
+        .size(16)
+        .color(theme.muted)
+        .wrapping(text::Wrapping::None),
     )
     .padding(Padding::ZERO.left(16).right(16))
     .width(Length::Fill)
@@ -1103,10 +1186,12 @@ fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message
             .font(BOLD)
             .color(theme.text)
             .wrapping(text::Wrapping::None),
-        text("Accept to reply. Ignoring removes it without telling them.")
-            .size(14)
-            .color(theme.secondary)
-            .wrapping(text::Wrapping::None),
+        text(tr(
+            "Accept to reply. Ignoring removes it without telling them."
+        ))
+        .size(14)
+        .color(theme.secondary)
+        .wrapping(text::Wrapping::None),
     ]
     .spacing(2)
     .width(Length::Fill)
@@ -1116,13 +1201,13 @@ fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message
             words,
             controls::action(
                 theme,
-                "Ignore",
+                tr("Ignore"),
                 controls::Kind::Plain,
                 Some(Message::Write(Event::Answer(false)))
             ),
             controls::action(
                 theme,
-                "Accept",
+                tr("Accept"),
                 controls::Kind::Primary,
                 Some(Message::Write(Event::Answer(true)))
             ),

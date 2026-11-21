@@ -1,6 +1,6 @@
 //! What opens from the call's controls, above the control: the device menus
-//! (with the microphone's level and noise suppression), the share menu, the
-//! soundboard; and someone's voice menu, their volumes over their rows.
+//! (with their devices and the microphone's profiles on pages of their own),
+//! the share menu, the soundboard; and someone's voice menu, their volumes over their rows.
 
 use std::borrow::Cow;
 
@@ -8,7 +8,7 @@ use iced::{
     Element, Point, Task,
     widget::{container, opaque, operation},
 };
-use yapfast_core::{meter::InputMeter, voice::Command};
+use yapfast_core::voice::Command;
 
 use super::Popup;
 use crate::{
@@ -43,10 +43,6 @@ pub(super) fn open_popup(app: &mut App, popup: Popup) -> Task<Message> {
         Popup::Input | Popup::Output => {
             app.client
                 .dispatch(yapfast_core::application::Action::Voice(Command::Devices));
-            if popup == Popup::Input {
-                let microphone = app.client.state().voice.microphone.clone();
-                app.call.meter = Some(InputMeter::start(microphone.as_deref()));
-            }
             app.call.popup = Some(popup);
         }
         Popup::Soundboard => {
@@ -92,8 +88,7 @@ pub fn close_popup(app: &mut App) {
     }
     app.call.share = None;
     app.call.share_listing = None;
-    app.call.listing = false;
-    app.call.meter = None;
+    app.call.page = device::Page::Main;
 }
 
 /// The popup open from a control, above it.
@@ -142,10 +137,21 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
     let panel = container(panel)
         .width(width)
         .style(menu_panel(ctx.look.theme));
+    // The device menus open from the account panel's toggle and caret
+    // pair, as Discord's do: level with the toggle's left edge, their
+    // foot overlapping the panel by 7 px (both measured).
+    let (left, above) = match popup {
+        Popup::Input | Popup::Output => (31.0, 11.0),
+        _ => (6.0, 6.0),
+    };
     Some(
-        Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
-            .anchor(Anchor::Bottom)
-            .into(),
+        Place::new(
+            opaque(panel),
+            Point::new(spot.x - left, spot.y - above),
+            8.0,
+        )
+        .anchor(Anchor::Bottom)
+        .into(),
     )
 }
 

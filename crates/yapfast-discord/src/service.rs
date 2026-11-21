@@ -114,13 +114,27 @@ pub struct Account {
     pub nsfw_commands_in_dms: bool,
 }
 
+/// One of the two members shown on a group DM's fallback icon when it has no
+/// custom icon and more than two members.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct GroupMemberAvatar {
+    pub id: String,
+    pub name: String,
+    pub avatar: String,
+}
+
 /// A DM or group DM, as the DM list shows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Conversation {
     pub id: String,
     pub name: String,
-    /// The other person's avatar in a DM, or a group DM's icon.
+    /// The other person's avatar in a DM, or a group DM's custom icon.
     pub avatar: Option<String>,
+    /// When a group DM has no custom icon and more than two members, the first
+    /// two other members (sorted by user id) whose avatars layer to form its
+    /// fallback icon.
+    #[serde(default)]
+    pub group_avatars: Option<[GroupMemberAvatar; 2]>,
     /// The decoration the other person in a DM wears around their avatar.
     #[serde(default)]
     pub decoration: Option<Arc<str>>,
@@ -231,6 +245,9 @@ pub struct Friend {
     /// relationship's `since`.
     #[serde(default)]
     pub since: Option<u64>,
+    /// The server tag they wear beside their name.
+    #[serde(default)]
+    pub tag: Option<crate::message::Tag>,
     /// Whether they're around and their custom status or what they're doing,
     /// when Discord says. Not saved, since it's stale by the next start.
     #[serde(skip)]
@@ -691,6 +708,7 @@ impl std::fmt::Debug for VoiceServer {
 }
 
 enum Request {
+    Reconnect,
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -740,6 +758,7 @@ enum Request {
         guild: String,
         channel: String,
         sync: bool,
+        newest: Option<u64>,
     },
     MarkUnread {
         channel: String,
@@ -985,6 +1004,7 @@ impl Discord {
         // Sharing waits for READY unless an earlier session's settings said.
         let (show_game, shown) = watch::channel(watcher.borrow().show_game);
         let activity = crate::own_activity::start(api.clone(), watcher.clone(), shown);
+        crate::quest_play::start(api.clone(), activity.clone());
         // Nothing is known of a linked Spotify until READY.
         let (spotify, accounts) = watch::channel(crate::spotify::Accounts::default());
         let music = crate::spotify::start(api.clone(), accounts);
@@ -1040,6 +1060,12 @@ impl Discord {
 
     pub fn snapshots(&self) -> watch::Receiver<Arc<Snapshot>> {
         self.snapshots.clone()
+    }
+
+    pub fn reconnect(&self) {
+        if matches!(&self.snapshots.borrow().status, Status::Offline(_)) {
+            let _ = self.requests.send(Request::Reconnect);
+        }
     }
 
     /// Message events for every channel, from now on.
@@ -1119,6 +1145,16 @@ impl Discord {
             guild: guild.into(),
             channel: channel.into(),
             sync,
+            newest: None,
+        });
+    }
+
+    pub fn mark_read_if_latest(&self, guild: &str, channel: &str, newest: u64, sync: bool) {
+        let _ = self.requests.send(Request::MarkRead {
+            guild: guild.into(),
+            channel: channel.into(),
+            sync,
+            newest: Some(newest),
         });
     }
 
@@ -2203,6 +2239,26 @@ impl Discord {
             .collect())
     }
 
+    /// A server's most-used custom emoji, by id and in order of rank.
+    pub async fn guild_top_emojis(&self, guild: &str) -> Result<Vec<String>> {
+        let response = self.api.guild_top_emojis(guild).await?;
+        let items = response["items"]
+            .as_array()
+            .context("could not understand Discord's emoji rankings")?;
+        let mut ranked: Vec<_> = items
+            .iter()
+            .filter_map(|item| Some((item["emoji_rank"].as_u64()?, item["emoji_id"].as_str()?)))
+            .collect();
+        ranked.sort_by_key(|(rank, _)| *rank);
+        let mut seen = HashSet::new();
+        Ok(ranked
+            .into_iter()
+            .map(|(_, id)| id)
+            .filter(|id| seen.insert(*id))
+            .map(str::to_owned)
+            .collect())
+    }
+
     /// Adds a custom emoji, `image` a data URI; gives back the emoji.
     pub async fn create_emoji(
         &self,
@@ -2872,8 +2928,8 @@ impl Discord {
         Ok(profile::recent_entries(&self.api.outbox(user).await?))
     }
 
-    /// Names a board's games and applications. What Discord doesn't say
-    /// stays as it is, and the board shows without it.
+    /// Names a board's games. What Discord doesn't say stays as it is, and
+    /// the board shows without it.
     pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
         let mut games: Vec<&str> = widgets
             .iter()
@@ -2890,18 +2946,6 @@ impl Discord {
             }
         }
         crate::widgets::name_games(widgets, &known);
-        let applications: Vec<String> = widgets
-            .iter()
-            .filter_map(|widget| widget.application.clone())
-            .collect();
-        if applications.is_empty() {
-            return;
-        }
-        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
-        match self.api.public_applications(&ids).await {
-            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
-            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
-        }
     }
 
     /// The items on a wishlist, by the id a profile gave, as Discord's client
@@ -3085,6 +3129,42 @@ impl Discord {
         Ok(())
     }
 
+    /// Creates a server and returns its Discord id. With no layout, Discord
+    /// supplies its default channels. Otherwise make the layout in the same
+    /// request, so a partially created preset does not get left behind.
+    pub async fn create_server(
+        &self,
+        name: &str,
+        text_channels: &[&str],
+        icon: Option<&str>,
+    ) -> Result<String> {
+        let mut body = serde_json::json!({"name": name});
+        if let Some(icon) = icon {
+            body["icon"] = icon.into();
+        }
+        if !text_channels.is_empty() {
+            // The category and system-channel ids are placeholders scoped
+            // to the request and replaced by Discord's channel ids.
+            let mut channels = vec![serde_json::json!({"id": 1, "type": 4, "name": "Text"})];
+            channels.extend(text_channels.iter().enumerate().map(|(index, name)| {
+                serde_json::json!({"id": index + 2, "type": 0, "name": name, "parent_id": 1})
+            }));
+            let voice_category = text_channels.len() + 2;
+            channels.extend([
+                serde_json::json!({"id": voice_category, "type": 4, "name": "Voice"}),
+                serde_json::json!({"type": 2, "name": "General", "parent_id": voice_category}),
+            ]);
+            body["channels"] = channels.into();
+            body["system_channel_id"] = 2.into();
+        }
+        let guild = self.api.create_guild(&body).await?;
+        guild["id"]
+            .as_str()
+            .filter(|id| id.parse::<u64>().is_ok_and(|id| id != 0))
+            .map(str::to_owned)
+            .context("Discord did not return the new server's id.")
+    }
+
     /// What an invite shows before joining by it, by its code; see
     /// [`Api::resolve_invite`]. An invite that isn't to a server, which
     /// Yapfast doesn't join, is refused.
@@ -3125,6 +3205,27 @@ impl Discord {
         )
         .await?;
         Ok(invite::Joined::of(&answer, preview))
+    }
+
+    /// The form a server asks the account to fill in after joining by
+    /// `code`; see [`Api::member_verification`].
+    pub async fn member_form(&self, guild: &str, code: &str) -> Result<crate::screening::Form> {
+        let answer = self.api.member_verification(guild, code).await?;
+        crate::screening::Form::of(&answer)
+            .context("This server's form has nothing Yapfast can show.")
+    }
+
+    /// Hands in a server's form, each field with its response; see
+    /// [`Api::submit_member_verification`].
+    pub async fn submit_member_form(
+        &self,
+        guild: &str,
+        version: &str,
+        answered: &[(crate::screening::Field, crate::screening::Response)],
+    ) -> Result<crate::screening::Review> {
+        let body = crate::screening::body(version, answered);
+        let answer = self.api.submit_member_verification(guild, &body).await?;
+        Ok(crate::screening::Review::of(&answer))
     }
 
     /// A server's preview, by its id; see [`Api::guild_preview`].
@@ -3168,11 +3269,286 @@ impl Discord {
         gift::Preview::of(&gift).context("Discord didn't answer with a gift.")
     }
 
+    /// The gifts this account bought and can still give, to hand out in a
+    /// chat. Inventory entries identify SKUs and plans. Only an existing
+    /// gift code from a second read can be shared.
+    pub async fn gifts_to_give(&self) -> Result<Vec<gift::Owned>> {
+        let inventory = self.api.giftable_entitlements().await?;
+        let entries = inventory
+            .as_array()
+            .context("Discord returned an invalid gift inventory")?;
+        let mut asked = HashSet::new();
+        let mut seen = HashSet::new();
+        let mut gifts = Vec::new();
+        for entry in entries {
+            let sku = entry["sku_id"]
+                .as_str()
+                .context("Discord returned a gift entitlement without a SKU")?;
+            let plan = entry["subscription_plan"]["id"]
+                .as_str()
+                .or_else(|| entry["subscription_plan_id"].as_str());
+            if !asked.insert((sku, plan)) {
+                continue;
+            }
+            let codes = self.api.gift_codes(sku, plan).await?;
+            if !codes.is_array() {
+                bail!("Discord returned an invalid gift code list");
+            }
+            gifts.extend(
+                gift::Owned::list(&codes)
+                    .into_iter()
+                    .filter(|gift| seen.insert(gift.code.clone())),
+            );
+        }
+        Ok(gifts)
+    }
+
+    /// The apps this account authorized; see [`Api::authorized_apps`].
+    pub async fn authorized_apps(&self) -> Result<Vec<crate::account_tools::AuthorizedApp>> {
+        Ok(crate::account_tools::AuthorizedApp::list(
+            &self.api.authorized_apps().await?,
+        ))
+    }
+
+    /// Takes the authorization `id` back, so its app can no longer act for
+    /// this account.
+    pub async fn revoke_authorized_app(&self, id: &str) -> Result<()> {
+        self.api.revoke_authorized_app(id).await
+    }
+
+    /// The devices this account is signed in on, this one marked when READY
+    /// named its session.
+    pub async fn devices(&self) -> Result<Vec<crate::account_tools::Device>> {
+        let answer = self.api.auth_sessions().await?;
+        Ok(crate::account_tools::Device::list(
+            &answer,
+            self.api.session_hash().as_deref(),
+        ))
+    }
+
+    /// Signs the devices with these session hashes out.
+    pub async fn log_out_devices(&self, hashes: &[String]) -> Result<()> {
+        self.api.log_out_sessions(hashes).await
+    }
+
+    /// The services this account linked.
+    pub async fn connected_accounts(&self) -> Result<Vec<crate::account_tools::Connection>> {
+        Ok(crate::account_tools::Connection::list(
+            &self.api.connections().await?,
+        ))
+    }
+
+    /// Unlinks the connected account `id` of a service.
+    pub async fn disconnect_account(&self, service: &str, id: &str) -> Result<()> {
+        self.api.disconnect_account(service, id).await
+    }
+
+    /// Shows a connected account on the profile or not, and lets it show as
+    /// an activity or not; what is `None` stays as it is.
+    pub async fn show_connection(
+        &self,
+        service: &str,
+        id: &str,
+        visible: Option<bool>,
+        activity: Option<bool>,
+    ) -> Result<()> {
+        let mut body = serde_json::Map::new();
+        if let Some(visible) = visible {
+            body.insert("visibility".into(), json!(u8::from(visible)));
+        }
+        if let Some(activity) = activity {
+            body.insert("show_activity".into(), json!(activity));
+        }
+        self.api
+            .update_connection(service, id, &Value::Object(body))
+            .await
+    }
+
+    /// The address of a service's page that links an account of it.
+    pub async fn connection_url(&self, service: &str) -> Result<String> {
+        self.api.connection_authorize_url(service).await
+    }
+
+    /// Changes this account's username, email or password, as My Account
+    /// does: `body` holds the new value and the current password. A new
+    /// password gives a new login, which takes the old one's place here and
+    /// in the saved account, as a refresh of the login does.
+    pub async fn change_account(&self, body: &Value) -> Result<()> {
+        let answer = self.api.modify_me(body).await?;
+        if let Some(token) = answer["token"].as_str().filter(|token| !token.is_empty()) {
+            let earlier = self.api.current_token();
+            if earlier != token {
+                session::relogin(&self.api, &earlier, token).await;
+            }
+        }
+        Ok(())
+    }
+
     /// Redeems the gift with this code for this account; `channel` is
     /// where its link was opened, when it was a channel. Discord sends
     /// the entitlement it grants over the gateway.
     pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
         self.api.redeem_gift_code(code, channel).await.map(drop)
+    }
+
+    /// The quests on offer and those claimed, as Quest Home lists them. A
+    /// list of claimed quests that doesn't come leaves it empty: the ones on
+    /// offer are what the page is for.
+    pub async fn quests(&self) -> Result<(Vec<crate::quests::Quest>, Vec<crate::quests::Quest>)> {
+        let now = i64::try_from(now_ms() / 1000).unwrap_or_default();
+        let offered = crate::quests::parse(&self.api.quests().await?, now);
+        let claimed = match self.api.claimed_quests().await {
+            Ok(value) => crate::quests::parse_claimed(&value),
+            Err(error) => {
+                tracing::debug!(%error, "could not list the claimed quests");
+                Vec::new()
+            }
+        };
+        Ok((offered, claimed))
+    }
+
+    /// Accepts the quest `id`; see [`Api::enroll_quest`].
+    pub async fn enroll_quest(&self, id: &str) -> Result<()> {
+        self.api.enroll_quest(id).await.map(drop)
+    }
+
+    /// Tells Discord how far into the video of the quest `id` the account
+    /// has watched, and gives where that leaves the quest: its status, and
+    /// the seconds counted so far, out of `target`.
+    pub async fn quest_video_progress(
+        &self,
+        id: &str,
+        seconds: u64,
+        target: u64,
+    ) -> Result<(crate::quests::Status, u64)> {
+        // The video may run a moment past what the quest asks.
+        let seconds = if target > 0 {
+            seconds.min(target)
+        } else {
+            seconds
+        };
+        let answer = self.api.quest_video_progress(id, seconds).await?;
+        Ok(crate::quests::standing(&answer, target))
+    }
+
+    /// Claims the reward of the quest `id`, showing each captcha Discord
+    /// asks for first: `captcha` hears its page's address. Discord may
+    /// answer with the errors that kept the reward from being given.
+    pub async fn claim_quest(&self, id: &str, captcha: impl FnMut(&str)) -> Result<()> {
+        let api = &self.api;
+        let answer = crate::captcha::solving(
+            |solved| async move {
+                let solved = solved
+                    .as_ref()
+                    .map(|(captcha, solution)| (captcha, solution.as_str()));
+                api.claim_quest(id, solved).await
+            },
+            captcha,
+        )
+        .await?;
+        match crate::quests::claim_error(&answer) {
+            Some(error) => Err(anyhow!(error)),
+            None => Ok(()),
+        }
+    }
+
+    /// The Shop's categories, and this account's Orbs when Discord says
+    /// them: the Shop shows without the balance.
+    pub async fn shop(&self) -> Result<(Vec<crate::shop::Category>, Option<u64>)> {
+        // Both at once: the balance is small, the categories are most of
+        // the wait.
+        let (categories, orbs) =
+            tokio::join!(self.api.collectibles_categories(), self.api.orbs_balance());
+        let categories = crate::shop::parse(&categories?);
+        let orbs = match orbs {
+            Ok(value) => crate::shop::orbs(&value),
+            Err(error) => {
+                tracing::debug!(%error, "could not read the Orbs balance");
+                None
+            }
+        };
+        Ok((categories, orbs))
+    }
+
+    /// The account's boosts as they stand for the server `guild`.
+    pub async fn boost_slots(&self, guild: &str) -> Result<crate::boost::Slots> {
+        let answer = self.api.boost_slots().await?;
+        Ok(crate::boost::slots(&answer, guild, chrono::Utc::now()))
+    }
+
+    /// Gives the server `guild` one of the account's free boosts. Fails
+    /// with a sentence for it when none is free.
+    pub async fn boost_server(&self, guild: &str) -> Result<()> {
+        let slots = self.boost_slots(guild).await?;
+        let slot = slots
+            .free
+            .first()
+            .context("You have no free boost for this server.")?;
+        self.api
+            .boost_guild(guild, std::slice::from_ref(slot))
+            .await?;
+        Ok(())
+    }
+
+    /// A page of the Discover list: the servers `query` finds, or all of
+    /// them for no query, within `category`, from the `offset`th on. The
+    /// categories come with the first page when `categories` asks, and are
+    /// left out when Discord won't say them: the list is what the page is
+    /// for.
+    pub async fn discover(
+        &self,
+        query: &str,
+        category: Option<u32>,
+        offset: u32,
+        categories: bool,
+    ) -> Result<(
+        crate::discovery::Batch,
+        Option<Vec<crate::discovery::Category>>,
+    )> {
+        let answer = if query.trim().is_empty() {
+            self.api
+                .discoverable_guilds(category, offset, crate::discovery::PAGE)
+                .await?
+        } else {
+            self.api
+                .search_discoverable_guilds(query.trim(), category, offset, crate::discovery::PAGE)
+                .await?
+        };
+        let categories = if categories {
+            match self.api.discovery_categories().await {
+                Ok(value) => Some(crate::discovery::categories(&value)),
+                Err(error) => {
+                    tracing::debug!(%error, "could not list the discovery categories");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        Ok((crate::discovery::parse(&answer), categories))
+    }
+
+    /// Joins the discoverable server `guild`, showing each captcha Discord
+    /// asks for first: `captcha` hears its page's address. The server's
+    /// GUILD_CREATE follows, and a snapshot lists it.
+    pub async fn join_discoverable(&self, guild: &str, captcha: impl FnMut(&str)) -> Result<()> {
+        let api = &self.api;
+        crate::captcha::solving(
+            |solved| async move {
+                let solved = solved
+                    .as_ref()
+                    .map(|(captcha, solution)| (captcha, solution.as_str()));
+                api.join_discoverable(guild, solved).await
+            },
+            captcha,
+        )
+        .await
+    }
+
+    /// Buys the Shop product with this SKU with Orbs; see
+    /// [`Api::buy_with_orbs`].
+    pub async fn buy_with_orbs(&self, sku: &str) -> Result<()> {
+        self.api.buy_with_orbs(sku).await.map(drop)
     }
 
     /// What authorizing the application `request` names would do; see

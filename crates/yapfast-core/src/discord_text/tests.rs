@@ -430,6 +430,8 @@ fn a_reply_keeps_its_original_through_an_update_that_leaves_it_out() {
         author_id: "2".into(),
         author: "ann".into(),
         content: "lunch?".into(),
+        forwarded: true,
+        has_media: true,
     };
     let mut open = OpenChannel::new("discord:10:11").unwrap();
     open.loaded(Load::Latest, shown(vec![reply(original.clone(), "a gif")]));
@@ -479,6 +481,8 @@ fn a_reply_on_screen_looks_its_original_up_once() {
         author_id: "2".into(),
         author: "ann".into(),
         content: "lunch?".into(),
+        forwarded: false,
+        has_media: false,
     };
     open.original("1", Ok(Some(original.clone())));
     assert_eq!(shows(&open, 6), Some(original.clone()));
@@ -1917,6 +1921,7 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
         .unwrap();
     let mut forward = |item: String, target: &str, note: Option<String>| {
         let command = Command::Forward {
+            request: 1,
             room: room.clone(),
             item,
             target: target.into(),

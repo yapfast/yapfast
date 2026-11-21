@@ -4,7 +4,7 @@
 
 use iced::{
     Element, Length,
-    widget::{column, row},
+    widget::{column, row, stack},
 };
 
 use crate::{
@@ -21,12 +21,12 @@ pub fn navigation(layout: &crate::layout::Layout) -> f32 {
 /// The conversation column: the header, the timeline and the composer,
 /// with a server's member list beside them; or a voice channel's call.
 pub fn conversation(app: &App) -> Element<'_, Message> {
-    if crate::call::stage::voice_panel(app) {
-        return crate::call::stage::call_view(app);
-    }
-    let outline = app.theme.outline_chat;
-    let line = bar(outline, Length::Fill, 1);
-    if let Some(screen) = crate::friends::dm_screen(app) {
+    // The window's top outline carries on over the conversation to its right edge.
+    let top_outline = bar(app.theme.outline, Length::Fill, 1);
+    let line = bar(app.theme.outline_chat, Length::Fill, 1);
+    let content: Element<'_, Message> = if crate::call::stage::voice_panel(app) {
+        crate::call::stage::call_view(app)
+    } else if let Some(screen) = crate::friends::dm_screen(app) {
         let page = match screen {
             yapfast_core::application::DmScreen::Friends => {
                 crate::friends::friends_screen(app.ctx())
@@ -34,53 +34,63 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
             yapfast_core::application::DmScreen::Requests => {
                 crate::friends::requests::requests_screen(app.ctx())
             }
+            yapfast_core::application::DmScreen::Nitro
+            | yapfast_core::application::DmScreen::Shop
+            | yapfast_core::application::DmScreen::Quests
+            | yapfast_core::application::DmScreen::Discover => {
+                crate::sidebar::destinations::page(app.ctx(), screen)
+            }
         };
-        return column![
+        column![
             crate::friends::friends_header(app.ctx(), screen),
             line,
             page
         ]
         .width(Length::Fill)
         .height(Length::Fill)
-        .into();
-    }
-    if let Some(screen) = crate::browse_channels::view(app.ctx()) {
-        return screen;
-    }
-    let mut chat = column(crate::forum::post_bar_view(app.ctx()))
-        .extend(crate::banners::view(app.ctx()))
+        .into()
+    } else if let Some(screen) = crate::browse_channels::view(app.ctx()) {
+        screen
+    } else {
+        let mut chat = column(crate::forum::post_bar_view(app.ctx()))
+            .extend(crate::banners::view(app.ctx()))
+            .width(Length::Fill)
+            .height(Length::Fill);
+        // A DM's call shows above its messages.
+        if let Some(call) = crate::call::dm::dm_call_view(app) {
+            chat = chat.push(call);
+        }
+        let chat = match crate::forum::view(app.ctx()) {
+            Some(forum) => chat.push(forum),
+            None => chat
+                .push(crate::timeline::view::timeline(app.ctx()))
+                .push(crate::composer::view(app.ctx())),
+        };
+        let mut body = row![chat];
+        if let Some(search) = crate::search::view(&app.searching, app.ctx()) {
+            body = body.push(search);
+        } else if let Some(aside) = crate::thread::aside_view(app.ctx()) {
+            body = body.push(aside);
+        } else if crate::header::members_shown(app) {
+            body = body.push(crate::members::view(&app.roster, app.ctx()));
+        } else if crate::profile::panel_shown(app)
+            && let Some(panel) = crate::profile::profile_panel_view(app.ctx())
+        {
+            body = body.push(panel);
+        }
+        column![
+            crate::header::view(app.ctx()),
+            line,
+            body.height(Length::Fill)
+        ]
         .width(Length::Fill)
-        .height(Length::Fill);
-    // A DM's call shows above its messages.
-    if let Some(call) = crate::call::dm::dm_call_view(app) {
-        chat = chat.push(call);
-    }
-    let chat = match crate::forum::view(app.ctx()) {
-        Some(forum) => chat.push(forum),
-        None => chat
-            .push(crate::timeline::view::timeline(app.ctx()))
-            .push(crate::composer::view(app.ctx())),
+        .height(Length::Fill)
+        .into()
     };
-    let mut body = row![chat];
-    if let Some(search) = crate::search::view(&app.searching, app.ctx()) {
-        body = body.push(search);
-    } else if let Some(aside) = crate::thread::aside_view(app.ctx()) {
-        body = body.push(aside);
-    } else if crate::header::members_shown(app) {
-        body = body.push(crate::members::view(&app.roster, app.ctx()));
-    } else if crate::profile::panel_shown(app)
-        && let Some(panel) = crate::profile::profile_panel_view(app.ctx())
-    {
-        body = body.push(panel);
-    }
-    column![
-        crate::header::view(app.ctx()),
-        line,
-        body.height(Length::Fill)
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    stack![content, top_outline]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }
 
 /// The conversation column's left edge: the navigation's right.

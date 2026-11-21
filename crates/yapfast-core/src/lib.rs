@@ -11,6 +11,7 @@ use anyhow::Context;
 #[cfg(feature = "discord")]
 pub use yapfast_discord;
 
+pub mod account_tools;
 pub mod application;
 mod audio_io;
 pub use audio_io::{set_windows_effects, silence_audio};
@@ -49,6 +50,7 @@ pub mod encode;
 #[cfg(feature = "matrix")]
 pub mod experiment;
 pub mod frames;
+pub mod i18n;
 pub mod keybinds;
 pub mod layout_file;
 pub mod leveling;
@@ -83,6 +85,7 @@ pub mod session;
 pub mod soundboard;
 pub mod sounds;
 pub mod spoiler;
+pub mod storefront;
 #[cfg(feature = "discord")]
 pub mod stream_audio;
 #[cfg(feature = "discord")]

@@ -31,6 +31,7 @@ mod list;
 mod members;
 use editor::hex_colour;
 pub use members::focus_candidates;
+use yapfast_core::i18n::{self, tr};
 
 /// The fields' ids.
 const SEARCH: &str = "roles-search";
@@ -150,11 +151,11 @@ pub(crate) fn role_colour(colour: u32) -> Color {
 /// A role's lock in Discord's words.
 pub(crate) fn lock_text(lock: Option<RoleLock>) -> &'static str {
     match lock {
-        Some(RoleLock::Highest) => {
-            "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
-        }
+        Some(RoleLock::Highest) => tr(
+            "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help.",
+        ),
         Some(RoleLock::Higher) => {
-            "Role is locked because it is a higher rank than your highest role."
+            tr("Role is locked because it is a higher rank than your highest role.")
         }
         None => "",
     }
@@ -278,19 +279,22 @@ impl<'a> View<'a> {
             RoleConfirm::Delete(id) => {
                 let name = page.role(id).map_or("", |role| role.name.as_str());
                 (
-                    "Delete Role",
-                    format!(
-                        "Are you sure you want to delete the {name} role? This action cannot be undone."
+                    tr("Delete Role"),
+                    i18n::fill(
+                        tr(
+                            "Are you sure you want to delete the {} role? This action cannot be undone.",
+                        ),
+                        &[&name],
                     ),
-                    "Delete",
+                    tr("Delete"),
                 )
             }
             RoleConfirm::RemoveMember(member) => {
                 let role = page.open_role().map_or("", |role| role.name.as_str());
                 (
-                    "Remove member",
-                    format!("Remove {} from role {role}?", member.name),
-                    "Remove",
+                    tr("Remove member"),
+                    i18n::fill(tr("Remove {0} from role {1}?"), &[&member.name, &role]),
+                    tr("Remove"),
                 )
             }
         };
@@ -299,7 +303,12 @@ impl<'a> View<'a> {
             text(question).size(15).color(theme.secondary),
             row![
                 Space::new().width(Length::Fill),
-                action(theme, "Cancel", Kind::Ghost, Some(input(RoleInput::Cancel))),
+                action(
+                    theme,
+                    tr("Cancel"),
+                    Kind::Ghost,
+                    Some(input(RoleInput::Cancel))
+                ),
                 action(theme, answer, Kind::Danger, Some(input(RoleInput::Confirm))),
             ]
             .spacing(8)

@@ -198,12 +198,19 @@ fn a_servers_menu_shows_and_changes_its_notifications() {
     assert_eq!(
         labels(&app),
         [
+            "Server Boost",
             "Notification settings",
             "Edit server profile",
             "Hide muted channels",
             "Leave server"
         ]
     );
+    // Its notification settings keep their levels but show no second line,
+    // and its menu is Discord's 220 px wide wherever its words would need
+    // more.
+    let menu = app.win.menu.as_ref().expect("the dropdown");
+    assert!(menu.rows[1].subtitle.is_none());
+    assert!(menu.fixed && menu.width == crate::menus::HEADER_WIDTH);
 }
 
 #[test]
@@ -753,7 +760,7 @@ fn shift_and_tab_step_back_through_a_menu() {
 }
 
 #[test]
-fn every_row_of_a_persons_and_a_places_menu_has_its_icon() {
+fn every_row_of_a_places_menu_has_its_icon_and_a_persons_has_none() {
     let iconless = |app: &App| -> Vec<String> {
         let menu = app.win.menu.as_ref().expect("a menu");
         menu.rows
@@ -772,7 +779,17 @@ fn every_row_of_a_persons_and_a_places_menu_has_its_icon() {
         Point::new(300.0, 200.0),
         crate::person_menu::CONTEXT_MENU,
     );
-    assert_eq!(iconless(&app), [""; 0], "a member's");
+    // Discord's menu for someone has no icons but Copy ID's, and its rows
+    // keep no room for one.
+    let menu = app.win.menu.as_ref().expect("a menu");
+    let copy_id = crate::menus::MenuAct::Person(yapfast_core::application::MenuChoice::CopyId);
+    assert!(menu.lone_icons);
+    assert!(
+        menu.rows
+            .iter()
+            .all(|row| row.icon.is_none() || row.act == copy_id),
+        "a member's"
+    );
     // A server's, from its tile and from its name, and a channel's.
     let (mut app, _folder) = discord_server(0, |_, _| {});
     for (place, header) in [(SERVER, false), (SERVER, true), (GENERAL, false)] {

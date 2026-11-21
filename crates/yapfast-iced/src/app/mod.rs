@@ -136,6 +136,8 @@ pub struct App {
     /// The friends list's and the requests' own state, and Active Now's
     /// cards while the friends list shows.
     pub friends: crate::friends::Friends,
+    /// The tab each of the Nitro, Shop and Quests screens shows.
+    pub pages: crate::sidebar::destinations::Pages,
     pub active_now: Vec<crate::active_now::Card>,
     /// The core's people and lists changes Active Now's cards were made
     /// at, while they show.
@@ -204,6 +206,8 @@ pub struct App {
     pub backend_events: Option<iced::task::Handle>,
     pub linking: Option<iced::task::Handle>,
     pub mfa: mfa::Mfa,
+    /// Manage Accounts' Add Account step.
+    pub accounts: crate::accounts::Accounts,
 }
 
 impl App {
@@ -231,10 +235,11 @@ impl App {
             client.dispatch(action);
         }
         layout.remember(&mut client.app);
-        // How calls send and play, as Voice's settings keep it; message
-        // times on the clock Messages chose; the games named by hand.
+        // How calls send and play, as Voice's settings keep it; every text in
+        // the language Appearance chose, and message times on the clock
+        // Messages chose; the games named by hand.
         layout.voice.apply();
-        layout.prefs.apply_clock();
+        layout.prefs.apply_language();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         // The window opens at its size in the desktop's pixels whatever the
@@ -287,6 +292,7 @@ impl App {
             header_spot: Default::default(),
             cards: Default::default(),
             friends: Default::default(),
+            pages: Default::default(),
             active_now: Vec::new(),
             active_now_made: None,
             reactions: Default::default(),
@@ -322,6 +328,7 @@ impl App {
             backend_events: None,
             linking: None,
             mfa: mfa::Mfa::default(),
+            accounts: Default::default(),
         };
         crate::window_bar::fit_window(&mut app);
         app.follow_popups();
@@ -385,6 +392,14 @@ impl App {
                 self.client.linking(step);
                 self.sync()
             }
+            Message::Import(run, Some(step)) => {
+                self.client.import_step(run, step);
+                self.sync()
+            }
+            Message::Import(run, None) => {
+                self.client.import_ended(run);
+                self.sync()
+            }
             Message::SignIn(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.sign_in.update(event, &mut cx)
@@ -393,6 +408,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(event, &mut cx)
             }
+            Message::Accounts(event) => crate::accounts::update(self, event),
             Message::Control(command) => crate::control_file::control(self, &command),
             Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),
@@ -516,12 +532,14 @@ impl App {
             }
             Message::Info(event) => self.info_event(event),
             Message::TagCard(event) => self.tag_card_event(event),
+            Message::BoostGoal(event) => self.boost_goal_event(event),
             Message::PopupGone(popup) => {
                 self.popup_gone(popup);
                 Task::none()
             }
             Message::Profile(event) => self.profile_event(event),
             Message::Friends(event) => crate::friends::update(self, event),
+            Message::Pages(event) => crate::sidebar::destinations::update(self, event),
             Message::Reactions(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.reactions.update(event, &mut cx)

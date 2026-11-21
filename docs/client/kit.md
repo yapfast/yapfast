@@ -13,7 +13,8 @@ kit is a crate of its own, `crates/yapfast-iced-kit`, which knows nothing
 of the core or of the app: the theme (`theme`, which the app fills in
 `themes.rs`), `style`, `fonts`, `icons` and `canvas`, `controls`, `form`,
 `sheet`, `dialog`, `tile`, `viewer`, `field`, `piece`, `popover`,
-`reorder`, `elide`, `timer`, `frames` and `widgets`. The client uses each
+`reorder`, `elide`, `timer`, `frames`, `widgets`, `custom_font` and
+`woff`. The client uses each
 module under its own name (`crate::widgets::Rows`), and what the kit
 can't know it's handed: the messages to send, the palette, a zoom wheel's
 steps. A piece
@@ -262,8 +263,8 @@ and the app uses them with its one `Message`, so nothing is mapped:
   box, "Press a key..." while recording), `field` (a form's text field),
   `entry` (a single-line field 40 px tall), `area` (a text several
   lines high with what's left of it),
-  `colour_row` (a swatch, its name and its hex), `colour_card` (a
-  colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
+  `colour_row` (a swatch, with an optional `picker` popover, its name and its
+  hex), `colour_card` (a colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
   `mark`. The `Unsaved` bar is an editor's bar once something changed, which
@@ -286,5 +287,5 @@ and the app uses them with its one `Message`, so nothing is mapped:
   of its own); `backdrop`, the card over the dimmed window that Settings
   shares, and `nav_row`, a section's row in either.
 - `suggest::emoji_button`: an emoji on a lit square, for quick reactions in
-  menus and the hover bar. `controls::action(..).small()` and `.icon()`
+  the hover bar (a message's menu draws its own tiles, as Discord's). `controls::action(..).small()` and `.icon()`
   make an app's button; `Kind::Success` is the green one.

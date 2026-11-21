@@ -102,6 +102,8 @@ Reads within that second go together: one channel as its own
 acknowledgement, several, as when a server is marked read from its menu, in
 one `POST /read-states/ack-bulk` of up to 100 channels, as the official
 client does.
+Opening a link to a different server goes directly to the linked channel.
+It does not acknowledge unread posts in that server's previously selected forum.
 Before it does, Yapfast notes the channel's last read message, from READY's read
 state or the last acknowledgement since, and the "New" divider goes above the
 first message after it from someone else. Snowflakes order messages, so the
@@ -261,7 +263,8 @@ Yapfast is back, rather than showing an error.
   open in the browser. Other pictures, the thumbnail beside the text too,
   open in the image viewer, where a right click on the picture
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
-  menu does. A linked image or GIF
+  menu does. Editing the message's attachment list closes its open viewer.
+  A linked image or GIF
   shows with the message's images, without its address when that's all the
   message says. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
@@ -273,8 +276,8 @@ Yapfast is back, rather than showing an error.
   (`discord.gift/…`, `/gifts/…`) shows the gift and redeems it on the click,
   never from opening the link (`link.rs`, `gift.rs`). A gift code drops the
   dashes that may group it, as Discord's client reads it. A gift that needs
-  a payment source, or is from a promotion, offers its link in the browser
-  instead, since only Discord redeems those. A dialog closed while its gift
+  a payment source, or is from a promotion, says it can't be redeemed in
+  Yapfast, which takes no payment method, and has no button. A dialog closed while its gift
   is redeeming and opened again shows it still redeeming, and Discord's
   answer. The same reader takes web, `discord://` and `yapfast://` links
   handed to a start. Only Discord's own hosts and snowflake ids match, so a
@@ -463,6 +466,9 @@ Yapfast is back, rather than showing an error.
   packages carry), holds those that differ from GitHub's shortcodes, which the
   `emojis` crate knows. A flag comes from its country's two letters. Yapfast
   doesn't change them yet.
+- The current server's Popular section uses `GET /guilds/{guild.id}/top-emojis`
+  when the picker first opens there. The picker orders its known custom emoji
+  by the returned ranks and offers the section when at least one is present.
 - Stickers show as pictures 160px square, as Discord draws them, whatever size
   their picture came at: the 160px one the CDN gives, decoded at that size
   rather than the timeline's preview. PNG and APNG stickers come from the CDN
@@ -623,16 +629,16 @@ click or a submit sends one, and none is sent again on its own.
   members who match. Channel menus keep to the bot's channel types, visible
   categories included, and a default pick shows its name, or its id when the
   name isn't known. An optional single pick can be cleared.
-- Link buttons open their address. A premium button says "Open in Discord"
-  and opens the SKU's store page in the browser,
-  `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
-  "Managing SKUs"), `{app}` the message's application, or the bot's own id
-  when the message doesn't name one; nothing is bought through Yapfast, and
-  the SKU's name and price aren't asked for.
+- Link buttons open their address. A button that asks for a purchase (a
+  premium button, or one naming a `sku_id`) is not shown: Yapfast has no
+  checkout, and it does not send anyone to Discord's store page for one.
 - Pictures in a gallery or beside a section are read by a screen reader by
   their alt text (`description`), as an attached picture's is.
 - An app that answers with a web page in a window
-  (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
+  (INTERACTION_IFRAME_MODAL_CREATE) is told so: Yapfast has no web view, so
+  the command fails with a line saying it can't show the page, and it
+  doesn't send anyone elsewhere. A form with a part of a kind Yapfast doesn't
+  know says so and isn't sent.
 - Yapfast doesn't unarchive a thread before a control in it is used, as
   Discord's client does, and doesn't count a bot's reply carrying the nonce
   as its answer; Discord sends `INTERACTION_SUCCESS` as well.
@@ -1076,7 +1082,8 @@ to, a checkbox on each, the message as a quote, and "Add an optional
 message...". Up to five can be chosen, after which the rest grey out and
 the heading says "Maximum 5 places at once." Send, or Enter in the
 message field, closes the dialog and forwards to each in parallel; with
-one chosen, that conversation opens.
+one chosen, that conversation opens. Each send tracks its own results even
+when multiple forwards to the same destination are in flight.
 
 Each forward is `POST /channels/{target}/messages` with no content and a
 `message_reference` of type 1 (FORWARD) naming the original's message,

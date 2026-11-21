@@ -23,6 +23,7 @@ use crate::{
     theme::Theme,
     widgets::Pic,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The fields, for focus and the tests.
 pub const HOMESERVER: &str = "sign-in-homeserver";
@@ -111,6 +112,10 @@ pub enum Event {
     Token(String),
     LinkToken,
     OpenCaptcha,
+    /// Discord: take the accounts the Discord app keeps on this device, or
+    /// stop doing so.
+    ImportDiscord,
+    CancelImport,
     /// Matrix's verify banner.
     Recovery(String),
     Recover,
@@ -124,16 +129,18 @@ impl std::fmt::Debug for Event {
             Event::Homeserver(text) => return write!(formatter, "Homeserver({text:?})"),
             Event::Username(text) => return write!(formatter, "Username({text:?})"),
             Event::Password(_) => "Password(..)",
-            Event::Login => "Login",
-            Event::Restore => "Restore",
-            Event::Preview => "Preview",
+            Event::Login => tr("Login"),
+            Event::Restore => tr("Restore"),
+            Event::Preview => tr("Preview"),
             Event::ShowCode => "ShowCode",
             Event::OpenToken => "OpenToken",
             Event::Token(_) => "Token(..)",
             Event::LinkToken => "LinkToken",
             Event::OpenCaptcha => "OpenCaptcha",
+            Event::ImportDiscord => "ImportDiscord",
+            Event::CancelImport => "CancelImport",
             Event::Recovery(_) => "Recovery(..)",
-            Event::Recover => "Recover",
+            Event::Recover => tr("Recover"),
             Event::RefreshTrust => "RefreshTrust",
         };
         formatter.write_str(name)
@@ -192,6 +199,14 @@ impl SignIn {
                     return Task::none();
                 }
             }
+            Event::ImportDiscord => {
+                cx.dispatch(Action::ImportDiscord);
+                return Task::none();
+            }
+            Event::CancelImport => {
+                cx.dispatch(Action::CancelDiscordLink);
+                return Task::none();
+            }
             Event::OpenCaptcha => {
                 cx.dispatch(Action::OpenDiscordCaptcha);
                 return Task::none();
@@ -225,20 +240,30 @@ impl SignIn {
         }
     }
 
+    /// Lets go of the token pasted, and its field with it.
+    pub fn drop_token(&mut self) {
+        forget(&mut self.token);
+        self.token_open = false;
+    }
+
     fn take_in(&mut self, state: &AppState, root: &std::path::Path) {
         if !state.busy {
             self.starting = false;
         }
+        // Add Account, in Manage Accounts, links another beside the one in
+        // use: its code and token stay while it's open.
+        let adding = state.manage_accounts.is_some();
         if state.preview || state.account.is_some() {
-            self.code = None;
             self.starting = false;
-            // Linked: the token pasted, kept until now to fix a refused
-            // one, goes with its field.
-            if state.account.is_some() && !self.token.is_empty() {
-                forget(&mut self.token);
-                self.token_open = false;
+            if !adding {
+                self.code = None;
+                // Linked: the token pasted, kept until now to fix a refused
+                // one, goes with its field.
+                if state.account.is_some() && !self.token.is_empty() {
+                    self.drop_token();
+                }
+                return;
             }
-            return;
         }
         match &state.discord_link {
             Some(DiscordLink::Code(address)) => {
@@ -252,8 +277,13 @@ impl SignIn {
             }
             _ => self.code = None,
         }
-        if MATRIX {
-            self.restore_available = yapfast_core::chat::can_restore(root);
+        if MATRIX && !adding {
+            // Not while an import runs or saves: it reads the same store.
+            let importing = matches!(
+                state.discord_link,
+                Some(DiscordLink::Importing | DiscordLink::CancellingImport)
+            ) || yapfast_core::discord_link::saves_pending();
+            self.restore_available = !importing && yapfast_core::chat::can_restore(root);
         }
     }
 }
@@ -266,7 +296,7 @@ pub fn view<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let rail = theme.rail;
     if cx.sign_in.starting {
         return container(
-            text(state.notice.clone().unwrap_or_default())
+            text(state.notice.as_deref().unwrap_or_default())
                 .size(14)
                 .color(theme.muted),
         )
@@ -290,19 +320,21 @@ pub fn view<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         });
     let preview = column![
         mark,
-        text("Just looking?")
+        text(tr("Just looking?"))
             .size(20)
             .font(BOLD)
             .color(theme.text)
             .align_x(Alignment::Center),
-        text("Try the layout with sample conversations. Nothing leaves this computer.")
-            .size(15)
-            .color(theme.secondary)
-            .align_x(Alignment::Center)
-            .width(Length::Fill),
+        text(tr(
+            "Try the layout with sample conversations. Nothing leaves this computer."
+        ))
+        .size(15)
+        .color(theme.secondary)
+        .align_x(Alignment::Center)
+        .width(Length::Fill),
         action(
             theme,
-            "Explore local preview",
+            tr("Explore local preview"),
             Kind::Plain,
             (!state.busy).then_some(Message::SignIn(Event::Preview)),
         )
@@ -367,8 +399,8 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let state = cx.state;
     let mut form = column![
-        title(theme, "Sign in to Yapfast"),
-        text("Link your Discord account with your phone.")
+        title(theme, tr("Sign in to Yapfast")),
+        text(tr("Link your Discord account with your phone."))
             .color(theme.secondary)
             .align_x(Alignment::Center)
             .width(Length::Fill),
@@ -383,12 +415,12 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         && (state.busy || state.discord_link.is_none())
     {
         form = form.push(
-            text(notice.clone())
+            text(String::from(&**notice))
                 .size(15)
-                .color(if state.busy {
-                    theme.secondary
-                } else {
+                .color(if notice.is_error() {
                     theme.danger
+                } else {
+                    theme.secondary
                 })
                 .width(Length::Fill),
         );
@@ -404,14 +436,14 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let form = ctx.sign_in;
     let link = ctx.state.discord_link.as_ref();
     match link {
-        None | Some(DiscordLink::Failed(_)) => {
+        None | Some(DiscordLink::Failed(_) | DiscordLink::ImportFailed(_)) => {
             let warning = container(
                 row![
                     ctx.look.glyph(Icon::TriangleAlert, 18, theme.danger),
-                    text(
+                    text(tr(
                         "Discord doesn't allow apps like Yapfast on personal accounts. \
                          Linking puts your account at some risk of being suspended."
-                    )
+                    ))
                     .size(14)
                     .color(theme.text)
                     .width(Length::Fill),
@@ -431,13 +463,17 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 }
             });
             let mut panel = column![warning].spacing(12).width(Length::Fill);
-            if let Some(DiscordLink::Failed(note)) = link {
+            if let Some(DiscordLink::Failed(note) | DiscordLink::ImportFailed(note)) = link {
                 panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
             }
-            let again = link.is_some() && !form.token_open;
+            let again = matches!(link, Some(DiscordLink::Failed(_))) && !form.token_open;
             let mut buttons = row![action(
                 theme,
-                if again { "Try again" } else { "Show the code" },
+                if again {
+                    tr("Try again")
+                } else {
+                    tr("Show the code")
+                },
                 if form.token_open {
                     Kind::Plain
                 } else {
@@ -449,23 +485,28 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             if !form.token_open {
                 buttons = buttons.push(action(
                     theme,
-                    "Use a token",
+                    tr("Use a token"),
                     Kind::Plain,
                     Some(Message::SignIn(Event::OpenToken)),
                 ));
             }
             panel = panel.push(buttons);
+            // Without the phone: the accounts the Discord app is signed in to
+            // on this computer.
+            if import_offered() && !form.token_open {
+                panel = panel.push(import_option(ctx));
+            }
             if form.token_open {
                 panel = panel.push(
                     column![
-                        label(theme, "TOKEN"),
+                        label(theme, tr("TOKEN")),
                         row![
-                            field(theme, TOKEN, "Discord token", &form.token, true, true)
+                            field(theme, TOKEN, tr("Discord token"), &form.token, true, true)
                                 .on_input(|text| Message::SignIn(Event::Token(text)))
                                 .on_submit(Message::SignIn(Event::LinkToken)),
                             action(
                                 theme,
-                                "Link",
+                                tr("Link"),
                                 Kind::Primary,
                                 (!form.token.is_empty())
                                     .then_some(Message::SignIn(Event::LinkToken)),
@@ -473,10 +514,10 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                         ]
                         .spacing(8)
                         .align_y(Alignment::Center),
-                        text(
+                        text(tr(
                             "Anyone with your token can use your account. Paste it only \
                              here, and never share it."
-                        )
+                        ))
                         .size(13)
                         .color(theme.secondary)
                         .width(Length::Fill),
@@ -486,26 +527,48 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             }
             panel.into()
         }
-        Some(DiscordLink::Checking) => text("Checking the token...")
+        Some(DiscordLink::Importing | DiscordLink::CancellingImport) => {
+            let stopping = matches!(link, Some(DiscordLink::CancellingImport));
+            let mut panel = column![
+                text(if stopping {
+                    tr("Cancelling import...")
+                } else {
+                    tr("Importing Discord accounts...")
+                })
+                .size(15)
+                .color(theme.secondary)
+            ]
+            .spacing(8);
+            if !stopping {
+                panel = panel.push(action(
+                    theme,
+                    tr("Cancel"),
+                    Kind::Plain,
+                    Some(Message::SignIn(Event::CancelImport)),
+                ));
+            }
+            panel.into()
+        }
+        Some(DiscordLink::Checking) => text(tr("Checking the token..."))
             .size(15)
             .color(theme.secondary)
             .into(),
         Some(DiscordLink::Captcha(_)) => column![
-            text("Solve the captcha in your browser")
+            text(tr("Solve the captcha in your browser"))
                 .size(17)
                 .font(BOLD)
                 .color(theme.text),
-            text(
+            text(tr(
                 "Discord wants to check you're a person before it links your account. \
                  Yapfast opened the check in your browser; linking finishes once it's \
                  solved."
-            )
+            ))
             .size(14)
             .color(theme.secondary)
             .width(Length::Fill),
             container(action(
                 theme,
-                "Open it again",
+                tr("Open it again"),
                 Kind::Plain,
                 Some(Message::SignIn(Event::OpenCaptcha)),
             ))
@@ -526,12 +589,15 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 (Some((_, code, side)), _) => Pic::square(code.clone(), *side).into(),
                 (None, Some(_)) => column![
                     ctx.look.glyph(Icon::Check, 40, theme.live),
-                    text("Scanned").size(15).font(BOLD).color(theme.text),
+                    text(tr("Scanned")).size(15).font(BOLD).color(theme.text),
                 ]
                 .spacing(8)
                 .align_x(Alignment::Center)
                 .into(),
-                (None, None) => text("Getting a code...").size(14).color(theme.muted).into(),
+                (None, None) => text(tr("Getting a code..."))
+                    .size(14)
+                    .color(theme.muted)
+                    .into(),
             };
             let ground = if code.is_some() {
                 Color::WHITE
@@ -543,15 +609,20 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .style(move |_| rounded(ground, 12));
             let (heading, words) = match scanned {
                 Some(name) => (
-                    "Confirm on your phone".to_owned(),
-                    format!("Linking {name}. Tap Log in on your phone to finish."),
+                    tr("Confirm on your phone").to_owned(),
+                    i18n::fill(
+                        tr("Linking {}. Tap Log in on your phone to finish."),
+                        &[&name],
+                    ),
                 ),
                 None => (
-                    "Scan it with the Discord app".to_owned(),
-                    "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
+                    tr("Scan it with the Discord app").to_owned(),
+                    tr(
+                        "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
                      point the camera here. A new code replaces this one after a couple of \
-                     minutes."
-                        .to_owned(),
+                     minutes.",
+                    )
+                    .to_owned(),
                 ),
             };
             row![
@@ -573,6 +644,62 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
 }
 
+/// Whether importing the Discord app's accounts is offered: where the app's
+/// stored sessions can be read (the tests draw it everywhere).
+fn import_offered() -> bool {
+    cfg!(test) || yapfast_core::yapfast_discord::import::supported()
+}
+
+/// The import button with what to know before pressing it: it copies login
+/// tokens, which are as good as a password. Shown with the button rather
+/// than on hover, so it's read before the choice, and kept calm so it informs
+/// without scaring off the people who own the accounts.
+fn import_option<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let note = container(
+        row![
+            ctx.look.glyph(Icon::CircleInfoFilled, 16, theme.secondary),
+            column![
+                text(tr("Before you import"))
+                    .size(13)
+                    .font(BOLD)
+                    .color(theme.text),
+                text(tr(
+                    "Import reuses the login sessions the Discord app saved on this PC. \
+                     A session token gives full access to the account, so only import \
+                     your own. Yapfast keeps it in this device's credential store and \
+                     sends it only to Discord. Logging out in Discord can sign you out \
+                     here too."
+                ))
+                .size(13)
+                .color(theme.secondary)
+                .width(Length::Fill),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+        ]
+        .spacing(10),
+    )
+    .padding(12)
+    .width(Length::Fill)
+    .style({
+        let (ground, line) = (theme.sunken, theme.line);
+        move |_| crate::style::outlined(ground, line, 8.0)
+    });
+    column![
+        action(
+            theme,
+            tr("Import accounts from the Discord app"),
+            Kind::Plain,
+            Some(Message::SignIn(Event::ImportDiscord)),
+        ),
+        note,
+    ]
+    .spacing(8)
+    .width(Length::Fill)
+    .into()
+}
+
 /// Matrix's sign-in, in a build with Matrix.
 fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let theme = cx.look.theme;
@@ -581,7 +708,7 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let open = !state.busy;
     let input = |id, placeholder, value, secure| field(theme, id, placeholder, value, secure, open);
     let mut homeserver = input(HOMESERVER, "", &form.homeserver, false);
-    let mut username = input(USERNAME, "@you:matrix.org", &form.username, false);
+    let mut username = input(USERNAME, tr("@you:matrix.org"), &form.username, false);
     let mut password = input(PASSWORD, "", &form.password, true);
     if open {
         homeserver = homeserver.on_input(|text| Message::SignIn(Event::Homeserver(text)));
@@ -591,27 +718,27 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
             .on_submit(Message::SignIn(Event::Login));
     }
     let mut form = column![
-        title(theme, "Sign in to Yapfast"),
-        text("Use your existing Matrix account.")
+        title(theme, tr("Sign in to Yapfast")),
+        text(tr("Use your existing Matrix account."))
             .color(theme.secondary)
             .align_x(Alignment::Center)
             .width(Length::Fill),
         Space::new().height(12),
-        label(theme, "HOMESERVER"),
+        label(theme, tr("HOMESERVER")),
         homeserver,
         Space::new().height(4),
-        label(theme, "MATRIX ID"),
+        label(theme, tr("MATRIX ID")),
         username,
         Space::new().height(4),
-        label(theme, "PASSWORD"),
+        label(theme, tr("PASSWORD")),
         password,
         Space::new().height(12),
         action(
             theme,
             if state.busy {
-                "Connecting..."
+                tr("Connecting...")
             } else {
-                "Sign in"
+                tr("Sign in")
             },
             Kind::Primary,
             open.then_some(Message::SignIn(Event::Login)),
@@ -622,9 +749,13 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     .width(Length::Fill);
     if let Some(notice) = &state.notice {
         form = form.push(
-            text(notice.clone())
+            text(String::from(&**notice))
                 .size(15)
-                .color(theme.danger)
+                .color(if notice.is_error() {
+                    theme.danger
+                } else {
+                    theme.secondary
+                })
                 .width(Length::Fill),
         );
     }
@@ -632,7 +763,7 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         form = form.push(
             action(
                 theme,
-                "Retry saved session",
+                tr("Retry saved session"),
                 Kind::Plain,
                 Some(Message::SignIn(Event::Restore)),
             )
@@ -640,10 +771,12 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         );
     }
     form.push(
-        text("Sign in with your Matrix password. Single sign-on isn't available yet.")
-            .size(13)
-            .color(theme.muted)
-            .width(Length::Fill),
+        text(tr(
+            "Sign in with your Matrix password. Single sign-on isn't available yet.",
+        ))
+        .size(13)
+        .color(theme.muted)
+        .width(Length::Fill),
     )
     .into()
 }
@@ -661,7 +794,7 @@ pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let mut key = field(
         theme,
         RECOVERY,
-        "Recovery key",
+        tr("Recovery key"),
         &cx.sign_in.recovery,
         true,
         open,
@@ -685,26 +818,26 @@ pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
             row![
                 lock,
                 column![
-                    text("Verify this device to send messages")
+                    text(tr("Verify this device to send messages"))
                         .font(BOLD)
                         .color(theme.text),
-                    text(
+                    text(tr(
                         "Use your Matrix recovery key, or verify Yapfast in another client \
                          and check again."
-                    )
+                    ))
                     .size(14)
                     .color(theme.secondary),
                     row![
                         key,
                         action(
                             theme,
-                            "Recover",
+                            tr("Recover"),
                             Kind::Primary,
                             open.then_some(Message::SignIn(Event::Recover)),
                         ),
                         action(
                             theme,
-                            "Check again",
+                            tr("Check again"),
                             Kind::Plain,
                             open.then_some(Message::SignIn(Event::RefreshTrust)),
                         ),

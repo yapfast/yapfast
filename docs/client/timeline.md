@@ -75,7 +75,13 @@ author who joined the server in the last week (`new_member`; not a bot, not
 one who left and came back, and not in a server itself under a week old, as
 Discord's client marks them), and, in a forum post, an "OP" tag for the
 post's author unless the APP tag is there; a reply's line quotes the
-author's tag a little smaller. A notice shows its icon in place of the avatar
+author's tag a little smaller. Reply names use the author's display-name
+font and a faded role colour. The 24 px reply row leaves the author's
+20 px row directly above the body, without changing the body's line pitch.
+A reply to a forward quotes its first snapshot after a forward icon;
+attachments or embeds on the original add an image icon after the snippet.
+The reply connector is drawn for every reply, including empty previews.
+A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.
@@ -137,7 +143,7 @@ slash command, where one may write, is written in the composer
   moving picture over its span (`Piece::moving`), in its reaction chip,
   and in the hover bar's and the menu's quick reactions when this
   account may use it there. Text in no timeline row (a bio, a topic, a
-  found card, or the composer's reply bar) shows its still.
+  found card) shows its still.
 - A poll (`polls.rs`) lists its answers to pick, one or several, then
   Vote; once voted or ended it shows each answer's share with a bar, and
   Show results looks without voting. Its time left counts down. With the
@@ -193,6 +199,9 @@ slash command, where one may write, is written in the composer
   four reactions used most, Add reaction, View Reactions, Edit, Reply,
   Forward, Copy text, Copy selection, End Poll Now (asked about in the poll's card), Pin or
   Unpin, Mark Unread, Copy Message Link, Delete and Copy Message ID.
+  It's drawn as Discord's: 280 px, 36 px rows with a 20 px icon and
+  semibold words, the reactions on 44 px tiles spread across its top, and
+  Add reaction with a chevron, though a click opens the picker.
   A right click on a link in its text adds Copy Link and Open Link, with
   the web address the link goes to, which a masked link's words don't say;
   a mention or one of Yapfast's own links adds none.

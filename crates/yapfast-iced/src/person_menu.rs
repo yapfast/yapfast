@@ -1,12 +1,12 @@
 //! Someone's menu and the dialog it leads to: a right click on a member, a
 //! friend or Active Now's card, or a profile's More, lists what the core
-//! offers for them (`Application::person_choices`) in Discord's order, each
-//! row with its icon. Unfriending, blocking, a note, a friend's
-//! nickname, a call's question and a server's moderation ask first in the
-//! person dialog. Roles, Invite to server, Mute and Apps open submenus
-//! beside their rows: the server's roles to tick, the servers to invite
-//! them to, how long to mute their DM, and the apps' user commands to run
-//! on them.
+//! offers for them (`Application::person_choices`) in Discord's order. Its
+//! rows have no icons, as Discord's has none but Copy ID's. Unfriending,
+//! blocking, a note, a friend's nickname, a call's question and a server's
+//! moderation ask first in the person dialog. Roles, Invite to server, Mute
+//! and Apps open submenus beside their rows: the server's roles to tick,
+//! the servers to invite them to, how long to mute their DM, and the apps'
+//! user commands to run on them.
 
 use std::borrow::Cow;
 
@@ -29,6 +29,7 @@ use crate::{
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// Where Discord's client says a choice in someone's menu came from: a
 /// right click, or a profile's More.
@@ -83,20 +84,22 @@ pub fn open_person_menu(
         .filter(|choice| developer || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let label: Cow<'static, str> = match choice {
-                MenuChoice::Timeout => format!("Time out {name}").into(),
-                MenuChoice::Kick => format!("Kick {name}").into(),
-                MenuChoice::Ban => format!("Ban {name}").into(),
-                MenuChoice::Call if in_call => "Join call".into(),
+                MenuChoice::Timeout => i18n::fill(tr("Time out {}"), &[&name]).into(),
+                MenuChoice::Kick => i18n::fill(tr("Kick {}"), &[&name]).into(),
+                MenuChoice::Ban => i18n::fill(tr("Ban {}"), &[&name]).into(),
+                MenuChoice::Call if in_call => tr("Join call").into(),
                 choice => crate::place_menus::label(choice).into(),
             };
             let starts = crate::place_menus::group_of(choice);
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let tick = ticked(choice);
             let mut row = MenuRow {
-                icon: Some(crate::place_menus::icon(choice)),
+                // Discord's menu for someone has no icons but Copy ID's.
+                icon: (choice == MenuChoice::CopyId).then(|| crate::place_menus::icon(choice)),
                 danger: danger(choice),
                 separated,
-                subtitle: (choice == MenuChoice::AddNote).then_some("Only visible to you".into()),
+                subtitle: (choice == MenuChoice::AddNote)
+                    .then_some(tr("Only visible to you").into()),
                 check: tick.map_or(crate::controls::Check::None, crate::controls::Check::Box),
                 ..MenuRow::plain(MenuAct::Person(choice), label)
             };
@@ -118,7 +121,9 @@ pub fn open_person_menu(
     app.win.menu = Some(Menu {
         place: Some(user.to_owned()),
         location,
-        ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
+        ..Menu::new(at, rows)
+            .width(crate::menus::PERSON_WIDTH)
+            .lone_icons()
     });
     // Its Apps follow the permissions as they are now.
     app.client.dispatch(Action::AskAppCommands);
@@ -389,7 +394,11 @@ impl<'a> View<'a> {
         }
         let loading = dialog.text.is_none();
         if !prompt.field.is_empty() {
-            let placeholder = if loading { "Loading..." } else { prompt.field };
+            let placeholder = if loading {
+                tr("Loading...")
+            } else {
+                prompt.field
+            };
             let mut input = field(
                 theme,
                 PERSON_FIELD,
@@ -410,7 +419,7 @@ impl<'a> View<'a> {
         if dialog.ask == PersonAsk::Call {
             body = body.push(self.cx.look.menu_item(
                 Item {
-                    label: "Don't ask again".into(),
+                    label: tr("Don't ask again").into(),
                     icon: Some(if self.s.ticked {
                         Icon::Check
                     } else {
@@ -438,7 +447,7 @@ impl<'a> View<'a> {
         body = body.push(
             row![
                 Space::new().width(Length::Fill),
-                action(theme, "Cancel", Kind::Ghost, Some(close.clone())),
+                action(theme, tr("Cancel"), Kind::Ghost, Some(close.clone())),
                 action(theme, prompt.confirm, kind, answer),
             ]
             .spacing(8),
@@ -488,95 +497,112 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
     let me = state.relation(&dialog.user) == yapfast_core::application::Relation::Me;
     let (title, text, field, confirm, danger) = match dialog.ask {
         PersonAsk::Note => (
-            format!("Note on {name}"),
-            "Only you see your note, in Discord too.".to_owned(),
-            "Note",
-            "Save",
+            i18n::fill(tr("Note on {}"), &[&name]),
+            tr("Only you see your note, in Discord too.").to_owned(),
+            tr("Note"),
+            tr("Save"),
             false,
         ),
         PersonAsk::Call => (
-            "Ready to start a call?".to_owned(),
-            "Enjoy this moment. Then jump in when you're ready.".to_owned(),
+            tr("Ready to start a call?").to_owned(),
+            tr("Enjoy this moment. Then jump in when you're ready.").to_owned(),
             "",
-            "Start Call",
+            tr("Start Call"),
             false,
         ),
         PersonAsk::Nickname => (
-            format!("Nickname for {name}"),
-            "Only you see the nickname you give a friend. Leave it empty to remove it.".to_owned(),
-            "Nickname",
-            "Save",
+            i18n::fill(tr("Nickname for {}"), &[&name]),
+            tr("Only you see the nickname you give a friend. Leave it empty to remove it.")
+                .to_owned(),
+            tr("Nickname"),
+            tr("Save"),
             false,
         ),
         PersonAsk::Unfriend => (
-            format!("Remove {name} as a friend?"),
-            format!("You'll need to send {name} a friend request to be friends again."),
+            i18n::fill(tr("Remove {} as a friend?"), &[&name]),
+            i18n::fill(
+                tr("You'll need to send {} a friend request to be friends again."),
+                &[&name],
+            ),
             "",
-            "Remove friend",
+            tr("Remove friend"),
             true,
         ),
         PersonAsk::Block => (
-            format!("Block {name}?"),
-            format!(
-                "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
+            i18n::fill(tr("Block {}?"), &[&name]),
+            i18n::fill(
+                tr(
+                    "Blocking {} also removes them as a friend. Their messages show collapsed, and they can't message you.",
+                ),
+                &[&name],
             ),
             "",
-            "Block",
+            tr("Block"),
             true,
         ),
         PersonAsk::ServerNickname if me => (
-            "Change your nickname".to_owned(),
-            "Everyone in this server sees it. Leave it empty to go by your name.".to_owned(),
-            "Nickname",
-            "Save",
+            tr("Change your nickname").to_owned(),
+            tr("Everyone in this server sees it. Leave it empty to go by your name.").to_owned(),
+            tr("Nickname"),
+            tr("Save"),
             false,
         ),
         PersonAsk::ServerNickname => (
-            format!("Change {name}'s nickname"),
-            "Everyone in this server sees it. Leave it empty to reset it to their name.".to_owned(),
-            "Nickname",
-            "Save",
+            i18n::fill(tr("Change {}'s nickname"), &[&name]),
+            tr("Everyone in this server sees it. Leave it empty to reset it to their name.")
+                .to_owned(),
+            tr("Nickname"),
+            tr("Save"),
             false,
         ),
         PersonAsk::Timeout => (
-            format!("Time out {name}"),
-            format!(
-                "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+            i18n::fill(tr("Time out {}"), &[&name]),
+            i18n::fill(
+                tr(
+                    "Until it ends, {} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log.",
+                ),
+                &[&name],
             ),
-            "Reason (optional)",
-            "Time out",
+            tr("Reason (optional)"),
+            tr("Time out"),
             true,
         ),
         PersonAsk::Kick => (
-            format!("Kick {name}?"),
-            format!(
-                "{name} can join again with a new invite. The reason goes in the server's audit log."
+            i18n::fill(tr("Kick {}?"), &[&name]),
+            i18n::fill(
+                tr(
+                    "{} can join again with a new invite. The reason goes in the server's audit log.",
+                ),
+                &[&name],
             ),
-            "Reason (optional)",
-            "Kick",
+            tr("Reason (optional)"),
+            tr("Kick"),
             true,
         ),
         PersonAsk::Ban => (
-            format!("Ban {name}?"),
-            format!(
-                "{name} can't join again until unbanned. The reason goes in the server's audit log."
+            i18n::fill(tr("Ban {}?"), &[&name]),
+            i18n::fill(
+                tr(
+                    "{} can't join again until unbanned. The reason goes in the server's audit log.",
+                ),
+                &[&name],
             ),
-            "Reason (optional)",
-            "Ban",
+            tr("Reason (optional)"),
+            tr("Ban"),
             true,
         ),
     };
     let (heading, options) = match dialog.ask {
-        PersonAsk::Timeout => ("DURATION", TIMEOUT_TIMES.map(span).to_vec()),
+        PersonAsk::Timeout => (tr("DURATION"), TIMEOUT_TIMES.map(span).to_vec()),
         PersonAsk::Ban => (
-            "DELETE THEIR MESSAGES FROM",
+            tr("DELETE THEIR MESSAGES FROM"),
             // As Discord's: hours up to a day, then days.
             BAN_HISTORY
                 .map(|seconds| match seconds / 3600 {
-                    0 => "Don't delete any".to_owned(),
-                    1 => "The last hour".to_owned(),
-                    hours if hours <= 24 => format!("The last {hours} hours"),
-                    hours => format!("The last {} days", hours / 24),
+                    0 => tr("Don't delete any").to_owned(),
+                    1 => tr("The last hour").to_owned(),
+                    hours if hours <= 24 => i18n::fill(tr("The last {} hours"), &[&hours]),
+                    hours => i18n::fill(tr("The last {} days"), &[&(hours / 24)]),
                 })
                 .to_vec(),
         ),
@@ -595,15 +621,18 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
 
 /// A timeout's length in words: "60 seconds", "1 hour", "1 week".
 fn span(seconds: u32) -> String {
-    let (count, unit) = match seconds {
-        seconds if seconds % (7 * 86400) == 0 => (seconds / (7 * 86400), "week"),
-        seconds if seconds % 86400 == 0 => (seconds / 86400, "day"),
-        seconds if seconds % 3600 == 0 => (seconds / 3600, "hour"),
-        seconds if seconds % 60 == 0 && seconds > 60 => (seconds / 60, "minute"),
-        seconds => (seconds, "second"),
-    };
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} {unit}{plural}")
+    let count = |per: u32| (seconds / per) as usize;
+    match seconds {
+        seconds if seconds % (7 * 86400) == 0 => {
+            i18n::trn("{n} week", "{n} weeks", count(7 * 86400))
+        }
+        seconds if seconds % 86400 == 0 => i18n::trn("{n} day", "{n} days", count(86400)),
+        seconds if seconds % 3600 == 0 => i18n::trn("{n} hour", "{n} hours", count(3600)),
+        seconds if seconds % 60 == 0 && seconds > 60 => {
+            i18n::trn("{n} minute", "{n} minutes", count(60))
+        }
+        seconds => i18n::trn("{n} second", "{n} seconds", seconds as usize),
+    }
 }
 
 /// A row a voice channel's call offers for someone in it.

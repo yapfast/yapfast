@@ -1,6 +1,6 @@
 //! The dialogs a clicked Discord link opens beside the invite's: a server's
 //! scheduled event (`EventDialog`, with Interested), a gift (`GiftDialog`,
-//! with Redeem Gift or Open in Browser) and an application's authorization
+//! with Redeem Gift) and an application's authorization
 //! (`OAuthDialog`: what it asks for, the server it's added to, Authorize).
 //! What each says is the core's (`AppState::event_prompt`, `gift_prompt`,
 //! `oauth_prompt`); the dialogs keep only whether the server list is open
@@ -23,6 +23,7 @@ use crate::{
     form,
     style::rounded,
 };
+use yapfast_core::i18n::tr;
 
 /// Each dialog's width.
 const WIDTH: f32 = 440.0;
@@ -43,7 +44,7 @@ pub enum Event {
     CloseScheduled,
     ToggleInterest,
     CloseGift,
-    /// Gift's main button: redeem it, or open it in the browser.
+    /// Gift's main button: redeem it.
     Redeem,
     CloseOAuth,
     Authorize,
@@ -98,7 +99,6 @@ impl LinkDialogs {
                 Some(prompt) if prompt.busy || prompt.confirm.is_empty() => {
                     return Task::none();
                 }
-                Some(prompt) if prompt.browser => Action::OpenGiftInBrowser,
                 Some(_) => Action::RedeemGift,
                 None => return Task::none(),
             },
@@ -204,9 +204,9 @@ impl<'a> View<'a> {
             action(
                 theme,
                 if confirm.is_empty() {
-                    "Close"
+                    tr("Close")
                 } else {
-                    "Cancel"
+                    tr("Cancel")
                 },
                 Kind::Ghost,
                 Some(message(close)),
@@ -341,7 +341,7 @@ impl<'a> View<'a> {
             );
         }
         if prompt.guild_picker || !prompt.guild_name.is_empty() {
-            body.push(form::heading(theme, "ADD TO SERVER"));
+            body.push(form::heading(theme, tr("ADD TO SERVER")));
         }
         let sunken = theme.sunken;
         let boxed = |content: Element<'static, Message>, right: f32| {
@@ -390,7 +390,7 @@ impl<'a> View<'a> {
             let copied = self.s.copied.as_deref() == Some(prompt.address.as_str());
             let copy = action(
                 theme,
-                if copied { "Copied" } else { "Copy" },
+                if copied { tr("Copied") } else { tr("Copy") },
                 if copied { Kind::Plain } else { Kind::Primary },
                 Some(message(Event::Copy(prompt.address.clone()))),
             );

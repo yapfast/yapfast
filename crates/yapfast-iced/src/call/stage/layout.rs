@@ -3,6 +3,7 @@
 //! pixels a tile's frames are made at, and the words under a tile.
 
 use iced::{Point, Rectangle, Size};
+use yapfast_core::i18n::tr;
 use yapfast_core::voice::{self, Participant, SharePhase};
 
 /// Between tiles, and round the stage's edge; none full screen.
@@ -174,12 +175,14 @@ impl<'a> Stage<'a> {
 
 /// Where each tile goes on a stage of `size`, by place, with `focused`
 /// large and the others in rows beneath it, and how tall the tiles are
-/// together. Full screen, the large one fills the stage alone.
+/// together. Full screen, or with `hide_members` while a tile is large,
+/// shows the large one alone and sets every other to [`Size::ZERO`].
 pub fn tiles(
     count: usize,
     focused: Option<usize>,
     size: Size,
     full: bool,
+    hide_members: bool,
 ) -> (Vec<Rectangle>, f32) {
     if count == 0 {
         return (Vec::new(), size.height);
@@ -188,6 +191,7 @@ pub fn tiles(
     let (width, height) = (size.width, size.height);
     let span = width - 2.0 * inset;
     let focusing = focused.is_some_and(|focused| focused < count);
+    let alone = focusing && (full || hide_members);
     // A few people take the columns, and the size, that make their tiles
     // largest within both the width and the height. Side by side wins
     // unless stacking makes tiles a tenth larger. More people take tiles at
@@ -217,7 +221,7 @@ pub fn tiles(
         .floor()
         .min(others as f32)
         .max(1.0) as usize;
-    let strip_rows = if full || others == 0 {
+    let strip_rows = if alone || others == 0 {
         0
     } else {
         others.div_ceil(strip_columns)
@@ -288,8 +292,8 @@ pub fn tiles(
                     focus_height,
                 );
             }
-            // Full screen shows the large one alone.
-            if focusing && full {
+            // Full screen, or with the strip hidden, shows the large one alone.
+            if alone {
                 return Rectangle::new(Point::new(0.0, height), Size::ZERO);
             }
             let place = if focusing && focused.is_some_and(|focused| slot > focused) {
@@ -321,15 +325,15 @@ pub fn status(person: &Participant) -> &str {
     if let Some(problem) = &person.problem {
         problem
     } else if !person.connected {
-        "Connection lost"
+        tr("Connection lost")
     } else if person.deafened {
-        "Deafened"
+        tr("Deafened")
     } else if person.muted {
-        "Muted"
+        tr("Muted")
     } else if person.speaking {
-        "Speaking"
+        tr("Speaking")
     } else {
-        "Listening"
+        tr("Listening")
     }
 }
 
@@ -341,9 +345,9 @@ pub fn speaking(person: &Participant) -> bool {
 /// What this account's sharing is doing, in words.
 pub fn share_status(voice: &voice::State) -> &'static str {
     match voice.sharing.as_ref().map(|sharing| sharing.phase) {
-        Some(SharePhase::Choosing) => "Choose what to share",
-        Some(SharePhase::Starting) => "Starting your stream...",
-        Some(SharePhase::Live) => "Live",
+        Some(SharePhase::Choosing) => tr("Choose what to share"),
+        Some(SharePhase::Starting) => tr("Starting your stream..."),
+        Some(SharePhase::Live) => tr("Live"),
         None => "",
     }
 }
@@ -355,21 +359,42 @@ mod tests {
     #[test]
     fn two_tiles_sit_side_by_side_and_one_large_puts_the_other_under_it() {
         let stage = Size::new(1500.0, 800.0);
-        let (grid, _) = tiles(2, None, stage, false);
+        let (grid, _) = tiles(2, None, stage, false, false);
         assert_eq!(grid[0].y, grid[1].y);
         assert!(grid[0].x + grid[0].width <= grid[1].x);
-        let (focused, _) = tiles(2, Some(1), stage, false);
+        let (focused, _) = tiles(2, Some(1), stage, false, false);
         assert!(focused[1].width > focused[0].width);
         assert!(focused[0].y > focused[1].y + focused[1].height);
-        let (full, _) = tiles(2, Some(1), stage, true);
+        let (full, _) = tiles(2, Some(1), stage, true, false);
         assert_eq!(full[1], Rectangle::new(Point::ORIGIN, stage));
         assert_eq!(shown_at(full[0], 0.0, stage.height, 1.0), None, "alone");
     }
 
     #[test]
+    fn hiding_members_collapses_the_strip_and_expands_the_focused_tile() {
+        let stage = Size::new(1500.0, 800.0);
+        let (shown, _) = tiles(3, Some(0), stage, false, false);
+        let (hidden, content) = tiles(3, Some(0), stage, false, true);
+        assert!(hidden[0].height > shown[0].height);
+        assert!(hidden[0].width > shown[0].width);
+        assert_eq!(hidden[0].height, stage.height - 2.0 * INSET);
+        assert_eq!(hidden[1].size(), Size::ZERO);
+        assert_eq!(hidden[2].size(), Size::ZERO);
+        assert_eq!(shown_at(hidden[1], 0.0, stage.height, 1.0), None);
+        assert_eq!(shown_at(hidden[2], 0.0, stage.height, 1.0), None);
+        assert!(shown_at(hidden[0], 0.0, stage.height, 1.0).is_some());
+        assert_eq!(content, stage.height);
+        // Without a focused tile, hiding members leaves the grid alone.
+        assert_eq!(
+            tiles(3, None, stage, false, true),
+            tiles(3, None, stage, false, false)
+        );
+    }
+
+    #[test]
     fn many_tiles_scroll_and_only_those_in_sight_are_made() {
         let stage = Size::new(900.0, 500.0);
-        let (grid, content) = tiles(12, None, stage, false);
+        let (grid, content) = tiles(12, None, stage, false, false);
         assert!(content > stage.height, "taller than the stage");
         let last = *grid.last().unwrap();
         assert_eq!(shown_at(last, 0.0, stage.height, 1.0), None, "below");

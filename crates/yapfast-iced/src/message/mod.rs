@@ -22,12 +22,13 @@ use crate::{
     media::Gallery,
     pictures::{Face, Icon},
     piece::Piece,
-    style::{CHIP, hex},
+    style::{CHIP, faded, hex},
     timeline::{
         AUTHOR_GAP, AUTHOR_LINE, AVATAR, CONTENT_PAD, END_PAD, GUTTER, LINE_HEIGHT, RowLook,
     },
     widgets::{Fold, RightPress},
 };
+use yapfast_core::i18n::{self, tr};
 
 pub mod attachments;
 mod embed;
@@ -38,10 +39,8 @@ pub use attachments::files;
 pub use reaction_chips::{emoji_shortcode, reacts};
 
 /// The line above a reply or a command's answer, and its avatar.
-const HEADER_LINE: f32 = 22.0;
+pub(crate) const HEADER_LINE: f32 = 24.0;
 const HEADER_AVATAR: f32 = 16.0;
-/// A custom emoji's picture on a reply's quote line.
-const REPLY_EMOJI: u32 = 16;
 /// An embed at its widest, its bar, its thumbnail at its widest, and the
 /// pieces its text is in the selection (left out of copies).
 const EMBED_WIDTH: f32 = 432.0;
@@ -86,7 +85,8 @@ pub fn open_author(app: &mut App, index: usize) -> iced::Task<Message> {
     let (lane, _) = app.ctx().lane_place(index);
     // The avatar's top: moved down under a reply's line.
     let header = message.reply.is_some() || message.used.is_some();
-    let y = app.ctx().row_body_top(index) + CONTENT_PAD + if header { 24.0 } else { 2.0 };
+    let y =
+        app.ctx().row_body_top(index) + CONTENT_PAD + if header { HEADER_LINE + 2.0 } else { 2.0 };
     let x = lane.left + (GUTTER - AVATAR) / 2.0;
     let width = crate::profile::WIDTH;
     let beside = if x + AVATAR + 8.0 + width <= app.window.width - 8.0 {
@@ -152,7 +152,10 @@ pub fn message_content<'a>(
         content = content.push(
             row![
                 ctx.look.glyph(Icon::Forward, 16, theme.muted),
-                text("Forwarded").size(14).font(ITALIC).color(theme.muted)
+                text(tr("Forwarded"))
+                    .size(14)
+                    .font(ITALIC)
+                    .color(theme.muted)
             ]
             .spacing(4)
             .align_y(Alignment::Center),
@@ -166,10 +169,12 @@ pub fn message_content<'a>(
         theme.text
     };
     let editing = ctx.composer.editing.as_deref() == Some(message.item.as_str());
+    let show_edited = message.edited && message.notice.is_none() && !editing;
+    let mut inline_edited = false;
     if editing {
         content = content.push(crate::edit::inline_edit(ctx));
     } else if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
-        let body = ctx.body_view(
+        let (body, placed_inline) = ctx.body_view_edited(
             &look.body,
             index,
             FIRST_PART,
@@ -178,7 +183,9 @@ pub fn message_content<'a>(
                 line_height: LINE_HEIGHT,
                 ink,
             },
+            show_edited,
         );
+        inline_edited = placed_inline;
         content = content.push(if ctx.layout.collapse_long {
             folding(ctx, index, body)
         } else {
@@ -188,8 +195,8 @@ pub fn message_content<'a>(
     if message.flags & LOADING != 0 {
         content = content.push(thinking(ctx, message));
     }
-    if message.edited && message.notice.is_none() && !editing {
-        content = content.push(text("(edited)").size(10).color(theme.muted));
+    if show_edited && !inline_edited {
+        content = content.push(text(tr("(edited)")).size(10).color(theme.muted));
     }
     let gallery = Gallery::of(
         &message.attachments,
@@ -316,7 +323,7 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
     if look.first {
         content = content.push(
             container(
-                text("Blocked user")
+                text(tr("Blocked user"))
                     .size(text_size(ctx))
                     .font(MEDIUM)
                     .color(theme.text)
@@ -332,11 +339,11 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
     }
     content = content.push(
         row![
-            text("Blocked message.")
+            text(tr("Blocked message."))
                 .size(text_size(ctx))
                 .font(ITALIC)
                 .color(theme.text),
-            button(text("Show it").size(text_size(ctx)))
+            button(text(tr("Show it")).size(text_size(ctx)))
                 .padding(0)
                 .on_press(Message::Timeline(crate::timeline::Event::ShowBlocked(
                     look.item.clone()
@@ -365,12 +372,12 @@ fn thinking<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, 
     let timed_out = message.timestamp != 0
         && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS;
     if timed_out {
-        text("The application did not respond")
+        text(tr("The application did not respond"))
             .size(text_size(ctx))
             .color(theme.danger)
             .into()
     } else {
-        text(format!("{} is thinking…", message.author))
+        text(i18n::fill(tr("{} is thinking…"), &[&message.author]))
             .size(text_size(ctx))
             .font(ITALIC)
             .color(theme.muted)
@@ -394,7 +401,11 @@ fn gutter<'a>(
             Space::new()
                 .width(AVATAR)
                 .height(if look.first && message.notice.is_none() {
-                    if header { 64.0 } else { AVATAR }
+                    if header {
+                        HEADER_LINE + AVATAR + 2.0
+                    } else {
+                        AVATAR
+                    }
                 } else {
                     0.0
                 })
@@ -431,7 +442,7 @@ fn gutter<'a>(
         layers = layers.push(placed(
             person_menu(ctx, index, message, face),
             0.0,
-            if header { 24.0 } else { 2.0 },
+            if header { HEADER_LINE + 2.0 } else { 2.0 },
         ));
     } else if ctx.pointed.message.as_deref() == Some(message.item.as_str()) {
         // Right-aligned to the avatar's edge.
@@ -487,7 +498,15 @@ fn reply_line<'a>(
     reply: &'a chat::Reply,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    let style = ctx.state.cosmetics.style(reply.style.as_deref());
+    let font = display_font(style);
+    let name_style = looks::name_look(style, &reply.author, ctx.in_server, theme.dark);
+    let color = reply.color.map_or(theme.secondary, hex);
+    let color = match &name_style {
+        Some(style) if !ctx.in_server => style.colors.first().map_or(color, |rgb| hex(*rgb)),
+        _ => color,
+    };
+    let mut line = row![].spacing(4).align_y(Alignment::Center);
     if !reply.author.is_empty() {
         line = line
             .push(ctx.face(Face::new(
@@ -496,9 +515,11 @@ fn reply_line<'a>(
                 HEADER_AVATAR,
             )))
             .push(
-                text(format!("@{}", reply.author))
+                text(format!("@{}", shown_name(&reply.author, font)))
                     .size(14)
-                    .color(reply.color.map_or(theme.secondary, hex))
+                    .font(style_font(font, 400))
+                    // Discord fades a quoted role name to 64% over chat.
+                    .color(faded(color, 0.64))
                     .wrapping(text::Wrapping::None),
             );
         // The tag the author wears, a little smaller than a message's.
@@ -523,18 +544,18 @@ fn reply_line<'a>(
             ));
         }
     }
+    if reply.forwarded {
+        line = line.push(ctx.look.glyph(Icon::Forward, 16, theme.secondary));
+    }
     line = line.push(
-        container(ctx.inline_emoji_line(
-            &[],
+        container(ctx.reply_preview(
             &look.body.reply,
-            &reply.emoji,
+            reply,
             Look {
                 size: 13.0,
                 line_height: 18.0,
                 ink: theme.text,
             },
-            REPLY_EMOJI,
-            true,
         ))
         .width(Length::Fill)
         .clip(true),
@@ -599,13 +620,17 @@ fn used_line<'a>(
     let mut line = row![
         ctx.face(Face::new(used.avatar.as_deref(), &used.user, HEADER_AVATAR)),
         user,
-        text("used").size(14).color(theme.muted),
+        text(tr("used")).size(14).color(theme.muted),
         command,
     ]
     .spacing(4)
     .align_y(Alignment::Center);
     if let Some(target) = used.target.as_deref().filter(|target| !target.is_empty()) {
-        line = line.push(text(format!("on @{target}")).size(14).color(theme.muted));
+        line = line.push(
+            text(i18n::fill(tr("on @{}"), &[&target]))
+                .size(14)
+                .color(theme.muted),
+        );
     }
     container(line)
         .height(HEADER_LINE)
@@ -626,6 +651,15 @@ fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessag
         .map_or(message.time.as_str(), |look| &*look.time)
 }
 
+/// Font-only styles still count when no effect colours were supplied.
+fn display_font(style: Option<&chat::NameStyle>) -> Option<crate::fonts::NameFont> {
+    let style = style?;
+    Some(crate::fonts::NameFont {
+        family: looks::family(style.font)?,
+        weight: looks::weight(style.font),
+    })
+}
+
 /// A message's author line: the name in its style's font (only the font, in
 /// a server) and role colour, the server tag chip, APP for a bot, the time.
 fn author_line<'a>(
@@ -635,12 +669,9 @@ fn author_line<'a>(
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let cosmetics = ctx.state.cosmetics;
-    let style = looks::name_look(
-        cosmetics.style(message.style.as_deref()),
-        &message.author,
-        ctx.in_server,
-        theme.dark,
-    );
+    let name_style = cosmetics.style(message.style.as_deref());
+    let font = display_font(name_style);
+    let style = looks::name_look(name_style, &message.author, ctx.in_server, theme.dark);
     let color = message.color.map_or(theme.channel_white, hex);
     // Out of a server a whole style shows; its first colour stands in
     // for the effect in a timeline row.
@@ -649,19 +680,7 @@ fn author_line<'a>(
         _ => color,
     };
     let name = Piece::new(
-        vec![
-            span(
-                shown_name(
-                    &message.author,
-                    style.as_ref().and_then(crate::looks::NameLook::font),
-                )
-                .into_owned(),
-            )
-            .font(style_font(
-                style.as_ref().and_then(crate::looks::NameLook::font),
-                500,
-            )),
-        ],
+        vec![span(shown_name(&message.author, font).into_owned()).font(style_font(font, 500))],
         index,
         0,
         Message::Link,
@@ -694,7 +713,7 @@ fn author_line<'a>(
         crate::widgets::Hover::new(name, under).into()
     };
     let mut line = row![person_menu(ctx, index, message, name)]
-        .spacing(8)
+        .spacing(4)
         .align_y(Alignment::Center);
     if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
         let size = text_size(ctx) * 0.72;
@@ -726,7 +745,7 @@ fn author_line<'a>(
         .post_author
         .is_some_and(|author| author == message.sender)
     {
-        line = line.push(ctx.blurple_tag("OP", 1.0));
+        line = line.push(ctx.blurple_tag(tr("OP"), 1.0));
     }
     let time = Piece::new(
         vec![span(sent_time(ctx, index, message))],
@@ -763,9 +782,13 @@ fn folding<'a>(
     let whole = ctx.lanes.timeline.revealed.contains(&fold_key(&item));
     let theme = ctx.look.theme;
     let more = button(
-        text(if whole { "Show less" } else { "Show more" })
-            .size(text_size(ctx) * 0.875)
-            .font(SEMIBOLD),
+        text(if whole {
+            tr("Show less")
+        } else {
+            tr("Show more")
+        })
+        .size(text_size(ctx) * 0.875)
+        .font(SEMIBOLD),
     )
     .padding(0)
     .on_press(Message::Timeline(crate::timeline::Event::Unfold(item)))
@@ -833,19 +856,19 @@ fn thread_card<'a>(
     match &thread.recent {
         _ if thread.archived => {
             bottom = bottom.push(words(
-                "There are no recent messages in this thread.",
+                tr("There are no recent messages in this thread."),
                 theme.text,
             ));
         }
         _ if thread.messages.unwrap_or_default() == 0 => {
             bottom = bottom.push(words(
-                "There are no messages in this thread yet.",
+                tr("There are no messages in this thread yet."),
                 theme.text,
             ));
         }
         None => {
             bottom = bottom.push(words(
-                "There are no recent messages in this thread.",
+                tr("There are no recent messages in this thread."),
                 theme.text,
             ));
         }
@@ -946,11 +969,10 @@ fn thread_card<'a>(
 /// counting.
 fn thread_count(messages: Option<u64>, id: u64) -> String {
     match messages.unwrap_or_default() {
-        0 => "See Thread \u{203a}".into(),
-        50.. if id <= COUNTED_TO_50 => "50+ Messages \u{203a}".into(),
-        100_000.. => "100k+ Messages \u{203a}".into(),
-        1 => "1 Message \u{203a}".into(),
-        count => format!("{count} Messages \u{203a}"),
+        0 => tr("See Thread ›").to_owned(),
+        50.. if id <= COUNTED_TO_50 => tr("50+ Messages ›").to_owned(),
+        100_000.. => tr("100k+ Messages ›").to_owned(),
+        count => i18n::trn("{n} Message ›", "{n} Messages ›", count as usize),
     }
 }
 
@@ -962,11 +984,11 @@ fn thread_ago(at_ms: u64, now_ms: u64) -> String {
     const DAY: u64 = 24 * HOUR;
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        0..MINUTE => "1m ago".into(),
-        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
-        HOUR..DAY => format!("{}h ago", seconds / HOUR),
-        _ if seconds < 30 * DAY => format!("{}d ago", seconds / DAY),
-        _ if seconds < 360 * DAY => ">30d ago".into(),
+        0..MINUTE => tr("1m ago").to_owned(),
+        MINUTE..HOUR => i18n::fill(tr("{}m ago"), &[&(seconds / MINUTE)]),
+        HOUR..DAY => i18n::fill(tr("{}h ago"), &[&(seconds / HOUR)]),
+        _ if seconds < 30 * DAY => i18n::fill(tr("{}d ago"), &[&(seconds / DAY)]),
+        _ if seconds < 360 * DAY => tr(">30d ago").to_owned(),
         _ => yapfast_core::clock::day(at_ms / 1000),
     }
 }
@@ -983,15 +1005,15 @@ fn delivery_line<'a>(
     let (words, retry, cancel) = match message.delivery {
         chat::Delivery::Sent => return None,
         chat::Delivery::Sending if message.attachments.is_empty() => return None,
-        chat::Delivery::Sending => ("Sending...", false, true),
+        chat::Delivery::Sending => (tr("Sending..."), false, true),
         chat::Delivery::Waiting => (
-            "Not sent yet. Yapfast sends it when the connection returns.",
+            tr("Not sent yet. Yapfast sends it when the connection returns."),
             false,
             true,
         ),
         // An app's command, whose row says why.
-        chat::Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
-        chat::Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        chat::Delivery::Failed if message.item.starts_with("c:") => (tr("Not sent."), true, true),
+        chat::Delivery::Failed => (tr("Not sent. The server refused this message."), true, true),
     };
     let failed = message.delivery == chat::Delivery::Failed;
     let mut line =
@@ -1007,7 +1029,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Retry",
+                tr("Retry"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::Retry(item.clone()))),
             )
@@ -1018,7 +1040,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::CancelSend(item.clone()))),
             )
@@ -1032,7 +1054,7 @@ fn delivery_line<'a>(
 fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let preview = ctx.state.preview;
-    let dismiss = button(text("Dismiss message").size(12))
+    let dismiss = button(text(tr("Dismiss message")).size(12))
         .padding(0)
         .on_press_maybe(
             (!preview)
@@ -1044,7 +1066,9 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
         ));
     row![
         ctx.look.glyph(Icon::Eye, 16, theme.muted),
-        text("Only you can see this ·").size(12).color(theme.muted),
+        text(tr("Only you can see this ·"))
+            .size(12)
+            .color(theme.muted),
         dismiss,
     ]
     .spacing(4)

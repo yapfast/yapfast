@@ -665,6 +665,29 @@ impl Application {
         self.write_command(room, picked)
     }
 
+    pub(super) fn pick_browsed_command(
+        &mut self,
+        room: String,
+        command: &str,
+        path: &[String],
+    ) -> Vec<Effect> {
+        if self.state.selected.as_deref() != Some(room.as_str())
+            || !self.state.can_write()
+            || self.state.command_draft().is_some()
+            || (!self.state.draft().is_empty() && self.state.slash_query().is_none())
+        {
+            return vec![];
+        }
+        let Some(picked) = self
+            .slash_commands(&room, "")
+            .into_iter()
+            .find(|candidate| candidate.command == command && candidate.path.as_slice() == path)
+        else {
+            return vec![];
+        };
+        self.write_command(room, picked)
+    }
+
     /// Starts writing `picked` in `room`'s composer, its options as pills.
     fn write_command(&mut self, room: String, picked: SlashCommand) -> Vec<Effect> {
         let Some((command, options)) = self.slash_command_spec(&room, &picked) else {

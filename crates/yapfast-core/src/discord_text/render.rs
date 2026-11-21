@@ -746,8 +746,6 @@ pub(super) fn chat_profile(
             .into_iter()
             .map(|widget| crate::chat::ProfileWidget {
                 title: widget.title,
-                application: widget.application,
-                lists_games: widget.lists_games,
                 games: widget
                     .games
                     .into_iter()

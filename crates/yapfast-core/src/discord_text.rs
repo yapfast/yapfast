@@ -38,6 +38,7 @@ use crate::{
 };
 
 mod account;
+mod account_tools;
 mod app_commands;
 mod audit_log;
 mod channels;
@@ -52,6 +53,7 @@ mod ownership;
 mod people;
 mod render;
 mod roles;
+mod screening;
 mod server_settings;
 mod stickers;
 
@@ -120,6 +122,7 @@ pub enum Done {
         picture: Option<Arc<Picture>>,
     },
     Image {
+        request: u64,
         room: String,
         item: String,
         index: usize,
@@ -230,6 +233,17 @@ impl Chat {
 
     pub(crate) fn command(&mut self, command: Command, events: &UnboundedSender<Event>) {
         match command {
+            Command::Discord(DiscordCommand::Reconnect) => {
+                self.discord.reconnect();
+                return;
+            }
+            Command::Discord(DiscordCommand::MarkThreadRead { room, newest, sync }) => {
+                if let Some((guild, channel)) = crate::discord::parse_room(&room) {
+                    self.discord
+                        .mark_read_if_latest(guild, channel, newest, sync);
+                }
+                return;
+            }
             Command::Discord(DiscordCommand::Pictures(urls)) => {
                 self.pictures.fetch(&self.discord, urls, events);
                 return;
@@ -251,6 +265,16 @@ impl Chat {
                 speakers,
             } => {
                 self.play_video(room, item, index, (width, height), speakers, events);
+                return;
+            }
+            Command::Discord(DiscordCommand::PlayQuestVideo {
+                id,
+                url,
+                width,
+                height,
+                speakers,
+            }) => {
+                self.play_quest_video(id, url, (width, height), speakers, events);
                 return;
             }
             Command::Video(VideoCommand::Stop) => {
@@ -408,6 +432,43 @@ impl Chat {
         speakers: Option<String>,
         events: &UnboundedSender<Event>,
     ) {
+        let found = self
+            .channels
+            .shown_mut(&room)
+            .and_then(|channel| channel.attachment(&item, index))
+            .and_then(|attachment| Some((attachment.video_url.clone()?, attachment.size)));
+        self.start_video(room, item, index, found, frame, speakers, events);
+    }
+
+    /// Plays a quest's video, which is at `url`, in place of any other.
+    fn play_quest_video(
+        &mut self,
+        id: String,
+        url: String,
+        frame: (u32, u32),
+        speakers: Option<String>,
+        events: &UnboundedSender<Event>,
+    ) {
+        let room = crate::chat::QUEST_VIDEO_ROOM.to_owned();
+        self.start_video(room, id, 0, Some((url, None)), frame, speakers, events);
+    }
+
+    /// Starts playing a video from `found`, its address and size if known,
+    /// or says it's gone when none.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "where the video is, what it's called, and how it shows"
+    )]
+    fn start_video(
+        &mut self,
+        room: String,
+        item: String,
+        index: usize,
+        found: Option<(String, Option<u64>)>,
+        frame: (u32, u32),
+        speakers: Option<String>,
+        events: &UnboundedSender<Event>,
+    ) {
         self.video = None;
         let mut video = Video {
             room,
@@ -424,11 +485,6 @@ impl Chat {
             volume: self.video_sound.0,
             error: None,
         };
-        let found = self
-            .channels
-            .shown_mut(&video.room)
-            .and_then(|channel| channel.attachment(&video.item, index))
-            .and_then(|attachment| Some((attachment.video_url.clone()?, attachment.size)));
         let Some((url, size)) = found else {
             video.loading = false;
             video.error = Some("This video is no longer available.".into());

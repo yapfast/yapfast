@@ -19,17 +19,20 @@ not for every member (`Tracker::in_private`). Someone with none shows the
 grey offline ring. These follow PRESENCE_UPDATE live. The header of an open
 one-to-one DM shows the same dot on their avatar, and their custom status or
 what they're doing in a bubble beside the name. A group DM
-shows how many are in it. A group DM lists its members by name, with their
+shows how many are in it, its custom icon if it has one, else Discord's
+circular group-people placeholder for two members or the first two other
+members' overlapping avatars (sorted by user id) for more than two, with a green
+online dot when any other member is online. A group DM lists its members by name, with their
 presence, and a crown on whoever made it (the channel's `owner_id`), named
 "Group Owner", as a server's member list crowns its owner. Yapfast downloads the pictures of the first
 150 DMs listed; the rest keep their initials.
 
 Friend requests, message requests and spam have their own screen. A
-"Requests" entry below Friends at the top of the DM list opens it in place of the
+"Message Requests" entry below Friends at the top of the DM list opens it in place of the
 conversation, with a badge counting the people waiting for an answer: an
 incoming friend request (spam excluded), a message request, or both.
 Message requests come from people outside the account's DMs. The screen
-lists each person once, under "Requests": their friend request, with Accept
+lists each person once, under "Message Requests": their friend request, with Accept
 and Ignore, and under it the latest message of their message request, which
 opens the conversation; an unread one is marked New. Discord's own client
 keeps the two apart, friend requests under Friends and message requests on a
@@ -65,7 +68,10 @@ in the header: Online, for those online, idle or on do not disturb, and All. A
 search field filters it by name, and "Add Friend" in the header selects a tab
 of that name, a pill tinted with the accent, and shows the add-friend page in
 place of the list: a title, and the username with "Send Friend Request" at the
-right in one 58px box. A Pending tab goes to the requests screen. The other
+right in one 58px box, then a line and "Other places to find friends" with a tile
+that opens the list of discoverable servers. Discord's page also has a message
+to send with the request (120 characters) and an illustration; Yapfast has neither,
+since the request's message is not a field it has seen Discord's API take. A Pending tab goes to the requests screen. The other
 tabs close the page, as does going to a conversation, a server or the requests
 screen (the core drops `add_friend` when the screen changes); where the
 friends list isn't showing, Add Friend opens the dialog. A button at the
@@ -84,7 +90,8 @@ its tooltip. Clicking it goes to the channel without joining it. It comes from
 the voice states the channel list already keeps, so it shows only servers both
 share and channels this account sees. DM calls stay out, as in Discord.
 
-When the friends page is at least 1000px wide, Active Now sits in a 360px
+When the friends page is at least 900px wide (Discord shows it at 901px; where it
+hides isn't measured), Active Now sits in a 360px
 column at its right, as on Discord's friends page, and the list keeps to the
 left of it. Its cards follow Discord's NowPlayingViewStore: friends in one
 server's voice channel share a card, then those in one game party (the
@@ -627,8 +634,11 @@ the wishlist's age check (`nsfwAllowed`), Filter and Browse the Shop.
 
 The Board comes with the profile: `widgets`, each `{id, data: {type,
 ...}}`. A game list's `data` holds `games: [{game_id, comment, tags}]`, read
-as the client reads them, a game listed twice showing once and an unknown
-type left out. Their headings are the client's:
+as the client reads them, a game listed twice showing once. Only game lists
+are shown: a widget of another type (`application`, `personal`,
+`clips_gallery`), whose contents Yapfast doesn't read, is left out with an
+unknown type, rather than shown as a heading with nothing under it. The
+headings of the game lists are the client's:
 
 | `type` | Heading | Shows |
 | --- | --- | --- |
@@ -636,9 +646,6 @@ type left out. Their headings are the client's:
 | `current_games` | Games in Rotation | Its games |
 | `want_to_play_games` | Want to Play | Its games |
 | `played_games` | Games I Like | Its games |
-| `application` | The application's name, from `GET /applications/public` | A line that it only shows in Discord |
-| `personal` | Personal | The same line |
-| `clips_gallery` | Clips Gallery | The same line |
 
 Games are named by `GET /games?game_ids=...`, at most 20 at once as the
 client asks, when the tab first opens, and only if it has any. A game's
@@ -913,7 +920,7 @@ nameplate, the avatar and its decoration, the display name style, the theme
 and banner, and the profile effect, each showing what's set: the decoration
 and effect say they're on even when the [profile
 switches](#profile-switches) keep their pictures from showing. Yapfast has no
-windows to choose those collectibles, so their tiles open Discord's shop.
+window to equip those collectibles, so their tiles and the card's Shop button leave the editor for Yapfast's own Shop (`Action::OpenProfileShop`; the editor stays, saying so, while it holds changes not yet saved).
 Hide Styles folds the column away, sliding, and the Show Styles tab on the
 card's edge brings it back.
 
@@ -1024,9 +1031,10 @@ a feature of the Nitro SKU alone, so `premium_type` 2 and not Basic (3) or
 Classic (1). Without it Discord still shows them, greyed, under an offer:
 "Make unique profiles for each server", "Customize your profile for every
 server, from avatar decorations to bios. Only with Nitro.", and "Unlock
-with Nitro", or "Upgrade Nitro" with a lesser Nitro, which opens
-`https://discord.com/nitro`. Yapfast shows the offer under the name, and
-a lock in place of the pencil on each of them.
+with Nitro", or "Upgrade Nitro" with a lesser Nitro, which leaves the
+editor for Yapfast's own Nitro screen (`Action::UnlockNitro`); the editor
+stays, saying so, while it holds changes not yet saved. Yapfast shows the
+offer under the name, and a lock in place of the pencil on each of them.
 
 Change Avatar and Change Banner use the file chooser attachments use. Yapfast
 reads the picture off the UI thread, as Discord's cropper sends it: the

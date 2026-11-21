@@ -21,27 +21,42 @@ recording. Each change is kept at once in
 `layout.json` under its own key (`layout::Prefs` and
 `layout::Voice` read them) and handed to the core.
 
+The five [privacy and accessibility pages](privacy.md) use native Yapfast
+cards for controls that work and offer nothing Yapfast cannot do itself.
+Their controls share the preferences below, including changes made from
+another settings page.
+
 - My account (`pages/`, a file a page, with the preferences' changes in
   its `mod.rs`): the account's card, where its login is kept,
   Reconnect while offline, Edit profile, the custom status, and Sign out
   (Back to sign in in the preview).
-- Voice & video (`voice.rs`): the microphone, speakers and camera, each a
-  dropdown of the devices the core lists (listed again as the page shows),
-  the microphone's and speakers' volumes, which play while dragged and are
-  kept when let go; Discord's mic test (Let's check), which runs the
-  gate's meter with playback and lights its notches to the level, with
-  Discord's captions (read as they're drawn), and the call's deafening
-  while it runs (see [Voice](../voice.md#microphone-test)); the camera's
-  preview, filmed only while Test video
-  is on (`camera:settings` among the window's video sources, at 400 by
-  225); then joining unmuted, evening out the voice, and in Discord calls
-  noise suppression and its strength, the soundboard's volume (Discord
-  keeps it; the slider follows a drag and what it's left at is sent), the entrance sound for every server or one (Choose, with
-  Nitro, opens the sounds Discord has as the call's soundboard does,
-  `soundboard::sound_board`, a click choosing one), the room's echo and, on Windows,
-  Windows' own effects; the input mode, and either the gate's sensitivity
-  over the microphone's level as the gate hears it (read as it's drawn,
-  twenty times a second, only while it shows) or push to talk's keybind and release delay. Where no global key works
+  The account module (`account.rs`) adds the Overview, Profiles, Connections,
+  Authorized Apps and Devices tabs using Yapfast's form kit. Profiles opens
+  the existing main editor or a server's editor, with the server choices built
+  only while expanded. Overview changes the username, email and password with
+  the current password; the other tabs read Discord's lists when they open and
+  revoke, sign out, hide, disconnect or link from them. See
+  [account settings](../discord/account-settings.md) for what each calls and
+  what Yapfast leaves out.
+- Voice & video (`voice.rs`): select microphone and speakers, set their
+  volumes, and refresh the device list. Volumes apply while dragged and
+  are kept when let go. On supported platforms, Test microphone plays
+  speech through the selected speakers, shows the input level, and
+  temporarily mutes and deafens an active call (see
+  [Voice](../voice.md#microphone-test)). The input mode shows either the
+  Discord gate's sensitivity and live level or the push-to-talk keybind
+  and release delay. Video has its own camera selection and preview, with
+  Test video in the preview when the camera is off. The camera is opened
+  only for the test (the `camera:settings` video source requests 400 by
+  225 at the window's scale). A failed test shows recovery guidance and
+  can be restarted. Additional audio settings expands call join and voice
+  leveling preferences. With Discord linked it also shows noise
+  suppression and its strength, soundboard volume, entrance sounds, room
+  echo reduction and Windows microphone effects where supported. Discord
+  keeps soundboard volume and the client sends it when the slider is
+  released. Entrance sounds can be set for every server or a single
+  server. Choose opens the soundboard picker for Nitro accounts.
+  Where no global key works
   (the root crate's `keybinds` says why), the window's own key events
   hold it while the window has the focus: an event
   filter hands each key's scan code to the root crate with no message.
@@ -83,11 +98,21 @@ recording. Each change is kept at once in
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
   from takes another, and its name unless it was renamed); each custom
-  theme's pencil edits it. A colour's field shows its change at once, or
-  says "Not a colour"; Save keeps the theme among the person's own and
-  chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Then the system
-  title bar's switch, where Yapfast can draw its own, and the profile
+  theme's pencil edits it. A colour's swatch opens its `ColourPad` card and
+  its field shows its change at once, or says "Not a colour"; Save keeps the
+  theme among the person's own and chooses it, Cancel (or leaving Appearance or
+  Settings) shows the theme from before, and a saved one's Delete asks once
+  more. Import, beside New theme, and Export, in the editor beside Save and
+  Cancel, open the system's file dialog and share a theme as a file (see
+  [themes](../themes.md#sharing-themes)); a line under the title says how it
+  went. Then Font (`font.rs`): Choose font files opens the system's file
+  dialog for TTF, OTF, TTC and WOFF files, which draw the whole window in
+  their font; each file is listed with the faces it gave and a Remove, a file
+  that isn't a font is left out with the reason under the list, and Reset to
+  default goes back to DM Sans. The paths are kept as `ui_font_files` in
+  `layout.json` and loaded at startup; the rows are measured again as the text
+  size's change does. Then the system title bar's switch, where Yapfast can draw
+  its own, and the profile
   switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on

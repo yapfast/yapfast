@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, faded, rounded},
+    style::{corners, edge, faded},
     widgets::Pic,
 };
 
@@ -20,6 +20,7 @@ use super::{
     BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
     INSET, INVITE,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The number in a server's Boost level badge, measured (237, 237, 239).
 const TIER_INK: Color = Color::from_rgb(237.0 / 255.0, 237.0 / 255.0, 239.0 / 255.0);
@@ -32,24 +33,25 @@ impl<'a> super::View<'a> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let inner: Element<'a, Message> = match &head.server {
-            None => {
-                let (ground, ink, hint, selection) =
-                    (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.s.filter)
-                    .id(FILTER)
-                    .on_input(|filter| Message::Side(Event::Filter(filter)))
-                    .size(13)
-                    .padding([8, 10])
-                    .style(move |_, _| text_input::Style {
-                        background: ground.into(),
-                        border: crate::style::round(6),
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
-                    })
-                    .into()
-            }
+            None => text_input(tr("Find or start a conversation"), &self.s.filter)
+                .id(FILTER)
+                .on_input(|filter| Message::Side(Event::Filter(filter)))
+                // Discord's is a button: 14 px semibold words in its
+                // brightest ink on its hover ground, 32 px tall.
+                .size(14)
+                .font(crate::fonts::SEMIBOLD)
+                .line_height(text::LineHeight::Absolute(18.0.into()))
+                .padding([7, 10])
+                .align_x(Alignment::Center)
+                .style(move |_, _| text_input::Style {
+                    background: theme.hover.into(),
+                    border: edge(theme.outline_field, 8.0),
+                    icon: theme.text,
+                    placeholder: theme.channel_white,
+                    value: theme.text,
+                    selection: theme.selection,
+                })
+                .into(),
             Some(_) => {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {
@@ -58,7 +60,7 @@ impl<'a> super::View<'a> {
                             .look
                             .icon_button(
                                 Icon::UserPlus,
-                                "Invite people",
+                                tr("Invite people"),
                                 Message::Side(Event::Invite),
                             )
                             .size(INVITE, 20)
@@ -68,8 +70,13 @@ impl<'a> super::View<'a> {
                 line.into()
             }
         };
+        // The outline takes the header's top pixel: the field starts 8 px
+        // under it, and 8 px stay under the field before the line.
         let bar_ = container(inner)
-            .padding(INSET)
+            .padding(Padding {
+                top: INSET + 1.0,
+                ..Padding::new(INSET)
+            })
             .height(HEADER - 1.0)
             .width(Length::Fill);
         let banner = head.banner.as_deref().filter(|_| head.server.is_some());
@@ -108,7 +115,8 @@ impl<'a> super::View<'a> {
 
     /// Discord's boost goal under the server's name: a pill whose pink
     /// fill is the share of the goal the boosts reach, "Boost Goal" and
-    /// how many of the goal's boosts, with a line under the row.
+    /// how many of the goal's boosts, with a line under the row; clicking
+    /// it opens the native boost progress summary.
     pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let share = (boosts as f32 / BOOST_GOAL as f32).min(1.0);
@@ -155,13 +163,13 @@ impl<'a> super::View<'a> {
             .width(Length::Fill)
             .height(Length::Fill);
         let words = row![
-            text("Boost Goal")
+            text(tr("Boost Goal"))
                 .size(14)
                 .font(SEMIBOLD)
                 .color(theme.text)
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
-            text(format!("{boosts}/{BOOST_GOAL} Boosts"))
+            text(i18n::fill(tr("{0}/{1} Boosts"), &[&boosts, &BOOST_GOAL]))
                 .size(14)
                 .font(MEDIUM)
                 .color(faded(theme.text, 0.7))
@@ -175,12 +183,14 @@ impl<'a> super::View<'a> {
         // Discord's (32,32,36) on its dark theme: the field colour, a step
         // above the sheet.
         let ground = theme.field;
-        let pill = container(stack![pill, words])
+        let goal = button(stack![pill, words])
+            .padding(0)
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
+            .on_press(Message::BoostGoal(crate::boost_goal::Event::Open))
+            .style(lit_style(Some(ground), theme.hover, BOOST_PILL / 2.0));
         column![
-            container(pill)
+            container(goal)
                 .padding(Padding {
                     top: 16.0,
                     right: 13.0,
@@ -202,9 +212,9 @@ impl<'a> super::View<'a> {
     pub(super) fn events_row(self, events: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let label = match events {
-            0 => "Events".to_owned(),
-            1 => "1 Event".to_owned(),
-            count => format!("{count} Events"),
+            0 => tr("Events").to_owned(),
+            1 => tr("1 Event").to_owned(),
+            count => i18n::fill(tr("{} Events"), &[&count]),
         };
         let (hover, ink) = (theme.hover, theme.channel_read);
         let face = button(
@@ -253,14 +263,17 @@ impl<'a> super::View<'a> {
         } else {
             (theme.text, theme.secondary)
         };
-        let mut face = row![].spacing(10).align_y(Alignment::Center);
+        let community_badge = head.community && !head.verified;
+        let mut face = row![]
+            .spacing(if community_badge { 8 } else { 10 })
+            .align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
         // that is only a Community server with the Community badge; any
         // other shows its boost level in a scallop.
         if head.verified {
             face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
-            face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
+            face = face.push(self.cx.look.drawn(Icon::CommunityBadge, 20));
         } else if let Some(tier) = head.tier {
             face = face.push(
                 stack![
@@ -294,7 +307,9 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified || head.tier.is_some() {
+            left: if community_badge {
+                8.0
+            } else if head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

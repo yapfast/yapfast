@@ -63,6 +63,10 @@ async fn keeps_emoji_and_stickers_as_discords_client_does() {
     assert_eq!(settings.extra_emoji_slots, Some(0));
     let emojis = discord.guild_emojis(guild).await.unwrap();
     assert_eq!(names(&emojis), ["talk", "party"]);
+    assert_eq!(
+        discord.guild_top_emojis(guild).await.unwrap(),
+        [emojis[1].id.clone(), emojis[0].id.clone()],
+    );
     assert!(emojis[1].animated);
     let bobs = emojis[0].clone();
     assert_eq!(bobs.user.as_ref().unwrap().username, "bob");

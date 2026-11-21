@@ -11,12 +11,20 @@ use yapfast_core::{
     application::{AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation},
     chat::{ChatRoom, MarkKind, Permission, Presence, VoicePerson},
     discord,
+    i18n::{self, tr},
     network::Network,
 };
 
-use crate::{controls::count_badge, looks::Status, pictures::Icon};
+use crate::{
+    controls::count_badge,
+    looks::Status,
+    pictures::{GroupIcon, Icon, room_group_icon},
+};
 
-use super::{DM_ROW, GAP, HEADING, NAV_ROW, PERSON, ROW};
+use super::{
+    BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, DM_HEADING, DM_ROW, GAP, HEADING, NAV_AFTER, NAV_ROW,
+    NAV_TOP, PERSON, ROW,
+};
 
 /// A conversation's row.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,6 +43,7 @@ pub struct Room {
     /// A DM, with its picture, its person's presence and the line under it.
     pub direct: bool,
     pub avatar: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub presence: Option<Presence>,
     pub status: Status,
     /// A DM's person's looks: the decoration round the avatar, the
@@ -56,6 +65,8 @@ pub struct Room {
     /// A thread under its channel, and whether another of its follows.
     pub thread: bool,
     pub thread_continues: bool,
+    /// A parent whose first visible thread follows it.
+    pub has_threads: bool,
     /// Who is in a voice channel, and since when (Unix seconds).
     pub people: Vec<VoicePerson>,
     pub started: Option<u64>,
@@ -76,10 +87,9 @@ impl Room {
 /// A row of the list.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SideRow {
-    /// Friends and Requests, at the top of the DMs.
+    /// Friends, Requests, Nitro, Shop and Quests, at the top of the DMs.
     Screens {
-        friends: bool,
-        requests: bool,
+        screen: Option<DmScreen>,
         badge: String,
     },
     /// "Direct Messages", with its buttons.
@@ -120,9 +130,9 @@ impl SideRow {
     /// The row's height, its gap after included.
     pub fn height(&self) -> f32 {
         GAP + match self {
-            SideRow::Screens { .. } => 9.0 + NAV_ROW + GAP + NAV_ROW + 6.0,
-            SideRow::DmHeading => 40.0,
-            SideRow::Browse { .. } => 6.0 + ROW + 6.0,
+            SideRow::Screens { .. } => NAV_TOP + 5.0 * NAV_ROW + 4.0 * GAP + NAV_AFTER,
+            SideRow::DmHeading => DM_HEADING,
+            SideRow::Browse { .. } => BROWSE_TOP + ROW + BROWSE_GAP + 1.0 + BROWSE_AFTER - GAP,
             SideRow::Pinned => 36.0,
             SideRow::PinnedEnd => 9.0,
             SideRow::Heading { .. } => HEADING,
@@ -264,8 +274,7 @@ pub fn sidebar(
     if direct {
         if state.discord_linked && !state.preview {
             rows.push(SideRow::Screens {
-                friends: state.dm_screen == Some(DmScreen::Friends),
-                requests: state.dm_screen == Some(DmScreen::Requests),
+                screen: state.dm_screen,
                 badge: count_badge(crate::friends::waiting(state) as u64),
             });
         }
@@ -330,6 +339,7 @@ pub fn sidebar(
     let (mut listed_text, mut listed_voice) = (false, false);
     // Whether the category the rows now come under is folded.
     let mut under_fold = false;
+    let mut previous_parent = None;
     for (index, room) in listed.iter().enumerate() {
         if !direct && index == 0 && in_pinned > 0 {
             rows.push(SideRow::Pinned);
@@ -346,10 +356,16 @@ pub fn sidebar(
                 })
             } else if room.voice && !listed_voice {
                 listed_voice = true;
-                Some(("VOICE CHANNELS".to_owned(), "VOICE CHANNELS".to_owned()))
+                Some((
+                    tr("VOICE CHANNELS").to_owned(),
+                    tr("VOICE CHANNELS").to_owned(),
+                ))
             } else if !room.voice && !listed_text {
                 listed_text = true;
-                Some(("TEXT CHANNELS".to_owned(), "TEXT CHANNELS".to_owned()))
+                Some((
+                    tr("TEXT CHANNELS").to_owned(),
+                    tr("TEXT CHANNELS").to_owned(),
+                ))
             } else {
                 None
             };
@@ -391,13 +407,21 @@ pub fn sidebar(
         }
         let status = if room.direct && room.network == Network::Discord {
             if room.person.is_none() {
-                Status::words(format!("{} members", room.members))
+                Status::words(i18n::fill(tr("{} members"), &[&room.members]))
             } else {
                 Status::of(room.activity.as_deref())
             }
         } else {
             Status::default()
         };
+        // Join consecutive visible rows only when they belong to the same tree.
+        if let Some(parent) = room.parent.as_deref()
+            && let Some(SideRow::Room(previous)) = rows.last_mut()
+        {
+            previous.thread_continues = previous_parent == Some(parent);
+            previous.has_threads = previous.id == parent;
+        }
+        previous_parent = room.parent.as_deref();
         rows.push(SideRow::Room(Box::new(Room {
             id: room.id.clone(),
             name: room.name.clone(),
@@ -420,6 +444,7 @@ pub fn sidebar(
             voice: room.voice,
             direct: room.direct,
             avatar: room.avatar.clone(),
+            group_icon: room_group_icon(room),
             // Discord sends the presence of friends and of those sharing a
             // server; anyone else in a one-to-one DM shows offline.
             presence: if room.person.is_some() && room.network == Network::Discord {
@@ -473,6 +498,7 @@ pub fn sidebar(
             pinned: room.direct && state.pinned.contains(&room.id),
             thread: room.parent.is_some(),
             thread_continues: false,
+            has_threads: false,
             people: if room.voice && !room.direct {
                 room.people.clone()
             } else {
@@ -497,27 +523,16 @@ pub fn sidebar(
                 .map(empty_heading),
         );
     }
-    // A channel's threads follow it, so a thread's line runs on to the next
-    // row when that's a thread too.
-    for index in 1..rows.len() {
-        let next_is_thread = matches!(&rows[index], SideRow::Room(room) if room.thread);
-        if let SideRow::Room(room) = &mut rows[index - 1]
-            && room.thread
-            && next_is_thread
-        {
-            room.thread_continues = true;
-        }
-    }
     if !rows
         .iter()
         .any(|row| matches!(row, SideRow::Room(_) | SideRow::Heading { .. }))
     {
         let empty = if state.scoped_rooms().next().is_some() {
-            "No matching conversations."
+            tr("No matching conversations.")
         } else if direct {
-            "No direct messages yet. Existing DMs appear here after syncing."
+            tr("No direct messages yet. Existing DMs appear here after syncing.")
         } else {
-            "No channels in this server that you can see."
+            tr("No channels in this server that you can see.")
         };
         rows.push(SideRow::Empty(empty));
     }

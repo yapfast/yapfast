@@ -5,6 +5,7 @@
 use iced::Element;
 use yapfast_core::{
     application::Action,
+    i18n::Language,
     sounds::{Sound, SoundSet},
 };
 
@@ -34,6 +35,8 @@ const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Neve
 /// the slider was let go, when it's kept).
 #[derive(Clone, Debug)]
 pub enum Pref {
+    /// A language, by its place among those Appearance offers.
+    Language(usize),
     TwelveHour(bool),
     Seconds(bool),
     DateFormat(usize),
@@ -48,6 +51,7 @@ pub enum Pref {
     Notifications(bool),
     NotificationText(bool),
     FlashTaskbar(bool),
+    StreamerMode(bool),
     SoundSet(usize),
     SoundVolume(u32, bool),
     AdjustEach(bool),
@@ -110,6 +114,17 @@ impl Settings {
     pub(in crate::settings) fn pref(&mut self, pref: Pref, cx: &mut Cx<'_>) {
         let prefs = &mut cx.layout.prefs;
         match pref {
+            Pref::Language(place) => {
+                let Some(language) = Language::offered().get(place).copied() else {
+                    return;
+                };
+                self.open = None;
+                prefs.interface_language = Some(language.code().to_owned());
+                // Every text, and the order and words of dates and times.
+                prefs.apply_language();
+                cx.keep("interface_language", language.code());
+                cx.request(Request::Changed(Shown::Language));
+            }
             Pref::TwelveHour(on) => {
                 prefs.twelve_hour_clock = on;
                 prefs.apply_clock();
@@ -178,6 +193,10 @@ impl Settings {
             Pref::FlashTaskbar(on) => {
                 prefs.flash_taskbar = Some(on);
                 cx.keep("flash_taskbar", on);
+            }
+            Pref::StreamerMode(on) => {
+                prefs.streamer_mode = on;
+                cx.keep("streamer_mode", on);
             }
             Pref::SoundSet(index) => {
                 let set = SoundSet::ALL[index.min(SoundSet::ALL.len() - 1)];
@@ -295,6 +314,9 @@ impl Settings {
 
 /// One of Yapfast's sounds, to try a setting, on the call's speakers.
 fn try_sound(cx: &Cx<'_>, sound: Sound) {
+    if cx.layout.prefs.streamer_mode {
+        return;
+    }
     let voice = &cx.state().voice;
     yapfast_core::sounds::play(
         cx.layout.voice.sound_set,

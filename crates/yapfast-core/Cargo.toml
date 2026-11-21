@@ -59,6 +59,8 @@ nnnoiseless = { version = "0.5.2", default-features = false, optional = true }
 rand = { version = "0.9", optional = true }
 # The stream worker hands video frames to the UI through a shared mapping.
 memmap2 = "0.9"
+# The system's language, to start in it.
+sys-locale = "0.3"
 matrix-sdk = { workspace = true, optional = true }
 matrix-sdk-ui = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
@@ -124,5 +126,6 @@ windows = { version = "0.62", features = [
 windows-core = "0.62"
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 # Animated PNGs to read frame timings from, the version the image crate uses.
 png = "0.18"

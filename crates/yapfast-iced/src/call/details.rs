@@ -28,6 +28,7 @@ use crate::{
     style::{faded, rounded},
     widgets::Renderer,
 };
+use yapfast_core::i18n::{self, later, tr};
 
 /// The popout's width, and its graph's height.
 pub const WIDTH: f32 = 320.0;
@@ -110,16 +111,28 @@ pub(super) fn link_event(app: &mut App, event: LinkEvent) -> Task<Message> {
 
 /// The note under Connection, with the loss's when it's known.
 fn connection_note(loss_known: bool) -> String {
-    let mut note = "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.".to_owned();
-    if loss_known {
-        note.push_str(" You may sound robotic if your packet loss rate is over 10%.");
-    }
-    note
+    let loss = if loss_known {
+        tr(" You may sound robotic if your packet loss rate is over 10%.")
+    } else {
+        ""
+    };
+    i18n::fill(
+        tr(
+            "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}",
+        ),
+        &[&loss],
+    )
 }
 
-const STREAM_NOTE: &str = "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.";
-const PRIVACY_NOTE: &str = "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers.";
-const PRIVATE_NOTE: &str = "Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in.";
+const STREAM_NOTE: &str = later(
+    "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers.",
+);
+const PRIVACY_NOTE: &str = later(
+    "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers.",
+);
+const PRIVATE_NOTE: &str = later(
+    "Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in.",
+);
 
 /// A line of steps drawn across its box (a graph of the call's pings): each
 /// step's run at its height, joined by risers, in a box of its own units
@@ -285,12 +298,12 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 Message::Call(Event::Link(LinkEvent::Tab(tab))),
             )
         };
-        let mut tabs = row![tab("Connection", Tab::Connection)].spacing(16);
+        let mut tabs = row![tab(tr("Connection"), Tab::Connection)].spacing(16);
         if code.is_some() {
-            tabs = tabs.push(tab("Privacy", Tab::Privacy));
+            tabs = tabs.push(tab(tr("Privacy"), Tab::Privacy));
         }
         if streaming {
-            tabs = tabs.push(tab("Stream", Tab::Stream));
+            tabs = tabs.push(tab(tr("Stream"), Tab::Stream));
         }
         card = card.push(tabs);
     }
@@ -300,9 +313,9 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         _ => connection_page(ctx, stats),
     });
     let secured = if ctx.state.voice.end_to_end {
-        "End-to-end encrypted"
+        tr("End-to-end encrypted")
     } else {
-        "Secure connection"
+        tr("Secure connection")
     };
     let live = theme.live;
     card = card.push(
@@ -365,18 +378,18 @@ fn connection_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'
         graph,
         detail_row(
             ctx,
-            "Average ping:",
-            average.unwrap_or_else(|| "Unknown".to_owned())
+            tr("Average ping:"),
+            average.unwrap_or_else(|| tr("Unknown").to_owned())
         )
     ]
     .spacing(8);
     if let Some(ping) = words::last_ping(stats) {
-        page = page.push(detail_row(ctx, "Last ping:", ping));
+        page = page.push(detail_row(ctx, tr("Last ping:"), ping));
     }
     let loss = words::loss(stats);
     let known = loss.is_some();
     if let Some(loss) = loss {
-        page = page.push(detail_row(ctx, "Outbound packet loss rate:", loss));
+        page = page.push(detail_row(ctx, tr("Outbound packet loss rate:"), loss));
     }
     page.push(detail_note(connection_note(known), theme.muted))
         .into()
@@ -387,18 +400,18 @@ fn stream_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'a, M
         return Space::new().into();
     };
     column![
-        detail_row(ctx, "Encoder:", words::encoder(&stream.engine)),
-        detail_row(ctx, "Codec:", stream.codec.clone()),
-        detail_row(ctx, "Resolution:", words::picture(stream)),
-        detail_row(ctx, "Sending:", words::rate(stream.sent_kbps)),
-        detail_row(ctx, "Aiming for:", words::rate(stream.target_kbps)),
+        detail_row(ctx, tr("Encoder:"), words::encoder(&stream.engine)),
+        detail_row(ctx, tr("Codec:"), stream.codec.clone()),
+        detail_row(ctx, tr("Resolution:"), words::picture(stream)),
+        detail_row(ctx, tr("Sending:"), words::rate(stream.sent_kbps)),
+        detail_row(ctx, tr("Aiming for:"), words::rate(stream.target_kbps)),
         detail_row(
             ctx,
-            "Keyframes viewers asked for:",
+            tr("Keyframes viewers asked for:"),
             stream.keyframe_requests.to_string()
         ),
-        detail_row(ctx, "Packets resent:", stream.resent.to_string()),
-        detail_note(STREAM_NOTE.to_owned(), ctx.look.theme.muted),
+        detail_row(ctx, tr("Packets resent:"), stream.resent.to_string()),
+        detail_note(tr(STREAM_NOTE).to_owned(), ctx.look.theme.muted),
     ]
     .spacing(8)
     .into()
@@ -421,24 +434,24 @@ fn privacy_page<'a>(ctx: crate::ctx::Ctx<'a>, code: Vec<String>) -> Element<'a, 
     let copied = ctx.call.details.copied;
     let copy = controls::action(
         theme,
-        if copied { "Copied" } else { "Copy" },
+        if copied { tr("Copied") } else { tr("Copy") },
         Kind::Plain,
         Some(Message::Call(Event::Link(LinkEvent::Copy))),
     )
     .small()
     .icon(ctx.look.icon(Icon::Copy, 16, crate::theme::rgb(theme.text)));
     column![
-        text("Voice Privacy Code")
+        text(tr("Voice Privacy Code"))
             .size(15)
             .font(BOLD)
             .color(theme.text),
-        detail_note(PRIVACY_NOTE.to_owned(), theme.secondary),
+        detail_note(tr(PRIVACY_NOTE).to_owned(), theme.secondary),
         container(rows)
             .width(Length::Fill)
             .style(move |_| rounded(sunken, 6)),
         container(copy).center_x(Length::Fill),
         controls::bar(theme.line, Length::Fill, 1.0),
-        detail_note(PRIVATE_NOTE.to_owned(), theme.secondary),
+        detail_note(tr(PRIVATE_NOTE).to_owned(), theme.secondary),
     ]
     .spacing(10)
     .into()

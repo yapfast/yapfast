@@ -19,7 +19,7 @@ pub(super) struct FeedAsks {
     fetching: bool,
     /// A feed came, even an empty one.
     held: bool,
-    focused: bool,
+    pub(super) focused: bool,
     /// When the last input was, once there's been none for a while.
     quiet_since: Option<u64>,
     /// The room whose people were asked for from this feed.
@@ -130,7 +130,12 @@ impl Application {
 
     pub(super) fn window_focused(&mut self, focused: bool) -> Vec<Effect> {
         self.feed_asks.focused = focused;
-        if focused { self.ask_activity() } else { vec![] }
+        if !focused {
+            return vec![];
+        }
+        let mut effects = self.ask_activity();
+        effects.extend(self.mark_aside_read());
+        effects
     }
 
     /// Input stopped, or came again after stopping.
@@ -150,7 +155,10 @@ impl Application {
 
     /// Lets the feed go with the account it was of.
     pub(super) fn forget_activity_feed(&mut self) {
-        self.feed_asks = FeedAsks::default();
+        self.feed_asks = FeedAsks {
+            focused: self.feed_asks.focused,
+            ..FeedAsks::default()
+        };
         self.state.activity_feed = Arc::default();
         self.state.activity_people = None;
     }

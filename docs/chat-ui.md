@@ -289,7 +289,18 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   pictures; a section reached before warming finishes can still show placeholders.
   A drag that changed the width keeps it in
   `layout.json` (`picker_width`), written once the drags have stopped for a
-  second, and it comes back at the next start. See
+  second, and it comes back at the next start. Skin tone, the hand beside the
+  search field, offers six variants where the emoji font has them and keeps
+  the choice on this device. A custom emoji's footer identifies its server
+  with the server's name. The panel is Discord's: content inside a 1 px edge,
+  a 40 px search field (a 1 px line at rest, a 2 px accent ring while it has
+  the keys), a line under the header, 40 px emoji in 48 px cells and a darker
+  rail and foot.
+  When the current server has ranked custom emoji, Popular in the server's
+  name lists them in Discord's order above the rest of the picker.
+  Add Emoji in the composer's picker offers the servers where the account can
+  upload expressions. Choosing one opens its Emoji settings, where Upload
+  Emoji opens the file picker and previews the file before uploading. See
   [Discord](discord/messages.md#gifs).
 - A Stickers tab in the same picker, and a sticker button of its own, on
   Discord: a search field, then the collections down the left to jump between
@@ -562,7 +573,13 @@ The window follows Discord's arrangement:
   the Menu key or Shift+F10 open it too. A person with a plus, on the
   header's right, invites to the server. The dropdown lists the choices of the
   server's menu that Discord's dropdown has, in its order, from the same list
-  (`Application::header_choices`), so the two can't disagree. A Discord
+  (`Application::header_choices`), so the two can't disagree: Server Boost
+  (the boost summary) first, then invite, settings, create channel and
+  category, the channel list and notification choices, one's own server profile, hiding muted channels,
+  leaving and, with Developer Mode on, Copy server ID, each group under a
+  line. It is 220px wide, centred under the header and 3px below it, and a
+  word it has no room for ends in "…" (a notification row shows no second
+  line there). A Discord
   channel list heads each category's channels with its name; a category
   without channels shows its heading alone, unless its permissions hide it.
   A right click on a heading, or the Menu key or Shift+F10 on it, opens the
@@ -646,8 +663,8 @@ The window follows Discord's arrangement:
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
   theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
-  device menu (see [Persistent voice channels](voice.md)); the input menu
-  shows a local level meter. While you speak in
+  device menu (see [Persistent voice channels](voice.md)), the caret
+  pointing up while it's open. While you speak in
   a call, unmuted, the panel's avatar has the same green ring as your row in
   the call.
 - A conversation with a 50px header: the conversation's icon and name, and

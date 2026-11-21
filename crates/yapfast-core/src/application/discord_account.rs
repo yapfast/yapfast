@@ -17,7 +17,9 @@ impl Application {
             self.state.record_visit(previous, &HistoryPlace::Dm(screen));
         }
         self.state.dm_screen = Some(screen);
-        if open { vec![] } else { self.deselect() }
+        let mut effects = if open { vec![] } else { self.deselect() };
+        effects.extend(self.load_screen(screen));
+        effects
     }
 
     pub(super) fn add_friend(&mut self, username: String) -> Vec<Effect> {
@@ -203,6 +205,16 @@ impl Application {
     #[cfg(feature = "discord")]
     pub fn linking(&mut self, progress: crate::discord_link::Progress) -> Vec<Effect> {
         use crate::discord_link::Progress;
+        // A timed-out blocking save can finish after the import or another
+        // linking run has ended. Refresh it without starting a connection.
+        match progress {
+            Progress::ImportSaveStarted => return vec![],
+            Progress::ImportSaveFinished { linked } => {
+                self.state.discord_linked |= linked;
+                return self.refresh_imported_accounts();
+            }
+            _ => {}
+        }
         // Linking that was stopped says nothing more.
         let Some(link) = &mut self.state.discord_link else {
             return vec![];
@@ -227,7 +239,48 @@ impl Application {
                 *link = DiscordLink::Starting;
                 return vec![Effect::LinkDiscord];
             }
-            Progress::Failed(error) => *link = DiscordLink::Failed(error),
+            Progress::Failed(error) => {
+                if *link == DiscordLink::CancellingImport {
+                    return self.finish_cancelled_import(Notice::Error(error), false, false);
+                }
+                *link = if *link == DiscordLink::Importing {
+                    DiscordLink::ImportFailed(error)
+                } else {
+                    DiscordLink::Failed(error)
+                };
+            }
+            Progress::ImportCancelled {
+                message,
+                linked,
+                save_pending,
+            } => {
+                return self.finish_cancelled_import(Notice::Info(message), linked, save_pending);
+            }
+            Progress::ImportSaveStarted | Progress::ImportSaveFinished { .. } => unreachable!(),
+            Progress::Imported(message) => {
+                if *link == DiscordLink::CancellingImport {
+                    return self.finish_cancelled_import(
+                        Notice::Info(format!("Import cancelled. {message}")),
+                        true,
+                        false,
+                    );
+                }
+                let already_connected = self.state.discord_linked && self.state.account.is_some();
+                self.state.discord_link = None;
+                self.state.manage_accounts = None;
+                self.state.discord_linked = true;
+                let effects = if already_connected {
+                    vec![Effect::Backend(Command::Discord(
+                        DiscordCommand::ListAccounts,
+                    ))]
+                } else if self.state.account.is_some() {
+                    vec![Effect::Backend(Command::Discord(DiscordCommand::Start))]
+                } else {
+                    self.start(chat::Start::Restore)
+                };
+                self.state.notice = Some(super::Notice::Info(message));
+                return effects;
+            }
             Progress::Linked => {
                 self.state.discord_link = None;
                 self.state.discord_linked = true;
@@ -437,6 +490,33 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// Takes what the connected account says of itself into its row of the
+    /// switcher. The list is read when Yapfast starts, before the account
+    /// has connected, so a login linked before there could be several has
+    /// no name or picture in it until now; the connection's own data fills
+    /// them in, and keeps them current when they change.
+    #[cfg(feature = "discord")]
+    pub(super) fn describe_active_account(&mut self, username: &str, name: &str, avatar: &str) {
+        let active = self.state.discord_active.as_str();
+        let Some(row) = self
+            .state
+            .discord_accounts
+            .iter_mut()
+            .find(|account| account.id == active)
+        else {
+            return;
+        };
+        if !username.is_empty() && row.username != username {
+            username.clone_into(&mut row.username);
+        }
+        if !name.is_empty() && row.name != name {
+            name.clone_into(&mut row.name);
+        }
+        if !avatar.is_empty() && row.avatar.as_deref() != Some(avatar) {
+            row.avatar = Some(avatar.to_owned());
+        }
+    }
+
     /// Shows what a Discord snapshot says about the account and its lists.
     #[cfg(feature = "discord")]
     pub(super) fn show_snapshot(
@@ -447,6 +527,7 @@ impl Application {
         if let Some(account) = &snapshot.account {
             self.state.account_username =
                 Some(account.username.clone()).filter(|name| !name.is_empty());
+            self.describe_active_account(&account.username, &account.name, &account.avatar);
         }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
@@ -511,6 +592,7 @@ impl Application {
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
                     since: friend.since,
+                    tag: discord::server_tag(friend.tag.clone()),
                 })
                 .collect();
             self.state.people_changed();
@@ -667,8 +749,154 @@ impl Application {
         self.cache_emoji_pictures()
     }
 
+    /// Keep following import until an in-flight credential save has finished.
+    pub(super) fn cancel_discord_link(&mut self) -> Vec<Effect> {
+        match self.state.discord_link {
+            Some(DiscordLink::Importing) => {
+                self.state.discord_link = Some(DiscordLink::CancellingImport);
+                vec![Effect::CancelDiscordImport]
+            }
+            Some(DiscordLink::CancellingImport) | None => vec![],
+            _ => {
+                self.state.discord_link = None;
+                vec![Effect::StopDiscordLink]
+            }
+        }
+    }
+
+    #[cfg(feature = "discord")]
+    fn finish_cancelled_import(
+        &mut self,
+        message: Notice,
+        linked: bool,
+        save_pending: bool,
+    ) -> Vec<Effect> {
+        self.state.discord_link = None;
+        self.state.discord_linked |= linked;
+        self.state.notice = Some(message);
+        if save_pending {
+            vec![]
+        } else {
+            self.refresh_imported_accounts()
+        }
+    }
+
+    #[cfg(feature = "discord")]
+    fn refresh_imported_accounts(&self) -> Vec<Effect> {
+        if self.state.discord_linked && self.state.account.is_some() {
+            vec![Effect::Backend(Command::Discord(
+                DiscordCommand::ListAccounts,
+            ))]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Link from sign-in, or add an account from Manage Accounts.
+    pub(super) fn can_link_discord(&self) -> bool {
+        let state = &self.state;
+        cfg!(feature = "discord")
+            && !state.preview
+            && !matches!(
+                state.discord_link,
+                Some(DiscordLink::Importing | DiscordLink::CancellingImport)
+            )
+            && (!state.discord_linked || state.account.is_none() || state.manage_accounts.is_some())
+    }
+
+    /// Whether a Discord account with this id is linked on this device.
+    pub(super) fn linked_account(&self, id: &str) -> bool {
+        self.state
+            .discord_accounts
+            .iter()
+            .any(|account| account.id == id)
+    }
+
+    /// Leaves what belonged to the Discord account before after another
+    /// became the active one: everything it showed goes, and the new
+    /// account's snapshots fill it in again as they come.
+    pub(super) fn switched_discord(&mut self) -> Vec<Effect> {
+        let active = self.state.discord_active.clone();
+        if !active.is_empty() {
+            let old = DiscordComposers {
+                drafts: self
+                    .state
+                    .drafts
+                    .extract_if(|id, _| Network::of(id) == Network::Discord)
+                    .collect(),
+                replies: self
+                    .state
+                    .compose
+                    .extract_if(|id, _| Network::of(id) == Network::Discord)
+                    .collect(),
+                files: self
+                    .state
+                    .staged
+                    .extract_if(|id, _| Network::of(id) == Network::Discord)
+                    .collect(),
+            };
+            self.discord_composers.insert(active, old);
+        }
+        let state = &mut self.state;
+        state.manage_accounts = None;
+        state.add_friend = None;
+        state.status_editor = None;
+        state.new_dm = None;
+        state.invite = None;
+        state.join = None;
+        state.oauth = None;
+        state.scheduled_event = None;
+        state.gift = None;
+        state.channel_dialog = None;
+        state.leave = None;
+        state.move_sync = None;
+        state.profile_editor = None;
+        state.forwarding = None;
+        state.add_people = None;
+        state.switch_voice = None;
+        state.reactions = None;
+        state.interaction_modal = None;
+        state.select_menu = None;
+        state.profile = None;
+        state.panel_profile = None;
+        state.account_name = None;
+        state.account_username = None;
+        state.account_avatar = None;
+        state.account_decoration = None;
+        state.account_nameplate = None;
+        state.account_profile = None;
+        state.discord_presence = None;
+        state.pending_watch = None;
+        state.pending_camera = None;
+        let effects = self.forget_discord();
+        self.state.discord_linked = true;
+        effects
+    }
+
     /// Forgets the Discord account after it was unlinked.
     pub(super) fn forget_discord(&mut self) -> Vec<Effect> {
+        self.state
+            .drafts
+            .retain(|id, _| Network::of(id) != Network::Discord);
+        self.state
+            .compose
+            .retain(|id, _| Network::of(id) != Network::Discord);
+        self.state
+            .staged
+            .retain(|id, _| Network::of(id) != Network::Discord);
+        if self
+            .state
+            .sending
+            .as_deref()
+            .is_some_and(|room| Network::of(room) == Network::Discord)
+        {
+            self.state.sending = None;
+            self.sent_draft = None;
+            self.sent_files.clear();
+        }
+        self.forwards
+            .retain(|sent| Network::of(&sent.forwarding.room) != Network::Discord);
+        self.state.discover = Default::default();
         #[cfg(feature = "discord")]
         {
             self.discord = None;
@@ -679,6 +907,7 @@ impl Application {
         self.state.discord_linked = false;
         self.state.discord_online = false;
         self.state.discord_user = None;
+        self.state.popular_emojis.clear();
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
@@ -689,6 +918,8 @@ impl Application {
         }
         self.state.person_dialog = None;
         self.state.server_settings = None;
+        self.state.server_creation = None;
+        self.pending_server = None;
         self.state.channel_settings = None;
         self.state.browse = None;
         self.state.mfa.clear();

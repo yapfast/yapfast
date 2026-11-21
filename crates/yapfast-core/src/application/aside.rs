@@ -170,6 +170,7 @@ impl Application {
             ..Default::default()
         });
         self.aside_visible.clear();
+        self.aside_latest_visible = None;
         vec![Effect::Backend(Command::Aside(Some(room)))]
     }
 
@@ -182,6 +183,7 @@ impl Application {
         }
         self.let_go_unread();
         self.aside_visible.clear();
+        self.aside_latest_visible = None;
         vec![Effect::Backend(Command::Aside(None))]
     }
 
@@ -254,19 +256,35 @@ impl Application {
     /// Reads the thread beside, as the open channel is read while it shows,
     /// unless Mark Unread marked it unread since it opened.
     pub(super) fn mark_aside_read(&self) -> Vec<Effect> {
-        match (self.state.aside.as_ref(), self.state.aside_room()) {
-            (Some(aside), Some(room))
-                if aside.ready
-                    && (room.unread > 0 || room.mentions > 0)
-                    && self.held_unread.as_ref() != Some(&room.id) =>
-            {
-                vec![Effect::Backend(Command::MarkRead {
-                    room: room.id.clone(),
-                    sync: self.state.sync_discord_reads,
-                })]
-            }
-            _ => vec![],
+        let (Some(aside), Some(room), Some(visible)) = (
+            self.state.aside.as_ref(),
+            self.state.aside_room(),
+            self.aside_latest_visible.as_deref(),
+        ) else {
+            return vec![];
+        };
+        if !aside.ready
+            || !self.feed_asks.focused
+            || self.state.search_shown().is_some()
+            || (room.unread == 0 && room.mentions == 0)
+            || self.held_unread.as_ref() == Some(&room.id)
+            || !aside
+                .messages
+                .last()
+                .is_some_and(|message| message.item == visible)
+        {
+            return vec![];
         }
+        let Some(newest) = visible.strip_prefix("d:").and_then(|id| id.parse().ok()) else {
+            return vec![];
+        };
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::MarkThreadRead {
+                room: room.id.clone(),
+                newest,
+                sync: self.state.sync_discord_reads,
+            },
+        ))]
     }
 
     /// Sends what the thread beside's composer holds.

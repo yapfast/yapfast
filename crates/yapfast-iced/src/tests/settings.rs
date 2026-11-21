@@ -1,9 +1,14 @@
 //! Settings: a theme chosen in Appearance shows at once and is kept, a
-//! custom theme made, edited and deleted there, preferences kept across a
-//! restart, a device chosen in Voice & video, and push to talk's key
-//! recorded and kept.
+//! custom theme made, edited, deleted and shared as a file there,
+//! preferences kept across a restart, a device chosen in Voice & video, and
+//! push to talk's key recorded and kept.
 
-use iced::keyboard::{Key, Location, key};
+use iced::{
+    Point,
+    keyboard::{Key, Location, key},
+    mouse,
+    widget::Id,
+};
 use yapfast_core::voice;
 
 use super::{change, interact, local, preview, shows, start};
@@ -12,7 +17,9 @@ use crate::{
         App, Message,
         layers::{Layer, Popup},
     },
-    settings::{Event, Section, voice::Event as VoiceEvent},
+    settings::{
+        Event, Section, THEME_COLOUR_CODE, ThemeEvent, appearance_event, voice::Event as VoiceEvent,
+    },
 };
 
 /// Settings on a section, in a window tall enough to show its whole page.
@@ -164,6 +171,294 @@ fn a_custom_theme_is_made_edited_and_deleted_in_appearance() {
 }
 
 #[test]
+fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() {
+    use crate::settings::{ThemeEvent, appearance_event as theme};
+    use yapfast_core::theme::Theme;
+    let files = tempfile::tempdir_in(super::local()).expect("test folder");
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    let file = |app: &App| app.win.settings.get().expect("Settings").theme_file();
+    let note = |app: &App| app.win.settings.get().expect("Settings").theme_note.clone();
+
+    // Nothing to export outside the editor, or while a field holds no colour.
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Choose("tokyo-night".into())));
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = app.update(theme(ThemeEvent::Name("Night / Shift".into())));
+    let chat = Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+    let _ = app.update(theme(ThemeEvent::Dark(false)));
+    let made = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .map(|editor| editor.theme)
+        .expect("the editor");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#10".into())));
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+
+    // The unsaved edit exports as it stands.
+    let (file_name, text) = file(&app).expect("a theme to export");
+    assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
+    let path = files.path().join(&file_name);
+    std::fs::write(&path, text).expect("the file");
+    let _ = app.update(theme(ThemeEvent::Exported(file_name.clone(), Ok(()))));
+    assert!(shows(&app, "Exported to Night - Shift.yapfast-theme.json."));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(false));
+    let _ = app.update(theme(ThemeEvent::Exported(
+        file_name,
+        Err("disk full".into()),
+    )));
+    assert!(shows(&app, "Couldn't save the theme file: disk full"));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(true));
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&app), None, "gone with the editor");
+
+    // Another install loads it as a theme of its own, chosen, and keeps it.
+    let (mut other, other_folder) = preview();
+    open(&mut other, Section::Appearance);
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:1");
+    assert_eq!(other.theme.chat, crate::style::hex(0x102030));
+    assert!(!other.theme.dark);
+    assert_eq!(other.themes.custom.len(), 1);
+    assert_eq!(other.themes.custom[0].name, "Night / Shift");
+    assert_eq!(other.themes.custom[0].base, "tokyo-night");
+    assert_eq!(other.themes.custom[0].theme, made);
+    assert!(shows(&other, "Night / Shift"), "among the tiles");
+    assert!(shows(&other, "Imported Night / Shift."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(false));
+    let layout = stored(&other_folder);
+    assert_eq!(layout["theme"], "custom:1");
+    assert_eq!(layout["custom_themes"][0]["base"], "tokyo-night");
+    assert_eq!(layout["custom_themes"][0]["colours"]["chat"], "#102030");
+
+    // Importing it again adds another with its own id.
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:2");
+    assert_eq!(other.themes.custom.len(), 2);
+
+    // A file that isn't a theme, or can't be read, changes nothing but the
+    // note.
+    let junk = files.path().join("junk.json");
+    std::fs::write(&junk, "{}").expect("the file");
+    let _ = other.update(theme(ThemeEvent::Imported(junk)));
+    assert!(shows(&other, "That file is not a Yapfast theme."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(true));
+    let missing = files.path().join("missing.json");
+    let _ = other.update(theme(ThemeEvent::Imported(missing)));
+    assert!(note(&other).is_some_and(|(note, wrong)| wrong && note.starts_with("Couldn't read")));
+    assert_eq!(other.theme.id, "custom:2");
+    assert_eq!(other.themes.custom.len(), 2);
+
+    // The editor owns the window's colours while it is open.
+    interact(&mut other, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = other.update(theme(ThemeEvent::Imported(path)));
+    assert!(shows(
+        &other,
+        "Save or cancel the theme being edited first."
+    ));
+    assert_eq!(other.themes.custom.len(), 2);
+    interact(&mut other, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&other), None);
+}
+
+#[test]
+fn the_theme_editors_colour_picker_opens_picks_and_dismisses() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let chat = yapfast_core::theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let picker = |app: &App| {
+        app.win
+            .settings
+            .get()
+            .and_then(|settings| settings.editor.as_ref())
+            .and_then(|editor| editor.picker)
+    };
+    let swatch_at = |ui: &mut iced_test::Simulator<'_, Message>, name: &str| {
+        let label = ui
+            .find(name)
+            .expect(name)
+            .visible_bounds()
+            .expect("in view");
+        Point::new(label.x - 10.0 - 14.0, label.center_y())
+    };
+    let click_at = |ui: &mut iced_test::Simulator<'_, Message>, point: Point| {
+        ui.point_at(point);
+        ui.simulate([
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+        ]);
+    };
+
+    // Clicking a colour's swatch opens its ColourPad card under it.
+    assert_eq!(picker(&app), None);
+    interact(&mut app, |ui| {
+        let swatch = swatch_at(ui, "chat");
+        click_at(ui, swatch);
+    });
+    assert_eq!(picker(&app), Some(chat));
+
+    // Clicking on the ColourPad's hue strip and square updates the hex
+    // field and live preview immediately.
+    let before = app.theme.chat;
+    interact(&mut app, |ui| {
+        let code = ui
+            .find(Id::new(THEME_COLOUR_CODE))
+            .expect("the picker's code field")
+            .bounds();
+        // One third across the hue strip (10 px tall, 14 px above the code field).
+        click_at(ui, Point::new(code.x + code.width / 3.0, code.y - 19.0));
+        // Upper-right of the saturation/brightness square (150 px tall, 34 px above code).
+        click_at(ui, Point::new(code.x + code.width - 2.0, code.y - 180.0));
+    });
+    assert_ne!(app.theme.chat, before, "live preview updated from pad");
+    let pad_hex = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .fields[chat]
+        .1
+        .clone();
+    assert!(shows(&app, &pad_hex), "hex field updated from pad");
+
+    // Exact HSV picks update hex + preview, and hue stays while on black/grey.
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([240.0, 1.0, 0.5])));
+    assert_eq!(app.theme.chat, crate::style::hex(0x000080));
+    assert!(shows(&app, "#000080"));
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([120.0, 0.0, 0.0])));
+    assert_eq!(app.theme.chat, crate::style::hex(0x000000));
+    let hsv_hue = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .hsv[0];
+    assert_eq!(hsv_hue, 120.0, "hue kept while on black");
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([120.0, 1.0, 1.0])));
+    assert_eq!(app.theme.chat, crate::style::hex(0x00ff00));
+
+    // Typing a hex code into the picker's field updates the preview and pad.
+    interact(&mut app, |ui| {
+        ui.click(Id::new(THEME_COLOUR_CODE))
+            .expect("the picker's code field");
+        ui.tap_key(Key::Named(key::Named::End));
+        for _ in 0..7 {
+            ui.tap_key(Key::Named(key::Named::Backspace));
+        }
+        ui.typewrite("#123456");
+    });
+    assert_eq!(app.theme.chat, crate::style::hex(0x123456));
+    assert!(shows(&app, "#123456"));
+
+    // Clicking outside the popover dismisses the picker without closing Settings.
+    interact(&mut app, |ui| {
+        click_at(ui, Point::new(10.0, 10.0));
+    });
+    assert_eq!(picker(&app), None);
+    assert!(app.win.settings.is_open());
+    assert_eq!(app.theme.chat, crate::style::hex(0x123456));
+
+    // Reopening and pressing Escape closes the picker first, then Settings.
+    interact(&mut app, |ui| {
+        let swatch = swatch_at(ui, "chat");
+        click_at(ui, swatch);
+    });
+    assert_eq!(picker(&app), Some(chat));
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert_eq!(picker(&app), None);
+    assert!(app.win.settings.is_open(), "Settings stays open");
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert!(!app.win.settings.is_open());
+}
+
+#[test]
+fn the_theme_colour_picker_preserves_alpha_on_translucent_tokens() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let accent_soft = yapfast_core::theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "accent_soft")
+        .expect("accent_soft");
+    let _ = app.update(appearance_event(ThemeEvent::Picker(Some(accent_soft))));
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([120.0, 1.0, 1.0])));
+    let hex = &app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .fields[accent_soft]
+        .1;
+    assert_eq!(hex, "#00ff0026", "alpha kept on translucent token");
+    assert_eq!(
+        app.theme.accent_soft,
+        iced::Color::from_rgba8(0, 255, 0, f32::from(0x26u8) / 255.0)
+    );
+    // Shorthand #rgb and #rrggbbaa work too, and picking preserves the typed alpha.
+    let _ = app.update(appearance_event(ThemeEvent::Colour(
+        accent_soft,
+        "#345".into(),
+    )));
+    assert_eq!(app.theme.accent_soft, crate::style::hex(0x334455));
+    let _ = app.update(appearance_event(ThemeEvent::Colour(
+        accent_soft,
+        "#11223380".into(),
+    )));
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([0.0, 1.0, 1.0])));
+    let hex = &app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .fields[accent_soft]
+        .1;
+    assert_eq!(hex, "#ff000080");
+    // Switching the Start From template closes any open picker.
+    let _ = app.update(appearance_event(ThemeEvent::Start(0)));
+    assert_eq!(
+        app.win
+            .settings
+            .get()
+            .and_then(|settings| settings.editor.as_ref())
+            .and_then(|editor| editor.picker),
+        None
+    );
+}
+
+#[test]
 fn preferences_are_kept_across_a_restart() {
     let (mut app, folder) = preview();
     // The newest message sent at a time of its own, as Discord's are.
@@ -215,6 +510,25 @@ fn preferences_are_kept_across_a_restart() {
     assert_eq!(layout["flash_taskbar"], false);
 }
 
+/// The language chosen in Appearance reads at once in the page itself and
+/// is kept under the key older versions wrote.
+#[test]
+fn the_language_chosen_in_appearance_changes_every_text_and_is_kept() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "LANGUAGE"));
+    interact(&mut app, |ui| {
+        ui.click("English (US)").expect("the language");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Deutsch").expect("German");
+    });
+    assert_eq!(app.layout.prefs.interface_language.as_deref(), Some("de"));
+    assert!(shows(&app, "SPRACHE"), "the heading in German");
+    assert!(!shows(&app, "LANGUAGE"), "none left in English");
+    assert_eq!(stored(&folder)["interface_language"], "de");
+}
+
 #[test]
 fn a_device_chosen_in_voice_settings_is_the_one_used() {
     let (mut app, _folder) = preview();
@@ -250,6 +564,11 @@ fn the_soundboard_volume_moves_with_its_drag() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| state.discord_linked = true);
     open(&mut app, Section::Voice);
+    assert!(!shows(&app, "Soundboard volume"));
+    interact(&mut app, |ui| {
+        ui.click("Show additional audio settings")
+            .expect("the additional settings switch");
+    });
     assert!(shows(&app, "Soundboard volume"));
     assert!(!shows(&app, "37%"));
     let voice = |event| Message::Settings(Event::Voice(event));
@@ -265,6 +584,11 @@ fn the_soundboard_volume_moves_with_its_drag() {
             .is_some_and(|settings| settings.voice.soundboard.is_none())
     );
     assert!(!shows(&app, "37%"));
+    interact(&mut app, |ui| {
+        ui.click("Show additional audio settings")
+            .expect("the additional settings switch");
+    });
+    assert!(!shows(&app, "Soundboard volume"));
 }
 
 #[test]
@@ -462,7 +786,7 @@ fn a_new_setting_is_tagged_until_its_page_is_left() {
     let folder = tempfile::tempdir_in(super::local()).expect("test folder");
     std::fs::write(folder.path().join("layout.json"), b"{}").expect("layout");
     let mut app = start(&folder, true);
-    let _ = app.update(Message::Settings(Settings::Open(Section::Account)));
+    open(&mut app, Section::Account);
     assert!(shows(&app, "NEW"), "About's row says so");
     let _ = app.update(Message::Settings(Settings::Open(Section::About)));
     assert!(shows(&app, "Check for updates") && shows(&app, "NEW"));
@@ -608,6 +932,40 @@ fn edit_profile_from_settings_closes_them_under_the_editor() {
     assert!(app.win.settings.get().is_none(), "Settings close under it");
 }
 
+/// Appearance's Font lists no file until one is chosen. A file that is no
+/// font is left out, with the reason under the buttons, and isn't kept for
+/// the next start. (A real font isn't loaded here: the font database is the
+/// process's, and the other tests measure their text in DM Sans.)
+#[test]
+fn a_file_that_is_no_font_is_left_out_of_appearances_font() {
+    use crate::settings::{FontEvent, font_message};
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "FONT") && shows(&app, "Choose font files"));
+    assert!(!shows(&app, "Reset to default"), "nothing to reset yet");
+    let words = folder.path().join("notes.ttf");
+    std::fs::write(&words, b"only words, no font tables in here").expect("a file");
+    let _ = app.update(font_message(FontEvent::Chosen(vec![
+        words.to_str().expect("a path").to_owned(),
+    ])));
+    assert!(
+        shows(
+            &app,
+            "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+        ),
+        "the note names the file and says why"
+    );
+    assert!(!shows(&app, "Reset to default"), "nothing is loaded");
+    assert_eq!(stored(&folder)["ui_font_files"], serde_json::json!([]));
+    assert!(app.layout.prefs.ui_font_files.is_empty());
+    // Going back to DM Sans with nothing loaded is no change either.
+    let _ = app.update(font_message(FontEvent::Reset));
+    assert!(!shows(
+        &app,
+        "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+    ));
+}
+
 /// A call going on in Lounge, joined as the preview joins, unmuted
 /// unless `muted`: after the join, which turns the microphone on.
 fn in_a_call(app: &mut App, muted: bool) {
@@ -634,16 +992,40 @@ fn testing(app: &App) -> bool {
 }
 
 #[test]
-fn the_mic_test_deafens_a_call_while_it_plays_back_as_discords_does() {
+fn a_connecting_call_cannot_start_a_microphone_test() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Voice);
+    change(&mut app, |state| state.voice.phase = voice::Phase::Joining);
+    let _ = app.update(Message::Settings(Event::Voice(VoiceEvent::MicTest)));
+    assert!(
+        app.win
+            .settings
+            .get()
+            .is_some_and(|settings| !settings.voice.testing)
+    );
+}
+
+#[test]
+fn the_mic_test_deafens_a_call_while_it_plays_back() {
     let (mut app, _folder) = preview();
     in_a_call(&mut app, false);
     open(&mut app, Section::Voice);
+    change(&mut app, |state| {
+        state.voice.microphones = vec![voice::Device {
+            id: "test-mic".into(),
+            name: "Test microphone device".into(),
+        }];
+        state.voice.speakers = vec![voice::Device {
+            id: "test-speaker".into(),
+            name: "Test speaker device".into(),
+        }];
+    });
     assert!(shows(
         &app,
-        "You'll be muted and deafened in your call while you test."
+        "The test temporarily mutes your microphone and call audio."
     ));
     interact(&mut app, |ui| {
-        ui.click("Let's check").expect("the mic test's button");
+        ui.click("Test microphone").expect("the mic test's button");
     });
     assert!(testing(&app), "the meter plays the microphone back");
     let call = |app: &App| {
@@ -651,9 +1033,9 @@ fn the_mic_test_deafens_a_call_while_it_plays_back_as_discords_does() {
         (voice.muted, voice.deafened)
     };
     assert_eq!(call(&app), (true, true), "deafened, and so muted");
-    assert!(shows(&app, "Stop testing"));
+    assert!(shows(&app, "Stop microphone test"));
     interact(&mut app, |ui| {
-        ui.click("Stop testing").expect("the button");
+        ui.click("Stop microphone test").expect("the button");
     });
     assert!(!testing(&app));
     assert_eq!(call(&app), (false, false), "as it was");
@@ -698,7 +1080,7 @@ fn the_mic_test_without_a_call_deafens_nothing() {
     open(&mut app, Section::Voice);
     assert!(!shows(
         &app,
-        "You'll be muted and deafened in your call while you test."
+        "The test temporarily mutes your microphone and call audio."
     ));
     let call = |app: &App| {
         let voice = &app.client.state().voice;

@@ -3,6 +3,33 @@
 use super::*;
 
 #[test]
+fn partially_queued_attachments_are_not_sent_again() {
+    let folder = tempfile::tempdir().unwrap();
+    let first = folder.path().join("first.txt");
+    let second = folder.path().join("second.txt");
+    std::fs::write(&first, b"first").unwrap();
+    std::fs::write(&second, b"second").unwrap();
+    let mut app = connected();
+    app.dispatch(Action::Stage(vec![first.clone(), second.clone()]));
+    app.dispatch(Action::SetDraft("note".into()));
+    let Command::Send { body, .. } = send_command(app.dispatch(Action::Send)) else {
+        unreachable!()
+    };
+    app.apply(Event::AttachmentsQueued {
+        room: "dm".into(),
+        files: vec![first],
+    });
+    app.apply(Event::SendResult {
+        room: "dm".into(),
+        body,
+        result: Err("file missing"),
+    });
+    assert_eq!(app.state.draft(), "note");
+    assert_eq!(app.state.staged().len(), 1);
+    assert_eq!(app.state.staged()[0].path, second);
+}
+
+#[test]
 fn failed_sends_keep_the_draft_and_newer_drafts_survive_confirmation() {
     let mut app = connected();
     assert!(matches!(

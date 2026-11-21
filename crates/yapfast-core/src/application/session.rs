@@ -15,7 +15,9 @@ impl Application {
         let homeserver = homeserver.trim().to_owned();
         let username = username.trim().to_owned();
         if homeserver.is_empty() || username.is_empty() || password.is_empty() {
-            self.state.notice = Some("Enter your homeserver, Matrix ID, and password.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Enter your homeserver, Matrix ID, and password.".into(),
+            ));
             return vec![];
         }
         self.start(chat::Start::Login {
@@ -30,16 +32,20 @@ impl Application {
             return vec![];
         }
         if self.state.voice.active() {
-            self.state.notice = Some("Leave voice before recovering this device.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Leave voice before recovering this device.".into(),
+            ));
             return vec![];
         }
         let key = key.trim().to_owned();
         if key.is_empty() {
-            self.state.notice = Some("Enter your Matrix recovery key.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Enter your Matrix recovery key.".into(),
+            ));
             return vec![];
         }
         self.state.busy = true;
-        self.state.notice = Some("Recovering encryption keys...".into());
+        self.state.notice = Some(super::Notice::Info("Recovering encryption keys...".into()));
         vec![Effect::Backend(Command::Recover(key))]
     }
 
@@ -52,7 +58,7 @@ impl Application {
             vec![]
         } else if self.state.account.is_some() {
             self.state.busy = true;
-            self.state.notice = Some("Signing out...".into());
+            self.state.notice = Some(super::Notice::Info("Signing out...".into()));
             vec![Effect::Backend(Command::Logout)]
         } else {
             vec![]
@@ -94,12 +100,17 @@ impl Application {
         }
         self.stop_waiting();
         self.state.online = false;
-        self.state.notice = Some(STOPPED.into());
+        self.state.notice = Some(super::Notice::Error(STOPPED.into()));
     }
 
     /// Ends what dialogs wait for once no answer can come: sending a friend
     /// request, saving the custom status and fetching a profile fail.
     fn stop_waiting(&mut self) {
+        if let Some(dialog) = &mut self.state.server_creation
+            && dialog.request.take().is_some()
+        {
+            dialog.error = Some(STOPPED.into());
+        }
         if let Some(dialog) = self
             .state
             .add_friend
@@ -139,13 +150,14 @@ impl Application {
         self.state.loading_history = false;
         self.stop_waiting();
         if self.state.account.is_some() && (self.state.notice.is_none() || was_busy) {
-            self.state.notice = Some(STOPPED.into());
+            self.state.notice = Some(super::Notice::Error(STOPPED.into()));
         }
     }
 
     pub(super) fn reset(&mut self) {
         let selection_version = self.state.selection_version.wrapping_add(1);
         let reset_version = self.state.reset_version.wrapping_add(1);
+        let server_creation_request = self.server_creation_request;
         let people_changes = self.state.people_changes.wrapping_add(1);
         let reaction_uses = std::mem::take(&mut self.reaction_uses);
         let pinned = std::mem::take(&mut self.state.pinned);
@@ -154,6 +166,7 @@ impl Application {
         self.state.pinned = pinned;
         self.state.selection_version = selection_version;
         self.state.reset_version = reset_version;
+        self.server_creation_request = server_creation_request;
         self.state.people_changes = people_changes;
     }
 }

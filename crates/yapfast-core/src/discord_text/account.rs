@@ -15,6 +15,7 @@ use crate::chat::{
     NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange, SearchSort,
     Searched,
 };
+use crate::i18n::{self, tr_in};
 
 /// Carries out a command about the account, or gives back any other.
 pub(super) fn command(
@@ -1012,6 +1013,112 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::SendInviteLink { user, room, link }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = async {
+                        let dm = discord.open_dm(&user).await?;
+                        let nonce = yapfast_discord::message::nonce();
+                        let sending = yapfast_discord::api::Sending {
+                            nonce: &nonce,
+                            reply: None,
+                            ping_reply: false,
+                            silent: false,
+                        };
+                        discord
+                            .send(yapfast_discord::ready::PRIVATE, &dm, &link, sending, vec![])
+                            .await
+                    }
+                    .await
+                    .map(|_| ())
+                    .map_err(|error| {
+                        tracing::warn!(error = format!("{error:#}"), "could not send an invite");
+                        format!("Couldn't send the invite: {error}")
+                    });
+                    let _ = events.send(Event::InviteSent { user, room, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::InviteSent {
+                    user,
+                    room,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::CreateServer {
+        request,
+        name,
+        layout,
+        icon,
+    }) = command
+    {
+        let language = i18n::language();
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = async {
+                        let icon = match icon {
+                            Some(path) => {
+                                let picture = tokio::task::spawn_blocking(move || {
+                                    super::own_profile::read_shaped(
+                                        &path,
+                                        (128, 128),
+                                        (48, 48),
+                                        "a server icon",
+                                    )
+                                })
+                                .await
+                                .map_err(|_| tr_in(language, "Couldn't read the server icon."))?
+                                .map_err(|error| {
+                                    i18n::fill(
+                                        tr_in(language, "Couldn't use the server icon: {}"),
+                                        &[&error],
+                                    )
+                                })?;
+                                if picture.mime == "image/gif" {
+                                    return Err(tr_in(
+                                        language,
+                                        "Choose a PNG, JPG or WebP for the server icon.",
+                                    )
+                                    .into());
+                                }
+                                super::own_profile::picture(&Some(picture))
+                            }
+                            None => serde_json::Value::Null,
+                        };
+                        discord
+                            .create_server(&name, layout.text_channels(), icon.as_str())
+                            .await
+                            .map(|guild| discord::server_id(&guild))
+                            .map_err(|error| {
+                                i18n::fill(
+                                    tr_in(language, "Couldn't create the server: {}"),
+                                    &[&error],
+                                )
+                            })
+                    }
+                    .await;
+                    let _ = events.send(Event::ServerCreated { request, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::ServerCreated {
+                    request,
+                    result: Err(i18n::fill(
+                        tr_in(language, "Couldn't create the server: {}"),
+                        &[&error],
+                    )),
+                });
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::ResolveInvite { code, typed }) = command {
         match discord {
             Ok(discord) => {
@@ -1155,6 +1262,335 @@ pub(super) fn command(
                 let _ = events.send(Event::EventInterestSet {
                     event,
                     interested,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadQuests) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .quests()
+                        .await
+                        .map(|(offered, claimed)| {
+                            (
+                                offered.into_iter().map(quest).collect(),
+                                claimed.into_iter().map(quest).collect(),
+                            )
+                        })
+                        .map_err(|error| {
+                            tracing::warn!(error = format!("{error:#}"), "could not list quests");
+                            format!("Couldn't load quests: {error}")
+                        });
+                    let _ = events.send(Event::QuestsLoaded { result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::QuestsLoaded {
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::AcceptQuest { id }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord.enroll_quest(&id).await.map_err(|error| {
+                        tracing::warn!(error = format!("{error:#}"), "could not accept a quest");
+                        format!("Couldn't accept the quest: {error}")
+                    });
+                    let _ = events.send(Event::QuestAccepted { id, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::QuestAccepted {
+                    id,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ReportQuestVideo {
+        id,
+        seconds,
+        target,
+    }) = command
+    {
+        // A report that doesn't arrive is no loss: the next carries more.
+        let Ok(discord) = discord else {
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let result = discord
+                .quest_video_progress(&id, seconds, target)
+                .await
+                .map(|(status, done)| (quest_status(status), done))
+                .map_err(|error| {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not tell Discord how much of a quest's video was watched"
+                    );
+                    format!("Couldn't count the video: {error}")
+                });
+            let _ = events.send(Event::QuestProgress { id, result });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::ClaimQuest { id }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let captchas = events.clone();
+                    let shown = id.clone();
+                    let result = discord
+                        .claim_quest(&id, |page| {
+                            let _ = captchas.send(Event::QuestCaptcha {
+                                id: shown.clone(),
+                                page: page.to_owned(),
+                            });
+                        })
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not claim a quest's reward"
+                            );
+                            format!("Couldn't claim the reward: {error}")
+                        });
+                    let _ = events.send(Event::QuestClaimed { id, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::QuestClaimed {
+                    id,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::BuyProduct { sku }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord.buy_with_orbs(&sku).await.map_err(|error| {
+                        tracing::warn!(error = format!("{error:#}"), "could not buy a product");
+                        format!("Couldn't buy it: {error}")
+                    });
+                    let _ = events.send(Event::ProductBought { sku, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::ProductBought {
+                    sku,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadBoosts { server }) = command {
+        let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+            let _ = events.send(Event::BoostsLoaded {
+                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                server,
+            });
+            return None;
+        };
+        let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
+        tokio::spawn(async move {
+            let result = discord
+                .boost_slots(&guild)
+                .await
+                .map(|slots| crate::storefront::BoostSlots {
+                    free: slots.free.len() as u32,
+                    here: slots.here,
+                    elsewhere: slots.elsewhere,
+                    resting: slots.resting,
+                })
+                .map_err(|error| {
+                    tracing::warn!(error = format!("{error:#}"), "could not read the boosts");
+                    format!("Couldn't read your boosts: {error}")
+                });
+            let _ = events.send(Event::BoostsLoaded { server, result });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::BoostServer { server }) = command {
+        let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+            let _ = events.send(Event::ServerBoosted {
+                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                server,
+            });
+            return None;
+        };
+        let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
+        tokio::spawn(async move {
+            let result = discord.boost_server(&guild).await.map_err(|error| {
+                tracing::warn!(error = format!("{error:#}"), "could not boost a server");
+                format!("Couldn't boost the server: {error}")
+            });
+            let _ = events.send(Event::ServerBoosted { server, result });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadDiscover {
+        query,
+        category,
+        offset,
+        categories,
+    }) = command
+    {
+        let Ok(discord) = discord else {
+            let _ = events.send(Event::DiscoverLoaded {
+                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                query,
+                category,
+                offset,
+            });
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let result = discord
+                .discover(&query, category, offset, categories)
+                .await
+                .map(|(batch, categories)| crate::storefront::DiscoverBatch {
+                    servers: batch.servers.into_iter().map(discover_server).collect(),
+                    total: batch.total,
+                    categories: categories.map(|categories| {
+                        categories
+                            .into_iter()
+                            .map(|category| crate::storefront::DiscoverCategory {
+                                id: category.id,
+                                name: category.name,
+                            })
+                            .collect()
+                    }),
+                })
+                .map_err(|error| {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not list the discoverable servers"
+                    );
+                    format!("Couldn't load the servers: {error}")
+                });
+            let _ = events.send(Event::DiscoverLoaded {
+                query,
+                category,
+                offset,
+                result,
+            });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::JoinDiscovered { id }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let captchas = events.clone();
+                    let shown = id.clone();
+                    let result = discord
+                        .join_discoverable(&id, |page| {
+                            let _ = captchas.send(Event::DiscoverCaptcha {
+                                id: shown.clone(),
+                                page: page.to_owned(),
+                            });
+                        })
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not join a discoverable server"
+                            );
+                            format!("Couldn't join the server: {error}")
+                        });
+                    let _ = events.send(Event::DiscoverJoined { id, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::DiscoverJoined {
+                    id,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadGifts) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .gifts_to_give()
+                        .await
+                        .map(|gifts| {
+                            gifts
+                                .into_iter()
+                                .map(|gift| crate::storefront::GiftToGive {
+                                    code: gift.code,
+                                    name: gift.name,
+                                })
+                                .collect()
+                        })
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not list the gifts to give"
+                            );
+                            use crate::i18n::{fill, tr};
+                            if let Some(refused) =
+                                error.downcast_ref::<yapfast_discord::api::Refused>()
+                            {
+                                fill(tr("Discord returned HTTP {}."), &[&refused.0.as_u16()])
+                            } else {
+                                tr("Discord's gift inventory could not be read.").to_owned()
+                            }
+                        });
+                    let _ = events.send(Event::GiftsLoaded { result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::GiftsLoaded {
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadShop) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .shop()
+                        .await
+                        .map(|(categories, orbs)| {
+                            (categories.into_iter().map(category).collect(), orbs)
+                        })
+                        .map_err(|error| {
+                            tracing::warn!(error = format!("{error:#}"), "could not list the shop");
+                            format!("Couldn't load the Shop: {error}")
+                        });
+                    let _ = events.send(Event::ShopLoaded { result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::ShopLoaded {
                     result: Err(error.into()),
                 });
             }
@@ -1928,6 +2364,111 @@ fn unix_seconds(timestamp: &str) -> u64 {
     chrono::DateTime::parse_from_rfc3339(timestamp)
         .map(|time| u64::try_from(time.timestamp()).unwrap_or_default())
         .unwrap_or_default()
+}
+
+fn quest_status(status: yapfast_discord::quests::Status) -> crate::storefront::QuestStatus {
+    use crate::storefront::QuestStatus as Status;
+    use yapfast_discord::quests as discord;
+    match status {
+        discord::Status::Available => Status::Available,
+        discord::Status::Accepted => Status::Accepted,
+        discord::Status::Completed => Status::Completed,
+        discord::Status::Claimed => Status::Claimed,
+    }
+}
+
+fn quest(quest: yapfast_discord::quests::Quest) -> crate::storefront::Quest {
+    use crate::storefront::{QuestRewardKind as Reward, QuestTask as Task};
+    use yapfast_discord::quests as discord;
+    crate::storefront::Quest {
+        id: quest.id,
+        name: quest.name,
+        game: quest.game,
+        publisher: quest.publisher,
+        hero: quest.hero,
+        bar: quest.bar,
+        tile: quest.tile,
+        logo: quest.logo,
+        colors: quest.colors,
+        expires: quest.expires,
+        reward: quest.reward.map(|reward| crate::storefront::QuestReward {
+            kind: match reward.kind {
+                discord::RewardKind::Other => Reward::Other,
+                discord::RewardKind::Code => Reward::Code,
+                discord::RewardKind::InGame => Reward::InGame,
+                discord::RewardKind::Decoration => Reward::Decoration,
+                discord::RewardKind::Orbs => Reward::Orbs,
+                discord::RewardKind::Nitro => Reward::Nitro,
+            },
+            name: reward.name,
+            orbs: reward.orbs,
+            picture: reward.picture,
+        }),
+        task: match quest.task {
+            discord::Task::Play => Task::Play,
+            discord::Task::Stream => Task::Stream,
+            discord::Task::Watch => Task::Watch,
+            discord::Task::Activity => Task::Activity,
+            discord::Task::Achievement => Task::Achievement,
+        },
+        target: quest.target,
+        progress: quest.progress,
+        status: quest_status(quest.status),
+        link: quest.link,
+        button: quest.button,
+        video: quest.video.map(|video| crate::storefront::QuestVideo {
+            url: video.url,
+            thumbnail: video.thumbnail,
+        }),
+    }
+}
+
+fn discover_server(
+    server: yapfast_discord::discovery::Server,
+) -> crate::storefront::DiscoverServer {
+    crate::storefront::DiscoverServer {
+        id: server.id,
+        name: server.name,
+        description: server.description,
+        icon: server.icon,
+        splash: server.splash,
+        members: server.members,
+        online: server.online,
+        category: server.category,
+    }
+}
+
+fn category(category: yapfast_discord::shop::Category) -> crate::storefront::Category {
+    use crate::storefront::ProductKind as Kind;
+    use yapfast_discord::shop as discord;
+    crate::storefront::Category {
+        sku: category.sku,
+        name: category.name,
+        summary: category.summary,
+        banner: category.banner,
+        logo: category.logo,
+        orbs_only: category.orbs_only,
+        products: category
+            .products
+            .into_iter()
+            .map(|product| crate::storefront::Product {
+                sku: product.sku,
+                name: product.name,
+                summary: product.summary,
+                kind: match product.kind {
+                    discord::Kind::Other => Kind::Other,
+                    discord::Kind::Decoration => Kind::Decoration,
+                    discord::Kind::Effect => Kind::Effect,
+                    discord::Kind::Nameplate => Kind::Nameplate,
+                    discord::Kind::Frame => Kind::Frame,
+                    discord::Kind::Bundle => Kind::Bundle,
+                },
+                picture: product.picture,
+                price: product.price.as_ref().map(discord::Price::label),
+                orbs: product.orbs,
+            })
+            .collect(),
+    }
 }
 
 fn gift_preview(preview: yapfast_discord::gift::Preview) -> GiftPreview {

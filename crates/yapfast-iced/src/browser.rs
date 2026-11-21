@@ -1,9 +1,21 @@
-//! Opens web pages in the browser people chose; so far only Discord's
-//! captcha while linking. On the private test display, and in tests, no
+//! Opens web pages in the browser people chose. On the private test display, and in tests, no
 //! page opens: the host's browser would show it.
+
+#[cfg(test)]
+thread_local! {
+    static OPENED: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Browser requests on this test's thread, without launching a browser.
+#[cfg(test)]
+pub(crate) fn take_opened() -> Vec<String> {
+    OPENED.with(|opened| std::mem::take(&mut *opened.borrow_mut()))
+}
 
 /// Opens `page` in the default browser, and logs why if it couldn't.
 pub fn open(page: &str) {
+    #[cfg(test)]
+    OPENED.with(|opened| opened.borrow_mut().push(page.to_owned()));
     if cfg!(test) || std::env::var("YAPFAST_FRAMEWORK_ISOLATED_DISPLAY").as_deref() == Ok("1") {
         tracing::info!(page, "not opening a page from the test display");
         return;

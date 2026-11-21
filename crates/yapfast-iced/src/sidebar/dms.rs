@@ -12,11 +12,12 @@ use crate::{
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     people::StatusInk,
     people::{NameInk, Person},
-    pictures::{Face, Icon},
+    pictures::{Face, GroupIcon, Icon},
     style::rounded,
 };
 
 use super::{CHAT_BUTTON, DM_ROW, Event, ROW_RADIUS, Room};
+use yapfast_core::i18n::tr;
 
 impl<'a> super::View<'a> {
     /// A DM's row: the person's face with its decoration and presence, the
@@ -39,6 +40,7 @@ impl<'a> super::View<'a> {
             .key(Some(&room.id))
             .opacity(opacity)
             .decoration(room.decoration.as_deref(), pointed)
+            .group(room.group_icon.as_ref().map(GroupIcon::as_face))
             .dot(room.presence.map(|presence| {
                 (
                     presence,
@@ -89,7 +91,7 @@ impl<'a> super::View<'a> {
             ));
         } else if room.official && spot.is_none() {
             line = line.push(
-                text("Official Discord Message")
+                text(tr("Official Discord Message"))
                     .size(12)
                     .color(theme.muted)
                     .wrapping(text::Wrapping::None),
@@ -99,7 +101,7 @@ impl<'a> super::View<'a> {
             person = person.sub(line);
         }
         let mut face = self.cx.person(person);
-        if let Some(user) = room.wave.as_ref().filter(|_| pointed || room.selected) {
+        if let Some(user) = room.wave.as_ref() {
             face = face.push(self.wave_button(user));
         }
         if let Some(label) = room.close.filter(|_| pointed || room.selected) {
@@ -170,7 +172,10 @@ impl<'a> super::View<'a> {
         container(
             row![
                 self.cx.look.glyph(Icon::Check, 12, theme.on_accent),
-                text("OFFICIAL").size(10).font(BOLD).color(theme.on_accent),
+                text(tr("OFFICIAL"))
+                    .size(10)
+                    .font(BOLD)
+                    .color(theme.on_accent),
             ]
             .spacing(2)
             .align_y(Alignment::Center),
@@ -186,12 +191,12 @@ impl<'a> super::View<'a> {
     /// sends a waving hand.
     pub(super) fn wave_button(self, user: &str) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let (rest, lit, on) = (theme.accent, theme.accent_hover, theme.on_accent);
+        let ink = theme.text;
         button(
             container(
                 row![
-                    self.cx.look.glyph(Icon::Hand, 14, on),
-                    text("Wave").size(12).font(MEDIUM).color(on),
+                    self.cx.look.glyph(Icon::Hand, 14, ink),
+                    text(tr("Wave")).size(12).font(MEDIUM).color(ink),
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -202,7 +207,13 @@ impl<'a> super::View<'a> {
         )
         .padding(0)
         .on_press(Message::Side(Event::Wave(user.to_owned())))
-        .style(controls::lit_style(Some(rest), lit, 4.0))
+        .style(controls::outlined_lit_style(
+            theme.raised,
+            theme.active,
+            theme.line,
+            theme.line,
+            4.0,
+        ))
         .into()
     }
 }

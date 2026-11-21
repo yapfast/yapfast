@@ -9,6 +9,7 @@ use iced::Color;
 use yapfast_core::{
     application::{AppState, MenuChoice, ProfileView, Relation},
     chat::{Activities, Activity, Presence, Profile, Wishlist},
+    i18n::{self, tr},
 };
 
 use super::Event;
@@ -44,12 +45,12 @@ impl Offer {
             Offer::None => return None,
             Offer::Friends => (
                 Icon::Check,
-                "Friends",
+                tr("Friends"),
                 Some(Message::Profile(Event::More(id.to_owned()))),
             ),
-            Offer::Sent => (Icon::UserPlus, "Friend Request Sent", None),
-            Offer::Accept => (Icon::UserPlus, "Accept Friend Request", befriend()),
-            Offer::Add => (Icon::UserPlus, "Add Friend", befriend()),
+            Offer::Sent => (Icon::UserPlus, tr("Friend Request Sent"), None),
+            Offer::Accept => (Icon::UserPlus, tr("Accept Friend Request"), befriend()),
+            Offer::Add => (Icon::UserPlus, tr("Add Friend"), befriend()),
         })
     }
 }
@@ -204,14 +205,14 @@ impl Look {
             note_editable: discord && !own,
             accent: profile.accent,
             message_hint: if can_message {
-                format!("Message @{}", profile.name)
+                i18n::fill(tr("Message @{}"), &[&profile.name])
             } else {
                 String::new()
             },
-            mutual_friends: mutual_count(profile.friends.len(), "Friend"),
-            mutual_servers: mutual_count(profile.servers.len(), "Server"),
-            friends_label: mutual_label(mutuals_known, profile.friends.len(), "Friend"),
-            servers_label: mutual_label(mutuals_known, profile.servers.len(), "Server"),
+            mutual_friends: mutual_count(profile.friends.len(), true),
+            mutual_servers: mutual_count(profile.servers.len(), false),
+            friends_label: mutual_label(mutuals_known, profile.friends.len(), true),
+            servers_label: mutual_label(mutuals_known, profile.servers.len(), false),
             mutuals_known,
             tabs,
             recent_known: !discord || state.preview || profile.recent_came,
@@ -227,7 +228,7 @@ impl Look {
                     .unwrap_or_default()
             },
             note: if view.loading && !view.kept {
-                "Loading the profile...".to_owned()
+                tr("Loading the profile...").to_owned()
             } else {
                 view.note.clone().unwrap_or_default()
             },
@@ -323,20 +324,23 @@ fn activity_look(activity: &Activity) -> ActivityLook {
     };
     let (name_emoji, name) = yapfast_core::discord::status_parts(&name);
     let state = match (&activity.state, activity.party) {
-        (Some(state), Some((size, most))) => format!("{state} ({size} of {most})"),
-        (None, Some((size, most))) => format!("{size} of {most}"),
+        (Some(state), Some((size, most))) => {
+            i18n::fill(tr("{} ({} of {})"), &[&state, &size, &most])
+        }
+        (None, Some((size, most))) => i18n::fill(tr("{0} of {1}"), &[&size, &most]),
         (state, None) => state.as_deref().unwrap_or_default().to_owned(),
     };
     // Spotify's card is titled by the song, then by whom and on which album.
     let (name, details, state) = if activity.spotify() {
-        let after = |word: &str, text: &Option<Box<str>>| {
+        let after = |words: &'static str, text: &Option<Box<str>>| {
             text.as_deref()
-                .map_or(String::new(), |text| format!("{word} {text}"))
+                .map_or(String::new(), |text| i18n::fill(tr(words), &[&text]))
         };
         (
             activity.details.as_deref().unwrap_or(name).to_owned(),
-            after("by", &activity.state),
-            after("on", &activity.large_text),
+            // `later` for the catalog; shown through `tr` in `after`.
+            after(i18n::later("by {}"), &activity.state),
+            after(i18n::later("on {}"), &activity.large_text),
         )
     } else {
         (
@@ -362,19 +366,23 @@ fn activity_look(activity: &Activity) -> ActivityLook {
 }
 
 /// "1 Mutual Friend" or "5 Mutual Servers", as the card's line says it.
-fn mutual_count(count: usize, what: &str) -> String {
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} Mutual {what}{plural}")
+fn mutual_count(count: usize, friends: bool) -> String {
+    if friends {
+        i18n::trn("{n} Mutual Friend", "{n} Mutual Friends", count)
+    } else {
+        i18n::trn("{n} Mutual Server", "{n} Mutual Servers", count)
+    }
 }
 
 /// A mutual tab's name, as the client's: none till Discord has said, then
 /// how many.
-fn mutual_label(known: bool, count: usize, what: &str) -> String {
-    match (known, count) {
-        (false, _) => format!("Mutual {what}s"),
-        (true, 0) => format!("No Mutual {what}s"),
-        (true, 1) => format!("1 Mutual {what}"),
-        (true, count) => format!("{count} Mutual {what}s"),
+fn mutual_label(known: bool, count: usize, friends: bool) -> String {
+    match (known, count, friends) {
+        (false, _, true) => tr("Mutual Friends").to_owned(),
+        (false, _, false) => tr("Mutual Servers").to_owned(),
+        (true, 0, true) => tr("No Mutual Friends").to_owned(),
+        (true, 0, false) => tr("No Mutual Servers").to_owned(),
+        (true, count, friends) => mutual_count(count, friends),
     }
 }
 
@@ -385,11 +393,11 @@ fn wishlist_note(profile: &Profile) -> &'static str {
         .as_ref()
         .is_some_and(|place| place.private);
     match &profile.wishlist {
-        Wishlist::Unasked | Wishlist::Loading => "Loading the wishlist...",
-        Wishlist::Hidden => "This wishlist is private.",
-        Wishlist::Failed => "Couldn't load the wishlist.",
+        Wishlist::Unasked | Wishlist::Loading => tr("Loading the wishlist..."),
+        Wishlist::Hidden => tr("This wishlist is private."),
+        Wishlist::Failed => tr("Couldn't load the wishlist."),
         Wishlist::Loaded(items) if private && !items.is_empty() => {
-            "Your wishlist is private: only you can see it."
+            tr("Your wishlist is private: only you can see it.")
         }
         Wishlist::Loaded(_) => "",
     }
@@ -399,10 +407,10 @@ fn wishlist_note(profile: &Profile) -> &'static str {
 pub fn time_ago(at: u64) -> String {
     let minutes = yapfast_core::clock::now_ms().saturating_sub(at) / 60_000;
     match minutes {
-        0 => "Just now".to_owned(),
-        1..60 => format!("{minutes}m ago"),
-        60..1440 => format!("{}h ago", minutes / 60),
-        _ => format!("{}d ago", minutes / 1440),
+        0 => tr("Just now").to_owned(),
+        1..60 => i18n::fill(tr("{}m ago"), &[&minutes]),
+        60..1440 => i18n::fill(tr("{}h ago"), &[&(minutes / 60)]),
+        _ => i18n::fill(tr("{}d ago"), &[&(minutes / 1440)]),
     }
 }
 

@@ -18,12 +18,13 @@ use crate::{
     controls::{self, ROUND, ROUND_GLYPH, bar},
     header,
     pictures::Icon,
-    style::{faded, fill, rounded},
+    style::{faded, fill, hex, rounded},
     theme::rgb,
     tile::{self, GLASS, NOTE, Tile},
     video::{self, Video},
     widgets::Spot,
 };
+use yapfast_core::i18n::{self, tr};
 
 mod layout;
 pub use layout::{
@@ -35,6 +36,15 @@ pub use layout::{
 pub const CONTROLS: f32 = 111.0;
 /// The controls' row under the stage: 8 px over the buttons, 16 under.
 const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
+/// The Hide/Show Members capsule (`60 × 32`), 8 px into the strip's top
+/// when shown, and 6 px above the bottom of the stage (14 px over the
+/// controls' buttons) when hidden.
+pub const MEMBERS_TOGGLE: &str = "stage-members-toggle";
+const MEMBERS_WIDTH: f32 = 60.0;
+const MEMBERS_HEIGHT: f32 = 32.0;
+const MEMBERS_GLYPH: u32 = 24;
+const MEMBERS_STRIP_OFFSET: f32 = 8.0;
+const MEMBERS_BOTTOM_GAP: f32 = 6.0;
 
 /// The open room is a voice channel: the window shows its call.
 pub fn voice_selected(app: &App) -> bool {
@@ -98,7 +108,14 @@ pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
     let stage = Stage::of(voice);
     let slots = stage.slots();
     let focused = app.call.focus.as_ref().and_then(|focus| stage.slot(focus));
-    let (tiles, content) = tiles(slots.len(), focused, stage_size(app), full_shown(app));
+    let full = full_shown(app);
+    let (tiles, content) = tiles(
+        slots.len(),
+        focused,
+        stage_size(app),
+        full,
+        !full && app.call.hide_members,
+    );
     (slots, focused, tiles, content)
 }
 
@@ -152,8 +169,13 @@ pub fn keep_focus(app: &mut App) {
 /// video. With the call off screen, the corner's shows there.
 pub fn place_videos(app: &mut App) {
     let shown = stage_shown(app);
-    let (slots, focused, tiles, _) = stage(app);
+    let (slots, focused, tiles, content) = stage(app);
     let height = stage_size(app).height;
+    let scrolled = if content <= height + 0.5 {
+        0.0
+    } else {
+        app.call.scrolled
+    };
     let corner = corner(app);
     let voice = &app.client.state().voice;
     let mut sources = video::Sources::default();
@@ -182,7 +204,7 @@ pub fn place_videos(app: &mut App) {
             Some(corner_pixels)
         } else {
             shown
-                .then(|| shown_at(tiles[place], app.call.scrolled, height, scale))
+                .then(|| shown_at(tiles[place], scrolled, height, scale))
                 .flatten()
         };
         feed.show_at(at);
@@ -226,8 +248,8 @@ pub fn place_videos(app: &mut App) {
 /// New frames that change the view: a source's first, or a message's
 /// video's, how far it's got.
 pub fn frames_found(app: &mut App, clip_time: Option<u64>) {
-    if clip_time.is_some() {
-        app.playback.clip_time = clip_time;
+    if let Some(at_ms) = clip_time {
+        crate::playback::clip_frames(app, at_ms);
     }
 }
 
@@ -318,7 +340,7 @@ pub fn voice_description(app: &App) -> String {
     let room = state.selected_room();
     let present = room.map_or(&[][..], |room| room.people.as_slice());
     if room.is_some_and(|room| room.locked) {
-        return "Your roles on this Discord server don't let you join this channel.".into();
+        return tr("Your roles on this Discord server don't let you join this channel.").into();
     }
     if let Some(room) = crate::call::dm::dm_call(app).filter(|_| voice_here(app)) {
         let ringing: Vec<&str> = room
@@ -327,29 +349,29 @@ pub fn voice_description(app: &App) -> String {
             .map(|person| person.name.as_str())
             .collect();
         return if !ringing.is_empty() {
-            format!("Calling {}...", ringing.join(", "))
+            i18n::fill(tr("Calling {}..."), &[&ringing.join(", ")])
         } else if voice.participants.len() == 1 {
-            "Nobody else is in the call yet.".into()
+            tr("Nobody else is in the call yet.").into()
         } else {
-            "The call stays connected while you browse other conversations.".into()
+            tr("The call stays connected while you browse other conversations.").into()
         };
     }
     if voice_here(app) {
         return if voice.participants.len() == 1 {
-            "You're here alone. Stay as long as you like; others can join later.".into()
+            tr("You're here alone. Stay as long as you like; others can join later.").into()
         } else {
-            "Voice stays connected while you browse other conversations.".into()
+            tr("Voice stays connected while you browse other conversations.").into()
         };
     }
     let join = if joins_muted(app) {
-        "Join muted and hang out."
+        tr("Join muted and hang out.")
     } else {
-        "Join and hang out."
+        tr("Join and hang out.")
     };
     if present.is_empty() {
-        format!("{join} The channel stays here when empty.")
+        i18n::fill(tr("{} The channel stays here when empty."), &[&join])
     } else {
-        format!("{} here. {join}", super::who_is_here(present))
+        i18n::fill(tr("{0} here. {1}"), &[&super::who_is_here(present), &join])
     }
 }
 
@@ -387,16 +409,18 @@ fn join_view(app: &App) -> Element<'_, Message> {
             .is_some_and(|room| room.call_encrypted());
     if !encrypted {
         panel = panel.push(
-            text("This channel is unencrypted. Yapfast only joins encrypted voice channels.")
-                .size(15)
-                .color(theme.accent)
-                .align_x(Alignment::Center),
+            text(tr(
+                "This channel is unencrypted. Yapfast only joins encrypted voice channels.",
+            ))
+            .size(15)
+            .color(theme.accent)
+            .align_x(Alignment::Center),
         );
     }
     let label = if state.voice.active() {
-        "Switch voice channel"
+        tr("Switch voice channel")
     } else {
-        "Join voice"
+        tr("Join voice")
     };
     let can_join = app.client.state().can_join_voice(&id);
     let join: Element<'_, Message> = controls::action(
@@ -414,11 +438,13 @@ fn join_view(app: &App) -> Element<'_, Message> {
 }
 
 /// The stage: the tiles where they go, scrolled when they're taller
-/// than it.
+/// than it, with the Hide/Show Members toggle when a tile is focused
+/// beside others.
 pub fn stage_view(app: &App) -> Element<'_, Message> {
     let size = stage_size(app);
     let full = full_shown(app);
     let (slots, focused, tiles, content) = stage(app);
+    let has_strip = focused.is_some_and(|place| place < slots.len()) && !full && slots.len() > 1;
     // A click beside the large tile shows the grid again.
     let beside = if focused.is_some() && !full {
         Message::Call(Event::Focus(None))
@@ -434,19 +460,86 @@ pub fn stage_view(app: &App) -> Element<'_, Message> {
         let tile = stage_tile(app, place, *slot, *bounds, focused == Some(place), full);
         layers = layers.push(pin(tile).x(bounds.x).y(bounds.y));
     }
+    let toggle_x = ((size.width - MEMBERS_WIDTH) / 2.0).max(0.0);
+    if has_strip
+        && !app.call.hide_members
+        && let Some(strip_top) = tiles
+            .iter()
+            .enumerate()
+            .find(|&(place, _)| focused != Some(place))
+            .map(|(_, bounds)| bounds.y)
+    {
+        let y = (strip_top + MEMBERS_STRIP_OFFSET).clamp(0.0, (content - MEMBERS_HEIGHT).max(0.0));
+        layers = layers.push(pin(members_toggle(app)).x(toggle_x).y(y));
+    }
     let grid = layers.width(size.width).height(content);
-    if content <= size.height + 0.5 {
-        return container(grid)
+    let panel: Element<'_, Message> = if content <= size.height + 0.5 {
+        container(grid)
             .width(size.width)
             .height(size.height)
             .clip(true)
+            .into()
+    } else {
+        scroll_view(grid)
+            .width(size.width)
+            .height(size.height)
+            .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
+            .into()
+    };
+    if has_strip && app.call.hide_members {
+        let y = (size.height - MEMBERS_HEIGHT - MEMBERS_BOTTOM_GAP).max(0.0);
+        return stack![panel, pin(members_toggle(app)).x(toggle_x).y(y)]
+            .width(size.width)
+            .height(size.height)
             .into();
     }
-    scroll_view(grid)
-        .width(size.width)
-        .height(size.height)
-        .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
-        .into()
+    panel
+}
+
+/// The pill toggling the bottom participant strip under a large tile: a
+/// chevron and the users icon on a 60×32 capsule, with its tooltip above.
+fn members_toggle(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let (icon, label) = if app.call.hide_members {
+        (Icon::ChevronUp, "Show Members")
+    } else {
+        (Icon::ChevronDown, "Hide Members")
+    };
+    let (rest, lit) = if theme.bonfire {
+        (hex(0x2c2d32), hex(0x38393b))
+    } else {
+        (theme.button_default, theme.button_default_hover)
+    };
+    let face = container(
+        row![
+            app.look().glyph(icon, MEMBERS_GLYPH, theme.text),
+            app.look().glyph(Icon::Users, MEMBERS_GLYPH, theme.text),
+        ]
+        .spacing(0)
+        .align_y(Alignment::Center),
+    )
+    .id(iced::widget::Id::new(MEMBERS_TOGGLE))
+    .width(MEMBERS_WIDTH)
+    .height(MEMBERS_HEIGHT)
+    .padding(Padding {
+        left: 4.0,
+        right: 8.0,
+        ..Padding::ZERO
+    })
+    .align_y(Alignment::Center);
+    let toggle = button(face)
+        .padding(0)
+        .width(MEMBERS_WIDTH)
+        .height(MEMBERS_HEIGHT)
+        .on_press(Message::Call(Event::ToggleMembers))
+        .style(controls::lit_style(Some(rest), lit, MEMBERS_HEIGHT / 2.0));
+    iced::widget::tooltip(
+        toggle,
+        controls::tip(theme, label),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
 }
 
 /// One tile on the stage.
@@ -490,7 +583,7 @@ fn stage_tile(
             Tile::new(size, content, Some(Color::BLACK)).chip(tile::chip(
                 app.look(),
                 Vec::new(),
-                "Your screen",
+                tr("Your screen"),
                 live,
                 note,
             ))
@@ -501,14 +594,14 @@ fn stage_tile(
             right = Some(person.id.clone());
             let content = if watched {
                 viewers = watch_viewers();
-                stop = Some("Stop watching");
+                stop = Some(tr("Stop watching"));
                 frame(app, &format!("stream:{}", person.id), corners)
                     .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)))
             } else {
                 on_press = Message::Call(Event::Watch(person.id.clone()));
                 let column = column![
                     app.look().glyph(Icon::ScreenShare, 30, NOTE),
-                    tile::pill("Watch stream", theme.danger, theme.on_danger),
+                    tile::pill(tr("Watch stream"), theme.danger, theme.on_danger),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center);
@@ -538,7 +631,7 @@ fn stage_tile(
                 (filmed, Color::BLACK)
             } else if watched {
                 viewers = watch_viewers();
-                stop = Some("Stop watching");
+                stop = Some(tr("Stop watching"));
                 let content = frame(app, &format!("stream:{}", person.id), corners)
                     .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)));
                 (content, Color::BLACK)
@@ -572,18 +665,23 @@ fn stage_tile(
                 marks.push((Icon::HeadphoneOff, theme.danger));
             }
             let said = status(person);
-            let note =
-                (!matches!(said, "Muted" | "Deafened" | "Speaking" | "Listening")).then_some(said);
+            // Only a problem or a lost connection is worth a note; the rest
+            // the marks and the ring already say.
+            let note = (person.problem.is_some() || !person.connected).then_some(said);
             // A stream with a tile of its own is LIVE there.
             let live = person.streaming && (person.local || person.video.is_none());
             let mut tile = Tile::new(size, content, Some(ground))
                 .ring(speaking(person).then_some(theme.live))
                 .chip(tile::chip(app.look(), marks, &person.user, live, note));
             if person.local && voice.camera_phase == voice::CameraPhase::Starting {
-                tile = tile.top_left(tile::pill("Starting camera...", GLASS, Color::WHITE));
+                tile = tile.top_left(tile::pill(tr("Starting camera..."), GLASS, Color::WHITE));
             }
             if streams_here && !watched {
-                tile = tile.top_right(tile::pill("Watch stream", theme.danger, theme.on_danger));
+                tile = tile.top_right(tile::pill(
+                    tr("Watch stream"),
+                    theme.danger,
+                    theme.on_danger,
+                ));
             }
             tile
         }
@@ -608,9 +706,9 @@ fn stage_tile(
     }
     if large && pointed {
         let (icon, label) = if full {
-            (Icon::Minimize, "Exit full screen")
+            (Icon::Minimize, tr("Exit full screen"))
         } else {
-            (Icon::Maximize, "Full screen")
+            (Icon::Maximize, tr("Full screen"))
         };
         tile = tile.bottom_right(tile::glass_button(
             app.look(),
@@ -641,9 +739,9 @@ pub fn watch_status(app: &App) -> String {
         return String::new();
     };
     if watching.frames.is_none() {
-        format!("Connecting to {}'s stream...", watching.name)
+        i18n::fill(tr("Connecting to {}'s stream..."), &[&watching.name])
     } else {
-        format!("Waiting for {}'s picture...", watching.name)
+        i18n::fill(tr("Waiting for {}'s picture..."), &[&watching.name])
     }
 }
 
@@ -662,7 +760,7 @@ pub fn stream_viewers<'a>(
         .map(|person| (person.user.as_str(), person.avatar.as_deref()))
         .collect();
     let names: Vec<&str> = people.iter().map(|(name, _)| *name).collect();
-    let names = format!("Watching: {}", names.join(", "));
+    let names = i18n::fill(tr("Watching: {}"), &[&names.join(", ")]);
     viewers(app.ctx(), &people, names)
 }
 
@@ -678,7 +776,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let mut controls = row![
         controls::round_button(
             face(if voice.muted { Icon::MicOff } else { Icon::Mic }),
-            if voice.muted { "Unmute" } else { "Mute" },
+            if voice.muted {
+                tr("Unmute")
+            } else {
+                tr("Mute")
+            },
             if voice.muted { alert } else { theme.raised },
             theme,
             when(Message::Call(Event::Mute)),
@@ -689,7 +791,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             } else {
                 Icon::Headphones
             }),
-            if voice.deafened { "Undeafen" } else { "Deafen" },
+            if voice.deafened {
+                tr("Undeafen")
+            } else {
+                tr("Deafen")
+            },
             if voice.deafened { alert } else { theme.raised },
             theme,
             when(Message::Call(Event::Deafen)),
@@ -700,7 +806,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     if voice.soundboard.is_some() {
         controls = controls.push(app.ctx().spot(controls::round_button(
             face(Icon::Soundboard),
-            "Open Soundboard",
+            tr("Open Soundboard"),
             theme.raised,
             theme,
             when(Message::Call(Event::Open(Popup::Soundboard))),
@@ -712,11 +818,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         controls = controls.push(controls::round_button(
             face(if on { Icon::Video } else { Icon::VideoOff }),
             if starting {
-                "Starting camera..."
+                tr("Starting camera...")
             } else if on {
-                "Turn off camera"
+                tr("Turn off camera")
             } else {
-                "Turn on camera"
+                tr("Turn on camera")
             },
             if on {
                 faded(theme.live, 0.22)
@@ -736,9 +842,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
                 Icon::ScreenShare
             }),
             if sharing {
-                "Stop sharing"
+                tr("Stop sharing")
             } else {
-                "Share your screen"
+                tr("Share your screen")
             },
             if sharing {
                 faded(theme.live, 0.22)
@@ -773,7 +879,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     ));
     let leave = iced::widget::tooltip(
         leave,
-        controls::tip(theme, "Leave voice"),
+        controls::tip(theme, tr("Leave voice")),
         iced::widget::tooltip::Position::Top,
     )
     .gap(6);

@@ -18,7 +18,10 @@ member list, the DMs, and the lists still to come build on it.
   joined. Hidden (its toggle off, a thread or search in its place), the
   list keeps no lines, cards or pictures and builds none as the roster
   changes; shown again, it's built as the roster is then.
-- A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
+- A DM's row (`sidebar/dms.rs`) shows the person's face (or for a group DM
+  without a custom icon, Discord's circular group-people placeholder for two
+  members or two overlapping circular member avatars with a cutout for more, and
+  an online dot while any other member is online), styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in (a click
   goes to it, in its server) or what they're up to, a group's members, and its
   nameplate under the pointer or while open, filling the row to its edges and
@@ -27,8 +30,10 @@ member list, the DMs, and the lists still to come build on it.
   menu (`person_menu.rs`), built from the core's `person_choices`:
   Profile, Mention, Message, Call, Add Note,
   the friend and block choices, Mute, Timeout, Kick and Ban by name, Pin,
-  and Copy ID, each row with its icon (`place_menus::icon`, one for a
-  choice in every menu that offers it). Roles, Invite to server, Mute and Apps open submenus built
+  and Copy ID. As in Discord, no row has an icon but Copy ID's
+  (`place_menus::icon`), and the others keep no room for one; the menu is
+  as wide as its rows need, 177 px at the least, its words in the brightest
+  ink and its submenu arrows muted. Roles, Invite to server, Mute and Apps open submenus built
   as the menu opens: the server's roles this account may give or take
   (ticked where held, each tick sent at once with the menu kept open), the
   servers to invite them to, how long to mute their DM, and the open
@@ -142,8 +147,9 @@ member list, the DMs, and the lists still to come build on it.
   closes it. Escape closes the pad, then the window. The main profile
   shows its Board, Activity and Wishlist tabs where the card is 880 px or
   wider, in the editor's words ("Your Widgets", "N Items", "Current
-  activity", that adding more from Yapfast is coming soon, and the board's
-  note while the profile loads or after it failed to). A server's has what it edits over its banner and Nitro's offer
+  activity", and the board's note while the profile loads or after it failed
+  to). They show the profile as it is; Yapfast doesn't edit the board or the
+  wishlist, so nothing there pretends to. A server's has what it edits over its banner and Nitro's offer
   over what takes it. Once something changed the form kit's
   `Unsaved` bar offers Reset and Save Changes, which waits while a text is
   too long or a picture is read. Escape ends the editing, closes what's
@@ -153,13 +159,15 @@ member list, the DMs, and the lists still to come build on it.
   takes the list's place with Discord's Add Friend page (below), and at its end a button for a
   new group DM, which opens the same chooser as a new message; under it,
   once some account is blocked or ignored, a note that they are in the
-  settings ("Go to Settings"; closed by its x for the session), a search box with a magnifier, a heading
-  ("Online" or "All Friends", an em dash and the count), and each friend
-  with their presence, voice channel (a click goes to it) and status,
+  settings ("Go to Settings", on a ground darker than the page, 68 px tall, with its link
+  on a second line where it doesn't fit; closed by its x for the session), a search box with
+  a magnifier, a heading ("Online" or "All Friends", an en dash and the count), and each
+  friend, with the server tag they wear beside their name, their presence, voice channel (a click goes to it) and status,
   their avatar decoration (animated while pointed at), ruled apart from 6 px in to
   20 px short of the right, with a message button and a kebab that opens
   their menu; a click opens their DM, a right click their menu. Only
-  the rows in view are built. With the conversation at least 1000 px wide,
+  the rows in view are built. With the conversation at least 900 px wide (Discord shows it at 901 px; its lower
+  limit is not measured),
   Active Now (`active_now.rs`) stands beside it: friends together in a
   voice channel, in one game party, or each doing something Discord can
   name, a card each, made as Discord's `NowPlayingViewStore` makes them,
@@ -173,11 +181,12 @@ member list, the DMs, and the lists still to come build on it.
   with Accept and Ignore (or Cancel for those sent) and their latest
   message, which opens the conversation, with its time today on the clock
   Settings choose, else its day; then those sent, and spam folded
-  away. The Requests row counts a person's two requests once.
+  away. The Message Requests row counts a person's two requests once.
 - Add Friend's page, on the friends list, and its dialog, anywhere else
   one is asked for, send a request by username and say how it went (Send
   Friend Request, in the same box as the field on the page, "Sent {name} a
-  friend request." or Discord's words).
+  friend request." or Discord's words), then a line and a tile that opens Discover
+  ("Explore Discoverable Servers"); the page scrolls where the window is short.
 - Menus opened by a button rather than a right click open where it was
   pressed: the window notes each press's point (`RightPress::spot`).
 - Escape closes a dialog whose field has the keys (Add Friend, a person's
@@ -203,7 +212,10 @@ glyph cache. The card shows if the restore fails.
   with "Open it again", or the error with "Try again". "Use a token" opens
   the field instead; Link checks it with Discord. A refused token stays
   to fix; once the account is linked it's let go, its field closed. A
-  linked account starts the workspace. The screen's secrets (token,
+  linked account starts the workspace. Manage Accounts' Add Account shows
+  the same steps over the workspace (see [Dialogs](dialogs.md)), so with an
+  account in use the code and the token stay while that dialog is open.
+  The screen's secrets (token,
   password, recovery key) are overwritten as they go and never show in a
   log line of the screen or what's typed.
 - Matrix, with `matrix`: the homeserver, Matrix ID and password go to the

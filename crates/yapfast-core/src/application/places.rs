@@ -16,15 +16,20 @@ pub struct ListedCategory {
     pub empty: bool,
 }
 
-/// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 10] = [
+/// The server menu's choices its header's dropdown lists, in Discord's
+/// order: boosting, then inviting, settings and making channels, the channel
+/// list's and notifications' choices, one's own profile and hiding muted
+/// channels, leaving, and copying the id. Discord's own App Directory row is
+/// left out: it is a web page, which Yapfast doesn't send anyone to.
+const HEADER: [MenuChoice; 11] = [
+    MenuChoice::ServerBoost,
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
     MenuChoice::CreateCategory,
+    MenuChoice::ShowAllChannels,
     MenuChoice::ServerNotifications,
     MenuChoice::EditServerProfile,
-    MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
     MenuChoice::CopyId,
@@ -110,6 +115,9 @@ pub struct InviteDialog {
     pub link: Option<String>,
     pub making: bool,
     pub error: Option<String>,
+    /// The friends the dialog's Invite buttons sent the link to, or are
+    /// sending it to, by user id.
+    pub invited: Vec<String>,
 }
 
 impl Application {
@@ -151,7 +159,11 @@ impl Application {
         if !self.discord_server(server) {
             return vec![];
         }
-        let offered = self.menu_choices(server);
+        let mut offered = self.menu_choices(server);
+        // Its boost summary is the dropdown's own, while Discord is there.
+        if self.state.discord_online {
+            offered.push(MenuChoice::ServerBoost);
+        }
         HEADER
             .into_iter()
             .filter(|choice| offered.contains(choice))
@@ -661,6 +673,7 @@ impl Application {
             link: None,
             making: false,
             error: None,
+            invited: Vec::new(),
         });
         self.make_invite(FIRST_INVITE.0, FIRST_INVITE.1)
     }
@@ -823,11 +836,45 @@ impl Application {
         vec![]
     }
 
-    /// Says why an invite didn't go. One that went shows in the DM, which
-    /// lists it, as Discord's client shows it.
-    pub(super) fn invite_sent(&mut self, result: Result<(), String>) {
+    /// Sends a friend the invite dialog's link in their DM, once a link is
+    /// made, and marks them invited there.
+    pub(super) fn invite_friend(&mut self, user: String) -> Vec<Effect> {
+        let friend = self.state.friends.iter().any(|friend| friend.id == user);
+        let Some(invite) = self
+            .state
+            .invite
+            .as_mut()
+            .filter(|invite| friend && !invite.making && !invite.invited.contains(&user))
+        else {
+            return vec![];
+        };
+        let Some(link) = invite.link.clone() else {
+            return vec![];
+        };
+        invite.invited.push(user.clone());
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::SendInviteLink {
+                user,
+                room: invite.room.clone(),
+                link,
+            },
+        ))]
+    }
+
+    /// Says why an invite didn't go, and lets the invite dialog's button
+    /// for them send it again. One that went shows in the DM, which lists
+    /// it, as Discord's client shows it.
+    pub(super) fn invite_sent(&mut self, user: String, room: String, result: Result<(), String>) {
         if let Err(error) = result {
-            self.state.notice = Some(error);
+            if let Some(invite) = self
+                .state
+                .invite
+                .as_mut()
+                .filter(|invite| invite.room == room)
+            {
+                invite.invited.retain(|invited| *invited != user);
+            }
+            self.state.notice = Some(super::Notice::Error(error));
         }
     }
 

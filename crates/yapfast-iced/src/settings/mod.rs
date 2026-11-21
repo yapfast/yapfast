@@ -16,9 +16,12 @@
 //! (`form.rs`); each page's module holds its view and what its controls
 //! do.
 
-mod appearance;
+pub mod account;
+pub(crate) mod appearance;
+mod font;
 pub mod keybinds;
 mod pages;
+pub mod privacy;
 pub mod updates;
 
 pub use pages::message_size;
@@ -44,9 +47,13 @@ use crate::{
     theme::Theme,
 };
 
+#[cfg(test)]
+pub(crate) use appearance::COLOUR_CODE as THEME_COLOUR_CODE;
 use appearance::Editor;
 #[cfg(test)]
 pub use appearance::Event as ThemeEvent;
+pub(crate) use font::FontEvent;
+use yapfast_core::i18n::{later, tr};
 
 /// What a theme editor's change sends.
 #[cfg(test)]
@@ -54,12 +61,20 @@ pub fn appearance_event(event: ThemeEvent) -> Message {
     Message::Settings(Event::Theme(event))
 }
 
-/// How far the card sits in from the window's edges, and the sections'
-/// column's width.
-const MARGIN: f32 = 72.0;
+/// What a Font event sends.
+#[cfg(test)]
+pub fn font_message(event: FontEvent) -> Message {
+    Message::Settings(Event::Font(event))
+}
+
+/// How far the card sits in from the window's edges (Discord's, measured:
+/// 40 px), and the sections' column's width.
+const MARGIN: f32 = 40.0;
 const NAV: f32 = 266.0;
 /// A section's row in the column, the page's header over it.
 const NAV_ROW: f32 = 40.0;
+/// The room over a group's rule and under its name.
+const GROUP_ABOVE: f32 = 7.0;
 const HEADER: f32 = 48.0;
 /// The search's field, and the page's scrollable.
 pub const SEARCH: &str = "settings-search";
@@ -69,6 +84,11 @@ const PAGE: &str = "settings-page";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Account,
+    ContentSocial,
+    DataPrivacy,
+    Accessibility,
+    StreamerMode,
+    ActivityPrivacy,
     Voice,
     Messages,
     Notifications,
@@ -93,23 +113,32 @@ impl Section {
     /// The page's title in the header.
     fn title(self) -> &'static str {
         match self {
-            Section::Account => "My Account",
-            Section::Voice => "Voice & Video",
-            Section::Messages => "Messages",
-            Section::Notifications => "Notifications",
+            Section::Account => tr("My Account"),
+            Section::ContentSocial => tr("Content & Social"),
+            Section::DataPrivacy => tr("Data & Privacy"),
+            Section::Accessibility => tr("Accessibility"),
+            Section::StreamerMode => tr("Streamer Mode"),
+            Section::ActivityPrivacy => tr("Activity Privacy"),
+            Section::Voice => tr("Voice & Video"),
+            Section::Messages => tr("Messages"),
+            Section::Notifications => tr("Notifications"),
             Section::Discord => "Discord",
-            Section::Sounds => "Sounds",
-            Section::Advanced => "Advanced",
-            Section::Appearance => "Appearance",
-            Section::Games => "Game Activity",
-            Section::Keybinds => "Keybinds",
-            Section::About => "About",
+            Section::Sounds => tr("Sounds"),
+            Section::Advanced => tr("Advanced"),
+            Section::Appearance => tr("Appearance"),
+            Section::Games => tr("Game Activity"),
+            Section::Keybinds => tr("Keybinds"),
+            Section::About => tr("About"),
         }
     }
 
     fn icon(self) -> Icon {
         match self {
             Section::Account => Icon::User,
+            Section::ContentSocial => Icon::MessageCircle,
+            Section::DataPrivacy => Icon::Settings,
+            Section::Accessibility => Icon::Help,
+            Section::StreamerMode | Section::ActivityPrivacy => Icon::Play,
             Section::Voice => Icon::Mic,
             Section::Messages => Icon::MessageCircle,
             Section::Notifications => Icon::Bell,
@@ -127,22 +156,32 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    ("Account", &[Section::Account]),
     (
-        "Experience",
+        later("Account"),
+        &[
+            Section::Account,
+            Section::ContentSocial,
+            Section::DataPrivacy,
+        ],
+    ),
+    (
+        later("Experience"),
         &[
             Section::Voice,
             Section::Messages,
             Section::Notifications,
             Section::Sounds,
             Section::Appearance,
+            Section::Accessibility,
         ],
     ),
     (
-        "App Settings",
+        later("App Settings"),
         &[
             Section::Discord,
             Section::Games,
+            Section::ActivityPrivacy,
+            Section::StreamerMode,
             Section::Keybinds,
             Section::Advanced,
             Section::About,
@@ -158,6 +197,8 @@ pub enum Drop {
     Camera,
     Entrance,
     Start,
+    /// Appearance's language.
+    Language,
     /// A keybind's action, by its row.
     Keybind(usize),
 }
@@ -165,6 +206,7 @@ pub enum Drop {
 /// Settings while open.
 #[derive(Default)]
 pub struct Settings {
+    pub account: account::Account,
     pub section: Option<Section>,
     pub query: String,
     pub open: Option<Drop>,
@@ -174,9 +216,16 @@ pub struct Settings {
     /// which the window shows meanwhile.
     pub editor: Option<Editor>,
     preview: Option<Theme>,
+    /// How the last theme import or export went, under Appearance's title,
+    /// and whether it failed.
+    pub theme_note: Option<(String, bool)>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
+    /// What Appearance's Font says of the files just chosen that didn't
+    /// load, until the next change; none shows the standing note
+    /// (`custom_font::note`).
+    pub font_note: Option<String>,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
     /// The keybind being recorded, and the keys pressed so far.
@@ -219,9 +268,16 @@ pub enum Event {
     Pref(pages::Pref),
     /// My Account's and the Discord page's buttons.
     Account(pages::AccountEvent),
+    AccountPage(account::Event),
+    /// Opens the Connections tab of My Account, as the profile editor's
+    /// link does.
+    Connections,
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    /// Appearance's Font: choosing the font files, removing one, going back
+    /// to DM Sans.
+    Font(FontEvent),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
     /// A key went down or up, or the window lost the focus, while one is
@@ -286,6 +342,11 @@ impl Settings {
             Event::Search(query) => self.query = query,
             Event::Drop(drop) => {
                 self.open = (self.open != Some(drop)).then_some(drop);
+                if self.open.is_some()
+                    && let Some(editor) = self.editor.as_mut()
+                {
+                    editor.picker = None;
+                }
                 // What opened may show pictures, such as the entrance
                 // sounds' soundboard.
                 cx.touch();
@@ -306,9 +367,15 @@ impl Settings {
             Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),
             Event::Account(event) => self.account_event(event, cx),
+            Event::AccountPage(event) => return self.account_page_event(event, cx),
+            Event::Connections => {
+                return self
+                    .account_page_event(account::Event::Show(account::Tab::Connections), cx);
+            }
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
-            Event::Theme(event) => self.theme_event(event, cx),
+            Event::Theme(event) => return self.theme_event(event, cx),
+            Event::Font(event) => return self.font_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),
@@ -316,10 +383,15 @@ impl Settings {
         Task::none()
     }
 
-    /// Escape closes an open dropdown, stops recording a key, then closes
-    /// Settings.
+    /// Escape closes an open dropdown or colour picker, stops recording a
+    /// key, then closes Settings.
     pub fn escape(&mut self, cx: &mut Cx<'_>) {
         if self.open.take().is_some() {
+            return;
+        }
+        if let Some(editor) = self.editor.as_mut()
+            && editor.picker.take().is_some()
+        {
             return;
         }
         if self.record.take().is_some() {
@@ -427,7 +499,12 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let section = settings.section();
         let page = match section {
-            Section::Account => self.account_page(),
+            Section::Account => self.account_hub(),
+            Section::ContentSocial => self.content_social_page(),
+            Section::DataPrivacy => self.data_privacy_page(),
+            Section::Accessibility => self.accessibility_page(),
+            Section::StreamerMode => self.streamer_mode_page(),
+            Section::ActivityPrivacy => self.activity_privacy_page(),
             Section::Voice => self.voice_page(),
             Section::Messages => self.messages_page(),
             Section::Notifications => self.notifications_page(),
@@ -449,7 +526,11 @@ impl<'a> Page<'a> {
                     .width(Length::Fill),
                 self.cx
                     .look
-                    .icon_button(Icon::X, "Close Settings", Message::Settings(Event::Close))
+                    .icon_button(
+                        Icon::X,
+                        tr("Close Settings"),
+                        Message::Settings(Event::Close)
+                    )
                     .size(32.0, 18)
                     .below()
             ]
@@ -475,21 +556,23 @@ impl<'a> Page<'a> {
         .id(iced::widget::Id::new(PAGE))
         .style(scrollbar(theme))
         .height(Length::Fill);
-        let panel = theme.panel;
+        let (sidebar, chat) = crate::sheet::grounds(theme);
         let radius = crate::sheet::RADIUS;
         let content = container(column![header, body])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| {
-                crate::style::rounded(panel, crate::style::corners([0.0, radius, radius, 0.0]))
+                crate::style::rounded(chat, crate::style::corners([0.0, radius, radius, 0.0]))
             });
-        let chat = theme.chat;
         let card = row![
             container(self.nav())
                 .width(NAV)
                 .height(Length::Fill)
                 .style(move |_| {
-                    crate::style::rounded(chat, crate::style::corners([radius, 0.0, 0.0, radius]))
+                    crate::style::rounded(
+                        sidebar,
+                        crate::style::corners([radius, 0.0, 0.0, radius]),
+                    )
                 }),
             content
         ];
@@ -517,7 +600,7 @@ impl<'a> Page<'a> {
             names = names.push(
                 button(
                     row![
-                        text("Edit Profile").size(13),
+                        text(tr("Edit Profile")).size(13),
                         self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
@@ -541,35 +624,71 @@ impl<'a> Page<'a> {
             right: 16.0,
             ..iced::Padding::ZERO
         })
-        .height(56);
+        .height(48);
+        let (ink, hint, selection, sunken, line_color) = (
+            theme.text,
+            theme.muted,
+            theme.selection,
+            theme.sunken,
+            theme.line,
+        );
+        let search_input = iced::widget::text_input(
+            yapfast_core::i18n::tr_ctx("settings search", "Search"),
+            &settings.query,
+        )
+        .id(iced::widget::Id::new(SEARCH))
+        .size(14)
+        .padding(0)
+        .on_input(|query| Message::Settings(Event::Search(query)))
+        .style(move |_, _| iced::widget::text_input::Style {
+            background: Color::TRANSPARENT.into(),
+            border: iced::Border::default(),
+            icon: ink,
+            placeholder: hint,
+            value: ink,
+            selection,
+        });
         let search = container(
-            controls::field(
-                theme,
-                SEARCH,
-                "Search settings",
-                &settings.query,
-                false,
-                true,
+            container(
+                row![
+                    self.cx.look.glyph(Icon::Search, 16, theme.muted),
+                    search_input
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
             )
-            .size(14)
-            .padding([11, 12])
-            .on_input(|query| Message::Settings(Event::Search(query))),
+            .padding([0, 12])
+            .height(40)
+            .width(Length::Fill)
+            .align_y(Alignment::Center)
+            .style(move |_| crate::style::outlined(sunken, line_color, 8.0)),
         )
         .padding([0, 16]);
         let query = settings.query.to_lowercase();
         let mut entries = column![];
+        // The rule between the groups: 6.5 % white over the column.
+        let rule = crate::theme::mix(Color::WHITE, crate::sheet::grounds(theme).0, 0.065);
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
-            if query.is_empty() {
-                entries = entries.push(
-                    container(text(*group).size(12).color(theme.muted))
+            // As Discord's: the first group has no name, and a rule runs
+            // between the groups with the next one's name under it.
+            if query.is_empty() && index > 0 {
+                entries = entries
+                    .push(Space::new().height(GROUP_ABOVE))
+                    .push(bar(rule, Length::Fill, 1))
+                    .push(
+                        container(
+                            text(tr(group))
+                                .size(12)
+                                .line_height(iced::Pixels(16.0))
+                                .color(theme.muted),
+                        )
                         .padding(iced::Padding {
-                            top: if index == 0 { 0.0 } else { 16.0 },
-                            left: 8.0,
+                            top: 16.0,
+                            left: 10.0,
+                            bottom: GROUP_ABOVE,
                             ..iced::Padding::ZERO
-                        })
-                        .height(if index == 0 { 24.0 } else { 40.0 })
-                        .align_y(Alignment::Center),
-                );
+                        }),
+                    );
             }
             for &section in *sections {
                 // Discord's own sections, outside the preview.
@@ -591,14 +710,23 @@ impl<'a> Page<'a> {
         }))
         .style(scrollbar(theme))
         .height(Length::Fill);
-        let mut nav = column![head, search, list];
+        // Discord's column from its top: the account's block 7 px lower than
+        // its 16 px room gives, the search where it was, the first section
+        // 10 px under the search.
+        let mut nav = column![
+            head,
+            Space::new().height(13),
+            search,
+            Space::new().height(10),
+            list
+        ];
         if let Some(notice) = self.update_notice() {
-            nav = nav.push(notice);
+            nav = nav.push(Space::new().height(16)).push(notice);
         }
-        nav.push(self.build_stamp(settings.copied))
-            .spacing(16)
+        nav.push(Space::new().height(16))
+            .push(self.build_stamp(settings.copied))
             .padding(iced::Padding {
-                top: 16.0,
+                top: 27.0,
                 ..iced::Padding::ZERO
             })
             .into()
@@ -638,7 +766,7 @@ impl<'a> Page<'a> {
         let tint = build_tint(theme, build.tone);
         let mut second = row![
             text(if copied {
-                "Copied"
+                tr("Copied")
             } else {
                 build.channel.as_str()
             })
@@ -670,7 +798,7 @@ impl<'a> Page<'a> {
         .style(|_, _| button::Style::default());
         let face = iced::widget::tooltip(
             face,
-            controls::tip(theme, "Click to copy"),
+            controls::tip(theme, tr("Click to copy")),
             iced::widget::tooltip::Position::Top,
         );
         column![bar(theme.line, Length::Fill, 1), face]

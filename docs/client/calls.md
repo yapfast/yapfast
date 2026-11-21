@@ -11,7 +11,11 @@ The call's views and what they do are in `call/`.
   in it)
   lays the tiles out in a grid, or one large with the rest in a row under
   it; a click on a tile makes it large, and a click beside it the grid
-  again. The tiles scroll when there are more than fit. Each tile is a
+  again. While a tile is large beside others, a pill on the strip's top
+  edge (Hide Members) collapses the bottom strip to `Size::ZERO` so hidden
+  cameras stop decoding and the large tile expands to fill the stage's
+  height, moving the pill just above the controls (Show Members) to bring
+  it back; leaving the call resets it. The tiles scroll when there are more than fit. Each tile is a
   `tile::Tile`: a camera, a stream or the avatar (a camera shows the
   avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream
@@ -31,9 +35,9 @@ The call's views and what they do are in `call/`.
   the soundboard and someone's voice menu each a file): the device to use (one chosen that
   went away shows as not connected), its volume, which plays while it's
   dragged and is kept in `layout.json` when let go, and on the input side
-  the microphone's level, measured only while the menu shows and read
-  as it's drawn, and the
-  noise suppression kind.
+  the noise suppression kind as its profile. Compact, as Discord's: the
+  device and the profile each open a page of the menu (`device::Page`)
+  with their choices and a back row; the level meter is in Settings.
 - Go Live's menu lists the screens with a picture of each (from a stream
   worker started for them and gone once they're in), the windows, the
   system's own dialog where the portal picks, and the cameras, then the

@@ -8,8 +8,42 @@ use iced::Task;
 
 use super::{App, Message};
 use crate::ctx::cx;
+use yapfast_core::i18n::tr;
 
 impl App {
+    pub fn boost_goal_event(&mut self, event: crate::boost_goal::Event) -> Task<Message> {
+        use crate::{
+            boost_goal::{Event, Shown},
+            slot::Why,
+        };
+        let mut cx = cx!(self);
+        match event {
+            Event::Open => {
+                if let Some(shown) = Shown::open(&mut cx) {
+                    self.win.boost_goal.close(&mut cx, Why::Core);
+                    self.win.boost_goal.open(|| shown);
+                }
+                Task::none()
+            }
+            event => match self.win.boost_goal.get_mut() {
+                Some(shown) => shown.update(event, &mut cx),
+                None => Task::none(),
+            },
+        }
+    }
+
+    pub fn boost_goal_sync(&mut self) {
+        let mut cx = cx!(self);
+        if self
+            .win
+            .boost_goal
+            .get()
+            .is_some_and(|shown| !shown.follows(cx.state()))
+        {
+            self.win.boost_goal.close(&mut cx, crate::slot::Why::Core);
+        }
+    }
+
     /// A server tag's card: a tag clicked opens its card under the press,
     /// in place of one open.
     pub fn tag_card_event(&mut self, event: crate::tag_card::Event) -> Task<Message> {
@@ -198,13 +232,13 @@ impl App {
             Event::ActivityMenu(privacy) => {
                 let mut rows = vec![crate::menus::MenuRow::new(
                     crate::menus::MenuAct::AllActivity,
-                    "View All Activity",
+                    tr("View All Activity"),
                     crate::pictures::Icon::Gamepad,
                 )];
                 if privacy {
                     rows.push(crate::menus::MenuRow::new(
                         crate::menus::MenuAct::ActivityPrivacy,
-                        "Manage Privacy",
+                        tr("Manage Privacy"),
                         crate::pictures::Icon::Lock,
                     ));
                 }

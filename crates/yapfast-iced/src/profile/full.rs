@@ -23,6 +23,7 @@ use crate::{
     theme::rgb,
     widgets::Pic,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// A line of the card's words, wrapped.
 fn note<'a>(ink: Color, words: &'a str) -> Element<'a, Message> {
@@ -103,9 +104,9 @@ pub(super) fn full_view<'a>(
     let mut tabs = row![].spacing(20).height(40);
     for entry in &look.tabs {
         let label = match entry {
-            Tab::Board => "Board",
-            Tab::Activity => "Activity",
-            Tab::Wishlist => "Wishlist",
+            Tab::Board => tr("Board"),
+            Tab::Activity => tr("Activity"),
+            Tab::Wishlist => tr("Wishlist"),
             Tab::Friends => look.friends_label.as_str(),
             Tab::Servers => look.servers_label.as_str(),
         };
@@ -279,21 +280,30 @@ fn empty_tab<'a>(
     let profile = look.profile();
     let (heading, body) = match tab {
         Tab::Activity if look.own => (
-            "You don't have any activity here".to_owned(),
-            "Connect your accounts to share your in-game status and activity. You're in control of what you share.",
+            tr("You don't have any activity here").to_owned(),
+            tr(
+                "Connect your accounts to share your in-game status and activity. You're in control of what you share.",
+            ),
         ),
         Tab::Activity => (
-            format!("{} doesn't have any activity to share here", profile.name),
-            "Looks like this profile is still a work in progress - send them a message to say hi!",
+            i18n::fill(
+                tr("{} doesn't have any activity to share here"),
+                &[&profile.name],
+            ),
+            tr(
+                "Looks like this profile is still a work in progress - send them a message to say hi!",
+            ),
         ),
         Tab::Friends => (
-            "You don't have any friends in common".to_owned(),
-            "No mutual friends yet - perfect time to make a new connection",
+            tr("You don't have any friends in common").to_owned(),
+            tr("No mutual friends yet - perfect time to make a new connection"),
         ),
-        _ if look.bot => (String::new(), "No servers in common"),
+        _ if look.bot => (String::new(), tr("No servers in common")),
         _ => (
-            "You don't have any servers in common".to_owned(),
-            "Time to impress them with your taste...drop an invite link to your favorite server",
+            tr("You don't have any servers in common").to_owned(),
+            tr(
+                "Time to impress them with your taste...drop an invite link to your favorite server",
+            ),
         ),
     };
     let mut words = column![].spacing(8).align_x(Alignment::Center);
@@ -320,7 +330,7 @@ fn empty_tab<'a>(
             container(
                 action(
                     ctx.look.theme,
-                    "Message",
+                    tr("Message"),
                     Kind::Plain,
                     Some(Message::Profile(Event::Message(profile.id.clone()))),
                 )
@@ -357,7 +367,7 @@ fn activity_tab<'a>(
     }
     if !profile.recent.is_empty() {
         list = list.push(
-            text("Recent activity")
+            text(tr("Recent activity"))
                 .size(12)
                 .font(MEDIUM)
                 .color(inks.ink2),
@@ -421,10 +431,10 @@ fn activity_tab<'a>(
 fn board_tab<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> Element<'a, Message> {
     let profile = shown.look.profile();
     if profile.board_asked && !profile.board_named {
-        return note(inks.ink2, "Loading the board...");
+        return note(inks.ink2, tr("Loading the board..."));
     }
     if profile.widgets.is_empty() {
-        return note(inks.ink3, "Nothing on the board yet.");
+        return note(inks.ink3, tr("Nothing on the board yet."));
     }
     board_cards(ctx, shown, inks, column![].spacing(12)).into()
 }
@@ -476,13 +486,6 @@ fn board_cards<'a>(
                 .align_y(Alignment::Center),
             );
         }
-        if !widget.lists_games {
-            card = card.push(
-                text("This one only shows in Discord for now.")
-                    .size(12)
-                    .color(inks.ink3),
-            );
-        }
         list = list.push(
             container(card)
                 .padding(14)
@@ -511,9 +514,9 @@ fn wishlist_tab<'a>(
     };
     if look.wishlist_note.is_empty() && items.is_empty() {
         let words = if look.own {
-            "Nothing on your wishlist yet."
+            tr("Nothing on your wishlist yet.")
         } else {
-            "Nothing on their wishlist."
+            tr("Nothing on their wishlist.")
         };
         return list.push(note(inks.ink3, words)).into();
     }
@@ -567,8 +570,7 @@ fn wishlist_cards<'a>(
 }
 
 /// What the profile editor's tabs show of the profile as it will be: the
-/// widgets and the wishlist with what adding to them from here is, and
-/// what's going on now. `board` is the board's note while the profile
+/// widgets and the wishlist as they are, and what's going on now. `board` is the board's note while the profile
 /// loads or after it failed to.
 pub(super) fn editor_tab_page<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -580,16 +582,11 @@ pub(super) fn editor_tab_page<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let heading = |words: String| text(words).size(13).font(SEMIBOLD).color(inks.ink2);
-    let soon = || {
-        text("Adding more from Yapfast is coming soon.")
-            .size(12)
-            .color(inks.ink3)
-    };
     let page = match tab {
         Tab::Activity => {
-            let mut list = column![heading("Current activity".to_owned())].spacing(10);
+            let mut list = column![heading(tr("Current activity").to_owned())].spacing(10);
             if look.activities.is_empty() {
-                list = list.push(note(inks.ink3, "Nothing going on right now."));
+                list = list.push(note(inks.ink3, tr("Nothing going on right now.")));
             }
             for activity in &look.activities {
                 list = list.push(crate::profile::activity::activity_card_view(
@@ -604,11 +601,10 @@ pub(super) fn editor_tab_page<'a>(
                 Some(words) => list = list.push(note(inks.ink2, words)),
                 None => {
                     if profile.widgets.is_empty() {
-                        list = list.push(note(inks.ink2, "Nothing on your board yet."));
+                        list = list.push(note(inks.ink2, tr("Nothing on your board yet.")));
                     } else {
-                        list = list.push(heading("Your Widgets".to_owned()));
+                        list = list.push(heading(tr("Your Widgets").to_owned()));
                     }
-                    list = list.push(soon());
                 }
             }
             board_cards(ctx, shown, inks, list)
@@ -621,16 +617,12 @@ pub(super) fn editor_tab_page<'a>(
             let mut list = column![].spacing(12);
             match items.len() {
                 0 => {}
-                1 => list = list.push(heading("1 Item".to_owned())),
-                count => list = list.push(heading(format!("{count} Items"))),
+                count => list = list.push(heading(i18n::trn("{n} Item", "{n} Items", count))),
             }
             if !look.wishlist_note.is_empty() {
                 list = list.push(note(inks.ink2, look.wishlist_note));
             } else if items.is_empty() {
-                list = list.push(note(inks.ink2, "Nothing on your wishlist yet."));
-            }
-            if look.wishlist_note.is_empty() || !items.is_empty() {
-                list = list.push(soon());
+                list = list.push(note(inks.ink2, tr("Nothing on your wishlist yet.")));
             }
             wishlist_cards(ctx, shown, items, inks, list)
         }

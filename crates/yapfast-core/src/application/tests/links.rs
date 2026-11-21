@@ -68,6 +68,86 @@ fn invite_to(code: &str, guild: &str, channel: &str) -> chat::InvitePreview {
 
 #[test]
 #[cfg(feature = "discord")]
+fn server_creation_waits_for_confirmation_and_for_the_new_server_to_list() {
+    let mut app = discord_server();
+    app.dispatch(Action::OpenAddServer);
+    let create = |name: &str| Action::CreateServer {
+        name: name.into(),
+        icon: None,
+    };
+    assert!(app.dispatch(create("Premature")).is_empty());
+    app.dispatch(Action::ChooseServerLayout(Some(chat::ServerLayout::Study)));
+    assert!(app.dispatch(create(" J ")).is_empty());
+    let dialog = app.state.server_creation.as_ref().unwrap();
+    assert!(dialog.error.is_some() && !dialog.creating());
+    let created = app.dispatch(create("  Study Hall  "));
+    let request = match created.as_slice() {
+        [
+            Effect::Backend(Command::Discord(DiscordCommand::CreateServer {
+                request,
+                name,
+                layout: chat::ServerLayout::Study,
+                icon: None,
+            })),
+        ] if name == "Study Hall" => *request,
+        _ => panic!("expected one creation request"),
+    };
+    assert!(app.dispatch(create("Duplicate")).is_empty());
+    app.dispatch(Action::CloseAddServer);
+    assert!(app.state.server_creation.as_ref().unwrap().creating());
+
+    app.apply(Event::ServerCreated {
+        request,
+        result: Err("Discord refused the name.".into()),
+    });
+    let dialog = app.state.server_creation.as_ref().unwrap();
+    assert_eq!(dialog.error.as_deref(), Some("Discord refused the name."));
+    assert!(!dialog.creating());
+
+    let retried = app.dispatch(create("Study Hall"));
+    let next = match retried.as_slice() {
+        [Effect::Backend(Command::Discord(DiscordCommand::CreateServer { request, .. }))] => {
+            *request
+        }
+        _ => panic!("expected one retry"),
+    };
+    app.apply(Event::ServerCreated {
+        request,
+        result: Ok("discord:99".into()),
+    });
+    assert!(
+        app.state.server_creation.as_ref().unwrap().creating(),
+        "old response ignored"
+    );
+    app.apply(Event::ServerCreated {
+        request: next,
+        result: Ok("discord:20".into()),
+    });
+    assert!(app.state.server_creation.is_none());
+    assert_ne!(
+        app.state.navigation,
+        Navigation::Server("discord:20".into())
+    );
+
+    let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
+    let created = yapfast_discord::ready::server(&serde_json::json!({
+        "id": "20", "name": "Study Hall", "owner_id": "99",
+        "roles": [{"id": "20", "name": "@everyone", "position": 0,
+                   "permissions": yapfast_discord::ready::permission::VIEW_CHANNEL.to_string()}],
+        "channels": [{"id": "21", "type": 0, "name": "general", "position": 0}],
+    }))
+    .unwrap();
+    snapshot.servers.push(MarkedServer::from(created));
+    app.apply(discord_event(snapshot));
+    assert_eq!(
+        app.state.navigation,
+        Navigation::Server("discord:20".into())
+    );
+    assert_eq!(app.state.selected.as_deref(), Some("discord:20:21"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn join_a_server_shows_the_invite_and_joins_on_the_click() {
     let mut app = discord_server();
     app.dispatch(Action::OpenJoinServer);
@@ -191,7 +271,51 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
     assert!(!join.joining);
     assert!(join.error.unwrap().ends_with("full."));
 
-    // A server with a form to fill in sends it to Discord's web app.
+    // A server with a form to fill in has it read and shown in the dialog.
+    app.dispatch(Action::JoinServer);
+    let effects = app.apply(Event::ServerJoined {
+        code: "new".into(),
+        result: Ok(chat::JoinedServer {
+            server: "discord:30".into(),
+            room: "discord:30:31".into(),
+            form: true,
+        }),
+    });
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Backend(Command::Discord(DiscordCommand::LoadScreening { server, code }))
+            if server == "discord:30" && code == "new"
+    )));
+    assert!(app.dispatch(Action::JoinServer).is_empty());
+    let dialog = app.state.join.as_ref().and_then(|join| join.form.as_ref());
+    assert!(dialog.is_some_and(|dialog| dialog.loading));
+}
+
+#[cfg(feature = "discord")]
+fn screening_field(kind: chat::ScreeningKind, required: bool) -> chat::ScreeningField {
+    chat::ScreeningField {
+        kind,
+        label: "A question".into(),
+        description: None,
+        required,
+        values: vec!["Red".into(), "Blue".into()],
+        agreed: false,
+        text: String::new(),
+        choice: None,
+    }
+}
+
+/// A server joined, whose form just arrived: rules, a line it may skip, and
+/// a choice to make.
+#[cfg(feature = "discord")]
+fn screening_shown() -> Application {
+    use chat::ScreeningKind::{Choice, Terms, Text};
+    let mut app = discord_server();
+    app.dispatch(Action::OpenInviteLink("new".into()));
+    app.apply(Event::InviteResolved {
+        code: "new".into(),
+        result: Ok(invite_to("new", "30", "31")),
+    });
     app.dispatch(Action::JoinServer);
     app.apply(Event::ServerJoined {
         code: "new".into(),
@@ -201,13 +325,131 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
             form: true,
         }),
     });
-    assert!(app.dispatch(Action::JoinServer).is_empty());
-    let effects = app.dispatch(Action::OpenJoinForm);
+    app.apply(Event::ScreeningLoaded {
+        server: "discord:30".into(),
+        result: Ok(chat::ScreeningForm {
+            version: "v1".into(),
+            description: String::new(),
+            fields: vec![
+                screening_field(Terms, true),
+                screening_field(Text, false),
+                screening_field(Choice, true),
+            ],
+        }),
+    });
+    app
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_servers_form_goes_in_once_what_must_be_answered_is() {
+    let mut app = screening_shown();
+    // Nothing goes before the rules are agreed to and a choice is made.
+    assert!(app.dispatch(Action::SubmitScreening).is_empty());
+    app.dispatch(Action::AnswerScreening(0, ScreeningAnswer::Agree(true)));
+    assert!(app.dispatch(Action::SubmitScreening).is_empty());
+    // An answer that doesn't fit its question, or its choices, is left out.
+    app.dispatch(Action::AnswerScreening(
+        0,
+        ScreeningAnswer::Text("hello".into()),
+    ));
+    app.dispatch(Action::AnswerScreening(2, ScreeningAnswer::Choose(9)));
+    assert!(app.dispatch(Action::SubmitScreening).is_empty());
+    app.dispatch(Action::AnswerScreening(
+        1,
+        ScreeningAnswer::Text("hi".into()),
+    ));
+    app.dispatch(Action::AnswerScreening(2, ScreeningAnswer::Choose(1)));
+
+    let effects = app.dispatch(Action::SubmitScreening);
+    let [Effect::Backend(Command::Discord(DiscordCommand::SubmitScreening { server, form }))] =
+        effects.as_slice()
+    else {
+        panic!("the form goes in");
+    };
+    assert_eq!(server, "discord:30");
+    assert_eq!(form.version, "v1");
+    assert!(form.fields[0].agreed);
+    assert_eq!(form.fields[1].text, "hi");
+    assert_eq!(form.fields[2].choice, Some(1));
+    // Once, and no more answers while it goes.
+    assert!(app.dispatch(Action::SubmitScreening).is_empty());
+    app.dispatch(Action::AnswerScreening(
+        1,
+        ScreeningAnswer::Text("no".into()),
+    ));
+    let dialog = app.state.join.as_ref().and_then(|join| join.form.as_ref());
+    assert!(dialog.is_some_and(|dialog| {
+        dialog.submitting && dialog.form.as_ref().unwrap().fields[1].text == "hi"
+    }));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_servers_form_that_waits_for_moderators_says_so_and_one_let_in_closes() {
+    let mut app = screening_shown();
+    app.dispatch(Action::AnswerScreening(0, ScreeningAnswer::Agree(true)));
+    app.dispatch(Action::AnswerScreening(2, ScreeningAnswer::Choose(0)));
+    app.dispatch(Action::SubmitScreening);
+    app.apply(Event::ScreeningSubmitted {
+        server: "discord:30".into(),
+        result: Ok(chat::ScreeningReview::Waiting),
+    });
+    let dialog = app.state.join.as_ref().and_then(|join| join.form.as_ref());
+    assert!(dialog.is_some_and(|dialog| dialog.waiting && !dialog.submitting));
+    assert!(app.dispatch(Action::SubmitScreening).is_empty());
+
+    let mut app = screening_shown();
+    app.dispatch(Action::AnswerScreening(0, ScreeningAnswer::Agree(true)));
+    app.dispatch(Action::AnswerScreening(2, ScreeningAnswer::Choose(0)));
+    app.dispatch(Action::SubmitScreening);
+    app.apply(Event::ScreeningSubmitted {
+        server: "discord:30".into(),
+        result: Err("Couldn't hand in the form: no.".into()),
+    });
+    let dialog = app.state.join.as_ref().and_then(|join| join.form.as_ref());
+    assert!(dialog.is_some_and(|dialog| {
+        !dialog.submitting && dialog.error.as_deref() == Some("Couldn't hand in the form: no.")
+    }));
+    // Asking again after a refusal goes in again.
+    assert!(!app.dispatch(Action::SubmitScreening).is_empty());
+    app.apply(Event::ScreeningSubmitted {
+        server: "discord:30".into(),
+        result: Ok(chat::ScreeningReview::Approved),
+    });
+    assert!(app.state.join.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_servers_form_that_did_not_load_is_read_again() {
+    let mut app = discord_server();
+    app.dispatch(Action::OpenInviteLink("new".into()));
+    app.apply(Event::InviteResolved {
+        code: "new".into(),
+        result: Ok(invite_to("new", "30", "31")),
+    });
+    app.dispatch(Action::JoinServer);
+    app.apply(Event::ServerJoined {
+        code: "new".into(),
+        result: Ok(chat::JoinedServer {
+            server: "discord:30".into(),
+            room: "discord:30:31".into(),
+            form: true,
+        }),
+    });
+    app.apply(Event::ScreeningLoaded {
+        server: "discord:30".into(),
+        result: Err("Couldn't load the server's form: no.".into()),
+    });
+    let effects = app.dispatch(Action::SubmitScreening);
     assert!(matches!(
         effects.as_slice(),
-        [Effect::OpenPage(page)] if page == "https://discord.com/channels/30/31"
+        [Effect::Backend(Command::Discord(DiscordCommand::LoadScreening {
+            code,
+            ..
+        }))] if code == "new"
     ));
-    assert!(app.state.join.is_none());
 }
 
 #[test]
@@ -425,7 +667,7 @@ fn a_gift_link_shows_the_gift_and_redeems_on_the_click() {
 
 #[test]
 #[cfg(feature = "discord")]
-fn a_gift_only_discord_can_redeem_opens_in_the_browser() {
+fn a_gift_that_needs_a_payment_method_says_so_and_has_no_button() {
     let mut app = discord_server();
     app.dispatch(Action::OpenGiftLink("AbCdEfGhIjKlMnOp".into()));
     app.apply(Event::GiftResolved {
@@ -439,12 +681,16 @@ fn a_gift_only_discord_can_redeem_opens_in_the_browser() {
             in_discord: true,
         }),
     });
+    let prompt = app.state.gift_prompt().unwrap();
+    assert!(prompt.confirm.is_empty(), "nothing to press");
+    assert!(
+        prompt.status.contains("payment method"),
+        "{}",
+        prompt.status
+    );
+    // Neither redeeming nor anything else opens a browser or asks Discord.
     assert!(app.dispatch(Action::RedeemGift).is_empty());
-    assert!(matches!(
-        app.dispatch(Action::OpenGiftInBrowser).as_slice(),
-        [Effect::OpenPage(page)] if page == "https://discord.com/gifts/AbCdEfGhIjKlMnOp"
-    ));
-    assert!(app.state.gift.is_none());
+    assert!(app.state.gift.is_some(), "the dialog stays for its Close");
 }
 
 #[test]

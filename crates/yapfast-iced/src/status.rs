@@ -2,16 +2,19 @@
 //! dialog. The popover opens over the account card when its picture or name
 //! is clicked: the account as Discord's own card shows it, Edit Profile,
 //! the Discord status to choose, the custom status, Copy User ID and User
-//! Settings. The dialog sets the custom status: an emoji from the picker,
-//! words, and when it clears.
+//! Settings. With Discord accounts linked, Switch Accounts shows too: its
+//! list opens beside the card, to choose the account to use or go on to
+//! Manage Accounts (`accounts`). The dialog sets the custom status: an emoji
+//! from the picker, words, and when it clears.
 
 use iced::{
-    Alignment, Element, Length, Padding, Point, Task,
-    widget::{Space, button, column, container, opaque, operation, row, stack, text},
+    Alignment, Border, Element, Length, Padding, Point, Task,
+    widget::{Space, button, column, container, mouse_area, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
-    chat::Presence,
+    chat::{DiscordAccount, Presence},
+    i18n::{later, tr},
 };
 
 use crate::{
@@ -31,23 +34,36 @@ use crate::{
 /// The popover's width, its banner's height, its rows' and its status
 /// dot's, the dialog's width, and its field's id.
 const POPOVER: f32 = 300.0;
-const BANNER: f32 = 80.0;
+const BANNER: f32 = 105.0;
 const ROW: f32 = 40.0;
 const DOT: f32 = 20.0;
 const DIALOG: f32 = 460.0;
+/// The accounts' list's width, and the gap between it and the card.
+const FLYOUT: f32 = 220.0;
+const FLYOUT_GAP: f32 = 4.0;
 pub const FIELD: &str = "status-text";
 /// What Clear After offers, as minutes where it's a time.
-const CLEAR: [&str; 5] = ["Never", "30 min", "1 hour", "4 hours", "Today"];
+const CLEAR: [&str; 5] = [
+    later("Never"),
+    later("30 min"),
+    later("1 hour"),
+    later("4 hours"),
+    later("Today"),
+];
 /// Discord's statuses: its key, name and what it means.
 const STATUSES: [(&str, &str, &str); 4] = [
-    ("online", "Online", ""),
-    ("idle", "Idle", ""),
+    ("online", later("Online"), ""),
+    ("idle", later("Idle"), ""),
     (
         "dnd",
-        "Do Not Disturb",
-        "You won't get message notifications.",
+        later("Do Not Disturb"),
+        later("You won't get message notifications."),
     ),
-    ("invisible", "Invisible", "You'll appear offline."),
+    (
+        "invisible",
+        later("Invisible"),
+        later("You'll appear offline."),
+    ),
 ];
 
 #[derive(Clone, Debug)]
@@ -57,6 +73,13 @@ pub enum Event {
     Close,
     /// The status row: its choices show or go.
     Expand,
+    /// The Switch Accounts row, hovered or pressed: its list opens beside
+    /// the card, and stays until the popover goes.
+    Accounts,
+    /// An account of that list, by id, to use; Manage Accounts opens its
+    /// dialog.
+    SwitchTo(String),
+    Manage,
     Choose(&'static str),
     EditProfile,
     CustomStatus,
@@ -81,6 +104,8 @@ fn message(event: Event) -> Message {
 #[derive(Default)]
 pub struct AccountPopover {
     expanded: bool,
+    /// The list of accounts is open beside the card.
+    pub switching: bool,
 }
 
 /// The popover and the dialog, while each is open.
@@ -116,6 +141,20 @@ impl Status {
                     popover.expanded = !popover.expanded;
                 }
                 return Task::none();
+            }
+            Event::Accounts => {
+                if let Some(popover) = &mut self.popover {
+                    popover.switching = true;
+                }
+                return Task::none();
+            }
+            Event::SwitchTo(id) => {
+                self.popover = None;
+                cx.dispatch(Action::SwitchDiscordAccount(id));
+            }
+            Event::Manage => {
+                self.popover = None;
+                cx.dispatch(Action::OpenManageAccounts);
             }
             Event::Choose(status) => {
                 self.popover = None;
@@ -252,64 +291,190 @@ impl<'a> View<'a> {
             left: 16.0,
         });
         let custom = state.custom_status.is_some();
-        if custom {
+        // The custom status shows in the bubble beside the picture; its
+        // line stays only until the card has loaded.
+        let status_line = custom && card.is_none();
+        if status_line {
             body = body.push(self.cx.status_line(
                 &account.status,
                 StatusInk::under_name(self.cx.look.theme, 1.0),
             ));
         }
         if let Some(playing) = &state.discord_playing {
-            body = body.push(self.playing_card(playing));
+            body = body.push(self.playing_card(playing, &inks));
         }
-        let mut first =
-            column![self.popover_row("Edit Profile", Icon::Pencil, message(Event::EditProfile))]
-                .spacing(4);
-        let line = theme.line;
+        let mut first = column![self.popover_row(
+            tr("Edit Profile"),
+            Icon::Pencil,
+            message(Event::EditProfile)
+        )]
+        .spacing(4);
+        let line = if inks.themed {
+            crate::style::faded(inks.ink, 0.12)
+        } else {
+            theme.line
+        };
         first = first.push(
             container(Space::new())
                 .width(Length::Fill)
                 .height(1)
                 .style(move |_| rounded(line, 0)),
         );
-        first = first.push(self.status_row(status, popover.expanded));
+        first = first.push(self.status_row(status, popover.expanded, &inks));
         if popover.expanded {
             let mut options = column![].spacing(2);
             for (key, name, note) in STATUSES {
-                options = options.push(self.status_option(key, name, note, key == status));
+                options = options.push(self.status_option(key, tr(name), tr(note), key == status));
             }
             first = first.push(options);
         }
-        first = first.push(self.popover_row(
+        first = first.push(self.wrapping_row(
             if custom {
-                "Change custom status"
+                tr("Change custom status")
             } else {
-                "Set a custom status"
+                tr("Set a custom status")
             },
             Icon::SmilePlus,
             message(Event::CustomStatus),
         ));
         let mut second = column![].spacing(4);
-        if state.discord_user.is_some() {
+        let accounts = !state.discord_accounts.is_empty();
+        if accounts {
+            second = second.push(self.switch_row(popover.switching)).push(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(1)
+                    .style(move |_| rounded(line, 0)),
+            );
+        }
+        if state.discord_user.is_some() && self.cx.layout.developer_mode {
             second =
-                second.push(self.popover_row("Copy User ID", Icon::Copy, message(Event::CopyId)));
+                second.push(self.popover_row(tr("Copy User ID"), Icon::Id, message(Event::CopyId)));
         }
         second = second.push(self.popover_row(
-            "User Settings",
+            tr("User Settings"),
             Icon::Settings,
             message(Event::Settings),
         ));
-        let raised = theme.raised;
+        let raised = if inks.themed { inks.tile } else { theme.raised };
         body = body.push(group(first, raised)).push(group(second, raised));
         let card = container(column![header, body])
             .width(POPOVER)
             .style(crate::profile::frame_style(inks, theme.line, 8.0, true));
         let bottom =
             self.cx.look.window.height - crate::account::HEIGHT - crate::account::INSET - 4.0;
-        Some(
-            Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
-                .anchor(Anchor::Bottom)
-                .into(),
+        let mut place = Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
+            .anchor(Anchor::Bottom);
+        if popover.switching && accounts {
+            // The list beside the card, its top level with the row's: the
+            // row is the second group's first, which comes after the
+            // custom status and the game when the body shows them.
+            let group = usize::from(status_line) + usize::from(state.discord_playing.is_some()) + 1;
+            place = place.beside(
+                opaque(self.flyout()),
+                vec![0, 1, group, 0, 0],
+                0.0,
+                FLYOUT_GAP,
+            );
+        }
+        Some(place.into())
+    }
+
+    /// Switch Accounts, lit while its list is open, with the chevron of a
+    /// submenu.
+    fn switch_row(self, open: bool) -> Element<'a, Message> {
+        mouse_area(self.cx.look.menu_item_sized(
+            Item {
+                label: tr("Switch Accounts").into(),
+                icon: Some(Icon::UserCircle),
+                danger: false,
+                slot: false,
+                disabled: false,
+                subtitle: None,
+                check: Check::Submenu,
+            },
+            Light::Lit(open),
+            message(Event::Accounts),
+            ROW,
+        ))
+        .on_enter(message(Event::Accounts))
+        .into()
+    }
+
+    /// Switch Accounts' list: the accounts linked here, the one in use
+    /// ticked, and Manage Accounts under them.
+    fn flyout(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let active = theme.active;
+        let mut list = column![].padding(8).width(FLYOUT);
+        for account in &state.discord_accounts {
+            list = list.push(self.account_choice(account, account.id == state.discord_active));
+        }
+        let line = theme.line;
+        list = list
+            .push(
+                container(Space::new().width(Length::Fill).height(1))
+                    .padding(Padding {
+                        top: 9.0,
+                        bottom: 3.0,
+                        ..Padding::ZERO
+                    })
+                    .style(move |_| rounded(line, 0)),
+            )
+            .push(
+                button(
+                    container(
+                        text(tr("Manage Accounts"))
+                            .size(14)
+                            .font(BOLD)
+                            .color(theme.text)
+                            .wrapping(text::Wrapping::None),
+                    )
+                    .height(Length::Fill)
+                    .align_y(Alignment::Center),
+                )
+                .padding([0, 8])
+                .height(ROW)
+                .width(Length::Fill)
+                .on_press(message(Event::Manage))
+                .style(controls::lit_style(None, active, 4.0)),
+            );
+        let panel = theme.panel;
+        container(list)
+            .style(move |_| crate::style::panel(panel, line, 8.0))
+            .into()
+    }
+
+    /// One account in the list: its picture, its username and, on the one
+    /// in use, the accent's tick.
+    fn account_choice(self, account: &'a DiscordAccount, in_use: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let mut line = row![
+            self.cx
+                .avatar(account.avatar.as_deref(), account.label(), 24.0, 12.0, 1.0),
+            crate::elide::elide(account.label())
+                .size(14)
+                .font(crate::fonts::SEMIBOLD)
+                .color(theme.text),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if in_use {
+            line = line.push(active_tick(self.cx));
+        }
+        let active = theme.active;
+        button(
+            container(line)
+                .height(Length::Fill)
+                .align_y(Alignment::Center),
         )
+        .padding([0, 8])
+        .height(ROW)
+        .width(Length::Fill)
+        .on_press(message(Event::SwitchTo(account.id.clone())))
+        .style(controls::lit_style(None, active, 4.0))
+        .into()
     }
 
     /// The popover's top, as Discord's card: the banner (its picture, else
@@ -404,42 +569,92 @@ impl<'a> View<'a> {
                 1.0,
             ));
         }
-        stack![
-            Space::new().width(Length::Fill).height(156),
+        // The handle, and the pronouns after it, under the name.
+        let handle = profile.and_then(|profile| {
+            let line = match (profile.handle.is_empty(), profile.pronouns.is_empty()) {
+                (true, true) => return None,
+                (false, true) => profile.handle.clone(),
+                (true, false) => profile.pronouns.clone(),
+                (false, false) => format!("{} \u{2022} {}", profile.handle, profile.pronouns),
+            };
+            Some(line)
+        });
+        let mut layers = stack![
+            Space::new()
+                .width(Length::Fill)
+                .height(BANNER + if handle.is_some() { 96.0 } else { 76.0 }),
             banner,
-            placed(face, 12.0, 36.0),
+            placed(face, 12.0, BANNER - 44.0),
             placed(
                 container(name).height(24).align_y(Alignment::Center),
                 16.0,
-                128.0
+                BANNER + 48.0
             ),
-        ]
-        .into()
+        ];
+        // The custom status, a thought beside the picture over the
+        // banner's edge, as Discord's card has it.
+        if let Some(shown) = card.filter(|shown| !shown.look.thought.is_empty()) {
+            layers = layers.push(crate::profile::body::thought_bubble(
+                self.cx,
+                shown,
+                crate::profile::Mode::Card,
+                POPOVER,
+                inks,
+            ));
+        }
+        if let Some(line) = handle {
+            layers = layers.push(placed(
+                text(line)
+                    .size(14)
+                    .color(inks.ink2)
+                    .wrapping(text::Wrapping::None),
+                16.0,
+                BANNER + 74.0,
+            ));
+        }
+        layers.into()
     }
 
     /// The game this account plays, as Discord's popover shows it: what,
     /// and for how long when the game says when it started.
-    fn playing_card(self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
+    fn playing_card(
+        self,
+        playing: &'a yapfast_core::chat::Playing,
+        inks: &crate::profile::look::Inks,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let (ground, ink, ink2) = if inks.themed {
+            (inks.tile, inks.ink, inks.ink2)
+        } else {
+            (theme.raised, theme.text, theme.secondary)
+        };
         let mut lines = column![
-            text("Playing").size(12).font(BOLD).color(theme.secondary),
+            text(tr("Playing")).size(12).font(BOLD).color(ink2),
             crate::elide::elide(playing.name.as_str())
                 .size(15)
                 .font(crate::fonts::SEMIBOLD)
-                .color(theme.text),
+                .color(ink),
         ]
-        .spacing(4);
+        .spacing(4)
+        .width(Length::Fill);
         if let Some(started) = playing.started_ms {
-            let lasted = played_for(self.cx.minute.saturating_mul(1000).saturating_sub(started));
-            lines = lines.push(text(lasted).size(12).color(theme.live));
+            lines = lines.push(
+                crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+                    stopwatch(yapfast_core::clock::now_ms().saturating_sub(started))
+                })
+                .size(12)
+                .color(theme.live),
+            );
         }
-        let raised = theme.raised;
-        container(lines)
+        let art = container(self.cx.look.glyph(Icon::Gamepad, 24, ink2))
+            .center(48)
+            .style(move |_| rounded(theme_art(ground, ink), 8));
+        container(row![art, lines].spacing(12).align_y(Alignment::Center))
             .padding(12)
             .height(80)
             .width(Length::Fill)
             .align_y(Alignment::Center)
-            .style(move |_| rounded(raised, 8))
+            .style(move |_| rounded(ground, 8))
             .into()
     }
 
@@ -461,24 +676,56 @@ impl<'a> View<'a> {
         )
     }
 
+    /// A row that wraps its words onto a second line where they're too
+    /// long for it, as the custom status's in German is.
+    fn wrapping_row(self, label: &'a str, icon: Icon, pressed: Message) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let face = row![
+            self.cx.look.glyph(icon, 16, theme.secondary),
+            text(label)
+                .size(14)
+                .font(crate::fonts::MEDIUM)
+                .color(theme.text)
+                .width(Length::Fill),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        let fill = theme.wash(0.06);
+        button(face)
+            .padding([11, 8])
+            .width(Length::Fill)
+            .on_press(pressed)
+            .style(move |_, status| button::Style {
+                background: controls::lights(status).then(|| fill.into()),
+                border: Border::default().rounded(4),
+                ..Default::default()
+            })
+            .into()
+    }
+
     /// The status as it is, which shows the others to choose.
-    fn status_row(self, status: &str, expanded: bool) -> Element<'a, Message> {
+    fn status_row(
+        self,
+        status: &str,
+        expanded: bool,
+        inks: &crate::profile::look::Inks,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let name = STATUSES
             .iter()
             .find(|(key, ..)| *key == status)
-            .map_or("Online", |(_, name, _)| name);
+            .map_or(tr("Online"), |(_, name, _)| tr(name));
+        let (ink, ink2, ground) = if inks.themed {
+            (inks.ink, inks.ink2, inks.tile)
+        } else {
+            (theme.secondary, theme.muted, theme.raised)
+        };
         let mut line = row![].spacing(8).align_y(Alignment::Center);
-        if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
+        if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(ground))) {
             line = line.push(Pic::square(dot, 16.0));
         }
         line = line
-            .push(
-                text(name)
-                    .size(15)
-                    .color(theme.secondary)
-                    .width(Length::Fill),
-            )
+            .push(text(name).size(15).color(ink).width(Length::Fill))
             .push(self.cx.look.glyph(
                 if expanded {
                     Icon::ChevronDown
@@ -486,7 +733,7 @@ impl<'a> View<'a> {
                     Icon::ChevronRight
                 },
                 16,
-                theme.muted,
+                ink2,
             ));
         let active = theme.active;
         button(
@@ -573,22 +820,25 @@ impl<'a> View<'a> {
         let head = self
             .cx
             .look
-            .dialog_head("Set a custom status", message(Event::Cancel));
+            .dialog_head(tr("Set a custom status"), message(Event::Cancel));
         let emoji = crate::dialogs::emoji_slot(
             self.cx,
             draft.emoji.as_deref(),
             message(Event::Emoji),
             message(Event::RemoveEmoji),
         );
-        let field = form::field(theme, FIELD, "What's happening?", &draft.text)
+        let field = form::field(theme, FIELD, tr("What's happening?"), &draft.text)
             .padding(10)
             .on_input(|text| message(Event::Text(text)))
             .on_submit(message(Event::Save));
         let mut body = column![
             head,
             row![emoji, field].spacing(8).align_y(Alignment::Center),
-            text("CLEAR AFTER").size(12).font(BOLD).color(theme.muted),
-            controls::choices(theme, &CLEAR, draft.clear, |index| message(
+            text(tr("CLEAR AFTER"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.muted),
+            controls::choices(theme, &CLEAR.map(tr), draft.clear, |index| message(
                 Event::ClearAfter(index)
             )),
         ]
@@ -601,7 +851,7 @@ impl<'a> View<'a> {
         if self.cx.state.custom_status.is_some() {
             foot = foot.push(action(
                 theme,
-                "Clear status",
+                tr("Clear status"),
                 Kind::Ghost,
                 (!editor.saving).then(|| message(Event::Clear)),
             ));
@@ -610,13 +860,17 @@ impl<'a> View<'a> {
             .push(Space::new().width(Length::Fill))
             .push(action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 Kind::Ghost,
                 Some(message(Event::Cancel)),
             ))
             .push(action(
                 theme,
-                if editor.saving { "Saving..." } else { "Save" },
+                if editor.saving {
+                    tr("Saving...")
+                } else {
+                    tr("Save")
+                },
                 Kind::Primary,
                 (!editor.saving).then(|| message(Event::Save)),
             ));
@@ -639,6 +893,17 @@ fn presence(key: &str) -> Presence {
     }
 }
 
+/// The accent's disc with a tick in it, which marks the account in use.
+fn active_tick<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let accent = theme.accent;
+    cx.look
+        .glyph(Icon::Check, 10, theme.on_accent)
+        .boxed(16)
+        .style(move |_| rounded(accent, 8))
+        .into()
+}
+
 /// A group of the popover's rows, on its raised ground.
 fn group(rows: iced::widget::Column<'_, Message>, raised: iced::Color) -> Element<'_, Message> {
     container(rows)
@@ -648,13 +913,18 @@ fn group(rows: iced::widget::Column<'_, Message>, raised: iced::Color) -> Elemen
         .into()
 }
 
-/// How long a game has run, in Discord's words.
-fn played_for(elapsed_ms: u64) -> String {
-    let minutes = elapsed_ms / 60_000;
-    match (minutes / 60, minutes % 60) {
-        (0, 0) => "less than a minute".into(),
-        (0, minutes) => format!("{minutes} min"),
-        (hours, 0) => format!("{hours} hr"),
-        (hours, minutes) => format!("{hours} hr {minutes} min"),
-    }
+/// How long a game has run, as a stopwatch: `HH:MM:SS`.
+fn stopwatch(elapsed_ms: u64) -> String {
+    let seconds = elapsed_ms / 1000;
+    format!(
+        "{:02}:{:02}:{:02}",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60
+    )
+}
+
+/// The game's art box: the card's ground, a step toward its ink.
+fn theme_art(ground: iced::Color, ink: iced::Color) -> iced::Color {
+    crate::theme::mix(ground, ink, 0.1)
 }

@@ -15,6 +15,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{ChatMessage, VideoCommand, VoiceMessage},
+    i18n::tr,
 };
 
 use crate::{
@@ -56,6 +57,11 @@ pub struct Playback {
     pub clip_full: bool,
     pub clip_cell: (u32, u32),
     pub clip_volume: u8,
+    /// How far into a quest's video the person has watched, in
+    /// milliseconds, and the whole second of it the core last heard of.
+    /// Moving ahead of it is not watching it.
+    pub quest_reached: u64,
+    quest_second: u64,
 }
 
 /// What a voice message's card asks for.
@@ -257,9 +263,64 @@ pub fn voice_key(
     Some(app.sync())
 }
 
+/// How far ahead of what a quest's video was watched, its controls move it.
+const QUEST_AHEAD_MS: u64 = 5000;
+
+/// Opens the video of an accepted quest of watching full screen, and plays
+/// it: Discord counts it as it plays.
+pub fn watch_quest(app: &mut App, id: &str) -> Task<Message> {
+    let Some(quest) = app.client.state().quests.offered.iter().find(|quest| {
+        quest.id == id
+            && quest.status == yapfast_core::storefront::QuestStatus::Accepted
+            && quest.video.is_some()
+    }) else {
+        return Task::none();
+    };
+    let reached = quest.progress.saturating_mul(1000);
+    let size = crate::viewer::fitted(app.window, None);
+    let scale = app.device_scale();
+    let pixels = |side: f32| ((side * scale).round() as u32).max(1);
+    app.playback.clip_time = None;
+    app.playback.clip_volume = 0;
+    app.playback.clip_cell = (pixels(size.width), pixels(size.height));
+    app.playback.quest_reached = reached;
+    app.playback.quest_second = reached / 1000;
+    app.playback.clip_full = true;
+    app.client.dispatch(Action::PlayQuestVideo {
+        id: id.to_owned(),
+        width: pixels(size.width),
+        height: pixels(size.height),
+    });
+    Task::batch([app.sync(), crate::composer::refocus(app)])
+}
+
+/// New frames of a video: how far it's got, and for a quest's, how far
+/// Discord is to count it watched.
+pub fn clip_frames(app: &mut App, at_ms: u64) {
+    app.playback.clip_time = Some(at_ms);
+    if !app
+        .client
+        .state()
+        .video
+        .as_ref()
+        .is_some_and(|video| video.room == yapfast_core::chat::QUEST_VIDEO_ROOM)
+    {
+        return;
+    }
+    let reached = &mut app.playback.quest_reached;
+    *reached = (*reached).max(at_ms);
+    let second = *reached / 1000;
+    if second != app.playback.quest_second {
+        app.playback.quest_second = second;
+        app.client
+            .dispatch(Action::QuestVideoAt(app.playback.quest_reached));
+    }
+}
+
 /// What a video's cell asked for.
 pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
     let video = app.client.state().video.as_ref();
+    let quest = video.is_some_and(|video| video.room == yapfast_core::chat::QUEST_VIDEO_ROOM);
     match clip {
         Clip::Play(item, index, size) => {
             // In the window's pixels.
@@ -290,6 +351,12 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
                 return Task::none();
             };
             let at = (f64::from(at.clamp(0.0, 1.0)) * duration as f64) as u64;
+            // A quest's video counts what plays, so it doesn't skip ahead.
+            let at = if quest {
+                at.min(app.playback.quest_reached + QUEST_AHEAD_MS)
+            } else {
+                at
+            };
             app.client.dispatch(Action::Video(VideoCommand::Seek(at)));
         }
         Clip::Mute(muted) => app
@@ -317,6 +384,14 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
         }
         // Full screen, its pictures come at the viewer's size; back in
         // its cell, at the cell's.
+        // A quest's video has no cell to go back to: closing it stops it.
+        Clip::Full(false) if quest => {
+            app.playback.clip_full = false;
+            app.playback.clip_volume = 0;
+            app.playback.clip_time = None;
+            app.client.dispatch(Action::Video(VideoCommand::Stop));
+            return Task::batch([app.sync(), crate::composer::refocus(app)]);
+        }
         Clip::Full(full) => {
             app.playback.clip_full = full && video.is_some();
             app.playback.clip_volume = 0;
@@ -535,8 +610,8 @@ pub fn voice_card<'a>(
             },
             match (volume_open, tuning.muted) {
                 (true, _) => "",
-                (false, true) => "Unmute",
-                (false, false) => "Mute",
+                (false, true) => tr("Unmute"),
+                (false, false) => tr("Mute"),
             },
             Message::Voice(Event::Mute(!tuning.muted)),
         );
@@ -677,7 +752,7 @@ pub fn clip_cell<'a>(
         } else if video.loading {
             layers = layers.push(
                 container(
-                    container(text("Loading...").size(13).color(Color::WHITE))
+                    container(text(tr("Loading...")).size(13).color(Color::WHITE))
                         .padding([0, 10])
                         .height(28)
                         .align_y(Alignment::Center)
@@ -746,9 +821,9 @@ pub fn clip_controls<'a>(
         )
     };
     let mut bar = row![if video.playing {
-        button(Icon::Pause, "Pause", Message::Clip(Clip::Toggle))
+        button(Icon::Pause, tr("Pause"), Message::Clip(Clip::Toggle))
     } else {
-        button(Icon::Play, "Play", Message::Clip(Clip::Toggle))
+        button(Icon::Play, tr("Play"), Message::Clip(Clip::Toggle))
     }]
     .spacing(6)
     .padding(Padding {
@@ -789,13 +864,13 @@ pub fn clip_controls<'a>(
         let mute = if video.muted {
             button(
                 Icon::VolumeOff,
-                if open { "" } else { "Unmute" },
+                if open { "" } else { tr("Unmute") },
                 Message::Clip(Clip::Mute(false)),
             )
         } else {
             button(
                 Icon::Volume,
-                if open { "" } else { "Mute" },
+                if open { "" } else { tr("Mute") },
                 Message::Clip(Clip::Mute(true)),
             )
         };
@@ -816,9 +891,9 @@ pub fn clip_controls<'a>(
         );
     }
     let (icon, label) = if full {
-        (Icon::Minimize, "Exit full screen")
+        (Icon::Minimize, tr("Exit full screen"))
     } else {
-        (Icon::Maximize, "Full screen")
+        (Icon::Maximize, tr("Full screen"))
     };
     bar = bar.push(button(icon, label, Message::Clip(Clip::Full(!full))));
     // Between the controls, a click leaves the video be.

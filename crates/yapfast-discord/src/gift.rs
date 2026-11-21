@@ -22,6 +22,18 @@ pub(crate) fn code(link: &str) -> Option<String> {
     (8..=32).contains(&code.len()).then_some(code)
 }
 
+/// The gift code in what someone typed or pasted: a gift link
+/// (`discord.gift/{code}`, `discord.com/gifts/{code}`) or the bare code,
+/// with the spaces around it dropped.
+pub fn from_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    match crate::link::parse(text) {
+        Some(crate::link::Route::Gift { code }) => Some(code),
+        Some(_) => None,
+        None => code(text.strip_suffix('.').unwrap_or(text)),
+    }
+}
+
 /// The gift code flags that keep a gift from being redeemed with a click:
 /// it needs a payment source, or it's from a promotion, which Discord's
 /// client redeems only on its promotion page.
@@ -86,6 +98,43 @@ impl Preview {
     }
 }
 
+/// A gift this account bought and can still give: one of the codes
+/// `GET /users/@me/entitlements/gift-codes` lists that nobody has used up.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Owned {
+    pub code: String,
+    /// What it grants, such as "Nitro Monthly": its plan's name, else its
+    /// SKU's.
+    pub name: String,
+}
+
+impl Owned {
+    /// The gifts of an answer from the list of this account's gift codes,
+    /// those still to be given, in the order Discord lists them. One
+    /// without a code is left out.
+    pub fn list(answer: &Value) -> Vec<Self> {
+        let now = chrono::Utc::now();
+        answer
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|gift| {
+                gift["expires_at"].as_str().is_none_or(|expires| {
+                    chrono::DateTime::parse_from_rfc3339(expires).is_ok_and(|expiry| expiry > now)
+                })
+            })
+            .filter_map(Preview::of)
+            .filter(|gift| !gift.spent)
+            .filter_map(|gift| {
+                Some(Self {
+                    code: code(&gift.code)?,
+                    name: gift.plan.unwrap_or(gift.name),
+                })
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -104,6 +153,31 @@ mod tests {
             "store_listing": {"sku": {"id": "521847234246082599", "name": "Nitro"}},
             "subscription_plan": {"id": "642251038925127690", "name": "Nitro Monthly"},
         })
+    }
+
+    #[test]
+    fn reads_a_code_from_what_was_typed() {
+        for text in [
+            "2CG6SV9QtRxerJTgCYNDnU7M",
+            "  2CG6SV9QtRxerJTgCYNDnU7M\n",
+            "2CG6-SV9Q-tRxe-rJTg-CYND-nU7M",
+            "https://discord.gift/2CG6SV9QtRxerJTgCYNDnU7M",
+            "https://discord.com/gifts/2CG6SV9QtRxerJTgCYNDnU7M",
+        ] {
+            assert_eq!(
+                from_text(text).as_deref(),
+                Some("2CG6SV9QtRxerJTgCYNDnU7M"),
+                "{text}"
+            );
+        }
+        for text in [
+            "",
+            "short",
+            "not a code",
+            "https://discord.com/channels/@me",
+        ] {
+            assert_eq!(from_text(text), None, "{text}");
+        }
     }
 
     #[test]
@@ -174,5 +248,27 @@ mod tests {
         assert_eq!(code("g-i-f-t"), None);
         assert_eq!(code("not_a_gift_code"), None);
         assert_eq!(code(""), None);
+    }
+
+    #[test]
+    fn lists_the_gifts_still_to_give() {
+        let used = json!({"code": "UsedUpUsedUp1234", "uses": 1, "max_uses": 1});
+        let bare = json!({"code": "BareBareBare1234", "store_listing": {"sku": {"name": "Nitro"}}});
+        let expired = json!({"code": "ExpiredGift1234", "expires_at": "2020-01-01T00:00:00Z"});
+        let list = json!([gift(0, false), used, bare, expired, {"uses": 0}]);
+        assert_eq!(
+            Owned::list(&list),
+            [
+                Owned {
+                    code: "2CG6SV9QtRxerJTgCYNDnU7M".into(),
+                    name: "Nitro Monthly".into()
+                },
+                Owned {
+                    code: "BareBareBare1234".into(),
+                    name: "Nitro".into()
+                },
+            ]
+        );
+        assert!(Owned::list(&json!({})).is_empty());
     }
 }

@@ -35,9 +35,6 @@ pub struct GiftPrompt {
     pub detail: String,
     /// What the main button does, such as "Redeem Gift"; empty for none.
     pub confirm: &'static str,
-    /// The main button opens the gift in the browser, for a gift only
-    /// Discord can redeem.
-    pub browser: bool,
     pub busy: bool,
     pub status: &'static str,
     pub error: String,
@@ -172,7 +169,7 @@ impl AppState {
         } else if preview.is_some_and(|preview| preview.spent) {
             "This gift has already been redeemed."
         } else if in_discord {
-            "This gift can only be redeemed in Discord. Open it in the browser to redeem it there."
+            "This gift needs a payment method, which Yapfast can't take, so it can't be redeemed here."
         } else {
             ""
         };
@@ -181,14 +178,7 @@ impl AppState {
             found: preview.is_some(),
             name: preview.map_or_else(String::new, |preview| preview.name.clone()),
             detail: detail.unwrap_or_default(),
-            confirm: if redeemable {
-                "Redeem Gift"
-            } else if in_discord {
-                "Open in Browser"
-            } else {
-                ""
-            },
-            browser: in_discord,
+            confirm: if redeemable { "Redeem Gift" } else { "" },
             busy: gift.resolving || redeeming,
             status,
             error: gift.error.clone().unwrap_or_default(),

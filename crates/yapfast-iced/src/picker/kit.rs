@@ -7,7 +7,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Rectangle, Size,
-    widget::{Id, button, column, container, mouse_area, row, text},
+    widget::{Id, Space, button, column, container, mouse_area, row, stack, text},
 };
 
 use super::{Event, Tab};
@@ -16,12 +16,14 @@ use crate::{
     controls::lit_style,
     field::{self, Draft, Field},
     fonts::{BOLD, SEMIBOLD},
+    look::Look,
     pictures::Icon,
     style::scrollbar,
     sync::MARGIN,
     theme::Theme,
     widgets::Rows,
 };
+use yapfast_core::i18n::tr;
 
 /// The grid's scrollable and the search field, for the app's tasks.
 pub const GRID: &str = "picker-grid";
@@ -123,7 +125,7 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
     let tab = |label: &'static str, tab: Tab| {
         let on = tab == chosen;
         let (rest, lit) = (theme.secondary, theme.text);
-        let (active, hover) = (theme.active, theme.hover);
+        let (active, hover) = (theme.tab_on, theme.hover);
         button(text(label).size(14).font(SEMIBOLD))
             .padding([0, 12])
             .height(30)
@@ -144,9 +146,9 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
     };
     container(
         row![
-            tab("GIFs", Tab::Gifs),
-            tab("Emoji", Tab::Emoji),
-            tab("Stickers", Tab::Stickers)
+            tab(tr("GIFs"), Tab::Gifs),
+            tab(tr("Stickers"), Tab::Stickers),
+            tab(tr("Emojis"), Tab::Emoji)
         ]
         .spacing(8),
     )
@@ -155,9 +157,9 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
 }
 
 /// The search field, sunken, at the panel's top.
-pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element<'a, Message> {
-    container(search_field(draft, placeholder, theme))
-        .padding(Padding::from(10).bottom(6))
+pub fn search<'a>(draft: &'a Draft, placeholder: &str, look: Look<'_>) -> Element<'a, Message> {
+    container(search_field(draft, placeholder, look))
+        .padding(Padding::ZERO.left(16).right(16).bottom(12))
         .width(Length::Fill)
         .into()
 }
@@ -166,25 +168,36 @@ pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element
 pub fn search_field<'a>(
     draft: &'a Draft,
     placeholder: &str,
-    theme: &Theme,
+    look: Look<'_>,
 ) -> Element<'a, Message> {
-    Field::new(
+    let theme = look.theme;
+    let field = Field::new(
         draft,
         Id::new(FIELD),
         placeholder.into(),
         |event| Message::Picker(Event::Field(event)),
         field::Colors {
-            ground: theme.sunken,
+            ground: theme.field,
             text: theme.text,
             placeholder: theme.muted,
             selection: theme.selection,
         },
     )
-    // The field's ring while it has the keys.
-    .ring(crate::style::faded(theme.accent, 0.8))
+    // Discord's field: a 1 px line at rest, a 2 px ring in the accent while
+    // it has the keys, 40 px tall.
+    .ring(theme.accent)
+    .ring_width(2.0)
+    .rest(theme.field_line)
     .single()
-    .size(15.0)
-    .padding(Padding::from([5, 10]))
+    .size(16.0)
+    .padding(Padding::from([8, 16]).left(40));
+    stack![
+        field,
+        container(look.glyph(Icon::Search, 16, theme.muted))
+            .padding(Padding::ZERO.left(11))
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+    ]
     .into()
 }
 
@@ -196,7 +209,7 @@ pub fn rail<'a>(
     current: Option<usize>,
     theme: &Theme,
 ) -> Element<'a, Message> {
-    let (wash, active, panel) = (theme.wash(0.12), theme.active, theme.panel);
+    let (wash, active, panel) = (theme.wash(0.12), theme.active, theme.tray);
     let mut rail = column![]
         .spacing(4)
         .padding(Padding::ZERO.top(4))
@@ -254,6 +267,47 @@ pub fn heading<'a>(
         .into()
 }
 
+/// A foldable section's heading as Discord draws it: its mark, its name in
+/// sentence case, and a chevron that turns when the section is folded; a
+/// press sends `fold`.
+pub fn fold_heading<'a>(
+    mark: Option<Element<'a, Message>>,
+    name: &str,
+    folded: bool,
+    fold: Message,
+    look: Look<'_>,
+) -> Element<'a, Message> {
+    let theme = look.theme;
+    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    if let Some(mark) = mark {
+        line = line.push(mark);
+    }
+    line = line.push(
+        text(name.to_owned())
+            .size(14)
+            .font(SEMIBOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    );
+    let chevron = if folded {
+        Icon::ChevronRight
+    } else {
+        Icon::ChevronDown
+    };
+    line = line.push(look.glyph(chevron, 14, theme.secondary));
+    let held = button(line)
+        .padding(0)
+        .on_press(fold)
+        .style(|_, _| button::Style::default());
+    container(held)
+        .padding(Padding::ZERO.left(10).bottom(2).right(8))
+        .height(Length::Fill)
+        .width(Length::Fill)
+        .clip(true)
+        .align_y(Alignment::End)
+        .into()
+}
+
 /// A small thing at a corner of the tile it's stacked over, `inset` in.
 pub fn pinned<'a>(
     child: impl Into<Element<'a, Message>>,
@@ -296,27 +350,31 @@ pub fn note<'a>(words: String, theme: &Theme) -> Element<'a, Message> {
     .into()
 }
 
-/// The foot that names what the pointer is on, or what a click does.
+/// The foot that names what the pointer is on, or what a click does, under
+/// a 1 px line; `height` counts the line.
 pub fn foot<'a>(
     content: impl Into<Element<'a, Message>>,
     height: f32,
     theme: &Theme,
 ) -> Element<'a, Message> {
-    let panel = theme.panel;
-    container(content)
-        .padding([0, 14])
-        .height(height)
-        .width(Length::Fill)
-        .align_y(Alignment::Center)
-        .clip(true)
-        .style(move |_| crate::style::fill(panel))
-        .into()
+    let panel = theme.tray;
+    column![
+        divider(theme),
+        container(content)
+            .padding([0, 12])
+            .height(height - 1.0)
+            .width(Length::Fill)
+            .align_y(Alignment::Center)
+            .clip(true)
+            .style(move |_| crate::style::fill(panel)),
+    ]
+    .into()
 }
 
 /// The foot's words: a name, bold, or a hint, muted.
 pub fn foot_words<'a>(words: String, named: bool, theme: &Theme) -> Element<'a, Message> {
     text(words)
-        .size(15)
+        .size(if named { 16 } else { 15 })
         .font(if named { BOLD } else { crate::fonts::REGULAR })
         .color(if named { theme.text } else { theme.muted })
         .wrapping(text::Wrapping::None)
@@ -329,12 +387,24 @@ pub fn frame<'a>(
     size: Size,
     theme: &Theme,
 ) -> Element<'a, Message> {
-    let (raised, edge) = (theme.raised, theme.edge);
+    let (raised, edge) = (theme.raised, theme.tray_line);
+    // Discord's content sits inside the 1 px edge, not over it.
     container(content)
+        .padding(1)
         .width(size.width)
         .height(size.height)
         .clip(true)
         .style(move |_| crate::style::panel(raised, edge, 10.0))
+        .into()
+}
+
+/// The 1 px line under a tab's header, across the panel.
+pub fn divider<'a>(theme: &Theme) -> Element<'a, Message> {
+    let line = theme.tray_line;
+    container(Space::new())
+        .width(Length::Fill)
+        .height(1)
+        .style(move |_| crate::style::fill(line))
         .into()
 }
 

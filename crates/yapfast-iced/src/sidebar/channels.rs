@@ -2,7 +2,7 @@
 //! them, and their faces and inks.
 
 use iced::{
-    Alignment, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding, Rectangle, Size,
     widget::{Space, column, container, mouse_area, row, stack, text},
 };
 
@@ -10,91 +10,129 @@ use crate::{
     app::Message,
     controls::{self, ROW_COUNT, bar, count_pill},
     elide::elide,
-    fonts::{BOLD, MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM},
     pictures::Icon,
     style::{corners, faded, rounded},
-    widgets::{Drags, RightPress},
+    widgets::{Drags, Pic, RightPress},
 };
 
 use super::{
-    CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
+    BROWSE_AFTER, BROWSE_GAP, BROWSE_TOP, CHAT_BUTTON, DM_HEADING_TOP, Event, GAP, HEADING, INSET,
+    NAV_AFTER, NAV_TOP, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
+use yapfast_core::{application::DmScreen, i18n::tr};
+
+const THREAD_INDENT: f32 = 28.0;
+/// The stem's left edge within the row, aligned under the channel icon.
+const THREAD_STEM: f32 = 16.0;
+/// Space between the parent row and the top of its thread connector.
+const THREAD_STEM_INSET: f32 = 1.0;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let inner: Element<'a, Message> = match row {
-            SideRow::Screens {
-                friends,
-                requests,
-                badge,
-            } => column![
+            SideRow::Screens { screen, badge } => column![
                 self.link_row(
-                    ("screen:friends", Icon::Users, "Friends"),
-                    *friends,
+                    ("screen:friends", Icon::Friends, tr("Friends")),
+                    *screen == Some(DmScreen::Friends),
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
-                    ("screen:requests", Icon::Inbox, "Requests"),
-                    *requests,
+                    ("screen:requests", Icon::Mail, tr("Message Requests")),
+                    *screen == Some(DmScreen::Requests),
                     badge,
                     Message::Side(Event::Requests),
+                    true
+                ),
+                self.link_row(
+                    ("screen:nitro", Icon::Nitro, "Nitro"),
+                    *screen == Some(DmScreen::Nitro),
+                    "",
+                    Message::Side(Event::Nitro),
+                    true
+                ),
+                self.link_row(
+                    ("screen:shop", Icon::Shop, "Shop"),
+                    *screen == Some(DmScreen::Shop),
+                    "",
+                    Message::Side(Event::Shop),
+                    true
+                ),
+                self.link_row(
+                    ("screen:quests", Icon::Wreath, "Quests"),
+                    *screen == Some(DmScreen::Quests),
+                    "",
+                    Message::Side(Event::Quests),
                     true
                 ),
             ]
             .spacing(GAP)
             .padding(Padding {
-                top: 9.0,
-                bottom: 6.0,
+                top: NAV_TOP,
+                bottom: NAV_AFTER,
                 ..Padding::ZERO
             })
             .into(),
-            SideRow::DmHeading => row![
-                text("Direct Messages")
-                    .size(12)
-                    .font(SEMIBOLD)
-                    .color(theme.muted)
-                    .width(Length::Fill),
-                self.cx
-                    .look
-                    .icon_button(
-                        Icon::UserPlus,
-                        "Add a friend",
-                        Message::Friends(crate::friends::Event::OpenAdd)
-                    )
-                    .size(24.0, 16)
-                    .below(),
-                self.cx
-                    .look
-                    .icon_button(
-                        Icon::SquarePen,
-                        "New message",
-                        Message::Switcher(crate::switcher::Event::OpenNewDm)
-                    )
-                    .size(24.0, 16)
-                    .below(),
+            // Discord's: a 1 px line, then the heading 22 px under it, 13 px
+            // regular words in the read channel ink and a 12 px plus, which
+            // sits 4 px in from the row's end.
+            SideRow::DmHeading => column![
+                bar(theme.outline, Length::Fill, 1),
+                row![
+                    text(tr("Direct Messages"))
+                        .size(13)
+                        .font(MEDIUM)
+                        .color(theme.channel_read)
+                        .width(Length::Fill),
+                    self.cx
+                        .look
+                        .icon_button(
+                            Icon::Plus,
+                            tr("New message"),
+                            Message::Switcher(crate::switcher::Event::OpenNewDm)
+                        )
+                        .size(24.0, 14)
+                        .ink(if theme.bonfire {
+                            crate::style::hex(0x85868d)
+                        } else {
+                            theme.channel_read
+                        })
+                        .below(),
+                ]
+                .spacing(4)
+                .padding(Padding {
+                    top: DM_HEADING_TOP,
+                    right: 4.0,
+                    left: 8.0,
+                    ..Padding::ZERO
+                })
+                .height(super::DM_HEADING - 1.0)
+                .align_y(Alignment::Center),
             ]
-            .spacing(4)
-            .padding(Padding {
-                left: 8.0,
-                ..Padding::ZERO
-            })
-            .height(40)
-            .align_y(Alignment::Center)
             .into(),
-            SideRow::Browse { open } => container(self.link_row(
-                ("screen:browse", Icon::Hash, "Browse channels"),
-                *open,
-                "",
-                Message::Side(Event::Browse),
-                false,
-            ))
-            .padding([6, 0])
+            // Discord's Channels & Roles: 14 px under the list's top, then
+            // 11 px and a 1 px line before the first category.
+            SideRow::Browse { open } => column![
+                container(self.link_row(
+                    ("screen:browse", Icon::ChannelsRoles, tr("Channels & Roles")),
+                    *open,
+                    "",
+                    Message::Side(Event::Browse),
+                    false,
+                ))
+                .padding(Padding {
+                    top: BROWSE_TOP,
+                    bottom: BROWSE_GAP,
+                    ..Padding::ZERO
+                }),
+                bar(theme.outline, Length::Fill, 1),
+            ]
             .into(),
             SideRow::Pinned => container(
-                text("PINNED CHANNELS")
+                text(tr("PINNED CHANNELS"))
                     .size(12)
                     .font(BOLD)
                     .color(theme.muted),
@@ -120,11 +158,31 @@ impl<'a> super::View<'a> {
                 .padding(8)
                 .into(),
         };
+        let (inner, gap) = match row {
+            // The connector takes up the space through the row's gap.
+            SideRow::Room(room) if room.thread => (inner, 0.0),
+            SideRow::Room(room) if room.has_threads => {
+                let ink = theme.reply_spine;
+                let icon = self
+                    .cx
+                    .look
+                    .icon(Icon::ThreadCap, 2, crate::theme::rgb(ink));
+                let cap = Pic::new(icon, Size::new(2.0, GAP - THREAD_STEM_INSET))
+                    .at(Rectangle::with_size(Size::new(2.0, 2.0)))
+                    .opacity(ink.a);
+                (
+                    column![inner, controls::placed(cap, THREAD_STEM, THREAD_STEM_INSET),].into(),
+                    0.0,
+                )
+            }
+            SideRow::Browse { .. } => (inner, BROWSE_AFTER),
+            _ => (inner, GAP),
+        };
         let inset = container(inner)
             .padding(Padding {
                 left: INSET,
                 right: INSET,
-                bottom: GAP,
+                bottom: gap,
                 top: 0.0,
             })
             .width(Length::Fill);
@@ -262,7 +320,7 @@ impl<'a> super::View<'a> {
             ink
         };
         let face = row![
-            elide(name).size(14).font(SEMIBOLD).color(ink),
+            elide(name).size(13).font(MEDIUM).color(ink),
             self.cx.look.glyph(
                 if collapsed {
                     Icon::ChevronRight
@@ -284,7 +342,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Add,
-                        "Create Channel",
+                        tr("Create Channel"),
                         Message::Side(Event::CreateIn(fold.to_owned())),
                     )
                     .size(CHAT_BUTTON, 16),
@@ -338,7 +396,7 @@ impl<'a> super::View<'a> {
         let (open, read) = if tall {
             (theme.nav_open, theme.nav_read)
         } else {
-            (theme.text, theme.muted)
+            (theme.text, theme.channel_read)
         };
         let ink = if selected {
             open
@@ -350,7 +408,7 @@ impl<'a> super::View<'a> {
         let icon_ink = match (selected, tall) {
             (true, _) => open,
             (false, true) => theme.nav_read,
-            (false, false) => theme.faint,
+            (false, false) => theme.channel_read,
         };
         let mut face = row![
             self.cx.look.glyph(icon, 20, icon_ink),
@@ -360,7 +418,7 @@ impl<'a> super::View<'a> {
                 .color(ink)
                 .width(Length::Fill)
         ]
-        .spacing(if tall { 13 } else { 8 })
+        .spacing(if tall { 12 } else { 8 })
         .align_y(Alignment::Center);
         if !badge.is_empty() {
             face = face.push(count_pill(theme, badge, ROW_COUNT, None));
@@ -439,11 +497,9 @@ impl<'a> super::View<'a> {
     /// busy voice channel.
     pub(super) fn room_rows(self, room: &'a Room, place: Option<usize>) -> Element<'a, Message> {
         let line = self.room_row(room, place.is_some());
-        let line: Element<'a, Message> = if room.thread {
-            row![self.thread_line(room.thread_continues), line].into()
-        } else {
-            line
-        };
+        if room.thread {
+            return row![self.thread_line(room.thread_continues), line].into();
+        }
         if room.people.is_empty() {
             return line;
         }
@@ -481,29 +537,20 @@ impl<'a> super::View<'a> {
         column![line, people].spacing(GAP).into()
     }
 
-    /// The line from a channel to its thread, 28 px wide: down from the
-    /// channel and round into the thread, on down while another follows.
-    pub(super) fn thread_line(self, continues: bool) -> Element<'a, Message> {
-        let faint = self.cx.look.theme.faint;
-        let down = bar(faint, 1.5, if continues { ROW + GAP } else { 13.0 + GAP });
-        let round = container(Space::new())
-            .width(10.75)
-            .height(7.5)
-            .style(move |_| iced::widget::container::Style {
-                border: iced::Border {
-                    color: faint,
-                    width: 1.5,
-                    radius: corners([0.0, 0.0, 0.0, 6.0]),
-                },
-                ..Default::default()
-            });
-        container(stack![
-            controls::placed(down, 17.25, 0.0),
-            controls::placed(round, 17.25, 12.75),
-        ])
-        .width(28)
-        .height(ROW)
-        .into()
+    /// The line into a thread and, while another follows, down through
+    /// the gap to the next row. The square's right edge is transparent.
+    fn thread_line(self, continues: bool) -> Pic {
+        let icon = if continues {
+            Icon::ThreadBranch
+        } else {
+            Icon::ThreadEnd
+        };
+        let side = ROW + GAP;
+        let ink = self.cx.look.theme.reply_spine;
+        let handle = self.cx.look.icon(icon, side as u32, crate::theme::rgb(ink));
+        Pic::new(handle, Size::new(THREAD_INDENT, side))
+            .at(Rectangle::with_size(Size::new(side, side)))
+            .opacity(ink.a)
     }
 
     /// A conversation's row; one that may be `dragged` is clicked through
@@ -533,7 +580,11 @@ impl<'a> super::View<'a> {
             } else {
                 theme.channel_read
             };
-            face = face.push(self.cx.look.glyph(room.icon, 20, faded(icon_ink, opacity)));
+            let icon = match room.icon {
+                Icon::Forum => Icon::ForumBubbles,
+                icon => icon,
+            };
+            face = face.push(self.cx.look.glyph(icon, 20, faded(icon_ink, opacity)));
         }
         let name = elide(room.name.as_str()).size(15).font(MEDIUM).color(ink);
         face = face.push(column![name].width(Length::Fill));
@@ -560,7 +611,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::UserPlus,
-                        "Create invite",
+                        tr("Create invite"),
                         Message::Side(Event::InviteTo(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),
@@ -574,7 +625,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Forum,
-                        "Open chat",
+                        tr("Open chat"),
                         Message::Side(Event::OpenChat(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),

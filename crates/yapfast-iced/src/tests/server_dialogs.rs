@@ -50,13 +50,15 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
         link: None,
         making: true,
         error: None,
+        invited: Vec::new(),
     };
     let show =
         |app: &mut App, invite: InviteDialog| change(app, |state| state.invite = Some(invite));
     show(&mut app, invite.clone());
     for words in [
         "Invite friends to Test",
-        "They'll land in Lounge.",
+        "Recipients will land in",
+        "Lounge",
         "Making a link...",
     ] {
         assert!(shows(&app, words), "{words}");
@@ -102,7 +104,7 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
         },
     );
     assert!(shows(&app, "This link never expires and works once."));
-    assert!(shows(&app, "They'll land in #general."));
+    assert!(shows(&app, "general"));
     interact(&mut app, |ui| {
         ui.click("Copy").expect("Copy");
     });
@@ -233,6 +235,61 @@ fn leaving_a_group_dm_asks_first_and_offers_to_tell_no_one() {
 }
 
 #[test]
+fn the_add_server_dialog_creates_only_on_confirmation_and_keeps_join_available() {
+    use yapfast_core::chat::{Command, DiscordCommand, ServerLayout};
+
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    app.client.app.state.account_name = Some("Alice".into());
+    let _ = app.update(Message::Rail(crate::rail::Event::Join));
+    assert!(shows(&app, "Create Your Server"));
+    interact(&mut app, |ui| {
+        ui.click("Join a Server").expect("join");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Back").expect("return to layouts");
+    });
+    assert!(app.client.state().join.is_none());
+
+    interact(&mut app, |ui| {
+        ui.click("Gaming").expect("choose a layout");
+    });
+    assert!(shows(&app, "Customize your server"));
+    assert!(shows(
+        &app,
+        "Starts with #general, #looking-for-group, #clips and a voice channel."
+    ));
+    assert!(!app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::CreateServer { .. })
+    )));
+    interact(&mut app, |ui| {
+        ui.click(Id::new("new-server-name")).expect("server name");
+        ui.tap_key(Key::Named(key::Named::End));
+        for _ in "Alice’s server".chars() {
+            ui.tap_key(Key::Named(key::Named::Backspace));
+        }
+        ui.typewrite("  Raid Night  ");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Back").expect("return to layouts");
+    });
+    assert!(shows(&app, "Create Your Server"));
+    interact(&mut app, |ui| {
+        ui.click("Gaming").expect("choose the same layout");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Create server")
+            .expect("confirm the preserved draft");
+    });
+    assert!(app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::CreateServer {
+            layout: ServerLayout::Gaming, name, icon: None, ..
+        }) if name == "Raid Night"
+    )));
+}
+
+#[test]
 fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     // A clicked invite link opens the dialog rather than the browser.
@@ -246,8 +303,12 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     press(&mut app, key::Named::Escape);
     assert!(app.client.state().join.is_none());
 
-    // The rail's button opens it with the field, which takes the keys.
+    // Already have an invite? from the rail opens the field, which takes the keys.
     let _ = app.update(Message::Rail(crate::rail::Event::Join));
+    assert!(shows(&app, "Already have an invite?"));
+    interact(&mut app, |ui| {
+        ui.click("Join a Server").expect("join");
+    });
     assert!(shows(&app, "Join a Server") && shows(&app, "Find Invite"));
     interact(&mut app, |ui| {
         ui.click(Id::new("join-invite")).expect("the field");
@@ -284,6 +345,123 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     });
     let join = app.client.state().join.clone().expect("open");
     assert!(join.joining || join.error.is_some(), "{join:?}");
+    let mut resolved = join;
+    resolved.joining = false;
+    resolved.error = None;
+    change(&mut app, |state| state.join = Some(resolved));
+    let _ = app.update(Message::ServerDialog(
+        crate::server_dialogs::Event::JoinLink("other".into()),
+    ));
+    assert!(!shows(&app, "Builders"));
+    interact(&mut app, |ui| {
+        ui.click("Find Invite").expect("look up the edited invite");
+    });
+    let join = app.client.state().join.as_ref().expect("open");
+    assert_eq!(join.code.as_deref(), Some("other"));
+    assert!(!join.joining);
+}
+
+#[test]
+fn a_joined_servers_form_is_filled_in_the_dialog_and_handed_in() {
+    use yapfast_core::{
+        application::ScreeningDialog,
+        chat::{Command, DiscordCommand, ScreeningField, ScreeningForm, ScreeningKind},
+    };
+    let field = |kind, label: &str, values: &[&str], required| ScreeningField {
+        kind,
+        label: label.into(),
+        description: None,
+        required,
+        values: values.iter().map(|value| (*value).into()).collect(),
+        agreed: false,
+        text: String::new(),
+        choice: None,
+    };
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    change(&mut app, |state| {
+        state.join = Some(JoinDialog {
+            code: Some("abc".into()),
+            form: Some(ScreeningDialog {
+                server: "discord:20".into(),
+                code: "abc".into(),
+                form: Some(ScreeningForm {
+                    version: "7".into(),
+                    description: "Tell us who you are.".into(),
+                    fields: vec![
+                        field(
+                            ScreeningKind::Terms,
+                            "Server Rules",
+                            &["Be kind", "No spam"],
+                            true,
+                        ),
+                        field(ScreeningKind::Text, "Your name", &[], true),
+                        field(
+                            ScreeningKind::Choice,
+                            "Your role",
+                            &["Builder", "Tester"],
+                            false,
+                        ),
+                    ],
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+    });
+    for words in [
+        "A few questions first",
+        "Tell us who you are.",
+        "Server Rules *",
+        "1. Be kind",
+        "2. No spam",
+        "Your name *",
+        "Your role",
+        "Submit",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    assert!(
+        !shows(&app, "Open in browser"),
+        "nothing is handed to a browser"
+    );
+    // The rules and the name must be answered before anything is sent.
+    interact(&mut app, |ui| {
+        let _ = ui.click("Submit");
+    });
+    assert!(!app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::SubmitScreening { .. })
+    )));
+    interact(&mut app, |ui| {
+        ui.click("I have read and agree to the rules")
+            .expect("rules");
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new("screening-1")).expect("name");
+        ui.typewrite("Sam");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Tester").expect("role");
+    });
+    let form = app
+        .client
+        .state()
+        .join
+        .clone()
+        .and_then(|join| join.form)
+        .expect("form");
+    let fields = form.form.expect("questions").fields;
+    assert!(fields[0].agreed);
+    assert_eq!(fields[1].text, "Sam");
+    assert_eq!(fields[2].choice, Some(1));
+    interact(&mut app, |ui| {
+        ui.click("Submit").expect("Submit");
+    });
+    assert!(app.client.sent.iter().any(|command| matches!(
+        command,
+        Command::Discord(DiscordCommand::SubmitScreening { server, form })
+            if server == "discord:20" && form.version == "7" && form.complete()
+    )));
 }
 
 #[test]
@@ -297,7 +475,7 @@ fn browse_channels_opens_from_a_community_servers_list_and_searches() {
         .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
     let _ = app.sync();
     interact(&mut app, |ui| {
-        ui.click("Browse channels").expect("Browse channels");
+        ui.click("Channels & Roles").expect("Channels & Roles");
     });
     assert!(app.client.state().browse.is_some());
     assert!(shows(&app, "Browse Channels"));

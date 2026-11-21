@@ -21,6 +21,7 @@ use serde::Deserialize;
 use yapfast_core::{
     application::{Application, StickerUse},
     chat::Sticker,
+    i18n::{Language, set_language},
     keybinds::{Binding, Shortcut},
     theme::Custom,
 };
@@ -69,6 +70,8 @@ pub struct Layout {
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,
+    /// The emoji picker's selected skin tone, 0 for the default or 1 to 5.
+    pub emoji_skin_tone: usize,
     /// How far the window is zoomed (`zoom::LEVELS`), and whether the
     /// desktop draws its title bar, as Appearance chose; unset, the
     /// desktop's way decides.
@@ -167,8 +170,12 @@ impl KeptSticker {
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Prefs {
+    /// Appearance's language: Discord's code for it, following the system's
+    /// unless chosen.
+    pub interface_language: Option<String>,
     /// Messages: the clock, its seconds, the date's order (an index into
-    /// `clock::DateFormat::ALL`, following the clock unless chosen), the
+    /// `clock::DateFormat::ALL`, following the clock unless chosen; the
+    /// language's own order when it isn't English), the
     /// text's size (0 small, 1 default, 2 large), link previews, boost gems,
     /// mentioning those replied to, tracking taken out of links sent,
     /// sharing that this account types, and when animations play.
@@ -190,11 +197,16 @@ pub struct Prefs {
     pub name_styles: Option<bool>,
     pub server_tags: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// The font files Appearance's Font chose to draw the window in, in the
+    /// order they were added; none keeps DM Sans.
+    pub ui_font_files: Vec<String>,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,
     pub notification_text: Option<bool>,
     pub flash_taskbar: Option<bool>,
+    /// Streamer Mode temporarily suppresses desktop alerts and interface sounds.
+    pub streamer_mode: bool,
     /// Advanced: rendering with the GPU from the next start, closing to the
     /// tray, starting another Yapfast rather than showing this one.
     pub gpu_rendering: bool,
@@ -238,6 +250,33 @@ impl Prefs {
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             frames: self.profile_frames.unwrap_or(default.frames),
         }
+    }
+
+    /// The language the window reads in: the one chosen if it has
+    /// translations, else the system's, else English.
+    pub fn language(&self) -> Language {
+        self.interface_language
+            .as_deref()
+            .and_then(Language::from_code)
+            .filter(|language| language.is_offered())
+            .or_else(yapfast_core::i18n::pinned_language)
+            .unwrap_or_else(Language::system)
+    }
+
+    /// The language's place in the list Appearance shows.
+    pub fn language_place(&self) -> usize {
+        let language = self.language();
+        Language::offered()
+            .iter()
+            .position(|&offered| offered == language)
+            .unwrap_or(0)
+    }
+
+    /// Hands the language to every text, and what words the dates and times
+    /// in it.
+    pub fn apply_language(&self) {
+        set_language(self.language());
+        self.apply_clock();
     }
 
     /// Hands the date's order and the clock to what formats times.

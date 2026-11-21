@@ -24,6 +24,7 @@ use crate::{
     viewer::Viewer,
     widgets::Hover,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// From the window's edges, and the corner's own corners.
 const MARGIN: f32 = 16.0;
@@ -66,22 +67,22 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
         Pip::Watched => {
             let watching = voice.watching.as_ref()?;
             (
-                format!("{}'s screen", watching.name),
+                i18n::fill(tr("{}'s screen"), &[&watching.name]),
                 crate::call::stage::watch_status(app),
                 format!("stream:{}", watching.user),
                 false,
-                Some((Icon::X, "Stop watching", Event::StopWatching)),
+                Some((Icon::X, tr("Stop watching"), Event::StopWatching)),
                 crate::call::stage::stream_viewers(app, &watching.viewers, Some(&watching.user)),
             )
         }
         Pip::Shared => {
             let sharing = voice.sharing.as_ref()?;
             (
-                "Your screen".to_owned(),
+                tr("Your screen").to_owned(),
                 share_status(voice).to_owned(),
                 OWN_SCREEN.to_owned(),
                 sharing.phase == SharePhase::Live,
-                Some((Icon::ScreenShareOff, "Stop sharing", Event::StopSharing)),
+                Some((Icon::ScreenShareOff, tr("Stop sharing"), Event::StopSharing)),
                 crate::call::stage::stream_viewers(app, &sharing.viewers, None),
             )
         }
@@ -245,7 +246,7 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
     } else if video.loading {
         screen = screen.push(
             container(
-                container(text("Loading...").size(13).color(Color::WHITE))
+                container(text(tr("Loading...")).size(13).color(Color::WHITE))
                     .padding([0, 10])
                     .height(28)
                     .align_y(Alignment::Center)
@@ -257,26 +258,47 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
     let screen = mouse_area(screen.width(size.width).height(size.height))
         .on_press(Message::Clip(crate::playback::Clip::Toggle))
         .interaction(iced::mouse::Interaction::Pointer);
+    // A quest's video, which belongs to no message: its name, and how much
+    // of it Discord counts, are what's said of it.
+    let quest = (video.room == yapfast_core::chat::QUEST_VIDEO_ROOM)
+        .then(|| {
+            app.client
+                .state()
+                .quests
+                .offered
+                .iter()
+                .find(|quest| quest.id == video.item)
+        })
+        .flatten();
+    let is_quest = video.room == yapfast_core::chat::QUEST_VIDEO_ROOM;
     // A right click offers what the message's menu does for a video.
     let (item, index) = (video.item.clone(), video.index);
-    let screen = crate::widgets::RightPress::new(screen, move |_| {
-        Message::Image(crate::image_viewer::Event::Menu(item.clone(), index, true))
-    });
-    let name = app
-        .client
-        .state()
-        .message(&video.item)
-        .and_then(|message| message.attachments.get(video.index))
-        .map(|attachment| attachment.name.clone())
-        .unwrap_or_default();
+    let screen: Element<'_, Message> = if is_quest {
+        screen.into()
+    } else {
+        crate::widgets::RightPress::new(screen, move |_| {
+            Message::Image(crate::image_viewer::Event::Menu(item.clone(), index, true))
+        })
+        .into()
+    };
+    let name = if is_quest {
+        quest.map(|quest| quest.name.clone()).unwrap_or_default()
+    } else {
+        app.client
+            .state()
+            .message(&video.item)
+            .and_then(|message| message.attachments.get(video.index))
+            .map(|attachment| attachment.name.clone())
+            .unwrap_or_default()
+    };
     let mut buttons: Vec<Element<'_, Message>> = Vec::new();
-    if !app.client.state().preview {
+    if !is_quest && !app.client.state().preview {
         buttons.push(
             app.look()
                 .face_button(
                     app.look().glyph(Icon::Download, 20, Color::WHITE),
                     32.0,
-                    format!("Save {name}"),
+                    i18n::fill(tr("Save {}"), &[&name]),
                     Message::Image(crate::image_viewer::Event::Save(
                         video.item.clone(),
                         video.index,
@@ -291,30 +313,50 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
             .face_button(
                 app.look().glyph(Icon::X, 20, Color::WHITE),
                 32.0,
-                "Exit full screen",
+                if is_quest {
+                    tr("Close")
+                } else {
+                    tr("Exit full screen")
+                },
                 Message::Clip(crate::playback::Clip::Full(false)),
             )
             .below()
             .into(),
     );
     let width = size.width.max(360.0);
+    let mut viewer = Viewer::new(
+        crate::viewer::GROUND,
+        screen,
+        Size::new(size.width, size.height),
+        Message::Clip(crate::playback::Clip::Full(false)),
+    )
+    .title(name, buttons);
+    if let Some(quest) = quest {
+        use yapfast_core::storefront::QuestStatus;
+        viewer = viewer.subtitle(match quest.status {
+            QuestStatus::Completed | QuestStatus::Claimed => {
+                tr("Quest completed. Claim the reward on the Quests screen.").to_owned()
+            }
+            _ => i18n::fill(
+                tr("Counted for the quest: {}"),
+                &[&crate::playback::video_time(
+                    quest.progress.saturating_mul(1000),
+                    Some(quest.target.saturating_mul(1000)),
+                )],
+            ),
+        });
+    }
     Some(
-        Viewer::new(
-            crate::viewer::GROUND,
-            screen,
-            Size::new(size.width, size.height),
-            Message::Clip(crate::playback::Clip::Full(false)),
-        )
-        .title(name, buttons)
-        .foot(
-            column![crate::playback::clip_controls(
-                app.ctx(),
-                video,
-                width,
-                true
-            )]
-            .padding(Padding::ZERO),
-        )
-        .view(app.look()),
+        viewer
+            .foot(
+                column![crate::playback::clip_controls(
+                    app.ctx(),
+                    video,
+                    width,
+                    true
+                )]
+                .padding(Padding::ZERO),
+            )
+            .view(app.look()),
     )
 }

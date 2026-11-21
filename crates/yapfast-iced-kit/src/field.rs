@@ -396,8 +396,11 @@ pub struct Field<'a, M> {
     /// Runs Backspace and Delete take whole.
     atoms: Vec<Range<usize>>,
     colors: Colors,
-    /// The line round it while it has the keys, and its corners.
+    /// The line round it while it has the keys, how thick it is, the line
+    /// it rests in, and its corners.
     ring: Option<Color>,
+    ring_width: f32,
+    rest: Option<Color>,
     radius: f32,
     on: fn(Event) -> M,
 }
@@ -468,6 +471,8 @@ impl<'a, M: Clone> Field<'a, M> {
             atoms: Vec::new(),
             colors,
             ring: None,
+            ring_width: 1.0,
+            rest: None,
             radius: 8.0,
             on,
         }
@@ -507,6 +512,18 @@ impl<'a, M: Clone> Field<'a, M> {
     /// A line of `ring` round it while it has the keys.
     pub fn ring(mut self, ring: Color) -> Self {
         self.ring = Some(ring);
+        self
+    }
+
+    /// The ring's thickness; 1 px without.
+    pub fn ring_width(mut self, width: f32) -> Self {
+        self.ring_width = width;
+        self
+    }
+
+    /// A 1 px line of `rest` round it while it hasn't the keys.
+    pub fn rest(mut self, rest: Color) -> Self {
+        self.rest = Some(rest);
         self
     }
 
@@ -1258,8 +1275,14 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         let bounds = layout.bounds();
         let text_bounds = self.text_bounds(layout);
         let border = match self.ring.filter(|_| state.focus.is_some()) {
-            Some(ring) => crate::style::edge(ring, self.radius),
-            None => Border::default().rounded(self.radius),
+            Some(ring) => Border {
+                width: self.ring_width,
+                ..crate::style::edge(ring, self.radius)
+            },
+            None => match self.rest {
+                Some(rest) => crate::style::edge(rest, self.radius),
+                None => Border::default().rounded(self.radius),
+            },
         };
         renderer.fill_quad(
             renderer::Quad {

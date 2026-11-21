@@ -9,7 +9,7 @@ use std::{sync::Arc, time::Duration};
 
 use tokio::time::timeout;
 use yapfast_discord::{
-    api::Span,
+    api::{Api, Span},
     client,
     member_list::{ListedMember, Presence},
     message::{Reply, Shown},
@@ -34,6 +34,7 @@ mod links;
 mod messages;
 mod profiles;
 mod servers;
+mod storefront;
 mod threads;
 mod voice_channels;
 

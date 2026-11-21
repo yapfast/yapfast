@@ -177,7 +177,7 @@ impl Application {
         }
         let body = self.outgoing_body(&edit.room, &edit.text);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(super::Notice::Error("Keep messages under 16 KB.".into()));
             return vec![];
         }
         if self.state.preview {
@@ -348,7 +348,7 @@ impl Application {
         let text = silent_text.map_or(draft.as_str(), str::trim_start);
         let body = self.outgoing_body(&id, text);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(super::Notice::Error("Keep messages under 16 KB.".into()));
             return vec![];
         }
         if self.state.preview {
@@ -384,6 +384,17 @@ impl Application {
                             .state
                             .message(&item)
                             .and_then(|original| original.tag.clone()),
+                        style: self
+                            .state
+                            .message(&item)
+                            .and_then(|original| original.style.clone()),
+                        forwarded: self
+                            .state
+                            .message(&item)
+                            .is_some_and(|original| original.forwarded),
+                        has_media: self.state.message(&item).is_some_and(|original| {
+                            !original.attachments.is_empty() || !original.embeds.is_empty()
+                        }),
                         body,
                         emoji,
                         item: Some(item),
@@ -482,7 +493,7 @@ impl Application {
             return;
         };
         let staged = self.state.staged.entry(id).or_default();
-        self.state.notice = stage_files(staged, paths, limit);
+        self.state.notice = stage_files(staged, paths, limit).map(super::Notice::Error);
     }
 
     /// Leave reply mode.

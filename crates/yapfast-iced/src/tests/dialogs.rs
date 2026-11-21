@@ -105,10 +105,11 @@ fn the_quick_switchers_arrows_keep_the_lit_place_in_view() {
         press(&mut app, key::Named::ArrowDown);
     }
     assert_eq!(app.quick.chosen, 12);
-    let top = 12.0 * 40.0;
-    let height = ((app.window.height - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(40.0);
+    let pitch = crate::switcher::PITCH;
+    let top = 12.0 * pitch;
+    let height = crate::switcher::list_height(app.window.height);
     assert!(
-        app.quick.offset <= top && top + 40.0 <= app.quick.offset + height,
+        app.quick.offset <= top && top + pitch <= app.quick.offset + height,
         "row 12 at {top} px in view of {} px from {} px",
         height,
         app.quick.offset
@@ -119,7 +120,7 @@ fn the_quick_switchers_arrows_keep_the_lit_place_in_view() {
     }
     let last = app.quick.places.len() - 1;
     assert_eq!(app.quick.chosen, last);
-    assert!(app.quick.offset + height >= (last + 1) as f32 * 40.0);
+    assert!(app.quick.offset + height >= (last + 1) as f32 * pitch);
 }
 
 #[test]
@@ -191,7 +192,10 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
     // The server tag beside the name, and the game played, as Discord's.
     assert!(shows(&app, "YAP"));
     assert!(shows(&app, "Playing") && shows(&app, "Factorio"));
-    assert!(shows(&app, "2 hr 5 min") || shows(&app, "2 hr 4 min"));
+    assert!(
+        shows(&app, "02:05:00") || shows(&app, "02:05:01") || shows(&app, "02:04:59"),
+        "live stopwatch for 125 minutes"
+    );
     assert!(
         crate::status::popover_playing(&app),
         "its time kept up to the minute"

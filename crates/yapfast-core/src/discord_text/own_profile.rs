@@ -211,8 +211,6 @@ pub(super) fn command(
 fn asked_widget(widget: &crate::chat::ProfileWidget) -> yapfast_discord::widgets::Widget {
     yapfast_discord::widgets::Widget {
         title: widget.title.clone(),
-        application: widget.application.clone(),
-        lists_games: widget.lists_games,
         games: widget
             .games
             .iter()
@@ -233,8 +231,6 @@ fn named_widget(
 ) -> crate::chat::ProfileWidget {
     crate::chat::ProfileWidget {
         title: named.title,
-        application: widget.application,
-        lists_games: widget.lists_games,
         games: widget
             .games
             .into_iter()

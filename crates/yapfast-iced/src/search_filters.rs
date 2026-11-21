@@ -17,6 +17,7 @@ use iced::{
 use yapfast_core::{
     application::AppState,
     discord,
+    i18n::{self, later, tr},
     yapfast_discord::search::{self, Filter},
 };
 
@@ -37,18 +38,18 @@ const DATES: usize = 4;
 const OPTIONS: usize = 8;
 /// Each date row's trash button, as Discord labels it.
 const REMOVE_DATE: [&str; DATES] = [
-    "Remove date filter 1",
-    "Remove date filter 2",
-    "Remove date filter 3",
-    "Remove date filter 4",
+    later("Remove date filter 1"),
+    later("Remove date filter 2"),
+    later("Remove date filter 3"),
+    later("Remove date filter 4"),
 ];
 /// The open field's search.
 const QUERY: &str = "search-filters-query";
 /// The kinds of date row, as Discord's dropdown names them.
 const DATE_KINDS: [(Filter, &str); 3] = [
-    (Filter::Before, "Before"),
-    (Filter::After, "After"),
-    (Filter::During, "During"),
+    (Filter::Before, later("Before")),
+    (Filter::After, later("After")),
+    (Filter::During, later("During")),
 ];
 
 /// A value chosen in one of the fields: as the box writes it after the key,
@@ -561,49 +562,49 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
     };
     fields = fields.push(multi(
         Field::From,
-        "From",
-        "Sent by any of the selected users",
-        format!("ex. {own}"),
+        tr("From"),
+        tr("Sent by any of the selected users"),
+        i18n::fill(tr("ex. {}"), &[&own]),
         filters.from.clone(),
     ));
     if in_server {
         fields = fields.push(multi(
             Field::In,
-            "In",
-            "Sent in any of the selected channels",
-            format!("ex. {here}"),
+            tr("In"),
+            tr("Sent in any of the selected channels"),
+            i18n::fill(tr("ex. {}"), &[&here]),
             filters.channels.clone(),
         ));
     }
     fields = fields.push(multi(
         Field::Has,
-        "Has",
-        "Includes any of the selected types of data",
-        "Any content".to_owned(),
+        tr("Has"),
+        tr("Includes any of the selected types of data"),
+        tr("Any content").to_owned(),
         words(&filters.has),
     ));
     fields = fields.push(multi(
         Field::Mentions,
-        "Mentions",
-        "Mentions any of the selected users",
-        format!("ex. {own}"),
+        tr("Mentions"),
+        tr("Mentions any of the selected users"),
+        i18n::fill(tr("ex. {}"), &[&own]),
         filters.mentions.clone(),
     ));
     fields = fields.push(labelled(
         ctx,
-        "Date",
-        "When the message was sent",
+        tr("Date"),
+        tr("When the message was sent"),
         dates(ctx, filters),
     ));
     fields = fields.push(multi(
         Field::AuthorType,
-        "Author Type",
-        "Sent by any of the selected types of author",
-        "ex. Bot".to_owned(),
+        tr("Author Type"),
+        tr("Sent by any of the selected types of author"),
+        tr("ex. Bot").to_owned(),
         words(&filters.authors),
     ));
     let pinned = crate::form::dropdown(
-        vec!["True".to_owned(), "False".to_owned()],
+        vec![tr("True").to_owned(), tr("False").to_owned()],
         filters.pinned.map(|pinned| usize::from(!pinned)),
         filters.open == Some(Field::Pinned),
         message(FiltersEvent::Toggle(Field::Pinned)),
@@ -614,7 +615,7 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         // Unset: Discord's placeholder in the box.
         stack![
             pinned,
-            container(text("ex. True").size(15).color(theme.muted))
+            container(text(tr("ex. True")).size(15).color(theme.muted))
                 .padding(Padding::ZERO.left(12))
                 .height(crate::form::DROPDOWN)
                 .align_y(Alignment::Center)
@@ -625,15 +626,15 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
     };
     fields = fields.push(labelled(
         ctx,
-        "Pinned",
-        "If the message is pinned or not",
+        tr("Pinned"),
+        tr("If the message is pinned or not"),
         pinned,
     ));
     let count = filters.count(in_server);
     let clear_label = if count == 0 {
-        "Clear Filters".to_owned()
+        tr("Clear Filters").to_owned()
     } else {
-        format!("Clear Filters ({count})")
+        i18n::fill(tr("Clear Filters ({})"), &[&count])
     };
     let changed = filters.filters_text(in_server) != filters.initial;
     let foot = row![
@@ -646,13 +647,13 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         Space::new().width(Length::Fill),
         action(
             theme,
-            "Cancel",
+            tr("Cancel"),
             Kind::Plain,
             Some(message(FiltersEvent::Close))
         ),
         action(
             theme,
-            "Apply Filters",
+            tr("Apply Filters"),
             Kind::Primary,
             changed.then(|| message(FiltersEvent::Apply))
         ),
@@ -660,13 +661,13 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
     .spacing(8)
     .align_y(Alignment::Center);
     let head = row![
-        text("Filters")
+        text(tr("Filters"))
             .size(20)
             .font(SEMIBOLD)
             .color(theme.text)
             .width(Length::Fill),
         ctx.look
-            .icon_button(Icon::X, "Close", message(FiltersEvent::Close))
+            .icon_button(Icon::X, tr("Close"), message(FiltersEvent::Close))
             .size(32.0, 18),
     ]
     .align_y(Alignment::Center);
@@ -691,16 +692,18 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         return Some(card);
     }
     let note = column![
-        text("Unable to add filter")
+        text(tr("Unable to add filter"))
             .size(20)
             .font(SEMIBOLD)
             .color(theme.text),
-        text("You have reached the maximum length for a search query.")
-            .size(15)
-            .color(theme.secondary),
+        text(tr(
+            "You have reached the maximum length for a search query."
+        ))
+        .size(15)
+        .color(theme.secondary),
         crate::dialog::buttons([action(
             theme,
-            "Back to editing",
+            tr("Back to editing"),
             Kind::Primary,
             Some(message(FiltersEvent::Back))
         )
@@ -806,7 +809,7 @@ fn chooser<'a>(
     let options = filters.options(ctx.state, server);
     if options.is_empty() {
         list = list.push(
-            container(text("No results").size(14).color(theme.muted))
+            container(text(tr("No results")).size(14).color(theme.muted))
                 .padding(Padding::from([8, 12])),
         );
     }
@@ -912,7 +915,7 @@ fn dates<'a>(ctx: Ctx<'a>, filters: &'a Filters) -> Element<'a, Message> {
         let kinds = crate::form::dropdown(
             DATE_KINDS
                 .iter()
-                .map(|(_, name)| (*name).to_owned())
+                .map(|(_, name)| tr(name).to_owned())
                 .collect(),
             Some(kind),
             filters.open == Some(Field::Kind(index)),
@@ -941,7 +944,7 @@ fn dates<'a>(ctx: Ctx<'a>, filters: &'a Filters) -> Element<'a, Message> {
             border: crate::style::edge(if open { accent } else { line }, 8.0),
             ..Default::default()
         });
-        let label = REMOVE_DATE[index.min(DATES - 1)];
+        let label = tr(REMOVE_DATE[index.min(DATES - 1)]);
         let trash = ctx
             .look
             .icon_button(Icon::Trash, label, message(FiltersEvent::RemoveDate(index)))
@@ -970,7 +973,7 @@ fn dates<'a>(ctx: Ctx<'a>, filters: &'a Filters) -> Element<'a, Message> {
     if filters.dates.len() < DATES {
         rows = rows.push(action(
             theme,
-            "Add date",
+            tr("Add date"),
             Kind::Plain,
             Some(message(FiltersEvent::AddDate)),
         ));

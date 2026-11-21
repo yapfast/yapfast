@@ -276,9 +276,16 @@ fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> R
     use update::install::Prepared;
     match prepared {
         Prepared::Replaced(program) => relaunch_program(&program, arguments, None, None),
-        Prepared::Installer { installer, program } => {
+        Prepared::Installer {
+            mut installer,
+            program,
+        } => {
             match update::install::run_installer(&installer, &program, arguments) {
-                Ok(()) => Ok(()),
+                Ok(()) => {
+                    // The installer command deletes the file once it has run.
+                    installer.disable_cleanup(true);
+                    Ok(())
+                }
                 Err(error) => {
                     tracing::error!(%error, "could not run the installer; starting the old version");
                     relaunch(arguments, None, None)

@@ -94,10 +94,9 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         state.category_changes,
         &state.navigation,
         &state.selected,
-        state
-            .dm_screen
-            .map(|screen| screen == yapfast_core::application::DmScreen::Friends),
+        &state.dm_screen,
         state.discord_online,
+        state.discord_linked,
         state.preview,
         &state.voice.room,
         state
@@ -356,6 +355,7 @@ impl App {
         crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
         tasks.push(crate::menus::menu_apps_sync(self));
+        crate::composer::tools::gifts_sync(self);
         if self.client.state().browse.is_none() && !self.sidebar.browse_filter.is_empty() {
             self.sidebar.browse_filter.clear();
         }
@@ -374,12 +374,14 @@ impl App {
         crate::suggest::mentions_sync(self);
         self.person.sync(self.client.state());
         tasks.push(self.server_settings_sync());
+        self.boost_goal_sync();
         tasks.push(self.server_dialogs.sync(self.client.state()));
         tasks.push(self.channel_settings_sync());
         tasks.push(self.ask());
         tasks.push(self.sign_in.sync(self.client.state(), self.client.root()));
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
+        tasks.push(crate::accounts::sync(self));
         tasks.push(self.follow_backend());
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
@@ -408,6 +410,20 @@ impl App {
             .abortable();
             self.linking = Some(handle.abort_on_drop());
             tasks.push(task);
+        }
+        // The import's steps are followed to the stream's end, whatever
+        // happens to the linking meanwhile: a save can outlast it.
+        if let Some((run, progress)) = self.client.take_import() {
+            tasks.push(
+                Task::run(
+                    iced::futures::stream::unfold(progress, |mut progress| async move {
+                        let step = progress.recv().await?;
+                        Some((step, progress))
+                    }),
+                    move |step| Message::Import(run, Some(step)),
+                )
+                .chain(Task::done(Message::Import(run, None))),
+            );
         }
         if self.client.link_stopped() {
             self.linking = None;
@@ -716,6 +732,11 @@ impl App {
         };
         for item in &self.rail.items {
             want(item.icon.as_deref());
+            if let Some(crate::pictures::GroupIcon::Pair(pair)) = &item.group_icon {
+                for member in pair {
+                    want(Some(&member.avatar));
+                }
+            }
             if let crate::rail::Kind::Folder {
                 open: false,
                 preview,
@@ -739,6 +760,11 @@ impl App {
                 && top <= to
             {
                 want(room.avatar.as_deref());
+                if let Some(crate::pictures::GroupIcon::Pair(pair)) = &room.group_icon {
+                    for member in pair {
+                        want(Some(&member.avatar));
+                    }
+                }
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
                 want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
@@ -822,7 +848,24 @@ impl App {
             want(self.sidebar.header.banner.as_deref());
         }
         want(self.header.avatar.as_deref());
+        if let Some(crate::pictures::GroupIcon::Pair(pair)) = &self.header.group_icon {
+            for member in pair {
+                want(Some(&member.avatar));
+            }
+        }
         want(self.account.status.emoji.as_deref());
+        // The linked accounts' pictures, in Switch Accounts' list or Manage
+        // Accounts.
+        let switching = self
+            .status
+            .popover
+            .as_ref()
+            .is_some_and(|popover| popover.switching);
+        if state.manage_accounts.is_some() || switching {
+            for account in &state.discord_accounts {
+                want(account.avatar.as_deref());
+            }
+        }
         for compose in [state.compose(), state.aside_compose()]
             .into_iter()
             .flatten()
@@ -928,6 +971,9 @@ impl App {
         for url in crate::friends::friends_pictures(self) {
             want(Some(&url));
         }
+        for url in crate::sidebar::destinations::pictures(self) {
+            want(Some(&url));
+        }
         for url in crate::reactions::pictures(self.client.state()) {
             want(Some(&url));
         }
@@ -941,6 +987,7 @@ impl App {
         }
         for url in crate::server_dialogs::pictures(self.client.state())
             .into_iter()
+            .chain(self.server_dialogs.invite_pictures(self.client.state()))
             .chain(crate::link_dialogs::pictures(self.client.state()))
         {
             want(Some(&url));
@@ -949,6 +996,7 @@ impl App {
             .collect::<Vec<_>>()
             .into_iter()
             .chain(crate::settings::voice::entrance_pictures(self))
+            .chain(crate::settings::account::pictures(self))
         {
             want(Some(&url));
         }

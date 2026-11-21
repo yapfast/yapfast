@@ -32,6 +32,8 @@ use iced::{
     window,
 };
 
+use yapfast_core::i18n::{self, tr};
+
 use crate::{
     app::{App, Message},
     fonts::{MEDIUM, SEMIBOLD},
@@ -147,11 +149,11 @@ fn slowmode<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         .state
         .slowmode_wait(&room.id, yapfast_core::clock::now_ms());
     let says = if !room.slowed {
-        "Slowmode Immune".to_owned()
+        tr("Slowmode Immune").to_owned()
     } else if wait > 0 {
         countdown(wait)
     } else {
-        "Slowmode is enabled.".to_owned()
+        tr("Slowmode is enabled.").to_owned()
     };
     let inked = |ink: Color| -> Element<'a, Message> {
         row![
@@ -201,33 +203,26 @@ pub fn countdown(ms: u64) -> String {
 /// "Slowmode is enabled. Members can send one message every 30 seconds."
 pub fn every(slowmode: u32) -> String {
     let (hours, minutes, seconds) = (slowmode / 3600, slowmode / 60 % 60, slowmode % 60);
-    let unit = |count: u32, one: &str| {
-        if count == 1 {
-            format!("1 {one}")
-        } else {
-            format!("{count} {one}s")
-        }
-    };
     if hours == 0 && minutes == 0 {
         // Only the seconds' line ends in a full stop in Discord's.
-        return format!(
-            "Slowmode is enabled. Members can send one message every {}.",
-            unit(seconds, "second")
+        return i18n::fill(
+            tr("Slowmode is enabled. Members can send one message every {}."),
+            &[&i18n::trn("{n} second", "{n} seconds", seconds as usize)],
         );
     }
     let mut parts = vec![];
     if hours > 0 {
-        parts.push(unit(hours, "hour"));
+        parts.push(i18n::trn("{n} hour", "{n} hours", hours as usize));
     }
     if minutes > 0 {
-        parts.push(unit(minutes, "minute"));
+        parts.push(i18n::trn("{n} minute", "{n} minutes", minutes as usize));
     }
     if seconds > 0 {
-        parts.push(unit(seconds, "second"));
+        parts.push(i18n::trn("{n} second", "{n} seconds", seconds as usize));
     }
-    format!(
-        "Slowmode is enabled. Members can send one message every {}",
-        parts.join(" ")
+    i18n::fill(
+        tr("Slowmode is enabled. Members can send one message every {}"),
+        &[&parts.join(" ")],
     )
 }
 

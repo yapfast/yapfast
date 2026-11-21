@@ -315,12 +315,7 @@ fn the_editors_tabs_say_what_the_profile_will_show() {
     app.shell.frame.width = 1600.0;
     crate::window_bar::fit_window(&mut app);
     let _ = app.update(edit(EditorEvent::Tab(crate::profile::look::Tab::Board)));
-    for words in [
-        "Nothing on your board yet.",
-        "Adding more from Yapfast is coming soon.",
-    ] {
-        assert!(shows(&app, words), "{words}");
-    }
+    assert!(shows(&app, "Nothing on your board yet."));
     let _ = app.update(edit(EditorEvent::Tab(crate::profile::look::Tab::Activity)));
     for words in ["Current activity", "Nothing going on right now."] {
         assert!(shows(&app, words), "{words}");

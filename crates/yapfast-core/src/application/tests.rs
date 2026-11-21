@@ -276,6 +276,8 @@ fn change_marks(
 }
 
 #[cfg(feature = "discord")]
+mod account_tools;
+#[cfg(feature = "discord")]
 mod arrange;
 #[cfg(feature = "discord")]
 mod audit_log;
@@ -317,6 +319,8 @@ mod servers;
 mod session;
 #[cfg(feature = "discord")]
 mod slash_commands;
+#[cfg(feature = "discord")]
+mod storefront;
 mod threads;
 mod timeline;
 mod unread;

@@ -13,6 +13,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Application},
     chat::MfaMethod,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -128,35 +129,39 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let warning = prompt.warning();
     let (words, placeholder) = match prompt.method {
         Some(MfaMethod::App) => (
-            "Enter the 6-digit code from your authenticator app.".to_owned(),
-            "6-digit code",
+            tr("Enter the 6-digit code from your authenticator app.").to_owned(),
+            tr("6-digit code"),
         ),
         Some(MfaMethod::Sms) => (
             match &prompt.phone {
-                Some(phone) => format!("Enter the 6-digit code Discord sent to {phone}."),
-                None => "Discord is sending a code to your phone.".to_owned(),
+                Some(phone) => {
+                    i18n::fill(tr("Enter the 6-digit code Discord sent to {}."), &[&phone])
+                }
+                None => tr("Discord is sending a code to your phone.").to_owned(),
             },
-            "6-digit code",
+            tr("6-digit code"),
         ),
-        Some(MfaMethod::Password) => ("Enter your password.".to_owned(), "Password"),
+        Some(MfaMethod::Password) => (tr("Enter your password.").to_owned(), tr("Password")),
         Some(MfaMethod::Backup) => (
-            "Enter one of your 8-digit backup codes. Each works only once.".to_owned(),
-            "Backup code",
+            tr("Enter one of your 8-digit backup codes. Each works only once.").to_owned(),
+            tr("Backup code"),
         ),
         Some(MfaMethod::Passkey) | None => (
-            "Discord asks for a passkey or security key, which Yapfast can't use. Confirm \
-             in Discord's app, then try again."
-                .to_owned(),
+            tr(
+                "Discord asks for a passkey or security key, which Yapfast can't use. Confirm \
+             in Discord's app, then try again.",
+            )
+            .to_owned(),
             "",
         ),
     };
     let note = |words: String| text(words).size(13).color(theme.muted).width(Length::Fill);
     let close = cx
         .look
-        .icon_button(Icon::X, "Cancel", Message::Mfa(Event::Cancel));
+        .icon_button(Icon::X, tr("Cancel"), Message::Mfa(Event::Cancel));
     let mut body = column![
         row![
-            text("Multi-Factor Authentication")
+            text(tr("Multi-Factor Authentication"))
                 .size(18)
                 .font(BOLD)
                 .color(theme.text)
@@ -168,14 +173,14 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     .spacing(12)
     .padding(20);
     if listing {
-        let mut list = column![note("Choose how to confirm it's you.".into())].spacing(2);
+        let mut list = column![note(tr("Choose how to confirm it's you.").into())].spacing(2);
         for method in &choices {
             let label = match method {
-                MfaMethod::App => "Use your authenticator app",
-                MfaMethod::Sms => "Use a code sent to your phone",
-                MfaMethod::Password => "Use your password",
-                MfaMethod::Backup => "Use a backup code",
-                MfaMethod::Passkey => "Use a passkey or security key",
+                MfaMethod::App => tr("Use your authenticator app"),
+                MfaMethod::Sms => tr("Use a code sent to your phone"),
+                MfaMethod::Password => tr("Use your password"),
+                MfaMethod::Backup => tr("Use a backup code"),
+                MfaMethod::Passkey => tr("Use a passkey or security key"),
             };
             list = list.push(cx.look.menu_item(
                 Item {
@@ -195,38 +200,47 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     }
     if warning {
         body = body.push(
-            text("Slow down! Are you sure?")
+            text(tr("Slow down! Are you sure?"))
                 .size(16)
                 .font(BOLD)
                 .color(theme.text),
         );
         body = body.push(note(
-            "Backup codes can only be used one time each and are for emergency access to \
-             your account!"
-                .into(),
+            tr(
+                "Backup codes can only be used one time each and are for emergency access to \
+             your account!",
+            )
+            .into(),
         ));
         if choices.len() > 1 {
             body = body.push(note(
-                "If you have access to any of your other methods, select ‘Verify with \
-                 something else’ to go back."
-                    .into(),
+                tr(
+                    "If you have access to any of your other methods, select ‘Verify with \
+                 something else’ to go back.",
+                )
+                .into(),
             ));
         }
         let left = mfa.wait.left;
         body = body.push(note(if left > 0 {
-            format!(
-                "If you do not have access to any other methods, the button below will \
-                 activate in {left} seconds."
+            i18n::fill(
+                tr(
+                    "If you do not have access to any other methods, the button below will \
+                 activate in {} seconds.",
+                ),
+                &[&left],
             )
         } else {
-            "If you do not have access to any other methods, use the other button below \
-             to proceed."
-                .to_owned()
+            tr(
+                "If you do not have access to any other methods, use the other button below \
+             to proceed.",
+            )
+            .to_owned()
         }));
         body = body.push(
             action(
                 theme,
-                "I’m sure, use a backup code",
+                tr("I’m sure, use a backup code"),
                 Kind::Primary,
                 (left == 0).then_some(Message::Mfa(Event::Confirm)),
             )
@@ -264,7 +278,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     if !listing && choices.len() > 1 {
         buttons = buttons.push(action(
             theme,
-            "Verify with something else",
+            tr("Verify with something else"),
             Kind::Ghost,
             open.then_some(Message::Mfa(Event::Choose(None))),
         ));
@@ -272,7 +286,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     if !listing && prompt.method == Some(MfaMethod::Sms) && prompt.phone.is_some() {
         buttons = buttons.push(action(
             theme,
-            "Resend Code",
+            tr("Resend Code"),
             Kind::Ghost,
             open.then_some(Message::Mfa(Event::Resend)),
         ));
@@ -280,7 +294,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     buttons = buttons.push(Space::new().width(Length::Fill));
     buttons = buttons.push(action(
         theme,
-        "Cancel",
+        tr("Cancel"),
         Kind::Ghost,
         Some(Message::Mfa(Event::Cancel)),
     ));
@@ -288,9 +302,9 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
         buttons = buttons.push(action(
             theme,
             if prompt.busy {
-                "Confirming..."
+                tr("Confirming...")
             } else {
-                "Confirm"
+                tr("Confirm")
             },
             Kind::Primary,
             prompt.ready().then_some(Message::Mfa(Event::Confirm)),

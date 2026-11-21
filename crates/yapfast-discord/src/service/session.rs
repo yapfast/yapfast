@@ -22,7 +22,7 @@ use crate::{
     api::Api,
     cache,
     event::Event,
-    gateway::{Closed, Dispatch, Gateway, Reconnects, TooManyIdentifies},
+    gateway::{Closed, Dispatch, Gateway, Invalidated, Reconnects, TooManyIdentifies},
     member_list::Presence,
     message::{self, Names},
     ready,
@@ -77,6 +77,11 @@ pub(super) async fn run(
     }
     loop {
         snapshots.send_modify(|snapshot| Arc::make_mut(snapshot).status = Status::Connecting);
+        // A new password gave a new login meanwhile, which reconnecting uses.
+        let current = shared.api.current_token();
+        if !current.is_empty() && current != token {
+            token = current;
+        }
         let connect = async {
             // Without one kept, the page goes first, so the first identify
             // says the current build.
@@ -99,9 +104,15 @@ pub(super) async fn run(
         };
         let (error, up) = match connected {
             Ok((gateway, ready)) => {
+                shared
+                    .api
+                    .remember_session(ready["auth_session_id_hash"].as_str());
                 if let Some(refreshed) = ready::auth_token(&ready) {
-                    token = refreshed.to_owned();
-                    relogin(&shared.api, &token).await;
+                    let earlier = std::mem::replace(&mut token, refreshed.to_owned());
+                    relogin(&shared.api, &earlier, &token).await;
+                }
+                if let Some(own) = ready::own_account(&ready) {
+                    tokio::spawn(remember_account(token.clone(), own));
                 }
                 let started = tokio::time::Instant::now();
                 let ended = connected_session(gateway, ready, &mut requests, &mut shared).await;
@@ -142,10 +153,15 @@ pub(super) async fn run(
         });
         let wait = tokio::time::sleep(reconnects.wait(&error, up));
         tokio::pin!(wait);
+        let earliest_retry = Instant::now() + Duration::from_secs(2);
         loop {
             tokio::select! {
                 () = &mut wait => break,
                 request = requests.recv() => match request {
+                    Some(Request::Reconnect) if !error.is::<Invalidated>() => {
+                        let deadline = wait.deadline().min(earliest_retry);
+                        wait.as_mut().reset(deadline);
+                    }
                     Some(request) => refuse(request, &mut shared),
                     None => return,
                 },
@@ -157,17 +173,30 @@ pub(super) async fn run(
 /// Discord refreshed the login in READY, and the one Yapfast identified with
 /// is to go: requests, identifying again, the credential store and the
 /// files kept all take the new one. The gateway takes it from READY itself.
-async fn relogin(api: &Api, token: &str) {
+pub(super) async fn relogin(api: &Api, earlier: &str, token: &str) {
     tracing::info!("Discord refreshed the login");
     api.relogin(token);
-    let token = token.to_owned();
+    let (earlier, token) = (earlier.to_owned(), token.to_owned());
     let stored = tokio::task::spawn_blocking(move || {
-        cache::relogin(&token);
-        token::store(&token)
+        cache::relogin(&earlier, &token);
+        // The account this login belonged to takes it, whichever is active now.
+        token::refresh(&earlier, &token)
     })
     .await;
     if let Ok(Err(error)) = stored {
         tracing::warn!(%error, "could not save Discord's refreshed login");
+    }
+}
+
+/// Keeps the account's username, name and avatar with its login, for the
+/// account switcher to show before it connects.
+async fn remember_account(token: String, own: ready::OwnAccount) {
+    let kept = tokio::task::spawn_blocking(move || {
+        token::describe(&token, &own.username, &own.name, &own.avatar)
+    })
+    .await;
+    if let Ok(Err(error)) = kept {
+        tracing::warn!(%error, "could not keep the account's name for the switcher");
     }
 }
 
@@ -398,6 +427,7 @@ impl Session<'_> {
     async fn request(&mut self, request: Request) -> Result<()> {
         let gateway = &mut self.gateway;
         match request {
+            Request::Reconnect => Ok(()),
             Request::Join {
                 guild,
                 channel,
@@ -475,8 +505,11 @@ impl Session<'_> {
                 guild,
                 channel,
                 sync,
+                newest,
             } => {
-                if let Some(message) = self.tracker.unreads.mark_read(&guild, &channel) {
+                if newest.is_none_or(|newest| self.tracker.unreads.latest_is(&channel, newest))
+                    && let Some(message) = self.tracker.unreads.mark_read(&guild, &channel)
+                {
                     self.publisher.changed();
                     if sync {
                         self.acks.read(channel, message);

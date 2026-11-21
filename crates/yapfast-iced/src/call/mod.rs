@@ -29,7 +29,7 @@ use iced::{Point, Rectangle, Task, Vector};
 use yapfast_core::{
     application::Action,
     chat::VoicePerson,
-    meter::InputMeter,
+    i18n::{self, tr},
     sounds::Sound,
     voice::{self, Command, Phase},
 };
@@ -55,6 +55,8 @@ pub struct Call {
     pub watched: Option<String>,
     /// The large tile over the whole window.
     pub full: bool,
+    /// Whether the bottom participant strip is hidden while a tile shows large.
+    pub hide_members: bool,
     /// How far the stage is scrolled, and the tile the pointer is on, by its
     /// place.
     pub scrolled: f32,
@@ -62,8 +64,9 @@ pub struct Call {
     /// The popup open from a control, and where that control is.
     pub popup: Option<Popup>,
     pub spot: Cell<Rectangle>,
-    /// The device list open in a device menu.
-    pub listing: bool,
+    /// The page a device menu shows: its own, the devices, the
+    /// microphone's profiles.
+    pub page: popups::device::Page,
     /// The share menu's choices, once its sources are listed; while
     /// they're being listed, which listing the menu waits for, by its
     /// count (`listings`), so one answering after a cancel opens nothing.
@@ -79,9 +82,6 @@ pub struct Call {
     /// The call was connected as the window last looked: it unmutes or
     /// deafens on joining once.
     pub ready: bool,
-    /// The microphone's level while the input menu shows it, read as
-    /// its meter is drawn.
-    pub meter: Option<InputMeter>,
     /// A call ringing this account, while it rings.
     pub ringer: Option<yapfast_core::ring::Ringer>,
     /// Since when the call has been connected, by its room, and the
@@ -126,15 +126,17 @@ pub enum Event {
     /// A tile shown large, by its place, or none.
     Focus(Option<usize>),
     Full(bool),
+    /// The bottom participant strip hidden or shown while a tile is large.
+    ToggleMembers,
     Scrolled(f32),
     Point(usize, bool),
     /// A control's popup, opened above it, or the open one closed.
     Open(Popup),
     Close,
     Share(popups::ShareEvent),
-    /// The device list in a device menu, opened or closed; a device chosen,
-    /// the microphone's or the speakers', by its row.
-    List,
+    /// The page a device menu shows; a device chosen, the microphone's or
+    /// the speakers', by its row.
+    Page(popups::device::Page),
     Device(bool, usize),
     /// A device menu's volume, the microphone's or the speakers', and
     /// whether it's the drag's last.
@@ -205,6 +207,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             crate::call::stage::place_videos(app);
             return Task::none();
         }
+        Event::ToggleMembers => {
+            app.call.hide_members = !app.call.hide_members;
+            app.call.scrolled = 0.0;
+            app.call.pointed = None;
+            crate::call::stage::place_videos(app);
+            return Task::none();
+        }
         Event::Scrolled(scrolled) => {
             app.call.scrolled = scrolled;
             crate::call::stage::place_videos(app);
@@ -224,12 +233,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Share(event) => return crate::call::popups::share::share_event(app, event),
-        Event::List => {
-            app.call.listing = !app.call.listing;
+        Event::Page(page) => {
+            app.call.page = page;
             return Task::none();
         }
         Event::Device(input, index) => {
-            app.call.listing = false;
+            app.call.page = popups::device::Page::Main;
             let devices = if input {
                 &voice.microphones
             } else {
@@ -239,10 +248,6 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             let id = device.id.clone();
-            if input {
-                // The level follows the microphone chosen.
-                app.call.meter = Some(InputMeter::start(Some(&id)));
-            }
             Action::Voice(if input {
                 Command::Microphone(id)
             } else {
@@ -254,6 +259,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Suppressor(suppressor) => {
+            app.call.page = popups::device::Page::Main;
             choose_suppressor(app, suppressor);
             return Task::none();
         }
@@ -379,6 +385,7 @@ pub fn call_sync(app: &mut App) {
     let voice = &app.client.state().voice;
     if !voice.active() {
         app.call.full = false;
+        app.call.hide_members = false;
         if matches!(app.call.popup, Some(Popup::Share | Popup::Soundboard))
             || app.call.share_listing.is_some()
         {
@@ -394,6 +401,9 @@ pub fn call_sync(app: &mut App) {
 /// One of Yapfast's sounds, as loud as Voice's settings say, unless a
 /// call is deafened.
 pub(crate) fn play(app: &App, sound: Sound) {
+    if app.layout.prefs.streamer_mode {
+        return;
+    }
     let voice = &app.client.state().voice;
     if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
         return;
@@ -491,7 +501,7 @@ pub(crate) fn choose_suppressor(app: &mut App, suppressor: yapfast_core::noise::
 /// A call ringing this account rings until it's answered or stops.
 fn ring(app: &mut App) {
     let state = app.client.state();
-    if ringing(state).next().is_none() || state.do_not_disturb() {
+    if app.layout.prefs.streamer_mode || ringing(state).next().is_none() || state.do_not_disturb() {
         app.call.ringer = None;
     } else if app.call.ringer.is_none() {
         app.call.ringer = yapfast_core::ring::Ringer::start(
@@ -501,12 +511,6 @@ fn ring(app: &mut App) {
         .inspect_err(|error| tracing::warn!(%error, "could not ring"))
         .ok();
     }
-}
-
-/// The microphone's level is being read.
-#[cfg(test)]
-pub fn metering(app: &App) -> bool {
-    app.call.meter.is_some()
 }
 
 /// The call can be spoken in: connected, or getting back to it.
@@ -530,10 +534,15 @@ pub fn ringing(
 pub fn who_is_here(people: &[VoicePerson]) -> String {
     let names: Vec<&str> = people.iter().map(|person| person.name.as_str()).collect();
     match names.as_slice() {
-        [one] => format!("{one} is"),
-        [first, second] => format!("{first} and {second} are"),
-        [first, second, third] => format!("{first}, {second} and {third} are"),
-        [first, second, rest @ ..] => format!("{first}, {second} and {} others are", rest.len()),
+        [one] => i18n::fill(tr("{} is"), &[&one]),
+        [first, second] => i18n::fill(tr("{0} and {1} are"), &[&first, &second]),
+        [first, second, third] => {
+            i18n::fill(tr("{0}, {1} and {2} are"), &[&first, &second, &third])
+        }
+        [first, second, rest @ ..] => i18n::fill(
+            tr("{0}, {1} and {2} others are"),
+            &[&first, &second, &rest.len()],
+        ),
         [] => String::new(),
     }
 }

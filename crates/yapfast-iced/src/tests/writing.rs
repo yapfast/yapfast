@@ -75,7 +75,7 @@ fn escape_in_the_composer_cancels_a_reply_and_keeps_the_draft() {
         _ => panic!("not replying"),
     };
     let before = ping(&app);
-    let label = if before { "@ On" } else { "@ Off" };
+    let label = if before { "@ ON" } else { "@ OFF" };
     interact(&mut app, |ui| {
         ui.click(label).expect("the mention's toggle");
     });
