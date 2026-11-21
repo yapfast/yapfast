@@ -75,6 +75,9 @@ pub trait Tray {
     fn available(&self) -> bool;
     /// The unread dot, and Disconnect in its menu during a call.
     fn show(&self, unread: bool, call: bool);
+    /// How many messages wait unread, for a desktop that has a place for the
+    /// number, such as macOS's Dock icon.
+    fn badge(&self, _count: u64) {}
 }
 
 /// Shows desktop notifications.

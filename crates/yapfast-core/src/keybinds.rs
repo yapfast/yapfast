@@ -35,7 +35,16 @@ const MODIFIERS: [(u32, u32, &str); 4] = [
     (0x38, 0xE038, "ALT"),
     (0xE05B, 0xE05C, "LOGO"),
 ];
-#[cfg(not(any(target_os = "linux", windows)))]
+/// On macOS the scan codes are its virtual key codes, `kVK_` in Carbon's
+/// headers, and Command is the logo key. There is no XDG name: no portal.
+#[cfg(target_os = "macos")]
+const MODIFIERS: [(u32, u32, &str); 4] = [
+    (0x3B, 0x3E, "CTRL"),
+    (0x38, 0x3C, "SHIFT"),
+    (0x3A, 0x3D, "ALT"),
+    (0x37, 0x36, "LOGO"),
+];
+#[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 const MODIFIERS: [(u32, u32, &str); 0] = [];
 
 /// The modifier `code` is a side of, if it's one.
@@ -50,7 +59,8 @@ pub fn modifier(code: u32) -> Option<(u32, u32, &'static str)> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Key {
     /// winit's scan code for it: evdev's on Linux, which X11 reports 8
-    /// higher, and set 1's on Windows, with 0xE000 for an extended key.
+    /// higher, set 1's on Windows, with 0xE000 for an extended key, and
+    /// macOS's virtual key code there.
     pub scancode: u32,
     /// As settings show it, such as "V" or "Right Ctrl".
     pub name: String,
@@ -414,6 +424,8 @@ mod tests {
     const SHIFT: u32 = 42;
     #[cfg(windows)]
     const LEFT_CTRL: u32 = 0x1D;
+    #[cfg(target_os = "macos")]
+    const LEFT_CTRL: u32 = 0x3B;
 
     #[test]
     fn recording_takes_the_keys_held_together_once_they_come_up() {
@@ -421,7 +433,7 @@ mod tests {
         // A key held from before recording began coming up changes nothing.
         assert_eq!(recorder.key(key(28, "Enter"), false), None);
         assert_eq!(recorder.key(key(M, "M"), true), None);
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
         {
             assert_eq!(recorder.key(key(LEFT_CTRL, "Left Ctrl"), true), None);
             assert_eq!(recorder.key(key(M, "M"), true), None, "a repeat");
@@ -432,7 +444,7 @@ mod tests {
             let alone = Shortcut::new(vec![key(LEFT_CTRL, "Left Ctrl")]).unwrap();
             assert_eq!(alone.name(), "Left Ctrl", "a key alone is its side");
         }
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         assert!(recorder.key(key(M, "M"), false).is_some());
         assert!(recorder.is_empty());
     }

@@ -17,6 +17,11 @@ fn main() {
         "camera.cc",
         "hwenc.c",
         "hevc.c",
+        "vtdec.c",
+        "vtdec.h",
+        "aacdec.c",
+        "vtenc.c",
+        "aacdec.h",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
@@ -114,6 +119,23 @@ fn main() {
         .include(third_party.join(format!("ffmpeg/chromium/config/Chrome/{os}/{arch}")))
         .warnings(true);
     use_clang_cl(&mut codecs);
+    // libwebrtc's FFmpeg has no H264 decoder on macOS: VideoToolbox decodes.
+    if target_os == "macos" {
+        // And no AAC decoder either: AudioToolbox decodes that.
+        codecs
+            .file("native/vtdec.c")
+            .file("native/aacdec.c")
+            .file("native/vtenc.c");
+        for framework in [
+            "VideoToolbox",
+            "AudioToolbox",
+            "CoreMedia",
+            "CoreVideo",
+            "CoreFoundation",
+        ] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
     codecs.compile("yapfast_codecs");
 }
 

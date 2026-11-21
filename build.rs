@@ -7,9 +7,19 @@ use std::{env, fs, path::PathBuf, process::Command};
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows");
     build_info();
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        windows_icon();
+    match env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        Ok("windows") => windows_icon(),
+        Ok("macos") => keep_objc_categories(),
+        _ => {}
     }
+}
+
+/// libwebrtc's macOS code adds Objective-C methods to system classes in
+/// categories, such as `+[NSString stringForAbslStringView:]`, which its camera
+/// list calls. The linker drops categories from a static library unless told
+/// to keep them, and the call then throws: Settings, Voice & Video crashed.
+fn keep_objc_categories() {
+    println!("cargo:rustc-link-arg=-ObjC");
 }
 
 /// Hands src/build_info.rs the commit and its date, and whether this is a

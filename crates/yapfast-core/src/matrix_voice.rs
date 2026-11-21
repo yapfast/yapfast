@@ -341,7 +341,7 @@ async fn connected(
         let mut watching = Watching::default();
         // The LiveKit identity of each member, to match cameras to people.
         let mut members: HashMap<String, String> = HashMap::new();
-        state.can_film = cfg!(any(target_os = "linux", windows));
+        state.can_film = cfg!(any(target_os = "linux", target_os = "macos", windows));
         state.phase = Phase::Connected;
         // Yapfast joins only encrypted rooms' calls, whose media LiveKit
         // encrypts frame by frame with the call's keys.

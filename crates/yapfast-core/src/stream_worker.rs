@@ -213,7 +213,11 @@ pub fn shareable() -> Vec<Shareable> {
     listed
 }
 
+#[cfg_attr(target_os = "macos", allow(unreachable_code))]
 fn screens_and_windows() -> Vec<Shareable> {
+    // macOS lists them through ScreenCaptureKit, which captures them too.
+    #[cfg(target_os = "macos")]
+    return screen_kit::shareable();
     if portal_picks() {
         return Vec::new();
     }
@@ -1125,6 +1129,9 @@ struct Capture {
     capturer: Option<livekit::webrtc::desktop_capturer::DesktopCapturer>,
     /// A camera's, which sends its frames from its own thread.
     _camera: Option<crate::camera::Camera>,
+    /// A screen's or window's through ScreenCaptureKit, on macOS.
+    #[cfg(target_os = "macos")]
+    screen: Option<screen_kit::Screen>,
     captured: Arc<Mutex<Captured>>,
 }
 
@@ -1132,6 +1139,7 @@ impl Capture {
     /// Starts capturing `source`, fitting its frames in `max_width` by
     /// `max_height`; where [`portal_picks`], a screen or window the system's
     /// dialog picks.
+    #[cfg_attr(target_os = "macos", allow(unreachable_code, unused_variables))]
     fn start(
         source: Source,
         sink: &Arc<Mutex<Sink>>,
@@ -1141,6 +1149,9 @@ impl Capture {
         if let Source::Camera(id) = &source {
             return Self::camera(id, sink, max_width, max_height);
         }
+        // macOS captures screens and windows through ScreenCaptureKit.
+        #[cfg(target_os = "macos")]
+        return screen_kit::start(source, sink, max_width, max_height);
         use livekit::webrtc::desktop_capturer::{
             CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
         };
@@ -1200,6 +1211,8 @@ impl Capture {
         Ok(Self {
             capturer: Some(capturer),
             _camera: None,
+            #[cfg(target_os = "macos")]
+            screen: None,
             captured,
         })
     }
@@ -1212,44 +1225,14 @@ impl Capture {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .fps;
         let captured = Arc::new(Mutex::new(Captured::default()));
-        let (into, seen) = (sink.clone(), captured.clone());
-        let mut kept: Option<I420Buffer> = None;
-        let camera = crate::camera::Camera::open_at(
-            Some(id),
-            (max_width, max_height, fps),
-            Box::new(move |frame| {
-                let size = (frame.width, frame.height);
-                if kept
-                    .as_ref()
-                    .is_none_or(|picture| (picture.width(), picture.height()) != size)
-                {
-                    kept = Some(I420Buffer::new(frame.width, frame.height));
-                }
-                let picture = kept.as_mut().expect("made above");
-                copy_planes(frame, picture);
-                // The camera fits the stream already; an odd size, which
-                // codecs can't take, loses a row or a column.
-                let fitted = fit(size.0, size.1, max_width, max_height);
-                let taken = if fitted == size {
-                    into.lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(picture)
-                } else {
-                    let mut scaled = picture.scale(fitted.0 as i32, fitted.1 as i32);
-                    into.lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut scaled)
-                };
-                let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                match taken {
-                    Ok(()) => seen.size = Some(fitted),
-                    Err(error) => seen.failed = Some(format!("{error:#}")),
-                }
-            }),
-        )?;
+        let delivery = picture_delivery(sink.clone(), captured.clone(), max_width, max_height);
+        let camera =
+            crate::camera::Camera::open_at(Some(id), (max_width, max_height, fps), delivery)?;
         Ok(Self {
             capturer: None,
             _camera: Some(camera),
+            #[cfg(target_os = "macos")]
+            screen: None,
             captured,
         })
     }
@@ -1260,6 +1243,10 @@ impl Capture {
         if let Some(capturer) = &mut self.capturer {
             capturer.capture_frame();
         }
+        #[cfg(target_os = "macos")]
+        if let Some(screen) = &mut self.screen {
+            screen.send_latest();
+        }
     }
 
     fn seen(&self) -> std::sync::MutexGuard<'_, Captured> {
@@ -1267,6 +1254,47 @@ impl Capture {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// What takes a camera's or screen's pictures into the sink, fitted to
+/// `max_width` by `max_height`. Each picture goes into a buffer kept for the
+/// next, and what happens to it is told in `seen`.
+fn picture_delivery(
+    into: Arc<Mutex<Sink>>,
+    seen: Arc<Mutex<Captured>>,
+    max_width: u32,
+    max_height: u32,
+) -> Box<dyn FnMut(&crate::picture::I420<'_>) + Send> {
+    let mut kept: Option<I420Buffer> = None;
+    Box::new(move |frame| {
+        let size = (frame.width, frame.height);
+        if kept
+            .as_ref()
+            .is_none_or(|picture| (picture.width(), picture.height()) != size)
+        {
+            kept = Some(I420Buffer::new(frame.width, frame.height));
+        }
+        let picture = kept.as_mut().expect("made above");
+        copy_planes(frame, picture);
+        // The source fits the stream already; an odd size, which codecs can't
+        // take, loses a row or a column.
+        let fitted = fit(size.0, size.1, max_width, max_height);
+        let taken = if fitted == size {
+            into.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .frame(picture)
+        } else {
+            let mut scaled = picture.scale(fitted.0 as i32, fitted.1 as i32);
+            into.lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .frame(&mut scaled)
+        };
+        let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match taken {
+            Ok(()) => seen.size = Some(fitted),
+            Err(error) => seen.failed = Some(format!("{error:#}")),
+        }
+    })
 }
 
 /// Copies a camera's picture into `picture`, of the same size.
@@ -1355,7 +1383,10 @@ fn glance(
 }
 
 /// A picture of the screen listed by `id`, at its own size.
+#[cfg_attr(target_os = "macos", allow(unreachable_code, unused_variables))]
 fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
+    #[cfg(target_os = "macos")]
+    return screen_kit::glance(id, stop);
     use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
     };
@@ -1782,6 +1813,141 @@ impl Drop for Worker {
         tracing::warn!("the stream worker didn't stop; ending it");
         let _ = child.kill();
         let _ = child.wait();
+    }
+}
+
+/// Screens and windows on macOS, through ScreenCaptureKit: the worker's side
+/// of `crate::screencapturekit`.
+#[cfg(target_os = "macos")]
+mod screen_kit {
+    use super::*;
+    use crate::screencapturekit::{
+        content::{self, Capturable},
+        video::{Capture as ScreenCapture, Frame},
+    };
+
+    /// The largest picture of a screen taken to show in the menu, and how
+    /// often the capture is asked for one.
+    const GLANCE_CAPTURE_SIZE: (u32, u32) = (1280, 720);
+    const GLANCE_FPS: u32 = 10;
+    const GLANCE_POLL: Duration = Duration::from_millis(50);
+
+    /// A screen or window sending its pictures at the stream's pace.
+    pub(super) struct Screen {
+        capture: ScreenCapture,
+        /// The picture last taken, sent again while the screen is still.
+        current: Frame,
+        deliver: Box<dyn FnMut(&crate::picture::I420<'_>) + Send>,
+    }
+
+    impl Screen {
+        /// Sends the newest picture, or the last again if the screen did not
+        /// change, as a stream needs a picture every frame.
+        pub(super) fn send_latest(&mut self) {
+            if self.capture.take(&mut self.current) {
+                (self.deliver)(&self.current.picture());
+            }
+        }
+    }
+
+    /// What the screen sharing menu lists: screens, then windows. When the
+    /// system will not list them, the menu has none and says why in the log.
+    pub(super) fn shareable() -> Vec<Shareable> {
+        match content::list() {
+            Ok(listing) => {
+                let screens = listing.screens.into_iter().map(|(id, title)| Shareable {
+                    source: Source::Display(u64::from(id)),
+                    title,
+                });
+                let windows = listing.windows.into_iter().map(|(id, title)| Shareable {
+                    source: Source::Window(u64::from(id)),
+                    title,
+                });
+                screens.chain(windows).collect()
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "no screens or windows to list"
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    /// What ScreenCaptureKit captures for `source`: no pick is the main display.
+    fn capturable(source: &Source) -> Capturable {
+        match source {
+            Source::Display(id) => Capturable::Display(*id as u32),
+            Source::Window(id) => Capturable::Window(*id as u32),
+            _ => Capturable::MainDisplay,
+        }
+    }
+
+    pub(super) fn start(
+        source: Source,
+        sink: &Arc<Mutex<Sink>>,
+        max_width: u32,
+        max_height: u32,
+    ) -> Result<Capture> {
+        let fps = sink
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .fps;
+        let captured = Arc::new(Mutex::new(Captured::default()));
+        let stopped = captured.clone();
+        let capture = ScreenCapture::start(
+            capturable(&source),
+            (max_width, max_height),
+            fps,
+            move |message| {
+                stopped
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .failed
+                    .get_or_insert(message);
+            },
+        )?;
+        let deliver = picture_delivery(sink.clone(), captured.clone(), max_width, max_height);
+        Ok(Capture {
+            capturer: None,
+            _camera: None,
+            screen: Some(Screen {
+                capture,
+                current: Frame::default(),
+                deliver,
+            }),
+            captured,
+        })
+    }
+
+    /// A picture of the screen `id`, once it is not black, or the last taken.
+    pub(super) fn glance(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
+        let capture = ScreenCapture::start(
+            Capturable::Display(id as u32),
+            GLANCE_CAPTURE_SIZE,
+            GLANCE_FPS,
+            |message| tracing::info!(%message, "a screen picture capture ended"),
+        )?;
+        let mut current = Frame::default();
+        let mut taken = None;
+        let deadline = Instant::now() + GLANCE_WAIT;
+        loop {
+            if capture.take(&mut current) {
+                let picture = current.picture();
+                let mut buffer = I420Buffer::new(picture.width, picture.height);
+                copy_planes(&picture, &mut buffer);
+                let lit = !is_black(&buffer);
+                taken = Some(buffer);
+                if lit {
+                    return Ok(taken);
+                }
+            }
+            if Instant::now() >= deadline || stop.load(Ordering::Relaxed) {
+                return Ok(taken);
+            }
+            std::thread::sleep(GLANCE_POLL);
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 //! Opening Discord's own protocol links in Yapfast: a current-user
 //! protocol registration on Windows, and the person's default
-//! applications on Linux. Yapfast's own `yapfast:` scheme is registered by
+//! applications on Linux. On macOS the app bundle's Info.plist claims
+//! `discord:` for LaunchServices, so there is no choice to offer here, and
+//! the link arrives as an Apple Event rather than as an argument; see
+//! [`apple_event`]. Yapfast's own `yapfast:` scheme is registered by
 //! its installer or desktop entry; this claims `discord:` only when
 //! Settings says to, and gives the previous handler back when turned off.
 
@@ -52,6 +55,173 @@ use windows as platform;
 // src/notify.rs registers Yapfast's toasts with it.
 #[cfg(windows)]
 pub(crate) use windows::set_string;
+
+
+/// `discord://` links on macOS. LaunchServices hands a link to the running
+/// Yapfast, or starts it with the link, as an Apple Event (`GURL`) instead of
+/// as an argument or through the instance socket; this takes it from there.
+#[cfg(target_os = "macos")]
+pub mod apple_event {
+    use std::sync::Mutex;
+
+    use objc2::{define_class, msg_send, rc::Retained, sel};
+    use objc2_foundation::{NSAppleEventDescriptor, NSAppleEventManager, NSObject, NSObjectProtocol};
+
+    /// Where links go, once the window's event loop is listening.
+    pub type Sink = Box<dyn Fn(String) + Send>;
+
+    /// The class and the ID of the event that carries a link: both are `GURL`.
+    const URL_EVENT: u32 = four_char_code(b"GURL");
+    /// The parameter holding the link: `----`, the event's direct object.
+    const DIRECT_OBJECT: u32 = four_char_code(b"----");
+    /// The longest link taken; a longer one isn't Discord's.
+    const LINK_MOST: usize = 2048;
+
+    /// Links that came before anything listened, and the listener.
+    struct Links {
+        sink: Option<Sink>,
+        waiting: Vec<String>,
+    }
+
+    static LINKS: Mutex<Links> = Mutex::new(Links {
+        sink: None,
+        waiting: Vec::new(),
+    });
+
+    thread_local! {
+        /// The event handler, which the Apple Event manager doesn't retain.
+        static HANDLER: Retained<Handler> = Handler::new();
+    }
+
+    define_class!(
+        /// Receives the Apple Event a `discord://` link arrives as.
+        #[unsafe(super(NSObject))]
+        #[ivars = ()]
+        struct Handler;
+
+        unsafe impl NSObjectProtocol for Handler {}
+
+        impl Handler {
+            #[unsafe(method(handleGetURL:withReplyEvent:))]
+            fn handle_get_url(&self, event: &NSAppleEventDescriptor, _reply: &NSAppleEventDescriptor) {
+                match link_in(event) {
+                    Some(link) => deliver(link),
+                    None => tracing::warn!("an Apple Event for a link carried none Yapfast can use"),
+                }
+            }
+        }
+    );
+
+    impl Handler {
+        fn new() -> Retained<Self> {
+            use objc2::AllocAnyThread;
+            let this = Self::alloc().set_ivars(());
+            // SAFETY: NSObject's init, on an object whose ivars are set.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Starts listening for links, on the main thread; links that come before
+    /// [`forward_to`] wait for it. Safe to call again.
+    pub fn install() {
+        HANDLER.with(|handler| {
+            let manager = NSAppleEventManager::sharedAppleEventManager();
+            // SAFETY: the handler answers this selector, with the event and its
+            // reply as arguments, and is kept alive for the thread's life; the
+            // class and ID are four character codes, as the method takes.
+            unsafe {
+                let _: () = msg_send![
+                    &manager,
+                    setEventHandler: &**handler,
+                    andSelector: sel!(handleGetURL:withReplyEvent:),
+                    forEventClass: URL_EVENT,
+                    andEventID: URL_EVENT
+                ];
+            }
+        });
+        tracing::debug!("listening for discord:// links");
+    }
+
+    /// Sends the links that came already, and those that come, to `sink`.
+    pub fn forward_to(sink: Sink) {
+        let mut links = LINKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for link in std::mem::take(&mut links.waiting) {
+            sink(link);
+        }
+        links.sink = Some(sink);
+    }
+
+    fn deliver(link: String) {
+        tracing::info!("a link arrived from macOS");
+        let mut links = LINKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match &links.sink {
+            Some(sink) => sink(link),
+            None => links.waiting.push(link),
+        }
+    }
+
+    /// The link the event carries, as text.
+    fn link_in(event: &NSAppleEventDescriptor) -> Option<String> {
+        // SAFETY: a plain getter, answered with a descriptor or nil.
+        let object: Option<Retained<NSAppleEventDescriptor>> =
+            unsafe { msg_send![event, paramDescriptorForKeyword: DIRECT_OBJECT] };
+        let text = object?.stringValue()?.to_string();
+        link_from_text(&text)
+    }
+
+    /// A link as the event words it: Discord's or Yapfast's own scheme, one
+    /// word, and no longer than a link is.
+    pub(super) fn link_from_text(text: &str) -> Option<String> {
+        let link = text.trim();
+        let scheme = link.split_once(':')?.0;
+        let ours = scheme.eq_ignore_ascii_case("discord") || scheme.eq_ignore_ascii_case("yapfast");
+        let one_word = !link.contains(char::is_whitespace);
+        (ours && one_word && link.len() <= LINK_MOST).then(|| link.to_owned())
+    }
+
+    /// A four character code as the number AppKit takes it as.
+    const fn four_char_code(code: &[u8; 4]) -> u32 {
+        u32::from_be_bytes(*code)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{DIRECT_OBJECT, URL_EVENT, link_from_text};
+
+        #[test]
+        fn four_character_codes_are_their_bytes() {
+            assert_eq!(URL_EVENT, 0x4755_524C);
+            assert_eq!(DIRECT_OBJECT, 0x2D2D_2D2D);
+        }
+
+        #[test]
+        fn takes_discord_and_yapfast_links() {
+            assert_eq!(
+                link_from_text(" discord://-/channels/1/2\n").as_deref(),
+                Some("discord://-/channels/1/2")
+            );
+            assert_eq!(
+                link_from_text("DISCORD:///invite/abc").as_deref(),
+                Some("DISCORD:///invite/abc")
+            );
+            assert!(link_from_text("yapfast:about").is_some());
+        }
+
+        #[test]
+        fn refuses_other_schemes_and_odd_text() {
+            assert!(link_from_text("https://discord.com/channels/1/2").is_none());
+            assert!(link_from_text("discord://a b").is_none());
+            assert!(link_from_text("no scheme at all").is_none());
+            assert!(link_from_text("").is_none());
+            let long = format!("discord://{}", "a".repeat(3000));
+            assert!(link_from_text(&long).is_none());
+        }
+    }
+}
 
 #[cfg(not(any(windows, target_os = "linux")))]
 mod none {

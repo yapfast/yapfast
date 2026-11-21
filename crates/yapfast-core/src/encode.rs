@@ -1,7 +1,8 @@
 //! Encoding for Go Live and the camera, through native/vp8.c with the libvpx
 //! inside libwebrtc, native/h264.c with x264 (vendor/x264-src), and
 //! native/hwenc.c with FFmpeg's hardware encoders (vendor/ffmpeg-src) where
-//! the GPU has one. Frames arrive as RGBA or I420 and leave as VP8 frames,
+//! the GPU has one, or on macOS native/vtenc.c with VideoToolbox's H264
+//! encoder. Frames arrive as RGBA or I420 and leave as VP8 frames,
 //! H264 or H265 access units in Annex B form, or AV1 temporal units of OBUs
 //! that give their sizes.
 
@@ -440,7 +441,7 @@ fn open_software(
 }
 
 /// The GPU's encoder for `codec`, if it has one that opens.
-#[cfg(hwenc)]
+#[cfg(all(hwenc, not(target_os = "macos")))]
 fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Option<Opened> {
     let number = match codec {
         Codec::H264 => 0,
@@ -480,7 +481,76 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
     ))
 }
 
-#[cfg(not(hwenc))]
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn yapfast_vtenc_new(
+        codec: c_uint,
+        width: c_uint,
+        height: c_uint,
+        fps: c_uint,
+        kbps: c_uint,
+        report: *mut std::ffi::c_char,
+        report_size: usize,
+    ) -> *mut Raw;
+    #[allow(clippy::too_many_arguments, reason = "the C function's parameters")]
+    fn yapfast_vtenc_encode(
+        encoder: *mut Raw,
+        y: *const c_uchar,
+        y_stride: c_int,
+        u: *const c_uchar,
+        u_stride: c_int,
+        v: *const c_uchar,
+        v_stride: c_int,
+        pts: c_longlong,
+        duration: c_ulong,
+        keyframe: c_int,
+        out: *mut c_uchar,
+        capacity: usize,
+        is_key: *mut c_int,
+    ) -> c_long;
+    fn yapfast_vtenc_set_bitrate(encoder: *mut Raw, kbps: c_uint) -> c_int;
+    fn yapfast_vtenc_free(encoder: *mut Raw);
+}
+
+/// The Mac's hardware encoder through VideoToolbox, for H264 only.
+#[cfg(target_os = "macos")]
+fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Option<Opened> {
+    if codec != Codec::H264 {
+        return None;
+    }
+    let mut report = [0u8; 512];
+    // SAFETY: plain values and a buffer of the size given, which the shim
+    // ends with a zero.
+    let raw = unsafe {
+        yapfast_vtenc_new(
+            0,
+            width,
+            height,
+            fps,
+            kbps,
+            report.as_mut_ptr().cast(),
+            report.len(),
+        )
+    };
+    let report = std::ffi::CStr::from_bytes_until_nul(&report).map_or_else(
+        |_| String::new(),
+        |text| text.to_string_lossy().into_owned(),
+    );
+    if raw.is_null() {
+        tracing::info!(?codec, tried = report, "no VideoToolbox encoder opened");
+        return None;
+    }
+    tracing::debug!(engine = report, ?codec, "encoding with VideoToolbox");
+    Some((
+        raw,
+        yapfast_vtenc_encode,
+        yapfast_vtenc_set_bitrate,
+        yapfast_vtenc_free,
+        report,
+    ))
+}
+
+#[cfg(not(any(hwenc, target_os = "macos")))]
 fn open_hardware(_: Codec, _: u32, _: u32, _: u32, _: u32) -> Option<Opened> {
     None
 }

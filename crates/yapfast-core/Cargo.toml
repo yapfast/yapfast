@@ -123,6 +123,38 @@ windows = { version = "0.62", features = [
 # What `#[implement]` expands to names it.
 windows-core = "0.62"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Real-time quality of service for the audio threads.
+libc = "0.2"
+# Yapfast's own sound goes through Core Audio's HAL output unit (AUHAL): the
+# HAL lists the devices, and the unit plays or records one of them.
+objc2-audio-toolbox = { version = "0.3.2", default-features = false, features = ["std", "AUComponent", "AudioComponent", "AudioOutputUnit", "AudioUnitProperties", "objc2-core-audio-types"] }
+objc2-core-audio = { version = "0.3.2", default-features = false, features = ["std", "AudioHardware", "objc2-core-audio-types"] }
+objc2-core-audio-types = { version = "0.3.2", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
+# The HAL names devices with CFStrings.
+objc2-core-foundation = { version = "0.3.2", features = ["CFString"] }
+# Takes a microphone's own rate to the one asked for: the HAL unit won't on
+# the input side. deep_filter builds this version already.
+rubato = "0.14"
+# The lock-free queue between a Core Audio callback and a blocking caller;
+# LiveKit's runtime builds it already.
+rtrb = "0.3"
+# Keeps macOS from napping the process during a call (App Nap).
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSProcessInfo", "NSString", "NSObject", "NSArray", "NSError", "NSValue", "NSDictionary", "NSEnumerator"] }
+# The camera: AVFoundation lists and captures, its frames arrive as Core Media
+# sample buffers holding Core Video pixel buffers, on a dispatch queue.
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "AVCaptureDevice", "AVCaptureInput", "AVCaptureOutput", "AVCaptureOutputBase", "AVCaptureSession", "AVCaptureSessionPreset", "AVCaptureVideoDataOutput", "AVMediaFormat", "block2", "dispatch2", "objc2-core-media", "objc2-core-video"] }
+objc2-core-media = { version = "0.3.2", default-features = false, features = ["std", "CMSampleBuffer", "CMFormatDescription", "CMTime", "CMBlockBuffer", "objc2-core-video", "objc2-core-audio-types"] }
+objc2-core-video = { version = "0.3.2", default-features = false, features = ["std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn"] }
+dispatch2 = "0.3.1"
+block2 = "0.6"
+# Screen sharing: ScreenCaptureKit lists screens and windows and captures them
+# and the other applications' sound; Core Graphics asks for the screen
+# recording permission.
+objc2-screen-capture-kit = { version = "0.3.2", default-features = false, features = ["std", "SCShareableContent", "SCStream", "SCError", "block2", "dispatch2", "objc2-core-media", "objc2-core-graphics", "objc2-core-foundation"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGWindow", "CGDirectDisplay"] }
+
 [dev-dependencies]
 # Animated PNGs to read frame timings from, the version the image crate uses.
 png = "0.18"

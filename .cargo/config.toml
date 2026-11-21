@@ -2,3 +2,8 @@
 # scripts/release-env repeats this for release builds.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
+
+# macOS: ScreenCaptureKit's system audio needs macOS 13. Without this, rustc
+# and the C and C++ builds default to an older target (11 on arm64).
+[env]
+MACOSX_DEPLOYMENT_TARGET = "13.0"

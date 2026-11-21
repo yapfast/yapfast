@@ -1,12 +1,23 @@
 //! Starting Yapfast when the person signs in to their computer: a value in the
 //! registry's Run key on Windows, an XDG autostart entry on Linux. The entry is
 //! the setting, so one turned off in Task Manager, or a deleted file, shows as
-//! off in Settings too. It starts Yapfast with `--background`, in the tray.
+//! off in Settings too. It starts Yapfast with `--background`, in the tray. On
+//! macOS the login item is the app bundle's, through SMAppService, so it is
+//! offered from the installed app only and starts it without `--background`.
 
 use std::path::PathBuf;
 
 /// Whether this platform can start Yapfast at sign-in.
-pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
+pub const SUPPORTED: bool = cfg!(any(target_os = "linux", target_os = "macos", windows));
+
+/// Whether Settings offers the choice now. On macOS only the app bundle can be
+/// a login item; a bare binary, as `cargo run` starts it, can't.
+pub fn available() -> bool {
+    #[cfg(target_os = "macos")]
+    return SUPPORTED && platform::usable();
+    #[cfg(not(target_os = "macos"))]
+    SUPPORTED
+}
 
 /// The name the entry goes by: the Run key's value, and the Inno Setup
 /// installer's, which writes the same one.
@@ -106,7 +117,9 @@ fn windows_quoted(argument: &str) -> String {
 
 #[cfg(target_os = "linux")]
 use linux as platform;
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 use none as platform;
 #[cfg(windows)]
 use windows as platform;
@@ -378,7 +391,69 @@ mod windows {
     }
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
+mod macos {
+    use objc2_foundation::NSBundle;
+    use objc2_service_management::{SMAppService, SMAppServiceStatus};
+
+    /// Whether this process runs from an app bundle.
+    pub fn usable() -> bool {
+        NSBundle::mainBundle().bundleIdentifier().is_some()
+    }
+
+    /// Whether the status says the login item runs at sign-in. One the person
+    /// has yet to approve in System Settings doesn't.
+    pub(super) fn is_on(status: SMAppServiceStatus) -> bool {
+        status == SMAppServiceStatus::Enabled
+    }
+
+    pub fn enabled() -> bool {
+        // SAFETY: mainAppService and status only read the app's own state.
+        usable() && is_on(unsafe { SMAppService::mainAppService().status() })
+    }
+
+    pub fn write(_: &[String]) -> std::io::Result<()> {
+        if !usable() {
+            return Err(std::io::Error::other(
+                "starting at sign-in needs the installed Yapfast.app",
+            ));
+        }
+        if enabled() {
+            return Ok(());
+        }
+        // SAFETY: registering the app's own login item.
+        unsafe { SMAppService::mainAppService().registerAndReturnError() }.map_err(|error| {
+            tracing::warn!(%error, "could not register the login item");
+            std::io::Error::other(error.localizedDescription().to_string())
+        })
+    }
+
+    pub fn remove() -> std::io::Result<()> {
+        if !usable() {
+            return Ok(());
+        }
+        // SAFETY: unregistering the app's own login item.
+        unsafe { SMAppService::mainAppService().unregisterAndReturnError() }.map_err(|error| {
+            tracing::warn!(%error, "could not remove the login item");
+            std::io::Error::other(error.localizedDescription().to_string())
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use objc2_service_management::SMAppServiceStatus;
+
+        #[test]
+        fn only_an_enabled_login_item_is_on() {
+            assert!(super::is_on(SMAppServiceStatus::Enabled));
+            assert!(!super::is_on(SMAppServiceStatus::NotRegistered));
+            assert!(!super::is_on(SMAppServiceStatus::RequiresApproval));
+            assert!(!super::is_on(SMAppServiceStatus::NotFound));
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod none {
     pub fn enabled() -> bool {
         false

@@ -56,6 +56,8 @@ pub mod links;
 pub mod logging;
 #[cfg(feature = "discord")]
 mod lottie;
+#[cfg(target_os = "macos")]
+pub mod macos_permissions;
 #[cfg(feature = "matrix")]
 mod matrix_chat;
 #[cfg(feature = "matrix")]
@@ -69,6 +71,8 @@ pub mod meter;
 pub mod network;
 pub mod new_tags;
 pub mod noise;
+#[cfg(target_os = "macos")]
+mod nv12;
 pub mod picture;
 #[cfg(feature = "discord")]
 pub mod playback;
@@ -76,6 +80,8 @@ pub mod push_to_talk;
 #[cfg(feature = "discord")]
 pub mod ring;
 pub mod runtime;
+#[cfg(all(feature = "discord", target_os = "macos"))]
+mod screencapturekit;
 pub mod search_words;
 #[cfg(feature = "matrix")]
 pub mod session;
