@@ -2071,6 +2071,11 @@ pub enum Action {
         body: Option<String>,
     },
     SetThreadPrivate(bool),
+    /// Add files to the form's first message, take the one at this index
+    /// out, or mark it as a spoiler or not.
+    StageFirst(Vec<PathBuf>),
+    UnstageFirst(usize),
+    ToggleFirstSpoiler(usize),
     /// Start the thread the form describes.
     CreateThread,
     /// Close the form, asking first if something was written; close it
@@ -3771,6 +3776,18 @@ impl Application {
             }
             Action::SetThreadPrivate(private) => {
                 self.set_thread_private(private);
+                vec![]
+            }
+            Action::StageFirst(paths) => {
+                self.stage_first(paths);
+                vec![]
+            }
+            Action::UnstageFirst(index) => {
+                self.unstage_first(index);
+                vec![]
+            }
+            Action::ToggleFirstSpoiler(index) => {
+                self.toggle_first_spoiler(index);
                 vec![]
             }
             Action::CreateThread => self.create_thread(),

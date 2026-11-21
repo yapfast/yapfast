@@ -190,6 +190,59 @@ fn files_dropped_over_the_thread_go_to_it() {
 }
 
 #[test]
+fn the_new_thread_form_takes_files_dropped_pasted_and_removed() {
+    use crate::{composer::Writing, uploads::Event};
+    let (mut app, folder) = preview();
+    // The preview takes no files: as a trusted Matrix device's instead.
+    change(&mut app, |state| {
+        state.preview = false;
+        state.trusted = true;
+        for room in &mut state.rooms {
+            Arc::make_mut(room).encrypted = true;
+        }
+        let channel = state.selected.clone().expect("an open channel");
+        // The core's type isn't named outside it; its fields are.
+        state.new_thread = Some(Default::default());
+        state.new_thread.as_mut().expect("the form").room = channel;
+    });
+    let file = |name: &str| {
+        let path = folder.path().join(name);
+        std::fs::write(&path, "seeds").expect("a file");
+        path
+    };
+    let width = app.shell.frame.width;
+    let _ = crate::uploads::update(&mut app, Event::Hovered);
+    let _ = crate::uploads::update(
+        &mut app,
+        Event::Moved(iced::Point::new(width - 50.0, 300.0)),
+    );
+    assert!(app.uploads.drop.aside, "over the form");
+    let _ = crate::uploads::update(&mut app, Event::Dropped(file("notes.txt")));
+    let _ = crate::uploads::update(&mut app, Event::Drop);
+    let _ = crate::uploads::update(
+        &mut app,
+        Event::Clipboard(Writing::NewThread, Some(vec![file("plan.txt")])),
+    );
+    let state = app.client.state();
+    let names: Vec<_> = state
+        .new_thread()
+        .expect("the form")
+        .files
+        .iter()
+        .map(|file| file.name.as_str())
+        .collect();
+    assert_eq!(names, ["notes.txt", "plan.txt"], "dropped, then pasted");
+    assert!(state.staged().is_empty(), "the channel's composer stays");
+    // Out of the preview the window asks to sign in: back in it, to look.
+    change(&mut app, |state| state.preview = true);
+    assert!(shows(&app, "plan.txt"), "in the form's tray");
+    change(&mut app, |state| state.preview = false);
+    let _ = crate::uploads::update(&mut app, Event::UnstageFirst(0));
+    let state = app.client.state();
+    assert_eq!(state.new_thread().expect("the form").files.len(), 1);
+}
+
+#[test]
 fn files_dropped_where_search_hides_the_thread_go_to_the_channel() {
     use crate::uploads::Event;
     let (mut app, folder) = thread_beside();

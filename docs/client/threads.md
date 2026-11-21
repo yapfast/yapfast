@@ -59,5 +59,9 @@ New Thread form beside the channel: the message it starts from as a
 found card
 (`found::Found`), the thread's name (the message's text by default), the
 Private Thread switch where the server allows one, and the first
-message's composer, Create Thread sending both. Leaving it with something
-written asks first (`thread::leave_question`).
+message's composer, Create Thread sending both. The first message takes
+files as the channel's composer does (Attach, Ctrl+V, a drop over the
+form), and files alone make one, as in Discord's form; they wait in the
+form (`NewThread::files`) and go with the first message once the thread
+has started. Leaving it with something written or attached asks first
+(`thread::leave_question`).

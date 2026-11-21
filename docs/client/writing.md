@@ -25,7 +25,9 @@ button, holds them alone.
 Files go with the next message (`uploads.rs`) from the system's file
 dialog (the + where nothing else can start, or the + menu's "Upload a
 File", whose Create Thread shows greyed until threads come; its Create
-Poll opens Create a Poll, see [dialogs](dialogs.md)), from Ctrl+V (files
+Poll opens Create a Poll, see [dialogs](dialogs.md)), from Ctrl+V in the
+channel's composer, the thread beside's, the New Thread form's or a new
+forum post's message (files
 copied in a file manager, or a picture, which
 the root crate's `paste.rs` reads and saves as `image.<extension>` in a
 folder removed as Yapfast closes; text otherwise; files are looked for
@@ -34,8 +36,9 @@ files never go, the preview or a channel not to write in, which take the
 text), or dropped on the
 window (winit's drops on X11 and Windows, the root crate's `drop.rs` on
 Wayland, whose data device winit doesn't take). Files over the thread
-beside below its head go to the thread instead (`uploads.rs`'s
-`over_aside`): on Wayland the desktop says where the drag is; on X11 and
+beside below its head go to the thread instead, and over the New Thread
+form to its first message (`uploads.rs`'s `over_aside` and
+`drop_place`): on Wayland the desktop says where the drag is; on X11 and
 Windows, where winit says nothing of where, the root crate's
 `drop::Pointer` asks the platform where the pointer is (`Desktop::pointer`,
 made once as files come over the window) every 40 ms while they hover

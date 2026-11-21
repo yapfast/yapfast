@@ -175,6 +175,8 @@ pub enum Event {
     More,
     Send,
     Attach,
+    /// The New Thread form's Attach.
+    AttachFirst,
     CancelReply,
     TogglePing,
     /// A thread to show beside its channel: View Thread, a thread's link,
@@ -243,6 +245,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Send => send_aside(app),
         Event::Attach => attach_aside(),
+        Event::AttachFirst => {
+            // Cancelled, the field takes the keys again all the same.
+            let chosen =
+                |files| Message::Write(Write::Uploads(crate::uploads::Event::ChosenFirst(files)));
+            crate::uploads::pick_files(chosen, chosen(Vec::new()))
+        }
         Event::CancelReply => {
             app.client.dispatch(Action::CancelAsideCompose);
             Task::batch([app.sync(), operation::focus(COMPOSER)])
@@ -711,10 +719,14 @@ impl<'a> SideComposer<'a> {
         })
         .enabled(self.enabled)
         .suggesting(crate::suggest::suggesting(cx, self.which));
-        // Ctrl+V takes files and pictures in the thread's composer and a
-        // new post's message, as in the channel's composer; the paste
-        // decides as it's made whether files can go (`composer::paste`).
-        let field = if matches!(self.which, Writing::Aside | Writing::NewPost) {
+        // Ctrl+V takes files and pictures in the thread's composer, the
+        // New Thread form's and a new post's message, as in the channel's
+        // composer; the paste decides as it's made whether files can go
+        // (`composer::paste`).
+        let field = if matches!(
+            self.which,
+            Writing::Aside | Writing::NewThread | Writing::NewPost
+        ) {
             field.pastes()
         } else {
             field
@@ -1058,7 +1070,10 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     if let Some(error) = &form.error {
         fields = fields.push(form::error(theme, error.as_str()));
     }
-    let composer = SideComposer::new(
+    // Files go with the first message, and alone make one, as in
+    // Discord's form.
+    let written = !ctx.drafts.first.is_empty() || !form.files.is_empty();
+    let mut composer = SideComposer::new(
         Writing::NewThread,
         "Enter a message to start the conversation!".to_owned(),
     )
@@ -1070,9 +1085,17 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
             "Create Thread"
         },
         (!form.starting).then_some(Message::Thread(Event::Create)),
-        !form.starting && !ctx.drafts.first.is_empty(),
+        !form.starting && written,
     )
-    .view(ctx);
+    .attach(
+        ctx.state
+            .can_attach_first()
+            .then_some(Message::Thread(Event::AttachFirst)),
+    );
+    if let Some(tray) = crate::uploads::first_tray(ctx) {
+        composer = composer.tray(tray);
+    }
+    let composer = composer.view(ctx);
     let body: Element<'a, Message> = column![
         panel_head(ctx, head),
         scroll_view(fields)

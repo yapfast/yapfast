@@ -482,21 +482,7 @@ impl Application {
             return;
         };
         let staged = self.state.staged.entry(id).or_default();
-        let mut problem = None;
-        for path in paths {
-            if staged.len() >= chat::MAX_FILES {
-                problem = Some(format!(
-                    "A message carries up to {} files.",
-                    chat::MAX_FILES
-                ));
-                break;
-            }
-            match chat::Staged::read(path, limit) {
-                Ok(file) => staged.push(file),
-                Err(error) => problem = problem.or(Some(error)),
-            }
-        }
-        self.state.notice = problem;
+        self.state.notice = stage_files(staged, paths, limit);
     }
 
     /// Leave reply mode.
@@ -508,4 +494,28 @@ impl Application {
 /// Preview messages render as Markdown when they contain its punctuation.
 pub(super) fn has_markdown(body: &str) -> bool {
     body.contains(['*', '_', '`', '~', '['])
+}
+
+/// Adds files to a message's, up to as many and as large as it takes:
+/// why any couldn't go, if any couldn't.
+pub(super) fn stage_files(
+    staged: &mut Vec<chat::Staged>,
+    paths: Vec<PathBuf>,
+    limit: u64,
+) -> Option<String> {
+    let mut problem = None;
+    for path in paths {
+        if staged.len() >= chat::MAX_FILES {
+            problem = Some(format!(
+                "A message carries up to {} files.",
+                chat::MAX_FILES
+            ));
+            break;
+        }
+        match chat::Staged::read(path, limit) {
+            Ok(file) => staged.push(file),
+            Err(error) => problem = problem.or(Some(error)),
+        }
+    }
+    problem
 }

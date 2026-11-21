@@ -25,7 +25,7 @@ use yapfast_core::{
 use crate::{
     after,
     app::{App, Message},
-    composer::{self, Event as Write},
+    composer::{self, Event as Write, Writing},
     controls::{self, lit_style},
     fonts::{BOLD, MEDIUM},
     media::{Fit, Shot},
@@ -62,6 +62,10 @@ pub enum Event {
     ChosenAside(Vec<PathBuf>),
     UnstageAside(usize),
     SpoilerAside(usize),
+    /// The same for the New Thread form's first message.
+    ChosenFirst(Vec<PathBuf>),
+    UnstageFirst(usize),
+    SpoilerFirst(usize),
     /// A file's preview was made, or couldn't be.
     Preview(PathBuf, Option<Arc<Picture>>),
     /// Files dragged over the window, dropped (one at a time), the drop
@@ -106,8 +110,8 @@ pub struct Uploads {
     /// and files dragged over the window.
     pub thumbnails: std::collections::HashMap<PathBuf, Option<Arc<Picture>>>,
     /// The staged lists the previews were last made for, by place and
-    /// length: the channel's and the thread's.
-    pub staged_seen: [usize; 4],
+    /// length: the channel's, the thread's and the New Thread form's.
+    pub staged_seen: [usize; 6],
     pub drop: Drop,
 }
 
@@ -177,14 +181,25 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         // The channel's composer and a new forum post's message both stage
         // with the selected room, the forum's for its post.
-        Event::Clipboard(which, Some(files)) if which != composer::Writing::Aside => {
+        Event::Clipboard(Writing::Draft | Writing::NewPost, Some(files)) => {
             app.client.dispatch(Action::Stage(files));
             app.sync()
         }
+        Event::Clipboard(Writing::NewThread, Some(files)) | Event::ChosenFirst(files) => {
+            if !files.is_empty() {
+                app.client.dispatch(Action::StageFirst(files));
+            }
+            Task::batch([
+                app.sync(),
+                iced::widget::operation::focus(crate::thread::FIRST),
+            ])
+        }
+        // The edit's field takes text alone.
+        Event::Clipboard(Writing::Edit, Some(_)) => Task::none(),
         Event::Clipboard(which, None) => {
             iced::clipboard::read().map(move |text| Message::Write(Write::Pasted(which, text)))
         }
-        Event::ChosenAside(files) | Event::Clipboard(_, Some(files)) => {
+        Event::ChosenAside(files) | Event::Clipboard(Writing::Aside, Some(files)) => {
             if !files.is_empty() {
                 app.client.dispatch(Action::StageAside(files));
             }
@@ -199,6 +214,14 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::SpoilerAside(index) => {
             app.client.dispatch(Action::ToggleAsideSpoiler(index));
+            app.sync()
+        }
+        Event::UnstageFirst(index) => {
+            app.client.dispatch(Action::UnstageFirst(index));
+            app.sync()
+        }
+        Event::SpoilerFirst(index) => {
+            app.client.dispatch(Action::ToggleFirstSpoiler(index));
             app.sync()
         }
         Event::Preview(path, picture) => {
@@ -263,17 +286,18 @@ fn dropped(app: &mut App) -> Task<Message> {
         return Task::none();
     }
     let state = app.client.state();
-    // Over the thread beside the channel, they go to it.
-    let aside = app.uploads.drop.aside && thread_shown(app.ctx());
-    let (can_attach, refusal) = if aside {
-        (state.aside_can_attach(), state.aside_drop_refusal(&paths))
-    } else {
-        (state.can_attach(), state.drop_refusal(&paths))
+    // Over the thread beside the channel or the New Thread form, they go
+    // to it.
+    let place = drop_place(app.ctx());
+    let (can_attach, refusal) = match place {
+        Place::Channel => (state.can_attach(), state.drop_refusal(&paths)),
+        Place::Aside => (state.aside_can_attach(), state.aside_drop_refusal(&paths)),
+        Place::First => (state.can_attach_first(), state.first_drop_refusal(&paths)),
     };
-    let stage = if aside {
-        Action::StageAside
-    } else {
-        Action::Stage
+    let stage = match place {
+        Place::Channel => Action::Stage,
+        Place::Aside => Action::StageAside,
+        Place::First => Action::StageFirst,
     };
     // Staging says why it can't, as in a message being edited.
     if !can_attach {
@@ -285,19 +309,20 @@ fn dropped(app: &mut App) -> Task<Message> {
         return Task::none();
     }
     app.client.dispatch(stage(paths));
-    let focus = if aside {
-        iced::widget::operation::focus(crate::thread::COMPOSER)
-    } else {
-        crate::composer::refocus(app)
+    let focus = match place {
+        Place::Channel => crate::composer::refocus(app),
+        Place::Aside => iced::widget::operation::focus(crate::thread::COMPOSER),
+        Place::First => iced::widget::operation::focus(crate::thread::FIRST),
     };
     Task::batch([app.sync(), focus])
 }
 
 /// Whether a point of the window is over the thread beside the
-/// channel, below the header.
+/// channel or the New Thread form, below the header.
 fn over_aside(app: &App, at: iced::Point) -> bool {
     let bar = app.shell.frame.height - app.window.height;
-    thread_shown(app.ctx())
+    let ctx = app.ctx();
+    (thread_shown(ctx) || form_shown(ctx))
         && at.x >= app.shell.frame.width - crate::thread::aside_width(app)
         && at.y >= bar + crate::header::HEIGHT
 }
@@ -345,11 +370,13 @@ pub fn attach(app: &App) -> Task<Message> {
 pub fn previews(app: &mut App) -> Task<Message> {
     let state = app.client.state();
     let (staged, aside) = (state.staged(), state.aside_staged());
+    let first = state.new_thread().map_or(&[][..], |form| &form.files);
+    let all = || staged.iter().chain(aside).chain(first);
     app.uploads
         .thumbnails
-        .retain(|path, _| staged.iter().chain(aside).any(|file| &file.path == path));
+        .retain(|path, _| all().any(|file| &file.path == path));
     let mut tasks = Vec::new();
-    for file in staged.iter().chain(aside).filter(|file| file.image) {
+    for file in all().filter(|file| file.image) {
         if app.uploads.thumbnails.contains_key(&file.path) {
             continue;
         }
@@ -394,10 +421,44 @@ fn thread_shown(ctx: crate::ctx::Ctx<'_>) -> bool {
     ctx.lanes.aside.is_some() && ctx.open.aside && ctx.state.new_thread().is_none()
 }
 
+/// Whether the New Thread form shows beside the channel, which shows in
+/// place of the thread: not while search results take its place.
+fn form_shown(ctx: crate::ctx::Ctx<'_>) -> bool {
+    ctx.open.aside && ctx.state.new_thread().is_some()
+}
+
+/// Which files waiting: the channel composer's, the thread beside's or
+/// the New Thread form's first message's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Place {
+    Channel,
+    Aside,
+    First,
+}
+
+/// Where files over the window go: the panel beside the channel under
+/// them, when it takes files, or the channel.
+fn drop_place(ctx: crate::ctx::Ctx<'_>) -> Place {
+    if !ctx.uploads.drop.aside {
+        Place::Channel
+    } else if form_shown(ctx) {
+        Place::First
+    } else if thread_shown(ctx) {
+        Place::Aside
+    } else {
+        Place::Channel
+    }
+}
+
 /// The files waiting, in a row that scrolls sideways; none without.
 pub fn tray<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let state = ctx.state;
-    tray_of(ctx, state.staged(), state.can_mark_spoilers(), false)
+    tray_of(
+        ctx,
+        state.staged(),
+        state.can_mark_spoilers(),
+        Place::Channel,
+    )
 }
 
 /// The files waiting in the thread beside the channel's composer.
@@ -407,7 +468,19 @@ pub fn aside_tray<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         ctx,
         state.aside_staged(),
         state.aside_can_mark_spoilers(),
-        true,
+        Place::Aside,
+    )
+}
+
+/// The files waiting with the New Thread form's first message.
+pub fn first_tray<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let state = ctx.state;
+    let form = state.new_thread()?;
+    tray_of(
+        ctx,
+        &form.files,
+        state.can_mark_first_spoilers(),
+        Place::First,
     )
 }
 
@@ -415,14 +488,14 @@ fn tray_of<'a>(
     ctx: crate::ctx::Ctx<'a>,
     staged: &'a [chat::Staged],
     can_spoil: bool,
-    aside: bool,
+    place: Place,
 ) -> Option<Element<'a, Message>> {
     if staged.is_empty() {
         return None;
     }
     let mut tiles = row![].spacing(8);
     for (index, file) in staged.iter().enumerate() {
-        tiles = tiles.push(staged_tile(ctx, index, file, can_spoil, aside));
+        tiles = tiles.push(staged_tile(ctx, index, file, can_spoil, place));
     }
     Some(
         scroll_view(container(tiles).padding(Padding {
@@ -445,7 +518,7 @@ fn staged_tile<'a>(
     index: usize,
     file: &'a chat::Staged,
     can_spoil: bool,
-    aside: bool,
+    place: Place,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let inner = TILE.width - 12.0;
@@ -512,10 +585,10 @@ fn staged_tile<'a>(
             } else {
                 format!("Mark {} as a spoiler", file.name)
             },
-            Message::Write(Write::Uploads(if aside {
-                Event::SpoilerAside(index)
-            } else {
-                Event::Spoiler(index)
+            Message::Write(Write::Uploads(match place {
+                Place::Channel => Event::Spoiler(index),
+                Place::Aside => Event::SpoilerAside(index),
+                Place::First => Event::SpoilerFirst(index),
             })),
         ));
     }
@@ -523,10 +596,10 @@ fn staged_tile<'a>(
         ctx,
         Icon::X,
         format!("Remove {}", file.name),
-        Message::Write(Write::Uploads(if aside {
-            Event::UnstageAside(index)
-        } else {
-            Event::Unstage(index)
+        Message::Write(Write::Uploads(match place {
+            Place::Channel => Event::Unstage(index),
+            Place::Aside => Event::UnstageAside(index),
+            Place::First => Event::UnstageFirst(index),
         })),
     ));
     stack![
@@ -568,12 +641,12 @@ fn disc_button<'a>(
 pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let theme = ctx.look.theme;
     let state = ctx.state;
-    let aside = ctx.uploads.drop.aside && thread_shown(ctx);
+    let place = drop_place(ctx);
     let dragging = ctx.uploads.drop.dragging
-        && if aside {
-            state.aside_can_attach()
-        } else {
-            state.can_attach()
+        && match place {
+            Place::Channel => state.can_attach(),
+            Place::Aside => state.aside_can_attach(),
+            Place::First => state.can_attach_first(),
         };
     if !dragging && ctx.uploads.drop.refusal.is_none() {
         return None;
@@ -593,13 +666,14 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             .push(
                 row![
                     text("Upload to ").size(20).color(ink),
-                    text(if aside {
-                        state
+                    // The form's files are its channel's until the thread
+                    // starts, as Discord keeps them.
+                    text(match place {
+                        Place::Aside => state
                             .aside_room()
                             .map(|room| state.destination(room))
-                            .unwrap_or_default()
-                    } else {
-                        state.upload_destination()
+                            .unwrap_or_default(),
+                        Place::Channel | Place::First => state.upload_destination(),
                     })
                     .size(20)
                     .font(BOLD)

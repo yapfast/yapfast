@@ -292,11 +292,14 @@ impl App {
         let seen = {
             let state = self.client.state();
             let (staged, aside) = (state.staged(), state.aside_staged());
+            let first = state.new_thread().map_or(&[][..], |form| &form.files);
             [
                 staged.as_ptr().addr(),
                 staged.len(),
                 aside.as_ptr().addr(),
                 aside.len(),
+                first.as_ptr().addr(),
+                first.len(),
             ]
         };
         if seen != self.uploads.staged_seen {
