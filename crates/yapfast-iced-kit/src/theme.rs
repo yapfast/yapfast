@@ -47,6 +47,8 @@ macro_rules! for_theme_colours {
         reply_spine,
         tooltip,
         avatar,
+        rail_indicator,
+        header,
         }
     };
 }

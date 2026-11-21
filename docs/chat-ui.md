@@ -530,7 +530,9 @@ full screen, as a call's stage is, the bar goes.
 The window follows Discord's arrangement:
 
 - A 72px server rail. Each server is a circle that becomes a rounded square,
-  with a white pill at the rail edge for hover, selection or unread activity.
+  with a pill at the rail edge for hover, selection or unread activity, in the
+  theme's text colour; the selected server's takes `rail-indicator`
+  ([themes](themes.md)).
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
   anywhere; a closed folder shows it for its servers. A Discord server

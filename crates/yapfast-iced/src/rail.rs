@@ -882,7 +882,12 @@ impl<'a> View<'a> {
         } else {
             0.0
         };
-        let ink = theme.text;
+        // The open one's pill is the theme's "you are here" colour.
+        let ink = if marks.selected {
+            theme.rail_indicator
+        } else {
+            theme.text
+        };
         let mut layers = stack![];
         if pill > 0.0 {
             layers = layers.push(controls::placed(

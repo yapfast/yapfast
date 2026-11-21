@@ -63,6 +63,15 @@ card.
 | Rosé Pine Dawn | `rose-pine-dawn` | no | rose | [Rosé Pine](https://rosepinetheme.com/palette/) |
 | Sakura | `sakura` | no | blossom pink | Yapfast's own |
 
+Two colours stand for a single part each, so a theme can set them apart from
+the rest: `rail-indicator`, the pill beside the open server or DM home on the
+rail (the pills of a pointed-at or unread tile keep `text`), and `header`,
+the ground of the conversation's header row, which paints only where it
+differs from `chat`. Every built-in theme gives them its `text` and `chat`.
+Unlike other missing colours, a custom theme that lacks either takes its own
+`text` or `chat` rather than its base's, so a theme saved before they existed
+looks as it did.
+
 The palettes of Catppuccin, Dracula, Nord, Gruvbox, Tokyo Night and Rosé Pine
 are published under the MIT licence; thanks to their authors. For Tokyo
 Night, the steps between its grounds and text (bg_highlight, fg_gutter, dark3,

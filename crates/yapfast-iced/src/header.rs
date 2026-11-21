@@ -27,7 +27,7 @@ use crate::{
     pictures::{Face, Icon},
     piece::Piece,
     sidebar::room_icon,
-    style::rounded,
+    style::{fill, rounded},
     theme::rgb,
     widgets::Spot,
 };
@@ -298,11 +298,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         );
     }
     head = head.extend(header_buttons(ctx));
+    // The window's ground is the chat's; the header paints its own only
+    // where a theme gives it another (none built in does).
+    let ground = (theme.header != theme.chat).then_some(theme.header);
     container(head)
         .padding([0, 16])
         .width(Length::Fill)
         .height(HEIGHT)
         .align_y(Alignment::Center)
+        .style(move |_| ground.map(fill).unwrap_or_default())
         .into()
 }
 
