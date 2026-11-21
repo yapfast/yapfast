@@ -1445,6 +1445,7 @@ impl OpenChannel {
         &mut self,
         discord: &Discord,
         done: &UnboundedSender<Done>,
+        request: u64,
         item: String,
         index: usize,
     ) {
@@ -1454,6 +1455,7 @@ impl OpenChannel {
             .and_then(|attachment| attachment.view_url.clone())
         else {
             let _ = done.send(Done::Image {
+                request,
                 room,
                 item,
                 index,
@@ -1494,6 +1496,7 @@ impl OpenChannel {
                 }
             };
             let _ = done.send(Done::Image {
+                request,
                 room,
                 item,
                 index,

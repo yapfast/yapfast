@@ -929,6 +929,40 @@ fn joins_a_listed_server_once_and_remembers_it() {
     assert!(app.dispatch(Action::JoinDiscovered("10".into())).is_empty());
 }
 
+#[cfg(feature = "discord")]
+#[test]
+fn discover_allows_a_new_join_after_the_account_leaves() {
+    use yapfast_discord::{
+        ready::Server,
+        service::{Snapshot, Status},
+    };
+    let mut app = discovering();
+    app.dispatch(Action::JoinDiscovered("10".into()));
+    app.apply(Event::DiscoverJoined {
+        id: "10".into(),
+        result: Ok(()),
+    });
+    let snapshot = |servers| {
+        Event::Discord(Arc::new(Snapshot {
+            status: Status::Online,
+            servers,
+            ..Default::default()
+        }))
+    };
+    app.apply(snapshot(vec![MarkedServer::from(Server {
+        id: "10".into(),
+        name: "First".into(),
+        ..Default::default()
+    })]));
+    assert!(app.state.discover.joined.is_empty());
+    assert!(app.dispatch(Action::JoinDiscovered("10".into())).is_empty());
+    app.apply(snapshot(vec![]));
+    assert!(matches!(
+        app.dispatch(Action::JoinDiscovered("10".into())).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::JoinDiscovered { id }))] if id == "10"
+    ));
+}
+
 #[test]
 fn a_joined_server_that_has_a_form_shows_it_and_one_without_stays_quiet() {
     use crate::chat::{ScreeningField, ScreeningForm, ScreeningKind};

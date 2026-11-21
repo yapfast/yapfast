@@ -122,6 +122,7 @@ pub enum Done {
         picture: Option<Arc<Picture>>,
     },
     Image {
+        request: u64,
         room: String,
         item: String,
         index: usize,
@@ -232,6 +233,17 @@ impl Chat {
 
     pub(crate) fn command(&mut self, command: Command, events: &UnboundedSender<Event>) {
         match command {
+            Command::Discord(DiscordCommand::Reconnect) => {
+                self.discord.reconnect();
+                return;
+            }
+            Command::Discord(DiscordCommand::MarkThreadRead { room, newest, sync }) => {
+                if let Some((guild, channel)) = crate::discord::parse_room(&room) {
+                    self.discord
+                        .mark_read_if_latest(guild, channel, newest, sync);
+                }
+                return;
+            }
             Command::Discord(DiscordCommand::Pictures(urls)) => {
                 self.pictures.fetch(&self.discord, urls, events);
                 return;

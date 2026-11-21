@@ -102,6 +102,8 @@ Reads within that second go together: one channel as its own
 acknowledgement, several, as when a server is marked read from its menu, in
 one `POST /read-states/ack-bulk` of up to 100 channels, as the official
 client does.
+Opening a link to a different server goes directly to the linked channel.
+It does not acknowledge unread posts in that server's previously selected forum.
 Before it does, Yapfast notes the channel's last read message, from READY's read
 state or the last acknowledgement since, and the "New" divider goes above the
 first message after it from someone else. Snowflakes order messages, so the
@@ -261,7 +263,8 @@ Yapfast is back, rather than showing an error.
   open in the browser. Other pictures, the thumbnail beside the text too,
   open in the image viewer, where a right click on the picture
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
-  menu does. A linked image or GIF
+  menu does. Editing the message's attachment list closes its open viewer.
+  A linked image or GIF
   shows with the message's images, without its address when that's all the
   message says. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
@@ -1079,7 +1082,8 @@ to, a checkbox on each, the message as a quote, and "Add an optional
 message...". Up to five can be chosen, after which the rest grey out and
 the heading says "Maximum 5 places at once." Send, or Enter in the
 message field, closes the dialog and forwards to each in parallel; with
-one chosen, that conversation opens.
+one chosen, that conversation opens. Each send tracks its own results even
+when multiple forwards to the same destination are in flight.
 
 Each forward is `POST /channels/{target}/messages` with no content and a
 `message_reference` of type 1 (FORWARD) naming the original's message,

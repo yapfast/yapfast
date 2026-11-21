@@ -479,9 +479,8 @@ impl Application {
                 .find(|server| server.channels.contains(&id))
                 .map(|server| Navigation::Server(server.id.clone()))
         };
-        // Crossing to another server or the direct messages restores a
-        // conversation there first, which is no stop of its own: the history
-        // notes the one that gives way to this conversation instead.
+        // An explicit destination opens directly, without showing the
+        // destination server's previously selected channel first.
         let crossing = !self.state.nav_walking
             && navigation
                 .as_ref()
@@ -492,10 +491,10 @@ impl Application {
                 .record_visit(previous, &HistoryPlace::Room(id.clone()));
             self.state.nav_walking = true;
         }
-        let mut effects = navigation
-            .map(|navigation| self.dispatch(Action::Navigate(navigation)))
-            .unwrap_or_default();
-        effects.extend(self.select_showing(id, chat));
+        if let Some(navigation) = navigation {
+            self.state.navigation = navigation;
+        }
+        let effects = self.select_showing(id, chat);
         if crossing {
             self.state.nav_walking = false;
         }
@@ -1154,6 +1153,13 @@ impl Application {
             &mut self.state.servers,
             self.matrix_servers.iter().chain(discord_servers),
         );
+        if servers && !self.state.discover.joined.is_empty() {
+            let memberships = &self.state.servers;
+            self.state.discover.joined.retain(|raw| {
+                let id = discord::server_id(raw);
+                !memberships.iter().any(|server| server.id == id)
+            });
+        }
         if rooms || servers {
             self.state.list_changes = self.state.list_changes.wrapping_add(1);
         }

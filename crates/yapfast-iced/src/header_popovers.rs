@@ -188,7 +188,6 @@ impl Popovers {
                 cx.dispatch(Action::MoreThreads);
             }
             Event::CreateThread => {
-                cx.dispatch(Action::ShowThreads(false));
                 cx.dispatch(crate::thread::start_from(
                     yapfast_core::application::ThreadFrom::List,
                 ));

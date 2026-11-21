@@ -529,15 +529,27 @@ impl Matrix {
                 // A Matrix message carries one file, so each goes on its own,
                 // then the text. Matrix has no spoiler for a file.
                 let mut result = Ok(());
+                let mut queued = 0;
                 for file in &files {
                     result = attach(session, open.as_ref(), &room, &file.path).await;
                     if result.is_err() {
                         break;
                     }
+                    queued += 1;
                 }
                 if result.is_ok() && (files.is_empty() || !body.trim().is_empty()) {
                     let reply = reply.as_deref().map(|item| (item, !options.quiet_reply));
                     result = send(session, open.as_ref(), &room, &body, reply).await;
+                }
+                if result.is_err() && queued > 0 {
+                    let _ = events.send(Event::AttachmentsQueued {
+                        room: room.clone(),
+                        files: files
+                            .into_iter()
+                            .take(queued)
+                            .map(|file| file.path)
+                            .collect(),
+                    });
                 }
                 let _ = events.send(Event::SendResult { room, body, result });
             }
@@ -548,6 +560,7 @@ impl Matrix {
                 let _ = events.send(Event::EditResult { room, item, result });
             }
             Command::Forward {
+                request,
                 room,
                 item,
                 target,
@@ -556,6 +569,7 @@ impl Matrix {
             } => {
                 let result = forward(session, open.as_ref(), &room, &item, &target, note).await;
                 let _ = events.send(Event::Forwarded {
+                    request,
                     room: target,
                     result,
                 });
@@ -661,8 +675,13 @@ impl Matrix {
                 let result = save_attachment(client, open.as_ref(), &room, &item, &path).await;
                 let _ = events.send(Event::Saved { room, name, result });
             }
-            Command::ViewImage { room, item, index } => {
-                view_image(client, open, room, item, index, events).await;
+            Command::ViewImage {
+                request,
+                room,
+                item,
+                index,
+            } => {
+                view_image(client, open, request, room, item, index, events).await;
             }
             Command::SaveDraft { room, body } => {
                 if let Ok(id) = OwnedRoomId::try_from(room)
@@ -1651,6 +1670,7 @@ fn image_source(item: &EventTimelineItem) -> Option<MediaSource> {
 async fn view_image(
     client: &Client,
     open: &mut Option<OpenRoom>,
+    request: u64,
     room: String,
     item: String,
     index: usize,
@@ -1668,6 +1688,7 @@ async fn view_image(
     };
     let (Some(open), Some(source)) = (open.as_mut(), source) else {
         let _ = events.send(Event::Image {
+            request,
             room,
             item,
             index,
@@ -1693,6 +1714,7 @@ async fn view_image(
                 ),
             };
         let _ = events.send(Event::Image {
+            request,
             room,
             item,
             index,
@@ -3231,6 +3253,7 @@ mod tests {
             // room, where both decrypt. The deleted message can't be forwarded.
             commands
                 .send(Command::Forward {
+                    request: 1,
                     room: room.clone(),
                     item: original.item.clone(),
                     target: other.to_string(),
@@ -3254,6 +3277,7 @@ mod tests {
             for item in [&reply, &sent.item] {
                 commands
                     .send(Command::Forward {
+                        request: 2,
                         room: room.clone(),
                         item: item.clone(),
                         target: other.to_string(),
@@ -3262,7 +3286,7 @@ mod tests {
                     })
                     .unwrap();
                 receive(&mut events, |event| match event {
-                    Event::Forwarded { room, result } if room == other.as_str() => {
+                    Event::Forwarded { room, result, .. } if room == other.as_str() => {
                         assert_eq!(result, Ok(()));
                         Some(())
                     }

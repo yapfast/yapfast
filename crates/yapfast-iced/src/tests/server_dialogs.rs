@@ -345,6 +345,20 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
     });
     let join = app.client.state().join.clone().expect("open");
     assert!(join.joining || join.error.is_some(), "{join:?}");
+    let mut resolved = join;
+    resolved.joining = false;
+    resolved.error = None;
+    change(&mut app, |state| state.join = Some(resolved));
+    let _ = app.update(Message::ServerDialog(
+        crate::server_dialogs::Event::JoinLink("other".into()),
+    ));
+    assert!(!shows(&app, "Builders"));
+    interact(&mut app, |ui| {
+        ui.click("Find Invite").expect("look up the edited invite");
+    });
+    let join = app.client.state().join.as_ref().expect("open");
+    assert_eq!(join.code.as_deref(), Some("other"));
+    assert!(!join.joining);
 }
 
 #[test]

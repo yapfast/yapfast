@@ -2306,6 +2306,7 @@ pub enum Command {
     /// as a message of its own, if any. On Discord, `silent` notifies
     /// nobody of either, as `@silent` does.
     Forward {
+        request: u64,
         room: String,
         item: String,
         target: String,
@@ -2395,6 +2396,7 @@ pub enum Command {
     /// Download an image attachment at viewing size; it arrives as
     /// [`Event::Image`].
     ViewImage {
+        request: u64,
         room: String,
         item: String,
         index: usize,
@@ -2927,6 +2929,14 @@ pub struct CommandRun {
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Retry a disconnected gateway without resetting its limits.
+    Reconnect,
+    /// Acknowledge the thread only if its newest message is the one shown.
+    MarkThreadRead {
+        room: String,
+        newest: u64,
+        sync: bool,
+    },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.
     ActivityFeed,
@@ -4559,6 +4569,7 @@ pub enum Event {
     VoiceMessage(Option<VoicePlayback>),
     /// An image [`Command::ViewImage`] asked for, or why it can't show.
     Image {
+        request: u64,
         room: String,
         item: String,
         index: usize,
@@ -5174,6 +5185,11 @@ pub enum Event {
         body: String,
         result: Result<(), &'static str>,
     },
+    /// The Matrix queue accepted these files before the rest of the send failed.
+    AttachmentsQueued {
+        room: String,
+        files: Vec<PathBuf>,
+    },
     EditResult {
         room: String,
         item: String,
@@ -5197,6 +5213,7 @@ pub enum Event {
     /// A message was forwarded to `room`, with the message added to it, or
     /// what fell short.
     Forwarded {
+        request: u64,
         room: String,
         result: Result<(), ForwardFailure>,
     },
@@ -6242,6 +6259,7 @@ mod tests {
             files: vec![],
         };
         let forward = |room: &String, target: &String| Command::Forward {
+            request: 1,
             room: room.clone(),
             item: "1".into(),
             target: target.clone(),

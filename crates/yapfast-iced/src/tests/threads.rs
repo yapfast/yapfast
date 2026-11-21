@@ -11,6 +11,25 @@ use yapfast_core::chat::ChatMessage;
 use super::{change, interact, preview, shows};
 use crate::thread::COMPOSER;
 
+#[test]
+fn creating_from_the_threads_popover_uses_its_channel() {
+    use crate::app::Message;
+    use crate::header_popovers::Event;
+    use yapfast_core::application::Action;
+    use yapfast_core::yapfast_discord::ready::permission;
+
+    let (mut app, _folder) = super::server::discord_server(
+        permission::CREATE_PUBLIC_THREADS | permission::READ_MESSAGE_HISTORY,
+        |_, _| {},
+    );
+    app.client.dispatch(Action::Open("discord:10:11".into()));
+    app.client.dispatch(Action::ShowThreads(true));
+    assert!(app.client.state().thread_list().is_some());
+    let _ = app.update(Message::Popover(Event::CreateThread));
+    assert!(app.client.state().new_thread().is_some());
+    assert!(app.client.state().thread_list().is_none());
+}
+
 /// The preview with a thread of its open channel, "Plans", beside it,
 /// holding one message.
 fn thread_beside() -> (crate::app::App, tempfile::TempDir) {

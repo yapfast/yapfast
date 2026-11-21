@@ -133,8 +133,12 @@ impl Settings {
     /// deafened (and so muted) while it runs, unless it already is.
     fn start_mic_test(&mut self, cx: &mut Cx<'_>) {
         let voice = &cx.state().voice;
-        self.voice.test_saw = (voice.active(), voice.deafened);
-        if voice.active() && !voice.deafened {
+        if voice.active() && !crate::call::voice_ready(voice) {
+            return;
+        }
+        let ready = crate::call::voice_ready(voice);
+        self.voice.test_saw = (ready, voice.deafened);
+        if ready && !voice.deafened {
             self.voice.test_deafened = true;
             cx.dispatch(Action::Voice(Command::Deafen(true)));
         }
@@ -167,10 +171,12 @@ impl Settings {
             return;
         }
         let voice = &cx.state().voice;
-        let now = (voice.active(), voice.deafened);
+        let now = (crate::call::voice_ready(voice), voice.deafened);
         let before = std::mem::replace(&mut self.voice.test_saw, now);
         let hears = now == (true, false);
-        if hears && (before == (true, true) || !before.0) {
+        if voice.phase == yapfast_core::voice::Phase::Joining
+            || (hears && (before == (true, true) || !before.0))
+        {
             // Undeafened by hand: nothing to put back.
             self.voice.test_deafened = false;
             self.end_mic_test(cx);
@@ -961,6 +967,8 @@ impl<'a> Page<'a> {
         let settings = self.s;
         let theme = self.cx.look.theme;
         let testing = settings.voice.testing;
+        let voice = &self.cx.state.voice;
+        let waiting = voice.active() && !crate::call::voice_ready(voice);
         let gate = settings.voice.gate.as_ref().filter(|_| testing);
         let (lit, unlit) = (theme.live, theme.button_default);
         let meter = crate::widgets::gauge(METER_EVERY, move |renderer, bounds| {
@@ -1000,14 +1008,14 @@ impl<'a> Page<'a> {
             theme,
             if testing {
                 tr("Stop microphone test")
+            } else if waiting {
+                tr("Connecting...")
             } else {
                 tr("Test microphone")
             },
             Kind::Primary,
-            (testing
-                || (!self.cx.state.voice.microphones.is_empty()
-                    && !self.cx.state.voice.speakers.is_empty()))
-            .then(|| voice_message(Event::MicTest)),
+            (testing || (!waiting && !voice.microphones.is_empty() && !voice.speakers.is_empty()))
+                .then(|| voice_message(Event::MicTest)),
         )
         .small();
         let mut group = vec![

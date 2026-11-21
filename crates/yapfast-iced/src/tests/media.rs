@@ -1,13 +1,10 @@
 //! What a message shows large or plays: the picture viewer, and a voice
 //! message's playing.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use iced::keyboard::{self, key};
-use yapfast_core::{
-    application::Viewer,
-    chat::{Attachment, ChatMessage, Picture, Pixels, Placement},
-};
+use yapfast_core::chat::{Attachment, ChatMessage, Picture, Pixels, Placement};
 
 use super::{change, preview, shows};
 
@@ -39,12 +36,10 @@ fn viewing(app: &mut crate::app::App) {
             }],
             ..Default::default()
         })]);
-        state.viewer = Some(Viewer {
-            item: "i0".into(),
-            index: 0,
-            pictures: HashMap::new(),
-        });
     });
+    let _ = app.update(crate::app::Message::Image(
+        crate::image_viewer::Event::Open("i0".into(), 0),
+    ));
 }
 
 #[test]
@@ -73,6 +68,19 @@ fn the_viewer_closes_when_its_message_goes_and_gives_the_keys_back() {
         app.client.state().viewer.is_none(),
         "closed, its picture let go"
     );
+    assert!(app.viewer.size.is_none());
+}
+
+#[test]
+fn the_viewer_closes_when_the_image_is_removed_from_a_message() {
+    let (mut app, _folder) = preview();
+    viewing(&mut app);
+    change(&mut app, |state| {
+        Arc::make_mut(&mut Arc::make_mut(&mut state.messages)[0])
+            .attachments
+            .clear();
+    });
+    assert!(app.client.state().viewer.is_none());
     assert!(app.viewer.size.is_none());
 }
 

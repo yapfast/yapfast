@@ -708,6 +708,7 @@ impl std::fmt::Debug for VoiceServer {
 }
 
 enum Request {
+    Reconnect,
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -757,6 +758,7 @@ enum Request {
         guild: String,
         channel: String,
         sync: bool,
+        newest: Option<u64>,
     },
     MarkUnread {
         channel: String,
@@ -1060,6 +1062,12 @@ impl Discord {
         self.snapshots.clone()
     }
 
+    pub fn reconnect(&self) {
+        if matches!(&self.snapshots.borrow().status, Status::Offline(_)) {
+            let _ = self.requests.send(Request::Reconnect);
+        }
+    }
+
     /// Message events for every channel, from now on.
     pub fn live(&self) -> broadcast::Receiver<Live> {
         self.live.subscribe()
@@ -1137,6 +1145,16 @@ impl Discord {
             guild: guild.into(),
             channel: channel.into(),
             sync,
+            newest: None,
+        });
+    }
+
+    pub fn mark_read_if_latest(&self, guild: &str, channel: &str, newest: u64, sync: bool) {
+        let _ = self.requests.send(Request::MarkRead {
+            guild: guild.into(),
+            channel: channel.into(),
+            sync,
+            newest: Some(newest),
         });
     }
 

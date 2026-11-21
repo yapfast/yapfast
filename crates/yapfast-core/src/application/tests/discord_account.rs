@@ -141,12 +141,38 @@ fn switches_between_linked_discord_accounts() {
     // What the account before showed goes, and linking stays on.
     app.state.account_name = Some("User 1".into());
     app.state.add_friend = Some(AddFriend::default());
+    let room = "discord:10:21";
+    app.state
+        .drafts
+        .insert(room.into(), "account one's draft".into());
+    app.state.drafts.insert("dm".into(), "matrix draft".into());
     app.apply(Event::DiscordSwitched);
     linked_accounts(&mut app, &["1", "2"], "2");
     assert_eq!(app.state.account_name, None);
     assert!(app.state.add_friend.is_none());
     assert!(app.state.discord_linked);
     assert_eq!(app.state.discord_active, "2");
+    assert_eq!(app.state.draft_in(room), "");
+    assert_eq!(app.state.draft_in("dm"), "matrix draft");
+    app.state
+        .drafts
+        .insert(room.into(), "account two's draft".into());
+    app.apply(Event::DiscordSwitched);
+    linked_accounts(&mut app, &["1", "2"], "1");
+    assert_eq!(app.state.draft_in(room), "account one's draft");
+}
+
+#[cfg(feature = "discord")]
+#[test]
+fn reconnects_the_linked_discord_account_without_a_matrix_session() {
+    let mut app = Application::default();
+    app.state.discord_linked = true;
+    assert!(matches!(
+        app.dispatch(Action::RetrySync).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::Reconnect))]
+    ));
+    app.state.discord_online = true;
+    assert!(app.dispatch(Action::RetrySync).is_empty());
 }
 
 #[test]

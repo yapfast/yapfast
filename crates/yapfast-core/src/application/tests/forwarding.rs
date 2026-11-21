@@ -74,6 +74,7 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
                 target,
                 note,
                 silent: false,
+                ..
             }) if room == "dm" && item == "e:$bob" && note.as_deref() == Some("look") => {
                 target.as_str()
             }
@@ -85,11 +86,13 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
     // Once both answer, the dialog opens again for where it failed, with
     // the message added and why.
     app.apply(Event::Forwarded {
+        request: 1,
         room: "general".into(),
         result: Err(ForwardFailure::Forward("refused".into())),
     });
     assert!(app.state.forwarding.is_none());
     app.apply(Event::Forwarded {
+        request: 1,
         room: "c1".into(),
         result: Ok(()),
     });
@@ -108,6 +111,7 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
     ));
     assert_eq!(app.state.selected.as_deref(), Some("general"));
     app.apply(Event::Forwarded {
+        request: 2,
         room: "general".into(),
         result: Err(ForwardFailure::Note("too fast".into())),
     });
@@ -118,6 +122,29 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
     );
     app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
     assert!(app.state.forwarding.is_none());
+}
+
+#[test]
+fn forward_results_match_their_own_request_even_in_the_same_room() {
+    let mut app = connected();
+    let forward = |item: &str| ForwardSent {
+        request: if item == "first" { 1 } else { 2 },
+        forwarding: Forwarding {
+            item: item.into(),
+            ..Default::default()
+        },
+        waiting: vec!["general".into()],
+        failed: vec![],
+        notes_unsent: vec![],
+    };
+    app.forwards = vec![forward("first"), forward("second")];
+    app.apply(Event::Forwarded {
+        request: 2,
+        room: "general".into(),
+        result: Err(ForwardFailure::Forward("refused".into())),
+    });
+    assert_eq!(app.state.forwarding.as_ref().unwrap().item, "second");
+    assert_eq!(app.forwards[0].forwarding.item, "first");
 }
 
 #[test]

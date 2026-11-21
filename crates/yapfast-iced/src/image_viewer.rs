@@ -134,7 +134,10 @@ impl Viewed {
             self.zoomed = false;
             return Task::none();
         };
-        if state.message(&viewer.item).is_none() {
+        if !state
+            .message(&viewer.item)
+            .is_some_and(|message| viewer.showing(message))
+        {
             cx.dispatch(Action::CloseImage);
             self.size = None;
             self.zoomed = false;

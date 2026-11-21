@@ -532,7 +532,9 @@ impl Application {
         match result {
             Ok(()) => {
                 let server = crate::discord::server_id(&id);
-                page.joined.push(id);
+                if !self.state.servers.iter().any(|known| known.id == server) {
+                    page.joined.push(id);
+                }
                 // A server may ask new members to fill in its form first;
                 // it's shown if it has one.
                 vec![Effect::Backend(Command::Discord(

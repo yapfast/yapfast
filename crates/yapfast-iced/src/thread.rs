@@ -73,6 +73,7 @@ pub struct Aside {
     pub from_end: f32,
     pub height: f32,
     pub width: f32,
+    shown: bool,
     reported: Option<Instant>,
     /// A report held back by the throttle is due: the view as it is then
     /// goes, so where a scroll stopped is told.
@@ -96,6 +97,7 @@ impl Aside {
             from_end: 0.0,
             height: 400.0,
             width,
+            shown: false,
             reported: None,
             report_due: false,
         }
@@ -379,9 +381,11 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
         }
         app.drafts.aside_known = draft;
     }
+    let shown = aside_shown(app);
     let Some(aside) = &mut app.aside else {
         return Task::none();
     };
+    let visibility_changed = std::mem::replace(&mut aside.shown, shown) != shown;
     let edge_changed =
         (aside.ready, aside.loading, aside.start, aside.failed) != (ready, loading, start, failed);
     aside.name = name;
@@ -390,10 +394,13 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
     aside.start = start;
     aside.failed = failed;
     let mut due = Task::none();
-    if edge_changed || !Arc::ptr_eq(&aside.messages, &messages) {
+    let rows_changed = edge_changed || !Arc::ptr_eq(&aside.messages, &messages);
+    if rows_changed {
         let old = std::mem::replace(&mut aside.messages, messages);
         app.seen_aside = seen;
         measure_aside(app, &old, edge_changed);
+    }
+    if rows_changed || visibility_changed {
         // The rows in view are told as they change, as the timeline's are:
         // a thread whose rows all fit never scrolls, so its scrollable
         // never reports a viewport, and without this its pictures wouldn't
@@ -559,6 +566,7 @@ enum Told {
 /// The core hears which of the thread's rows are in view, unless the
 /// throttle holds the report back.
 fn tell_rows(app: &mut App) -> Told {
+    let shown = aside_shown(app);
     let Some(aside) = &mut app.aside else {
         return Told::Later(Task::none());
     };
@@ -590,7 +598,7 @@ fn tell_rows(app: &mut App) -> Told {
     app.client.dispatch(Action::VisibleMessages {
         room,
         items,
-        at_end: false,
+        at_end: shown && last == end + 1,
     });
     Told::Now
 }

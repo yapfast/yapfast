@@ -224,6 +224,10 @@ card does; nothing joins until the Join Server click. Discord's docs warn
 that accounts joining many servers in a short time get flagged, so Yapfast
 never joins by itself.
 
+Editing the code in the manual join form clears the preview until the new code
+has been looked up. A response for the discarded code cannot confirm the new
+invite.
+
 - `GET /invites/{code}?with_counts=true&with_expiration=true&with_permissions=true`,
   as Discord's client resolves an invite, with `&inputValue=` and what was
   typed into the dialog when it was. An invite that isn't to a server's
@@ -572,7 +576,9 @@ and Windows, so Yapfast asks the X server, or Windows, while files hover. Its
 button shows it in place of the channel, and closing it, or opening another
 channel, brings the member list back. A thread the account isn't in is read
 with `GET /channels/{id}` and listed while it shows, so it reads and marks read
-like any other; writing in it joins it, as Discord does.
+like any other; writing in it joins it, as Discord does. The side panel
+acknowledges the thread only when its newest message is visible in the focused
+window and is still the newest known to the gateway.
 
 A thread's menu offers Join thread, or Leave thread for one the account is in,
 after Mark as read, as Discord's client does (its `thread-context` menu). So
@@ -603,6 +609,7 @@ its owner and when it was last active. On the right are a few of its
 members' avatars and how many are in it. Clicking a row opens the thread in
 place of the channel, and Shift-click beside it, as Discord's does; a
 thread the account isn't in opens as any other does, without joining it.
+The Create action opens the thread form using the channel named by the list.
 Sized as in Discord's client (its CSS and list in the web bundle): each
 thread is a card 72px tall with 8px under it, the first section's heading
 32px tall and later ones 64px, and the popout 35% of the window wide, from

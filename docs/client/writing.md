@@ -26,6 +26,9 @@ the desktop's primary selection, and a middle click pastes it at the
 pointer, taking no autoscroll; the field that took the keys last, by any
 button, holds them alone.
 
+Files already accepted by Matrix's send queue leave the composer even if a
+later attachment or the message text fails. A retry sends only what remains.
+
 Files go with the next message (`uploads.rs`) from the system's file
 dialog (the + where nothing else can start, or the + menu's "Upload a
 File", whose Create Thread shows greyed until threads come; its Create

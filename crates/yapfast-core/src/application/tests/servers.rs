@@ -3,6 +3,39 @@
 use super::*;
 
 #[test]
+fn a_cross_server_link_does_not_read_the_servers_remembered_forum() {
+    let mut app = connected();
+    let server = "discord:20";
+    let forum = "discord:20:21";
+    let target = "discord:20:22";
+    app.state.servers.push(Arc::new(ChatServer {
+        id: server.into(),
+        channels: vec![forum.into(), target.into()],
+        discord: true,
+        ..Default::default()
+    }));
+    let room = (*app.state.rooms[0]).clone();
+    for id in [forum, target] {
+        app.state.rooms.push(Arc::new(ChatRoom {
+            id: id.into(),
+            direct: false,
+            forum: id == forum,
+            unread: u64::from(id == forum),
+            network: Network::Discord,
+            ..room.clone()
+        }));
+    }
+    app.last_selected
+        .insert(Navigation::Server(server.into()), forum.into());
+    let effects = app.dispatch(Action::Open(target.into()));
+    assert_eq!(app.state.selected.as_deref(), Some(target));
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Backend(Command::MarkRead { room, .. }) if room == forum
+    )));
+}
+
+#[test]
 #[cfg(feature = "discord")]
 fn discord_servers_say_what_this_account_may_do() {
     use chat::Permission;

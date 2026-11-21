@@ -414,6 +414,7 @@ pub struct PlacesUsed {
 
 /// A forward sent, until each conversation it went to answers.
 struct ForwardSent {
+    request: u64,
     forwarding: Forwarding,
     waiting: Vec<String>,
     /// Where it wasn't forwarded, and why.
@@ -426,11 +427,57 @@ struct ForwardSent {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Viewer {
     pub item: String,
+    request: u64,
+    attachments: Vec<ViewedAttachment>,
     /// The attachment shown, by its place in the message.
     pub index: usize,
     /// Images at viewing size by attachment: `None` while one downloads,
     /// else the image or why it can't show.
     pub pictures: HashMap<usize, Option<Result<Arc<Picture>, &'static str>>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct ViewedAttachment {
+    name: String,
+    size: Option<u64>,
+    image: bool,
+    url: Option<String>,
+}
+
+impl Viewer {
+    /// Indexes and cached pictures are valid only for the same attachment list.
+    pub fn showing(&self, message: &ChatMessage) -> bool {
+        message.attachments.len() == self.attachments.len()
+            && message
+                .attachments
+                .iter()
+                .zip(&self.attachments)
+                .all(|(file, kept)| {
+                    file.name == kept.name
+                        && file.size == kept.size
+                        && file.image == kept.image
+                        && attachment_address(file) == kept.url.as_deref()
+                })
+    }
+}
+
+fn attachment_address(file: &chat::Attachment) -> Option<&str> {
+    let url = file.url.as_deref()?;
+    // The signature on a Discord attachment can change without changing the file.
+    if url.starts_with("https://cdn.discordapp.com/attachments/")
+        || url.starts_with("https://media.discordapp.net/attachments/")
+    {
+        Some(url.split_once('?').map_or(url, |(path, _)| path))
+    } else {
+        Some(url)
+    }
+}
+
+#[derive(Default)]
+struct DiscordComposers {
+    drafts: HashMap<String, String>,
+    replies: HashMap<String, Compose>,
+    files: HashMap<String, Vec<chat::Staged>>,
 }
 
 /// A person's profile card: beside the member list, or large over the window.
@@ -2334,6 +2381,7 @@ pub enum Action {
     /// it.
     OpenJoinServer,
     FindInvite(String),
+    EditInvite(String),
     OpenInviteLink(String),
     JoinServer,
     OpenJoinCaptcha,
@@ -2723,6 +2771,8 @@ pub struct DiscordEmojiLists {
 
 #[derive(Default)]
 pub struct Application {
+    /// Drafts and attachments of Discord accounts other than the active one.
+    discord_composers: HashMap<String, DiscordComposers>,
     pub state: AppState,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
@@ -2748,6 +2798,8 @@ pub struct Application {
     effect_pictures: Vec<String>,
     /// Forwards sent, until each conversation they went to answers.
     forwards: Vec<ForwardSent>,
+    forward_request: u64,
+    viewer_request: u64,
     /// The selected room's timeline with the blocked messages
     /// [`AppState::hide_blocked`] left out, to show them again.
     /// Kept with the timeline shown from it, so it's used only while that
@@ -2789,6 +2841,8 @@ pub struct Application {
     first_message: Option<String>,
     /// The items in or near the thread beside's view, as last reported.
     aside_visible: Vec<String>,
+    /// The newest side-thread message confirmed visible by the viewport.
+    aside_latest_visible: Option<String>,
     /// The thread beside's timeline as its pictures were last asked for.
     pictured_aside: Arc<Vec<Arc<ChatMessage>>>,
     /// [`AppState::list_changes`], the navigation and the selected room
@@ -3644,15 +3698,17 @@ impl Application {
                 .as_ref()
                 .is_some_and(|aside| aside.room == room) =>
             {
-                if self.aside_visible == items {
-                    return vec![];
+                self.aside_latest_visible = if at_end { items.last().cloned() } else { None };
+                let mut effects = self.mark_aside_read();
+                if self.aside_visible != items {
+                    self.aside_visible.clone_from(&items);
+                    effects.push(Effect::Backend(Command::VisibleMessages {
+                        room,
+                        items,
+                        at_end,
+                    }));
                 }
-                self.aside_visible.clone_from(&items);
-                vec![Effect::Backend(Command::VisibleMessages {
-                    room,
-                    items,
-                    at_end,
-                })]
+                effects
             }
             Action::VisibleMessages {
                 room,
@@ -3927,10 +3983,14 @@ impl Application {
                 vec![Effect::Backend(Command::RefreshTrust)]
             }
             Action::RetrySync => {
-                if self.state.busy || self.state.preview || self.state.account.is_none() {
+                if self.state.busy || self.state.preview {
                     vec![]
-                } else {
+                } else if self.state.discord_linked && !self.state.discord_online {
+                    vec![Effect::Backend(Command::Discord(DiscordCommand::Reconnect))]
+                } else if self.state.account.is_some() {
                     vec![Effect::Backend(Command::RetrySync)]
+                } else {
+                    vec![]
                 }
             }
             Action::Logout => self.logout(),
@@ -4112,6 +4172,7 @@ impl Application {
             Action::CloseAddServer => self.close_add_server(),
             Action::OpenJoinServer => self.open_join(),
             Action::FindInvite(typed) => self.find_invite(typed),
+            Action::EditInvite(typed) => self.edit_invite(&typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
@@ -4698,6 +4759,7 @@ impl Application {
                 return self.show_lists();
             }
             Event::Image {
+                request,
                 room,
                 item,
                 index,
@@ -4708,6 +4770,7 @@ impl Application {
                 if self.state.room_of(&item) == Some(&room)
                     && let Some(viewer) = &mut self.state.viewer
                     && viewer.item == item
+                    && viewer.request == request
                 {
                     viewer.pictures.insert(index, Some(picture));
                 }
@@ -5067,6 +5130,13 @@ impl Application {
             Event::DiscordUnlinked => return self.forget_discord(),
             Event::DiscordSwitched => return self.switched_discord(),
             Event::DiscordAccounts { accounts, active } => {
+                self.discord_composers
+                    .retain(|id, _| accounts.iter().any(|account| account.id == *id));
+                if let Some(kept) = self.discord_composers.remove(&active) {
+                    self.state.drafts.extend(kept.drafts);
+                    self.state.compose.extend(kept.replies);
+                    self.state.staged.extend(kept.files);
+                }
                 self.state.discord_accounts = accounts;
                 self.state.discord_active = active;
                 // The list is what was stored, which may not have the connected
@@ -5244,6 +5314,11 @@ impl Application {
                     return self.history_loaded(direction, history);
                 }
             }
+            Event::AttachmentsQueued { room, files } => {
+                if let Some(staged) = self.state.staged.get_mut(&room) {
+                    staged.retain(|file| !files.contains(&file.path));
+                }
+            }
             Event::SendResult { room, body, result } => {
                 if self.state.sending.as_ref() == Some(&room) {
                     self.state.sending = None;
@@ -5286,7 +5361,11 @@ impl Application {
                     Err(error) => self.state.notice = Some(Notice::Error(error)),
                 }
             }
-            Event::Forwarded { room, result } => self.forwarded(room, result),
+            Event::Forwarded {
+                request,
+                room,
+                result,
+            } => self.forwarded(request, room, result),
             Event::PollPosted { room, result } => self.poll_posted(room, result),
             Event::Draft { room, body } => {
                 // Text typed since opening the room wins over the saved draft.

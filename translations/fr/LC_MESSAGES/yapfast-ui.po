@@ -1369,7 +1369,7 @@ msgstr "Connecté sur un autre client"
 msgid "Connecting to {}'s stream..."
 msgstr "Connexion au stream de {}..."
 
-#: crates/yapfast-iced/src/signin.rs
+#: crates/yapfast-iced/src/settings/voice.rs crates/yapfast-iced/src/signin.rs
 msgid "Connecting..."
 msgstr "Connexion..."
 

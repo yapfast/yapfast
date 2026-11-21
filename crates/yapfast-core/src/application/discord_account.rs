@@ -816,6 +816,27 @@ impl Application {
     /// became the active one: everything it showed goes, and the new
     /// account's snapshots fill it in again as they come.
     pub(super) fn switched_discord(&mut self) -> Vec<Effect> {
+        let active = self.state.discord_active.clone();
+        if !active.is_empty() {
+            let old = DiscordComposers {
+                drafts: self
+                    .state
+                    .drafts
+                    .extract_if(|id, _| Network::of(id) == Network::Discord)
+                    .collect(),
+                replies: self
+                    .state
+                    .compose
+                    .extract_if(|id, _| Network::of(id) == Network::Discord)
+                    .collect(),
+                files: self
+                    .state
+                    .staged
+                    .extract_if(|id, _| Network::of(id) == Network::Discord)
+                    .collect(),
+            };
+            self.discord_composers.insert(active, old);
+        }
         let state = &mut self.state;
         state.manage_accounts = None;
         state.add_friend = None;
@@ -854,6 +875,28 @@ impl Application {
 
     /// Forgets the Discord account after it was unlinked.
     pub(super) fn forget_discord(&mut self) -> Vec<Effect> {
+        self.state
+            .drafts
+            .retain(|id, _| Network::of(id) != Network::Discord);
+        self.state
+            .compose
+            .retain(|id, _| Network::of(id) != Network::Discord);
+        self.state
+            .staged
+            .retain(|id, _| Network::of(id) != Network::Discord);
+        if self
+            .state
+            .sending
+            .as_deref()
+            .is_some_and(|room| Network::of(room) == Network::Discord)
+        {
+            self.state.sending = None;
+            self.sent_draft = None;
+            self.sent_files.clear();
+        }
+        self.forwards
+            .retain(|sent| Network::of(&sent.forwarding.room) != Network::Discord);
+        self.state.discover = Default::default();
         #[cfg(feature = "discord")]
         {
             self.discord = None;

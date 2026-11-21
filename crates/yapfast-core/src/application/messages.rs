@@ -456,16 +456,31 @@ impl Application {
     }
 
     pub(super) fn view_image(&mut self, item: String, index: usize) -> Vec<Effect> {
-        if !self
-            .state
-            .message(&item)
-            .and_then(|message| message.attachments.get(index))
-            .is_some_and(|attachment| attachment.image)
+        let Some(message) = self.state.message(&item) else {
+            return vec![];
+        };
+        if !message
+            .attachments
+            .get(index)
+            .is_some_and(|file| file.image)
         {
             return vec![];
         }
+        let attachments = message
+            .attachments
+            .iter()
+            .map(|file| ViewedAttachment {
+                name: file.name.clone(),
+                size: file.size,
+                image: file.image,
+                url: attachment_address(file).map(str::to_owned),
+            })
+            .collect();
+        self.viewer_request = self.viewer_request.wrapping_add(1);
         self.state.viewer = Some(Viewer {
             item,
+            request: self.viewer_request,
+            attachments,
             index,
             pictures: HashMap::new(),
         });
@@ -532,6 +547,8 @@ impl Application {
             .filter(|_| Network::of(&forwarding.room) == Network::Discord);
         let silent = silent_note.is_some();
         let added = silent_note.unwrap_or(&note).trim();
+        self.forward_request = self.forward_request.wrapping_add(1);
+        let request = self.forward_request;
         let mut effects = vec![];
         for target in &forwarding.chosen {
             let slowed = self
@@ -544,6 +561,7 @@ impl Application {
                 self.forward_sample(&forwarding, target, note);
             } else {
                 effects.push(Effect::Backend(Command::Forward {
+                    request,
                     room: forwarding.room.clone(),
                     item: forwarding.item.clone(),
                     target: target.clone(),
@@ -561,6 +579,7 @@ impl Application {
             self.state.notice = Some(super::Notice::Info("Message forwarded.".into()));
         } else {
             self.forwards.push(ForwardSent {
+                request,
                 waiting: forwarding.chosen.clone(),
                 failed: vec![],
                 notes_unsent: vec![],
@@ -617,11 +636,16 @@ impl Application {
 
     /// Notes a forward's result in one conversation. Once each of them has
     /// answered, the dialog opens again for those it failed in, with why.
-    pub(super) fn forwarded(&mut self, room: String, result: Result<(), ForwardFailure>) {
+    pub(super) fn forwarded(
+        &mut self,
+        request: u64,
+        room: String,
+        result: Result<(), ForwardFailure>,
+    ) {
         let Some(at) = self
             .forwards
             .iter()
-            .position(|sent| sent.waiting.contains(&room))
+            .position(|sent| sent.request == request && sent.waiting.contains(&room))
         else {
             return;
         };
@@ -731,6 +755,7 @@ impl Application {
         }
         viewer.pictures.insert(viewer.index, None);
         vec![Effect::Backend(Command::ViewImage {
+            request: viewer.request,
             room,
             item: viewer.item.clone(),
             index: viewer.index,

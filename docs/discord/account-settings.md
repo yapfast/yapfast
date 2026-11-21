@@ -18,6 +18,10 @@ Overview keeps the account card, reconnect, custom status, Edit profile and
 sign-out controls, and adds Account details: Username, Email and Password, each
 with a Change button that opens a small form.
 
+Reconnect asks the linked Discord gateway to retry during a connection outage,
+subject to its existing rate limits. Switching Discord accounts keeps unsent
+text, replies and staged files with their originating account for this run.
+
 * Username and Email ask for the new value and the current password.
 * Password asks for the new password twice and the current one. The Save button
   stays off until the two new passwords are the same.

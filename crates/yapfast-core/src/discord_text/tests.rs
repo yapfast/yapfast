@@ -1921,6 +1921,7 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
         .unwrap();
     let mut forward = |item: String, target: &str, note: Option<String>| {
         let command = Command::Forward {
+            request: 1,
             room: room.clone(),
             item,
             target: target.into(),

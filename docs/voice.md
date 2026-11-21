@@ -48,6 +48,8 @@ until Stop microphone test, leaving the page, or closing Settings. No
 call or linked account is required. Choosing another microphone or
 speakers restarts the test on those devices. Use headphones to avoid
 feedback.
+Connecting to a call stops playback and disables the test until the connection
+is ready.
 
 It plays the microphone as a Discord call's processing leaves it (noise
 suppression and its strength, the room's echo, leveling, the microphone's

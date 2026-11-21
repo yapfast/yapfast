@@ -992,6 +992,20 @@ fn testing(app: &App) -> bool {
 }
 
 #[test]
+fn a_connecting_call_cannot_start_a_microphone_test() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Voice);
+    change(&mut app, |state| state.voice.phase = voice::Phase::Joining);
+    let _ = app.update(Message::Settings(Event::Voice(VoiceEvent::MicTest)));
+    assert!(
+        app.win
+            .settings
+            .get()
+            .is_some_and(|settings| !settings.voice.testing)
+    );
+}
+
+#[test]
 fn the_mic_test_deafens_a_call_while_it_plays_back() {
     let (mut app, _folder) = preview();
     in_a_call(&mut app, false);

@@ -101,12 +101,15 @@ asked for).
 **Join** on a card sends `Action::JoinDiscovered`. The core refuses it,
 asking Discord nothing, in the preview, offline, for a server the account is
 in (its card says **Open**, which opens that server), for one being joined
-(the button reads "Joining") or joined in this run ("Joined"), and for a
+(the button reads "Joining") or joining successfully but waiting for the
+membership list to catch up ("Joined"), and for a
 server that is not in the list. Discord may ask for a captcha first: it is
 served on the loopback address and opened in the browser, as for a quest
 claim (`Event::DiscoverCaptcha`), and the join goes on once it is solved. A
 refusal shows under the chips with Discord's reason, and the button can be
 pressed again.
+After the membership list shows the server, it controls the card's button.
+Leaving the server makes **Join** available again.
 
 The rail's compass tile ("Explore Discoverable Servers") opens this screen on
 the DM home; it no longer opens discord.com.

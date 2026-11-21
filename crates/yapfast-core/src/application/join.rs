@@ -64,6 +64,19 @@ impl Application {
         vec![]
     }
 
+    /// A changed link invalidates the preview and any lookup still in flight.
+    pub(super) fn edit_invite(&mut self, typed: &str) -> Vec<Effect> {
+        if let Some(join) = &mut self.state.join
+            && !join.from_link
+            && !join.joining
+            && join.form.is_none()
+            && join.code != typed_code(typed)
+        {
+            *join = JoinDialog::default();
+        }
+        vec![]
+    }
+
     /// Looks up the invite in what someone typed or pasted into Join a
     /// Server.
     pub(super) fn find_invite(&mut self, typed: String) -> Vec<Effect> {

@@ -22,7 +22,7 @@ use crate::{
     api::Api,
     cache,
     event::Event,
-    gateway::{Closed, Dispatch, Gateway, Reconnects, TooManyIdentifies},
+    gateway::{Closed, Dispatch, Gateway, Invalidated, Reconnects, TooManyIdentifies},
     member_list::Presence,
     message::{self, Names},
     ready,
@@ -153,10 +153,15 @@ pub(super) async fn run(
         });
         let wait = tokio::time::sleep(reconnects.wait(&error, up));
         tokio::pin!(wait);
+        let earliest_retry = Instant::now() + Duration::from_secs(2);
         loop {
             tokio::select! {
                 () = &mut wait => break,
                 request = requests.recv() => match request {
+                    Some(Request::Reconnect) if !error.is::<Invalidated>() => {
+                        let deadline = wait.deadline().min(earliest_retry);
+                        wait.as_mut().reset(deadline);
+                    }
                     Some(request) => refuse(request, &mut shared),
                     None => return,
                 },
@@ -422,6 +427,7 @@ impl Session<'_> {
     async fn request(&mut self, request: Request) -> Result<()> {
         let gateway = &mut self.gateway;
         match request {
+            Request::Reconnect => Ok(()),
             Request::Join {
                 guild,
                 channel,
@@ -499,8 +505,11 @@ impl Session<'_> {
                 guild,
                 channel,
                 sync,
+                newest,
             } => {
-                if let Some(message) = self.tracker.unreads.mark_read(&guild, &channel) {
+                if newest.is_none_or(|newest| self.tracker.unreads.latest_is(&channel, newest))
+                    && let Some(message) = self.tracker.unreads.mark_read(&guild, &channel)
+                {
                     self.publisher.changed();
                     if sync {
                         self.acks.read(channel, message);

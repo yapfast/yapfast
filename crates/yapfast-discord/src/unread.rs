@@ -411,6 +411,10 @@ impl Unreads {
         self.last_messages.get(channel).copied().unwrap_or_default()
     }
 
+    pub(crate) fn latest_is(&self, channel: &str, message: u64) -> bool {
+        self.last_messages.get(channel) == Some(&message)
+    }
+
     /// Marks a channel read up to its newest message. Returns that message's
     /// id when this changed anything, for acknowledging it on Discord.
     pub fn mark_read(&mut self, guild: &str, channel: &str) -> Option<String> {

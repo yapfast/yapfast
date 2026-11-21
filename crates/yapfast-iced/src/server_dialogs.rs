@@ -314,8 +314,8 @@ impl Dialogs {
             Event::CloseInvite => Action::CloseInvite,
             Event::OpenJoinFromAdd => Action::OpenJoinServer,
             Event::JoinLink(link) => {
-                local.join = Some(link);
-                return Task::none();
+                local.join = Some(link.clone());
+                Action::EditInvite(link)
             }
             Event::Find => {
                 let busy = cx
@@ -830,7 +830,9 @@ impl<'a> View<'a> {
                 form::heading(theme, tr("INVITE LINK")),
                 form::field(theme, JOIN_FIELD, "https://discord.gg/yapfast", typed)
                     .padding([8.0, 10.0])
-                    .on_input(|link| message(Event::JoinLink(link)))
+                    .on_input_maybe(
+                        (!join.joining).then_some(|link| message(Event::JoinLink(link))),
+                    )
                     .on_submit(message(Event::Find))
                     .into(),
             ]);
