@@ -79,7 +79,9 @@ The call's views and what they do are in `call/`.
   five with Copy; Stream, while this account's screen is live or it
   watches a stream: a share's encoder and codec, what captured it, the
   size, the bitrate sent and aimed for, keyframes asked for, packets
-  resent and frames a full queue skipped, the shared sound waiting or
+  resent and what share of the picture's packets they are ("22 of 11000
+  (0.2%)", or just "0") and frames a full queue skipped, the shared sound
+  waiting or
   dropped, how the pictures reach the window and the adapter it draws on,
   the wait a frame had before encoding and the encoder's buffers, and why
   it isn't on the path it asked for, with Copy for the report as JSON; a

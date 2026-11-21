@@ -236,8 +236,10 @@ struct Shared {
     /// said.
     chosen: Mutex<Option<Codec>>,
     /// Sending: the video's bytes sent so far, resent ones too, as UDP
-    /// payloads; the keyframes viewers asked for; and the packets resent.
+    /// payloads; the packets of the picture, the ones sent again not among
+    /// them; the keyframes viewers asked for; and the packets resent.
     video_bytes: AtomicU64,
+    video_packets: AtomicU64,
     keyframe_requests: AtomicU64,
     resent: AtomicU64,
 }
@@ -259,6 +261,7 @@ impl Shared {
             offers_changed: AtomicBool::new(false),
             chosen: Mutex::new(None),
             video_bytes: AtomicU64::new(0),
+            video_packets: AtomicU64::new(0),
             keyframe_requests: AtomicU64::new(0),
             resent: AtomicU64::new(0),
         })
@@ -436,6 +439,7 @@ impl StreamSender {
         let load = |count: &AtomicU64| count.load(Ordering::Relaxed);
         SentSoFar {
             video_bytes: load(&self.shared.video_bytes),
+            packets: load(&self.shared.video_packets),
             keyframe_requests: load(&self.shared.keyframe_requests),
             resent: load(&self.shared.resent),
         }
@@ -453,11 +457,13 @@ impl StreamSender {
 }
 
 /// A stream's video sent since it started, as [`StreamSender::sent`] says:
-/// bytes as UDP payloads, resent ones too; keyframes viewers asked for; and
-/// packets resent when a viewer reported them lost.
+/// bytes as UDP payloads, resent ones too; the packets of the picture, which a
+/// share of them is measured against, and so without the resends; keyframes
+/// viewers asked for; and packets resent when a viewer reported them lost.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SentSoFar {
     pub video_bytes: u64,
+    pub packets: u64,
     pub keyframe_requests: u64,
     pub resent: u64,
 }
@@ -860,6 +866,7 @@ async fn send(
                     history.remember(&out, now);
                     let clear = rtp::rtp_clear_len(&out).unwrap_or(out.len());
                     packets = packets.wrapping_add(1);
+                    shared.video_packets.fetch_add(1, Ordering::Relaxed);
                     octets = octets.wrapping_add((out.len() - clear) as u32);
                     connection.transport.seal(&mut out, clear)?;
                     connection.udp.send(&out).await?;

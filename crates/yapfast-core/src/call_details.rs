@@ -122,6 +122,28 @@ pub fn picture(stream: &StreamStats) -> String {
     format!("{}×{} at {} fps", stream.width, stream.height, stream.fps)
 }
 
+/// The packets sent again and what share of the picture's packets they are, so
+/// a count that looks big says how big it is: "22 of 11000 (0.2%)". None at
+/// all reads "0", and a stream whose first report hasn't measured one reads
+/// the count alone.
+pub fn resent(stream: &StreamStats) -> String {
+    if stream.resent == 0 {
+        return "0".to_owned();
+    }
+    if stream.packets == 0 {
+        return stream.resent.to_string();
+    }
+    let share = 100.0 * stream.resent as f64 / stream.packets as f64;
+    // A loss smaller than a tenth of a percent reads as one rather than as
+    // nothing: it happened.
+    let percent = if share < 0.1 {
+        "<0.1%".to_owned()
+    } else {
+        format!("{share:.1}%")
+    };
+    format!("{} of {} ({percent})", stream.resent, stream.packets)
+}
+
 /// The Stream tab's rows, in the order it lists them: a label and its value.
 /// `sharing` is this account's own screen, which has a bitrate and a capture
 /// of its own; a watched stream has neither, and its rows say what decodes it
@@ -157,7 +179,7 @@ pub fn stream_rows(stream: &StreamStats, sharing: bool) -> Vec<(&'static str, St
             "Keyframes viewers asked for:",
             &stream.keyframe_requests.to_string(),
         );
-        row("Packets resent:", &stream.resent.to_string());
+        row("Packets resent:", &resent(stream));
         row("Frames a full queue skipped:", &stream.skipped.to_string());
     }
     if sharing {
@@ -323,6 +345,7 @@ pub fn diagnostics(stream: &StreamStats) -> String {
     put("target_kbps", stream.target_kbps.into());
     put("sent_kbps", stream.sent_kbps.into());
     put("keyframe_requests", stream.keyframe_requests.into());
+    put("packets", stream.packets.into());
     put("resent", stream.resent.into());
     put("skipped", stream.skipped.into());
     for (key, value) in [
@@ -382,6 +405,26 @@ mod tests {
     }
 
     #[test]
+    fn a_resent_count_says_what_share_of_the_packets_it_is() {
+        let mut stats = StreamStats {
+            resent: 22,
+            packets: 11_000,
+            ..Default::default()
+        };
+        assert_eq!(resent(&stats), "22 of 11000 (0.2%)");
+        // None at all is just none, not a share of a picture that is fine.
+        stats.resent = 0;
+        assert_eq!(resent(&stats), "0");
+        // A loss smaller than the row can show still says that it happened.
+        stats.resent = 1;
+        stats.packets = 2_000_000;
+        assert_eq!(resent(&stats), "1 of 2000000 (<0.1%)");
+        // And a stream whose first report hasn't measured a packet count.
+        stats.packets = 0;
+        assert_eq!(resent(&stats), "1");
+    }
+
+    #[test]
     fn the_streams_rows_say_what_a_share_has_and_a_watch_hasnt() {
         let share = StreamStats {
             engine: "av1_nvenc/d3d11".into(),
@@ -394,6 +437,7 @@ mod tests {
             sent_kbps: 7_110,
             keyframe_requests: 2,
             resent: 3,
+            packets: 2_400,
             skipped: 1,
             sound_held_ms: Some(40),
             sound_dropped_ms: None,
@@ -416,6 +460,11 @@ mod tests {
         assert_eq!(find("Encoder:").as_deref(), Some("NVENC on the GPU"));
         assert_eq!(find("Sending:").as_deref(), Some("7.1 Mbit/s"));
         assert_eq!(find("Aiming for:").as_deref(), Some("35.0 Mbit/s"));
+        assert_eq!(
+            find("Packets resent:").as_deref(),
+            Some("3 of 2400 (0.1%)"),
+            "a count that looks big says how big it is"
+        );
         assert_eq!(find("Shared sound waiting:").as_deref(), Some("40 ms"));
         assert_eq!(
             find("Shared sound dropped:").as_deref(),

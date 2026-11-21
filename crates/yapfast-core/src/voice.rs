@@ -199,8 +199,9 @@ pub struct LinkStats {
 /// How this account's shared screen goes out, as its stream worker reports
 /// it each second: the encoder ("h264_nvenc", "x264"), the codec Discord
 /// chose ("H264"), the size and frame rate sent, the kbit/s aimed for and
-/// sent in the last second, and the keyframes viewers asked for and the
-/// packets resent to them since the stream started. What a bound had to
+/// sent in the last second, and the keyframes viewers asked for, the packets
+/// resent and the picture's packets a share of them is measured against,
+/// since the stream started. What a bound had to
 /// give up is here too, so a stream that stutters says why: the frames a
 /// full send queue skipped, and the shared sound a backlog dropped. And so
 /// are the optional settings the encoder's driver dropped when it opened:
@@ -226,6 +227,10 @@ pub struct StreamStats {
     pub target_kbps: u32,
     pub sent_kbps: u32,
     pub keyframe_requests: u64,
+    /// The picture's packets sent since the stream started, without the ones
+    /// sent again: what [`Self::resent`] is a share of, so a count that looks
+    /// big says how big it is.
+    pub packets: u64,
     pub resent: u64,
     /// Frames the send queue was too full to take, since the stream started:
     /// the encode that would have been thrown away was skipped instead.

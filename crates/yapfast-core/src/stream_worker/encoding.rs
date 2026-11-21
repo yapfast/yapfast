@@ -432,6 +432,7 @@ impl Video {
             target_kbps: (self.sender.target() / 1000) as u32,
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
+            packets: sent.packets,
             resent: sent.resent,
             skipped: self.skipped,
             sound_held_ms: sound.map(|sound| sound.held_ms),
