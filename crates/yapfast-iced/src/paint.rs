@@ -14,7 +14,10 @@ use iced::advanced::graphics::text::cosmic_text;
 use yapfast_core::chat::Presence;
 
 pub use crate::canvas::{Canvas, Ink, finish, to_native};
-use crate::{fonts::TWEMOJI, looks::NameLook};
+use crate::{
+    fonts::{self, TWEMOJI},
+    looks::NameLook,
+};
 
 /// Discord's presence dot at 16 px, on a ring of `ring`: online, idle's
 /// moon, do not disturb's bar, and the phone of someone online on mobile,
@@ -387,47 +390,82 @@ fn gradient(stops: &[(f32, u32)], t: f32) -> u32 {
     stops.last().map_or(0, |stop| stop.1)
 }
 
-/// Twemoji's picture of `emoji` at `size` pixels square: shaped with the
-/// client's font system so a sequence takes Twemoji's one glyph for it, and
-/// drawn by swash from the font's PNG. None when Twemoji has no one glyph
-/// for it, which the picker leaves out.
+/// An emoji picture of `emoji` at `size` pixels square: shaped with the
+/// client's font system from the active emoji font (or Twemoji as fallback), and
+/// drawn by swash from the font's color bitmap. None when neither font has a glyph
+/// for it.
 pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Option<Canvas> {
-    // Taken at the font's own strike (53 ppem: 72 px pictures with 4 px of
-    // room, `emoji_font_tables.rs` `TWEMOJI`), which swash copies out
-    // without scaling, then shrunk by area once to the size shown. Asking
-    // swash for another size had it resample each picture first: a fifth of
-    // the picker's scrolling CPU.
-    let glyph = twemoji_glyph(system, emoji, 53.0)?;
+    if size == 0 {
+        return None;
+    }
+    let active = fonts::active_emoji_family();
+    if active != TWEMOJI
+        && let Some(canvas) = emoji_in_family(system, emoji, size, active)
+    {
+        return Some(canvas);
+    }
+    emoji_in_family(system, emoji, size, TWEMOJI)
+}
+
+fn emoji_in_family(
+    system: &mut cosmic_text::FontSystem,
+    emoji: &str,
+    size: u32,
+    family: &str,
+) -> Option<Canvas> {
+    let glyph = emoji_glyph_in_family(system, emoji, 53.0, family)?;
     let mut cache = cosmic_text::SwashCache::new();
     let image = cache.get_image_uncached(system, glyph.physical((0.0, 0.0), 1.0).cache_key)?;
     let (width, height) = (image.placement.width, image.placement.height);
-    if width == 0 || height == 0 || !matches!(image.content, cosmic_text::SwashContent::Color) {
+    if width == 0 || height == 0 {
         return None;
     }
     // Premultiplied BGRA, as a canvas is.
-    let mut source = image.data;
-    for pixel in source.chunks_exact_mut(4) {
-        let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-        let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-        pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
-    }
-    // Each picture in the font has 4 px of room round its 72
-    // (`emoji_font_tables.rs`).
-    let margin = width as f32 * 4.0 / 80.0;
-    let side = (width as f32 - 2.0 * margin)
-        .min(height as f32 - 2.0 * margin)
+    let source = match image.content {
+        cosmic_text::SwashContent::Color => {
+            let mut data = image.data;
+            for pixel in data.chunks_exact_mut(4) {
+                let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
+                pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
+            }
+            data
+        }
+        cosmic_text::SwashContent::Mask => {
+            let mut data = Vec::with_capacity(image.data.len() * 4);
+            for &alpha in &image.data {
+                data.extend_from_slice(&[alpha, alpha, alpha, alpha]);
+            }
+            data
+        }
+        _ => return None,
+    };
+    let is_twemoji = family == TWEMOJI;
+    let (margin_x, margin_y) = if is_twemoji {
+        // Each picture in Twemoji has 4 px of room round its 72 (`emoji_font_tables.rs`).
+        (width as f32 * 4.0 / 80.0, height as f32 * 4.0 / 80.0)
+    } else {
+        let side = (width as f32).min(height as f32);
+        ((width as f32 - side) / 2.0, (height as f32 - side) / 2.0)
+    };
+    let side = (width as f32 - 2.0 * margin_x)
+        .min(height as f32 - 2.0 * margin_y)
         .max(1.0);
     let mut canvas = Canvas::new(size, size);
     let step = side / size as f32;
     for y in 0..size {
         for x in 0..size {
-            let (x0, y0) = (margin + x as f32 * step, margin + y as f32 * step);
+            let (x0, y0) = (margin_x + x as f32 * step, margin_y + y as f32 * step);
             let (x1, y1) = (x0 + step, y0 + step);
             let mut sum = [0.0f32; 4];
             let mut weight = 0.0;
-            for sy in y0.floor() as u32..(y1.ceil() as u32).min(height) {
+            let sy_start = y0.floor().max(0.0) as u32;
+            let sy_end = (y1.ceil().max(0.0) as u32).min(height);
+            let sx_start = x0.floor().max(0.0) as u32;
+            let sx_end = (x1.ceil().max(0.0) as u32).min(width);
+            for sy in sy_start..sy_end {
                 let cover_y = (y1.min(sy as f32 + 1.0) - y0.max(sy as f32)).max(0.0);
-                for sx in x0.floor() as u32..(x1.ceil() as u32).min(width) {
+                for sx in sx_start..sx_end {
                     let cover = cover_y * (x1.min(sx as f32 + 1.0) - x0.max(sx as f32)).max(0.0);
                     let at = ((sy * width + sx) * 4) as usize;
                     for (sum, &value) in sum.iter_mut().zip(&source[at..at + 4]) {
@@ -447,34 +485,38 @@ pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Op
     Some(canvas)
 }
 
-/// The one glyph of the Twemoji font that draws `emoji`, if it has one.
-fn twemoji_glyph(
+fn emoji_glyph_in_family(
     system: &mut cosmic_text::FontSystem,
     emoji: &str,
     size: f32,
+    family: &str,
 ) -> Option<cosmic_text::LayoutGlyph> {
     let mut buffer = cosmic_text::Buffer::new(system, cosmic_text::Metrics::new(size, size));
-    let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::Name(TWEMOJI));
+    let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::Name(family));
     buffer.set_text(system, emoji, &attrs, cosmic_text::Shaping::Advanced, None);
     buffer.shape_until_scroll(system, false);
     let run = buffer.layout_runs().next()?;
     // Variation selectors and joiners shape to nothing; what's left is one
-    // glyph of Twemoji's.
+    // glyph of the font's.
     let mut drawn = run.glyphs.iter().filter(|glyph| glyph.w > 0.0);
     let glyph = drawn.next()?.clone();
     if drawn.next().is_some() {
         return None;
     }
-    let twemoji = system
+    let in_family = system
         .db()
         .face(glyph.font_id)
-        .is_some_and(|face| face.families.iter().any(|(family, _)| family == TWEMOJI));
-    twemoji.then_some(glyph)
+        .is_some_and(|face| face.families.iter().any(|(f, _)| f == family));
+    in_family.then_some(glyph)
 }
 
-/// Whether Twemoji draws `emoji` as one picture, without drawing it.
+/// Whether the active emoji font or Twemoji draws `emoji` as one picture, without drawing it.
 pub fn has_emoji(system: &mut cosmic_text::FontSystem, emoji: &str) -> bool {
-    twemoji_glyph(system, emoji, 16.0).is_some()
+    let active = fonts::active_emoji_family();
+    if active != TWEMOJI && emoji_glyph_in_family(system, emoji, 16.0, active).is_some() {
+        return true;
+    }
+    emoji_glyph_in_family(system, emoji, 16.0, TWEMOJI).is_some()
 }
 
 /// A display name painted whole in its style and handed to the renderer,
@@ -573,6 +615,97 @@ mod tests {
         ] {
             let dot = status_dot(presence, 0, LIVE_TEST, 0).expect("drawn");
             assert_eq!((dot.width, dot.height), (16, 16));
+        }
+    }
+
+    struct FontReset;
+    impl Drop for FontReset {
+        fn drop(&mut self) {
+            crate::fonts::apply_fonts(None, Some("Yapfast Twemoji"), &[]);
+        }
+    }
+
+    #[test]
+    fn renders_emoji_with_active_emoji_font() {
+        let _reset = FontReset;
+        crate::tests::install_fonts();
+        {
+            let mut system = iced::advanced::graphics::text::font_system()
+                .write()
+                .expect("font system");
+            assert!(has_emoji(system.raw(), "❤️"));
+            let canvas = emoji(system.raw(), "❤️", 32).expect("emoji canvas");
+            assert_eq!(canvas.width, 32);
+            assert_eq!(canvas.height, 32);
+
+            let png_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../vendor/twemoji/72x72/1f0cf.png");
+            let png_bytes = std::fs::read(png_path).expect("read test png");
+            let strike = crate::emoji_font_tables::Strike {
+                ppem: 53,
+                side: 72,
+                bearing_x: 0,
+                bearing_y: 53,
+                advance: 72,
+            };
+            let glyphs = [('\u{100000}', png_bytes)];
+            let font_bytes = crate::emoji_font_tables::build_joined(
+                &strike,
+                "CustomEmojiFamily",
+                &glyphs,
+                &[],
+                &crate::emoji_font_tables::Joins::default(),
+            );
+            system
+                .raw()
+                .db_mut()
+                .load_font_source(cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(
+                    font_bytes,
+                )));
+        }
+
+        crate::fonts::apply_fonts(None, Some("CustomEmojiFamily"), &[]);
+        {
+            let mut system = iced::advanced::graphics::text::font_system()
+                .write()
+                .expect("font system");
+            // The custom emoji font has \u{100000}, which Twemoji lacks
+            assert!(has_emoji(system.raw(), "\u{100000}"));
+            let custom_canvas = emoji(system.raw(), "\u{100000}", 32).expect("custom emoji canvas");
+            assert_eq!(custom_canvas.width, 32);
+            assert_eq!(custom_canvas.height, 32);
+            assert!(custom_canvas.pixels.iter().any(|&p| p > 0));
+
+            // And fallback still works for ❤️ which is in Twemoji
+            assert!(has_emoji(system.raw(), "❤️"));
+            let fallback_canvas = emoji(system.raw(), "❤️", 32).expect("fallback emoji canvas");
+            assert_eq!(fallback_canvas.width, 32);
+            assert_eq!(fallback_canvas.height, 32);
+
+            // Verify that text shaping with Family::SansSerif uses the custom emoji font for its glyph
+            let mut buffer =
+                cosmic_text::Buffer::new(system.raw(), cosmic_text::Metrics::new(16.0, 20.0));
+            let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::SansSerif);
+            buffer.set_text(
+                system.raw(),
+                "\u{100000}",
+                &attrs,
+                cosmic_text::Shaping::Advanced,
+                None,
+            );
+            buffer.shape_until_scroll(system.raw(), false);
+            let run = buffer.layout_runs().next().expect("run");
+            let emoji_glyph = run
+                .glyphs
+                .iter()
+                .find(|g| g.w > 0.0 && g.glyph_id > 0)
+                .expect("glyph");
+            let face_family = system
+                .raw()
+                .db()
+                .face(emoji_glyph.font_id)
+                .and_then(|f| f.families.first().map(|s| s.0.clone()));
+            assert_eq!(face_family.as_deref(), Some("CustomEmojiFamily"));
         }
     }
 

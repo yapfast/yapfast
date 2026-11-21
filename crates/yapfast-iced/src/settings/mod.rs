@@ -160,6 +160,8 @@ pub enum Drop {
     Start,
     /// A keybind's action, by its row.
     Keybind(usize),
+    TextFont,
+    EmojiFont,
 }
 
 /// Settings while open.
@@ -186,6 +188,8 @@ pub struct Settings {
     /// What the desktop says of starting at sign-in and Discord's links,
     /// read as Settings opens and after each change.
     pub platform: Platform,
+    /// An error message from importing a font (if any).
+    pub font_error: Option<String>,
 }
 
 /// Starting at sign-in and opening Discord's links here, where the build and
@@ -308,7 +312,7 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
-            Event::Theme(event) => self.theme_event(event, cx),
+            Event::Theme(event) => return self.theme_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),

@@ -91,6 +91,13 @@ pub struct Layout {
     /// Each place's searches, newest first, by server or DM id, as
     /// Discord's box keeps them (`search_popout::HISTORY`).
     pub search_history: HashMap<String, Vec<String>>,
+    /// What fonts the window uses for text and emoji; see [`yapfast_core::fonts::FontPrefs`].
+    #[serde(default)]
+    #[allow(
+        dead_code,
+        reason = "read by font loader and settings in subsequent tasks"
+    )]
+    pub fonts: yapfast_core::fonts::FontPrefs,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,
@@ -638,6 +645,28 @@ mod writing {
         assert!(layout.members_hidden);
         assert_eq!(layout.zoom, Some(1.25));
         assert_eq!(layout.theme.as_deref(), Some("sakura"), "the rest kept");
+    }
+
+    #[test]
+    fn font_preferences_are_kept_in_layout_json() {
+        use yapfast_core::fonts::{BuiltinTextFont, FontPrefs, TextFontChoice};
+        let folder = tempfile::tempdir().expect("a folder");
+        let root = folder.path();
+        let fonts = FontPrefs {
+            text: TextFontChoice::Builtin {
+                builtin: BuiltinTextFont::Inter,
+            },
+            ..FontPrefs::default()
+        };
+        store(root, "fonts", &fonts);
+        flush(root);
+        let layout = Layout::read(root);
+        assert_eq!(
+            layout.fonts.text,
+            TextFontChoice::Builtin {
+                builtin: BuiltinTextFont::Inter,
+            }
+        );
     }
 
     #[test]

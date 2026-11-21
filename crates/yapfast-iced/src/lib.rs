@@ -56,6 +56,7 @@ mod edit;
 // build.rs packs Twemoji with it; here its test runs.
 #[cfg(test)]
 mod emoji_font_tables;
+pub mod font_manager;
 use yapfast_iced_kit::elide;
 use yapfast_iced_kit::field;
 use yapfast_iced_kit::fonts;
@@ -224,6 +225,8 @@ pub fn run(
     video::install();
     frames::install();
     fonts::install(TWEMOJI);
+    let layout = layout::Layout::read(&root);
+    font_manager::apply_font_prefs(&root, &layout.fonts);
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();
