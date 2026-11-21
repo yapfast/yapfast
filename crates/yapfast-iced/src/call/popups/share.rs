@@ -31,7 +31,7 @@ pub struct Share {
     /// The screens with their pictures once taken, the windows, the
     /// cameras; then every source in the menu's order (screens, windows,
     /// the system's dialog, cameras).
-    pub screens: Vec<(String, Option<Handle>)>,
+    pub screens: Vec<Screen>,
     pub windows: Vec<String>,
     pub cameras: Vec<String>,
     pub sources: Vec<yapfast_core::stream_worker::Source>,
@@ -43,7 +43,45 @@ pub struct Share {
     pub switching: bool,
 }
 
+pub struct Screen {
+    title: String,
+    preview: Option<ScreenPreview>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScreenPreview {
+    handle: Handle,
+    width: u32,
+    height: u32,
+}
+
 impl Share {
+    fn dimensions(&self) -> Option<(u32, u32)> {
+        let preview = self.screens.get(self.pick)?.preview.as_ref()?;
+        Some((preview.width, preview.height))
+    }
+
+    fn supports(&self, resolution: Resolution) -> bool {
+        let height = match resolution {
+            Resolution::P480 => 480,
+            Resolution::P720 => 720,
+            Resolution::P1080 => 1080,
+            Resolution::P1440 => 1440,
+            Resolution::P2160 => 2160,
+            Resolution::Source => return true,
+        };
+        self.dimensions()
+            .is_none_or(|(_, source_height)| height <= source_height)
+    }
+
+    fn resolution(&self) -> Resolution {
+        if self.supports(self.quality.resolution) {
+            self.quality.resolution
+        } else {
+            Resolution::Source
+        }
+    }
+
     /// Switching where the system's dialog is the only choice, as no
     /// screen, window or camera is listed: the dialog opens with no menu.
     pub fn dialog_alone(&self) -> bool {
@@ -70,7 +108,7 @@ pub enum ShareEvent {
     /// The sources listed, by the listing's count.
     Listed(u64, Arc<Listing>),
     /// A screen's picture, by the screen's id.
-    Picture(u64, Handle),
+    Picture(u64, ScreenPreview),
     Pick(usize),
     Resolution(Resolution),
     Fps(u32),
@@ -118,12 +156,18 @@ pub(super) fn glance(ids: Vec<u64>) -> Task<Message> {
                 match report {
                     Report::Screen {
                         id,
+                        source_width,
+                        source_height,
                         width,
                         height,
                         rgba,
                     } => {
-                        let handle = Handle::from_rgba(width, height, rgba);
-                        if sender.unbounded_send((id, handle)).is_err() {
+                        let preview = ScreenPreview {
+                            handle: Handle::from_rgba(width, height, rgba),
+                            width: source_width,
+                            height: source_height,
+                        };
+                        if sender.unbounded_send((id, preview)).is_err() {
                             break;
                         }
                     }
@@ -137,8 +181,8 @@ pub(super) fn glance(ids: Vec<u64>) -> Task<Message> {
                 }
             }
         });
-        Task::run(receiver, |(id, handle)| {
-            Message::Call(Event::Share(ShareEvent::Picture(id, handle)))
+        Task::run(receiver, |(id, preview)| {
+            Message::Call(Event::Share(ShareEvent::Picture(id, preview)))
         })
     })
 }
@@ -181,7 +225,10 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
             let share = Share {
                 screens: screens
                     .iter()
-                    .map(|listed| (listed.title.clone(), None))
+                    .map(|listed| Screen {
+                        title: listed.title.clone(),
+                        preview: None,
+                    })
                     .collect(),
                 windows: windows.iter().map(|listed| listed.title.clone()).collect(),
                 cameras: cameras.iter().map(|listed| listed.title.clone()).collect(),
@@ -199,14 +246,14 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
             app.call.popup = Some(Popup::Share);
             return Task::batch([glance(ids), operation::focus(NOBODY)]);
         }
-        ShareEvent::Picture(id, handle) => {
+        ShareEvent::Picture(id, preview) => {
             if let Some(share) = &mut app.call.share {
                 let at = share
                     .sources
                     .iter()
                     .position(|source| *source == yapfast_core::stream_worker::Source::Display(id));
-                if let Some((_, picture)) = at.and_then(|at| share.screens.get_mut(at)) {
-                    *picture = Some(handle);
+                if let Some(screen) = at.and_then(|at| share.screens.get_mut(at)) {
+                    screen.preview = Some(preview);
                 }
             }
         }
@@ -216,7 +263,9 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
             }
         }
         ShareEvent::Resolution(resolution) => {
-            if let Some(share) = &mut app.call.share {
+            if let Some(share) = &mut app.call.share
+                && share.supports(resolution)
+            {
                 share.quality.resolution = resolution;
             }
         }
@@ -244,7 +293,10 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                 yapfast_core::stream_worker::pick(
                     picked.unwrap_or(yapfast_core::stream_worker::Source::Screen),
                 );
-                Command::GoLive(share.quality)
+                Command::GoLive(StreamQuality {
+                    resolution: share.resolution(),
+                    ..share.quality
+                })
             };
             crate::call::popups::close_popup(app);
             app.client
@@ -278,11 +330,11 @@ pub(super) fn share_menu<'a>(
         choices = choices.push(heading(theme, "SCREENS", 4.0));
         let card = (width - 12.0 - 4.0) / 2.0;
         let mut cards = Vec::new();
-        for (index, (title, picture)) in share.screens.iter().enumerate() {
+        for (index, screen) in share.screens.iter().enumerate() {
             cards.push(screen_card(
                 ctx,
-                title,
-                picture.as_ref(),
+                &screen.title,
+                screen.preview.as_ref().map(|preview| &preview.handle),
                 card,
                 share.pick == index,
                 pick(index),
@@ -354,12 +406,27 @@ pub(super) fn share_menu<'a>(
         let lists = dialog_index + share.cameras.len() > 0;
         let quality = share.quality;
         choices = choices.push(heading(theme, "RESOLUTION", if lists { 8.0 } else { 4.0 }));
+        let selected = share.resolution();
+        let source_label = match share.dimensions() {
+            Some((width, height)) => {
+                let cap = if width > 3840 || height > 2160 {
+                    " (up to 4K)"
+                } else {
+                    ""
+                };
+                format!("Source · {width} × {height}{cap}").into()
+            }
+            None => std::borrow::Cow::Borrowed("Source"),
+        };
         for (resolution, label) in [
-            (Resolution::P720, "720p"),
-            (Resolution::P1080, "1080p"),
-            (Resolution::Source, "Source"),
+            (Resolution::P480, "480p".into()),
+            (Resolution::P720, "720p".into()),
+            (Resolution::P1080, "1080p".into()),
+            (Resolution::P1440, "1440p".into()),
+            (Resolution::P2160, "2160p".into()),
+            (Resolution::Source, source_label),
         ] {
-            let check = if quality.resolution == resolution {
+            let check = if selected == resolution {
                 Check::Current
             } else {
                 Check::None
@@ -370,9 +437,11 @@ pub(super) fn share_menu<'a>(
                 None,
                 None,
                 check,
-                Some(Message::Call(Event::Share(ShareEvent::Resolution(
-                    resolution,
-                )))),
+                share
+                    .supports(resolution)
+                    .then_some(Message::Call(Event::Share(ShareEvent::Resolution(
+                        resolution,
+                    )))),
             ));
         }
         choices = choices.push(heading(theme, "FRAME RATE", 8.0));
@@ -431,6 +500,43 @@ pub(super) fn share_menu<'a>(
     ]
     .padding(6)
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_screen_disables_presets_above_its_height() {
+        let mut share = Share {
+            screens: vec![Screen {
+                title: "Screen".into(),
+                preview: None,
+            }],
+            windows: vec![],
+            cameras: vec![],
+            sources: vec![],
+            dialog: false,
+            pick: 0,
+            quality: StreamQuality {
+                resolution: Resolution::P1440,
+                ..StreamQuality::default()
+            },
+            switching: false,
+        };
+        assert_eq!(share.resolution(), Resolution::P1440);
+        share.screens[0].preview = Some(ScreenPreview {
+            handle: Handle::from_rgba(1, 1, vec![0; 4]),
+            width: 1920,
+            height: 1080,
+        });
+        assert_eq!(share.dimensions(), Some((1920, 1080)));
+        assert!(share.supports(Resolution::P1080));
+        assert!(!share.supports(Resolution::P1440));
+        assert_eq!(share.resolution(), Resolution::Source);
+        share.pick = 1;
+        assert_eq!(share.resolution(), Resolution::P1440);
+    }
 }
 
 /// A screen in the share menu: its picture, once taken, over its name.

@@ -50,7 +50,8 @@ impl Share {
         } else {
             stream_worker::Source::Screen
         };
-        let (worker, frames, reports) = Worker::share(source, quality)?;
+        let enhanced_preview = stream_worker::enhanced_preview();
+        let (worker, frames, reports) = Worker::share(source, quality, enhanced_preview)?;
         state.sharing = Some(Sharing {
             phase: SharePhase::Choosing,
             frames: Arc::new(frames),

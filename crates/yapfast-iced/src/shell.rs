@@ -185,6 +185,7 @@ impl App {
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
+                crate::call::stage::place_videos(self);
                 if focused {
                     return window::request_user_attention(id, None);
                 }

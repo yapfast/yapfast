@@ -37,8 +37,10 @@ The call's views and what they do are in `call/`.
 - Go Live's menu lists the screens with a picture of each (from a stream
   worker started for them and gone once they're in), the windows, the
   system's own dialog where the portal picks, and the cameras, then the
-  resolution, frame rate and encoding; it fits a short window by
-  scrolling, keeping its button in view. It opens once they're listed (on
+  resolution, frame rate and encoding. Source shows the selected screen's
+  dimensions when its thumbnail arrives. Higher presets are disabled and
+  Source is selected if the saved resolution exceeds the screen's height.
+  The menu fits a short window by scrolling, keeping its button in view. It opens once they're listed (on
   a thread of their own); meanwhile Escape, a second click, another popup
   or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
   switches what's shared; where the system's dialog is its only choice

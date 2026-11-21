@@ -104,6 +104,11 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
             .center(Length::Fill)
             .into()
     });
+    let content = if pip == Pip::Shared && live && !app.shell.focused {
+        crate::call::stage::paused_share_preview(content)
+    } else {
+        content
+    };
     let mut base = stack![content].width(CORNER.width).height(CORNER.height);
     if live {
         base = base.push(pin(controls::live_pill(theme, None)).x(8).y(8));

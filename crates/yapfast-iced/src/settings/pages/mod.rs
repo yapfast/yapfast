@@ -55,6 +55,7 @@ pub enum Pref {
     PlaySound(usize),
     GpuRendering(bool),
     GpuEncoding(bool),
+    EnhancedLivePreview(bool),
     CloseToTray(bool),
     MultipleWindows(bool),
     DeveloperMode(bool),
@@ -224,6 +225,11 @@ impl Settings {
                 cx.layout.voice.gpu_encoding = Some(on);
                 yapfast_core::stream_worker::set_hardware_encoding(on);
                 cx.keep("gpu_encoding", on);
+            }
+            Pref::EnhancedLivePreview(on) => {
+                cx.layout.voice.enhanced_live_preview = on;
+                yapfast_core::stream_worker::set_enhanced_preview(on);
+                cx.keep("enhanced_live_preview", on);
             }
             Pref::CloseToTray(on) => {
                 prefs.close_to_tray = Some(on);
