@@ -34,6 +34,9 @@ does, for example in `pages/gateway/gateway-events.mdx`,
 The settings protobuf is in
 [discord-protos](https://github.com/discord-userdoccers/discord-protos).
 
+Windows also has an explicit [desktop account import](account-import.md) flow.
+Its storage formats, limits and cancellation behavior are documented separately.
+
 ## Risk to accounts
 
 Discord's terms don't allow third-party clients to use personal accounts.

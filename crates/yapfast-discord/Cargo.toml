@@ -25,6 +25,8 @@ rand = "0.9"
 # Linking by QR code: Discord's remote login encrypts what it sends with the
 # client's RSA key, OAEP with SHA-256.
 rsa = { version = "0.9", features = ["getrandom"] }
+# Read a copy of Discord's LevelDB in memory, including Snappy tables and WALs.
+rusty-leveldb = { version = "=4.0.1", default-features = false }
 sha2 = "0.10"
 anyhow.workspace = true
 base64 = "0.22"
@@ -59,6 +61,11 @@ webrtc-sys = "=0.3.35"
 # from one processor to another.
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.189"
+
+# Unwrapping the key the Discord app protects its stored logins with, so they
+# can be imported; see src/import.rs.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
 # Building DAVE handshake messages in tests, at the versions davey uses.

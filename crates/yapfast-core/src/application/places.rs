@@ -827,7 +827,7 @@ impl Application {
     /// lists it, as Discord's client shows it.
     pub(super) fn invite_sent(&mut self, result: Result<(), String>) {
         if let Err(error) = result {
-            self.state.notice = Some(error);
+            self.state.notice = Some(super::Notice::Error(error));
         }
     }
 

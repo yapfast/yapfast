@@ -426,7 +426,9 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
 fn the_banners_show_over_a_voice_channels_call_too() {
     let (mut app, _folder, _) = in_call();
     super::change(&mut app, |state| {
-        state.notice = Some("Discord asked Yapfast to slow down.".into());
+        state.notice = Some(yapfast_core::application::Notice::Error(
+            "Discord asked Yapfast to slow down.".into(),
+        ));
     });
     assert!(crate::call::stage::voice_panel(&app), "the call's view");
     assert!(shows(&app, "Discord asked Yapfast to slow down."));

@@ -203,6 +203,16 @@ impl Application {
     #[cfg(feature = "discord")]
     pub fn linking(&mut self, progress: crate::discord_link::Progress) -> Vec<Effect> {
         use crate::discord_link::Progress;
+        // A timed-out blocking save can finish after the import or another
+        // linking run has ended. Refresh it without starting a connection.
+        match progress {
+            Progress::ImportSaveStarted => return vec![],
+            Progress::ImportSaveFinished { linked } => {
+                self.state.discord_linked |= linked;
+                return self.refresh_imported_accounts();
+            }
+            _ => {}
+        }
         // Linking that was stopped says nothing more.
         let Some(link) = &mut self.state.discord_link else {
             return vec![];
@@ -227,7 +237,48 @@ impl Application {
                 *link = DiscordLink::Starting;
                 return vec![Effect::LinkDiscord];
             }
-            Progress::Failed(error) => *link = DiscordLink::Failed(error),
+            Progress::Failed(error) => {
+                if *link == DiscordLink::CancellingImport {
+                    return self.finish_cancelled_import(Notice::Error(error), false, false);
+                }
+                *link = if *link == DiscordLink::Importing {
+                    DiscordLink::ImportFailed(error)
+                } else {
+                    DiscordLink::Failed(error)
+                };
+            }
+            Progress::ImportCancelled {
+                message,
+                linked,
+                save_pending,
+            } => {
+                return self.finish_cancelled_import(Notice::Info(message), linked, save_pending);
+            }
+            Progress::ImportSaveStarted | Progress::ImportSaveFinished { .. } => unreachable!(),
+            Progress::Imported(message) => {
+                if *link == DiscordLink::CancellingImport {
+                    return self.finish_cancelled_import(
+                        Notice::Info(format!("Import cancelled. {message}")),
+                        true,
+                        false,
+                    );
+                }
+                let already_connected = self.state.discord_linked && self.state.account.is_some();
+                self.state.discord_link = None;
+                self.state.manage_accounts = None;
+                self.state.discord_linked = true;
+                let effects = if already_connected {
+                    vec![Effect::Backend(Command::Discord(
+                        DiscordCommand::ListAccounts,
+                    ))]
+                } else if self.state.account.is_some() {
+                    vec![Effect::Backend(Command::Discord(DiscordCommand::Start))]
+                } else {
+                    self.start(chat::Start::Restore)
+                };
+                self.state.notice = Some(super::Notice::Info(message));
+                return effects;
+            }
             Progress::Linked => {
                 self.state.discord_link = None;
                 self.state.discord_linked = true;
@@ -695,13 +746,59 @@ impl Application {
         self.cache_emoji_pictures()
     }
 
-    /// Whether linking a Discord account can start: with none linked, or from
-    /// Manage Accounts, which adds one to those linked.
+    /// Keep following import until an in-flight credential save has finished.
+    pub(super) fn cancel_discord_link(&mut self) -> Vec<Effect> {
+        match self.state.discord_link {
+            Some(DiscordLink::Importing) => {
+                self.state.discord_link = Some(DiscordLink::CancellingImport);
+                vec![Effect::CancelDiscordImport]
+            }
+            Some(DiscordLink::CancellingImport) | None => vec![],
+            _ => {
+                self.state.discord_link = None;
+                vec![Effect::StopDiscordLink]
+            }
+        }
+    }
+
+    #[cfg(feature = "discord")]
+    fn finish_cancelled_import(
+        &mut self,
+        message: Notice,
+        linked: bool,
+        save_pending: bool,
+    ) -> Vec<Effect> {
+        self.state.discord_link = None;
+        self.state.discord_linked |= linked;
+        self.state.notice = Some(message);
+        if save_pending {
+            vec![]
+        } else {
+            self.refresh_imported_accounts()
+        }
+    }
+
+    #[cfg(feature = "discord")]
+    fn refresh_imported_accounts(&self) -> Vec<Effect> {
+        if self.state.discord_linked && self.state.account.is_some() {
+            vec![Effect::Backend(Command::Discord(
+                DiscordCommand::ListAccounts,
+            ))]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Link from sign-in, or add an account from Manage Accounts.
     pub(super) fn can_link_discord(&self) -> bool {
         let state = &self.state;
         cfg!(feature = "discord")
             && !state.preview
-            && (!state.discord_linked || state.manage_accounts.is_some())
+            && !matches!(
+                state.discord_link,
+                Some(DiscordLink::Importing | DiscordLink::CancellingImport)
+            )
+            && (!state.discord_linked || state.account.is_none() || state.manage_accounts.is_some())
     }
 
     /// Whether a Discord account with this id is linked on this device.
