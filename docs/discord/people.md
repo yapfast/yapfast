@@ -1202,6 +1202,15 @@ whatever its case. It applies to what was matched, custom games included,
 whichever list matched it. It doesn't reach Rich Presence, which a program
 sends for itself.
 
+Each entry has a switch: on, it's hidden; off, it's allowed to show as a game
+again, and stays listed to be hidden with one press. `layout.json` keeps each
+as `{"name": "...", "on": true}` (`BlockedGame`) and reads a bare name, as the
+first version kept them, as an entry that's on. Detection is handed only the
+names that are on (`Prefs::apply_blocked_games`), so turning one off or on
+rescans at once, as adding or removing one does, and one that's off isn't left
+out of the detected games below. Adding a name that's listed and off, from
+that menu or the field, turns it on.
+
 "Choose from detected games" there opens a menu of the games the last scan
 took the running programs for, each by the name that would show after
 Playing, once each and in alphabetical order, at most 50

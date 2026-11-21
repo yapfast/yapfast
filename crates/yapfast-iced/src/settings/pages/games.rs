@@ -10,6 +10,7 @@ use super::{GameDraft, GameEvent};
 use crate::settings::{Event, Page, Settings};
 use crate::{
     app::{App, Message},
+    layout::BlockedGame,
     controls::{Kind, action},
     ctx::{Cx, Request},
     form::{self, switch},
@@ -63,14 +64,22 @@ pub fn save_game(
 /// Adds a program or game this device never shows as the game played: an
 /// executable, a file name or a full path, or the name shown after Playing.
 /// Without line breaks, of at most 4096 bytes; one already listed, in any
-/// case, isn't added twice. False when it can't be kept.
-pub fn add_blocked(blocked: &mut Vec<String>, entry: &str) -> bool {
+/// case, isn't added twice, and is turned on if it was off. False when it can't be kept.
+pub fn add_blocked(blocked: &mut Vec<BlockedGame>, entry: &str) -> bool {
     let entry = entry.trim();
     if entry.is_empty() || entry.len() > 4096 || entry.chars().any(char::is_control) {
         return false;
     }
-    if !blocked.iter().any(|other| other.eq_ignore_ascii_case(entry)) {
-        blocked.push(entry.to_owned());
+    match blocked
+        .iter_mut()
+        .find(|other| other.name.eq_ignore_ascii_case(entry))
+    {
+        // Listed already, perhaps turned off: it is on again.
+        Some(listed) => listed.on = true,
+        None => blocked.push(BlockedGame {
+            name: entry.to_owned(),
+            on: true,
+        }),
     }
     true
 }
@@ -143,6 +152,12 @@ impl Settings {
                 }
             }
             GameEvent::Detected => cx.request(Request::DetectedGamesMenu),
+            GameEvent::ToggleBlocked(index) => {
+                if let Some(game) = cx.layout.prefs.blocked_games.get_mut(index) {
+                    game.on = !game.on;
+                    blocked_changed(cx);
+                }
+            }
             GameEvent::Unblock(index) => {
                 let blocked = &mut cx.layout.prefs.blocked_games;
                 if index < blocked.len() {
@@ -191,9 +206,8 @@ pub fn block_game(app: &mut App, name: &str) {
 
 /// Keeps the games never shown, and detection takes them at once.
 fn blocked_changed(cx: &Cx<'_>) {
-    let blocked = &cx.layout.prefs.blocked_games;
-    cx.keep("blocked_games", blocked);
-    yapfast_core::discord::set_blocked_games(blocked);
+    cx.keep("blocked_games", &cx.layout.prefs.blocked_games);
+    cx.layout.prefs.apply_blocked_games();
 }
 
 impl<'a> Page<'a> {
@@ -311,13 +325,30 @@ impl<'a> Page<'a> {
             "Some programs Yapfast takes for games aren't. Name one by its executable, a file name or a full path, or by the name shown after Playing, and it isn't shown as the game you play.",
         ));
         for (index, entry) in self.cx.layout.prefs.blocked_games.iter().enumerate() {
+            // On, it's hidden; off, it's allowed to show as a game again,
+            // and stays listed to be hidden with one press.
             parts.push(
                 row![
-                    text(entry.as_str())
-                        .size(15)
-                        .color(theme.text)
-                        .width(Length::Fill)
-                        .wrapping(text::Wrapping::None),
+                    column![
+                        text(entry.name.as_str())
+                            .size(15)
+                            .color(if entry.on { theme.text } else { theme.muted })
+                            .wrapping(text::Wrapping::None),
+                        text(if entry.on {
+                            "Hidden: never shown as a game"
+                        } else {
+                            "Allowed: shown as a game while it runs"
+                        })
+                        .size(12)
+                        .color(theme.muted)
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill),
+                    form::toggle(
+                        theme,
+                        entry.on,
+                        Some(game_message(GameEvent::ToggleBlocked(index)))
+                    ),
                     action(
                         theme,
                         "Remove",
@@ -326,7 +357,7 @@ impl<'a> Page<'a> {
                     )
                     .small()
                 ]
-                .spacing(8)
+                .spacing(12)
                 .align_y(Alignment::Center)
                 .into(),
             );
@@ -385,12 +416,49 @@ mod tests {
         let mut blocked = vec![];
         assert!(add_blocked(&mut blocked, "  Spotify.exe "));
         assert!(add_blocked(&mut blocked, "spotify.EXE"), "already there");
-        assert_eq!(blocked, ["Spotify.exe"], "kept once, as first written");
+        assert_eq!(blocked.len(), 1, "kept once");
+        assert_eq!(blocked[0].name, "Spotify.exe", "as first written");
         assert!(add_blocked(&mut blocked, "Visual Studio Code"));
         assert_eq!(blocked.len(), 2);
         assert!(!add_blocked(&mut blocked, "   "));
         assert!(!add_blocked(&mut blocked, "two\nlines"));
         assert!(!add_blocked(&mut blocked, &"x".repeat(4097)));
         assert_eq!(blocked.len(), 2, "refused entries add nothing");
+    }
+
+    #[test]
+    fn adding_a_game_turned_off_turns_it_on_again_and_only_those_on_are_never_shown() {
+        use crate::layout::active_blocked;
+        let mut blocked = vec![];
+        add_blocked(&mut blocked, "Roblox");
+        add_blocked(&mut blocked, "Spotify");
+        blocked[0].on = false;
+        assert_eq!(active_blocked(&blocked), ["Spotify"], "an allowed game isn't left out");
+        assert!(add_blocked(&mut blocked, "roblox"));
+        assert_eq!(blocked.len(), 2, "it stayed one entry");
+        assert!(blocked[0].on, "and is hidden again");
+        assert_eq!(active_blocked(&blocked), ["Roblox", "Spotify"]);
+    }
+
+    #[test]
+    fn the_list_reads_names_as_its_first_version_kept_them_and_keeps_each_with_its_switch() {
+        let read: Vec<BlockedGame> = serde_json::from_str(
+            r#"["Roblox", {"name": "Spotify", "on": false}, {"name": "Discord"}]"#,
+        )
+        .expect("a list of either form");
+        let entry = |name: &str, on| BlockedGame {
+            name: name.to_owned(),
+            on,
+        };
+        assert_eq!(
+            read,
+            [entry("Roblox", true), entry("Spotify", false), entry("Discord", true)],
+            "a bare name, or one without its switch, is on"
+        );
+        let written = serde_json::to_string(&read).expect("written");
+        assert_eq!(
+            serde_json::from_str::<Vec<BlockedGame>>(&written).expect("read again"),
+            read
+        );
     }
 }

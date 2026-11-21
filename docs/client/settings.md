@@ -100,7 +100,8 @@ recording. Each change is kept at once in
   it costs no message, only a time noted; one timer checks it.
 - Game Activity: sharing the game played (Discord keeps it), the games
   named by hand, added, edited and removed, and the programs never shown as
-  a game, added and removed (`blocked_games`), which detection takes at once,
+  a game, added, removed and switched off to allow one again
+  (`blocked_games`), which detection takes at once,
   and a menu of the games detected now to choose one from
   (`Request::DetectedGamesMenu`, `MenuAct::BlockGame`).
 - About: the build with Copy version, the update switches, the releases

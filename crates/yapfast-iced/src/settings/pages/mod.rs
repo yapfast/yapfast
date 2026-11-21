@@ -112,6 +112,9 @@ pub enum GameEvent {
     Unblock(usize),
     /// The detected games' menu opens, to choose one never shown.
     Detected,
+    /// A listed game's switch: hidden, or allowed to show again (by its
+    /// place).
+    ToggleBlocked(usize),
 }
 
 fn pref(pref: Pref) -> Message {

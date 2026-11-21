@@ -746,6 +746,8 @@ fn the_detected_games_menu_lists_each_game_and_choosing_one_never_shows_it() {
     // Choosing one lists it as never shown, once.
     crate::settings::block_game(&mut app, "Roblox");
     crate::settings::block_game(&mut app, "roblox");
-    assert_eq!(app.layout.prefs.blocked_games, ["Roblox"]);
+    assert_eq!(app.layout.prefs.blocked_games.len(), 1);
+    assert_eq!(app.layout.prefs.blocked_games[0].name, "Roblox");
+    assert!(app.layout.prefs.blocked_games[0].on, "chosen, it is hidden");
     yapfast_core::discord::set_blocked_games(&[]);
 }
