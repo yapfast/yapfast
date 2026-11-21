@@ -7,7 +7,7 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit", "testing/hosts"]
+members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-media", "crates/yapfast-iced", "crates/yapfast-iced-kit", "testing/hosts"]
 default-members = ["."]
 exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
@@ -127,6 +127,9 @@ tempfile.workspace = true
 
 [workspace.dependencies]
 anyhow = "1"
+# The vocabulary a stream shares with whatever carries it: codecs, the buffers
+# an encoded frame travels in, the captures, encoders and decoders.
+yapfast-media = { path = "crates/yapfast-media" }
 # Message times in the local time zone.
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 directories = "6"

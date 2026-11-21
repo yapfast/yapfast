@@ -2,13 +2,32 @@
 # shell provides — dav1d, FFmpeg, libvpx and libyuv — and which clangd has none
 # of outside it. Their absence is not a fault in these files, so the errors that
 # follow from it are left to the build, which does have them.
+# PathMatch is matched against the path relative to this file, so an anchored
+# leading `.*/` never matches: it must not be there.
 If:
-  PathMatch: .*/crates/yapfast-core/native/.*[.](c|cc)$
+  PathMatch: crates/yapfast-core/native/.*[.](c|cc)$
 Diagnostics:
   Suppress:
     - pp_file_not_found
     - unknown_typename
     - undeclared_var_use
+    - undeclared_var_use_suggest
     - expected_class_name
     - -Wimplicit-function-declaration
     - fatal_too_many_errors
+    # The same absence in the C sources, where it is EGL's and dlfcn's headers
+    # that only the dev shell has: a type nobody declares makes the parser read
+    # the parenthesis after it as a declarator, and `dlerror` and `dlsym` answer
+    # an int where the header answers `char *` and `void *`.
+    - typename_requires_specqual
+    - -Wimplicit-int
+    - expected
+    - ident_list_in_fn_declaration
+    - duplicate_member
+    - -Wint-conversion
+    # The same absence, in the C++ sources: a declarator whose type came from a
+    # header nobody here has, and the parse that never recovered from it.
+    - missing_type_specifier
+    - invalid_token_after_toplevel_declarator
+    - unknown_template_name
+    - expected_expression

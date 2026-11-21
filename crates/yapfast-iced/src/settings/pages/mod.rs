@@ -55,6 +55,11 @@ pub enum Pref {
     PlaySound(usize),
     GpuRendering(bool),
     GpuEncoding(bool),
+    /// The codec a share offers Discord first, by its place in
+    /// [`StreamCodec::ALL`].
+    ///
+    /// [`StreamCodec::ALL`]: yapfast_core::stream_worker::StreamCodec::ALL
+    StreamCodec(usize),
     CloseToTray(bool),
     MultipleWindows(bool),
     DeveloperMode(bool),
@@ -224,6 +229,13 @@ impl Settings {
                 cx.layout.voice.gpu_encoding = Some(on);
                 yapfast_core::stream_worker::set_hardware_encoding(on);
                 cx.keep("gpu_encoding", on);
+            }
+            Pref::StreamCodec(index) => {
+                use yapfast_core::stream_worker::{StreamCodec, set_stream_codec};
+                let codec = StreamCodec::ALL.get(index).copied().unwrap_or_default();
+                cx.layout.voice.stream_codec = codec;
+                set_stream_codec(codec);
+                cx.keep("stream_codec", codec);
             }
             Pref::CloseToTray(on) => {
                 prefs.close_to_tray = Some(on);

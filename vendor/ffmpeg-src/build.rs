@@ -14,11 +14,33 @@ use std::{
     process::Command,
 };
 
+/// The include folders libdrm's pkg-config file names, so that FFmpeg's
+/// hwcontext_drm.c and hwcontext_vaapi.c find `<drm.h>`: nothing of libdrm is
+/// vendored, unlike oneVPL's headers, because it is a library the system
+/// links against rather than one loaded at run time.
+fn drm_includes() -> Vec<PathBuf> {
+    let Ok(output) = std::process::Command::new(
+        env::var("PKG_CONFIG").unwrap_or_else(|_| "pkg-config".to_owned()),
+    )
+    .args(["--cflags-only-I", "libdrm"])
+    .output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .filter_map(|flag| flag.strip_prefix("-I"))
+        .map(PathBuf::from)
+        .collect()
+}
+
 fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    for path in ["ffmpeg", "gen", "include", "src/va.c"] {
+    for path in ["ffmpeg", "gen", "include", "src/va.c", "src/vpl.c"] {
         println!("cargo:rerun-if-changed={path}");
     }
     println!("cargo:rerun-if-env-changed=NASM");
@@ -41,6 +63,15 @@ fn main() {
     // configure's order: its output, then the source, then its own folders
     // inside it, such as Windows' compat/stdbit.
     let mut folders = vec![generated.clone(), root.clone(), include.clone()];
+    // oneVPL's headers, which FFmpeg includes as <mfxvideo.h> from beside
+    // their own folder, as oneVPL's pkg-config file puts them on the path.
+    folders.push(include.join("vpl"));
+    // libdrm's, which FFmpeg's DRM PRIME export includes as <drm.h> and
+    // <xf86drm.h> where configure found them: they are the build machine's,
+    // as libva's are at update time, and only the Linux build asks for them.
+    if os == "linux" {
+        folders.extend(drm_includes());
+    }
     folders.extend(lines("includes.txt").iter().map(|folder| root.join(folder)));
     let joined = env::join_paths(&folders).expect("include folders");
     println!("cargo:include={}", joined.to_string_lossy());
@@ -49,6 +80,7 @@ fn main() {
 
     let mut build = cc::Build::new();
     use_clang_cl(&mut build);
+    use_configured_clang(&mut build);
     build
         .includes(&folders)
         .files(sources.lines().map(|file| root.join(file)))
@@ -86,17 +118,19 @@ fn main() {
         &lines("asm.txt"),
         &lines("asmflags.txt"),
     ));
+    // libva and oneVPL, the encoders' own libraries, which src/ loads when an
+    // encoder first runs: the binary starts on a machine without them.
+    let mut shims = cc::Build::new();
+    shims.include(&include).opt_level(2).warnings(true);
     if os == "linux" {
-        objects.extend(
-            cc::Build::new()
-                .file(manifest.join("src/va.c"))
-                .include(&include)
-                .opt_level(2)
-                .warnings(true)
-                .compile_intermediates(),
-        );
+        shims.file(manifest.join("src/va.c"));
         println!("cargo:rustc-link-lib=dl");
     }
+    objects.extend(
+        shims
+            .file(manifest.join("src/vpl.c"))
+            .compile_intermediates(),
+    );
     for library in lines("libs.txt") {
         println!("cargo:rustc-link-lib={library}");
     }
@@ -119,6 +153,21 @@ fn use_clang_cl(build: &mut cc::Build) {
         )
     });
     build.compiler(clang_cl);
+}
+
+// Every gen/<os>-<arch> that isn't MSVC was configured with clang, so its C
+// compiles with the compiler configure tested it with. That is not only
+// faithfulness: GCC 14.3's expander gives up on me_cmp.c's VSAD at this opt
+// level, and the development shell's CC names GCC. A build that wants another
+// C compiler edits this.
+fn use_configured_clang(build: &mut cc::Build) {
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        return;
+    }
+    if build.get_compiler().is_like_clang() {
+        return;
+    }
+    build.compiler("clang");
 }
 
 fn has_explicit_compiler() -> bool {

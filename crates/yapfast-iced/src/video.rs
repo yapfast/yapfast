@@ -206,6 +206,90 @@ impl Drop for SlotBytes {
 /// Told each time a camera's frame is made.
 static FRAME_MADE: Notify = Notify::const_new();
 
+/// A stream's picture the client took, kept from the take to the frame the
+/// renderer draws: the worker's texture is opened on the window's device, and
+/// this is what the renderer's hook looks up by the handle's pointer. Dropped
+/// with the handle, it lets the picture go.
+#[cfg(windows)]
+struct GpuOwner {
+    /// A one-byte allocation whose address is the picture's, so a handle this
+    /// module made is told apart from any other; the renderer never reads it.
+    sentinel: Box<[u8; 1]>,
+}
+
+#[cfg(windows)]
+impl GpuOwner {
+    fn new(picture: yapfast_core::frames::Picture, frames: std::sync::Arc<Frames>) -> Self {
+        let sentinel = Box::new([0u8; 1]);
+        let address = sentinel.as_ptr() as usize;
+        crate::gpu::register(address, crate::gpu::Video::new(picture, frames));
+        Self { sentinel }
+    }
+}
+
+#[cfg(windows)]
+impl AsRef<[u8]> for GpuOwner {
+    fn as_ref(&self) -> &[u8] {
+        &self.sentinel[..]
+    }
+}
+
+#[cfg(windows)]
+impl Drop for GpuOwner {
+    fn drop(&mut self) {
+        crate::gpu::forget(self.sentinel.as_ptr() as usize);
+    }
+}
+
+/// A stream's picture as a handle the renderer's hook opens on its device.
+#[cfg(windows)]
+fn gpu_handle(picture: yapfast_core::frames::Picture, frames: std::sync::Arc<Frames>) -> Handle {
+    let (width, height) = (picture.width, picture.height);
+    let owner = GpuOwner::new(picture, frames);
+    Handle::from_rgba(width, height, bytes::Bytes::from_owner(owner))
+}
+
+/// A stream's DMA-BUF picture the client took, kept from the take to the frame
+/// the renderer draws: the worker's memory is imported on the window's Vulkan
+/// device, and the descriptors are closed with this.
+#[cfg(target_os = "linux")]
+struct DmabufOwner {
+    /// A one-byte allocation whose address is the picture's.
+    sentinel: Box<[u8; 1]>,
+}
+
+#[cfg(target_os = "linux")]
+impl DmabufOwner {
+    fn new(picture: yapfast_core::dmabuf::Picture, frames: std::sync::Arc<Frames>) -> Self {
+        let sentinel = Box::new([0u8; 1]);
+        let address = sentinel.as_ptr() as usize;
+        crate::gpu::register(address, crate::gpu::Video::dmabuf(picture, frames));
+        Self { sentinel }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl AsRef<[u8]> for DmabufOwner {
+    fn as_ref(&self) -> &[u8] {
+        &self.sentinel[..]
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for DmabufOwner {
+    fn drop(&mut self) {
+        crate::gpu::forget(self.sentinel.as_ptr() as usize);
+    }
+}
+
+/// A stream's DMA-BUF picture as a handle the renderer's hook imports.
+#[cfg(target_os = "linux")]
+fn dmabuf_handle(picture: yapfast_core::dmabuf::Picture, frames: std::sync::Arc<Frames>) -> Handle {
+    let (width, height) = (picture.width(), picture.height());
+    let owner = DmabufOwner::new(picture, frames);
+    Handle::from_rgba(width, height, bytes::Bytes::from_owner(owner))
+}
+
 /// Has cameras' frames made in the client's memory, with a wake for each,
 /// and the CPU renderer draw them (and a stream's) through [`draw`].
 pub fn install() {
@@ -216,8 +300,11 @@ pub fn install() {
         })
     });
     picture::set_frame_wake(|| FRAME_MADE.notify_one());
-    // The GPU uploads a frame as any picture.
-    if !crate::renderer::gpu() {
+    // The GPU draws a stream's picture where it lies; the CPU draws it with
+    // libyuv.
+    if crate::renderer::gpu() {
+        crate::gpu::install();
+    } else {
         iced_tiny_skia::video::set_hook(draw);
     }
 }
@@ -365,6 +452,61 @@ impl Sources {
     }
 }
 
+/// A worker's frame as a handle the window draws, or none when this window
+/// can't show what its slot holds: a picture the worker drew on the card is
+/// published where it lies, and a window with no door to it — one drawing on
+/// the CPU has none — says so, once, so the worker writes the tile's pixels
+/// from its next frame, as it does for a GPU window whose own door refused it.
+/// A picture nothing shows is nothing sampling it, so the slot goes back now
+/// rather than being held for a frame nobody sees.
+fn mapped(frames: &Arc<Frames>, frame: yapfast_core::frames::Frame<'_>) -> Option<Handle> {
+    let refused = |slot: u32, generation: u64| {
+        if frames.refuse_gpu() {
+            tracing::info!("this window can't open a stream's picture: its pixels come instead");
+        }
+        frames.retire(slot, generation);
+        None
+    };
+    match frame {
+        yapfast_core::frames::Frame::Pixels {
+            width,
+            height,
+            pixels,
+        } => {
+            let address = pixels.as_ptr() as usize;
+            register(address);
+            let bytes = SlotBytes {
+                _frames: frames.clone(),
+                address,
+                length: pixels.len(),
+            };
+            Some(Handle::from_rgba(
+                width,
+                height,
+                bytes::Bytes::from_owner(bytes),
+            ))
+        }
+        #[cfg(windows)]
+        yapfast_core::frames::Frame::Gpu(picture) => {
+            if !crate::renderer::gpu() {
+                return refused(picture.slot, picture.generation);
+            }
+            Some(gpu_handle(picture, frames.clone()))
+        }
+        // Only Windows imports a shared texture; a stream that publishes one
+        // here is asked for pixels.
+        #[cfg(not(windows))]
+        yapfast_core::frames::Frame::Gpu(_) => None,
+        #[cfg(target_os = "linux")]
+        yapfast_core::frames::Frame::Dmabuf(picture) => {
+            if !crate::renderer::gpu() {
+                return refused(picture.slot(), picture.generation());
+            }
+            Some(dmabuf_handle(picture, frames.clone()))
+        }
+    }
+}
+
 /// A source's newest frame and its size in pixels.
 type Newest = (Handle, (u32, u32));
 
@@ -417,6 +559,15 @@ impl Shared {
         let mut current = self.sources.lock().expect("video sources");
         if current.same(&sources) {
             return;
+        }
+        // Tell each stream's worker the adapter this window draws on, so it
+        // publishes its pictures for this window rather than pixels. Without a
+        // device to name, or on a build that can't import one, they stay
+        // pixels.
+        if let Some(number) = crate::gpu::number().filter(|number| *number != 0) {
+            for (_, frames) in &sources.mapped {
+                frames.accept_gpu(number);
+            }
         }
         *current = sources;
         self.waiting.lock().expect("video waiting").clear();
@@ -486,17 +637,8 @@ impl Shared {
                 self.skipped.store(true, Ordering::Relaxed);
                 continue;
             }
-            let taken = frames.take_timed(|width, height, pixels| {
-                let address = pixels.as_ptr() as usize;
-                register(address);
-                let bytes = SlotBytes {
-                    _frames: frames.clone(),
-                    address,
-                    length: pixels.len(),
-                };
-                Handle::from_rgba(width, height, bytes::Bytes::from_owner(bytes))
-            });
-            if let Some((handle, time)) = taken {
+            let taken = frames.take_frame_timed(|frame| mapped(frames, frame));
+            if let Some((Some(handle), time)) = taken {
                 let size = match &handle {
                     raster::Handle::Rgba { width, height, .. } => (*width, *height),
                     _ => (0, 0),

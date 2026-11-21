@@ -95,6 +95,10 @@ pub(crate) struct Sending {
     camera: Camera,
     packetizer: Packetizer,
     history: rtp::History,
+    /// A frame's packets, planned once, and the buffer each is written into
+    /// and sealed in: both keep their room from one frame to the next.
+    plan: rtp::Plan,
+    out: Vec<u8>,
     packets: u32,
     octets: u32,
     reported: Instant,
@@ -106,6 +110,8 @@ impl Sending {
             camera,
             packetizer: Packetizer::new(connection.video, SEND_CODEC),
             history: rtp::History::default(),
+            plan: rtp::Plan::default(),
+            out: Vec::new(),
             packets: 0,
             octets: 0,
             reported: Instant::now() - SENDER_REPORTS,
@@ -134,16 +140,19 @@ impl Sending {
         let Some(payload) = connection.dave.encrypt(SEND_CODEC, &frame.data) else {
             return Ok(());
         };
-        for mut packet in self
+        self.packetizer
+            .plan_into(&mut self.plan, &payload, frame.timestamp, frame.keyframe);
+        while self
             .packetizer
-            .packets(&payload, frame.timestamp, frame.keyframe)
+            .write(&mut self.plan, &payload, &mut self.out)
+            .is_some()
         {
-            self.history.remember(&packet);
-            let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
+            self.history.remember(&self.out, std::time::Instant::now());
+            let clear = rtp::rtp_clear_len(&self.out).unwrap_or(self.out.len());
             self.packets = self.packets.wrapping_add(1);
-            self.octets = self.octets.wrapping_add((packet.len() - clear) as u32);
-            connection.transport.seal(&mut packet, clear)?;
-            connection.udp.send(&packet).await?;
+            self.octets = self.octets.wrapping_add((self.out.len() - clear) as u32);
+            connection.transport.seal(&mut self.out, clear)?;
+            connection.udp.send(&self.out).await?;
         }
         if self.reported.elapsed() >= SENDER_REPORTS {
             self.reported = Instant::now();
@@ -166,13 +175,14 @@ impl Sending {
         if rtp::wants_keyframe(rtcp) {
             self.camera.keyframe.store(true, Ordering::Relaxed);
         }
+        let now = std::time::Instant::now();
         for lost in rtp::nacked(rtcp, connection.video)
             .into_iter()
             .take(RESENDS)
         {
             let Some(mut again) = self
                 .history
-                .get(lost)
+                .get(lost, now)
                 .and_then(|original| self.packetizer.retransmit(original, connection.rtx))
             else {
                 continue;
@@ -328,11 +338,7 @@ impl Receiving {
         else {
             return Ok(true);
         };
-        if incoming
-            .assembler
-            .as_ref()
-            .is_none_or(|assembler| assembler.codec() != codec)
-        {
+        if incoming.assembler.is_none() {
             incoming.assembler = Some(Assembler::new(codec));
         }
         incoming.reorder.insert(held, std::time::Instant::now());
@@ -347,7 +353,6 @@ impl Receiving {
             let Some(assembler) = incoming.assembler.as_mut() else {
                 continue;
             };
-            let codec = assembler.codec();
             let mut lost = false;
             let (ready, _) = incoming.reorder.ready(now);
             for held in ready {
@@ -356,10 +361,14 @@ impl Receiving {
                 if let Some(orientation) = held.orientation {
                     incoming.orientation = orientation;
                 }
-                let pushed = assembler.push(&held.packet());
+                let codec = connection.codec.unwrap_or(assembler.codec());
+                let pushed = assembler.push_with_codec(&held.packet(), codec);
+                let codec = assembler.codec();
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
                 let Some(data) = connection.dave.decrypt(incoming.user, frame.data) else {
+                    assembler.wait_for_keyframe();
+                    lost = true;
                     continue;
                 };
                 let frame = VideoFrame {

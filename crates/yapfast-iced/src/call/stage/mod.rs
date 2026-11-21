@@ -10,9 +10,12 @@ use iced::{
     Alignment, Color, Element, Length, Padding, Rectangle, Size,
     widget::{Space, button, column, container, mouse_area, pin, row, stack, text},
 };
-use yapfast_core::voice::{self, SharePhase};
+use yapfast_core::{
+    application::Action,
+    voice::{self, Command, SharePhase},
+};
 
-use super::{Event, Popup, voice_ready};
+use super::{Event, Popup, Told, voice_ready};
 use crate::{
     app::{App, Message},
     controls::{self, ROUND, ROUND_GLYPH, bar},
@@ -169,6 +172,24 @@ pub fn place_videos(app: &mut App) {
         (CORNER.width * scale).round() as u32,
         (CORNER.height * scale).round() as u32,
     );
+    // Where a worker's tile shows, and how large it is in pixels; none while
+    // none does.
+    let scrolled = app.call.scrolled;
+    let place_of = |want: Slot| slots.iter().position(|slot| *slot == want);
+    let pixels_at = |place: usize| {
+        shown
+            .then(|| shown_at(tiles[place], scrolled, height, scale))
+            .flatten()
+    };
+    let shared = place_of(Slot::OwnScreen)
+        .and_then(pixels_at)
+        .or((corner == Pip::Shared).then_some(corner_pixels));
+    let watched = voice
+        .watching
+        .as_ref()
+        .and_then(|watching| Stage::of(voice).slot(&Focus::Stream(watching.user.clone())))
+        .and_then(pixels_at)
+        .or((corner == Pip::Watched).then_some(corner_pixels));
     for (place, slot) in slots.iter().enumerate() {
         let Slot::Person(index) = *slot else {
             continue;
@@ -221,6 +242,72 @@ pub fn place_videos(app: &mut App) {
         app.playback.clip_time = None;
     }
     app.video.set(sources);
+    // A worker converts and writes its pictures only while a tile shows them,
+    // and at that tile's size: the share's preview and the watched stream are
+    // told once when that changes, rather than with every frame. With the call
+    // off screen the corner's tile shows them, and in a window closed to the
+    // tray neither does. A stream that starts again is a new worker, which
+    // assumes a tile shows it at a default size; the file's id says so.
+    let preview = voice
+        .sharing
+        .as_ref()
+        .map(|sharing| (sharing.frames.id(), shared));
+    let watching = voice
+        .watching
+        .as_ref()
+        .and_then(|watching| Some((watching.frames.as_ref()?.id(), watched)));
+    if let Some((frames, place)) = preview {
+        for command in tell(
+            &mut app.call.preview_told,
+            frames,
+            place,
+            Command::Preview,
+            |width, height| Command::ShareSize { width, height },
+        ) {
+            app.client.dispatch(Action::Voice(command));
+        }
+    }
+    if let Some((frames, place)) = watching {
+        for command in tell(
+            &mut app.call.watch_told,
+            frames,
+            place,
+            Command::WatchShown,
+            |width, height| Command::WatchSize { width, height },
+        ) {
+            app.client.dispatch(Action::Voice(command));
+        }
+    }
+}
+
+/// Tells a worker of its pictures' tile: whether one shows them, and the
+/// size it draws them at, each only when it changed since the last look.
+/// A frames file it wasn't told of before is a worker that knows neither.
+fn tell(
+    told: &mut Told,
+    frames: u64,
+    place: Option<(u32, u32)>,
+    changing: impl FnOnce(bool) -> Command,
+    sizing: impl FnOnce(u32, u32) -> Command,
+) -> Vec<Command> {
+    let mut said = Vec::new();
+    if told.frames != frames {
+        told.frames = frames;
+        told.shown = None;
+        told.size = (0, 0);
+    }
+    let shown = place.is_some();
+    if told.shown != Some(shown) {
+        told.shown = Some(shown);
+        said.push(changing(shown));
+    }
+    // The size after whether it shows, so a worker told to make a preview has
+    // the tile's size when it makes the first one; none while no tile shows.
+    if let Some(size) = place.filter(|size| *size != told.size) {
+        told.size = size;
+        said.push(sizing(size.0, size.1));
+    }
+    said
 }
 
 /// New frames that change the view: a source's first, or a message's
@@ -851,10 +938,14 @@ pub fn viewers<'a>(
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
-    /// A control that opens a popup above itself: where it is is kept as
-    /// it's pressed.
+    /// A control that opens a popup above itself: where it is is kept as it's
+    /// pressed, and the button that press noted says where it is again
+    /// whenever it moves, so a window resized or a panel opened beside it
+    /// brings the popup along.
     pub fn spot(self, child: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
-        Spot::new(child, &self.call.spot).into()
+        Spot::new(child, &self.call.spot)
+            .refreshing(Message::Nothing)
+            .into()
     }
 }
 

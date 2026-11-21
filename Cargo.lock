@@ -10732,7 +10732,6 @@ dependencies = [
  "cc",
  "chrono",
  "cxx",
- "deep_filter",
  "directories",
  "emojis",
  "ffmpeg-src",
@@ -10752,8 +10751,6 @@ dependencies = [
  "matrix-sdk-ui",
  "memmap2",
  "mime",
- "ndarray",
- "nnnoiseless",
  "png",
  "pulldown-cmark",
  "rand 0.9.5",
@@ -10775,6 +10772,7 @@ dependencies = [
  "windows-core 0.62.2",
  "x264-src",
  "yapfast-discord",
+ "yapfast-media",
 ]
 
 [[package]]
@@ -10813,6 +10811,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webrtc-sys",
+ "yapfast-media",
 ]
 
 [[package]]
@@ -10820,6 +10819,7 @@ name = "yapfast-iced"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash",
  "bytes",
  "chrono",
  "emojis",
@@ -10827,7 +10827,9 @@ dependencies = [
  "iced_runtime",
  "iced_test",
  "iced_tiny_skia",
+ "iced_wgpu",
  "image",
+ "libc",
  "png",
  "pulldown-cmark",
  "qrcode",
@@ -10838,6 +10840,7 @@ dependencies = [
  "tokio",
  "tracing",
  "webbrowser",
+ "windows 0.58.0",
  "winit",
  "xkeysym",
  "yapfast-core",
@@ -10858,6 +10861,38 @@ dependencies = [
  "ttf-parser",
  "unicode-script",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "yapfast-media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "cc",
+ "deep_filter",
+ "ffmpeg-src",
+ "futures-util",
+ "libc",
+ "libpulse-binding",
+ "libpulse-simple-binding",
+ "livekit",
+ "memmap2",
+ "ndarray",
+ "nnnoiseless",
+ "rand 0.9.5",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "webrtc-sys-build",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+ "x11rb",
+ "x264-src",
+ "zbus",
 ]
 
 [[package]]

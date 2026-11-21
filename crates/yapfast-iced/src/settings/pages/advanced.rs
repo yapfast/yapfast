@@ -1,5 +1,6 @@
 //! Advanced: starting at sign-in, Discord links, the tray, more windows,
-//! the GPU for drawing and for streams, and Developer Mode.
+//! the GPU for drawing and for streams, the codec a share offers Discord
+//! first, and Developer Mode.
 
 use iced::{Element, widget::text};
 
@@ -7,10 +8,15 @@ use super::Pref;
 use crate::settings::{Event, Page};
 use crate::{
     app::Message,
-    controls::{Kind, action},
+    controls::{Kind, action, choices},
     form::{self},
     pictures::Icon,
 };
+
+/// Stream codec's choices, in [`StreamCodec::ALL`]'s order.
+///
+/// [`StreamCodec::ALL`]: yapfast_core::stream_worker::StreamCodec::ALL
+const STREAM_CODECS: [&str; 4] = ["Automatic", "AV1", "H.265", "H.264"];
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn advanced_page(self) -> Element<'a, Message> {
@@ -67,6 +73,7 @@ impl<'a> Page<'a> {
                 self.cx.layout.voice.gpu_encoding.unwrap_or(true),
                 Pref::GpuEncoding,
             ),
+            self.stream_codec(),
             self.flip(
                 "Developer Mode",
                 "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.",
@@ -79,6 +86,29 @@ impl<'a> Page<'a> {
                 .into(),
         ]);
         form::page(parts)
+    }
+
+    /// The codec a share asks Discord for first, still experimental: it
+    /// travels with the next share, since a running one offered its codecs
+    /// when it started.
+    fn stream_codec(self) -> Element<'a, Message> {
+        use yapfast_core::stream_worker::StreamCodec;
+        let theme = self.cx.look.theme;
+        let current = StreamCodec::ALL
+            .iter()
+            .position(|codec| *codec == self.cx.layout.voice.stream_codec)
+            .unwrap_or(0);
+        form::group([
+            form::heading(theme, "STREAM CODEC (EXPERIMENTAL)"),
+            choices(theme, &STREAM_CODECS, current, |index| {
+                Message::Settings(Event::Pref(Pref::StreamCodec(index)))
+            }),
+            text("What Yapfast asks Discord to send when you share your screen. Automatic offers the best codec this computer's graphics card encodes — AV1, then H.265, then H.264 — and Discord sends the one every person watching can decode. Choose one to ask for it first: H.264 is the one every client decodes, and AV1 or H.265 look better at the same bitrate wherever everyone watching can take them. A codec this machine can't encode is left to the automatic order.")
+                .size(13)
+                .color(theme.secondary)
+                .wrapping(text::Wrapping::Word)
+                .into(),
+        ])
     }
 
     /// While the GPU setting differs from what draws now: when it takes

@@ -283,6 +283,12 @@ pub struct Voice {
     pub soundboard_muted_people: BTreeSet<String>,
     /// Encoding a shared screen on the GPU; on unless turned off.
     pub gpu_encoding: Option<bool>,
+    /// The codec a share asks Discord for first; see [`StreamCodec`] and
+    /// Advanced's "Stream codec".
+    ///
+    /// [`StreamCodec`]: yapfast_core::stream_worker::StreamCodec
+    #[serde(default)]
+    pub stream_codec: yapfast_core::stream_worker::StreamCodec,
     /// Yapfast's sounds: their instrument, how loud as a slider's
     /// percentage, and each one's own volume while adjusted.
     pub sound_set: yapfast_core::sounds::SoundSet,
@@ -334,6 +340,7 @@ impl Voice {
             volume::mute_soundboard(person, true);
         }
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
+        yapfast_core::stream_worker::set_stream_codec(self.stream_codec);
     }
 
     /// Calls send the microphone and play at the volume sliders' values.

@@ -92,10 +92,25 @@ pub struct Call {
     pub noise_last: yapfast_core::noise::Suppressor,
     /// The connection's details, while they or the signal's tooltip show.
     pub details: details::Details,
+    /// What the share's worker was last told of its tile, and the watched
+    /// stream's of its own.
+    pub preview_told: Told,
+    pub watch_told: Told,
     /// The window the large tile's full screen put full screen, and
     /// whether the desktop had it so already, in which case leaving keeps
     /// it so.
     pub screen: Option<(iced::window::Id, bool)>,
+}
+
+/// What a worker was last told of the tile that shows its pictures: whether
+/// one shows them, that tile's size in pixels, and which frames file it
+/// was of. A new stream starts a new worker, which knows none of it, so
+/// its file's id says when to say it all again.
+#[derive(Default)]
+pub struct Told {
+    pub shown: Option<bool>,
+    pub size: (u32, u32),
+    pub frames: u64,
 }
 
 /// What opens from a control, above it.

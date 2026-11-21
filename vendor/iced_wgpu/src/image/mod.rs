@@ -266,6 +266,52 @@ impl State {
                     bounds,
                     clip_bounds,
                 } => {
+                    // Yapfast port: a picture that is the worker's own
+                    // texture is bound directly, with its 0..1 UV, so nothing
+                    // is uploaded.
+                    if let Some(imported) = crate::video::import(&crate::video::Import {
+                        device,
+                        handle: &image.handle,
+                        layout: &pipeline.texture_layout,
+                    }) {
+                        let bind_group = &imported.bind_group;
+                        match atlas.as_mut() {
+                            None => {
+                                atlas = Some(Arc::clone(bind_group));
+                            }
+                            Some(atlas) if atlas != bind_group => {
+                                layer.push(
+                                    atlas,
+                                    &self.nearest_instances,
+                                    &self.linear_instances,
+                                );
+                                *atlas = Arc::clone(bind_group);
+                            }
+                            _ => {}
+                        }
+                        let entry = atlas::Entry::Contiguous(atlas::Allocation::Full {
+                            layer: 0,
+                            size: imported.size.max(1),
+                        });
+                        add_instances(
+                            *bounds,
+                            *clip_bounds,
+                            image.border_radius,
+                            f32::from(image.rotation),
+                            image.opacity,
+                            image.snap,
+                            &entry,
+                            match image.filter_method {
+                                crate::core::image::FilterMethod::Nearest => {
+                                    &mut self.nearest_instances
+                                }
+                                crate::core::image::FilterMethod::Linear => {
+                                    &mut self.linear_instances
+                                }
+                            },
+                        );
+                        continue;
+                    }
                     if let Some((atlas_entry, bind_group)) = cache
                         .upload_raster(device, encoder, belt, &image.handle)
                     {

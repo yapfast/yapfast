@@ -21,7 +21,9 @@ use yapfast_discord::{
     service::{Discord, Live, Searched, Snapshot, Status},
     settings::{self, CustomStatus},
     stream,
-    stream_connection::{Frame, Link, SEND_CODEC, Sound, StreamReceiver, StreamSender},
+    stream_connection::{
+        Frame, Link, ReceivedSound, SEND_CODEC, Sound, StreamReceiver, StreamSender,
+    },
     token,
     voice::{Call, Listener},
 };

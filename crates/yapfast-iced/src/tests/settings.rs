@@ -203,16 +203,31 @@ fn preferences_are_kept_across_a_restart() {
     interact(&mut app, |ui| {
         ui.click("Developer Mode").expect("the switch");
     });
+    // The codec a share offers Discord first is kept for the next share.
+    assert!(shows(&app, "STREAM CODEC (EXPERIMENTAL)"));
+    interact(&mut app, |ui| {
+        ui.click("H.265").expect("the codec");
+    });
+    assert_eq!(
+        app.layout.voice.stream_codec,
+        yapfast_core::stream_worker::StreamCodec::H265
+    );
     let again = start(&folder, true);
     let prefs = &again.layout.prefs;
     assert!(prefs.twelve_hour_clock && prefs.clock_seconds);
     assert!(again.layout.collapse_long && again.layout.developer_mode);
+    assert_eq!(
+        again.layout.voice.stream_codec,
+        yapfast_core::stream_worker::StreamCodec::H265,
+        "read back as it was kept"
+    );
     assert_eq!(prefs.text_size, Some(2));
     assert_eq!(prefs.flash_taskbar, Some(false));
     // `layout.json` keeps them under the keys older versions wrote.
     let layout = stored(&folder);
     assert_eq!(layout["twelve_hour_clock"], true);
     assert_eq!(layout["flash_taskbar"], false);
+    assert_eq!(layout["stream_codec"], "h265");
 }
 
 #[test]

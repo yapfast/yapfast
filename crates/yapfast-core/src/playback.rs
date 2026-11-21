@@ -20,7 +20,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use futures_util::{Stream, StreamExt};
 use tokio::{
-    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{self, Receiver, UnboundedReceiver, UnboundedSender},
     time::{Duration, Instant},
 };
 use yapfast_discord::api::FilePart;
@@ -45,8 +45,11 @@ const TELL_BYTES: u64 = 1 << 20;
 
 pub struct Playback {
     pub video: Video,
-    worker: Worker,
-    reports: Option<UnboundedReceiver<Report>>,
+    /// The worker playing it, until it ends. A video that played to its end
+    /// keeps its worker, which waits there for a seek or a replay; one whose
+    /// worker ended has none, and gave back what it held then.
+    worker: Option<Worker>,
+    reports: Option<Receiver<Report>>,
     /// What the download tells the worker: bytes arrived, then the end.
     arrivals: Option<UnboundedReceiver<Control>>,
     /// Where the worker waits, for the download.
@@ -55,7 +58,12 @@ pub struct Playback {
     _file: tempfile::TempPath,
 }
 
-/// What woke a playing video.
+/// What woke a playing video. A wake is read once, so the report it may carry
+/// being much bigger than a count of bytes costs nothing.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "the variant that is large is the one a share or a call holds for long"
+)]
 pub enum Wake {
     Report(Option<Report>),
     Arrival(Option<Control>),
@@ -116,7 +124,7 @@ impl Playback {
                 frames: Some(Arc::new(frames)),
                 ..video
             },
-            worker,
+            worker: Some(worker),
             reports: Some(reports),
             arrivals: Some(arrivals),
             needs,
@@ -128,8 +136,8 @@ impl Playback {
     /// Waits for the worker or the download. Cancel safe.
     pub async fn wait(&mut self) -> Wake {
         tokio::select! {
-            report = next(&mut self.reports) => Wake::Report(report),
-            arrival = next(&mut self.arrivals) => Wake::Arrival(arrival),
+            report = next_report(&mut self.reports) => Wake::Report(report),
+            arrival = next_arrival(&mut self.arrivals) => Wake::Arrival(arrival),
         }
     }
 
@@ -137,7 +145,10 @@ impl Playback {
     pub fn handle(&mut self, wake: Wake) -> bool {
         match wake {
             Wake::Arrival(Some(control)) => {
-                let _ = self.worker.tell(&control);
+                // A worker that ended takes none of this.
+                if let Some(worker) = self.worker.as_mut() {
+                    let _ = worker.tell(&control);
+                }
             }
             Wake::Arrival(None) => self.arrivals = None,
             Wake::Report(Some(Report::Needs { at })) => {
@@ -182,9 +193,14 @@ impl Playback {
         true
     }
 
-    /// The worker's gone; what it showed stays, with why.
+    /// The worker's gone; what it showed stays, with why. What it held goes
+    /// back here rather than when another video plays: its place among those
+    /// decoding, its child, and the download of a file nothing is left to
+    /// play.
     fn stopped(&mut self, error: Option<String>) {
         self.reports = None;
+        self.download.abort();
+        self.worker = None;
         self.video.playing = false;
         self.video.loading = false;
         self.video.frames = None;
@@ -223,7 +239,12 @@ impl Playback {
             // Dropping the playback stops it.
             VideoCommand::Stop => return,
         };
-        if let Err(error) = self.worker.tell(&control) {
+        // A worker that ended takes none of this, but what the person chose
+        // — how loud it plays — is theirs to keep for the next video.
+        let Some(worker) = self.worker.as_mut() else {
+            return;
+        };
+        if let Err(error) = worker.tell(&control) {
             tracing::debug!(error = format!("{error:#}"), "the video's worker is gone");
         }
     }
@@ -255,9 +276,19 @@ fn gain(video: &Video) -> f32 {
     }
 }
 
-/// The next message, or never once they ended.
-async fn next<T>(messages: &mut Option<UnboundedReceiver<T>>) -> Option<T> {
-    let Some(receiver) = messages else {
+/// The worker's next report, or never once they ended. The queue is bounded,
+/// because a report is a change the UI acts on rather than a number it reads
+/// later, and this is where one waits for the UI to have it.
+async fn next_report(reports: &mut Option<Receiver<Report>>) -> Option<Report> {
+    let Some(receiver) = reports else {
+        return std::future::pending().await;
+    };
+    receiver.recv().await
+}
+
+/// The download's next word, or never once it ended.
+async fn next_arrival(arrivals: &mut Option<UnboundedReceiver<Control>>) -> Option<Control> {
+    let Some(receiver) = arrivals else {
         return std::future::pending().await;
     };
     receiver.recv().await
@@ -500,6 +531,15 @@ mod tests {
         Arc::new((0..size).map(|at| (at % 251) as u8).collect())
     }
 
+    /// A download that never arrives, so a video's end is the only thing that
+    /// wakes it.
+    type NeverArrives =
+        std::future::Pending<Result<FilePart<futures_util::stream::Empty<Result<Vec<u8>>>>>>;
+
+    fn never() -> NeverArrives {
+        std::future::pending()
+    }
+
     #[tokio::test]
     async fn the_download_goes_where_the_worker_waits() {
         let file = file(8 << 20);
@@ -571,5 +611,44 @@ mod tests {
         turn(&mut video, 2.0);
         assert!(!video.muted);
         assert_eq!(gain(&video), 1.0, "it doesn't go past full");
+    }
+
+    /// A video whose worker ended lets go of it at once, and of what it held:
+    /// its place among those decoding, its child, and the download of a file
+    /// nothing is left to play. Here the worker is this test's own binary,
+    /// which isn't a stream worker and ends at once, as a broken file's does.
+    #[tokio::test]
+    async fn a_video_whose_worker_ends_lets_go_of_it() {
+        let folder = tempfile::tempdir().unwrap();
+        let video = Video {
+            room: "r".into(),
+            item: "i".into(),
+            index: 0,
+            frames: None,
+            duration_ms: None,
+            size: None,
+            loading: true,
+            playing: true,
+            ended: false,
+            sound: false,
+            muted: false,
+            volume: 1.0,
+            error: None,
+        };
+        let mut playback =
+            Playback::start(video, folder.path(), None, (160, 90), None, |_from, _to| {
+                never()
+            })
+            .unwrap();
+        assert!(playback.worker.is_some());
+        let wake = playback.wait().await;
+        assert!(!playback.handle(wake), "the video ended");
+        assert!(playback.worker.is_none(), "its worker was let go");
+        assert!(playback.reports.is_none(), "nothing more is read from it");
+        assert!(
+            playback.video.error.is_some(),
+            "and what it showed stays, with why"
+        );
+        assert!(!playback.video.loading && !playback.video.playing);
     }
 }

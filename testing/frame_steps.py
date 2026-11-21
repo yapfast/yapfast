@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: B905
 """How far a list moved on each repaint of the private display, from a
 `steps` recording of scripts/ui-session (record_host --rows).
 

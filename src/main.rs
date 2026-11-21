@@ -65,8 +65,25 @@ fn fix_mmap_threshold() {
     }
 }
 
+/// The window draws on Direct3D 12 where the machine has it: a stream's
+/// shared picture is opened on the window's own device, and only a D3D12 one
+/// can open one (`crates/yapfast-iced/src/gpu.rs`), so a window wgpu gave
+/// Vulkan to shows a stream's preview as pixels instead. wgpu tries Vulkan
+/// before D3D12 whatever the backends say, so the choice is made here; an
+/// environment that names one already wins, as `WGPU_BACKEND=vulkan` does for
+/// a machine whose D3D12 driver won't start.
+fn prefer_direct3d12() {
+    #[cfg(windows)]
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        // SAFETY: this runs first in main, before Yapfast starts any other
+        // thread that could read the environment.
+        unsafe { std::env::set_var("WGPU_BACKEND", "dx12") };
+    }
+}
+
 fn main() -> Result<()> {
     fix_mmap_threshold();
+    prefer_direct3d12();
     // A stream worker starts nothing else: no UI, runtime or TLS.
     #[cfg(feature = "discord")]
     if std::env::args().nth(1).as_deref() == Some(yapfast_core::stream_worker::ARGUMENT) {

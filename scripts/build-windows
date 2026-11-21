@@ -5,9 +5,11 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # Arguments after the flavour go to scripts/package-windows.py, such as
 # --no-installer.
 flavour=${1:-discord}
+# Both flavours name their features, since the defaults now carry Skia's Vulkan,
+# which is Linux's archive alone (Cargo.toml's `skia-vulkan`).
 case $flavour in
   discord) features=(--no-default-features --features desktop,discord) ;;
-  full) features=(--features matrix) ;;
+  full) features=(--no-default-features --features desktop,discord,matrix) ;;
   *) echo "usage: scripts/build-windows [discord|full] [package-windows.py options]" >&2; exit 2 ;;
 esac
 shift $(($# > 0 ? 1 : 0))

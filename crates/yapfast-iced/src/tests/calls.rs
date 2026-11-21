@@ -366,7 +366,9 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
             sent_kbps: 3812,
             keyframe_requests: 2,
             resent: 5,
+            ..Default::default()
         }),
+        ..Default::default()
     };
     app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
     let _ = app.sync();
@@ -412,8 +414,40 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
         "1920×1080 at 60 fps",
         "3.8 Mbit/s",
         "4.0 Mbit/s",
+        "Shown by:",
+        "Frame wait before encoding:",
+        "Copy diagnostics",
     ] {
         assert!(shows(&app, words), "{words}");
+    }
+    // The report is made when it's asked for, from the call as it is now.
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Diagnostics));
+    assert!(shows(&app, "Copied"));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::CopiedDone));
+    assert!(shows(&app, "Copy diagnostics"));
+    // A watched stream has the decoder it runs and the sound it plays, and
+    // none of a share's own numbers.
+    let watched = voice::StreamStats {
+        codec: "H265".into(),
+        width: 1920,
+        height: 1080,
+        fps: 60,
+        decoder: Some("h265 (d3d11va)".into()),
+        sound_heard_ms: Some(2_500),
+        ..Default::default()
+    };
+    let stats = voice::LinkStats {
+        watching: Some(watched),
+        ..Default::default()
+    };
+    app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Pointed(true)));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Tab(LinkTab::Stream)));
+    for words in ["Decoded by:", "h265 (d3d11va)", "Sound played:", "2500 ms"] {
+        assert!(shows(&app, words), "{words}");
+    }
+    for words in ["Sending:", "Aiming for:"] {
+        assert!(!shows(&app, words), "a watch has no {words}");
     }
     // Closed with the pointer gone, nothing is copied out of the call.
     let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Pointed(false)));
@@ -561,6 +595,78 @@ fn a_window_closed_with_the_large_tile_full_screen_opens_again_as_a_window() {
     assert!(!app.call.full, "the tile is back in the call");
     assert_eq!(app.call.screen, None);
     assert!(!app.shell.full_screen, "the next window isn't full screen");
+}
+
+#[test]
+fn the_share_menu_chooses_what_a_share_may_take_from_the_uplink() {
+    use yapfast_core::voice::Ceiling;
+    let (mut app, _folder, _) = in_call();
+    // A window tall enough for every choice on the stage's share, with Go
+    // Live near its foot, so the menu opens above it and nothing scrolls.
+    app.shell.frame = Size::new(800.0, 1400.0);
+    crate::window_bar::fit_window(&mut app);
+    app.call.spot.set(Rectangle::new(
+        Point::new(500.0, 1340.0),
+        Size::new(52.0, 52.0),
+    ));
+    let _ = crate::call::update(&mut app, Event::Open(Popup::Share));
+    let count = app.call.share_listing.expect("listing");
+    let _ = crate::call::update(&mut app, listed(count));
+    assert_eq!(app.call.popup, Some(Popup::Share));
+    assert!(shows(&app, "QUALITY"));
+    for words in [
+        "Lean",
+        "Balanced",
+        "Sharp",
+        "0.07: what the picture is worth",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    let ceiling = |app: &App| app.call.share.as_ref().map(|share| share.quality.ceiling);
+    assert_eq!(ceiling(&app), Some(Ceiling::Balanced), "what a share takes");
+    interact(&mut app, |ui| {
+        ui.click("Sharp").expect("the dearest choice");
+    });
+    assert_eq!(ceiling(&app), Some(Ceiling::Sharp));
+    // The share's sound is a choice of its own, on until it's turned off.
+    assert!(shows(&app, "Stream audio"));
+    let audio = |app: &App| app.call.share.as_ref().map(|share| share.quality.audio);
+    assert_eq!(audio(&app), Some(true), "a share carries sound");
+    interact(&mut app, |ui| {
+        ui.click("Stream audio").expect("the sound's choice");
+    });
+    assert_eq!(audio(&app), Some(false));
+    // Go Live takes the choice with the resolution and the frame rate.
+    let _ = crate::call::update(&mut app, Event::Share(crate::call::ShareEvent::Go));
+    assert!(app.call.share.is_none(), "the menu closed behind it");
+}
+
+#[test]
+fn a_shared_screen_tells_its_worker_that_a_tile_shows_its_preview() {
+    use yapfast_core::frames::Frames;
+    let (mut app, _folder, _) = in_call();
+    let frames = std::sync::Arc::new(Frames::create(16, 16).unwrap());
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames,
+            viewers: vec![],
+        });
+    });
+    // The stage's tile shows it, so the worker is told to make one, at the
+    // size it shows at: a preview nothing shows is work nothing wants.
+    assert_eq!(app.call.preview_told.shown, Some(true));
+    let (width, height) = app.call.preview_told.size;
+    assert!(width > 0 && height > 0, "the tile's size, {width}×{height}");
+    // Closed to the tray, nothing shows it, and the worker stops making one.
+    let id = app.shell.window.expect("a window");
+    let _ = app.update(crate::app::Message::Shell(crate::shell::Event::Closed(id)));
+    assert_eq!(app.call.preview_told.shown, Some(false));
+    assert_eq!(
+        app.call.preview_told.size,
+        (width, height),
+        "no tile to measure while none shows"
+    );
 }
 
 #[test]
