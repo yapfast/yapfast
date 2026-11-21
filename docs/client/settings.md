@@ -83,9 +83,9 @@ recording. Each change is kept at once in
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
   from takes another, and its name unless it was renamed); each custom
-  theme's pencil edits it. A colour's field shows its change at once, or
-  says "Not a colour"; Save keeps the theme among the person's own and
-  chooses it, Cancel (or leaving Appearance or Settings) shows the theme
+  theme's pencil edits it. A colour's swatch opens its `ColourPad` card and
+  its field shows its change at once, or says "Not a colour"; Save keeps the
+  theme among the person's own and chooses it, Cancel (or leaving Appearance or Settings) shows the theme
   from before, and a saved one's Delete asks once more. Then the system
   title bar's switch, where Yapfast can draw its own, and the profile
   switches, which the core is told of.
