@@ -64,10 +64,13 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/linux/${id}.desktop -t "$out/share/applications"
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and
-    # NixOS keeps the GPU driver's in /run/opengl-driver.
+    # NixOS keeps the GPU driver's in /run/opengl-driver. fc-match finds the
+    # system's font for a script or character the UI font lacks; the
+    # system's own comes first, and NixOS may have none on its PATH.
     wrapProgram "$out/bin/yapfast" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
-      --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
+      --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib \
+      --suffix PATH : ${lib.makeBinPath [ pkgs.fontconfig ]}
   '';
   meta = {
     description = "Native Discord client that stays light on memory";
