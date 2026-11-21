@@ -1579,7 +1579,11 @@ impl OpenChannel {
                 Some(row)
                     if row.id.strip_prefix(prefix) == Some(key.as_str())
                         && row.thread
-                            == self.thread_link(server.map(|server| &**server), message) =>
+                            == self.thread_link(
+                                &snapshot.names,
+                                server.map(|server| &**server),
+                                message,
+                            ) =>
                 {
                     row
                 }
@@ -1860,7 +1864,7 @@ impl OpenChannel {
             can_forward: message.forwardable && self.rendered_with.may_forward,
             pinned: message.pinned,
             can_pin: ordinary && shared && self.rendered_with.may_pin,
-            thread: self.thread_link(server, message),
+            thread: self.thread_link(&snapshot.names, server, message),
             poll: message.poll.as_ref().map(|poll| chat_poll(poll, own)),
             voice: chat_voice(message),
             notice: chat_notice(message),
@@ -1879,16 +1883,15 @@ impl OpenChannel {
             .map(|server| &*server.server);
         self.rendered.iter().any(|(order, row)| {
             row.thread.is_some()
-                && self
-                    .shown
-                    .messages
-                    .get(order)
-                    .is_some_and(|message| row.thread != self.thread_link(server, message))
+                && self.shown.messages.get(order).is_some_and(|message| {
+                    row.thread != self.thread_link(&snapshot.names, server, message)
+                })
         })
     }
 
     fn thread_link(
         &self,
+        names: &yapfast_discord::service::SharedNames,
         server: Option<&yapfast_discord::ready::Server>,
         message: &Message,
     ) -> Option<ThreadLink> {
@@ -1896,6 +1899,15 @@ impl OpenChannel {
         let known =
             server.and_then(|server| server.threads.iter().find(|known| known.id == link.id));
         let details = known.and_then(|known| known.thread.as_deref());
+        let recent = server
+            .zip(details.and_then(|details| details.recent.as_deref()))
+            .map(|(server, recent)| discord::recent_message(server, &names.read(), recent));
+        // Its newest message's time, else its start's, which its id holds.
+        let last = details
+            .map(|details| details.last_message)
+            .filter(|&last| last != 0)
+            .or_else(|| link.id.parse().ok())
+            .unwrap_or_default();
         Some(ThreadLink {
             room: discord::room_id(&self.guild, &link.id),
             name: known.map_or_else(|| link.name.clone(), |known| known.name.clone()),
@@ -1904,6 +1916,8 @@ impl OpenChannel {
                 .map(|details| details.messages)
                 .or((message.system.is_none()).then_some(link.messages)),
             archived: details.map_or(link.archived, |details| details.archived),
+            recent,
+            active_ms: discord::snowflake_ms(last),
         })
     }
 

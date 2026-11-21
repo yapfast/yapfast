@@ -2,19 +2,21 @@
 //! a notice's icon, the time beside a grouped message under the pointer, a
 //! reply's spine), the line above (the reply it quotes, the command it
 //! answers), the author line, the text in its blocks, `(edited)`, picture
-//! previews (GIFs playing), and reaction chips with who reacted in their
-//! tooltips.
+//! previews (GIFs playing), reaction chips with who reacted in their
+//! tooltips, and the card of the thread a message started.
 
 use iced::{
     Alignment, Element, Length, Padding, Point,
     widget::{Space, button, column, container, mouse_area, row, span, stack, text},
 };
+use std::sync::Arc;
+
 use yapfast_core::chat::{self, ChatMessage, NoticeKind, Placement};
 
 use crate::{
     app::{App, Message},
     controls::{self, placed},
-    fonts::{BOLD, ITALIC, MEDIUM, SEMIBOLD, shown_name, style_font},
+    fonts::{ITALIC, MEDIUM, SEMIBOLD, shown_name, style_font},
     looks::{self, Chip},
     markdown::{FIRST_PART, Look},
     media::Gallery,
@@ -48,6 +50,8 @@ const THUMBNAIL: f32 = 80.0;
 /// Past any message's body's parts (Discord's 4000 characters make far
 /// fewer), each embed 16 of them, before a bot's cards' (`components.rs`).
 pub const EMBED_PARTS: crate::piece::PartNo = 16384;
+/// A thread's card under its message at its widest.
+const THREAD_WIDTH: f32 = 480.0;
 /// A file's card at its widest, and its icon.
 const FILE_CARD_WIDTH: f32 = 432.0;
 const FILE_ICON: u32 = 30;
@@ -252,9 +256,6 @@ pub fn message_content<'a>(
     if let Some(failed) = crate::components::bot_failed(ctx, message) {
         content = content.push(failed);
     }
-    if let Some(thread) = &message.thread {
-        content = content.push(thread_chip(ctx, thread));
-    }
     if !message.reactions.is_empty() {
         content = content.push(
             container(crate::message::reaction_chips::reactions(
@@ -268,6 +269,15 @@ pub fn message_content<'a>(
     }
     if message.flags & EPHEMERAL != 0 {
         content = content.push(ephemeral_line(ctx, message));
+    }
+    // Last, under the reactions, as in Discord's client.
+    if let Some(thread) = &message.thread {
+        content = content.push(thread_card(
+            ctx,
+            ctx.row_item(index),
+            thread,
+            message.notice.is_some(),
+        ));
     }
     let gutter = gutter(ctx, index, message, look, header);
     let shown = container(row![gutter, content].spacing(16))
@@ -769,52 +779,196 @@ fn folding<'a>(
     .into()
 }
 
-/// The thread a message started: its name, how many messages it has and
-/// whether it's archived, and a click that opens it beside the channel.
-fn thread_chip<'a>(ctx: crate::ctx::Ctx<'a>, thread: &'a chat::ThreadLink) -> Element<'a, Message> {
+/// Before this thread (by its snowflake, July 2022), Discord counted a
+/// thread's messages only up to 50.
+const COUNTED_TO_50: u64 = 992_549_565_104_128_000;
+
+/// The card under a message that leads to a thread, as Discord's client
+/// draws it: the thread's name and how many messages it has, its newest
+/// message under them with how long ago the thread was active. A click
+/// opens the thread beside the channel; under the pointer the count is
+/// underlined.
+fn thread_card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    item: Arc<str>,
+    thread: &'a chat::ThreadLink,
+    notice: bool,
+) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let count = match thread.messages {
-        None => None,
-        Some(0) => Some("No messages yet".to_owned()),
-        Some(1) => Some("1 message".to_owned()),
-        Some(count) => Some(format!("{count} messages")),
+    let lit = ctx.pointed.thread.as_ref() == Some(&item);
+    let id = yapfast_core::discord::parse_room(&thread.room)
+        .and_then(|(_, id)| id.parse().ok())
+        .unwrap_or(u64::MAX);
+    let count = text(thread_count(thread.messages, id))
+        .size(14)
+        .line_height(text::LineHeight::Absolute(18.into()))
+        .font(SEMIBOLD)
+        .color(theme.link)
+        .wrapping(text::Wrapping::None);
+    let count: Element<'a, Message> = if lit {
+        column![count, controls::bar(theme.link, Length::Fill, 1)]
+            .width(Length::Shrink)
+            .into()
+    } else {
+        count.into()
     };
-    let detail = match (count, thread.archived) {
-        (Some(count), true) => format!("{count}, archived"),
-        (Some(count), false) => count,
-        (None, true) => "Archived".into(),
-        (None, false) => String::new(),
-    };
-    // The name as long as it is, the count after it, the chevron at
-    // the end.
-    let mut words = row![
+    let top = row![
         crate::elide::elide(thread.name.as_str())
-            .size(text_size(ctx))
-            .font(BOLD)
+            .size(14)
+            .line_height(18.0)
+            .font(SEMIBOLD)
             .color(theme.text),
+        count,
     ]
-    .spacing(10)
-    .align_y(Alignment::Center);
-    if !detail.is_empty() {
-        words = words.push(text(detail).size(14).color(theme.link));
+    .spacing(8)
+    .width(Length::Shrink)
+    .height(18);
+    let words = |words: &'a str, ink| {
+        crate::elide::elide(words)
+            .size(14)
+            .line_height(18.0)
+            .color(ink)
+    };
+    let mut bottom = row![].spacing(4).align_y(Alignment::Center);
+    match &thread.recent {
+        _ if thread.archived => {
+            bottom = bottom.push(words(
+                "There are no recent messages in this thread.",
+                theme.text,
+            ));
+        }
+        _ if thread.messages.unwrap_or_default() == 0 => {
+            bottom = bottom.push(words(
+                "There are no messages in this thread yet.",
+                theme.text,
+            ));
+        }
+        None => {
+            bottom = bottom.push(words(
+                "There are no recent messages in this thread.",
+                theme.text,
+            ));
+        }
+        Some(recent) => {
+            let author = &recent.author;
+            bottom = bottom
+                .push(
+                    container(ctx.face(Face::new(
+                        Some(author.avatar.as_str()),
+                        &author.name,
+                        HEADER_AVATAR,
+                    )))
+                    .padding(Padding::ZERO.right(4)),
+                )
+                .push(
+                    text(author.name.as_str())
+                        .size(14)
+                        .line_height(text::LineHeight::Absolute(18.into()))
+                        .color(author.color.map_or(theme.text, hex).scale_alpha(0.64))
+                        .wrapping(text::Wrapping::None),
+                );
+            if let Some(tag) = ctx.state.cosmetics.tag(recent.tag.as_ref()) {
+                let size = 12.0 * 0.9;
+                bottom = bottom.push(ctx.tag_chip(
+                    &tag.text,
+                    tag.badge.as_deref(),
+                    Chip {
+                        size,
+                        font: SEMIBOLD,
+                        height: size * 1.3333,
+                        pad: 4.0,
+                        radius: 4.0,
+                        fill: CHIP,
+                        ink: theme.text,
+                    },
+                    1.0,
+                ));
+            }
+            bottom = bottom.push(words(recent.text.as_str(), theme.text));
+        }
     }
-    let face = row![
-        ctx.look.glyph(Icon::Thread, 18, theme.muted),
-        container(words).width(Length::Fill),
-        ctx.look.glyph(Icon::ChevronRight, 16, theme.muted),
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center);
-    let (rest, lit, edge) = (theme.sidebar, theme.hover, theme.edge);
-    let chip = button(face)
-        .padding([8, 12])
+    if !thread.archived && thread.messages.unwrap_or_default() > 0 {
+        let ago = thread_ago(thread.active_ms, ctx.minute * 1000);
+        bottom = bottom.push(
+            container(
+                text(ago)
+                    .size(14)
+                    .color(theme.muted)
+                    .wrapping(text::Wrapping::None),
+            )
+            .padding(Padding::ZERO.left(4)),
+        );
+    }
+    // As wide as its lines, up to its widest: the name and the newest
+    // message are cut to the room the count and the time leave them. Their
+    // text would have it fill its room.
+    // A row's parts widen it as they're pushed: shrunk after them.
+    let bottom = container(bottom.width(Length::Shrink))
+        .height(18)
+        .align_y(Alignment::Center);
+    let face = column![top, bottom].spacing(2).width(Length::Shrink);
+    // Discord's dark card is a step above the chat in a line a step above
+    // that.
+    let (ground, edge) = if theme.bonfire {
+        (hex(0x242429), hex(0x323237))
+    } else {
+        (theme.raised, theme.edge)
+    };
+    let card = button(face)
+        .padding(8)
+        .width(Length::Shrink)
         .on_press(Message::Thread(crate::thread::Event::Open(
             thread.room.clone(),
         )))
-        .style(controls::outlined_lit_style(rest, lit, edge, edge, 8.0));
-    container(container(chip).max_width(EMBED_WIDTH))
-        .padding(Padding::ZERO.top(4))
+        .style(controls::outlined_lit_style(
+            ground, ground, edge, edge, 4.0,
+        ));
+    let card = mouse_area(
+        container(card)
+            .width(Length::Shrink)
+            .max_width(THREAD_WIDTH),
+    )
+    .on_enter(Message::Timeline(crate::timeline::Event::PointThread(
+        item.clone(),
+        true,
+    )))
+    .on_exit(Message::Timeline(crate::timeline::Event::PointThread(
+        item, false,
+    )));
+    container(card)
+        .width(Length::Shrink)
+        .padding(Padding::ZERO.top(if notice { 0 } else { 8 }))
         .into()
+}
+
+/// A thread's count on its card, as Discord's client words it: "See
+/// Thread" before any message, and "50+" for an old thread Discord stopped
+/// counting.
+fn thread_count(messages: Option<u64>, id: u64) -> String {
+    match messages.unwrap_or_default() {
+        0 => "See Thread \u{203a}".into(),
+        50.. if id <= COUNTED_TO_50 => "50+ Messages \u{203a}".into(),
+        100_000.. => "100k+ Messages \u{203a}".into(),
+        1 => "1 Message \u{203a}".into(),
+        count => format!("{count} Messages \u{203a}"),
+    }
+}
+
+/// How long ago a thread was last active, as its card says it: "1m ago"
+/// for anything under two minutes, the date past a year of 30-day months.
+fn thread_ago(at_ms: u64, now_ms: u64) -> String {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * MINUTE;
+    const DAY: u64 = 24 * HOUR;
+    let seconds = now_ms.saturating_sub(at_ms) / 1000;
+    match seconds {
+        0..MINUTE => "1m ago".into(),
+        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
+        HOUR..DAY => format!("{}h ago", seconds / HOUR),
+        _ if seconds < 30 * DAY => format!("{}d ago", seconds / DAY),
+        _ if seconds < 360 * DAY => ">30d ago".into(),
+        _ => yapfast_core::clock::day(at_ms / 1000),
+    }
 }
 
 /// How a message of one's own is going, under it: "Sending..." with Cancel

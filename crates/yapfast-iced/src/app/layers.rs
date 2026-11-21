@@ -73,7 +73,7 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 42] = [
+const LAYERS: [Layer; 43] = [
     Layer::Inbox,
     Layer::Mfa,
     Layer::ManageAccounts,
