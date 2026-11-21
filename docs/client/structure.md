@@ -107,6 +107,12 @@ what costs is kept out of the view:
   mapped from their files and kept upright and italic at any weight: the
   shaper takes a family's face at the weight nearest the text's (patch 2),
   so semibold names take DM Sans and Twemoji as regular text does.
+  The person's own font files (`custom_font.rs`, `woff.rs`; Settings'
+  Appearance chooses them, see [Fonts](../themes.md#fonts)) are put in the
+  same font system under the name DM Sans, and DM Sans's faces leave it
+  while they're in: every text asks for that family by name, so each is
+  drawn in the chosen font with no change to a view, and resetting puts
+  DM Sans back. `fonts::shape_again` then has iced shape its text again.
   Elided text (`elide.rs`) clips across only, so marks above and below the
   line show.
 - Video (`video.rs`, `call/`): cameras' frames are made in the client's

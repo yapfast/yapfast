@@ -154,7 +154,9 @@ pub fn styled_name(
     use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping, SwashCache, SwashContent, Weight};
     let em = size;
     let line_height = (size * 1.3).ceil();
-    let family = look.family.map_or(Family::Name("DM Sans"), Family::Name);
+    let family = look
+        .family
+        .map_or(Family::Name(crate::fonts::FAMILY), Family::Name);
     let weight = if look.family.is_some() {
         look.weight
     } else {
