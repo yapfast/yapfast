@@ -126,7 +126,7 @@ what costs is kept out of the view:
 
 Each part of the window has its module:
 
-- signing in: `signin`, `mfa`;
+- signing in: `signin`, `mfa`, `accounts` (Manage Accounts);
 - the sides: `rail`, `sidebar` (with `arrange`), `account`, `members`,
   `browse_channels`, `place_menus`;
 - the conversation: `conversation` (what takes the timeline's place),

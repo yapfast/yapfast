@@ -13,7 +13,7 @@ use yapfast_core::{
     application::{Action, AppState, Application, Effect},
     backend::Backend,
     chat::Event,
-    discord_link::Progress,
+    discord_link::{Cancellation, Progress},
     runtime::{BackgroundRuntime, BackgroundTask},
 };
 
@@ -37,6 +37,16 @@ pub struct Client {
     linking: Option<BackgroundTask<()>>,
     link_progress: Option<UnboundedReceiver<Progress>>,
     link_stopped: bool,
+    /// Importing the Discord app's accounts: which run is current (a newer
+    /// linking or a stop makes the older one's steps stale), how to cancel
+    /// it, and its progress, which the window follows to its end, as a
+    /// credential save can finish after the import was stopped.
+    link_run: u64,
+    import_cancel: Option<Cancellation>,
+    import_progress: Option<(u64, UnboundedReceiver<Progress>)>,
+    /// Accounts were saved while the import ran or after it stopped; the
+    /// account list is read again once no save holds the store.
+    import_refresh: Option<bool>,
     /// Sounds the core asked for, for the window to play; new messages to
     /// tell of; a picture to put on the clipboard.
     sounds: Vec<yapfast_core::sounds::Sound>,
@@ -67,6 +77,10 @@ impl Client {
             link_progress: None,
             started: false,
             link_stopped: false,
+            link_run: 0,
+            import_cancel: None,
+            import_progress: None,
+            import_refresh: None,
             sounds: Vec::new(),
             alerts: Vec::new(),
             copied_picture: None,
@@ -142,6 +156,81 @@ impl Client {
         std::mem::take(&mut self.link_stopped)
     }
 
+    /// The import's progress with its run, once it has started; the window
+    /// hands each step to [`Client::import_step`], and the end to
+    /// [`Client::import_ended`].
+    pub fn take_import(&mut self) -> Option<(u64, UnboundedReceiver<Progress>)> {
+        self.import_progress.take()
+    }
+
+    /// One step of the import `run`. Saves report whichever run they
+    /// belong to; the rest only while the run is current.
+    pub fn import_step(&mut self, run: u64, step: Progress) {
+        match step {
+            Progress::ImportSaveStarted => {}
+            Progress::ImportSaveFinished { linked } => {
+                self.import_refresh = Some(self.import_refresh.unwrap_or(false) || linked);
+            }
+            _ if self.link_run != run => {}
+            step => {
+                self.import_cancel = None;
+                self.linking = None;
+                let effects = self.app.linking(step);
+                let listed = effects.iter().any(|effect| {
+                    matches!(
+                        effect,
+                        Effect::Backend(yapfast_core::chat::Command::Discord(
+                            yapfast_core::chat::DiscordCommand::ListAccounts
+                        ))
+                    )
+                });
+                self.execute(effects);
+                if listed && !yapfast_core::discord_link::saves_pending() {
+                    self.import_refresh = None;
+                }
+            }
+        }
+        self.refresh_import_saves();
+    }
+
+    /// The import `run`'s progress ended. A worker that failed must not
+    /// leave the sign-in screen waiting, cancelling included.
+    pub fn import_ended(&mut self, run: u64) {
+        use yapfast_core::application::DiscordLink;
+        if self.link_run == run
+            && matches!(
+                self.app.state.discord_link,
+                Some(DiscordLink::Importing | DiscordLink::CancellingImport)
+            )
+        {
+            self.import_cancel = None;
+            self.linking = None;
+            let effects = self.app.linking(Progress::Failed(
+                "Account import stopped. Please retry.".into(),
+            ));
+            self.execute(effects);
+        }
+        self.refresh_import_saves();
+    }
+
+    /// Saves finish after the worker that started them, and after a
+    /// replacement linking: the store is only read again once none holds it.
+    fn refresh_import_saves(&mut self) {
+        use yapfast_core::application::DiscordLink;
+        if yapfast_core::discord_link::saves_pending()
+            || matches!(
+                self.app.state.discord_link,
+                Some(DiscordLink::Importing | DiscordLink::CancellingImport)
+            )
+        {
+            return;
+        }
+        if let Some(linked) = self.import_refresh.take() {
+            let effects = self.app.linking(Progress::ImportSaveFinished { linked });
+            self.execute(effects);
+        }
+    }
+
     pub fn linking(&mut self, step: Progress) {
         let effects = self.app.linking(step);
         self.execute(effects);
@@ -166,6 +255,12 @@ impl Client {
                 }
                 Effect::Backend(yapfast_core::chat::Command::Typing { .. })
                     if !self.share_typing => {}
+                Effect::Backend(yapfast_core::chat::Command::Discord(
+                    yapfast_core::chat::DiscordCommand::ListAccounts,
+                )) if yapfast_core::discord_link::saves_pending() => {
+                    // A save still holds the store: read it when it's done.
+                    self.import_refresh = Some(self.import_refresh.unwrap_or(false));
+                }
                 Effect::Backend(command) => {
                     #[cfg(test)]
                     self.sent.push(command.clone());
@@ -179,7 +274,15 @@ impl Client {
                 }
                 Effect::LinkDiscord => self.link_discord(None),
                 Effect::LinkDiscordToken(token) => self.link_discord(Some(token)),
+                Effect::ImportDiscord => self.import_discord(),
+                Effect::CancelDiscordImport => {
+                    if let Some(cancel) = &self.import_cancel {
+                        cancel.cancel();
+                    }
+                }
                 Effect::StopDiscordLink => {
+                    self.link_run += 1;
+                    self.import_cancel = None;
                     self.linking = None;
                     self.link_progress = None;
                     self.link_stopped = true;
@@ -203,9 +306,23 @@ impl Client {
     /// in place of any linking under way. The work runs on the backend's
     /// runtime.
     fn link_discord(&mut self, token: Option<String>) {
+        self.link_run += 1;
         let (task, progress) = yapfast_core::discord_link::start(&self.runtime, token);
         self.linking = Some(task);
         self.link_progress = Some(progress);
+    }
+
+    /// Imports the accounts the Discord app keeps on this device, in place
+    /// of any linking under way. Its progress reaches the window as
+    /// linking's does.
+    fn import_discord(&mut self) {
+        self.link_run += 1;
+        let run = self.link_run;
+        let (task, progress, cancel) = yapfast_core::discord_link::import(&self.runtime);
+        self.linking = Some(task);
+        self.link_progress = None;
+        self.import_cancel = Some(cancel);
+        self.import_progress = Some((run, progress));
     }
 
     /// The rows from `first` to `last` of the open timeline are in view:

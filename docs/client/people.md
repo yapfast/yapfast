@@ -203,7 +203,10 @@ glyph cache. The card shows if the restore fails.
   with "Open it again", or the error with "Try again". "Use a token" opens
   the field instead; Link checks it with Discord. A refused token stays
   to fix; once the account is linked it's let go, its field closed. A
-  linked account starts the workspace. The screen's secrets (token,
+  linked account starts the workspace. Manage Accounts' Add Account shows
+  the same steps over the workspace (see [Dialogs](dialogs.md)), so with an
+  account in use the code and the token stay while that dialog is open.
+  The screen's secrets (token,
   password, recovery key) are overwritten as they go and never show in a
   log line of the screen or what's typed.
 - Matrix, with `matrix`: the homeserver, Matrix ID and password go to the

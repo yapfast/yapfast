@@ -771,7 +771,9 @@ impl Application {
             .map(|choice| choice.value.clone())
             .collect();
         if values.len() < menu.min || values.len() > menu.max {
-            self.state.notice = Some("Choose the required number of options.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Choose the required number of options.".into(),
+            ));
             return vec![];
         }
         let menu = self.state.select_menu.take().unwrap();
@@ -933,7 +935,9 @@ impl Application {
             self.command_answered(nonce, None, false);
         }
         let Some(mut modal) = InteractionModal::parse(raw) else {
-            self.state.notice = Some("Yapfast couldn't show this app's form.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Yapfast couldn't show this app's form.".into(),
+            ));
             return;
         };
         if modal.guild_id.is_none() {
@@ -1072,7 +1076,7 @@ impl Application {
                 field.max_values.min(MOST_FILES)
             );
             field.files.extend(files.into_iter().take(room));
-            self.state.notice = Some(notice);
+            self.state.notice = Some(super::Notice::Error(notice));
         } else {
             field.files.extend(files);
         }

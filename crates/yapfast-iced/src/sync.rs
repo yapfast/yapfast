@@ -380,6 +380,7 @@ impl App {
         tasks.push(self.sign_in.sync(self.client.state(), self.client.root()));
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
+        tasks.push(crate::accounts::sync(self));
         tasks.push(self.follow_backend());
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
@@ -408,6 +409,20 @@ impl App {
             .abortable();
             self.linking = Some(handle.abort_on_drop());
             tasks.push(task);
+        }
+        // The import's steps are followed to the stream's end, whatever
+        // happens to the linking meanwhile: a save can outlast it.
+        if let Some((run, progress)) = self.client.take_import() {
+            tasks.push(
+                Task::run(
+                    iced::futures::stream::unfold(progress, |mut progress| async move {
+                        let step = progress.recv().await?;
+                        Some((step, progress))
+                    }),
+                    move |step| Message::Import(run, Some(step)),
+                )
+                .chain(Task::done(Message::Import(run, None))),
+            );
         }
         if self.client.link_stopped() {
             self.linking = None;
@@ -823,6 +838,18 @@ impl App {
         }
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
+        // The linked accounts' pictures, in Switch Accounts' list or Manage
+        // Accounts.
+        let switching = self
+            .status
+            .popover
+            .as_ref()
+            .is_some_and(|popover| popover.switching);
+        if state.manage_accounts.is_some() || switching {
+            for account in &state.discord_accounts {
+                want(account.avatar.as_deref());
+            }
+        }
         for compose in [state.compose(), state.aside_compose()]
             .into_iter()
             .flatten()

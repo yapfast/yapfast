@@ -1,4 +1,27 @@
 //! Shared client behavior. UI adapters dispatch actions and render the resulting state.
+
+/// A status message carries its meaning independently of its wording.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Notice {
+    Info(String),
+    Error(String),
+}
+
+impl Notice {
+    pub fn is_error(&self) -> bool {
+        matches!(self, Self::Error(_))
+    }
+}
+
+impl std::ops::Deref for Notice {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Info(message) | Self::Error(message) => message,
+        }
+    }
+}
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -159,6 +182,10 @@ pub enum DiscordLink {
     Starting,
     /// Discord is checking a pasted token.
     Checking,
+    /// Yapfast is reading and validating the desktop client's saved accounts.
+    Importing,
+    /// Cancellation waits for a credential save that has already started.
+    CancellingImport,
     /// The code to scan, as the address it carries.
     Code(String),
     /// Someone scanned it, by their username, and confirms on their phone.
@@ -167,6 +194,15 @@ pub enum DiscordLink {
     /// at this address, open in the browser.
     Captcha(String),
     Failed(String),
+    ImportFailed(String),
+}
+
+/// Manage Accounts, the dialog that lists the Discord accounts linked on
+/// this device, while it's open.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ManageAccounts {
+    /// The account whose "more" menu is open, by id.
+    pub menu: Option<String>,
 }
 
 /// The dialog that sends a friend request by Discord username.
@@ -574,6 +610,11 @@ pub struct AppState {
     /// connected, and linking one, while that's under way.
     pub discord_linked: bool,
     pub discord_link: Option<DiscordLink>,
+    /// The Discord accounts linked on this device, in the order they were
+    /// linked, and the active one's id, which is empty while none is.
+    pub discord_accounts: Vec<chat::DiscordAccount>,
+    pub discord_active: String,
+    pub manage_accounts: Option<ManageAccounts>,
     pub add_friend: Option<AddFriend>,
     /// A screen of the DM list open in place of a conversation.
     pub dm_screen: Option<DmScreen>,
@@ -648,7 +689,7 @@ pub struct AppState {
     pub trusted: bool,
     pub online: bool,
     pub storage: Option<&'static str>,
-    pub notice: Option<String>,
+    pub notice: Option<Notice>,
     /// Shared with the networks' lists they're shown from.
     pub rooms: Vec<Arc<ChatRoom>>,
     pub servers: Vec<Arc<ChatServer>>,
@@ -996,6 +1037,7 @@ impl AppState {
             || self.forwarding.is_some()
             || self.new_dm.is_some()
             || self.add_friend.is_some()
+            || self.manage_accounts.is_some()
             || self.status_editor.is_some()
             || self.person_dialog.is_some()
             || self.invite.is_some()
@@ -2352,9 +2394,22 @@ pub enum Action {
     /// again; stop linking; or forget the linked account on this device.
     LinkDiscord,
     LinkDiscordToken(String),
+    /// Import the accounts already signed in to the vanilla Discord client on
+    /// this device.
+    ImportDiscord,
     OpenDiscordCaptcha,
     CancelDiscordLink,
     UnlinkDiscord,
+    /// Open Manage Accounts, or close it. Closing it stops linking too.
+    OpenManageAccounts,
+    CloseManageAccounts,
+    /// Open one account's "more" menu in Manage Accounts, or close the one
+    /// open with an empty id.
+    OpenAccountMenu(String),
+    /// Make this Discord account, by id, the active one.
+    SwitchDiscordAccount(String),
+    /// Log this Discord account, by id, out on this device.
+    LogOutDiscordAccount(String),
     /// Open the custom status dialog, set the status, clear it, or close it.
     /// The emoji is a Unicode one or a custom one's `:name:`, which needs Nitro.
     OpenStatusEditor,
@@ -2497,6 +2552,13 @@ pub enum Effect {
     /// under way. The same with a pasted token. Stop linking.
     LinkDiscord,
     LinkDiscordToken(String),
+    /// Import the accounts the vanilla Discord client keeps on this device,
+    /// with `crate::discord_link::import`, reporting through
+    /// `Application::linking` as linking does.
+    ImportDiscord,
+    /// Request cooperative cancellation of the import, with a bounded save grace period.
+    CancelDiscordImport,
+    /// Abort the current QR or token-link task.
     StopDiscordLink,
     /// Open this web page in the browser.
     OpenPage(String),
@@ -2695,6 +2757,13 @@ fn pictures_on_screen<'a>(
         .filter(move |_| list_avatars)
         .filter_map(|server| server.icon.as_deref())
         .chain(state.account_avatar.as_deref())
+        // The accounts the switcher lists.
+        .chain(
+            state
+                .discord_accounts
+                .iter()
+                .filter_map(|account| account.avatar.as_deref()),
+        )
         .chain(cosmetics.decoration(state.account_decoration.as_deref()))
         .chain(
             state
@@ -3999,14 +4068,14 @@ impl Application {
                 change,
             } => self.change_member(place, user, change),
             Action::LinkDiscord => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if !self.can_link_discord() {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Starting);
                 vec![Effect::LinkDiscord]
             }
             Action::LinkDiscordToken(token) => {
-                if self.state.preview || self.state.discord_linked || !cfg!(feature = "discord") {
+                if !self.can_link_discord() {
                     return vec![];
                 }
                 if token.trim().is_empty() {
@@ -4015,20 +4084,70 @@ impl Application {
                 self.state.discord_link = Some(DiscordLink::Checking);
                 vec![Effect::LinkDiscordToken(token)]
             }
+            Action::ImportDiscord => {
+                if !self.can_link_discord() {
+                    return vec![];
+                }
+                self.state.discord_link = Some(DiscordLink::Importing);
+                vec![Effect::ImportDiscord]
+            }
             Action::OpenDiscordCaptcha => match &self.state.discord_link {
                 Some(DiscordLink::Captcha(page)) => vec![Effect::OpenPage(page.clone())],
                 _ => vec![],
             },
-            Action::CancelDiscordLink => match self.state.discord_link.take() {
-                Some(_) => vec![Effect::StopDiscordLink],
-                None => vec![],
-            },
+            Action::CancelDiscordLink => self.cancel_discord_link(),
             Action::UnlinkDiscord => {
                 if self.state.discord_linked && self.state.account.is_some() {
-                    vec![Effect::Backend(Command::Discord(DiscordCommand::Unlink))]
+                    // Only the active account, as logging out in Discord does.
+                    vec![Effect::Backend(Command::Discord(
+                        if self.state.discord_active.is_empty() {
+                            DiscordCommand::Unlink
+                        } else {
+                            DiscordCommand::RemoveAccount(self.state.discord_active.clone())
+                        },
+                    ))]
                 } else {
                     vec![]
                 }
+            }
+            Action::OpenManageAccounts => {
+                if !self.state.discord_accounts.is_empty() {
+                    self.state.manage_accounts = Some(ManageAccounts::default());
+                }
+                vec![]
+            }
+            Action::CloseManageAccounts => {
+                self.state.manage_accounts = None;
+                self.cancel_discord_link()
+            }
+            Action::OpenAccountMenu(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    let open = dialog.menu.as_deref() == Some(id.as_str());
+                    dialog.menu = (!id.is_empty() && !open).then_some(id);
+                }
+                vec![]
+            }
+            Action::SwitchDiscordAccount(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    dialog.menu = None;
+                }
+                if id == self.state.discord_active || !self.linked_account(&id) {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::SwitchAccount(id),
+                ))]
+            }
+            Action::LogOutDiscordAccount(id) => {
+                if let Some(dialog) = &mut self.state.manage_accounts {
+                    dialog.menu = None;
+                }
+                if !self.linked_account(&id) {
+                    return vec![];
+                }
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::RemoveAccount(id),
+                ))]
             }
             Action::OpenAddFriend => {
                 if self.state.discord_user.is_some() {
@@ -4452,7 +4571,7 @@ impl Application {
                         .as_ref()
                         .is_some_and(|aside| aside.room == room)
                 {
-                    self.state.notice = Some(message);
+                    self.state.notice = Some(Notice::Error(message));
                 }
             }
             Event::Profile { user, result } => return self.show_fetched_profile(user, result),
@@ -4691,6 +4810,27 @@ impl Application {
                 }
             }
             Event::DiscordUnlinked => return self.forget_discord(),
+            Event::DiscordSwitched => return self.switched_discord(),
+            Event::DiscordAccounts { accounts, active } => {
+                self.state.discord_accounts = accounts;
+                self.state.discord_active = active;
+                // The list is what was stored, which may not have the connected
+                // account's name yet.
+                let own = self.discord.as_deref().and_then(|snapshot| {
+                    let account = snapshot.account.as_ref()?;
+                    Some((
+                        account.username.clone(),
+                        account.name.clone(),
+                        account.avatar.clone(),
+                    ))
+                });
+                if let Some((username, name, avatar)) = own {
+                    self.describe_active_account(&username, &name, &avatar);
+                }
+                if self.state.discord_accounts.is_empty() {
+                    self.state.manage_accounts = None;
+                }
+            }
             Event::Note { user, result } => {
                 if let Ok(note) = &result {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]
@@ -4737,14 +4877,20 @@ impl Application {
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {
-                    self.state.notice = Some(format!("Couldn't change your status: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't change your status: {error}"
+                    )));
                 }
             }
             Event::SoundboardVolumeSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change the soundboard volume: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't change the soundboard volume: {error}"
+                )));
             }
             Event::JoinSoundSet(Err(error)) => {
-                self.state.notice = Some(format!("Couldn't change your entrance sound: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't change your entrance sound: {error}"
+                )));
             }
             Event::SoundboardVolumeSet(Ok(())) | Event::JoinSoundSet(Ok(())) => {}
             Event::SoundCatalog(result) => match result {
@@ -4759,16 +4905,17 @@ impl Application {
                     return self.load_pictures(pictures);
                 }
                 Err(error) => {
-                    self.state.notice =
-                        Some(format!("Couldn't list the soundboard's sounds: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't list the soundboard's sounds: {error}"
+                    )));
                 }
             },
             Event::ShowGameSet(result) => {
                 if let Err(error) = result {
                     self.state.discord_show_game = !self.state.discord_show_game;
-                    self.state.notice = Some(format!(
+                    self.state.notice = Some(Notice::Error(format!(
                         "Couldn't change sharing the game you play: {error}"
-                    ));
+                    )));
                 }
             }
             Event::CustomStatusSet(Err(error)) => {
@@ -4784,7 +4931,7 @@ impl Application {
                 } else if std::mem::take(&mut self.starting_dm) {
                     self.pending_call = false;
                     self.pending_message = None;
-                    self.state.notice = Some(error);
+                    self.state.notice = Some(Notice::Error(error));
                 }
             }
             Event::RoleMembers {
@@ -4862,7 +5009,7 @@ impl Application {
                         }
                         self.state.notice = None;
                     }
-                    Err(error) => self.state.notice = Some(error.into()),
+                    Err(error) => self.state.notice = Some(Notice::Error(error.into())),
                 }
             }
             Event::EditResult { room, item, result } => {
@@ -4881,7 +5028,7 @@ impl Application {
                         }
                         self.state.notice = None;
                     }
-                    Err(error) => self.state.notice = Some(error),
+                    Err(error) => self.state.notice = Some(Notice::Error(error)),
                 }
             }
             Event::Forwarded { room, result } => self.forwarded(room, result),
@@ -4897,27 +5044,27 @@ impl Application {
             Event::Saved { room, name, result } => {
                 if self.state.selected.as_ref() == Some(&room) {
                     self.state.notice = Some(match result {
-                        Ok(()) => format!("Saved {name}."),
-                        Err(error) => error.into(),
+                        Ok(()) => Notice::Info(format!("Saved {name}.")),
+                        Err(error) => Notice::Error(error.into()),
                     });
                 }
             }
             // Asked for just now, from the conversation or the thread beside it.
             Event::Copied(picture) => match picture {
                 Ok(picture) => return vec![Effect::CopyPicture(picture)],
-                Err(error) => self.state.notice = Some(error.into()),
+                Err(error) => self.state.notice = Some(Notice::Error(error.into())),
             },
             Event::Trust { trusted, error } => {
                 self.state.busy = false;
                 self.state.trusted = trusted;
-                self.state.notice = error.map(str::to_owned).or_else(|| {
-                    (!trusted).then(|| "This device is still unverified. Verify it in another client or enter your recovery key.".into())
+                self.state.notice = error.map(|error| Notice::Error(error.into())).or_else(|| {
+                    (!trusted).then(|| Notice::Info("This device is still unverified. Verify it in another client or enter your recovery key.".into()))
                 });
             }
             Event::Sync(online) => self.state.online = online,
             Event::Error(error) => {
                 self.state.busy = false;
-                self.state.notice = Some(error);
+                self.state.notice = Some(Notice::Error(error));
             }
             Event::LoggedOut => self.reset(),
         }
@@ -4926,11 +5073,11 @@ impl Application {
 
     fn start(&mut self, start: chat::Start) -> Vec<Effect> {
         self.state.busy = true;
-        self.state.notice = Some(if cfg!(feature = "matrix") {
+        self.state.notice = Some(Notice::Info(if cfg!(feature = "matrix") {
             "Connecting to Matrix...".into()
         } else {
             "Connecting to Discord...".into()
-        });
+        }));
         vec![Effect::Start(start)]
     }
 
@@ -5157,10 +5304,10 @@ impl Application {
                 favorites.remove(index);
             }
             None if favorites.len() >= yapfast_discord::frecency::MOST_FAVORITE_EMOJIS => {
-                self.state.notice = Some(format!(
+                self.state.notice = Some(Notice::Error(format!(
                     "You can have up to {} favourite emoji.",
                     yapfast_discord::frecency::MOST_FAVORITE_EMOJIS
-                ));
+                )));
                 return vec![];
             }
             None => favorites.push(name),
