@@ -22,6 +22,7 @@ use crate::{
     sync::Scroll,
     widgets::Pic,
 };
+use yapfast_core::i18n::tr;
 
 /// A person's row, and the room before the list's end at which the next
 /// page is asked for.
@@ -109,11 +110,15 @@ impl<'a> View<'a> {
             .on_press(Message::Reactions(Event::Close))
             .style(lit_style(None, theme.hover, 6.0));
         let head = row![
-            text(if window.poll { "Votes" } else { "Reactions" })
-                .size(20)
-                .font(BOLD)
-                .color(theme.text)
-                .width(Length::Fill),
+            text(if window.poll {
+                tr("Votes")
+            } else {
+                tr("Reactions")
+            })
+            .size(20)
+            .font(BOLD)
+            .color(theme.text)
+            .width(Length::Fill),
             close
         ]
         .align_y(Alignment::Center)
@@ -199,7 +204,7 @@ impl<'a> View<'a> {
                 line = line.push(
                     iced::widget::tooltip(
                         remove,
-                        controls::tip(theme, "Remove Reaction"),
+                        controls::tip(theme, tr("Remove Reaction")),
                         iced::widget::tooltip::Position::Top,
                     )
                     .gap(6),
@@ -213,7 +218,7 @@ impl<'a> View<'a> {
         }
         if window.loading || state.more_reactors() {
             people = people.push(
-                container(text("Loading...").size(14).color(theme.secondary))
+                container(text(tr("Loading...")).size(14).color(theme.secondary))
                     .center_x(Length::Fill)
                     .height(ROW)
                     .align_y(Alignment::Center),

@@ -15,6 +15,7 @@ use yapfast_core::{
         StickerInput, StickersPage,
     },
     chat::{ServerEmoji, ServerPicture, ServerSticker},
+    i18n::{self, tr},
 };
 
 use super::View;
@@ -114,7 +115,7 @@ impl Line<'_> {
 /// table without emoji isn't shown.
 fn lines(page: &EmojiPage) -> Vec<Line<'_>> {
     let mut lines = Vec::new();
-    for (animated, title) in [(false, "Emoji"), (true, "Animated Emoji")] {
+    for (animated, title) in [(false, tr("Emoji")), (true, tr("Animated Emoji"))] {
         let start = lines.len();
         lines.push(Line::Heading {
             title,
@@ -190,9 +191,8 @@ pub(super) fn dialog_field(page: &EmojiPage) -> Option<&'static str> {
 /// How many slots are left, in Discord's words.
 fn slots(free: usize) -> String {
     match free {
-        0 => "no slots available".to_owned(),
-        1 => "1 slot available".to_owned(),
-        free => format!("{free} slots available"),
+        0 => tr("no slots available").to_owned(),
+        free => i18n::trn("{n} slot available", "{n} slots available", free),
     }
 }
 
@@ -211,7 +211,7 @@ pub(super) fn answers<'a>(
 ) -> Element<'a, Message> {
     row![
         Space::new().width(Length::Fill),
-        action(theme, "Cancel", Kind::Ghost, cancel),
+        action(theme, tr("Cancel"), Kind::Ghost, cancel),
         action(theme, label, kind, confirm),
     ]
     .spacing(form::TIGHT)
@@ -278,13 +278,10 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let rules = self.cx.app.expression_rules(&core.server);
         let mut parts = column![
-            form::title(theme, "Emoji"),
+            form::title(theme, tr("Emoji")),
             form::note(
                 theme,
-                format!(
-                    "Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.",
-                    page.slots()
-                ),
+                i18n::fill(tr("Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size."), &[&page.slots()]),
             ),
         ]
         .spacing(form::GAP)
@@ -292,7 +289,7 @@ impl<'a> View<'a> {
         if (rules.manage || rules.create) && (page.free(false) > 0 || page.free(true) > 0) {
             parts = parts.push(action(
                 theme,
-                "Upload Emoji",
+                tr("Upload Emoji"),
                 Kind::Primary,
                 (core.reading.is_none() && page.upload.is_none())
                     .then(|| message(Settings::Pick(ServerPicture::Emoji))),
@@ -304,8 +301,8 @@ impl<'a> View<'a> {
                 .push(
                     container(
                         column![
-                            text("No Emoji").size(17).font(BOLD).color(theme.text),
-                            text("Get the party started by uploading an emoji")
+                            text(tr("No Emoji")).size(17).font(BOLD).color(theme.text),
+                            text(tr("Get the party started by uploading an emoji"))
                                 .size(15)
                                 .color(theme.secondary),
                         ]
@@ -359,14 +356,14 @@ impl<'a> View<'a> {
             // The spare height goes between the title and the columns' names.
             Space::new().height(Length::Fill),
             row![
-                container(name("IMAGE")).width(IMAGE_COLUMN),
-                container(name("NAME"))
+                container(name(tr("IMAGE"))).width(IMAGE_COLUMN),
+                container(name(tr("NAME")))
                     .padding(Padding {
                         left: 8.0,
                         ..Padding::ZERO
                     })
                     .width(Length::Fill),
-                container(name("UPLOADED BY")).width(Length::Fill),
+                container(name(tr("UPLOADED BY"))).width(Length::Fill),
                 Space::new().width(BUTTON),
             ]
             .spacing(16),
@@ -471,7 +468,7 @@ impl<'a> View<'a> {
                 .look
                 .icon_button(
                     Icon::X,
-                    "Delete",
+                    tr("Delete"),
                     Some(emoji(EmojiInput::Delete(listed.id.clone()))),
                 )
                 .size(BUTTON, BUTTON_GLYPH)
@@ -522,9 +519,12 @@ impl<'a> View<'a> {
                 .on_submit(emoji(EmojiInput::Finish));
         }
         let mut body = column![
-            text("Upload Emoji").size(20).font(BOLD).color(theme.text),
+            text(tr("Upload Emoji"))
+                .size(20)
+                .font(BOLD)
+                .color(theme.text),
             stage,
-            column![form::heading(theme, "NAME"), field].spacing(6),
+            column![form::heading(theme, tr("NAME")), field].spacing(6),
         ]
         .spacing(14)
         .padding(16);
@@ -534,7 +534,11 @@ impl<'a> View<'a> {
         body = body.push(answers(
             theme,
             (!saving).then(|| emoji(EmojiInput::Cancel)),
-            if saving { "Uploading..." } else { "Upload" },
+            if saving {
+                tr("Uploading...")
+            } else {
+                tr("Upload")
+            },
             Kind::Primary,
             may_finish.then(|| emoji(EmojiInput::Finish)),
         ));
@@ -562,10 +566,12 @@ impl<'a> View<'a> {
         let rules = self.cx.app.expression_rules(&core.server);
         let may_upload = (rules.manage || rules.create) && !page.full();
         let mut parts = vec![
-            form::title(theme, "Stickers"),
+            form::title(theme, tr("Stickers")),
             form::note(
                 theme,
-                "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you.",
+                tr(
+                    "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you.",
+                ),
             ),
         ];
         for card in page.cards() {
@@ -589,15 +595,21 @@ impl<'a> View<'a> {
             head = head.push(self.cx.look.glyph(Icon::Lock, 16, theme.secondary));
         }
         let title = match card.level {
-            0 => "Free Slots".to_owned(),
-            level => format!("Level {level}"),
+            0 => tr("Free Slots").to_owned(),
+            level => i18n::fill(tr("Level {}"), &[&level]),
         };
         let status = if card.unlocked {
             let free = card.slots.saturating_sub(card.stickers.len());
-            let word = if card.slots == 1 { "slot" } else { "slots" };
-            format!("{free} of {} {word} available", card.slots)
+            i18n::fill(
+                if card.slots == 1 {
+                    tr("{0} of {1} slot available")
+                } else {
+                    tr("{0} of {1} slots available")
+                },
+                &[&free, &card.slots],
+            )
         } else {
-            format!("{} Boosts", LEVEL_BOOSTS[card.level])
+            i18n::fill(tr("{} Boosts"), &[&LEVEL_BOOSTS[card.level]])
         };
         head = head
             .push(
@@ -702,7 +714,7 @@ impl<'a> View<'a> {
                         .look
                         .icon_button(
                             Icon::Pencil,
-                            "Edit",
+                            tr("Edit"),
                             Some(sticker(StickerInput::Edit(listed.id.clone()))),
                         )
                         .size(TILE_BUTTON, TILE_GLYPH)
@@ -713,7 +725,7 @@ impl<'a> View<'a> {
                         .look
                         .icon_button(
                             Icon::X,
-                            "Delete",
+                            tr("Delete"),
                             Some(sticker(StickerInput::Delete(listed.id.clone()))),
                         )
                         .size(TILE_BUTTON, TILE_GLYPH)
@@ -740,7 +752,7 @@ impl<'a> View<'a> {
                     self.cx
                         .look
                         .glyph(Icon::CirclePlus, ADD_GLYPH, theme.secondary),
-                    text("Upload Sticker")
+                    text(tr("Upload Sticker"))
                         .size(14)
                         .font(SEMIBOLD)
                         .color(theme.secondary),
@@ -791,14 +803,14 @@ impl<'a> View<'a> {
                         .bare(),
                 ),
                 None if editing => Space::new().into(),
-                None => text("Preview").size(14).color(theme.muted).into(),
+                None => text(tr("Preview")).size(14).color(theme.muted).into(),
             };
         let sunken = theme.sunken;
         let mut body = column![
             text(if editing {
-                "Edit Sticker"
+                tr("Edit Sticker")
             } else {
-                "Upload Sticker"
+                tr("Upload Sticker")
             })
             .size(20)
             .font(BOLD)
@@ -814,13 +826,13 @@ impl<'a> View<'a> {
             let has_file = draft.file.is_some();
             body = body.push(
                 column![
-                    form::heading(theme, "FILE"),
+                    form::heading(theme, tr("FILE")),
                     row![
                         container(
                             text(if has_file {
                                 draft.file_name.as_str()
                             } else {
-                                "File should be APNG, JPG, PNG or GIF (512 KB max)"
+                                tr("File should be APNG, JPG, PNG or GIF (512 KB max)")
                             })
                             .size(13)
                             .color(if has_file {
@@ -834,7 +846,7 @@ impl<'a> View<'a> {
                         .clip(true),
                         action(
                             theme,
-                            "Browse",
+                            tr("Browse"),
                             Kind::Plain,
                             (!saving && core.reading.is_none())
                                 .then(|| message(Settings::Pick(ServerPicture::Sticker))),
@@ -861,31 +873,33 @@ impl<'a> View<'a> {
         };
         body = body
             .push(field(
-                "RELATED EMOJI",
+                tr("RELATED EMOJI"),
                 "sticker-tags",
-                "Type or paste an emoji",
+                tr("Type or paste an emoji"),
                 &draft.form.tags,
                 StickerInput::Tags,
             ))
             .push(field(
-                "STICKER NAME",
+                tr("STICKER NAME"),
                 "sticker-name",
-                "e.g.: cat hug",
+                tr("e.g.: cat hug"),
                 &draft.form.name,
                 StickerInput::Name,
             ))
             .push(
                 field(
-                    "DESCRIPTION",
+                    tr("DESCRIPTION"),
                     "sticker-description",
                     "",
                     &draft.form.description,
                     StickerInput::Description,
                 )
                 .push(
-                    text("Descriptions are optional but must be more than 1 character.")
-                        .size(12)
-                        .color(theme.secondary),
+                    text(tr(
+                        "Descriptions are optional but must be more than 1 character.",
+                    ))
+                    .size(12)
+                    .color(theme.secondary),
                 ),
             );
         if let Some(error) = &draft.error {
@@ -895,11 +909,11 @@ impl<'a> View<'a> {
             theme,
             (!saving).then(|| sticker(StickerInput::Cancel)),
             if saving {
-                "Saving..."
+                tr("Saving...")
             } else if editing {
-                "Update"
+                tr("Update")
             } else {
-                "Upload"
+                tr("Upload")
             },
             Kind::Primary,
             draft.ready().then(|| sticker(StickerInput::Save)),

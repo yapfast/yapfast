@@ -13,6 +13,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AddFriend, DmScreen, Navigation},
     chat::{Friend, Presence},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -223,10 +224,10 @@ fn around(friend: &Friend) -> bool {
 /// A presence in words, as the friends list says it.
 fn presence_word(presence: Presence) -> &'static str {
     match presence {
-        Presence::DoNotDisturb => "Do Not Disturb",
-        Presence::Idle => "Idle",
-        Presence::Online | Presence::Mobile => "Online",
-        _ => "Offline",
+        Presence::DoNotDisturb => tr("Do Not Disturb"),
+        Presence::Idle => tr("Idle"),
+        Presence::Online | Presence::Mobile => tr("Online"),
+        _ => tr("Offline"),
     }
 }
 
@@ -245,8 +246,8 @@ pub fn add_page(ctx: crate::ctx::Ctx<'_>) -> bool {
 pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (icon, name) = match screen {
-        DmScreen::Friends => (Icon::Users, "Friends"),
-        DmScreen::Requests => (Icon::Inbox, "Requests"),
+        DmScreen::Friends => (Icon::Users, tr("Friends")),
+        DmScreen::Requests => (Icon::Inbox, tr("Requests")),
     };
     let mut head = row![
         ctx.look.glyph(icon, 22, theme.channel_read),
@@ -266,32 +267,32 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
             .push(crate::header::dot(theme))
             .push(apart(header_tab(
                 ctx,
-                "Online",
+                tr("Online"),
                 !all && !page,
                 false,
                 Some(Message::Friends(Event::All(false))),
             )))
             .push(apart(header_tab(
                 ctx,
-                "All",
+                tr("All"),
                 all && !page,
                 false,
                 Some(Message::Friends(Event::All(true))),
             )))
             .push(apart(header_tab(
                 ctx,
-                "Pending",
+                tr("Pending"),
                 false,
                 false,
                 Some(Message::Side(crate::sidebar::Event::Requests)),
             )));
         head = if page {
-            head.push(header_tab(ctx, "Add Friend", true, true, None))
+            head.push(header_tab(ctx, tr("Add Friend"), true, true, None))
         } else {
             head.push(
                 action(
                     theme,
-                    "Add Friend",
+                    tr("Add Friend"),
                     Kind::Primary,
                     Some(Message::Friends(Event::OpenAdd)),
                 )
@@ -405,15 +406,15 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if state.friends.is_empty() {
         return ctx.look.empty_screen(
             Icon::Users,
-            "No friends yet",
-            "Add someone with their Discord username.",
-            Some(("Add a friend", Message::Friends(Event::OpenAdd))),
+            tr("No friends yet"),
+            tr("Add someone with their Discord username."),
+            Some((tr("Add a friend"), Message::Friends(Event::OpenAdd))),
         );
     }
     let shown = friends_shown(ctx);
     // Discord's field: a 1 px border, a magnifier, 40 px in all.
     let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
-    let input = iced::widget::text_input("Search", &ctx.friends.filter)
+    let input = iced::widget::text_input(tr("Search"), &ctx.friends.filter)
         .id(iced::widget::Id::new(SEARCH))
         .size(15)
         .padding(0)
@@ -446,9 +447,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         text(format!(
             "{} \u{2014} {}",
             if ctx.friends.all {
-                "All Friends"
+                tr("All Friends")
             } else {
-                "Online"
+                tr("Online")
             },
             shown.len()
         ))
@@ -478,9 +479,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .height(Length::Fill);
     if shown.is_empty() {
         let words = if ctx.friends.filter.is_empty() {
-            "None of your friends are around right now."
+            tr("None of your friends are around right now.")
         } else {
-            "No friend's name matches that."
+            tr("No friend's name matches that.")
         };
         page = page.push(container(text(words).size(14).color(theme.secondary)).padding([0, 8]));
     }
@@ -705,10 +706,10 @@ fn friend_row<'a>(
         .gap(6)
     };
     let buttons = row![
-        round(Icon::MessageCircle, "Message", message.clone()),
+        round(Icon::MessageCircle, tr("Message"), message.clone()),
         round(
             Icon::EllipsisVertical,
-            "More",
+            tr("More"),
             Message::Friends(Event::Menu(friend.id.clone()))
         )
     ]
@@ -766,7 +767,7 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         .style(lit_style(None, theme.hover, 6.0));
     let sending = dialog_state.sending;
     let name = &ctx.friends.add_name;
-    let mut input = field(theme, ADD_FIELD, "Username", name, false, true)
+    let mut input = field(theme, ADD_FIELD, tr("Username"), name, false, true)
         .size(15)
         .padding(10)
         .on_input(|text| Message::Friends(Event::AddName(text)));
@@ -775,13 +776,13 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
     }
     let send = action(
         theme,
-        "Send request",
+        tr("Send request"),
         Kind::Primary,
         (!sending && !name.is_empty()).then_some(Message::Friends(Event::Send)),
     );
     let mut body = column![
         row![
-            text("Add a friend")
+            text(tr("Add a friend"))
                 .size(18)
                 .font(BOLD)
                 .color(theme.text)
@@ -789,19 +790,24 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
             close
         ]
         .align_y(Alignment::Center),
-        text("Send someone a friend request on Discord with their username.")
-            .size(14)
-            .color(theme.secondary),
+        text(tr(
+            "Send someone a friend request on Discord with their username."
+        ))
+        .size(14)
+        .color(theme.secondary),
         row![input, send].spacing(8).align_y(Alignment::Center),
     ]
     .spacing(12)
     .padding(20);
     let (note, ink) = match dialog_state {
-        AddFriend { sending: true, .. } => ("Sending...".to_owned(), theme.muted),
+        AddFriend { sending: true, .. } => (tr("Sending...").to_owned(), theme.muted),
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (format!("Sent {name} a friend request."), theme.live),
+        } => (
+            i18n::fill(tr("Sent {} a friend request."), &[&name]),
+            theme.live,
+        ),
         AddFriend {
             outcome: Some(Err(error)),
             ..

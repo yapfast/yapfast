@@ -26,6 +26,7 @@ pub mod tile;
 pub mod timer;
 pub mod viewer;
 pub mod widgets;
+pub mod words;
 
 #[cfg(test)]
 mod testing;

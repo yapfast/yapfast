@@ -10,6 +10,8 @@
 //! the Arch PKGBUILD) sets `YAPFAST_RELEASE`, and `build.rs` passes that on;
 //! every other build is a development build. A nightly's version names it.
 
+use yapfast_core::i18n::tr;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const COMMIT: Option<&str> = option_env!("YAPFAST_BUILD_COMMIT");
 const DATE: Option<&str> = option_env!("YAPFAST_BUILD_DATE");
@@ -37,10 +39,10 @@ pub enum Channel {
 impl Channel {
     pub fn label(self) -> &'static str {
         match self {
-            Channel::Stable => "Stable",
-            Channel::Nightly => "Nightly",
-            Channel::Prerelease => "Pre-release",
-            Channel::Development => "Development build",
+            Channel::Stable => tr("Stable"),
+            Channel::Nightly => tr("Nightly"),
+            Channel::Prerelease => tr("Pre-release"),
+            Channel::Development => tr("Development build"),
         }
     }
 

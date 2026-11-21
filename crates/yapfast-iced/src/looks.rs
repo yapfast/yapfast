@@ -18,6 +18,7 @@ use iced::{
 use yapfast_core::{
     application::AppState,
     chat::{ChatMember, NameStyle, Presence, Role},
+    i18n::{self, tr},
 };
 
 /// How long a member list stays as built while its people change: the first
@@ -220,9 +221,9 @@ pub fn member_lines(
                 .filter(|other| other.role == member.role)
                 .count();
             let role = match member.role {
-                Role::Admin => "ADMINS",
-                Role::Moderator => "MODERATORS",
-                Role::Member => "MEMBERS",
+                Role::Admin => tr("ADMINS"),
+                Role::Moderator => tr("MODERATORS"),
+                Role::Member => tr("MEMBERS"),
             };
             Some(format!("{role} — {count}"))
         } else {
@@ -274,9 +275,9 @@ pub fn member_lines(
             owner: owner == Some(member.id.as_str()),
             timed_out: member.timed_out_until.is_some_and(|until| until > now),
             boosting: member.boosting_since.map(|since| {
-                format!(
-                    "Server boosting since {}",
-                    yapfast_core::clock::day(since / 1000)
+                i18n::fill(
+                    tr("Server boosting since {}"),
+                    &[&yapfast_core::clock::day(since / 1000)],
                 )
             }),
             presence: member.presence,
@@ -398,17 +399,17 @@ pub fn name_look(
 /// usual font, for 11 and the retired ids.
 pub fn family(font: u8) -> Option<&'static str> {
     Some(match font {
-        3 => "Sakura",
-        4 => "Jellybean",
-        6 => "Modern",
+        3 => tr("Sakura"),
+        4 => tr("Jellybean"),
+        6 => tr("Modern"),
         7 => "Néo-castel",
-        8 => "8Bit",
+        8 => tr("8Bit"),
         10 => "Sinistre",
-        12 => "Tempo",
-        13 => "Monkey Bars",
-        14 => "Mainframe",
-        15 => "Headbang",
-        16 => "Journal",
+        12 => tr("Tempo"),
+        13 => tr("Monkey Bars"),
+        14 => tr("Mainframe"),
+        15 => tr("Headbang"),
+        16 => tr("Journal"),
         _ => return None,
     })
 }
@@ -625,7 +626,7 @@ impl<'a> crate::ctx::Ctx<'a> {
 
     /// The APP tag a bot's name wears.
     pub fn bot_tag(self, opacity: f32) -> Element<'a, Message> {
-        self.blurple_tag("APP", opacity)
+        self.blurple_tag(tr("APP"), opacity)
     }
 
     /// Discord's white on blurple tag after a name: APP, or OP for the

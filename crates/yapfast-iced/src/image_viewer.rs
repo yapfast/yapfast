@@ -19,6 +19,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::Attachment,
+    i18n::tr,
     links,
 };
 
@@ -178,7 +179,7 @@ pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
     Task::perform(
         async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Save attachment")
+                .set_title(tr("Save attachment"))
                 .set_file_name(name)
                 .save_file()
                 .await
@@ -218,7 +219,7 @@ impl<'a> View<'a> {
         };
         let note = match loaded {
             Some(Some(Err(error))) => *error,
-            Some(None) => "Loading the full image...",
+            Some(None) => tr("Loading the full image..."),
             _ => "",
         };
         let natural = self
@@ -266,7 +267,7 @@ impl<'a> View<'a> {
                     .face_button(
                         self.cx.look.glyph(Icon::Download, 20, Color::WHITE),
                         32.0,
-                        "Save",
+                        tr("Save"),
                         Message::Image(Event::Save(viewer.item.clone(), viewer.index)),
                     )
                     .below()
@@ -279,7 +280,7 @@ impl<'a> View<'a> {
                 .face_button(
                     self.cx.look.glyph(Icon::X, 20, Color::WHITE),
                     32.0,
-                    "Close",
+                    tr("Close"),
                     Message::Image(Event::Close),
                 )
                 .below()
@@ -433,18 +434,22 @@ pub fn media_rows(index: usize, video: bool, preview: bool, link: bool) -> Vec<M
     let mut rows = Vec::new();
     let row = |act, label, icon| MenuRow::new(act, label, icon).key(key.clone());
     if link && !video && !preview {
-        rows.push(row(MenuAct::CopyImage, "Copy Image", Icon::Image));
+        rows.push(row(MenuAct::CopyImage, tr("Copy Image"), Icon::Image));
     }
     if !preview {
         rows.push(row(
             MenuAct::SaveMedia,
-            if video { "Save Video" } else { "Save Image" },
+            if video {
+                tr("Save Video")
+            } else {
+                tr("Save Image")
+            },
             Icon::Download,
         ));
     }
     if link {
-        rows.push(row(MenuAct::CopyMediaLink, "Copy Link", Icon::Chain));
-        rows.push(row(MenuAct::OpenMediaLink, "Open Link", Icon::Link));
+        rows.push(row(MenuAct::CopyMediaLink, tr("Copy Link"), Icon::Chain));
+        rows.push(row(MenuAct::OpenMediaLink, tr("Open Link"), Icon::Link));
     }
     rows
 }

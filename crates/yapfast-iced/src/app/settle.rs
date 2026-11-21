@@ -277,7 +277,7 @@ impl App {
     fn changed(&mut self, pref: Pref) -> Task<Message> {
         let mut task = Task::none();
         match pref {
-            Pref::Clock | Pref::Rows => {
+            Pref::Clock | Pref::Rows | Pref::Language => {
                 let none = super::Messages::default();
                 self.measure(&none, true);
                 self.dirty = true;

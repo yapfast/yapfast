@@ -11,6 +11,7 @@ use iced::{Point, Task, widget::operation};
 use yapfast_core::{
     application::{Action, ChannelAsk, MUTE_TIMES, MenuChoice, network_id, network_link},
     chat::{ChannelKind, MemberChange, Muting, NotificationChange, Notifications, NotifyLevel},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -95,12 +96,12 @@ fn place_menu(
         .filter(|choice| developer || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let label = match choice {
-                MenuChoice::Invite if server => "Invite to server",
-                MenuChoice::CreateChannel if server => "Create channel",
-                MenuChoice::CreateChannel if voice => "Create voice channel",
-                MenuChoice::EditChannel if category => "Edit category",
-                MenuChoice::DeleteChannel if category => "Delete category",
-                MenuChoice::Call if in_call => "Join call",
+                MenuChoice::Invite if server => tr("Invite to server"),
+                MenuChoice::CreateChannel if server => tr("Create channel"),
+                MenuChoice::CreateChannel if voice => tr("Create voice channel"),
+                MenuChoice::EditChannel if category => tr("Edit category"),
+                MenuChoice::DeleteChannel if category => tr("Delete category"),
+                MenuChoice::Call if in_call => tr("Join call"),
                 choice => label(choice),
             };
             let starts = group_of(choice);
@@ -223,7 +224,7 @@ pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message>
         .flat_map(|server| &server.events)
         .map(|event| {
             let when = match u64::try_from(event.start) {
-                Ok(_) if event.active => "Happening now".to_owned(),
+                Ok(_) if event.active => tr("Happening now").to_owned(),
                 Ok(start) => until(start, twelve),
                 Err(_) => String::new(),
             };
@@ -241,7 +242,7 @@ pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message>
     if rows.is_empty() {
         rows.push(MenuRow {
             disabled: true,
-            ..MenuRow::plain(MenuAct::Event, "No upcoming events")
+            ..MenuRow::plain(MenuAct::Event, tr("No upcoming events"))
         });
     }
     app.win.menu = Some(Menu {
@@ -301,7 +302,7 @@ pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Me
         MenuChoice::JoinThread | MenuChoice::LeaveThread => Action::JoinThread {
             room: place,
             join: choice == MenuChoice::JoinThread,
-            location: "Context Menu",
+            location: tr("Context Menu"),
         },
         MenuChoice::CopyLink => return iced::clipboard::write(network_link(&place)),
         MenuChoice::CopyId => return iced::clipboard::write(network_id(&place).to_owned()),
@@ -436,8 +437,15 @@ struct Notify {
 }
 
 impl Notify {
-    fn kind(&self) -> &'static str {
-        if self.category { "category" } else { "channel" }
+    /// The mute row's text: whole, for a language that puts the kind
+    /// elsewhere in it.
+    fn mute_label(&self) -> &'static str {
+        match (self.settings.muted, self.category) {
+            (false, false) => tr("Mute channel"),
+            (false, true) => tr("Mute category"),
+            (true, false) => tr("Unmute channel"),
+            (true, true) => tr("Unmute category"),
+        }
     }
 
     /// Mute for a time, in a submenu (a click on the row itself mutes
@@ -445,7 +453,7 @@ impl Notify {
     /// when.
     fn mute_row(&self, twelve: bool) -> MenuRow {
         let muted = self.settings.muted;
-        let label = format!("{} {}", if muted { "Unmute" } else { "Mute" }, self.kind());
+        let label = self.mute_label();
         let mut row = MenuRow {
             icon: Some(if muted { Icon::Bell } else { Icon::BellOff }),
             subtitle: self
@@ -476,8 +484,8 @@ impl Notify {
         .into_iter()
         .map(|level| {
             let label = match level {
-                None if self.in_category => "Use category default",
-                None => "Use server default",
+                None if self.in_category => tr("Use category default"),
+                None => tr("Use server default"),
                 Some(level) => level_name(level),
             };
             MenuRow {
@@ -525,14 +533,14 @@ fn server_levels(known: &yapfast_core::chat::ServerNotifications) -> Vec<MenuRow
             MenuAct::Notify(NotificationChange::SuppressEveryone(
                 !known.suppress_everyone,
             )),
-            "Suppress @everyone and @here",
+            tr("Suppress @everyone and @here"),
         )
     });
     rows.push(MenuRow {
         check: Check::Box(known.suppress_roles),
         ..MenuRow::plain(
             MenuAct::Notify(NotificationChange::SuppressRoles(!known.suppress_roles)),
-            "Suppress all role @mentions",
+            tr("Suppress all role @mentions"),
         )
     });
     rows
@@ -541,9 +549,9 @@ fn server_levels(known: &yapfast_core::chat::ServerNotifications) -> Vec<MenuRow
 /// What a level is called, as Discord's client words it.
 fn level_name(level: NotifyLevel) -> &'static str {
     match level {
-        NotifyLevel::All => "All messages",
-        NotifyLevel::Mentions => "Only @mentions",
-        NotifyLevel::Nothing => "Nothing",
+        NotifyLevel::All => tr("All messages"),
+        NotifyLevel::Mentions => tr("Only @mentions"),
+        NotifyLevel::Nothing => tr("Nothing"),
     }
 }
 
@@ -554,13 +562,13 @@ pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
         .into_iter()
         .map(|muting| {
             let label: String = match muting {
-                Muting::Minutes(15) => "For 15 minutes".into(),
-                Muting::Minutes(60) => "For 1 hour".into(),
+                Muting::Minutes(15) => tr("For 15 minutes").into(),
+                Muting::Minutes(60) => tr("For 1 hour").into(),
                 Muting::Minutes(minutes) if minutes % 60 == 0 => {
-                    format!("For {} hours", minutes / 60)
+                    i18n::fill(tr("For {} hours"), &[&(minutes / 60)])
                 }
-                Muting::Minutes(minutes) => format!("For {minutes} minutes"),
-                Muting::Always | Muting::Off => "Until I turn it back on".into(),
+                Muting::Minutes(minutes) => i18n::fill(tr("For {} minutes"), &[&minutes]),
+                Muting::Always | Muting::Off => tr("Until I turn it back on").into(),
             };
             MenuRow::plain(act(muting), label)
         })
@@ -569,7 +577,7 @@ pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
 
 /// When a mute ends, as its Unmute row says it.
 fn muted_until(seconds: u64, twelve_hour: bool) -> String {
-    format!("Muted until {}", until(seconds, twelve_hour))
+    i18n::fill(tr("Muted until {}"), &[&until(seconds, twelve_hour)])
 }
 
 /// When something ends, a Unix time: the time today, or the day too.
@@ -697,70 +705,70 @@ pub fn icon(choice: MenuChoice) -> Icon {
 /// What a menu row says for a choice.
 pub fn label(choice: MenuChoice) -> &'static str {
     match choice {
-        MenuChoice::MarkRead => "Mark as read",
-        MenuChoice::JoinVoice => "Join voice",
-        MenuChoice::OpenChat => "Open chat",
-        MenuChoice::Profile => "Profile",
-        MenuChoice::Message => "Message",
-        MenuChoice::AddFriend => "Add friend",
-        MenuChoice::AcceptFriend => "Accept friend request",
-        MenuChoice::CancelFriendRequest => "Cancel friend request",
-        MenuChoice::Pin => "Pin",
-        MenuChoice::Unpin => "Unpin",
-        MenuChoice::Call => "Start call",
-        MenuChoice::AddNote => "Add note",
-        MenuChoice::AddNickname => "Add friend nickname",
-        MenuChoice::EditNickname => "Change friend nickname",
-        MenuChoice::CloseDm => "Close DM",
-        MenuChoice::LeaveGroup => "Leave group",
-        MenuChoice::InviteToServer => "Invite to server",
-        MenuChoice::Apps => "Apps",
-        MenuChoice::Unfriend => "Remove friend",
-        MenuChoice::Ignore => "Ignore",
-        MenuChoice::Unignore => "Stop ignoring",
-        MenuChoice::Block => "Block",
-        MenuChoice::Unblock => "Unblock",
-        MenuChoice::Mute => "Mute",
-        MenuChoice::Unmute => "Unmute",
-        MenuChoice::CopyLink => "Copy link",
-        MenuChoice::CopyId => "Copy ID",
-        MenuChoice::Mention => "Mention",
-        MenuChoice::ServerNickname => "Change nickname",
-        MenuChoice::Roles => "Roles",
-        MenuChoice::RemoveTimeout => "Remove timeout",
-        MenuChoice::Timeout => "Time out",
-        MenuChoice::Kick => "Kick",
-        MenuChoice::Ban => "Ban",
-        MenuChoice::TransferOwnership => "Transfer Ownership",
-        MenuChoice::LocalMute | MenuChoice::SelfMute => "Mute",
-        MenuChoice::SoundboardMute => "Mute Soundboard",
-        MenuChoice::SelfDeafen => "Deafen",
-        MenuChoice::MoveTo => "Move to",
-        MenuChoice::ServerMute => "Server mute",
-        MenuChoice::ServerDeafen => "Server deafen",
-        MenuChoice::Disconnect => "Disconnect",
-        MenuChoice::ChannelMute => "Mute",
-        MenuChoice::ChannelNotifications => "Notification settings",
-        MenuChoice::MuteServer => "Mute server",
-        MenuChoice::UnmuteServer => "Unmute server",
-        MenuChoice::ServerNotifications => "Notification settings",
-        MenuChoice::ShowAllChannels => "Show all channels",
-        MenuChoice::HideMuted => "Hide muted channels",
-        MenuChoice::Invite => "Invite to channel",
-        MenuChoice::PinChannel => "Pin channel to top",
-        MenuChoice::UnpinChannel => "Unpin channel",
-        MenuChoice::AddToChannelList => "Add to channel list",
-        MenuChoice::RemoveFromChannelList => "Remove from channel list",
-        MenuChoice::UnfollowCategory => "Unfollow channel category",
-        MenuChoice::CreateChannel => "Create text channel",
-        MenuChoice::CreateCategory => "Create category",
-        MenuChoice::EditChannel => "Edit channel",
-        MenuChoice::DuplicateChannel => "Duplicate channel",
-        MenuChoice::DeleteChannel => "Delete channel",
-        MenuChoice::LeaveServer => "Leave server",
-        MenuChoice::JoinThread => "Join thread",
-        MenuChoice::LeaveThread => "Leave thread",
-        MenuChoice::EditServerProfile => "Edit server profile",
-        MenuChoice::ServerSettings => "Server settings",
+        MenuChoice::MarkRead => tr("Mark as read"),
+        MenuChoice::JoinVoice => tr("Join voice"),
+        MenuChoice::OpenChat => tr("Open chat"),
+        MenuChoice::Profile => tr("Profile"),
+        MenuChoice::Message => tr("Message"),
+        MenuChoice::AddFriend => tr("Add friend"),
+        MenuChoice::AcceptFriend => tr("Accept friend request"),
+        MenuChoice::CancelFriendRequest => tr("Cancel friend request"),
+        MenuChoice::Pin => tr("Pin"),
+        MenuChoice::Unpin => tr("Unpin"),
+        MenuChoice::Call => tr("Start call"),
+        MenuChoice::AddNote => tr("Add note"),
+        MenuChoice::AddNickname => tr("Add friend nickname"),
+        MenuChoice::EditNickname => tr("Change friend nickname"),
+        MenuChoice::CloseDm => tr("Close DM"),
+        MenuChoice::LeaveGroup => tr("Leave group"),
+        MenuChoice::InviteToServer => tr("Invite to server"),
+        MenuChoice::Apps => tr("Apps"),
+        MenuChoice::Unfriend => tr("Remove friend"),
+        MenuChoice::Ignore => tr("Ignore"),
+        MenuChoice::Unignore => tr("Stop ignoring"),
+        MenuChoice::Block => tr("Block"),
+        MenuChoice::Unblock => tr("Unblock"),
+        MenuChoice::Mute => tr("Mute"),
+        MenuChoice::Unmute => tr("Unmute"),
+        MenuChoice::CopyLink => tr("Copy link"),
+        MenuChoice::CopyId => tr("Copy ID"),
+        MenuChoice::Mention => tr("Mention"),
+        MenuChoice::ServerNickname => tr("Change nickname"),
+        MenuChoice::Roles => tr("Roles"),
+        MenuChoice::RemoveTimeout => tr("Remove timeout"),
+        MenuChoice::Timeout => tr("Time out"),
+        MenuChoice::Kick => tr("Kick"),
+        MenuChoice::Ban => tr("Ban"),
+        MenuChoice::TransferOwnership => tr("Transfer Ownership"),
+        MenuChoice::LocalMute | MenuChoice::SelfMute => tr("Mute"),
+        MenuChoice::SoundboardMute => tr("Mute Soundboard"),
+        MenuChoice::SelfDeafen => tr("Deafen"),
+        MenuChoice::MoveTo => tr("Move to"),
+        MenuChoice::ServerMute => tr("Server mute"),
+        MenuChoice::ServerDeafen => tr("Server deafen"),
+        MenuChoice::Disconnect => tr("Disconnect"),
+        MenuChoice::ChannelMute => tr("Mute"),
+        MenuChoice::ChannelNotifications => tr("Notification settings"),
+        MenuChoice::MuteServer => tr("Mute server"),
+        MenuChoice::UnmuteServer => tr("Unmute server"),
+        MenuChoice::ServerNotifications => tr("Notification settings"),
+        MenuChoice::ShowAllChannels => tr("Show all channels"),
+        MenuChoice::HideMuted => tr("Hide muted channels"),
+        MenuChoice::Invite => tr("Invite to channel"),
+        MenuChoice::PinChannel => tr("Pin channel to top"),
+        MenuChoice::UnpinChannel => tr("Unpin channel"),
+        MenuChoice::AddToChannelList => tr("Add to channel list"),
+        MenuChoice::RemoveFromChannelList => tr("Remove from channel list"),
+        MenuChoice::UnfollowCategory => tr("Unfollow channel category"),
+        MenuChoice::CreateChannel => tr("Create text channel"),
+        MenuChoice::CreateCategory => tr("Create category"),
+        MenuChoice::EditChannel => tr("Edit channel"),
+        MenuChoice::DuplicateChannel => tr("Duplicate channel"),
+        MenuChoice::DeleteChannel => tr("Delete channel"),
+        MenuChoice::LeaveServer => tr("Leave server"),
+        MenuChoice::JoinThread => tr("Join thread"),
+        MenuChoice::LeaveThread => tr("Leave thread"),
+        MenuChoice::EditServerProfile => tr("Edit server profile"),
+        MenuChoice::ServerSettings => tr("Server settings"),
     }
 }

@@ -10,6 +10,7 @@ use yapfast_core::chat::{self};
 use crate::{app::Message, controls, menus::MenuAct, pictures::Icon};
 
 use super::BAR_BUTTON;
+use yapfast_core::i18n::tr;
 
 /// Where the picker and the menu of row `index`'s message open, from
 /// its hover bar or the keys: under the bar's right end.
@@ -75,9 +76,9 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     let mut buttons = row![].align_y(Alignment::Center);
     if quick && message.can_pin {
         buttons = buttons.push(if message.pinned {
-            button(Icon::PinOff, "Unpin", act(MenuAct::Pin))
+            button(Icon::PinOff, tr("Unpin"), act(MenuAct::Pin))
         } else {
-            button(Icon::Pin, "Pin", act(MenuAct::Pin))
+            button(Icon::Pin, tr("Pin"), act(MenuAct::Pin))
         });
     }
     // Not in the thread beside, where no thread starts.
@@ -89,12 +90,12 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     {
         buttons = buttons.push(button(
             Icon::Thread,
-            "Create Thread",
+            tr("Create Thread"),
             act(MenuAct::NewThread),
         ));
     }
     if quick && message.own && message.can_edit && message.can_reply && writes {
-        buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
+        buttons = buttons.push(button(Icon::Reply, tr("Reply"), act(MenuAct::Reply)));
     }
     if message.can_react && super::reaction_chips::reacts(ctx, index) == chat::Reacts::Any {
         if !quick {
@@ -116,30 +117,30 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
         }
         buttons = buttons.push(button(
             Icon::SmilePlus,
-            "Add reaction",
+            tr("Add reaction"),
             act(MenuAct::AddReaction),
         ));
     }
     if message.own && message.can_edit && writes {
-        buttons = buttons.push(button(Icon::Pencil, "Edit", act(MenuAct::Edit)));
+        buttons = buttons.push(button(Icon::Pencil, tr("Edit"), act(MenuAct::Edit)));
     } else if message.can_reply && writes {
-        buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
+        buttons = buttons.push(button(Icon::Reply, tr("Reply"), act(MenuAct::Reply)));
     }
     // Beside Reply, as in Discord, whether or not Shift is held.
     if message.can_forward && crate::forward::allowed(ctx.state) {
-        buttons = buttons.push(button(Icon::Forward, "Forward", act(MenuAct::Forward)));
+        buttons = buttons.push(button(Icon::Forward, tr("Forward"), act(MenuAct::Forward)));
     }
     buttons = buttons.push(if deletes {
         ctx.look.face_button(
             ctx.look.glyph(Icon::Trash, 20, theme.danger),
             BAR_BUTTON,
-            "Delete",
+            tr("Delete"),
             act(MenuAct::DeleteNow),
         )
     } else {
         button(
             Icon::Ellipsis,
-            "More",
+            tr("More"),
             Message::Timeline(crate::timeline::Event::RowMenu(shared.clone(), at)),
         )
     });

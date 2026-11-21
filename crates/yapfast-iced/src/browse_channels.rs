@@ -21,12 +21,13 @@ use crate::{
     pictures::Icon,
     style::scrollbar,
 };
+use yapfast_core::i18n::{later, tr};
 
 /// A channel's row, and the search field's id.
 const ROW: f32 = 56.0;
 const HEADING: f32 = 44.0;
 pub const FILTER: &str = "browse-filter";
-const LOCKED: &str = "You must unfollow this category to add or remove specific channels.";
+const LOCKED: &str = later("You must unfollow this category to add or remove specific channels.");
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -53,7 +54,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let head = container(
         row![
             ctx.look.glyph(Icon::Hash, 22, theme.muted),
-            text("Browse Channels")
+            text(tr("Browse Channels"))
                 .size(16)
                 .font(BOLD)
                 .color(theme.text)
@@ -68,7 +69,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let field = controls::field(
         theme,
         FILTER,
-        "Search channels",
+        tr("Search channels"),
         ctx.browse_filter,
         false,
         true,
@@ -103,9 +104,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         .padding(Padding::new(16.0).bottom(0));
     if shown == 0 {
         let words = if query.is_empty() {
-            "There are no channels to browse."
+            tr("There are no channels to browse.")
         } else {
-            "No channel's name matches that."
+            tr("No channel's name matches that.")
         };
         page = page.push(
             container(text(words).size(14).color(theme.secondary))
@@ -135,7 +136,7 @@ fn browse_heading<'a>(
     category: &'a BrowsedChannel,
 ) -> Element<'a, Message> {
     let switch = form::switch(
-        "Follow category",
+        tr("Follow category"),
         category.followed,
         Some(Message::BrowseChannels(Event::Follow(
             category.id.clone(),
@@ -182,9 +183,9 @@ fn browse_row<'a>(ctx: crate::ctx::Ctx<'a>, channel: &'a BrowsedChannel) -> Elem
         words = words.push(elide(channel.topic.as_str()).size(12).color(theme.muted));
     }
     let label = match channel.kind {
-        BrowsedKind::Voice => "Join",
-        BrowsedKind::Forum => "Open",
-        _ => "View",
+        BrowsedKind::Voice => tr("Join"),
+        BrowsedKind::Forum => tr("Open"),
+        _ => tr("View"),
     };
     let content = row![
         ctx.look.glyph(icon, 20, theme.muted),
@@ -214,7 +215,12 @@ fn browse_row<'a>(ctx: crate::ctx::Ctx<'a>, channel: &'a BrowsedChannel) -> Elem
     )
     .style(lit_style(None, theme.raised, 8.0));
     if channel.by_category {
-        tooltip(face, controls::tip(theme, LOCKED), tooltip::Position::Top).into()
+        tooltip(
+            face,
+            controls::tip(theme, tr(LOCKED)),
+            tooltip::Position::Top,
+        )
+        .into()
     } else {
         face.into()
     }

@@ -11,6 +11,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, FORWARD_LIMIT},
     chat::ChatRoom,
+    i18n::{self, tr},
     network::Network,
 };
 
@@ -124,11 +125,11 @@ impl<'a> View<'a> {
             .style(crate::controls::lit_style(None, theme.hover, 6.0));
         let heading = row![
             column![
-                text("Forward To").size(18).font(BOLD).color(theme.text),
+                text(tr("Forward To")).size(18).font(BOLD).color(theme.text),
                 text(if chosen < FORWARD_LIMIT {
-                    "Select where you want to share this message.".to_owned()
+                    tr("Select where you want to share this message.").to_owned()
                 } else {
-                    format!("Maximum {FORWARD_LIMIT} places at once.")
+                    i18n::fill(tr("Maximum {} places at once."), &[&FORWARD_LIMIT])
                 })
                 .size(14)
                 .color(theme.secondary)
@@ -139,7 +140,7 @@ impl<'a> View<'a> {
             close
         ]
         .align_y(Alignment::Center);
-        let search = field(theme, SEARCH, "Search", &forwarding.query, false, true)
+        let search = field(theme, SEARCH, tr("Search"), &forwarding.query, false, true)
             .on_input(|query| Message::Forward(Event::Search(query)));
         let places = state.forward_places();
         let mut list = column![].spacing(2);
@@ -149,12 +150,14 @@ impl<'a> View<'a> {
         if places.is_empty() {
             let discord = Network::of(&forwarding.room) == Network::Discord;
             let empty = if discord {
-                "We searched far and wide. Unfortunately, no results were found."
+                tr("We searched far and wide. Unfortunately, no results were found.")
             } else if !forwarding.query.is_empty() {
-                "No conversations match."
+                tr("No conversations match.")
             } else {
-                "There's nowhere to forward to yet. Yapfast forwards Matrix messages only \
-                 into encrypted conversations."
+                tr(
+                    "There's nowhere to forward to yet. Yapfast forwards Matrix messages only \
+                 into encrypted conversations.",
+                )
             };
             list = list.push(container(text(empty).size(14).color(theme.secondary)).padding(8));
         }
@@ -175,7 +178,7 @@ impl<'a> View<'a> {
         let note = field(
             theme,
             NOTE,
-            "Add an optional message...",
+            tr("Add an optional message..."),
             self.s,
             false,
             true,
@@ -196,12 +199,13 @@ impl<'a> View<'a> {
             .collect();
         if !self.s.is_empty() && !slowed.is_empty() {
             let words = match slowed.as_slice() {
-                [one] => {
-                    format!("The message you added will not be sent to slowmode channel: {one}.")
-                }
-                many => format!(
-                    "The message you added will not be sent to slowmode channels: {}.",
-                    many.join(", ")
+                [one] => i18n::fill(
+                    tr("The message you added will not be sent to slowmode channel: {}."),
+                    &[&one],
+                ),
+                many => i18n::fill(
+                    tr("The message you added will not be sent to slowmode channels: {}."),
+                    &[&many.join(", ")],
                 ),
             };
             body = body.push(text(words).size(14).color(theme.secondary));
@@ -211,11 +215,8 @@ impl<'a> View<'a> {
         }
         // Up to FORWARD_LIMIT, as Discord's button counts them.
         let label = match chosen {
-            0 | 1 => "Send",
-            2 => "Send (2)",
-            3 => "Send (3)",
-            4 => "Send (4)",
-            _ => "Send (5)",
+            0 | 1 => tr("Send").to_owned(),
+            count => i18n::fill(tr("Send ({})"), &[&count.min(FORWARD_LIMIT)]),
         };
         body = body.push(
             row![
@@ -262,9 +263,9 @@ impl<'a> View<'a> {
             }
         };
         let place = match server {
-            _ if room.direct => "Direct message".to_owned(),
+            _ if room.direct => tr("Direct message").to_owned(),
             Some(server) => server.name.clone(),
-            None => "Channel".to_owned(),
+            None => tr("Channel").to_owned(),
         };
         let (accent, faint) = (theme.accent, theme.faint);
         let tick = container(if ticked {

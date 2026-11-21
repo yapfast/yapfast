@@ -19,6 +19,7 @@ use crate::{
 use super::{
     CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, ROW_RADIUS, Room, SideRow, VOICE_CARD_GAP,
 };
+use yapfast_core::i18n::tr;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(self, row: &'a SideRow, place: Option<usize>) -> Element<'a, Message> {
@@ -30,14 +31,14 @@ impl<'a> super::View<'a> {
                 badge,
             } => column![
                 self.link_row(
-                    ("screen:friends", Icon::Users, "Friends"),
+                    ("screen:friends", Icon::Users, tr("Friends")),
                     *friends,
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
-                    ("screen:requests", Icon::Inbox, "Requests"),
+                    ("screen:requests", Icon::Inbox, tr("Requests")),
                     *requests,
                     badge,
                     Message::Side(Event::Requests),
@@ -52,7 +53,7 @@ impl<'a> super::View<'a> {
             })
             .into(),
             SideRow::DmHeading => row![
-                text("Direct Messages")
+                text(tr("Direct Messages"))
                     .size(12)
                     .font(SEMIBOLD)
                     .color(theme.muted)
@@ -61,7 +62,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::UserPlus,
-                        "Add a friend",
+                        tr("Add a friend"),
                         Message::Friends(crate::friends::Event::OpenAdd)
                     )
                     .size(24.0, 16)
@@ -70,7 +71,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::SquarePen,
-                        "New message",
+                        tr("New message"),
                         Message::Switcher(crate::switcher::Event::OpenNewDm)
                     )
                     .size(24.0, 16)
@@ -85,7 +86,7 @@ impl<'a> super::View<'a> {
             .align_y(Alignment::Center)
             .into(),
             SideRow::Browse { open } => container(self.link_row(
-                ("screen:browse", Icon::Hash, "Browse channels"),
+                ("screen:browse", Icon::Hash, tr("Browse channels")),
                 *open,
                 "",
                 Message::Side(Event::Browse),
@@ -94,7 +95,7 @@ impl<'a> super::View<'a> {
             .padding([6, 0])
             .into(),
             SideRow::Pinned => container(
-                text("PINNED CHANNELS")
+                text(tr("PINNED CHANNELS"))
                     .size(12)
                     .font(BOLD)
                     .color(theme.muted),
@@ -284,7 +285,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Add,
-                        "Create Channel",
+                        tr("Create Channel"),
                         Message::Side(Event::CreateIn(fold.to_owned())),
                     )
                     .size(CHAT_BUTTON, 16),
@@ -574,7 +575,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Forum,
-                        "Open chat",
+                        tr("Open chat"),
                         Message::Side(Event::OpenChat(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),

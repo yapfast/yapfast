@@ -1,0 +1,6503 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: yapfast\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid " and works once"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid " and works {n} time"
+msgid_plural " and works {n} times"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/markdown.rs
+msgid " pinned {} to this channel. See all {}."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid " You may sound robotic if your packet loss rate is over 10%."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid " You'll join muted."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "(edited)"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "+  Add Connection"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/switcher.rs
+msgid "1 day"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "1 Event"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/profile.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+msgid "1 hour"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "1 hr"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "1 minute"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "1 week"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "100k+ Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "12 hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "12 hr"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "12-hour"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "15 minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "1m ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "2 hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "2 weeks"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "24 hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "24-hour"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "3 days"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/status.rs
+msgid "30 min"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "30 minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+msgid "4 hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "5 minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "50+ Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "6 hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "6 hr"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "6-digit code"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "7 days"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "8 hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "8Bit"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "< 1m left"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "<1 day ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid ">1y ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/message/mod.rs
+msgid ">30d ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "@ Off"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "@ On"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "@you:matrix.org"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/embed.rs
+msgid "A card, \"{}\", hidden while link previews are off."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/embed.rs
+msgid "A card, hidden while link previews are off."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "A copy of {}, with its settings and permissions, in the same category."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "A display name can be up to {} characters."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "A gem by the name of each member boosting their Discord server, in the member list."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "A mention"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "A message"
+msgstr ""
+
+#: crates/yapfast-iced/src/markdown.rs
+msgid "a message"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "A new code is generated when people join or leave this call. Compare it with the others in the call: everyone sees the same numbers."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "A nickname can be up to {} characters."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "A sound that's gone"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/about.rs
+msgid "About"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "ABOUT ME"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/friends/requests.rs
+msgid "Accept"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Accept Friend Request"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Accept friend request"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Accept to reply. Ignoring removes it without telling them."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Account"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "ACTION"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "ACTIVE INVITE LINKS"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "Active Now"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Activities"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/full.rs
+msgid "Activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "Activity — {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Add"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Add a friend"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Add a Keybind"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Add a role or member"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/edit.rs
+msgid "Add an emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "Add an optional message..."
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Add another answer"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs
+msgid "Add Friend"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Add friend"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Add friend nickname"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Add friends to DM"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Add friends to the group"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Add game"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Add Members"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Add members"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Add note"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Add pronouns"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/message/hover_bar.rs
+msgid "Add reaction"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Add someone with their Discord username."
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Add tags"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Add to channel list"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs
+msgid "Add to Favorites"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Add to Group"
+msgstr ""
+
+#: crates/yapfast-iced/src/link_dialogs.rs
+msgid "ADD TO SERVER"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Add your pronouns"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Add:"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Adding more from Yapfast is coming soon."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Adding..."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Adjust each sound"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs
+msgid "ADMINS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Advanced"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "ADVANCED PERMISSIONS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Age-Restricted Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Aiming for:"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "All"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "All Actions"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "All Friends"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "All Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "All messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "All messages will be filtered for sensitive image-based media."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "All servers"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "All Users"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "All your friends are here already."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Allow anyone to @mention this role"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Allow Multiple Answers"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Allow multiple windows"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Always"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/voice.rs
+msgid "and {} more"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Animals & nature"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Animate decorations and nameplates"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Animated Emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "ANSWERS"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Any changes you made will be lost if you exit now."
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs
+msgid "APP"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "App Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/mod.rs
+msgid "Appearance"
+msgstr ""
+
+#: src/update/install.rs
+msgid "AppImages are for Linux."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Apply"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Apps"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Are you sure you want to delete the {} role? This action cannot be undone."
+msgstr ""
+
+#: crates/yapfast-iced/src/dialogs.rs
+msgid "Are you sure you want to delete this message?"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Are you sure you want to delete {} permissions? This action cannot be undone."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Are you sure you want to delete {}? This action cannot be undone."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Are you sure you want to delete {}? This cannot be undone."
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Are you sure you want to go?"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Are you sure you want to leave {}? You won't be able to rejoin this group unless you are re-invited."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Are you sure you want to leave {}? You won't be able to rejoin this server unless you are re-invited."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced/src/uploads.rs
+msgid "Attach files"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Audit Log"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Avatar & Decoration"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Average ping:"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/server_settings/roles/editor.rs crates/yapfast-iced/src/window_bar.rs
+msgid "Back"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Back to editing"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/account.rs
+msgid "Back to sign in"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Backup code"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Ban"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Ban Reason"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Ban {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Ban {}?"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/colour.rs
+msgid "Banner color"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Bans"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Before searching, we need to index this server. Give us a bit."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Bio"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Block"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Block {}?"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Blocked accounts"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Blocked message."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Blocked user"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Blocking {} also removes them as a friend. Their messages show collapsed, and they can't message you."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/full.rs
+msgid "Board"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "Boost Goal"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Boost Perks"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "BOOSTER"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "BOT"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Bot Invite"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Browse"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs
+msgid "Browse Channels"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Browse channels"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "By making a channel private, only select members and roles will be able to view this channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "By making a channel private, only select members and roles will have access to view or connect to this channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "by {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Calling {}..."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "CAMERA"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "CAMERAS"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+msgid "Cancel"
+msgstr ""
+
+#: crates/yapfast-iced/src/edit.rs
+msgid "cancel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Cancel friend request"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Cancel reply"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Cards for links, videos and bots under messages. Linked pictures still show."
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/form.rs
+msgid "Careful — you have unsaved changes!"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "category"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "CATEGORY NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Category Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/profile/editor/mod.rs
+msgid "Change Avatar"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/profile/editor/mod.rs
+msgid "Change Banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/account.rs crates/yapfast-iced/src/status.rs
+msgid "Change custom status"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Change Display Name Style"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Change friend nickname"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Change nickname"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Change Server Icon"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Change your nickname"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Change {}'s nickname"
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/switcher.rs
+msgid "Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "CHANNEL NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Channel Permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Channel settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "CHANNEL TOPIC"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "CHANNEL TYPE"
+msgstr ""
+
+#: crates/yapfast-iced/src/suggest.rs
+msgid "CHANNELS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Channels you read in Yapfast show as read in the Discord apps too."
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Check again"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Check for updates"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Check now"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Check your email: we sent you a verification code. Enter it here to verify you’re really you."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Checking for updates…"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Checking the token..."
+msgstr ""
+
+#: src/desktop.rs
+msgid "Checking the update…"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Checks for new versions every 6 hours."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Choose"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Choose a DM or server channel to write a message."
+msgstr ""
+
+#: crates/yapfast-iced/src/commands.rs
+msgid "Choose a file"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Choose an entrance sound"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Choose files"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Choose how to confirm it's you."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Choose Image"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Choose Role Icon"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Choose what to share"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Chosen device"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "CLEAR AFTER"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Clear permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Clear search"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "Clear status"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/stickers.rs
+msgid "Click a sticker to send it."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Click to add a note"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Click to copy"
+msgstr ""
+
+#: crates/yapfast-iced/src/updates.rs
+msgid "Click to see what's new."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "CLOCK"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+msgid "Close"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Close DM"
+msgstr ""
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Close search"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Close Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Close thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Close to tray"
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/sheet.rs
+msgid "Close {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Codec:"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Collapse long messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Colour"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "COLOURS"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Colours and effects don't show in servers, and may look different across Discord."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Confirm"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Confirm on your phone"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Confirming..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Connect your accounts to share your in-game status and activity. You're in control of what you share."
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/voice.rs
+msgid "Connected on another client"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Connecting to {}'s stream..."
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Connecting..."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Connection"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Connection lost"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Connections"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Context Menu"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Copied"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Copy"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Copy ID"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Copy Image"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/menus.rs
+msgid "Copy Link"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Copy link"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Copy Message ID"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Copy Message Link"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Copy selection"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Copy text"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/status.rs
+msgid "Copy User ID"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Copy version"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Couldn't check for updates: {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Couldn't load earlier messages. Retry"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Couldn't load newer messages. Retry"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/mod.rs
+msgid "Couldn't load the board."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Couldn't load the wishlist."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Couldn't update: {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Create"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Create a Poll"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Create an invite link anyone can use to join, or invite friends directly."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Create category"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Create Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Create channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Create Group DM"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Create Invite Link"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Create Poll"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Create Role"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Create text channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/thread.rs
+msgid "Create Thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Create voice channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Create {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Creating..."
+msgstr ""
+
+#: crates/yapfast-core/src/session/store.rs
+msgid "Credentials are stored in the OS credential store."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Current activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "CUSTOM GAMES"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Cut"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Dark"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "DATE FORMAT"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Day/Month/Year"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Deafen"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Deafened"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Deafening"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Decline"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "DeepFilterNet"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/colour.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Default"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Default ({})"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "DEFAULT NOTIFICATION SETTINGS"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Default Permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/roles/list.rs crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Delete"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Delete '{}'"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Delete Category"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Delete category"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Delete Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Delete channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Delete it for good"
+msgstr ""
+
+#: crates/yapfast-iced/src/dialogs.rs
+msgid "Delete Message"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Delete message"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Delete Permission Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Delete Role"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Delete Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "DELETE THEIR MESSAGES FROM"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Delete theme"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Delete {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Deleting..."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "DESCRIPTION"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Descriptions are optional but must be more than 1 character."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Developer Mode"
+msgstr ""
+
+#: src/build_info.rs
+msgid "Development build"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Didn’t receive a code or it expired? Resend it."
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/switcher.rs
+msgid "Direct message"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/window_bar.rs
+msgid "Direct Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/rail.rs
+msgid "Direct messages"
+msgstr ""
+
+#: src/tray.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Disconnect"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Discord and Matrix show"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Discord asks for a captcha first. Solve it in your browser."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Discord is disconnected. Yapfast is reconnecting."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Discord is sending a code to your phone."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Discord shows"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Discord thinks {} may be spam"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Discord token"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Discord voice and its level aren't available on this system yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Discord · not end-to-end encrypted."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
+msgstr ""
+
+#: crates/yapfast-iced/src/banners.rs crates/yapfast-iced/src/call/dock.rs
+msgid "Dismiss"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Dismiss message"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Display"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Display Name Style"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Display role members separately from online members"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/status.rs
+msgid "Do Not Disturb"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Do not filter"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Don't ask again"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Don't delete any"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Done"
+msgstr ""
+
+#: src/desktop.rs
+msgid "Downloading"
+msgstr ""
+
+#: src/desktop.rs
+msgid "Downloading {}%"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Drop-down lists and scroll bars draw dark to match."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Duplicate channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Duplicate Role"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/switcher.rs
+msgid "DURATION"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "e.g.: cat hug"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Each Discord server's notification settings and your Matrix notification rules decide"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Each Discord server's notification settings decide"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Earlier messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/roles/list.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Edit"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Edit category"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Edit channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Edit keybind"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Edit message"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/status.rs
+msgid "Edit Profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/account.rs
+msgid "Edit profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Edit Role — {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Edit server profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Edit Sticker"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "EDIT THEME"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Effect"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Effect on"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/kit.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/suggest.rs
+msgid "EMOJI MATCHING :{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Enable Invites"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Encode streams with the GPU"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Encoder:"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "ENCODING"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/polls.rs
+msgid "End Poll Now"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "End the poll now? This will close it immediately and reveal the results."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "End-to-end encrypted"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Engaged in suspected spam activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Engagement"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Enjoy this moment. Then jump in when you're ready."
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Enter a message to start the conversation!"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Enter a message..."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Enter an executable and a name of up to 128 characters, without line breaks."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Enter one of your 8-digit backup codes. Each works only once."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "ENTER SERVER NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Enter the 6-digit code Discord sent to {}."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Enter the 6-digit code from your authenticator app."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Enter your password."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "ENTRANCE SOUNDS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/sheet.rs
+msgid "ESC"
+msgstr ""
+
+#: crates/yapfast-iced/src/edit.rs
+msgid "escape to"
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "Est. {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Even out your voice"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "Events"
+msgstr ""
+
+#: crates/yapfast-iced/src/suggest.rs
+msgid "Everyone in this channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Everyone in this server sees it. Leave it empty to go by your name."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Everyone in this server sees it. Leave it empty to reset it to their name."
+msgstr ""
+
+#: crates/yapfast-iced/src/suggest.rs
+msgid "Everyone online here"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Executable name or full path"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Exit"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/playback.rs
+msgid "Exit full screen"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Experience"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "EXPIRE AFTER"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "EXPIRES"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "expires in 30 minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "expires in a day"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "expires in an hour"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "expires in {n} day"
+msgid_plural "expires in {n} days"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "expires in {n} hour"
+msgid_plural "expires in {n} hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Explore local preview"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "EXPRESSION"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs crates/yapfast-iced/src/picker/gifs.rs
+msgid "Favorites"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Felt piano"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "FILE"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "File should be APNG, JPG, PNG or GIF (512 KB max)"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Filter by Action"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Filter by User"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Filter messages from all members"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Filter messages from server members without roles"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "Find a conversation"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Find a friend"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Find a friend, or type a Matrix id"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Find an emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Find Invite"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/stickers.rs
+msgid "Find the perfect sticker"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Flags"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Flash the taskbar"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Flute"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Follow"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs
+msgid "Follow category"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/uploads.rs
+msgid "Following"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Font"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Food & drink"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "For 1 hour"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "For 15 minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "For new messages while Yapfast isn't in front. {} which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "for {} d"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "For {} hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "for {} hr"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "for {} min"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "For {} minutes"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/window_bar.rs
+msgid "Forward"
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "Forward To"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Forwarded"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "FRAME RATE"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Free Slots"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Frequently Used"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Friend Request Sent"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "Friend requests and messages from people you don't know show up here."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Friends"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "Friends Since"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Full"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/playback.rs
+msgid "Full screen"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Game Activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Game activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Generate a new link"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Get the newest features before release. Expect some bugs."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Get the party started by uploading an emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Getting a code..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Gg"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/kit.rs
+msgid "GIFs"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Glow"
+msgstr ""
+
+#: crates/yapfast-iced/src/dialogs.rs
+msgid "Go back"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Go back to vote"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Go Live"
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "Go to Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/info_cards.rs
+msgid "Go to server"
+msgstr ""
+
+#: crates/yapfast-iced/src/uploads.rs
+msgid "Got It"
+msgstr ""
+
+#: crates/yapfast-iced/src/graphics.rs
+msgid "GPU rendering failed to start, so Yapfast is using software rendering."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Gradient"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "group"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Gummy"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Happening now"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Headbang"
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Help"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "Hide Activity Cards"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Hide member list"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Hide messages from people you blocked"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Hide muted channels"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Hide post guidelines"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Hide profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Hide Styles"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "High"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Higher quality"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Highest"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "HOMESERVER"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "I acknowledge that by transferring ownership of this server to {}, it officially belongs to them."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "ICON"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC)."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/status.rs
+msgid "Idle"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Ignore"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "IMAGE"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "In a Voice Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "In order to change this setting, you must have 2FA enabled on your account."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "In {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "INACTIVE CHANNEL"
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Inbox"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Include nightly builds"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Incoming call"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Incoming call."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Input"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "INPUT LEVEL"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "INPUT MODE"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Input options"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Input sensitivity"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "INPUT SENSITIVITY IN DISCORD CALLS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Install updates automatically"
+msgstr ""
+
+#: src/update/install.rs
+msgid "Installers are for Windows."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "INTEGRATION"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Integration"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "Invisible"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "INVITE CODE"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Invite friends to {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "INVITE LINK"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "Invite people"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Invite to channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Invite to server"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "INVITER"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/people.rs
+msgid "Invites"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "It's quiet for now..."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "I’m sure, use a backup code"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Jellybean"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/call/dm.rs
+msgid "Join"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Join a Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Join and hang out."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Join call"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Join calls deafened"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Join calls muted"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Join calls undeafened"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Join calls unmuted"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "JOIN METHOD"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Join muted and hang out."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Join Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Join the call"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Join thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Join voice"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Join Voice Call"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Join {0} to watch {1}'s stream?"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "JOINED DISCORD"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Joining voice..."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Joining..."
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Journal"
+msgstr ""
+
+#: crates/yapfast-iced/src/found.rs
+msgid "Jump"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Jump to present"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Just looking?"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Just now"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "just now"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "just started"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Keep Current Permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "KEYBIND"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs crates/yapfast-iced/src/settings/mod.rs
+msgid "Keybinds"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Keyframes viewers asked for:"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Kick"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Kick {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Kick {}?"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "LANGUAGE"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Large"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Last active {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Last ping:"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Last {weekday} at {time}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Leave '{}'"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Leave group"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Leave server"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Leave thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Leave voice"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Leave without notifying other members"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Leave {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Leaves them out entirely, rather than showing a line you can open."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Leaving voice..."
+msgstr ""
+
+#: crates/yapfast-iced/src/dialogs.rs
+msgid "Leaving Yapfast"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "less than a minute"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Let everyone know how to use this channel!"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Let others see when you're typing"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Let Windows process your microphone in Discord calls"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Level {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Light"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Link"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Link a Discord account first."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Link your Discord account with your phone."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Linked Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Linking {}. Tap Log in on your phone to finish."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "LINKS"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Listening"
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/controls.rs
+msgid "LIVE"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Live"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Load More"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Loading conversation..."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Loading earlier messages..."
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "Loading members..."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Loading newer messages..."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Loading pinned messages..."
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Loading posts..."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Loading sounds..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/full.rs
+msgid "Loading the board..."
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Loading the full image..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Loading the profile..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Loading the wishlist..."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Loading threads..."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "Loading..."
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Local only"
+msgstr ""
+
+#: crates/yapfast-iced/src/banners.rs
+msgid "Local preview: sample data. Nothing leaves this computer."
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Login"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Long messages and code show their first lines, with Show more to see the rest."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Longer slowmode"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Looking up the invite..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Looks like this profile is still a work in progress - send them a message to say hi!"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Low"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Main Profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Mainframe"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Make a selection"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Make unique profiles for each server"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Making a link..."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Manage Members ({})"
+msgstr ""
+
+#: crates/yapfast-iced/src/app/screens.rs
+msgid "Manage Privacy"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Manual Verification"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Manual Verification ({})"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mark as read"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Mark messages read on Discord"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Mark Unread"
+msgstr ""
+
+#: crates/yapfast-iced/src/uploads.rs
+msgid "Mark {} as a spoiler"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "MATRIX ID"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Matrix shows"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "MAX NUMBER OF USES"
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "Maximum {} places at once."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "Maybe spam"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Medieval"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "Medium"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Mellow Rhodes"
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "Member"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "MEMBER SINCE"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Member Since"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "Member since {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/server_settings/roles/list.rs crates/yapfast-iced/src/suggest.rs
+msgid "MEMBERS"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/tag_card.rs
+msgid "Members"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Members cannot be manually added or removed from this role"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "members of {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Members use the color of the highest role they have on the roles list."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Members use the color of the highest role they have on this list. Drag roles to reorder them."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mention"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Mention people you reply to"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Mention the person you reply to"
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Mentions"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/profile/full.rs crates/yapfast-iced/src/switcher.rs
+msgid "Message"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Message #{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/profile/look.rs
+msgid "Message @{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Message times show them, as 21:41:05."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/thread.rs
+msgid "Message {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Messages from server members without a role will be filtered for sensitive image-based media."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Messages will not be filtered for sensitive image-based media."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "MICROPHONE"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Microphone volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "MODERATION"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs
+msgid "MODERATORS"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages."
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Modern"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Monkey Bars"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Month/Day/Year"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/profile/activity.rs crates/yapfast-iced/src/server_settings/roles/list.rs crates/yapfast-iced/src/thread.rs
+msgid "More"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "More actions"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "More Options"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "More options"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "Most played: {}h"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Move Down"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Move to"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Move Up"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Multi-Factor Authentication"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Must also be a member of this server for longer than 10 minutes."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Must also be registered on Discord for longer than 5 minutes."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Must have a verified email on their Discord account."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Must have a verified phone on their Discord account."
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/playback.rs
+msgid "Mute"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mute category"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mute channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mute server"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mute Soundboard"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Muted"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Muted until {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Muted. Nothing you say is sent."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Muting"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Mutual Friends"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Mutual Servers"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "My Account"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/account.rs
+msgid "My account"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "My theme"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Name"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Nameplate"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Neon"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/status.rs
+msgid "Never"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "never expires"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/timeline/view.rs crates/yapfast-iced-kit/src/form.rs
+msgid "NEW"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "New"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "New Category"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "New Kalimba"
+msgstr ""
+
+#: src/notify.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/switcher.rs
+msgid "New message"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "New Post"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "NEW THEME"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "New theme"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "New Thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Newer messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Next"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Nickname"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Nickname for {}"
+msgstr ""
+
+#: src/build_info.rs
+msgid "Nightly"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "NO ACTIVE INVITE LINKS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "No audio devices found. Connect one, then refresh."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "No banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "No Bans"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "No camera found. Connect one, then refresh."
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs
+msgid "No channel's name matches that."
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/rows.rs
+msgid "No channels in this server that you can see."
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "No conversations match."
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/rows.rs
+msgid "No direct messages yet. Existing DMs appear here after syncing."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "No Emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "No emoji match \"{}\"."
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "No favorite GIFs match your search."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "No friend's name matches that."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "No friends match."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "No friends yet"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "No GIFs match your search."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "No image"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "No Inactive Channel"
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/form.rs
+msgid "No keybind set"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "No Level"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "No limit"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "No Logs Yet"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/rows.rs
+msgid "No matching conversations."
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_select.rs
+msgid "No matching options."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "No members match these search results."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "No members were found."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "No microphones found. Connect one, then reopen this menu."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "No Mutual Friends"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "No mutual friends yet - perfect time to make a new connection"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "No Mutual Servers"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "No one else has joined yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "No one found."
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "No one found. For Matrix, type a full id such as @name:example.org."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "No permissions found"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "No reason provided"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "No recent messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "No requests"
+msgstr ""
+
+#: crates/yapfast-iced/src/search.rs
+msgid "No Results"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "No results found"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "No roles"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs
+msgid "No Server Tag"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "No servers in common"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "no slots available"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "No speakers found. Connect one, then reopen this menu."
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/stickers.rs
+msgid "No stickers match your search."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "No System Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "No system tray is running, so closing the window quits Yapfast."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "No upcoming events"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Nobody else is in the call yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "NOISE SUPPRESSION"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "NOISE SUPPRESSION IN DISCORD CALLS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "NOISE SUPPRESSION STRENGTH"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "None"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "None found"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "None of your friends are around right now."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/colour.rs crates/yapfast-iced-kit/src/form.rs
+msgid "Not a colour"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Not all members are shown, use Search to find specific members"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Not available yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Not sending"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Not sent yet. Yapfast sends it when the connection returns."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Not sent."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Not sent. The server refused this message."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Note"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Note (only visible to you)"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Note on {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Note: Members with the \"Mention @everyone, @here, and All Roles\" permission will always be able to ping this role."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Nothing"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Nothing goes by that name."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Nothing going on right now."
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Nothing mentions you right now."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Nothing on the board yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Nothing on their wishlist."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Nothing on your board yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Nothing on your wishlist yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Notification settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Notification settings, muted"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Notifications"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Objects"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "Off"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Off shows only who wrote and where, for a screen others can see."
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/dms.rs
+msgid "OFFICIAL"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/dms.rs
+msgid "Official Discord Message"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Offline"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Offline, sync paused"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Okay"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "OLDER POSTS"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "OLDER THREADS"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "on @{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "on {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Once moderators begin moderating, you can moderate the moderation here."
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/tag_card.rs
+msgid "Online"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Only @mentions"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Only people you invite and moderators can see"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Only people you invite and moderators can see. You can invite new people by @mentioning them."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Only visible to you"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Only you and the others in this call can hear you. Nobody else, not even Discord, can listen in."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Only you can see this ·"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Only you see the nickname you give a friend. Leave it empty to remove it."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Only you see your note, in Discord too."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "OP"
+msgstr ""
+
+#: src/notify.rs crates/yapfast-iced/src/browse_channels.rs
+msgid "Open"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Open chat"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Open Discord links in Yapfast"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Open GIF picker"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Open in browser"
+msgstr ""
+
+#: crates/yapfast-iced/src/components.rs
+msgid "Open in Discord"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Open in full view"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Open it again"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/menus.rs
+msgid "Open Link"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Open Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Open Soundboard"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Open sticker picker"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Open the captcha again"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "Open to read their message"
+msgstr ""
+
+#: src/tray.rs
+msgid "Open Yapfast"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Original message was deleted"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Otherwise you join muted, and unmute when you're ready."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Outbound packet loss rate:"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Output"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Output options"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Overview"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Packets resent:"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Page {0} of {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "PASSWORD"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Password"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Paste"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Paste an invite link or code to join a server you were invited to."
+msgstr ""
+
+#: crates/yapfast-iced/src/playback.rs
+msgid "Pause"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Pause DMs"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Pause Invites"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Pending"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "PEOPLE"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "People & body"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Permissions not synced with category: "
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Permissions synced with category: "
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Pick an emoji for your message."
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Pick an emoji for your status."
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Pick an emoji to react with."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Picked in the system's dialog"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Pictures"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Pin"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Pin channel to top"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Pin message"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/channels.rs
+msgid "PINNED CHANNELS"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Pinned Messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Pinned messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/markdown.rs
+msgid "pinned messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Play"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "PLAY GIFS, EMOJI AND STICKERS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Play profile effects"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "Playing"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Poll closed"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Pop"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/switcher.rs
+msgid "Post"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Post Guidelines"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "POST TITLE"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/switcher.rs
+msgid "Posting..."
+msgstr ""
+
+#: src/build_info.rs
+msgid "Pre-release"
+msgstr ""
+
+#: src/desktop.rs
+msgid "Preparing…"
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/form.rs
+msgid "Press a key..."
+msgstr ""
+
+#: crates/yapfast-iced/src/commands.rs
+msgid "Press Enter to choose a file for {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/commands.rs
+msgid "Press Enter to run /{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Press the keys to hold while you talk, together. Escape stops without changing it."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Pretty sure you don't want to do this"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "PREVIEW"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/signin.rs
+msgid "Preview"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/attachments.rs
+msgid "Preview unavailable"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Preview voice"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Preview {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Previous"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "PREVIOUS CHANNELS"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Prism"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Privacy"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Private Category"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Private Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "Private Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "Private Thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Profile Effect & Frame"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "PROFILES"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Prompt members to reply to welcome messages with a sticker."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Pronouns can be up to {} characters."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Push to talk"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "PUSH TO TALK KEYBIND"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "PUSH TO TALK RELEASE DELAY"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Push to talk release delay"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "QUESTION"
+msgstr ""
+
+#: src/tray.rs
+msgid "Quit"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "React to post"
+msgstr ""
+
+#: crates/yapfast-iced/src/reactions.rs
+msgid "Reactions"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Reading the picture..."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Reading..."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Ready to start a call?"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Reason (optional)"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Recent activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Recent Members"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/settings/pages/account.rs
+msgid "Reconnect"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Reconnecting voice..."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Record keybind"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Recover"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Recovery key"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Refresh devices"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "RELATED EMOJI"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "Remove"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Remove answer"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs
+msgid "Remove Avatar"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Remove Background"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs
+msgid "Remove Banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Remove friend"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Remove from channel list"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs
+msgid "Remove from Favorites"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Remove Icon"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Remove Keybind"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Remove member"
+msgstr ""
+
+#: crates/yapfast-iced/src/reactions.rs
+msgid "Remove Reaction"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Remove timeout"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Remove tracking from links you send"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Remove Vote"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Remove {0} from role {1}?"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/uploads.rs
+msgid "Remove {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Remove {} as a friend?"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Render with the GPU"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/message/hover_bar.rs
+msgid "Reply"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Replying to {0}: {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
+msgid "Requests"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "REQUESTS — {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Require 2FA for moderator actions"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Resend Code"
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/form.rs
+msgid "Reset"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs
+msgid "Reset Avatar"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs
+msgid "Reset Banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "RESOLUTION"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Resolution:"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Restart Yapfast"
+msgstr ""
+
+#: src/desktop.rs
+msgid "Restarting…"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Restore"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Retry"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Retry saved session"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Revoke Ban"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Revoking..."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "RNNoise"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "ROLE COLOR"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "ROLE ICON"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Role is locked because it is a higher rank than your highest role."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/mod.rs
+msgid "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "ROLE NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Role/Member"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/suggest.rs
+msgid "ROLES"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Roles"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "ROLES – {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "ROLES/MEMBERS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Safety Setup"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Sakura"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Sam"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/status.rs
+msgid "Save"
+msgstr ""
+
+#: crates/yapfast-iced/src/edit.rs
+msgid "save"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Save attachment"
+msgstr ""
+
+#: crates/yapfast-iced-kit/src/form.rs
+msgid "Save Changes"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Save game"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Save Image"
+msgstr ""
+
+#: crates/yapfast-iced/src/image_viewer.rs
+msgid "Save Video"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/message/attachments.rs
+msgid "Save {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced-kit/src/form.rs
+msgid "Saving..."
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Scan it with the Discord app"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Scanned"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "SCREEN"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Screen or window"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "SCREENS"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_select.rs crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Search"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Search Bans by User Id or Username"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Search by username or id"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs
+msgid "Search channels"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "Search Favorites"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Search for Thread Name"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "Search Klipy"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Search Members"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Search members"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Search permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Search posts"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Search Results"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Search Roles"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Search settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Search {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs
+msgid "Searching..."
+msgstr ""
+
+#: crates/yapfast-iced/src/search.rs
+msgid "Searching…"
+msgstr ""
+
+#: crates/yapfast-core/src/session/store.rs
+msgid "Secret Service is unavailable. Credentials are in a private file readable by your Linux user."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Secure connection"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Security Actions"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "See Thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "See {} more"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Select All"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Select Friends"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Select one answer"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Select one or more answers"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/members.rs
+msgid "Select up to 30 members to add to role {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Select up to 5 tags"
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "Select where you want to share this message."
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/thread.rs
+msgid "Send"
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "Send ({})"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Send a message when someone boosts this server."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Send a random welcome message when someone joins this server."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Send helpful tips for server setup."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Send request"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Send someone a friend request on Discord with their username."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Sending"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Sending is locked until this device is verified."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/thread.rs
+msgid "Sending..."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Sending:"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "SENSITIVE CONTENT FILTERS"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Sent excessive DMs to non-friend server members in last 24 hrs"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "Sent you a friend request"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "Sent you a friend request and a message"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Sent {} a friend request."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "SENT — {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "server"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Server Ban List"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "SERVER BANNER BACKGROUND"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs
+msgid "Server boosting since {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Server deafen"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Server Discovery"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "SERVER INVITE BACKGROUND"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Server Members"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Server mute"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Server Profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Server settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/menus.rs
+msgid "Server Tag"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/settings/pages/account.rs crates/yapfast-iced/src/status.rs
+msgid "Set a custom status"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Set how loud each one is, as a share of the volume above. 0% turns a sound off."
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs
+msgid "Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Share the game you play"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Share your screen"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Sharper, at twice the CPU"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Shorter slowmode"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "Show Activity Cards"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Show all channels"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Show avatar decorations"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Show boost gems"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Show Boost progress bar"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Show channels you can't access"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Show desktop notifications"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Show it"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Show less"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Show link previews"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Show me as idle when I'm away"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Show member list"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Show more"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Show name styles"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Show nameplates"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Show post guidelines"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Show profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Show profile frames"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Show results"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Show seconds"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Show server tags"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Show Styles"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Show the code"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Show voice channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Show what messages say"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Showing"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Showing {} member"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Showing {} members"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Sign in"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Sign in to Yapfast"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/account.rs
+msgid "Sign out"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "SIGNALS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Skip this version"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Slow down! Are you sure?"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "SLOWMODE"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Small"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Smileys & emotion"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Soft marimba"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Solid"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Solve the captcha in your browser"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "someone"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Someone joins the call"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Someone leaves the call"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Someone starts streaming"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Someone starts watching a stream"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Someone stops streaming"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Someone stops watching a stream"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "SOUND SET"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Soundboard"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Soundboard disabled when deafened"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Soundboard disabled when server muted"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "SOUNDBOARD VOLUME"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Soundboard volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Sounds"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Source"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "SPAM — {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Speaker volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "SPEAKERS"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Speaking"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/media.rs
+msgid "SPOILER"
+msgstr ""
+
+#: src/build_info.rs
+msgid "Stable"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Start a search with @ for people, # for text channels, ! for voice channels or * for servers."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Start Call"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Start call"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "START FROM"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Start Video Call"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs
+msgid "Start Voice Call"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Start when you sign in"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Started by "
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Starting camera..."
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Starting the conversation..."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Starting your camera..."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Starting your stream..."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Stay focused on a conversation with a thread - a temporary text channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "STICKER NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/kit.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Stickers"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."
+msgstr ""
+
+#: crates/yapfast-iced/src/uploads.rs
+msgid "Stop covering {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Stop ignoring"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Stop recording"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Stop sharing"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Stop video"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Stop watching"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Stream"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/person.rs
+msgid "Stream volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Streaming to {0} · {1} watching"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Streaming to {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Student Hub"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Submit"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Submitting…"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Suppress @everyone and @here"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Suppress all role @mentions"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Surprise Me"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Switch"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Switch channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Switch screen or window"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Switch voice channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Switch voice channel?"
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Symbols"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Sync Now"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Sync Permissions"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Sync permissions?"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "System default"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "SYSTEM MESSAGES CHANNEL"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "TAGS"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "TAGS (REQUIRED)"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Take out your room's echo in Discord calls"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Tell everyone a bit about yourself"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Tell people what your server is about."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Tell this server a bit about yourself"
+msgstr ""
+
+#: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
+msgid "Tempo"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Temporarily stop new direct messages from being sent between members in your server. Friends can still DM each other, moderators can still DM members, and your Apps can still DM members."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Temporarily stop new members from joining this server via invite or vanity links."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Test video"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Text"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Text after Playing (up to 128 characters)"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/rows.rs
+msgid "TEXT CHANNELS"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "TEXT SIZE"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The animations some people put over their profile cards."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The AppImage has no folder."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The AppImage's own path isn't known."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "The application did not respond"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "The bitrate follows what Discord estimates your connection carries. Fast motion at a low bitrate looks blocky to viewers."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "The call stays connected while you browse other conversations."
+msgstr ""
+
+#: crates/yapfast-core/src/chat.rs
+msgid "The Discord token is stored in the OS credential store."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The download of {} couldn't be verified, so it wasn't installed."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The fonts and colours people give their display names."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The frames some people put around their profile cards."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "The last hour"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "The last {} days"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "The last {} hours"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "The level meter isn't available on this system yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "The message you added will not be sent to slowmode channel: {}."
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "The message you added will not be sent to slowmode channels: {}."
+msgstr ""
+
+#: src/update.rs
+msgid "the Microsoft Store"
+msgstr ""
+
+#: src/update/install.rs
+msgid "The new version didn't pass its start-up check."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The new version wouldn't start: {}."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The new version's start-up check took too long."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "the other channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The pictures around people's avatars."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The pictures Discord members equip behind their rows in the member list and on your account card."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9."
+msgstr ""
+
+#: src/update/signature.rs
+msgid "The release's signature doesn't check out, so nothing was installed."
+msgstr ""
+
+#: src/update/signature.rs
+msgid "The release's signature is for another release, so nothing was installed."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The release's sums are too large to be right."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The release's sums aren't text."
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "The server has limited who can see this profile."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The tag and its badge beside people's names."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The update stopped partway."
+msgstr ""
+
+#: src/update/install.rs
+msgid "The update's path has a character the installer can't be started with."
+msgstr ""
+
+#: crates/yapfast-iced/src/info_cards.rs
+msgid "THEIR NICKNAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "THEME"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/styles.rs
+msgid "Theme & Banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs
+msgid "There are no channels to browse."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no messages in this thread yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "There are no posts yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no recent messages in this thread."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "There are no threads."
+msgstr ""
+
+#: src/update/install.rs
+msgid "There's no AppImage for this version yet."
+msgstr ""
+
+#: src/update/install.rs
+msgid "There's no download for your system yet."
+msgstr ""
+
+#: src/update/install.rs
+msgid "There's no Windows installer for this version yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "They appear locked. Server admins hid them on purpose."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "They get notified of your reply. Switch it for one reply with @ On on the reply bar."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "They play when pointed at, as in Discord. Off, they hold still."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "They'll land in {}."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Thinking co-op after nine, if people are up for it."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "This channel doesn't have any pinned messages yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "This conversation doesn't have any pinned messages yet."
+msgstr ""
+
+#: src/update/install.rs
+msgid "This copy can't update itself. Get the new version from the release page."
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "This group has no room for more."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "This is Awkward"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the beginning of this server."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the beginning of your messages with {}."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "This is the channel we send system event messages to. These can be turned off at any time."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the start of #{}."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the start of #{}. No messages here yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the start of the #{} channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the start of the {} thread."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "This is the start of the {} thread. No messages here yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/dialogs.rs
+msgid "This link goes to"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "This link {0}{1}."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "This one only shows in Discord for now."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "This option is not available for Community Servers."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set)."
+msgstr ""
+
+#: src/update/install.rs
+msgid "This release doesn't publish SHA256SUMS.txt."
+msgstr ""
+
+#: src/update/install.rs
+msgid "This release isn't signed, so it can't be installed from here."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "This role is automatically managed by an integration."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "This will transfer ownership of {0} to {1}. This cannot be undone!"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "This wishlist is private."
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "THREAD NAME"
+msgstr ""
+
+#: crates/yapfast-iced/src/thread.rs
+msgid "THREAD NAME (OPTIONAL)"
+msgstr ""
+
+#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/header_popovers.rs
+msgid "Threads"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Time out"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Time out {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Time to impress them with your taste...drop an invite link to your favorite server"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Timed out for {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/forum.rs
+msgid "Title"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "Today"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Today at {time}"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "TOKEN"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Tomorrow at {time}"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced-kit/src/form.rs
+msgid "Too long by {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Toon"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Transfer Ownership"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Transferring..."
+msgstr ""
+
+#: crates/yapfast-core/src/emoji.rs
+msgid "Travel & places"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "Trending GIFs"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Try again"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Try the layout with sample conversations. Nothing leaves this computer."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Turn off camera"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Turn off noise suppression"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Turn on camera"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Turn on noise suppression"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Turn on your microphone when you join a call"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "Twitch (Integration)"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Type a name to find people you know on Discord, or a full Matrix id such as @name:example.org."
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Type a name to find people you know on Discord."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Type or paste an emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "Type the name of a friend"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Type your answer"
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "Unable to load server profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Unblock"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Undeafen"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Undeafening"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Unencrypted room. Reading only in this build."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unfollow channel category"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs crates/yapfast-iced/src/server_settings/people.rs
+msgid "Unknown"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Unknown key"
+msgstr ""
+
+#: crates/yapfast-iced/src/tag_card.rs
+msgid "Unknown Server"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Unlink Discord"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "Unlinking signs Yapfast out of Discord on this computer."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Unlock with Nitro"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Unlocks at Level 2"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Unlocks at Level {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/account.rs crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/playback.rs
+msgid "Unmute"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unmute category"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unmute channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unmute server"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Unmuting"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/hover_bar.rs crates/yapfast-iced/src/place_menus.rs
+msgid "Unpin"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unpin channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "Unpin message"
+msgstr ""
+
+#: src/tray.rs
+msgid "Unread messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Unread messages from your unmuted channels show up here."
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Unreads"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "Unrestricted"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Until I turn it back on"
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "Until it ends, {} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Up to {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Update"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Update and restart"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Update available · {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Update checks are turned off."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "UPDATES"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Upgrade Nitro"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Upload"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "Upload a File"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "Upload Background"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Upload Emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Upload Invite Background"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Upload Server Banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs
+msgid "Upload Sticker"
+msgstr ""
+
+#: crates/yapfast-iced/src/uploads.rs
+msgid "Upload to "
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "UPLOADED BY"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "Uploading..."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Use a backup code"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Use a code sent to your phone"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Use a passkey or security key"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Use a token"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Use category default"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "Use Emoji"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Use permissions to customize who can do what in this category."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Use permissions to customize who can do what in this channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "Use roles to group your server members and assign permissions."
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Use server default"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Use the system title bar"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Use your authenticator app"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Use your existing Matrix account."
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Use your password"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "used"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "User can't talk in server until they change their member name"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "User Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/person.rs
+msgid "User volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/mod.rs
+msgid "Username"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "USES"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/name_style.rs
+msgid "Vampyre"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "VERIFICATION CODE"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "Verification code sent."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "VERIFICATION LEVEL"
+msgstr ""
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Verify this device to send messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Verify with something else"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "View"
+msgstr ""
+
+#: crates/yapfast-iced/src/app/screens.rs
+msgid "View All Activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/body.rs
+msgid "View full bio"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/mod.rs
+msgid "View Full Profile"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "View original message to interact"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "View Reactions"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "View release"
+msgstr ""
+
+#: crates/yapfast-iced/src/menus.rs
+msgid "View Thread"
+msgstr ""
+
+#: crates/yapfast-iced/src/dialogs.rs
+msgid "Visit site"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "Voice"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Voice & Video"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Voice & video"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Voice activity"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/rows.rs
+msgid "VOICE CHANNELS"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Voice connected"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "Voice disconnected"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Voice Privacy Code"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "Voice Settings"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Voice stays connected while you browse other conversations."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "Vote"
+msgstr ""
+
+#: crates/yapfast-iced/src/reactions.rs
+msgid "Votes"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Waiting for {}'s picture..."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "Wants to message you"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/profile/activity.rs
+msgid "Watch stream"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "Watch stream?"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Watching: {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/dms.rs
+msgid "Wave"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "We broke something. Come back later."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/profile.rs
+msgid "We recommend an image of at least 512x512."
+msgstr ""
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "We searched far and wide. Unfortunately, no results were found."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/about.rs
+msgid "Website"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Welcome to"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Welcome to #{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "Welcome to #{}!"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "What question do you want to ask?"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "What's happening?"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "WHAT'S NEW IN {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
+msgstr ""
+
+#: crates/yapfast-iced/src/switcher.rs
+msgid "Where would you like to go?"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "While Yapfast is focused"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "WINDOWS"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/full.rs
+msgid "Wishlist"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "with {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
+msgid "Would you like to sync {0} permissions with {1}?"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/thread.rs
+msgid "Write a reply"
+msgstr ""
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Yapfast can't fill this part yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs crates/yapfast-iced/src/settings/voice.rs
+msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
+msgstr ""
+
+#: crates/yapfast-iced/src/components.rs
+msgid "Yapfast can't show this part of the message yet."
+msgstr ""
+
+#: src/keybinds.rs
+msgid "Yapfast can't watch keys in other apps on this system yet"
+msgstr ""
+
+#: src/update/install.rs
+msgid "Yapfast can't write to its own folder."
+msgstr ""
+
+#: src/update/install.rs
+msgid "Yapfast can't write to the AppImage's folder."
+msgstr ""
+
+#: src/keybinds.rs
+msgid "Yapfast couldn't watch keys in other apps"
+msgstr ""
+
+#: src/update/install.rs
+msgid "Yapfast has no folder."
+msgstr ""
+
+#: crates/yapfast-iced/src/info_cards.rs
+msgid "Yapfast hasn't seen anyone with this role yet."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/games.rs
+msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
+msgstr ""
+
+#: src/keybinds.rs
+msgid "Yapfast lost the X server's keys"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Yapfast sends your microphone only while you hold a key."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Yapfast sends your voice when it hears you speak."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
+msgstr ""
+
+#: crates/yapfast-iced/src/updates.rs
+msgid "Yapfast {} is available"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "Yapfast {} is available."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "Year-Month-Day"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgid "Yesterday at {time}"
+msgstr ""
+
+#: crates/yapfast-iced/src/uploads.rs
+msgid "You can add comments before uploading."
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "You can add {n} more friend."
+msgid_plural "You can add {n} more friends."
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "You can use markdown and links if you'd like."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "You cannot clear permissions because it would remove one or more permissions from you."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs
+msgid "You cannot deny this permission to {} because it will deny it to you as well. Allow another role or yourself before trying again."
+msgstr ""
+
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "You cannot modify this permission because none of your roles have it."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/editor.rs
+msgid "You cannot modify this permission because removing it would remove it from you."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/ownership.rs
+msgid "You didn't enter the server name correctly"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "You do not have permission to send messages in this channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "You don't have any activity here"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "You don't have any friends in common"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "You don't have any servers in common"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "You haven't banned anybody...\nbut if and when you must, do not hesitate!"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "You installed Yapfast with {}, so update it there."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}"
+msgstr ""
+
+#: crates/yapfast-iced/src/browse_channels.rs
+msgid "You must unfollow this category to add or remove specific channels."
+msgstr ""
+
+#: crates/yapfast-iced/src/friends/requests.rs
+msgid "You sent a friend request"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "You skipped {}. We'll tell you about the next one."
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "You won't get message notifications."
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "You'll appear offline."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "You'll need to send {} a friend request to be friends again."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "You're already in this server."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "You're already in {0}. Leave it and join {1} to watch {2}'s stream?{3}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "You're already in {0}. Leave it and join {1}?{2}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "You're here alone. Stay as long as you like; others can join later."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "You're running a build from source, so there's nothing to update."
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "You're timed out in this server until {}."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/updates.rs
+msgid "You're up to date."
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "You're viewing older messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "You've been invited to join a server"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/voice.rs
+msgid "Your camera is off."
+msgstr ""
+
+#: src/keybinds.rs
+msgid "Your desktop doesn't offer Yapfast global shortcuts"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "Your Matrix notification rules decide"
+msgstr ""
+
+#: src/update.rs
+msgid "your package manager"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "Your perfect GIF is in another castle. Try the suggested keywords below!"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Your profile in {}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Your roles on this Discord server don't let you join this channel."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/call/dock.rs crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Your screen"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "Your Widgets"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "Your wishlist is private: only you can see it."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "YouTube (Integration)"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs crates/yapfast-iced/src/message/reaction_chips.rs
+msgid "{0} and {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/mod.rs
+msgid "{0} and {1} are"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "{0} here. {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "{0} hr {1} min"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "{0} of {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "{0} of {1} slot available"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "{0} of {1} slots available"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_dialogs.rs
+msgid "{0} online, {1} members"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/reaction_chips.rs
+msgid "{0} reacted by {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "{0} since {1}"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "{0} since {1} on {2}"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/mod.rs
+msgid "{0}, {1} and {2} are"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/mod.rs
+msgid "{0}, {1} and {2} others are"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs crates/yapfast-iced/src/message/reaction_chips.rs
+msgid "{0}, {1}, and {2}"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/reaction_chips.rs
+msgid "{0}, {1}, {2}, and {3}"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "{0}/{1} Boosts"
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "{0}:{1}:{2} elapsed"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgid "{day} at {time}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/discord.rs
+msgid "{n} account"
+msgid_plural "{n} accounts"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/info_cards.rs
+msgid "{n} channel"
+msgid_plural "{n} channels"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{n} day"
+msgid_plural "{n} days"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "{n} day ago"
+msgid_plural "{n} days ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{n} hour"
+msgid_plural "{n} hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "{n} hr ago"
+msgid_plural "{n} hrs ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "{n} Item"
+msgid_plural "{n} Items"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "{n} joined thread"
+msgid_plural "{n} joined threads"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/header.rs crates/yapfast-iced/src/info_cards.rs
+msgid "{n} member"
+msgid_plural "{n} members"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "{n} Message"
+msgid_plural "{n} Messages"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "{n} min ago"
+msgid_plural "{n} mins ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{n} minute"
+msgid_plural "{n} minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "{n} month ago"
+msgid_plural "{n} months ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "{n} Mutual Friend"
+msgid_plural "{n} Mutual Friends"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "{n} Mutual Server"
+msgid_plural "{n} Mutual Servers"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/active_now.rs crates/yapfast-iced/src/message/reaction_chips.rs
+msgid "{n} other"
+msgid_plural "{n} others"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/header_popovers.rs
+msgid "{n} other active thread"
+msgid_plural "{n} other active threads"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/search.rs
+msgid "{n} Result"
+msgid_plural "{n} Results"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{n} second"
+msgid_plural "{n} seconds"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "{n} slot available"
+msgid_plural "{n} slots available"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "{n} vote"
+msgid_plural "{n} votes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{n} week"
+msgid_plural "{n} weeks"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-iced/src/server_settings/people.rs
+msgid "{n} year ago"
+msgid_plural "{n} years ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#: crates/yapfast-core/src/clock.rs
+msgid "{weekday} at {time}"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/pages/messages.rs
+msgid "{} \"typing...\" while you write. Others still show here when they type."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "{} (not connected)"
+msgstr ""
+
+#: crates/yapfast-iced/src/rail.rs
+msgid "{} (unavailable in a Discord outage)"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/look.rs
+msgid "{} ({} of {})"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/expressions.rs
+msgid "{} Boosts"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "{} calling"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "{} calling you."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{} can join again with a new invite. The reason goes in the server's audit log."
+msgstr ""
+
+#: crates/yapfast-iced/src/person_menu.rs
+msgid "{} can't join again until unbanned. The reason goes in the server's audit log."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "{} copy"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "{} Device"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/full.rs
+msgid "{} doesn't have any activity to share here"
+msgstr ""
+
+#: src/update/install.rs
+msgid "{} doesn't match the sum the release published."
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/activity.rs
+msgid "{} elapsed"
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/top.rs
+msgid "{} Events"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "{} fps"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "{} hr"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dm.rs
+msgid "{} in the call."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/mod.rs
+msgid "{} is"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "{} is thinking…"
+msgstr ""
+
+#: crates/yapfast-iced/src/profile/activity.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced-kit/src/form.rs
+msgid "{} left"
+msgstr ""
+
+#: src/desktop.rs
+msgid "{} MB. Yapfast restarts when it's done."
+msgstr ""
+
+#: crates/yapfast-iced/src/sidebar/rows.rs
+msgid "{} members"
+msgstr ""
+
+#: crates/yapfast-iced/src/status.rs
+msgid "{} min"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "{} new message"
+msgstr ""
+
+#: crates/yapfast-iced/src/timeline/view.rs
+msgid "{} new messages"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "{} Only the server owner can change this setting if they have 2FA enabled."
+msgstr ""
+
+#: crates/yapfast-iced/src/active_now.rs
+msgid "{} People"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/reaction_chips.rs
+msgid "{} people"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "{} The channel stays here when empty."
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/moderation.rs
+msgid "{} To change this setting, first enable 2FA on your account."
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "{} tracks this week"
+msgstr ""
+
+#: src/update/install.rs
+msgid "{} updates this copy."
+msgstr ""
+
+#: crates/yapfast-iced/src/call/popups/device.rs
+msgid "{} Volume"
+msgstr ""
+
+#: crates/yapfast-iced/src/composer.rs
+msgid "{} wants to message you"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "{} · End-to-end encrypted"
+msgstr ""
+
+#: crates/yapfast-iced/src/message/attachments.rs
+msgid "{} · Preview unavailable"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "{} · Sample"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/dock.rs
+msgid "{} · Secure connection"
+msgstr ""
+
+#: crates/yapfast-iced/src/server_settings/roles/list.rs
+msgid "{} • applies to all server members"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/corner.rs
+msgid "{}'s screen"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
+msgid "{}d ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "{}d left"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
+msgid "{}h ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "{}h left"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
+msgid "{}m ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "{}m left"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "{}mo ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs
+msgid "{}s ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/members.rs
+msgid "{}w ago"
+msgstr ""
+
+#: crates/yapfast-iced/src/polls.rs
+msgid "·  Poll closed"
+msgstr ""
+
+#: crates/yapfast-iced/src/edit.rs
+msgid "• enter to"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "12-hour time"
+msgid "{time} {period}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "long date"
+msgid "{day} {month} {year}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "long date"
+msgid "{month} {day}, {year}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "long date"
+msgid "{year}-{month}-{day}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "April"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "August"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "December"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "February"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "January"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "July"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "June"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "March"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "May"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "November"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "October"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "month"
+msgid "September"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "period"
+msgid "AM"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "period"
+msgid "PM"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "short date"
+msgid "{day}/{month}/{year}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "short date"
+msgid "{month}/{day}/{year}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "short date"
+msgid "{year}-{month}-{day}"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Friday"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Monday"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Saturday"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Sunday"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Thursday"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Tuesday"
+msgstr ""
+
+#: crates/yapfast-core/src/clock.rs
+msgctxt "weekday"
+msgid "Wednesday"
+msgstr ""

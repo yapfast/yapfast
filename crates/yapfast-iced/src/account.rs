@@ -9,6 +9,7 @@ use iced::{
 use yapfast_core::{
     application::AppState,
     chat::{CustomStatus, Presence},
+    i18n::tr,
     voice,
 };
 
@@ -94,7 +95,7 @@ fn custom_words(status: &CustomStatus) -> (String, Option<String>) {
 pub fn account(state: &AppState) -> Account {
     // The profile's name, else the account's id with a Matrix id's server
     // left off.
-    let id = state.account.as_deref().unwrap_or("Preview");
+    let id = state.account.as_deref().unwrap_or(tr("Preview"));
     let name = state.account_name.as_deref().unwrap_or_else(|| {
         id.strip_prefix('@')
             .and_then(|rest| rest.split_once(':'))
@@ -113,7 +114,7 @@ pub fn account(state: &AppState) -> Account {
         .as_ref()
         .filter(|_| live && state.discord_show_game);
     let words = if state.preview {
-        "Local only".to_owned()
+        tr("Local only").to_owned()
     } else if let Some((words, _)) = &custom {
         words.clone()
     } else if let Some(playing) = playing {
@@ -121,9 +122,9 @@ pub fn account(state: &AppState) -> Account {
     } else if let Some(status) = &state.account_status {
         status.clone()
     } else if state.online {
-        "Online".to_owned()
+        tr("Online").to_owned()
     } else {
-        "Offline, sync paused".to_owned()
+        tr("Offline, sync paused").to_owned()
     };
     let presence = if cfg!(feature = "matrix") || state.preview {
         None
@@ -291,18 +292,18 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         (
             Icon::MicOff,
             if account.in_call {
-                "Unmute"
+                tr("Unmute")
             } else {
-                "Join calls unmuted"
+                tr("Join calls unmuted")
             },
         )
     } else {
         (
             Icon::Mic,
             if account.in_call {
-                "Mute"
+                tr("Mute")
             } else {
-                "Join calls muted"
+                tr("Join calls muted")
             },
         )
     };
@@ -310,18 +311,18 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         (
             Icon::HeadphoneOff,
             if account.in_call {
-                "Undeafen"
+                tr("Undeafen")
             } else {
-                "Join calls undeafened"
+                tr("Join calls undeafened")
             },
         )
     } else {
         (
             Icon::Headphones,
             if account.in_call {
-                "Deafen"
+                tr("Deafen")
             } else {
-                "Join calls deafened"
+                tr("Join calls deafened")
             },
         )
     };
@@ -378,7 +379,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     20,
                     toggle(Event::Mute)
                 ),
-                caret("Input options", crate::call::Popup::Input),
+                caret(tr("Input options"), crate::call::Popup::Input),
             ]
             .align_y(Alignment::Center),
         ),
@@ -393,7 +394,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     21,
                     toggle(Event::Deafen)
                 ),
-                caret("Output options", crate::call::Popup::Output),
+                caret(tr("Output options"), crate::call::Popup::Output),
             ]
             .align_y(Alignment::Center),
         ),
@@ -406,7 +407,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         controls.push(tinted_button(
             ctx,
             Icon::Refresh,
-            "Reconnect",
+            tr("Reconnect"),
             theme.secondary,
             20,
             (!state.busy).then_some(Message::Account(Event::Reconnect)),
@@ -417,7 +418,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let controls = controls.push(tinted_button(
         ctx,
         Icon::Settings,
-        "Settings",
+        tr("Settings"),
         theme.text,
         24,
         Some(Message::Settings(crate::settings::Event::Reopen)),

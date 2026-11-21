@@ -20,6 +20,7 @@ use crate::{
     style::{faded, fill},
     widgets::Pic,
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The dock's left column, where its icons sit on the rail's axis.
 const LEAD: f32 = 64.0;
@@ -68,12 +69,12 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         _ => theme.accent,
     };
     let status = match voice.phase {
-        Phase::Disconnected => "Voice disconnected",
-        Phase::Joining => "Joining voice...",
-        Phase::Connected if state.preview => "Preview voice",
-        Phase::Connected => "Voice connected",
-        Phase::Reconnecting => "Reconnecting voice...",
-        Phase::Leaving => "Leaving voice...",
+        Phase::Disconnected => tr("Voice disconnected"),
+        Phase::Joining => tr("Joining voice..."),
+        Phase::Connected if state.preview => tr("Preview voice"),
+        Phase::Connected => tr("Voice connected"),
+        Phase::Reconnecting => tr("Reconnecting voice..."),
+        Phase::Leaving => tr("Leaving voice..."),
     };
     let measured = active && voice.link.is_some() && ready;
     let lead: Pic = if measured {
@@ -140,9 +141,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 Icon::NoiseBarsOff
             },
             if on {
-                "Turn off noise suppression"
+                tr("Turn off noise suppression")
             } else {
-                "Turn on noise suppression"
+                tr("Turn on noise suppression")
             },
             if on { theme.secondary } else { theme.danger },
             false,
@@ -153,7 +154,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         top = top.push(dock_icon(
             ctx,
             Icon::PhoneOff,
-            "Leave voice",
+            tr("Leave voice"),
             theme.secondary,
             true,
             (voice.phase != Phase::Leaving).then_some(Message::Call(Event::Leave)),
@@ -180,7 +181,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         if voice.soundboard.is_some() {
             buttons = buttons.push(ctx.spot(controls::dock_button(
                 face(Icon::Soundboard),
-                "Open Soundboard",
+                tr("Open Soundboard"),
                 false,
                 theme,
                 when(Message::Call(Event::Open(Popup::Soundboard))),
@@ -189,11 +190,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         if voice.can_film {
             let on = voice.camera_phase != voice::CameraPhase::Off;
             let label = if voice.camera_phase == voice::CameraPhase::Starting {
-                "Starting camera..."
+                tr("Starting camera...")
             } else if on {
-                "Turn off camera"
+                tr("Turn off camera")
             } else {
-                "Turn on camera"
+                tr("Turn on camera")
             };
             buttons = buttons.push(controls::dock_button(
                 face(if on { Icon::Video } else { Icon::VideoOff }),
@@ -213,9 +214,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             buttons = buttons.push(ctx.spot(controls::dock_button(
                 face(Icon::ScreenShare),
                 if sharing {
-                    "Switch screen or window"
+                    tr("Switch screen or window")
                 } else {
-                    "Share your screen"
+                    tr("Share your screen")
                 },
                 sharing,
                 theme,
@@ -244,7 +245,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     if !active {
         let dismiss: Element<'a, Message> = controls::action(
             theme,
-            "Dismiss",
+            tr("Dismiss"),
             Kind::Ghost,
             Some(Message::Call(Event::DismissError)),
         )
@@ -272,11 +273,11 @@ fn detail_line<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let state = ctx.state;
     let voice = &state.voice;
     let detail = if state.preview {
-        format!("{} · Sample", voice.name)
+        i18n::fill(tr("{} · Sample"), &[&voice.name])
     } else if voice.end_to_end {
-        format!("{} · End-to-end encrypted", voice.name)
+        i18n::fill(tr("{} · End-to-end encrypted"), &[&voice.name])
     } else {
-        format!("{} · Secure connection", voice.name)
+        i18n::fill(tr("{} · Secure connection"), &[&voice.name])
     };
     let (muted, lit) = (theme.muted, theme.text);
     let line = button(
@@ -334,14 +335,17 @@ fn sharing_line<'a>(
     let words = if !live {
         super::stage::share_status(voice).to_owned()
     } else if watchers > 0 {
-        format!("Streaming to {} · {watchers} watching", voice.name)
+        i18n::fill(
+            tr("Streaming to {0} · {1} watching"),
+            &[&voice.name, &watchers],
+        )
     } else {
-        format!("Streaming to {}", voice.name)
+        i18n::fill(tr("Streaming to {}"), &[&voice.name])
     };
     row![
         container(lead).width(LEAD).align_y(Alignment::Center),
         column![
-            text("Your screen")
+            text(tr("Your screen"))
                 .size(14)
                 .font(BOLD)
                 .color(theme.text)
@@ -355,7 +359,7 @@ fn sharing_line<'a>(
         dock_icon(
             ctx,
             Icon::ScreenShareOff,
-            "Stop sharing",
+            tr("Stop sharing"),
             theme.secondary,
             true,
             Some(Message::Call(Event::StopSharing)),
