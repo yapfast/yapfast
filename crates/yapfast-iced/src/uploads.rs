@@ -55,13 +55,13 @@ pub enum Event {
     Chosen(Vec<PathBuf>),
     Unstage(usize),
     Spoiler(usize),
-    /// A paste found files or a picture, or nothing to attach (text).
-    Clipboard(Option<Vec<PathBuf>>),
+    /// A paste in a field that takes files found files or a picture, or
+    /// nothing to attach (text, which goes in that field).
+    Clipboard(composer::Writing, Option<Vec<PathBuf>>),
     /// The same for the thread beside the channel's message.
     ChosenAside(Vec<PathBuf>),
     UnstageAside(usize),
     SpoilerAside(usize),
-    ClipboardAside(Option<Vec<PathBuf>>),
     /// A file's preview was made, or couldn't be.
     Preview(PathBuf, Option<Arc<Picture>>),
     /// Files dragged over the window, dropped (one at a time), the drop
@@ -175,13 +175,16 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.client.dispatch(Action::ToggleSpoiler(index));
             app.sync()
         }
-        Event::Clipboard(Some(files)) => {
+        // The channel's composer and a new forum post's message both stage
+        // with the selected room, the forum's for its post.
+        Event::Clipboard(which, Some(files)) if which != composer::Writing::Aside => {
             app.client.dispatch(Action::Stage(files));
             app.sync()
         }
-        Event::Clipboard(None) => iced::clipboard::read()
-            .map(|text| Message::Write(Write::Pasted(composer::Writing::Draft, text))),
-        Event::ChosenAside(files) | Event::ClipboardAside(Some(files)) => {
+        Event::Clipboard(which, None) => {
+            iced::clipboard::read().map(move |text| Message::Write(Write::Pasted(which, text)))
+        }
+        Event::ChosenAside(files) | Event::Clipboard(_, Some(files)) => {
             if !files.is_empty() {
                 app.client.dispatch(Action::StageAside(files));
             }
@@ -190,8 +193,6 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 iced::widget::operation::focus(crate::thread::COMPOSER),
             ])
         }
-        Event::ClipboardAside(None) => iced::clipboard::read()
-            .map(|text| Message::Write(Write::Pasted(composer::Writing::Aside, text))),
         Event::UnstageAside(index) => {
             app.client.dispatch(Action::UnstageAside(index));
             app.sync()

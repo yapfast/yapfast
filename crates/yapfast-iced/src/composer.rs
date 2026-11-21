@@ -504,31 +504,30 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
     }
 }
 
-/// Ctrl+V and the menu's Paste: in the composer, files copied in a file
+/// Ctrl+V and the menu's Paste: in the channel's composer, the thread
+/// beside's and a new forum post's message, files copied in a file
 /// manager or a picture go with the message, and otherwise the text is
-/// pasted; the edit's field takes text alone. The clipboard is read for
-/// files even with the message full, so the core says why they can't go;
-/// where files never go (the preview, a channel not to write in), it's
-/// the text that is pasted.
+/// pasted; the edit's field and the New Thread form's take text alone. The
+/// clipboard is read for files even with the message full, so the core
+/// says why they can't go; where files never go (the preview, a channel
+/// not to write in), it's the text that is pasted.
 fn paste(app: &App, which: Writing) -> Task<Message> {
-    use crate::uploads::Event as Uploads;
     let state = app.client.state();
     let full =
         |staged: &[yapfast_core::chat::Staged]| staged.len() >= yapfast_core::chat::MAX_FILES;
     let files_go = match which {
-        Writing::Draft => state.can_attach() || full(state.staged()),
+        // A forum's files go with its post, as dropped ones do.
+        Writing::Draft | Writing::NewPost => state.can_attach() || full(state.staged()),
         Writing::Aside => state.aside_can_attach() || full(state.aside_staged()),
-        _ => false,
+        Writing::Edit | Writing::NewThread => false,
     };
     if files_go && let Some(read) = crate::desktop::desktop().paste_reader() {
         return Task::perform(
             async move { tokio::task::spawn_blocking(read).await.ok().flatten() },
             move |files| {
-                Message::Write(Event::Uploads(if which == Writing::Aside {
-                    Uploads::ClipboardAside(files)
-                } else {
-                    Uploads::Clipboard(files)
-                }))
+                Message::Write(Event::Uploads(crate::uploads::Event::Clipboard(
+                    which, files,
+                )))
             },
         );
     }

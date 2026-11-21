@@ -297,6 +297,15 @@ fn where_winit_says_nothing_of_a_drag_the_platforms_pointer_says_where() {
 }
 
 #[test]
+fn a_thread_whose_rows_fit_tells_them_without_a_scroll() {
+    // Its scrollable never reports a viewport while its rows fit, so the
+    // rows in view are told as its messages come: their pictures load.
+    let (app, _folder) = thread_beside();
+    let aside = app.aside.as_ref().expect("the thread beside");
+    assert!(aside.told(), "its rows were told as its messages came");
+}
+
+#[test]
 fn a_report_the_throttle_holds_back_follows_after_it() {
     use crate::{app::Message, thread::Event};
     let (mut app, _folder) = thread_beside();
