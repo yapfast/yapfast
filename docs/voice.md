@@ -11,8 +11,11 @@ microphone or speaker volume (the same as Settings › Voice & video, saved as
 the slider is let go), and a way into the voice settings. With Discord linked
 the input menu adds its profile, the noise suppression, on a page of its own
 the same way. While a caret's menu is open the caret points up on a lit
-ground. Deafen also mutes the microphone;
-undeafening keeps it muted, while unmuting when deafened undeafens too. The
+ground. Deafen also mutes the microphone, and undeafening leaves the mute as
+it was before, as Discord's client does: the microphone comes back unless you
+had muted it yourself. Unmuting when deafened undeafens too. A call joined
+deafened, by the account card's toggle out of a call, undeafens to the
+microphone its other toggle asks for. The
 voice view shows the participants and their mute, deafen and speaking state; a
 deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out

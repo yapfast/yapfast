@@ -415,6 +415,29 @@ pub fn store(token: &str) -> Result<()> {
     with_vault(|vault| link(vault, &token, true).map(drop))
 }
 
+/// Links a login imported from the vanilla Discord client. Unlike [`store`],
+/// it doesn't take over the active account from one already linked: an import
+/// adds accounts beside the one in use, and only becomes active when none was.
+/// An already linked account keeps its stored session; only its name is updated.
+/// Returns whether the account was new, so the caller can count what it added.
+pub fn adopt(token: &str, username: &str, name: &str) -> Result<bool> {
+    let token = clean(token)?;
+    with_vault(|vault| adopt_in(vault, &token, username, name))
+}
+
+fn adopt_in(vault: &dyn Vault, token: &str, username: &str, name: &str) -> Result<bool> {
+    let index = read_index(vault)?;
+    let known = locate(vault, &index, token)?;
+    let added = known.is_none();
+    let id = match known {
+        Some(id) => id,
+        None => link(vault, token, false)?,
+    };
+    let avatar = read_saved(vault, &id)?.unwrap_or_default().avatar;
+    describe_in(vault, &id, username, name, &avatar)?;
+    Ok(added)
+}
+
 /// Discord refreshed the login `earlier` to `token`: its account keeps it,
 /// where it was in the list and whether it's the active one. Nothing is
 /// linked if the account was logged out meanwhile.
@@ -552,6 +575,26 @@ mod tests {
         format!("{}.{rest}", STANDARD_NO_PAD.encode(id))
     }
 
+    #[test]
+    fn importing_a_known_account_preserves_its_independent_session() {
+        let vault = Memory::default();
+        let id = "100000000000000001";
+        let independent = login(id, "qr-session");
+        link(&vault, &independent, true).unwrap();
+        describe_in(&vault, id, "old", "Old", "avatar").unwrap();
+        assert!(!adopt_in(&vault, &login(id, "desktop-session"), "new", "New").unwrap());
+        let saved = read_saved(&vault, id).unwrap().unwrap();
+        assert_eq!(saved.token, independent);
+        assert_eq!(
+            (
+                saved.username.as_str(),
+                saved.name.as_str(),
+                saved.avatar.as_str()
+            ),
+            ("new", "New", "avatar")
+        );
+    }
+
     fn ids(vault: &dyn Vault) -> Vec<String> {
         listing_in(vault)
             .unwrap()
@@ -677,6 +720,41 @@ mod tests {
         // An account that isn't linked isn't made by describing it.
         describe_in(&vault, "100000000000000009", "x", "X", "").unwrap();
         assert_eq!(ids(&vault).len(), 1);
+    }
+
+    #[test]
+    fn importing_preserves_the_active_account_and_existing_avatar() {
+        let vault = Memory::default();
+        let first = login("100000000000000001", "a");
+        let second = login("100000000000000002", "b");
+        link(&vault, &first, true).unwrap();
+        assert!(adopt_in(&vault, &second, "bea", "Bea").unwrap());
+        assert_eq!(
+            listing_in(&vault).unwrap().active.as_deref(),
+            Some("100000000000000001")
+        );
+        describe_in(
+            &vault,
+            "100000000000000002",
+            "bea",
+            "Bea",
+            "https://cdn/bea.png",
+        )
+        .unwrap();
+        assert!(!adopt_in(&vault, &second, "bea", "New name").unwrap());
+        let account = &listing_in(&vault).unwrap().accounts[1];
+        assert_eq!(account.avatar, "https://cdn/bea.png");
+        assert_eq!(account.name, "New name");
+    }
+
+    #[test]
+    fn the_first_imported_account_becomes_active() {
+        let vault = Memory::default();
+        adopt_in(&vault, &login("100000000000000001", "a"), "ann", "Ann").unwrap();
+        assert_eq!(
+            listing_in(&vault).unwrap().active.as_deref(),
+            Some("100000000000000001")
+        );
     }
 
     #[test]

@@ -106,8 +106,11 @@ pub struct ChatRoom {
     /// decides apart from sending: a read-only channel may still take
     /// reactions.
     pub reacts: Reacts,
-    /// A Discord channel or thread whose slowmode this account waits out
-    /// between messages.
+    /// A Discord channel's or thread's slowmode, the seconds each member
+    /// waits between messages; 0 without one.
+    pub slowmode: u32,
+    /// Whether this account waits out that slowmode, as those who may
+    /// bypass it don't.
     pub slowed: bool,
     /// When this account's timeout in the room's Discord server ends, in
     /// Unix milliseconds, while it lasts.
@@ -1284,6 +1287,11 @@ pub struct ThreadLink {
     /// Its messages after the first, when Yapfast knows.
     pub messages: Option<u64>,
     pub archived: bool,
+    /// Its newest message, while Yapfast knows it.
+    pub recent: Option<RecentMessage>,
+    /// When it was last active, in Unix milliseconds: its newest message's
+    /// time, else its own start.
+    pub active_ms: u64,
 }
 
 /// A Discord thread as a channel's list of its threads shows it.
@@ -1368,6 +1376,9 @@ pub struct ThreadPerson {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RecentMessage {
     pub author: ThreadPerson,
+    /// The server tag its author wears, which a message's thread card shows
+    /// after the name.
+    pub tag: Option<ServerTag>,
     /// Its text on one line, mentions and custom emoji as text.
     pub text: String,
 }
@@ -3496,6 +3507,8 @@ pub enum DiscordCommand {
     /// of the one running: after linking another, which becomes the active
     /// one. [`Event::DiscordAccounts`] follows.
     Start,
+    /// Refresh the linked accounts without interrupting the active connection.
+    ListAccounts,
     /// Make the linked Discord account with this id the active one and
     /// connect it in place of the one running; [`Event::DiscordSwitched`]
     /// and [`Event::DiscordAccounts`] follow, or [`Event::Error`] when it
@@ -5590,20 +5603,45 @@ impl Animation {
 
 /// The first line of a Markdown body as plain text, for reply quotes.
 pub fn plain_snippet(markdown: &str) -> String {
-    use pulldown_cmark::{Event, Parser, TagEnd};
     let mut text = String::new();
+    first_line(markdown, |part, _| text.push_str(part));
+    text
+}
+
+/// A reply quote's first line as plain text, as [`plain_snippet`] has it,
+/// and those of `emoji` its text shows: each whose `:name:` is in the line
+/// out of code, which shows a name as text.
+pub fn reply_snippet(markdown: &str, mut emoji: Vec<CustomEmoji>) -> (String, Vec<CustomEmoji>) {
+    let mut text = String::new();
+    // The line's text with each piece of code as a mark no name holds.
+    let mut prose = String::new();
+    first_line(markdown, |part, code| {
+        text.push_str(part);
+        prose.push_str(if code { "\0" } else { part });
+    });
+    emoji.retain(|each| prose.contains(&each.text));
+    (text, emoji)
+}
+
+/// Hands `each` the text of a Markdown body's first line, piece by piece,
+/// and whether the piece is code.
+fn first_line(markdown: &str, mut each: impl FnMut(&str, bool)) {
+    use pulldown_cmark::{Event, Parser, TagEnd};
+    let mut any = false;
     for event in Parser::new(markdown) {
         match event {
-            Event::Text(part) | Event::Code(part) => text.push_str(&part),
-            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph)
-                if !text.is_empty() =>
-            {
-                break;
+            Event::Text(part) => {
+                any |= !part.is_empty();
+                each(&part, false);
             }
+            Event::Code(part) => {
+                any |= !part.is_empty();
+                each(&part, true);
+            }
+            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph) if any => break,
             _ => {}
         }
     }
-    text
 }
 
 /// A Markdown body as plain text for a notification: its paragraphs and list items on
@@ -5853,6 +5891,9 @@ pub async fn run(
                         if replacing {
                             let _ = events.send(Event::DiscordSwitched);
                         }
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::ListAccounts) => {
                         send_discord_accounts(&events);
                     }
                     Command::Discord(DiscordCommand::SwitchAccount(id)) => {

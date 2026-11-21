@@ -47,6 +47,8 @@ pub struct Pointed {
     pub voice: Option<String>,
     /// A video cell, by `{item}/{index}`.
     pub clip: Option<String>,
+    /// A thread's card, by its message's item.
+    pub thread: Option<Arc<str>>,
 }
 
 /// Nothing has this id: focusing it takes the keys from every field, as a
@@ -388,6 +390,14 @@ impl App {
             }
             Message::Linking(step) => {
                 self.client.linking(step);
+                self.sync()
+            }
+            Message::Import(run, Some(step)) => {
+                self.client.import_step(run, step);
+                self.sync()
+            }
+            Message::Import(run, None) => {
+                self.client.import_ended(run);
                 self.sync()
             }
             Message::SignIn(event) => {

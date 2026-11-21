@@ -143,7 +143,9 @@ fn the_preview_says_so_and_a_notice_shows_until_dismissed() {
         "Local preview: sample data. Nothing leaves this computer."
     ));
     change(&mut app, |state| {
-        state.notice = Some("Discord asked Yapfast to slow down.".into());
+        state.notice = Some(yapfast_core::application::Notice::Error(
+            "Discord asked Yapfast to slow down.".into(),
+        ));
     });
     assert!(shows(&app, "Discord asked Yapfast to slow down."));
     interact(&mut app, |ui| {
@@ -519,13 +521,13 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
         let room = state.selected.clone().expect("an open room");
-        state.typing.insert(room, vec!["Sam".into()]);
+        state.typing.insert(room, vec!["Quill".into()]);
     });
     // The dots' pixels, now and a moment later.
     let moved = |app: &mut crate::app::App| {
         let mut moved = false;
         interact(app, |ui| {
-            let words = ui.find("Sam is typing...").expect("the typing line");
+            let words = ui.find("Quill").expect("the typing line");
             let words = words.visible_bounds().expect("in view");
             let dots = |ui: &mut iced_test::Simulator<'_, Message>| {
                 let (width, _, pixels) = drawn(ui);
@@ -536,13 +538,14 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
                     .collect::<Vec<_>>()
             };
             let before = dots(ui);
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            // Longer than the dots rest between pulses.
+            std::thread::sleep(std::time::Duration::from_millis(400));
             moved = dots(ui) != before;
         });
         moved
     };
     app.layout.prefs.animate = crate::layout::Animate::Always;
-    assert!(moved(&mut app), "they rise in turn");
+    assert!(moved(&mut app), "they pulse in turn");
     app.layout.prefs.animate = crate::layout::Animate::Never;
     assert!(!moved(&mut app));
 }
@@ -872,6 +875,8 @@ fn shift_on_the_hover_bar_offers_create_thread_where_one_may_start() {
             name: "About it".into(),
             messages: None,
             archived: false,
+            recent: None,
+            active_ms: 0,
         }))]);
     });
     assert!(!starts(&app), "the message has its thread");
@@ -1391,4 +1396,81 @@ fn reply_quotes_render_static_and_animated_custom_emoji_and_fall_back_until_load
         ui.click("Reply").expect("Reply");
     });
     assert!(shows(&app, "Replying to"), "the reply bar opened");
+}
+
+#[test]
+fn a_threads_card_shows_its_count_and_newest_message_as_discords_does() {
+    use yapfast_core::chat::{ChatMessage, RecentMessage, ThreadLink, ThreadPerson};
+    let (mut app, _folder) = preview();
+    let day_ago = app.minute * 1000 - 86_400_000 - 60_000;
+    let message_named = |name: &str, messages, recent| {
+        Arc::new(ChatMessage {
+            item: "d:50".into(),
+            id: "50".into(),
+            author: "Sam".into(),
+            body: "Let's talk about it".into(),
+            timestamp: 1,
+            thread: Some(ThreadLink {
+                room: "discord:10:1300000000000000000".into(),
+                name: name.into(),
+                messages,
+                archived: false,
+                recent,
+                active_ms: day_ago,
+            }),
+            ..Default::default()
+        })
+    };
+    let message = |messages, recent| message_named("About it", messages, recent);
+    let recent = RecentMessage {
+        author: ThreadPerson {
+            name: "David".into(),
+            ..Default::default()
+        },
+        tag: None,
+        text: "yeah, I take it".into(),
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![message(Some(1), Some(recent.clone()))]);
+    });
+    for words in [
+        "About it",
+        "1 Message \u{203a}",
+        "David",
+        "yeah, I take it",
+        "1d ago",
+    ] {
+        assert!(shows(&app, words), "{words:?} on the card");
+    }
+    // Before its first message, Discord's words for it.
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![message(Some(0), None)]);
+    });
+    assert!(shows(&app, "See Thread \u{203a}"));
+    assert!(shows(&app, "There are no messages in this thread yet."));
+    assert!(!shows(&app, "1d ago"));
+    // A long name gives way to the count, on a card 480 wide at most.
+    change(&mut app, |state| {
+        let name = "Official Claude Code Extension on Cursor ".repeat(4);
+        state.messages = Arc::new(vec![message_named(&name, Some(1), Some(recent))]);
+    });
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut left = None;
+    let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+        if let iced_test::selector::Candidate::Text {
+            content, bounds, ..
+        } = candidate
+            && content == "Let's talk about it"
+        {
+            left = Some(bounds.x);
+        }
+        None::<()>
+    });
+    let left = left.expect("the message in view");
+    let count = super::last(&mut ui, "1 Message \u{203a}");
+    assert!(
+        count.x < left + 480.0,
+        "{count:?} past the card's 480 from {left}"
+    );
 }

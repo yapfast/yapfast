@@ -61,8 +61,11 @@ pub struct NewThread {
     /// What an empty name becomes: one made from the message, as Discord's
     /// client makes it; empty without one, when a name is required.
     pub default_name: String,
-    /// The first message, which Yapfast sends once the thread opens.
+    /// The first message, which Yapfast sends once the thread opens, and
+    /// the files that go with it, which Discord's form takes as its
+    /// channel's composer does.
     pub body: String,
+    pub files: Vec<chat::Staged>,
     pub private: bool,
     /// The form offers a private thread, and offers only that.
     pub can_private: bool,
@@ -234,6 +237,41 @@ impl AppState {
         self.new_thread
             .as_ref()
             .filter(|form| self.selected.as_ref() == Some(&form.room))
+    }
+
+    /// The channel the form starts a thread of, as it lists.
+    fn first_room(&self) -> Option<&ChatRoom> {
+        let form = self.new_thread()?;
+        self.rooms
+            .iter()
+            .map(Arc::as_ref)
+            .find(|room| room.id == form.room)
+    }
+
+    /// How large a file the form's first message takes: its channel's
+    /// limit, which its threads share.
+    pub(super) fn first_upload_limit(&self) -> u64 {
+        self.first_room().map_or(0, |room| room.upload_limit)
+    }
+
+    /// Whether files can be added to the form's first message.
+    pub fn can_attach_first(&self) -> bool {
+        self.new_thread().is_some_and(|form| {
+            !form.starting && !self.preview && form.files.len() < chat::MAX_FILES
+        })
+    }
+
+    /// Whether the form's files can be marked as spoilers.
+    pub fn can_mark_first_spoilers(&self) -> bool {
+        self.first_room()
+            .is_some_and(|room| room.capabilities.spoilers)
+    }
+
+    /// Why files dropped on the form can't go with its first message, if
+    /// they can't.
+    pub fn first_drop_refusal(&self, paths: &[PathBuf]) -> Option<chat::Refusal> {
+        let staged = self.new_thread().map_or(0, |form| form.files.len());
+        chat::Refusal::of(paths, staged, self.first_upload_limit())
     }
 }
 
@@ -536,6 +574,46 @@ impl Application {
         form.error = None;
     }
 
+    /// Adds files to the form's first message, saying why any can't go:
+    /// as large as its channel takes, a thread's being the same.
+    pub(super) fn stage_first(&mut self, paths: Vec<PathBuf>) {
+        let limit = self.state.first_upload_limit();
+        let Some(form) = self.state.new_thread.as_mut().filter(|form| !form.starting) else {
+            return;
+        };
+        if paths.is_empty() || self.state.preview {
+            return;
+        }
+        self.state.notice =
+            super::compose::stage_files(&mut form.files, paths, limit).map(super::Notice::Error);
+    }
+
+    /// Takes the file at `index` out of the form's first message.
+    pub(super) fn unstage_first(&mut self, index: usize) {
+        if let Some(form) = self.state.new_thread.as_mut().filter(|form| !form.starting)
+            && index < form.files.len()
+        {
+            form.files.remove(index);
+        }
+    }
+
+    /// Marks the file at `index` of the form's first message as a
+    /// spoiler, or not.
+    pub(super) fn toggle_first_spoiler(&mut self, index: usize) {
+        if !self.state.can_mark_first_spoilers() {
+            return;
+        }
+        if let Some(file) = self
+            .state
+            .new_thread
+            .as_mut()
+            .filter(|form| !form.starting)
+            .and_then(|form| form.files.get_mut(index))
+        {
+            file.spoiler = !file.spoiler;
+        }
+    }
+
     pub(super) fn set_thread_private(&mut self, private: bool) {
         if let Some(form) = self
             .state
@@ -561,7 +639,8 @@ impl Application {
             form.error = Some("Thread Name is required".into());
             return vec![];
         }
-        if form.body.trim().is_empty() {
+        // Files alone make a message, as in Discord's form.
+        if form.body.trim().is_empty() && form.files.is_empty() {
             form.error = Some("Starter Message is required".into());
             return vec![];
         }
@@ -584,7 +663,8 @@ impl Application {
         let Some(form) = self.state.new_thread.as_mut().filter(|form| !form.starting) else {
             return;
         };
-        let written = !form.name.trim().is_empty() || !form.body.trim().is_empty();
+        let written =
+            !form.name.trim().is_empty() || !form.body.trim().is_empty() || !form.files.is_empty();
         if written && !sure {
             form.leaving = true;
         } else {
@@ -611,8 +691,12 @@ impl Application {
         match result {
             Ok(thread) => {
                 let body = std::mem::take(&mut form.body);
+                let files = std::mem::take(&mut form.files);
                 self.state.new_thread = None;
                 self.state.drafts.insert(thread.clone(), body);
+                if !files.is_empty() {
+                    self.state.staged.insert(thread.clone(), files);
+                }
                 self.first_message = Some(thread.clone());
                 if self.state.rooms.iter().any(|listed| listed.id == thread) {
                     return self.open_aside(thread);

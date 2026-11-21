@@ -123,15 +123,15 @@ const EMOJI_MARK_STR: &str = "\u{2003}";
 /// 16 px text.
 pub const EMOJI_SCALE: f32 = 1.375;
 
-/// One piece of a single-line plain snippet: either literal text or a custom
-/// emoji matched by its `:name:`.
+/// One piece of text: literal text, or a custom emoji found by its `:name:`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InlinePart<'a> {
     Text(&'a str),
     Emoji(&'a yapfast_core::chat::CustomEmoji),
 }
 
-/// Splits plain single-line `text` into literal text slices and custom `emoji`.
+/// Splits `text` into literal text and the custom `emoji` named in it, the
+/// earliest name again and again.
 pub fn split_emoji<'a>(
     text: &'a str,
     emoji: &'a [yapfast_core::chat::CustomEmoji],
@@ -324,31 +324,22 @@ pub fn with_emoji(body: &mut Body, emoji: &[yapfast_core::chat::CustomEmoji]) {
                 runs.push(run);
                 continue;
             }
-            let mut rest = run.text.as_str();
-            // The earliest emoji name in what's left, again and again.
-            while let Some((at, found)) = emoji
-                .iter()
-                .filter(|each| !each.text.is_empty())
-                .filter_map(|each| rest.find(&each.text).map(|at| (at, each)))
-                .min_by_key(|(at, _)| *at)
-            {
-                if at > 0 {
-                    runs.push(Run {
-                        text: rest[..at].to_owned(),
-                        ..run.clone()
-                    });
-                }
-                runs.push(Run {
-                    text: EMOJI_MARK.to_string(),
-                    emoji: Some((found.picture.clone(), found.text.clone())),
-                    ..run.clone()
-                });
-                rest = &rest[at + found.text.len()..];
+            let parts = split_emoji(&run.text, emoji);
+            if let [InlinePart::Text(_)] = parts[..] {
+                runs.push(run);
+                continue;
             }
-            if !rest.is_empty() {
-                runs.push(Run {
-                    text: rest.to_owned(),
-                    ..run
+            for part in parts {
+                runs.push(match part {
+                    InlinePart::Text(text) => Run {
+                        text: text.to_owned(),
+                        ..run.clone()
+                    },
+                    InlinePart::Emoji(found) => Run {
+                        text: EMOJI_MARK.to_string(),
+                        emoji: Some((found.picture.clone(), found.text.clone())),
+                        ..run.clone()
+                    },
                 });
             }
         }

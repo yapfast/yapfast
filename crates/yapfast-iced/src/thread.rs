@@ -101,6 +101,12 @@ impl Aside {
         }
     }
 
+    /// Whether its rows in view were told to the core yet.
+    #[cfg(test)]
+    pub fn told(&self) -> bool {
+        self.reported.is_some()
+    }
+
     pub fn total_height(&self) -> f32 {
         self.tops.last().copied().unwrap_or(0.0)
     }
@@ -158,6 +164,9 @@ pub struct Drafts {
 #[derive(Clone, Debug)]
 pub enum Event {
     Scrolled(Viewport),
+    /// The list's size as laid out, which a list whose rows all fit never
+    /// says by scrolling.
+    Sized(iced::Size),
     /// A report the throttle held back fell due.
     Report,
     Measured(Vec<(u64, f32)>),
@@ -167,6 +176,8 @@ pub enum Event {
     More,
     Send,
     Attach,
+    /// The New Thread form's Attach.
+    AttachFirst,
     CancelReply,
     TogglePing,
     /// A thread to show beside its channel: View Thread, a thread's link,
@@ -197,16 +208,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 return Task::none();
             };
             aside.from_end = viewport.absolute_offset().y;
-            aside.height = viewport.bounds().height;
-            let width = viewport.bounds().width + 1.0;
-            if (width - aside.width).abs() > 1.0 {
-                aside.width = width;
-                aside.heights.clear();
-                let same = aside.messages.clone();
-                measure_aside(app, &same, true);
-            }
-            Task::batch([aside_report(app), app.ask()])
+            aside_sized(app, viewport.bounds().size())
         }
+        Event::Sized(size) => aside_sized(app, size),
         Event::Report => {
             if let Some(aside) = &mut app.aside {
                 aside.report_due = false;
@@ -242,6 +246,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Send => send_aside(app),
         Event::Attach => attach_aside(),
+        Event::AttachFirst => {
+            // Cancelled, the field takes the keys again all the same.
+            let chosen =
+                |files| Message::Write(Write::Uploads(crate::uploads::Event::ChosenFirst(files)));
+            crate::uploads::pick_files(chosen, chosen(Vec::new()))
+        }
         Event::CancelReply => {
             app.client.dispatch(Action::CancelAsideCompose);
             Task::batch([app.sync(), operation::focus(COMPOSER)])
@@ -379,12 +389,20 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
     aside.loading = loading;
     aside.start = start;
     aside.failed = failed;
+    let mut due = Task::none();
     if edge_changed || !Arc::ptr_eq(&aside.messages, &messages) {
         let old = std::mem::replace(&mut aside.messages, messages);
         app.seen_aside = seen;
         measure_aside(app, &old, edge_changed);
+        // The rows in view are told as they change, as the timeline's are:
+        // a thread whose rows all fit never scrolls, so its scrollable
+        // never reports a viewport, and without this its pictures wouldn't
+        // load. This runs in `sync`, which needn't run again for it.
+        if let Told::Later(task) = tell_rows(app) {
+            due = task;
+        }
     }
-    Task::batch([aside_earlier(app), new_thread_sync(app)])
+    Task::batch([due, aside_earlier(app), new_thread_sync(app)])
 }
 
 /// The New Thread form's first message follows the core's.
@@ -504,27 +522,61 @@ fn aside_earlier(app: &mut App) -> Task<Message> {
     Task::none()
 }
 
-/// Tells the core which of the thread's rows are in view, at most every
-/// 50 ms, so their pictures load and they're read.
-fn aside_report(app: &mut App) -> Task<Message> {
+/// The list's viewport is this size: the rows are measured again for a new
+/// width, and those in view told.
+fn aside_sized(app: &mut App, size: iced::Size) -> Task<Message> {
     let Some(aside) = &mut app.aside else {
         return Task::none();
     };
+    aside.height = size.height;
+    let width = size.width + 1.0;
+    if (width - aside.width).abs() > 1.0 {
+        aside.width = width;
+        aside.heights.clear();
+        let same = aside.messages.clone();
+        measure_aside(app, &same, true);
+    }
+    Task::batch([aside_report(app), app.ask()])
+}
+
+/// Tells the core which of the thread's rows are in view, at most every
+/// 50 ms, so their pictures load and they're read.
+fn aside_report(app: &mut App) -> Task<Message> {
+    match tell_rows(app) {
+        Told::Now => Task::batch([aside_earlier(app), app.sync()]),
+        Told::Later(due) => Task::batch([aside_earlier(app), due]),
+    }
+}
+
+/// What [`tell_rows`] did.
+enum Told {
+    Now,
+    /// Nothing to tell yet, or the throttle held it back: a task that
+    /// tells it when it falls due, if one isn't already waiting.
+    Later(Task<Message>),
+}
+
+/// The core hears which of the thread's rows are in view, unless the
+/// throttle holds the report back.
+fn tell_rows(app: &mut App) -> Told {
+    let Some(aside) = &mut app.aside else {
+        return Told::Later(Task::none());
+    };
     if aside.messages.is_empty() {
-        return aside_earlier(app);
+        return Told::Later(Task::none());
     }
     // At most one every REPORT_EVERY, the last after the throttle.
     if let Some(since) = aside.reported.map(|reported| reported.elapsed())
         && since < REPORT_EVERY
     {
         if aside.report_due {
-            return aside_earlier(app);
+            return Told::Later(Task::none());
         }
         aside.report_due = true;
-        return Task::batch([
-            aside_earlier(app),
-            crate::after(REPORT_EVERY - since, Message::Thread(Event::Report)),
-        ]);
+        return Told::Later(crate::after(
+            REPORT_EVERY - since,
+            Message::Thread(Event::Report),
+        ));
     }
     aside.reported = Some(Instant::now());
     let (first, last) = aside.in_view(0.0);
@@ -540,7 +592,7 @@ fn aside_report(app: &mut App) -> Task<Message> {
         items,
         at_end: false,
     });
-    Task::batch([aside_earlier(app), app.sync()])
+    Told::Now
 }
 
 /// The rows of the thread in view, for the pictures they want.
@@ -668,9 +720,14 @@ impl<'a> SideComposer<'a> {
         })
         .enabled(self.enabled)
         .suggesting(crate::suggest::suggesting(cx, self.which));
-        // Ctrl+V takes files and pictures where the thread takes them, as
-        // the channel's composer does.
-        let field = if self.which == Writing::Aside && cx.state.aside_can_attach() {
+        // Ctrl+V takes files and pictures in the thread's composer, the
+        // New Thread form's and a new post's message, as in the channel's
+        // composer; the paste decides as it's made whether files can go
+        // (`composer::paste`).
+        let field = if matches!(
+            self.which,
+            Writing::Aside | Writing::NewThread | Writing::NewPost
+        ) {
             field.pastes()
         } else {
             field
@@ -906,6 +963,8 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         .width(Length::Fill)
         .height(Length::Fill)
         .style(scrollbar(theme));
+    // Its size, for the rows in view while they all fit.
+    let list = iced::widget::sensor(list).on_resize(|size| Message::Thread(Event::Sized(size)));
     Watch::new(
         list,
         ctx.lanes
@@ -1028,7 +1087,10 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
     if let Some(error) = &form.error {
         fields = fields.push(form::error(theme, error.as_str()));
     }
-    let composer = SideComposer::new(
+    // Files go with the first message, and alone make one, as in
+    // Discord's form.
+    let written = !ctx.drafts.first.is_empty() || !form.files.is_empty();
+    let mut composer = SideComposer::new(
         Writing::NewThread,
         tr("Enter a message to start the conversation!").to_owned(),
     )
@@ -1040,9 +1102,17 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
             tr("Create Thread")
         },
         (!form.starting).then_some(Message::Thread(Event::Create)),
-        !form.starting && !ctx.drafts.first.is_empty(),
+        !form.starting && written,
     )
-    .view(ctx);
+    .attach(
+        ctx.state
+            .can_attach_first()
+            .then_some(Message::Thread(Event::AttachFirst)),
+    );
+    if let Some(tray) = crate::uploads::first_tray(ctx) {
+        composer = composer.tray(tray);
+    }
+    let composer = composer.view(ctx);
     let body: Element<'a, Message> = column![
         panel_head(ctx, head),
         scroll_view(fields)

@@ -587,7 +587,7 @@ impl Application {
             let opening = self.pending_open.take_if(|pending| *pending == room);
             let beside = self.pending_aside.take_if(|pending| *pending == room);
             if opening.is_some() || beside.is_some() {
-                self.state.notice = Some(error);
+                self.state.notice = Some(super::Notice::Error(error));
             }
         }
     }
@@ -1045,8 +1045,9 @@ impl Application {
             // Discord would refuse its messages, and refusals count against
             // the account, so Yapfast doesn't ask.
             self.state.room_ready = true;
-            self.state.notice =
-                Some("Your roles on this Discord server don't let you read this channel.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Your roles on this Discord server don't let you read this channel.".into(),
+            ));
             effects.push(Effect::Backend(Command::CloseRoom));
         } else {
             effects.push(Effect::Backend(Command::Open(id)));

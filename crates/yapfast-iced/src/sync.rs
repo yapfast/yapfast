@@ -291,11 +291,14 @@ impl App {
         let seen = {
             let state = self.client.state();
             let (staged, aside) = (state.staged(), state.aside_staged());
+            let first = state.new_thread().map_or(&[][..], |form| &form.files);
             [
                 staged.as_ptr().addr(),
                 staged.len(),
                 aside.as_ptr().addr(),
                 aside.len(),
+                first.as_ptr().addr(),
+                first.len(),
             ]
         };
         if seen != self.uploads.staged_seen {
@@ -408,6 +411,20 @@ impl App {
             self.linking = Some(handle.abort_on_drop());
             tasks.push(task);
         }
+        // The import's steps are followed to the stream's end, whatever
+        // happens to the linking meanwhile: a save can outlast it.
+        if let Some((run, progress)) = self.client.take_import() {
+            tasks.push(
+                Task::run(
+                    iced::futures::stream::unfold(progress, |mut progress| async move {
+                        let step = progress.recv().await?;
+                        Some((step, progress))
+                    }),
+                    move |step| Message::Import(run, Some(step)),
+                )
+                .chain(Task::done(Message::Import(run, None))),
+            );
+        }
         if self.client.link_stopped() {
             self.linking = None;
         }
@@ -451,12 +468,11 @@ impl App {
 
     /// The core's members for the list, while it shows: a hidden list
     /// (its toggle off, a thread or search in its place) keeps no lines,
-    /// cards or pictures, and builds none as the roster churns.
+    /// cards or pictures, and builds none as the roster churns. A group
+    /// DM's list shows as a server channel's does.
     fn roster_source(&self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
         match &self.client.state().members {
-            Some(Ok(members)) if self.server && crate::header::members_shown(self) => {
-                Some(members.clone())
-            }
+            Some(Ok(members)) if crate::header::members_shown(self) => Some(members.clone()),
             _ => None,
         }
     }

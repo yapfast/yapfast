@@ -515,7 +515,7 @@ impl Application {
         let Some(room) = self.state.selected.clone() else {
             return vec![];
         };
-        if !self.state.can_pick_stickers() {
+        if !self.state.can_pick_stickers() || self.slowmode_holds(&room) {
             return vec![];
         }
         // Frequently Used counts it, by id; the server's list or a pack names
@@ -583,11 +583,14 @@ impl Application {
 
     /// A sticker was sent, or why it couldn't be.
     pub(super) fn sticker_sent(&mut self, room: String, result: Result<(), String>) {
+        if result.is_ok() {
+            self.slowmode_starts(&room);
+        }
         if self.state.selected.as_ref() != Some(&room) {
             return;
         }
         if let Err(error) = result {
-            self.state.notice = Some(error);
+            self.state.notice = Some(super::Notice::Error(error));
         }
     }
 

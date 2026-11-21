@@ -65,6 +65,10 @@ msgstr "1 autre boost est en pause après avoir été déplacé."
 msgid "1 week"
 msgstr "1 semaine"
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "100k+ Messages ›"
+msgstr "100k+ messages ›"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "12 hours"
 msgstr "12 heures"
@@ -80,6 +84,10 @@ msgstr "12 heures"
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "15 minutes"
 msgstr "15 minutes"
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "1m ago"
+msgstr "il y a 1 min"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "2 hours"
@@ -121,6 +129,10 @@ msgstr "4 heures"
 msgid "5 minutes"
 msgstr "5 minutes"
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "50+ Messages ›"
+msgstr "50+ messages ›"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "6 hours"
 msgstr "6 heures"
@@ -157,7 +169,7 @@ msgstr "il y a <1 j"
 msgid ">1y ago"
 msgstr "il y a plus d'un an"
 
-#: crates/yapfast-iced/src/header_popovers.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/message/mod.rs
 msgid ">30d ago"
 msgstr "il y a plus de 30 jours"
 
@@ -589,6 +601,10 @@ msgstr "Toutes les modifications effectuées seront perdues si vous quittez main
 msgid "Any content"
 msgstr "Tout contenu"
 
+#: crates/yapfast-iced/src/signin.rs
+msgid "Anyone with your token can use your account. Paste it only here, and never share it."
+msgstr "Quiconque a ton jeton peut utiliser ton compte. Colle-le seulement ici et ne le partage jamais."
+
 #: crates/yapfast-iced/src/looks.rs
 msgid "APP"
 msgstr "APP"
@@ -628,10 +644,6 @@ msgstr "Applications que tu as laissées entrer dans ton compte Discord. En rév
 #: crates/yapfast-iced/src/composer/tools.rs
 msgid "Apps: finish or clear your message first"
 msgstr "Apps : termine ou efface d'abord ton message"
-
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "Archived"
-msgstr "Archivé"
 
 #: crates/yapfast-iced/src/server_settings/roles/mod.rs
 msgid "Are you sure you want to delete the {} role? This action cannot be undone."
@@ -721,6 +733,10 @@ msgstr "Retour à la connexion"
 msgid "Backup code"
 msgstr "Code de secours"
 
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Backup codes can only be used one time each and are for emergency access to your account!"
+msgstr "Les codes de secours ne peuvent être utilisés qu'une seule fois chacun et servent à accéder à ton compte en cas d'urgence !"
+
 #: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Ban"
 msgstr "Bannir"
@@ -760,6 +776,10 @@ msgstr "Avant de pouvoir effectuer une recherche, nous devons indexer ce MP. Lai
 #: crates/yapfast-iced/src/search.rs crates/yapfast-iced/src/server_settings/people.rs
 msgid "Before searching, we need to index this server. Give us a bit."
 msgstr "Avant de pouvoir effectuer une recherche, nous devons indexer ce serveur. Laissez-nous un instant."
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Before you import"
+msgstr "Avant d'importer"
 
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Better streams"
@@ -889,7 +909,7 @@ msgstr "CAMÉRAS"
 msgid "Can: {0}"
 msgstr "Peut : {0}"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs crates/yapfast-iced/src/signin.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
 msgid "Cancel"
 msgstr "Annuler"
 
@@ -904,6 +924,10 @@ msgstr "Annuler la demande d'ami"
 #: crates/yapfast-iced/src/composer.rs
 msgid "Cancel reply"
 msgstr "Annuler la réponse"
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Cancelling import..."
+msgstr "Annulation de l'importation..."
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Cards for links, videos and bots under messages. Linked pictures still show."
@@ -1144,6 +1168,10 @@ msgstr "Effacer le statut"
 #: crates/yapfast-iced/src/picker/stickers.rs
 msgid "Click a sticker to send it."
 msgstr "Cliquez sur un sticker pour l'envoyer."
+
+#: crates/yapfast-iced/src/picker/gifs.rs
+msgid "Click the star in the corner of a GIF to favorite it. Favorites will show up here!"
+msgstr "Clique sur l'étoile dans le coin d'un GIF pour l'ajouter aux favoris. Les favoris apparaîtront ici !"
 
 #: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs
 msgid "Click to add a note"
@@ -1669,6 +1697,14 @@ msgstr "Discord et Matrix affichent"
 msgid "Discord asks for a captcha first. Solve it in your browser."
 msgstr "Discord demande d'abord un captcha. Résolvez-le dans votre navigateur."
 
+#: crates/yapfast-iced/src/mfa.rs
+msgid "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
+msgstr "Discord demande une clé d'accès ou une clé de sécurité, que Yapfast ne peut pas utiliser. Confirme dans l'application Discord, puis réessaie."
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Discord doesn't allow apps like Yapfast on personal accounts. Linking puts your account at some risk of being suspended."
+msgstr "Discord n'autorise pas les applications comme Yapfast sur les comptes personnels. La liaison expose ton compte à un risque de suspension."
+
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "Discord has no quest for your account at the moment. Check back later."
 msgstr "Discord n'a aucune quête pour votre compte pour le moment. Revenez plus tard."
@@ -1712,6 +1748,10 @@ msgstr "Jeton Discord"
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Discord voice and its level aren't available on this system yet."
 msgstr "La voix Discord et son niveau ne sont pas encore disponibles sur ce système."
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Discord wants to check you're a person before it links your account. Yapfast opened the check in your browser; linking finishes once it's solved."
+msgstr "Discord veut vérifier que tu es bien une personne avant de lier ton compte. Yapfast a ouvert la vérification dans ton navigateur ; la liaison se termine une fois qu'elle est résolue."
 
 #: crates/yapfast-iced/src/composer.rs
 msgid "Discord · not end-to-end encrypted."
@@ -2603,6 +2643,18 @@ msgstr "Inactif"
 msgid "If the message is pinned or not"
 msgstr "Si le message est épinglé ou non"
 
+#: crates/yapfast-iced/src/mfa.rs
+msgid "If you do not have access to any other methods, the button below will activate in {} seconds."
+msgstr "Si tu n'as accès à aucune autre méthode, le bouton ci-dessous s'activera dans {} secondes."
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "If you do not have access to any other methods, use the other button below to proceed."
+msgstr "Si tu n'as accès à aucune autre méthode, utilise l'autre bouton ci-dessous pour continuer."
+
+#: crates/yapfast-iced/src/mfa.rs
+msgid "If you have access to any of your other methods, select ‘Verify with something else’ to go back."
+msgstr "Si tu as accès à l'une de tes autres méthodes, sélectionne « Vérifier autrement » pour revenir en arrière."
+
 #: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Ignore"
 msgstr "Ignorer"
@@ -2619,6 +2671,14 @@ msgstr "IMAGE"
 msgid "Import"
 msgstr "Importer"
 
+#: crates/yapfast-iced/src/signin.rs
+msgid "Import accounts from the Discord app"
+msgstr "Importer des comptes depuis l'application Discord"
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Import reuses the login sessions the Discord app saved on this PC. A session token gives full access to the account, so only import your own. Yapfast keeps it in this device's credential store and sends it only to Discord. Logging out in Discord can sign you out here too."
+msgstr "L'importation réutilise les sessions que l'application Discord a enregistrées sur ce PC. Un jeton de session donne un accès complet au compte, n'importe donc que les tiens. Yapfast le conserve dans le coffre d'identifiants de cet appareil et ne l'envoie qu'à Discord. Se déconnecter dans Discord peut aussi te déconnecter ici."
+
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "Import theme"
 msgstr "Importer un thème"
@@ -2626,6 +2686,10 @@ msgstr "Importer un thème"
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "Imported {}."
 msgstr "{} importé."
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Importing Discord accounts..."
+msgstr "Importation des comptes Discord..."
 
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "In"
@@ -3843,10 +3907,6 @@ msgstr "Aucun membre ne correspond à ces résultats de recherche."
 msgid "No members were found."
 msgstr "Aucun membre n'a été trouvé."
 
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "No messages yet"
-msgstr "Pas encore de messages"
-
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "No microphones found. Connect one, then reopen this menu."
 msgstr "Aucun microphone trouvé. Branchez-en un, puis rouvrez ce menu."
@@ -4146,6 +4206,10 @@ msgstr "Plus anciens"
 #: crates/yapfast-iced/src/message/mod.rs
 msgid "on @{}"
 msgstr "sur @{}"
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes."
+msgstr "Sur ton téléphone, ouvre Discord, va dans Paramètres, touche Scanner un code QR et dirige la caméra ici. Un nouveau code remplace celui-ci après quelques minutes."
 
 #: crates/yapfast-iced/src/profile/look.rs
 msgid "on {}"
@@ -5155,6 +5219,10 @@ msgstr "Actions de sécurité"
 msgid "See the servers you are in"
 msgstr "Voir les serveurs dont tu fais partie"
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "See Thread ›"
+msgstr "Voir le fil ›"
+
 #: crates/yapfast-iced/src/settings/account.rs
 msgid "See what you are playing"
 msgstr "Voir à quoi tu joues"
@@ -5582,6 +5650,22 @@ msgstr "Doucement ! Êtes-vous sûr ?"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "SLOWMODE"
 msgstr "MODE LENT"
+
+#: crates/yapfast-iced/src/typing.rs
+msgid "Slowmode Immune"
+msgstr "Immunisé contre le mode lent"
+
+#: crates/yapfast-iced/src/typing.rs
+msgid "Slowmode is enabled."
+msgstr "Le mode lent est activé."
+
+#: crates/yapfast-iced/src/typing.rs
+msgid "Slowmode is enabled. Members can send one message every {}"
+msgstr "Le mode lent est activé. Les membres peuvent envoyer un message toutes les {}"
+
+#: crates/yapfast-iced/src/typing.rs
+msgid "Slowmode is enabled. Members can send one message every {}."
+msgstr "Le mode lent est activé. Les membres peuvent envoyer un message toutes les {}."
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Small"
@@ -6139,9 +6223,17 @@ msgstr "Thème et bannière"
 msgid "There are no channels to browse."
 msgstr "Il n'y a aucun salon à parcourir."
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no messages in this thread yet."
+msgstr "Il n'y a pas encore de messages dans ce fil."
+
 #: crates/yapfast-iced/src/forum.rs
 msgid "There are no posts yet."
 msgstr "Il n'y a pas encore de posts."
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "There are no recent messages in this thread."
+msgstr "Il n'y a pas de messages récents dans ce fil."
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "There are no threads."
@@ -6158,6 +6250,10 @@ msgstr "Il n'y a pas encore de téléchargement pour votre système."
 #: src/update/install.rs
 msgid "There's no Windows installer for this version yet."
 msgstr "Il n'y a pas encore d'installateur Windows pour cette version."
+
+#: crates/yapfast-iced/src/forward.rs
+msgid "There's nowhere to forward to yet. Yapfast forwards Matrix messages only into encrypted conversations."
+msgstr "Il n'y a pas encore de destination pour le transfert. Yapfast ne transfère les messages Matrix que vers des conversations chiffrées."
 
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "They appear locked. Server admins hid them on purpose."
@@ -6694,6 +6790,10 @@ msgstr "Utiliser votre application d'authentification"
 #: crates/yapfast-iced/src/signin.rs
 msgid "Use your existing Matrix account."
 msgstr "Utilisez votre compte Matrix existant."
+
+#: crates/yapfast-iced/src/signin.rs
+msgid "Use your Matrix recovery key, or verify Yapfast in another client and check again."
+msgstr "Utilise ta clé de récupération Matrix, ou vérifie Yapfast dans un autre client puis revérifie."
 
 #: crates/yapfast-iced/src/mfa.rs
 msgid "Use your password"
@@ -7493,7 +7593,7 @@ msgid_plural "{n} days ago"
 msgstr[0] "il y a {n} jour"
 msgstr[1] "il y a {n} jours"
 
-#: crates/yapfast-iced/src/person_menu.rs
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/typing.rs
 msgid "{n} hour"
 msgid_plural "{n} hours"
 msgstr[0] "{n} heure"
@@ -7524,10 +7624,10 @@ msgstr[0] "{n} membre"
 msgstr[1] "{n} membres"
 
 #: crates/yapfast-iced/src/message/mod.rs
-msgid "{n} message"
-msgid_plural "{n} messages"
-msgstr[0] "{n} message"
-msgstr[1] "{n} messages"
+msgid "{n} Message ›"
+msgid_plural "{n} Messages ›"
+msgstr[0] "{n} message ›"
+msgstr[1] "{n} messages ›"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "{n} min ago"
@@ -7535,7 +7635,7 @@ msgid_plural "{n} mins ago"
 msgstr[0] "il y a {n} min"
 msgstr[1] "il y a {n} min"
 
-#: crates/yapfast-iced/src/person_menu.rs
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/typing.rs
 msgid "{n} minute"
 msgid_plural "{n} minutes"
 msgstr[0] "{n} minute"
@@ -7583,7 +7683,7 @@ msgid_plural "{n} results indexed so far. We’re still indexing older messages.
 msgstr[0] "{n} résultat indexé pour l'instant. Nous indexons encore les messages plus anciens."
 msgstr[1] "{n} résultats indexés pour l'instant. Nous indexons encore les messages plus anciens."
 
-#: crates/yapfast-iced/src/person_menu.rs
+#: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/typing.rs
 msgid "{n} second"
 msgid_plural "{n} seconds"
 msgstr[0] "{n} seconde"
@@ -7793,11 +7893,7 @@ msgstr "Le profil de {} est privé, certaines informations sont donc masquées. 
 msgid "{}'s screen"
 msgstr "Écran de {}"
 
-#: crates/yapfast-iced/src/message/mod.rs
-msgid "{}, archived"
-msgstr "{}, archivé"
-
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}d ago"
 msgstr "il y a {} j"
 
@@ -7805,7 +7901,7 @@ msgstr "il y a {} j"
 msgid "{}d left"
 msgstr "{} j restants"
 
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}h ago"
 msgstr "il y a {} h"
 
@@ -7813,7 +7909,7 @@ msgstr "il y a {} h"
 msgid "{}h left"
 msgstr "{} h restantes"
 
-#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/profile/look.rs
+#: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/members.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/profile/look.rs
 msgid "{}m ago"
 msgstr "il y a {} min"
 

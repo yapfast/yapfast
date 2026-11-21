@@ -3,7 +3,17 @@
 //! DM.
 
 use super::*;
-use yapfast_discord::search;
+#[cfg(feature = "discord")]
+use yapfast_discord::search::{MAX_LENGTH, asks_anything};
+
+/// Without Discord nothing is searched: a search is Discord's.
+#[cfg(not(feature = "discord"))]
+const MAX_LENGTH: usize = 512;
+
+#[cfg(not(feature = "discord"))]
+fn asks_anything(_query: &str, _server: bool) -> bool {
+    false
+}
 
 impl Application {
     pub(super) fn show_pins(&mut self, shown: bool) -> Vec<Effect> {
@@ -40,12 +50,12 @@ impl Application {
     /// search. Discord doesn't search a box holding only filters' keys, nor
     /// past its longest.
     pub(super) fn search(&mut self, query: String) -> Vec<Effect> {
-        let query: String = query.trim().chars().take(search::MAX_LENGTH).collect();
+        let query: String = query.trim().chars().take(MAX_LENGTH).collect();
         let (Some(place), false) = (self.state.search_place(), query.is_empty()) else {
             self.state.search = None;
             return vec![];
         };
-        if !search::asks_anything(&query, discord::parse_server(&place).is_some()) {
+        if !asks_anything(&query, discord::parse_server(&place).is_some()) {
             return vec![];
         }
         let sort = chat::SearchSort::Newest;
@@ -228,7 +238,7 @@ impl Application {
                     picker.adding = false;
                     picker.error = Some(error);
                 }
-                None => self.state.notice = Some(error),
+                None => self.state.notice = Some(super::Notice::Error(error)),
             },
         }
     }

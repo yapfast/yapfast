@@ -112,6 +112,10 @@ pub enum Event {
     Token(String),
     LinkToken,
     OpenCaptcha,
+    /// Discord: take the accounts the Discord app keeps on this device, or
+    /// stop doing so.
+    ImportDiscord,
+    CancelImport,
     /// Matrix's verify banner.
     Recovery(String),
     Recover,
@@ -133,6 +137,8 @@ impl std::fmt::Debug for Event {
             Event::Token(_) => "Token(..)",
             Event::LinkToken => "LinkToken",
             Event::OpenCaptcha => "OpenCaptcha",
+            Event::ImportDiscord => "ImportDiscord",
+            Event::CancelImport => "CancelImport",
             Event::Recovery(_) => "Recovery(..)",
             Event::Recover => tr("Recover"),
             Event::RefreshTrust => "RefreshTrust",
@@ -192,6 +198,14 @@ impl SignIn {
                     cx.dispatch(Action::LinkDiscordToken(self.token.clone()));
                     return Task::none();
                 }
+            }
+            Event::ImportDiscord => {
+                cx.dispatch(Action::ImportDiscord);
+                return Task::none();
+            }
+            Event::CancelImport => {
+                cx.dispatch(Action::CancelDiscordLink);
+                return Task::none();
             }
             Event::OpenCaptcha => {
                 cx.dispatch(Action::OpenDiscordCaptcha);
@@ -264,7 +278,12 @@ impl SignIn {
             _ => self.code = None,
         }
         if MATRIX && !adding {
-            self.restore_available = yapfast_core::chat::can_restore(root);
+            // Not while an import runs or saves: it reads the same store.
+            let importing = matches!(
+                state.discord_link,
+                Some(DiscordLink::Importing | DiscordLink::CancellingImport)
+            ) || yapfast_core::discord_link::saves_pending();
+            self.restore_available = !importing && yapfast_core::chat::can_restore(root);
         }
     }
 }
@@ -277,7 +296,7 @@ pub fn view<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let rail = theme.rail;
     if cx.sign_in.starting {
         return container(
-            text(state.notice.clone().unwrap_or_default())
+            text(state.notice.as_deref().unwrap_or_default())
                 .size(14)
                 .color(theme.muted),
         )
@@ -396,12 +415,12 @@ fn discord_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         && (state.busy || state.discord_link.is_none())
     {
         form = form.push(
-            text(notice.clone())
+            text(String::from(&**notice))
                 .size(15)
-                .color(if state.busy {
-                    theme.secondary
-                } else {
+                .color(if notice.is_error() {
                     theme.danger
+                } else {
+                    theme.secondary
                 })
                 .width(Length::Fill),
         );
@@ -417,7 +436,7 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let form = ctx.sign_in;
     let link = ctx.state.discord_link.as_ref();
     match link {
-        None | Some(DiscordLink::Failed(_)) => {
+        None | Some(DiscordLink::Failed(_) | DiscordLink::ImportFailed(_)) => {
             let warning = container(
                 row![
                     ctx.look.glyph(Icon::TriangleAlert, 18, theme.danger),
@@ -444,10 +463,10 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 }
             });
             let mut panel = column![warning].spacing(12).width(Length::Fill);
-            if let Some(DiscordLink::Failed(note)) = link {
+            if let Some(DiscordLink::Failed(note) | DiscordLink::ImportFailed(note)) = link {
                 panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
             }
-            let again = link.is_some() && !form.token_open;
+            let again = matches!(link, Some(DiscordLink::Failed(_))) && !form.token_open;
             let mut buttons = row![action(
                 theme,
                 if again {
@@ -472,6 +491,11 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 ));
             }
             panel = panel.push(buttons);
+            // Without the phone: the accounts the Discord app is signed in to
+            // on this computer.
+            if import_offered() && !form.token_open {
+                panel = panel.push(import_option(ctx));
+            }
             if form.token_open {
                 panel = panel.push(
                     column![
@@ -500,6 +524,28 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     ]
                     .spacing(8),
                 );
+            }
+            panel.into()
+        }
+        Some(DiscordLink::Importing | DiscordLink::CancellingImport) => {
+            let stopping = matches!(link, Some(DiscordLink::CancellingImport));
+            let mut panel = column![
+                text(if stopping {
+                    tr("Cancelling import...")
+                } else {
+                    tr("Importing Discord accounts...")
+                })
+                .size(15)
+                .color(theme.secondary)
+            ]
+            .spacing(8);
+            if !stopping {
+                panel = panel.push(action(
+                    theme,
+                    tr("Cancel"),
+                    Kind::Plain,
+                    Some(Message::SignIn(Event::CancelImport)),
+                ));
             }
             panel.into()
         }
@@ -598,6 +644,62 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
 }
 
+/// Whether importing the Discord app's accounts is offered: where the app's
+/// stored sessions can be read (the tests draw it everywhere).
+fn import_offered() -> bool {
+    cfg!(test) || yapfast_core::yapfast_discord::import::supported()
+}
+
+/// The import button with what to know before pressing it: it copies login
+/// tokens, which are as good as a password. Shown with the button rather
+/// than on hover, so it's read before the choice, and kept calm so it informs
+/// without scaring off the people who own the accounts.
+fn import_option<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let note = container(
+        row![
+            ctx.look.glyph(Icon::CircleInfoFilled, 16, theme.secondary),
+            column![
+                text(tr("Before you import"))
+                    .size(13)
+                    .font(BOLD)
+                    .color(theme.text),
+                text(tr(
+                    "Import reuses the login sessions the Discord app saved on this PC. \
+                     A session token gives full access to the account, so only import \
+                     your own. Yapfast keeps it in this device's credential store and \
+                     sends it only to Discord. Logging out in Discord can sign you out \
+                     here too."
+                ))
+                .size(13)
+                .color(theme.secondary)
+                .width(Length::Fill),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+        ]
+        .spacing(10),
+    )
+    .padding(12)
+    .width(Length::Fill)
+    .style({
+        let (ground, line) = (theme.sunken, theme.line);
+        move |_| crate::style::outlined(ground, line, 8.0)
+    });
+    column![
+        action(
+            theme,
+            tr("Import accounts from the Discord app"),
+            Kind::Plain,
+            Some(Message::SignIn(Event::ImportDiscord)),
+        ),
+        note,
+    ]
+    .spacing(8)
+    .width(Length::Fill)
+    .into()
+}
+
 /// Matrix's sign-in, in a build with Matrix.
 fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let theme = cx.look.theme;
@@ -647,9 +749,13 @@ fn matrix_form<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     .width(Length::Fill);
     if let Some(notice) = &state.notice {
         form = form.push(
-            text(notice.clone())
+            text(String::from(&**notice))
                 .size(15)
-                .color(theme.danger)
+                .color(if notice.is_error() {
+                    theme.danger
+                } else {
+                    theme.secondary
+                })
                 .width(Length::Fill),
         );
     }

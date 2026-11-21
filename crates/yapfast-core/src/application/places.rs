@@ -874,7 +874,7 @@ impl Application {
             {
                 invite.invited.retain(|invited| *invited != user);
             }
-            self.state.notice = Some(error);
+            self.state.notice = Some(super::Notice::Error(error));
         }
     }
 
