@@ -19,7 +19,7 @@ use crate::{
     looks::{Status, one_line},
     people::StatusInk,
     pictures::{Face, Icon},
-    style::{faded, fill, rounded},
+    style::rounded,
     theme::rgb,
     widgets::{Pic, PlateRow},
 };
@@ -351,7 +351,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 label,
                 Message::Call(crate::call::Event::Open(popup)),
             )
-            .size(20.0, 16)
+            .size(16.0, 16)
             .ink(ink);
         ctx.spot(if open {
             button.fill(theme.wash(0.1))
@@ -360,29 +360,44 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         })
     };
     let alert = |on: bool| if on { theme.danger } else { theme.text };
-    // A muted or deafened device keeps a dark ground as Discord's does:
-    // measured over a nameplate, 20% of a near-black red, which on the
-    // plain panel reads as the same step down, with the faint seam
-    // Discord draws between the toggle and its caret.
-    let dimmed = |on: bool, pair: iced::widget::Row<'a, Message>| -> Element<'a, Message> {
+    // Tinted controls leave the panel visible between the toggle and its menu.
+    let dimmed = |on: bool,
+                  toggle: Element<'a, Message>,
+                  caret: Element<'a, Message>|
+     -> Element<'a, Message> {
         if !on {
-            return pair.into();
+            return row![toggle, caret]
+                .spacing(1)
+                .align_y(Alignment::Center)
+                .into();
         }
         let dark = iced::Color::from_rgba8(0x1e, 0, 0, 0.2);
-        let seam = faded(theme.danger, 0.25);
-        stack![
-            container(pair)
+        let left = iced::border::Radius {
+            top_left: 4.0,
+            top_right: 0.0,
+            bottom_right: 0.0,
+            bottom_left: 4.0,
+        };
+        let right = iced::border::Radius {
+            top_left: 0.0,
+            top_right: 4.0,
+            bottom_right: 4.0,
+            bottom_left: 0.0,
+        };
+        row![
+            container(toggle)
+                .width(32)
                 .height(32)
                 .align_y(Alignment::Center)
-                .style(move |_| rounded(dark, 4)),
-            row![
-                Space::new().width(32),
-                container(Space::new())
-                    .width(1)
-                    .height(32)
-                    .style(move |_| fill(seam)),
-            ],
+                .style(move |_| rounded(dark, left)),
+            container(caret)
+                .width(16)
+                .height(32)
+                .align_y(Alignment::Center)
+                .style(move |_| rounded(dark, right)),
         ]
+        .spacing(1)
+        .align_y(Alignment::Center)
         .into()
     };
     let toggles = !account.in_call || account.ready;
@@ -390,29 +405,23 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let controls = row![
         dimmed(
             muted,
-            row![
-                tinted_button(ctx, mic, mic_label, alert(muted), 20, toggle(Event::Mute)),
-                caret(tr("Input options"), crate::call::Popup::Input, muted),
-            ]
-            .align_y(Alignment::Center),
+            tinted_button(ctx, mic, mic_label, alert(muted), 20, toggle(Event::Mute)),
+            caret(tr("Input options"), crate::call::Popup::Input, muted),
         ),
         dimmed(
             deafened,
-            row![
-                tinted_button(
-                    ctx,
-                    ear,
-                    ear_label,
-                    alert(deafened),
-                    21,
-                    toggle(Event::Deafen)
-                ),
-                caret(tr("Output options"), crate::call::Popup::Output, deafened),
-            ]
-            .align_y(Alignment::Center),
+            tinted_button(
+                ctx,
+                ear,
+                ear_label,
+                alert(deafened),
+                21,
+                toggle(Event::Deafen)
+            ),
+            caret(tr("Output options"), crate::call::Popup::Output, deafened),
         ),
     ]
-    .spacing(5)
+    .spacing(8)
     .align_y(Alignment::Center);
     // Offline, Reconnect before Settings.
     let state = ctx.state;
