@@ -574,6 +574,10 @@ pub struct AppState {
     /// connected, and linking one, while that's under way.
     pub discord_linked: bool,
     pub discord_link: Option<DiscordLink>,
+    /// The account last unlinked was linked with a pasted token, whose
+    /// session in the app or browser it came from stays signed in, as the
+    /// sign-in screen says until linking starts again.
+    pub discord_session_kept: bool,
     pub add_friend: Option<AddFriend>,
     /// A screen of the DM list open in place of a conversation.
     pub dm_screen: Option<DmScreen>,
@@ -4003,6 +4007,7 @@ impl Application {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Starting);
+                self.state.discord_session_kept = false;
                 vec![Effect::LinkDiscord]
             }
             Action::LinkDiscordToken(token) => {
@@ -4013,6 +4018,7 @@ impl Application {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Checking);
+                self.state.discord_session_kept = false;
                 vec![Effect::LinkDiscordToken(token)]
             }
             Action::OpenDiscordCaptcha => match &self.state.discord_link {
@@ -4691,6 +4697,7 @@ impl Application {
                 }
             }
             Event::DiscordUnlinked => return self.forget_discord(),
+            Event::DiscordSessionKept => self.state.discord_session_kept = true,
             Event::Note { user, result } => {
                 if let Ok(note) = &result {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]

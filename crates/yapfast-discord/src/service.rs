@@ -2587,6 +2587,18 @@ impl Discord {
         self.api.logout().await
     }
 
+    /// Signs this device out, as unlinking does, for a login linked as
+    /// `origin`: ends the session only if it's Yapfast's own, by QR code. A
+    /// pasted token's session is the app or browser it came from, which
+    /// Discord would sign out too, so it stays. Says whether it ended it.
+    pub async fn sign_out(&self, origin: crate::token::Origin) -> Result<bool> {
+        if !origin.ends_session() {
+            return Ok(false);
+        }
+        self.logout().await?;
+        Ok(true)
+    }
+
     /// Sends a friend request to whoever has this username.
     pub async fn add_friend_by_username(&self, username: &str) -> Result<()> {
         self.api.add_friend_by_username(username).await
