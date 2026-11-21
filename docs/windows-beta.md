@@ -131,6 +131,9 @@ only until they're in. A window closed after it was listed ends sharing with
 "That screen or window is gone." Without a pick, Yapfast shares the first
 screen.
 
+When sharing an entire screen, libwebrtc draws the Windows pointer into the
+captured frames before Yapfast previews or encodes them.
+
 Go Live's sound comes from WASAPI process loopback: one stream of everything
 Windows plays except Yapfast's own process tree, the Yapfast window and its
 workers. It needs Windows 10's 2004 update or later. Unlike Linux, where
