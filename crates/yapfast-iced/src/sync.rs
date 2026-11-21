@@ -716,6 +716,11 @@ impl App {
         };
         for item in &self.rail.items {
             want(item.icon.as_deref());
+            if let Some(crate::pictures::GroupIcon::Pair(pair)) = &item.group_icon {
+                for member in pair {
+                    want(Some(&member.avatar));
+                }
+            }
             if let crate::rail::Kind::Folder {
                 open: false,
                 preview,
@@ -739,6 +744,11 @@ impl App {
                 && top <= to
             {
                 want(room.avatar.as_deref());
+                if let Some(crate::pictures::GroupIcon::Pair(pair)) = &room.group_icon {
+                    for member in pair {
+                        want(Some(&member.avatar));
+                    }
+                }
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
                 want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
@@ -822,6 +832,11 @@ impl App {
             want(self.sidebar.header.banner.as_deref());
         }
         want(self.header.avatar.as_deref());
+        if let Some(crate::pictures::GroupIcon::Pair(pair)) = &self.header.group_icon {
+            for member in pair {
+                want(Some(&member.avatar));
+            }
+        }
         want(self.account.status.emoji.as_deref());
         for compose in [state.compose(), state.aside_compose()]
             .into_iter()

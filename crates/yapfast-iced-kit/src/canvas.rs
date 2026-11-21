@@ -72,6 +72,27 @@ impl Canvas {
     pub fn circle(&mut self, x: f32, y: f32, size: f32, ink: Ink) {
         self.rounded(x, y, size, size, size / 2.0, ink);
     }
+
+    /// Clears pixels inside a circle of `radius` centred at `(cx, cy)`,
+    /// smoothing the edge.
+    pub fn erase_circle(&mut self, cx: f32, cy: f32, radius: f32) {
+        let x0 = (cx - radius - 1.0).floor().max(0.0) as u32;
+        let y0 = (cy - radius - 1.0).floor().max(0.0) as u32;
+        let x1 = ((cx + radius + 1.0).ceil() as u32).min(self.width);
+        let y1 = ((cy + radius + 1.0).ceil() as u32).min(self.height);
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let d = (px as f32 + 0.5 - cx).hypot(py as f32 + 0.5 - cy) - radius;
+                let keep = (d + 0.5).clamp(0.0, 1.0);
+                if keep < 1.0 {
+                    let at = ((py * self.width + px) * 4) as usize;
+                    for channel in &mut self.pixels[at..at + 4] {
+                        *channel = (f32::from(*channel) * keep).round().min(255.0) as u8;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A canvas's premultiplied BGRA to the renderer's format, in place: on the

@@ -23,7 +23,7 @@ use crate::{
     controls::{self, lit_style},
     elide::elide,
     fonts::BOLD,
-    pictures::Icon,
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     style::{faded, scrollbar},
     widgets::{Hover, Rows},
 };
@@ -125,6 +125,7 @@ pub struct InboxRow {
     pub avatar_name: String,
     pub place: String,
     pub picture: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub mentions: u64,
 }
 
@@ -367,6 +368,7 @@ pub fn inbox_sync(app: &mut App) {
                 .map(|place| (*place).to_owned())
                 .unwrap_or_default(),
             picture: room.direct.then(|| room.avatar.clone()).flatten(),
+            group_icon: room.direct.then(|| room_group_icon(room)).flatten(),
             mentions: room.mentions,
         })
         .collect();
@@ -814,19 +816,22 @@ fn inbox_line<'a>(app: &'a App, entry: &'a InboxRow) -> Element<'a, Message> {
     if !entry.place.is_empty() {
         names = names.push(elide(entry.place.as_str()).size(12).color(theme.muted));
     }
-    let mut line = row![
-        app.ctx().avatar_tinted(
+    let avatar = match &entry.group_icon {
+        Some(group) => app
+            .ctx()
+            .face(Face::new(None, &entry.avatar_name, 32.0).group(Some(group.as_face()))),
+        None => app.ctx().avatar_tinted(
             entry.picture.as_deref(),
             &entry.avatar_name,
             &entry.id,
             32.0,
             16.0,
-            1.0
+            1.0,
         ),
-        container(names.spacing(2)).width(Length::Fill)
-    ]
-    .spacing(12)
-    .align_y(Alignment::Center);
+    };
+    let mut line = row![avatar, container(names.spacing(2)).width(Length::Fill)]
+        .spacing(12)
+        .align_y(Alignment::Center);
     if entry.mentions > 0 {
         line = line.push(controls::count_pill(
             theme,
