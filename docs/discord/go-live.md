@@ -138,13 +138,15 @@ and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
-encodes those. The local preview fits within 720p by default. In Advanced,
-"Enhanced live preview quality" makes the next stream's preview use the
-outgoing frame size and frame rate. When the window loses
-focus, it holds the last preview frame under a message and the worker stops
-preparing local preview frames. Closing to the tray also pauses the local
-preview. Capture, encoding and uploads of the stream thumbnail continue, and
-the local preview resumes when the window regains focus.
+encodes those. The local preview fits within 720p at up to 30 fps by default.
+In Advanced, "Enhanced live preview quality" makes the next stream's preview
+use the outgoing frame size and frame rate. When the window loses focus,
+the call tile or corner
+picture holds the last preview frame under a message and the worker stops
+preparing local preview frames. The preview also pauses when it is hidden or
+the window closes to the tray. Capture, encoding and uploads of the stream
+thumbnail continue, and the local preview resumes when it is visible in the
+focused window.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its

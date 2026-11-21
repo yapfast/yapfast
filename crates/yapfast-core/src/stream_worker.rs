@@ -49,6 +49,10 @@ use crate::{
 /// The argument that starts Yapfast as a stream worker.
 pub const ARGUMENT: &str = "--stream-worker";
 
+/// Set for a worker whose UI wants to be woken for each frame: it then says
+/// so on its reports' line ([`crate::frames::FRAME_LINE`]).
+const FRAME_LINES: &str = "YAPFAST_FRAME_LINES";
+
 /// The largest frame shared at 1080p. Discord's own client trials 1080p at
 /// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
 /// experiment); larger screens are scaled down to it.
@@ -371,6 +375,13 @@ pub enum Report {
 pub fn run() -> Result<()> {
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
+    if std::env::var_os(FRAME_LINES).is_some() {
+        crate::frames::tell_each_frame(|| {
+            let mut output = std::io::stdout().lock();
+            let _ = writeln!(output, "{}", crate::frames::FRAME_LINE);
+            let _ = output.flush();
+        });
+    }
     let mut output = std::io::stdout();
     serve(Box::new(BufReader::new(std::io::stdin())), &mut |report| {
         // Yapfast is gone if this fails; the job ends when its input closes.
@@ -433,6 +444,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 effort,
                 hardware,
                 enhanced_preview,
+                next_local_preview: None,
                 started: Instant::now(),
                 streaming: false,
                 preview_due: None,
@@ -517,6 +529,7 @@ struct Sink {
     effort: Effort,
     hardware: bool,
     enhanced_preview: bool,
+    next_local_preview: Option<Instant>,
     started: Instant,
     streaming: bool,
     /// When the stream's next preview is due: from when it starts.
@@ -577,11 +590,28 @@ fn log_encoder(encoder: &Encoder) {
 }
 
 impl Sink {
+    /// Standard previews need at most 30 frames a second, even on 60 fps streams.
+    fn local_preview_due(&mut self, now: Instant) -> bool {
+        if self.writer.preview_paused() {
+            return false;
+        }
+        if self.enhanced_preview || self.fps <= 30 {
+            return true;
+        }
+        if self.next_local_preview.is_some_and(|next| now < next) {
+            return false;
+        }
+        let period = Duration::from_secs(1) / 30;
+        let next = self.next_local_preview.unwrap_or(now) + period;
+        self.next_local_preview = Some(if next > now { next } else { now + period });
+        true
+    }
+
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, and Discord gets it once the stream has a server.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        if !self.writer.preview_paused() {
+        if self.local_preview_due(Instant::now()) {
             let (w, h) = if self.enhanced_preview {
                 (width, height)
             } else {
@@ -595,7 +625,7 @@ impl Sink {
             match thumbnail(picture) {
                 Ok(thumbnail) => self.thumbnail = Some(thumbnail),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview")
+                    tracing::warn!(error = format!("{error:#}"), "could not make a preview");
                 }
             }
             self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
@@ -606,7 +636,7 @@ impl Sink {
             let sound = if self.sound {
                 stream_audio::Capture::start(sender.sound())
                     .inspect_err(|error| {
-                        tracing::warn!(error = format!("{error:#}"), "sharing without sound")
+                        tracing::warn!(error = format!("{error:#}"), "sharing without sound");
                     })
                     .ok()
             } else {
@@ -660,7 +690,7 @@ impl Sink {
             match video.encoder.set_bitrate(wanted) {
                 Ok(()) => tracing::debug!(kbps = wanted, "the encoder follows the stream's target"),
                 Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate")
+                    tracing::warn!(error = format!("{error:#}"), "could not change the bitrate");
                 }
             }
         }
@@ -899,7 +929,7 @@ fn watch(
         } else {
             let (width, height) = fit(width, height, max_width, max_height);
             writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height)
+                picture.i420().to_rgba(&mut scratch, pixels, width, height);
             });
         }
         if !shown {
@@ -1577,11 +1607,16 @@ impl Worker {
             Some(program) => PathBuf::from(program),
             None => running_yapfast()?,
         };
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .arg(ARGUMENT)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(crate::logging::for_worker())
+            .stderr(crate::logging::for_worker());
+        if crate::picture::wakes_for_frames() {
+            command.env(FRAME_LINES, "1");
+        }
+        let mut child = command
             .spawn()
             .context("could not start the stream worker")?;
         let mut stdin = child.stdin.take();
@@ -1609,6 +1644,10 @@ impl Worker {
                     .into_iter()
                     .flat_map(|stdout| BufReader::new(stdout).lines().map_while(Result::ok))
                 {
+                    if line == crate::frames::FRAME_LINE {
+                        crate::picture::frame_made();
+                        continue;
+                    }
                     match serde_json::from_str::<Report>(&line) {
                         Ok(report) => {
                             ended |= matches!(report, Report::Ended { .. });
@@ -1818,7 +1857,8 @@ mod tests {
                 .with_writer(move || Logged(writer.clone()))
                 .finish();
             let _logging = tracing::subscriber::set_default(logger);
-            // Only this test starts a worker.
+            // SAFETY: only this test starts a worker and reads the variable,
+            // and no test running beside it changes the environment.
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
             let (worker, mut reports) = Worker::start(&Job::Glance {
                 screens: vec![],
@@ -1924,6 +1964,7 @@ mod tests {
             effort: Effort::Light,
             hardware: true,
             enhanced_preview: false,
+            next_local_preview: None,
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -1958,6 +1999,7 @@ mod tests {
             effort: Effort::Light,
             hardware: false,
             enhanced_preview: false,
+            next_local_preview: None,
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -1983,7 +2025,14 @@ mod tests {
 
         let frames = Frames::create(SHARE_WIDTH, SHARE_HEIGHT).unwrap();
         sink.writer = Writer::open(&frames.path().unwrap()).unwrap();
+        sink.fps = 60;
+        let now = Instant::now();
+        assert!(sink.local_preview_due(now));
+        assert!(!sink.local_preview_due(now + Duration::from_millis(17)));
+        assert!(sink.local_preview_due(now + Duration::from_millis(34)));
+
         sink.enhanced_preview = true;
+        assert!(sink.local_preview_due(now + Duration::from_millis(51)));
         sink.frame(&mut picture).unwrap();
         assert_eq!(
             frames.take(|w, h, _| (w, h)),
@@ -2005,6 +2054,7 @@ mod tests {
             effort: Effort::Light,
             hardware: false,
             enhanced_preview: false,
+            next_local_preview: None,
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -2034,6 +2084,7 @@ mod tests {
             effort: Effort::Light,
             hardware: false,
             enhanced_preview: false,
+            next_local_preview: None,
             started: Instant::now(),
             streaming: false,
             preview_due: Some(Instant::now()),
@@ -2219,7 +2270,7 @@ mod tests {
         writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
         let mut reports = vec![];
         serve(Box::new(BufReader::new(input)), &mut |report| {
-            reports.push(report)
+            reports.push(report);
         });
         let pictured: Vec<u64> = reports
             .iter()

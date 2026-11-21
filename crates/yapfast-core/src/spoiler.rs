@@ -2,6 +2,7 @@
 //! a spoiler is a link to `yapfast:spoiler/{item}/{index}`, which the message text
 //! covers; clicking it reveals that one.
 
+use std::fmt::Write as _;
 use std::ops::Range;
 
 const LINK: &str = "yapfast:spoiler/";
@@ -32,11 +33,7 @@ pub fn mark(markdown: &str, item: &str, first: usize, revealed: impl Fn(usize) -
         if revealed(index) {
             out.push_str(inner);
         } else {
-            out.push_str(&format!(
-                "[{}](<{}>)",
-                escape(&plain(inner)),
-                link(item, index)
-            ));
+            let _ = write!(out, "[{}](<{}>)", escape(&plain(inner)), link(item, index));
         }
         last = span.end;
     }

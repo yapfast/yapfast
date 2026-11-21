@@ -67,7 +67,6 @@ pub struct Participant {
 #[derive(Clone, Debug)]
 pub struct Sharing {
     pub phase: SharePhase,
-    pub enhanced_preview: bool,
     /// What's being shared, as the UI previews it.
     pub frames: Arc<crate::frames::Frames>,
     /// Who watches it, by user id, as Discord lists them.
@@ -227,8 +226,13 @@ pub struct State {
     pub phase: Phase,
     pub room: Option<String>,
     pub name: String,
+    /// The microphone is off, by the user's own mute or by deafening.
     pub muted: bool,
     pub deafened: bool,
+    /// Deafened with the user's own mute off: undeafening turns the
+    /// microphone back on. Discord's client keeps the two apart the same
+    /// way, so deafening and undeafening leaves the mute as it was.
+    pub unmute_on_undeafen: bool,
     pub participants: Vec<Participant>,
     pub microphones: Vec<Device>,
     pub speakers: Vec<Device>,
@@ -302,6 +306,7 @@ impl Default for State {
             name: String::new(),
             muted: true,
             deafened: false,
+            unmute_on_undeafen: false,
             participants: vec![],
             microphones: vec![],
             speakers: vec![],
@@ -334,6 +339,7 @@ impl State {
         self.participants.clear();
         self.muted = true;
         self.deafened = false;
+        self.unmute_on_undeafen = false;
         self.warning = None;
         self.sharing = None;
         self.watching = None;
@@ -350,8 +356,14 @@ impl State {
 pub enum Command {
     Join(String),
     Leave,
+    /// Unmuting while deafened undeafens too.
     Mute(bool),
+    /// Deafening mutes as well; undeafening unmutes, unless the user had
+    /// muted before.
     Deafen(bool),
+    /// Deafens with the user's own mute off, as a call joined deafened and
+    /// unmuted starts: the microphone stays off until undeafened.
+    DeafenUnmuted,
     Devices,
     Microphone(String),
     Speaker(String),
@@ -444,8 +456,9 @@ impl Controller {
                     ),
                     Err(_) => {
                         states.send_modify(|state| {
-                            state.error =
-                                Some("Could not start voice. Restart Yapfast and try again.".into())
+                            state.error = Some(
+                                "Could not start voice. Restart Yapfast and try again.".into(),
+                            );
                         });
                     }
                 }
@@ -516,6 +529,7 @@ async fn worker(
                 state.phase = Phase::Joining;
                 state.muted = true;
                 state.deafened = false;
+                state.unmute_on_undeafen = false;
                 snapshots.send_replace(state.clone());
                 let result = join(
                     &calls,
@@ -575,7 +589,10 @@ pub(crate) fn trim_after_call() {
 }
 
 /// One call, from joining until leaving, on the network the channel is from.
-#[allow(unused_variables)]
+#[allow(
+    unused_variables,
+    reason = "a build without one of the networks leaves some unused"
+)]
 async fn join(
     calls: &Calls,
     id: String,

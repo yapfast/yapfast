@@ -405,7 +405,7 @@ mod tests {
         assert!(!held.locked(11) && held.locked(13) && held.locked(28));
         let granted = OverwriteRules {
             granted: true,
-            ..held.clone()
+            ..held
         };
         assert!(!granted.locked(13) && !granted.locked(28));
     }

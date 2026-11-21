@@ -18,6 +18,12 @@ fn a_failed_join_shows_the_step_that_failed() {
     );
 }
 
+/// Held by each test that joins a call in the fake Discord, so one runs at
+/// a time: they join as the same account, which sees another's join as
+/// joining elsewhere and ends its call, and the fake's voice controls are
+/// for every call.
+static CALLS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// Posts to one of the fake Discord's controls.
 async fn control(path: &str) -> String {
     let server = yapfast_discord::client::test_server().unwrap();
@@ -45,6 +51,7 @@ async fn a_call_that_cant_connect_says_why() {
         yapfast_discord::client::test_server().is_some(),
         "set YAPFAST_DISCORD_TEST_SERVER to the fake Discord"
     );
+    let _alone = CALLS.lock().await;
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let discord = Discord::start(yapfast_discord::token::load().unwrap()).unwrap();
     let mut online = discord.snapshots();
@@ -85,4 +92,88 @@ async fn a_call_that_cant_connect_says_why() {
         ),
         "{error}"
     );
+}
+
+/// Discord's client keeps the user's own mute apart from deafening:
+/// undeafening gives the microphone back to one who wasn't muted, leaves
+/// one who was, and a call joined deafened and unmuted starts talking once
+/// it hears.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn undeafening_leaves_the_mute_as_it_was() {
+    assert!(
+        yapfast_discord::client::test_server().is_some(),
+        "set YAPFAST_DISCORD_TEST_SERVER to the fake Discord"
+    );
+    let _alone = CALLS.lock().await;
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let discord = Discord::start(yapfast_discord::token::load().unwrap()).unwrap();
+    let mut online = discord.snapshots();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        online.wait_for(|snapshot| snapshot.status == Status::Online),
+    )
+    .await
+    .expect("the fake Discord answers")
+    .unwrap();
+    let (commands, mut received) = mpsc::unbounded_channel();
+    let (snapshots, mut states) = watch::channel(State::default());
+    let mut state = State::default();
+    let call = call(
+        &discord,
+        "1400000000000000100",
+        "1400000000000000103",
+        &mut state,
+        &mut received,
+        &snapshots,
+        None,
+    );
+    let steps = async {
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            states.wait_for(|state| state.phase == Phase::Connected),
+        )
+        .await
+        .expect("the call connects")
+        .unwrap();
+        // Each step's command, and the call after it: muted, deafened.
+        // Every one differs from the one before, so none passes unanswered.
+        for (step, (command, after)) in [
+            (Command::Mute(false), (false, false)),
+            (Command::Deafen(true), (true, true)),
+            (Command::Deafen(false), (false, false)),
+            (Command::Mute(true), (true, false)),
+            (Command::Deafen(true), (true, true)),
+            (Command::Deafen(false), (true, false)),
+            (Command::DeafenUnmuted, (true, true)),
+            (Command::Deafen(false), (false, false)),
+            // Unmuting while deafened undeafens.
+            (Command::Deafen(true), (true, true)),
+            (Command::Mute(false), (false, false)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            commands.send(command).unwrap();
+            let reached = tokio::time::timeout(
+                Duration::from_secs(5),
+                states.wait_for(|state| (state.muted, state.deafened) == after),
+            )
+            .await
+            .is_ok();
+            let now = states.borrow().clone();
+            assert!(
+                reached,
+                "step {step}: muted {}, deafened {}, error {:?}",
+                now.muted, now.deafened, now.error
+            );
+        }
+        commands.send(Command::Leave).unwrap();
+    };
+    tokio::pin!(call);
+    tokio::select! {
+        ended = &mut call => panic!("the call ended: {ended:?}"),
+        () = steps => {}
+    }
+    call.await.unwrap();
 }

@@ -456,6 +456,7 @@ impl Application {
         // they go once it has.
         let effects = self.restore_selection();
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         effects
     }
@@ -677,8 +678,12 @@ impl Application {
     }
 
     /// Marks a conversation read, or every conversation of a server, a
-    /// folder of servers or a Discord category.
+    /// folder of servers or a Discord category. The open conversation's
+    /// unread banner goes with it, as Discord's does.
     pub(super) fn mark_read(&mut self, id: String) -> Vec<Effect> {
+        if self.state.selected.as_deref() == Some(id.as_str()) {
+            self.state.caught_up = true;
+        }
         if !self.menu_choices(&id).contains(&MenuChoice::MarkRead) {
             return vec![];
         }
@@ -698,6 +703,12 @@ impl Application {
         } else {
             vec![id]
         };
+        if rooms
+            .iter()
+            .any(|room| self.state.selected.as_deref() == Some(room.as_str()))
+        {
+            self.state.caught_up = true;
+        }
         rooms
             .into_iter()
             .map(|room| Effect::Backend(Command::MarkRead { room, sync }))
@@ -716,6 +727,7 @@ impl Application {
             if pinned {
                 self.state.pinned.push(room);
             }
+            self.state.people_changed();
         }
         vec![]
     }
@@ -730,6 +742,7 @@ impl Application {
         }
         // Closed, it isn't pinned either.
         self.state.pinned.retain(|id| *id != room);
+        self.state.people_changed();
         vec![Effect::Backend(Command::Discord(DiscordCommand::CloseDm {
             room,
         }))]
@@ -763,7 +776,7 @@ impl Application {
         vec![]
     }
 
-    pub(super) fn mute_dm(&mut self, room: String, muting: Muting) -> Vec<Effect> {
+    pub(super) fn mute_dm(&self, room: String, muting: Muting) -> Vec<Effect> {
         let choice = if muting == Muting::Off {
             MenuChoice::Unmute
         } else {
@@ -941,6 +954,7 @@ impl Application {
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         // Showing another room forgets a stream to watch in another call.
         self.state.pending_watch.take_if(|(room, _)| *room != id);
