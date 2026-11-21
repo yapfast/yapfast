@@ -512,7 +512,7 @@ impl<'a> View<'a> {
         } else if join.member {
             "Open Server"
         } else if preview.is_some() {
-            "Join Server"
+            "Join in Browser"
         } else if join.from_link {
             ""
         } else {
