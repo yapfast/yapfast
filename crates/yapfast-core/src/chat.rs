@@ -1009,11 +1009,7 @@ pub struct RecentActivity {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileWidget {
     pub title: String,
-    /// The application it shows, whose name is its title once it's asked.
-    pub application: Option<String>,
     pub games: Vec<ProfileGame>,
-    /// It lists games, rather than something shown only in Discord.
-    pub lists_games: bool,
 }
 
 /// A game on a widget.
@@ -2678,6 +2674,75 @@ pub struct JoinedServer {
     pub form: bool,
 }
 
+/// What a question of a server's form asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreeningKind {
+    /// Rules to agree to.
+    Terms,
+    /// A line of text.
+    Text,
+    /// A longer text.
+    Paragraph,
+    /// One of a few choices.
+    Choice,
+}
+
+/// A question of the form a server asks new members to fill in, with what
+/// was answered to it so far.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreeningField {
+    pub kind: ScreeningKind,
+    pub label: String,
+    pub description: Option<String>,
+    pub required: bool,
+    /// The rules of Terms, or the choices of Choice.
+    pub values: Vec<String>,
+    /// The answer: whether the rules are agreed to, the words, or the
+    /// choice, by its place in `values`, by the kind.
+    pub agreed: bool,
+    pub text: String,
+    pub choice: Option<usize>,
+}
+
+impl ScreeningField {
+    /// Whether the answer is there: agreement to rules, a pick, or words.
+    pub fn answered(&self) -> bool {
+        match self.kind {
+            ScreeningKind::Terms => self.agreed,
+            ScreeningKind::Choice => self.choice.is_some(),
+            ScreeningKind::Text | ScreeningKind::Paragraph => !self.text.trim().is_empty(),
+        }
+    }
+}
+
+/// The form a server asks new members to fill in before they may talk.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreeningForm {
+    /// Which edition of the form it is; handed back with the answers.
+    pub version: String,
+    pub description: String,
+    pub fields: Vec<ScreeningField>,
+}
+
+impl ScreeningForm {
+    /// Whether every question that has to be answered is.
+    pub fn complete(&self) -> bool {
+        self.fields
+            .iter()
+            .all(|field| !field.required || field.answered())
+    }
+}
+
+/// What came of handing in a server's form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreeningReview {
+    /// The server let the account in.
+    Approved,
+    /// The server's moderators decide.
+    Waiting,
+    Rejected,
+}
+
 /// What a Discord server's scheduled event shows from its link.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EventPreview {
@@ -3184,6 +3249,18 @@ pub enum DiscordCommand {
         // Boxed: it's the largest command by far.
         preview: Box<InvitePreview>,
         from_link: bool,
+    },
+    /// Read the form a server asks new members to fill in, which joining by
+    /// the invite with this code showed. [`Event::ScreeningLoaded`] follows.
+    LoadScreening {
+        server: String,
+        code: String,
+    },
+    /// Hand in the server's form, with its answers.
+    /// [`Event::ScreeningSubmitted`] follows.
+    SubmitScreening {
+        server: String,
+        form: Box<ScreeningForm>,
     },
     /// Look up a Discord server's scheduled event by its server and
     /// event ids, with whether this account is interested in it.
@@ -4822,6 +4899,17 @@ pub enum Event {
     ServerJoined {
         code: String,
         result: Result<JoinedServer, String>,
+    },
+    /// The form of a joined server, as [`DiscordCommand::LoadScreening`]
+    /// read it, or why it didn't.
+    ScreeningLoaded {
+        server: String,
+        result: Result<ScreeningForm, String>,
+    },
+    /// What came of [`DiscordCommand::SubmitScreening`].
+    ScreeningSubmitted {
+        server: String,
+        result: Result<ScreeningReview, String>,
     },
     /// What the scheduled event [`DiscordCommand::ResolveEvent`] looked
     /// up by its id shows, or why Discord showed nothing.

@@ -503,10 +503,17 @@ fn a_voice_messages_volume_takes_the_arrows_and_page_keys_until_escape() {
 }
 
 #[test]
-fn a_store_button_on_a_bots_message_without_its_app_opens_the_bots_store() {
-    use crate::app::Message;
+fn a_purchase_button_on_a_bots_message_is_not_shown() {
     use yapfast_core::chat::{ButtonStyle, Card, CardButton, CardRow};
     let (mut app, _folder) = preview();
+    let button = |label: &str, style, sku_id: Option<&str>| CardButton {
+        label: label.into(),
+        style,
+        url: None,
+        custom_id: None,
+        sku_id: sku_id.map(str::to_owned),
+        disabled: false,
+    };
     only(
         &mut app,
         ChatMessage {
@@ -515,25 +522,18 @@ fn a_store_button_on_a_bots_message_without_its_app_opens_the_bots_store() {
             cards: vec![Card {
                 framed: false,
                 color: None,
-                rows: vec![CardRow::Buttons(vec![CardButton {
-                    label: String::new(),
-                    style: ButtonStyle::Premium,
-                    url: None,
-                    custom_id: None,
-                    sku_id: Some("7".into()),
-                    disabled: false,
-                }])],
+                rows: vec![CardRow::Buttons(vec![
+                    button("Vote", ButtonStyle::Secondary, None),
+                    button("", ButtonStyle::Premium, Some("7")),
+                    button("Buy now", ButtonStyle::Secondary, Some("8")),
+                ])],
             }],
             ..Default::default()
         },
     );
-    let at = bounds_of(&app, "Open in Discord").center();
-    let opened = clicked(&app, at, iced::mouse::Button::Left);
-    assert!(
-        opened.iter().any(|message| matches!(
-            message,
-            Message::Link(link, _) if link == "https://discord.com/application-directory/42/store/7"
-        )),
-        "the bot's store"
-    );
+    // Yapfast has no checkout: a button that buys something is left out, not
+    // drawn as one that sends the person to Discord's store.
+    assert!(shows(&app, "Vote"));
+    assert!(!shows(&app, "Open in Discord"));
+    assert!(!shows(&app, "Buy now"));
 }

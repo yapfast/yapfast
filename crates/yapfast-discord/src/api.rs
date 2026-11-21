@@ -2311,6 +2311,25 @@ impl Api {
         self.json(request).await
     }
 
+    /// The form a server asks new members to fill in (its member
+    /// screening), as Discord's client asks for it after joining by
+    /// `code`: `{version, description, form_fields}`.
+    pub async fn member_verification(&self, guild: &str, code: &str) -> Result<Value> {
+        let path = format!(
+            "/guilds/{guild}/member-verification?with_guild=false&invite_code={}",
+            encode(code)
+        );
+        self.json(self.request(Method::GET, &path)).await
+    }
+
+    /// Sends a server's filled-in form, `{version, form_fields}`, as its
+    /// join request; Discord answers with it, and its `application_status`.
+    pub async fn submit_member_verification(&self, guild: &str, form: &Value) -> Result<Value> {
+        let path = format!("/guilds/{guild}/requests/@me");
+        self.json(with_json(self.request(Method::PUT, &path), form))
+            .await
+    }
+
     /// A channel object, as `GET /channels/{id}` gives it.
     pub async fn channel(&self, channel: &str) -> Result<Value> {
         let path = format!("/channels/{channel}");

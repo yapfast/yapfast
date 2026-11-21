@@ -33,6 +33,10 @@ msgstr " Du trittst stummgeschaltet bei."
 msgid "(edited)"
 msgstr "(bearbeitet)"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "0% silences Yapfast's interface sounds. Call audio, streams and the soundboard have separate volume controls."
+msgstr "0 % schaltet die Oberflächentöne von Yapfast stumm. Anrufton, Streams und das Soundboard haben eigene Lautstärkeregler."
+
 #: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/switcher.rs
 msgid "1 day"
 msgstr "1 Tag"
@@ -185,6 +189,10 @@ msgstr "Eine Kopie von {} mit allen Einstellungen und Berechtigungen, in derselb
 msgid "A display name can be up to {} characters."
 msgstr "Ein Anzeigename darf bis zu {} Zeichen lang sein."
 
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "A few questions first"
+msgstr "Zuerst ein paar Fragen"
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "A gem by the name of each member boosting their Discord server, in the member list."
 msgstr "Ein Edelstein mit dem Namen jedes Mitglieds, das den Discord-Server boostet, in der Mitgliederliste."
@@ -253,6 +261,10 @@ msgstr "Nimm an, um zu antworten. Ignorieren entfernt sie, ohne dass die Person 
 msgid "Accepting"
 msgstr "Wird angenommen"
 
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/privacy.rs
+msgid "Accessibility"
+msgstr "Barrierefreiheit"
+
 #: crates/yapfast-iced/src/settings/mod.rs
 msgid "Account"
 msgstr "Konto"
@@ -288,6 +300,10 @@ msgstr "Aktivitäten"
 #: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/full.rs
 msgid "Activity"
 msgstr "Aktivität"
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/privacy.rs
+msgid "Activity Privacy"
+msgstr "Aktivitätsprivatsphäre"
 
 #: crates/yapfast-iced/src/members.rs
 msgid "Activity — {}"
@@ -425,10 +441,6 @@ msgstr "Füge deine Pronomen hinzu"
 msgid "Add:"
 msgstr "Hinzufügen:"
 
-#: crates/yapfast-iced/src/profile/full.rs
-msgid "Adding more from Yapfast is coming soon."
-msgstr "Weitere aus Yapfast heraus hinzuzufügen, kommt bald."
-
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Adding..."
 msgstr "Wird hinzugefügt ..."
@@ -509,6 +521,10 @@ msgstr "Alle Benutzer"
 msgid "All your friends are here already."
 msgstr "Alle deine Freunde sind schon hier."
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Allow animations over profile cards."
+msgstr "Erlaubt Animationen über Profilkarten."
+
 #: crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Allow anyone to @mention this role"
 msgstr "Jedem erlauben, diese Rolle zu @erwähnen"
@@ -521,11 +537,15 @@ msgstr "Mehrere Antworten erlauben"
 msgid "Allow multiple windows"
 msgstr "Mehrere Fenster erlauben"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Allow Yapfast to show message notifications while it is in the background."
+msgstr "Erlaubt Yapfast, Nachrichtenbenachrichtigungen anzuzeigen, solange es im Hintergrund läuft."
+
 #: crates/yapfast-iced/src/server_dialogs/create.rs
 msgid "Already have an invite?"
 msgstr "Hast du schon eine Einladung?"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Always"
 msgstr "Immer"
 
@@ -545,7 +565,7 @@ msgstr "Und {} weitere wurden nicht geladen."
 msgid "Animals & nature"
 msgstr "Tiere & Natur"
 
-#: crates/yapfast-iced/src/settings/appearance.rs
+#: crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Animate decorations and nameplates"
 msgstr "Dekorationen und Namensschilder animieren"
 
@@ -1141,7 +1161,7 @@ msgstr "Klicke, um die Neuerungen zu sehen."
 msgid "CLOCK"
 msgstr "UHRZEIT"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs/create.rs crates/yapfast-iced/src/server_dialogs/screening.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/thread.rs crates/yapfast-iced-kit/src/dialog.rs
 msgid "Close"
 msgstr "Schließen"
 
@@ -1181,7 +1201,7 @@ msgstr "Wenn du das Fenster schließt, läuft Yapfast mit einem eventuellen Anru
 msgid "Codec:"
 msgstr "Codec:"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Collapse long messages"
 msgstr "Lange Nachrichten einklappen"
 
@@ -1248,6 +1268,10 @@ msgstr "Verbindung verloren"
 #: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/settings/account.rs
 msgid "Connections"
 msgstr "Verbindungen"
+
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/privacy.rs
+msgid "Content & Social"
+msgstr "Inhalte & Soziales"
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Context Menu"
@@ -1473,6 +1497,10 @@ msgstr "Ausschneiden"
 msgid "Dark"
 msgstr "Dunkel"
 
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/privacy.rs
+msgid "Data & Privacy"
+msgstr "Daten & Datenschutz"
+
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "Date"
 msgstr "Datum"
@@ -1513,7 +1541,7 @@ msgstr "DeepFilterNet"
 msgid "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
 msgstr "DeepFilterNet filtert auch Tippgeräusche und andere plötzliche Geräusche heraus. RNNoise braucht weniger Rechenleistung. Aus sendet dein Mikrofon unverändert, für einen ruhigen Raum. Ein laufender Anruf wechselt sofort."
 
-#: crates/yapfast-iced/src/profile/editor/colour.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/profile/editor/colour.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Default"
 msgstr "Standard"
 
@@ -2181,13 +2209,21 @@ msgstr "Finde den perfekten Sticker"
 msgid "Flags"
 msgstr "Flaggen"
 
-#: crates/yapfast-iced/src/settings/pages/notifications.rs
+#: crates/yapfast-iced/src/settings/pages/notifications.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Flash the taskbar"
 msgstr "Taskleiste blinken lassen"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Flash Yapfast for a message that notifies while the window is in the background."
+msgstr "Lässt Yapfast bei einer Nachricht mit Benachrichtigung blinken, solange das Fenster im Hintergrund ist."
 
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Flute"
 msgstr "Flöte"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Fold long messages and code, with Show more to expand them."
+msgstr "Klappt lange Nachrichten und Code ein; mit „Mehr anzeigen“ lassen sie sich aufklappen."
 
 #: crates/yapfast-iced/src/forum.rs
 msgid "Follow"
@@ -2433,6 +2469,10 @@ msgstr "Gruppe"
 msgid "Gummy"
 msgstr "Gummy"
 
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "Handing in your answers..."
+msgstr "Deine Antworten werden eingereicht..."
+
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Happening now"
 msgstr "Gerade aktiv"
@@ -2453,10 +2493,6 @@ msgstr "Du hast einen Geschenkcode oder einen Geschenklink? Löse ihn hier ein."
 msgid "Headbang"
 msgstr "Headbang"
 
-#: crates/yapfast-iced/src/window_bar.rs
-msgid "Help"
-msgstr "Hilfe"
-
 #: crates/yapfast-iced/src/members.rs
 msgid "Hide Activity Cards"
 msgstr "Aktivitätskarten ausblenden"
@@ -2469,7 +2505,7 @@ msgstr "Link-Einstellungen ausblenden"
 msgid "Hide member list"
 msgstr "Mitgliederliste ausblenden"
 
-#: crates/yapfast-iced/src/settings/pages/discord.rs
+#: crates/yapfast-iced/src/settings/pages/discord.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Hide messages from people you blocked"
 msgstr "Nachrichten von blockierten Personen ausblenden"
 
@@ -2547,6 +2583,10 @@ msgstr "Wie laut Soundboard-Sounds in Discord-Anrufen abgespielt werden, deine u
 msgid "I acknowledge that by transferring ownership of this server to {}, it officially belongs to them."
 msgstr "Ich bestätige, dass der Server mit der Übertragung des Eigentums an {} offiziell diesem Mitglied gehört."
 
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "I have read and agree to the rules"
+msgstr "Ich habe die Regeln gelesen und stimme ihnen zu"
+
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "ICON"
 msgstr "ICON"
@@ -2606,6 +2646,10 @@ msgstr "Um diese Einstellung zu ändern, musst du die 2FA für dein Konto aktivi
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "In progress"
 msgstr "In Arbeit"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "IN YAPFAST"
+msgstr "IN YAPFAST"
 
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "In Yapfast"
@@ -2674,10 +2718,6 @@ msgstr "EINGABEEMPFINDLICHKEIT IN DISCORD-ANRUFEN"
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "Input Volume"
 msgstr "Eingabelautstärke"
-
-#: crates/yapfast-iced/src/settings/pages/about.rs
-msgid "Install updates automatically"
-msgstr "Updates automatisch installieren"
 
 #: src/update/install.rs
 msgid "Installers are for Windows."
@@ -2875,7 +2915,7 @@ msgstr "Hält deine Stimme gleichmäßig, wenn du dich zum Mikrofon beugst oder 
 msgid "KEYBIND"
 msgstr "TASTENKOMBINATION"
 
-#: crates/yapfast-iced/src/settings/keybinds.rs crates/yapfast-iced/src/settings/mod.rs
+#: crates/yapfast-iced/src/settings/keybinds.rs crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Keybinds"
 msgstr "Tastenkombinationen"
 
@@ -2903,7 +2943,7 @@ msgstr "{} kicken?"
 msgid "LANGUAGE"
 msgstr "SPRACHE"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Large"
 msgstr "Groß"
 
@@ -2930,6 +2970,10 @@ msgstr "Gruppe verlassen"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Leave server"
 msgstr "Server verlassen"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Leave their messages out of Yapfast's timeline. Your Discord block list is unchanged."
+msgstr "Lässt ihre Nachrichten im Verlauf von Yapfast weg. Deine Blockierliste bei Discord bleibt unverändert."
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Leave thread"
@@ -2963,13 +3007,17 @@ msgstr "Yapfast wird verlassen"
 msgid "Let everyone know how to use this channel!"
 msgstr "Lass alle wissen, wie dieser Kanal zu verwenden ist!"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Let others see when you're typing"
 msgstr "Andere sehen lassen, wenn du tippst"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Let Windows process your microphone in Discord calls"
 msgstr "Windows dein Mikrofon in Discord-Anrufen verarbeiten lassen"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Let Yapfast report idle presence after inactivity. This does not hide your online presence."
+msgstr "Lässt Yapfast nach einer Weile ohne Aktivität „abwesend“ melden. Dein Online-Status wird dadurch nicht versteckt."
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Level {}"
@@ -3103,6 +3151,10 @@ msgstr "Lade das vollständige Bild..."
 msgid "Loading the profile..."
 msgstr "Lade das Profil..."
 
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "Loading the server's questions..."
+msgstr "Die Fragen des Servers werden geladen..."
+
 #: crates/yapfast-iced/src/profile/look.rs
 msgid "Loading the wishlist..."
 msgstr "Wunschliste wird geladen ..."
@@ -3211,7 +3263,7 @@ msgstr "Manuelle Verifizierung ({})"
 msgid "Mark as read"
 msgstr "Als gelesen markieren"
 
-#: crates/yapfast-iced/src/settings/pages/discord.rs
+#: crates/yapfast-iced/src/settings/pages/discord.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Mark messages read on Discord"
 msgstr "Nachrichten auf Discord als gelesen markieren"
 
@@ -3311,7 +3363,7 @@ msgstr "Mitglieder dürfen pro Intervall nur eine Nachricht senden und einen Thr
 msgid "Mention"
 msgstr "Erwähnung"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Mention people you reply to"
 msgstr "Personen erwähnen, auf die du antwortest"
 
@@ -3366,6 +3418,10 @@ msgstr "Nachrichtenlänge"
 #: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Message Requests"
 msgstr "Nachrichtenanfragen"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "MESSAGE TEXT SIZE"
+msgstr "SCHRIFTGRÖSSE DER NACHRICHTEN"
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Message times show them, as 21:41:05."
@@ -3454,6 +3510,10 @@ msgstr "Am meisten gespielt: {} Std."
 #: crates/yapfast-iced/src/search.rs
 msgid "Most Relevant"
 msgstr "Relevanteste"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "MOTION IN YAPFAST"
+msgstr "BEWEGUNG IN YAPFAST"
 
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "Move Down"
@@ -3559,7 +3619,7 @@ msgstr "Namensschild"
 msgid "Neon"
 msgstr "Neon"
 
-#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/status.rs
+#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs crates/yapfast-iced/src/status.rs
 msgid "Never"
 msgstr "Nie"
 
@@ -3931,13 +3991,13 @@ msgstr "Keine Farbe"
 msgid "Not all members are shown, use Search to find specific members"
 msgstr "Nicht alle Mitglieder werden angezeigt, nutze die Suche, um bestimmte Mitglieder zu finden"
 
-#: crates/yapfast-iced/src/settings/pages/about.rs
-msgid "Not available yet."
-msgstr "Noch nicht verfügbar."
-
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Not enough Orbs"
 msgstr "Nicht genug Orbs"
+
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "Not now"
+msgstr "Jetzt nicht"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Not sending"
@@ -4023,6 +4083,14 @@ msgstr "Benachrichtigungseinstellungen, stummgeschaltet"
 msgid "Notifications"
 msgstr "Benachrichtigungen"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "NOTIFICATIONS AND SOUNDS IN YAPFAST"
+msgstr "BENACHRICHTIGUNGEN UND TÖNE IN YAPFAST"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Notify the person you reply to by default. Each reply can override this."
+msgstr "Benachrichtigt standardmäßig die Person, der du antwortest. Jede Antwort kann das ändern."
+
 #: crates/yapfast-core/src/emoji.rs
 msgid "Objects"
 msgstr "Objekte"
@@ -4030,6 +4098,14 @@ msgstr "Objekte"
 #: crates/yapfast-iced/src/call/popups/device.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Off"
 msgstr "Aus"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Off hides message text. Sender and conversation names still appear when desktop notifications are enabled."
+msgstr "Aus blendet den Nachrichtentext aus. Absender und Name der Unterhaltung erscheinen bei aktivierten Desktop-Benachrichtigungen weiterhin."
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Off keeps these cosmetics still, including on hover."
+msgstr "Aus hält diese Kosmetik still, auch beim Darüberfahren."
 
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
 msgid "Off shows only who wrote and where, for a screen others can see."
@@ -4139,14 +4215,6 @@ msgstr "GIF-Auswahl öffnen"
 msgid "Open in Browser"
 msgstr "Im Browser öffnen"
 
-#: crates/yapfast-iced/src/server_dialogs.rs
-msgid "Open in browser"
-msgstr "Im Browser öffnen"
-
-#: crates/yapfast-iced/src/components.rs
-msgid "Open in Discord"
-msgstr "In Discord öffnen"
-
 #: crates/yapfast-iced/src/thread.rs
 msgid "Open in full view"
 msgstr "In Vollansicht öffnen"
@@ -4182,6 +4250,10 @@ msgstr "Öffnen, um die Nachricht zu lesen"
 #: src/tray.rs
 msgid "Open Yapfast"
 msgstr "Yapfast öffnen"
+
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "Optional"
+msgstr "Optional"
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "Or, send a server invite link to a friend"
@@ -4351,7 +4423,7 @@ msgstr "Abos"
 msgid "Play"
 msgstr "Abspielen"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "PLAY GIFS, EMOJI AND STICKERS"
 msgstr "GIFS, EMOJIS UND STICKER ABSPIELEN"
 
@@ -4359,7 +4431,7 @@ msgstr "GIFS, EMOJIS UND STICKER ABSPIELEN"
 msgid "Play now"
 msgstr "Jetzt spielen"
 
-#: crates/yapfast-iced/src/settings/appearance.rs
+#: crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Play profile effects"
 msgstr "Profileffekte abspielen"
 
@@ -4406,6 +4478,10 @@ msgstr "Wird gepostet ..."
 #: src/build_info.rs
 msgid "Pre-release"
 msgstr "Vorabversion"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Prepare Yapfast for sharing your screen. Names, messages and invite links remain visible; there is no automatic streamer mode."
+msgstr "Bereite Yapfast darauf vor, deinen Bildschirm zu teilen. Namen, Nachrichten und Einladungslinks bleiben sichtbar; es gibt keinen automatischen Streamermodus."
 
 #: src/desktop.rs
 msgid "Preparing…"
@@ -4591,6 +4667,10 @@ msgstr "Deine Mitgliedsinfos in Servern lesen"
 msgid "Read your messages"
 msgstr "Deine Nachrichten lesen"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "READING IN YAPFAST"
+msgstr "LESEN IN YAPFAST"
+
 #: crates/yapfast-iced/src/server_settings/profile.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Reading the picture..."
 msgstr "Bild wird gelesen ..."
@@ -4723,6 +4803,10 @@ msgstr "Icon entfernen"
 msgid "Remove Keybind"
 msgstr "Tastenkombination entfernen"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Remove known tracking parameters from links sent through Yapfast."
+msgstr "Entfernt bekannte Tracking-Parameter aus Links, die über Yapfast gesendet werden."
+
 #: crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs
 msgid "Remove member"
 msgstr "Mitglied entfernen"
@@ -4735,7 +4819,7 @@ msgstr "Reaktion entfernen"
 msgid "Remove timeout"
 msgstr "Timeout aufheben"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Remove tracking from links you send"
 msgstr "Tracking aus gesendeten Links entfernen"
 
@@ -5151,6 +5235,10 @@ msgstr "Freund hinzufügen"
 msgid "Send helpful tips for server setup."
 msgstr "Hilfreiche Tipps zur Servereinrichtung senden."
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Send read acknowledgements for channels you read in Yapfast. Turning this off does not erase read state already sent."
+msgstr "Sendet Lesebestätigungen für Kanäle, die du in Yapfast liest. Wenn du das ausschaltest, wird der bereits gesendete Lesestatus nicht gelöscht."
+
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "Send request"
 msgstr "Anfrage senden"
@@ -5162,6 +5250,10 @@ msgstr "Sende jemandem auf Discord mit dem Benutzernamen eine Freundschaftsanfra
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Send the stickers of your servers in any server."
 msgstr "Sende die Sticker deiner Server in jedem Server."
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Send typing indicators while you write in Yapfast. Others' typing indicators still appear."
+msgstr "Sendet Tippanzeigen, während du in Yapfast schreibst. Die Tippanzeigen anderer erscheinen weiterhin."
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Sending"
@@ -5299,7 +5391,7 @@ msgstr "Lege fest, wie laut jeder ist, als Anteil der obigen Lautstärke. 0 % sc
 msgid "Settings"
 msgstr "Einstellungen"
 
-#: crates/yapfast-iced/src/settings/pages/games.rs
+#: crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Share the game you play"
 msgstr "Teile das Spiel, das du spielst"
 
@@ -5310,6 +5402,10 @@ msgstr "Bildschirm teilen"
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Share your screen in a higher quality."
 msgstr "Teile deinen Bildschirm in höherer Qualität."
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "SHARING FROM YAPFAST"
+msgstr "TEILEN AUS YAPFAST"
 
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "Sharper, at twice the CPU"
@@ -5343,11 +5439,15 @@ msgstr "Boost-Edelsteine anzeigen"
 msgid "Show Boost progress bar"
 msgstr "Boost-Fortschrittsbalken anzeigen"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Show cards for links, videos and bots in Yapfast. Linked pictures still show. This does not filter sensitive media."
+msgstr "Zeigt in Yapfast Karten für Links, Videos und Bots. Verlinkte Bilder erscheinen weiterhin. Sensible Medien werden dadurch nicht gefiltert."
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "Show channels you can't access"
 msgstr "Kanäle anzeigen, auf die du keinen Zugriff hast"
 
-#: crates/yapfast-iced/src/settings/pages/notifications.rs
+#: crates/yapfast-iced/src/settings/pages/notifications.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Show desktop notifications"
 msgstr "Desktop-Benachrichtigungen anzeigen"
 
@@ -5359,17 +5459,21 @@ msgstr "Anzeigen"
 msgid "Show less"
 msgstr "Weniger anzeigen"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Show link previews"
 msgstr "Linkvorschauen anzeigen"
 
-#: crates/yapfast-iced/src/settings/pages/discord.rs
+#: crates/yapfast-iced/src/settings/pages/discord.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Show me as idle when I'm away"
 msgstr "Als abwesend anzeigen, wenn ich weg bin"
 
 #: crates/yapfast-iced/src/header.rs
 msgid "Show member list"
 msgstr "Mitgliederliste anzeigen"
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Show message text in notifications"
+msgstr "Nachrichtentext in Benachrichtigungen anzeigen"
 
 #: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "Show more"
@@ -5479,7 +5583,7 @@ msgstr "Langsam! Bist du sicher?"
 msgid "SLOWMODE"
 msgstr "LANGSAMMODUS"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/settings/privacy.rs
 msgid "Small"
 msgstr "Klein"
 
@@ -5711,6 +5815,10 @@ msgstr "Streamlautstärke"
 msgid "Stream {} for {}."
 msgstr "Streame {} für {}."
 
+#: crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/privacy.rs
+msgid "Streamer Mode"
+msgstr "Streamermodus"
+
 #: crates/yapfast-iced/src/call/dock.rs
 msgid "Streaming to {0} · {1} watching"
 msgstr "Streamt für {0} · {1} schauen zu"
@@ -5731,7 +5839,7 @@ msgstr "Lerngruppe"
 msgid "Su"
 msgstr "So"
 
-#: crates/yapfast-iced/src/bot_modal.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/server_dialogs/screening.rs
 msgid "Submit"
 msgstr "Absenden"
 
@@ -5991,6 +6099,10 @@ msgstr "Die Prüfsummen des Releases sind kein Text."
 msgid "The server has limited who can see this profile."
 msgstr "Der Server hat eingeschränkt, wer dieses Profil sehen kann."
 
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "The server's questions did not load."
+msgstr "Die Fragen des Servers konnten nicht geladen werden."
+
 #: crates/yapfast-iced/src/settings/account.rs
 msgid "The service's own sign-in page opens in your browser. When you are done there, read the list again."
 msgstr "Die Anmeldeseite des Dienstes öffnet sich in deinem Browser. Wenn du dort fertig bist, lies die Liste erneut."
@@ -6084,8 +6196,8 @@ msgid "This device"
 msgstr "Dieses Gerät"
 
 #: crates/yapfast-iced/src/bot_modal.rs
-msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
-msgstr "Dieses Formular hat einen Teil, den Yapfast noch nicht ausfüllen kann. Nutze es in Discord."
+msgid "This form has a part Yapfast does not know, so it can't be sent."
+msgstr "Dieses Formular enthält einen Teil, den Yapfast nicht kennt, und kann deshalb nicht gesendet werden."
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "This group has no room for more."
@@ -6138,10 +6250,6 @@ msgstr "Dieser Link führt zu"
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "This link {0}{1}."
 msgstr "Dieser Link {0}{1}."
-
-#: crates/yapfast-iced/src/profile/full.rs
-msgid "This one only shows in Discord for now."
-msgstr "Das wird vorerst nur in Discord angezeigt."
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "This option is not available for Community Servers."
@@ -6263,7 +6371,7 @@ msgstr "Wahr"
 msgid "Try adding authorType: user to your search."
 msgstr "Versuche, authorType: user zu deiner Suche hinzuzufügen."
 
-#: crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/signin.rs
+#: crates/yapfast-iced/src/server_dialogs/screening.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/signin.rs
 msgid "Try again"
 msgstr "Erneut versuchen"
 
@@ -6627,6 +6735,10 @@ msgstr "Benutzer mit der Berechtigung „Nachrichten anpinnen“ können eine Na
 msgid "USES"
 msgstr "NUTZUNGEN"
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Uses the same Discord account setting as Game Activity. Changes apply to Discord too; a failed save restores the previous value."
+msgstr "Verwendet dieselbe Kontoeinstellung wie die Spielaktivität. Änderungen gelten auch bei Discord; schlägt das Speichern fehl, kehrt der vorherige Wert zurück."
+
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Vampyre"
 msgstr "Vampyre"
@@ -6873,6 +6985,10 @@ msgstr "Wo möchtest du hin?"
 msgid "Where your account is signed in. Sign out a device you do not know."
 msgstr "Wo dein Konto angemeldet ist. Melde ein Gerät ab, das du nicht kennst."
 
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "While focused"
+msgstr "Solange im Fokus"
+
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "While Yapfast is focused"
 msgstr "Solange Yapfast im Fokus ist"
@@ -6901,17 +7017,9 @@ msgstr "Möchtest du die Berechtigungen von {0} mit {1} synchronisieren?"
 msgid "Write a reply"
 msgstr "Antwort schreiben"
 
-#: crates/yapfast-iced/src/bot_modal.rs
-msgid "Yapfast can't fill this part yet."
-msgstr "Yapfast kann diesen Teil noch nicht füllen."
-
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
 msgstr "Yapfast kann dieses Mikrofon nicht lesen. Prüfe, ob es angeschlossen ist, oder wähle ein anderes."
-
-#: crates/yapfast-iced/src/components.rs
-msgid "Yapfast can't show this part of the message yet."
-msgstr "Yapfast kann diesen Teil der Nachricht noch nicht anzeigen."
 
 #: src/keybinds.rs
 msgid "Yapfast can't watch keys in other apps on this system yet"
@@ -6928,6 +7036,14 @@ msgstr "Yapfast kann nicht in den Ordner des AppImage schreiben."
 #: src/keybinds.rs
 msgid "Yapfast couldn't watch keys in other apps"
 msgstr "Yapfast konnte die Tasten in anderen Apps nicht überwachen"
+
+#: crates/yapfast-iced/src/components.rs
+msgid "Yapfast does not know this part of the message."
+msgstr "Yapfast kennt diesen Teil der Nachricht nicht."
+
+#: crates/yapfast-iced/src/bot_modal.rs
+msgid "Yapfast does not know this part."
+msgstr "Yapfast kennt diesen Teil nicht."
 
 #: src/update/install.rs
 msgid "Yapfast has no folder."
@@ -6960,6 +7076,10 @@ msgstr "Yapfast sendet deine Stimme, wenn es dich sprechen hört."
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
 msgstr "Yapfast sendet deine Stimme, wenn sie lauter als der Regler ist, und andere Geräusche, wenn sie noch 18 dB lauter sind. Die Leiste zeigt dein Mikrofon nach der Rauschunterdrückung und in seiner Lautstärke, so wie Yapfast es zur Entscheidung hört."
+
+#: crates/yapfast-iced/src/settings/privacy.rs
+msgid "Yapfast sound volume"
+msgstr "Lautstärke der Yapfast-Töne"
 
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you."
@@ -7091,10 +7211,6 @@ msgstr "Du hast noch niemanden gebannt ...\naber wenn es sein muss, zögere nich
 msgid "You installed Yapfast with {}, so update it there."
 msgstr "Du hast Yapfast über {} installiert, aktualisiere es also dort."
 
-#: crates/yapfast-iced/src/server_dialogs.rs
-msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
-msgstr "Du bist beigetreten. Dieser Server verlangt von neuen Mitgliedern ein Formular, bevor sie sprechen können, das Yapfast noch nicht anzeigen kann. Fülle es in der Discord-Web-App aus."
-
 #: crates/yapfast-iced/src/call/details.rs
 msgid "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}"
 msgstr "Ab 250 ms oder mehr kann der Ton verzögert klingen. Falls das Problem bleibt, trenne die Verbindung und versuche es erneut.{}"
@@ -7166,6 +7282,10 @@ msgstr "Dein Konto hat Nitro."
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Your account has no Nitro. The plans below add perks."
 msgstr "Dein Konto hat kein Nitro. Die Abos unten bringen dir Vorteile."
+
+#: crates/yapfast-iced/src/server_dialogs/screening.rs
+msgid "Your answers are with the server's moderators. You can talk as soon as they let you in."
+msgstr "Deine Antworten liegen bei den Moderatoren des Servers. Du kannst schreiben, sobald sie dich einlassen."
 
 #: crates/yapfast-iced/src/boost_goal.rs
 msgid "Your boost was added."

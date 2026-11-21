@@ -147,5 +147,7 @@ buy is read from the prices it lists (a currency named like an Orb). The Shop
 shows no product page of its own. Discover's list, search and categories
 shapes, and the join request's parameters and captcha, have not been checked
 against a real account: the categories come in Discord's language only
-(English names), and a server with a membership screening (rules to accept)
-is joined but the screening form is not shown.
+(English names). After a join the server's membership screening form is read
+(`GET /guilds/{id}/member-verification`); a server that has one opens the
+same native dialog as a joined invite (`docs/discord/servers.md`), and one
+that has none, or whose form can't be read, shows nothing.

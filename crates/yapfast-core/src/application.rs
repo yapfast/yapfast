@@ -71,7 +71,7 @@ pub use forum::{ForumInfo, ForumPost, ForumPosts, ForumView};
 pub use gifs::{AskedPicture, GifPicker, GifPicture, GifView};
 pub use gift::GiftDialog;
 pub use interactions::{InteractionModal, Interactions, ModalField, SelectChoice, SelectMenu};
-pub use join::JoinDialog;
+pub use join::{JoinDialog, ScreeningAnswer, ScreeningDialog};
 pub use link_prompts::{EventPrompt, GiftPrompt, OAuthPrompt, permission_names};
 pub use members::{BAN_HISTORY, RoleChoice, TIMEOUT_TIMES};
 #[cfg(all(feature = "discord", any(test, feature = "test-fixtures")))]
@@ -2227,14 +2227,18 @@ pub enum Action {
     /// Open Join a Server; look up the invite in what was typed or pasted
     /// into it; open it for a clicked invite link, by its code; join by
     /// the invite it shows, or open the server for a member; open the
-    /// captcha Discord asked for again; open the server's form in the
-    /// browser; or close it.
+    /// captcha Discord asked for again; fill in the server's form; or close
+    /// it.
     OpenJoinServer,
     FindInvite(String),
     OpenInviteLink(String),
     JoinServer,
     OpenJoinCaptcha,
-    OpenJoinForm,
+    /// Answers a question of the joined server's form, by its place.
+    AnswerScreening(usize, ScreeningAnswer),
+    /// Hands in the joined server's form, or reads it again when it didn't
+    /// load.
+    SubmitScreening,
     CloseJoin,
     /// Open the rail's server setup, choose a layout or return to its list,
     /// confirm creation, or dismiss the dialog.
@@ -3977,7 +3981,8 @@ impl Application {
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
-            Action::OpenJoinForm => self.open_join_form(),
+            Action::AnswerScreening(field, answer) => self.answer_screening(field, answer),
+            Action::SubmitScreening => self.submit_screening(),
             Action::CloseJoin => {
                 self.state.join = None;
                 vec![]
@@ -4741,6 +4746,12 @@ impl Application {
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
+            Event::ScreeningLoaded { server, result } => {
+                return self.screening_loaded(server, result);
+            }
+            Event::ScreeningSubmitted { server, result } => {
+                return self.screening_submitted(server, result);
+            }
             Event::ServerCreated { request, result } => self.server_created(request, result),
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),
             Event::OAuthAuthorized { query, result } => {

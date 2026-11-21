@@ -96,6 +96,9 @@ pub fn command(
     let Some(command) = super::account_tools::command(command, discord, events) else {
         return;
     };
+    let Some(command) = super::screening::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = gifs::command(command, discord, events) else {
         return;
     };

@@ -24,6 +24,7 @@ use crate::{
     elide::elide,
     fonts::BOLD,
     pictures::{Face, GroupIcon, Icon, room_group_icon},
+    settings::Section,
     style::{faded, scrollbar},
     widgets::{Hover, Rows},
 };
@@ -43,9 +44,6 @@ const INBOX_MOST: f32 = 560.0;
 const INBOX_ROW: f32 = 56.0;
 /// Round the inbox's rows.
 const INBOX_PAD: f32 = 4.0;
-
-/// Where Discord's help opens.
-const HELP: &str = "https://support.discord.com";
 
 /// How far the pointer moves with the button down before the window moves,
 /// so a double click still maximizes it.
@@ -256,10 +254,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.inbox = None;
             Task::none()
         }
-        Event::Help => {
-            crate::browser::open(HELP);
-            Task::none()
-        }
+        // Yapfast's own help is its keybinds page; nothing opens in a
+        // browser.
+        Event::Help => app.open_settings(Section::Keybinds),
         Event::Press => {
             app.bar_drag.armed = Some(None);
             Task::none()
@@ -470,7 +467,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Help,
-                    tr("Help"),
+                    tr("Keybinds"),
                     Some(Event::Help),
                     false,
                     BarSize::Tool

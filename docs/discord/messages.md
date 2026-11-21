@@ -626,16 +626,16 @@ click or a submit sends one, and none is sent again on its own.
   members who match. Channel menus keep to the bot's channel types, visible
   categories included, and a default pick shows its name, or its id when the
   name isn't known. An optional single pick can be cleared.
-- Link buttons open their address. A premium button says "Open in Discord"
-  and opens the SKU's store page in the browser,
-  `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
-  "Managing SKUs"), `{app}` the message's application, or the bot's own id
-  when the message doesn't name one; nothing is bought through Yapfast, and
-  the SKU's name and price aren't asked for.
+- Link buttons open their address. A button that asks for a purchase (a
+  premium button, or one naming a `sku_id`) is not shown: Yapfast has no
+  checkout, and it does not send anyone to Discord's store page for one.
 - Pictures in a gallery or beside a section are read by a screen reader by
   their alt text (`description`), as an attached picture's is.
 - An app that answers with a web page in a window
-  (INTERACTION_IFRAME_MODAL_CREATE) says to use Discord for it.
+  (INTERACTION_IFRAME_MODAL_CREATE) is told so: Yapfast has no web view, so
+  the command fails with a line saying it can't show the page, and it
+  doesn't send anyone elsewhere. A form with a part of a kind Yapfast doesn't
+  know says so and isn't sent.
 - Yapfast doesn't unarchive a thread before a control in it is used, as
   Discord's client does, and doesn't count a bot's reply carrying the nonce
   as its answer; Discord sends `INTERACTION_SUCCESS` as well.

@@ -674,7 +674,6 @@ fn the_profile_editor_names_its_boards_games_once() {
     );
     let widgets = vec![chat::ProfileWidget {
         title: "Want to Play".into(),
-        lists_games: true,
         games: vec![chat::ProfileGame {
             id: "7".into(),
             name: "Unknown game".into(),

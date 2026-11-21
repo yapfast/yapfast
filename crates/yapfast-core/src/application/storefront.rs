@@ -404,10 +404,23 @@ impl Application {
         page.joining.retain(|joining| *joining != id);
         page.captcha = None;
         match result {
-            Ok(()) => page.joined.push(id),
-            Err(error) => page.refused = Some(error),
+            Ok(()) => {
+                let server = crate::discord::server_id(&id);
+                page.joined.push(id);
+                // A server may ask new members to fill in its form first;
+                // it's shown if it has one.
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::LoadScreening {
+                        server,
+                        code: String::new(),
+                    },
+                ))]
+            }
+            Err(error) => {
+                page.refused = Some(error);
+                vec![]
+            }
         }
-        vec![]
     }
 
     /// Reads the gifts the account can still give, once at a time.

@@ -86,8 +86,6 @@ pub enum Section {
     Account,
     ContentSocial,
     DataPrivacy,
-    FamilyCenter,
-    FriendRequests,
     Accessibility,
     StreamerMode,
     ActivityPrivacy,
@@ -116,13 +114,11 @@ impl Section {
     fn title(self) -> &'static str {
         match self {
             Section::Account => tr("My Account"),
-            Section::ContentSocial => "Content & Social",
-            Section::DataPrivacy => "Data & Privacy",
-            Section::FamilyCenter => "Family Center",
-            Section::FriendRequests => "Friend Requests",
-            Section::Accessibility => "Accessibility",
-            Section::StreamerMode => "Streamer Mode",
-            Section::ActivityPrivacy => "Activity Privacy",
+            Section::ContentSocial => tr("Content & Social"),
+            Section::DataPrivacy => tr("Data & Privacy"),
+            Section::Accessibility => tr("Accessibility"),
+            Section::StreamerMode => tr("Streamer Mode"),
+            Section::ActivityPrivacy => tr("Activity Privacy"),
             Section::Voice => tr("Voice & Video"),
             Section::Messages => tr("Messages"),
             Section::Notifications => tr("Notifications"),
@@ -141,7 +137,6 @@ impl Section {
             Section::Account => Icon::User,
             Section::ContentSocial => Icon::MessageCircle,
             Section::DataPrivacy => Icon::Settings,
-            Section::FamilyCenter | Section::FriendRequests => Icon::Users,
             Section::Accessibility => Icon::Help,
             Section::StreamerMode | Section::ActivityPrivacy => Icon::Play,
             Section::Voice => Icon::Mic,
@@ -167,8 +162,6 @@ const GROUPS: [(&str, &[Section]); 3] = [
             Section::Account,
             Section::ContentSocial,
             Section::DataPrivacy,
-            Section::FamilyCenter,
-            Section::FriendRequests,
         ],
     ),
     (
@@ -279,7 +272,6 @@ pub enum Event {
     /// Opens the Connections tab of My Account, as the profile editor's
     /// link does.
     Connections,
-    Privacy(privacy::Event),
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
@@ -380,7 +372,6 @@ impl Settings {
                 return self
                     .account_page_event(account::Event::Show(account::Tab::Connections), cx);
             }
-            Event::Privacy(event) => privacy::update(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
             Event::Theme(event) => return self.theme_event(event, cx),
@@ -511,8 +502,6 @@ impl<'a> Page<'a> {
             Section::Account => self.account_hub(),
             Section::ContentSocial => self.content_social_page(),
             Section::DataPrivacy => self.data_privacy_page(),
-            Section::FamilyCenter => self.family_center_page(),
-            Section::FriendRequests => self.friend_requests_page(),
             Section::Accessibility => self.accessibility_page(),
             Section::StreamerMode => self.streamer_mode_page(),
             Section::ActivityPrivacy => self.activity_privacy_page(),

@@ -16,8 +16,10 @@ use iced::{
     widget::{Id, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
-    application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES, InviteDialog},
-    chat::{ChannelKind, ChannelSettings, Friend},
+    application::{
+        Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES, InviteDialog, ScreeningAnswer,
+    },
+    chat::{ChannelKind, ChannelSettings, Friend, InvitePreview},
     i18n::{self, later, tr},
 };
 
@@ -35,6 +37,7 @@ use crate::{
 };
 
 mod create;
+mod screening;
 
 /// The dialogs' widths: the channel's, and Join a Server's.
 const WIDE: f32 = 460.0;
@@ -110,8 +113,14 @@ pub enum Event {
     OpenJoinFromAdd,
     JoinLink(String),
     Find,
-    /// Join Server's main button: find the invite, join, or open the form.
+    /// Join Server's main button: find the invite, join, or hand in the
+    /// server's form.
     Confirm,
+    /// A question of the server's form answered: the rules agreed to or
+    /// not, the words, or the choice by its place.
+    ScreeningAgree(usize, bool),
+    ScreeningText(usize, String),
+    ScreeningChoose(usize, usize),
     OpenCaptcha,
     CloseJoin,
     Create(create::Event),
@@ -211,7 +220,11 @@ impl Dialogs {
         match &state.join {
             Some(join) if local.join.is_none() => {
                 local.join = Some(String::new());
-                focus = Some(if join.from_link { NOBODY } else { JOIN_FIELD });
+                focus = Some(if join.from_link || join.form.is_some() {
+                    NOBODY
+                } else {
+                    JOIN_FIELD
+                });
             }
             Some(_) => {}
             None => local.join = None,
@@ -320,12 +333,21 @@ impl Dialogs {
                     return Task::none();
                 };
                 if join.form.is_some() {
-                    Action::OpenJoinForm
+                    Action::SubmitScreening
                 } else if join.preview.is_some() {
                     Action::JoinServer
                 } else {
                     return self.update(Event::Find, cx);
                 }
+            }
+            Event::ScreeningAgree(index, agreed) => {
+                Action::AnswerScreening(index, ScreeningAnswer::Agree(agreed))
+            }
+            Event::ScreeningText(index, words) => {
+                Action::AnswerScreening(index, ScreeningAnswer::Text(words))
+            }
+            Event::ScreeningChoose(index, choice) => {
+                Action::AnswerScreening(index, ScreeningAnswer::Choose(choice))
             }
             Event::OpenCaptcha => Action::OpenJoinCaptcha,
             Event::CloseJoin => Action::CloseJoin,
@@ -757,11 +779,34 @@ impl<'a> View<'a> {
         foot.into()
     }
 
+    /// The server an invite is to, on the sunken ground: its picture, its
+    /// name and how many are in it.
+    fn found(self, preview: &'a InvitePreview) -> Element<'a, Message> {
+        let detail = match (preview.members, preview.online) {
+            (Some(members), Some(online)) if members >= 5 || online > 0 => {
+                i18n::fill(tr("{0} online, {1} members"), &[&online, &members])
+            }
+            _ if preview.voice => preview.channel.clone(),
+            _ => format!("#{}", preview.channel),
+        };
+        self.cx.look.found_card(
+            Some(
+                self.cx
+                    .avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0),
+            ),
+            preview.name.clone(),
+            [detail],
+        )
+    }
+
     /// Join a Server, or the dialog a clicked invite link opens: the field
     /// (Join's alone), the server once found, how joining goes, and its
     /// buttons.
     fn join_server_view(self) -> Option<Element<'a, Message>> {
         let join = self.cx.state.join.as_ref()?;
+        if let Some(dialog) = &join.form {
+            return Some(self.screening_view(join, dialog));
+        }
         let typed = self.s.join.as_deref()?;
         let theme = self.cx.look.theme;
         let preview = join.preview.as_ref();
@@ -791,29 +836,9 @@ impl<'a> View<'a> {
             ]);
         }
         if let Some(preview) = preview {
-            let detail = match (preview.members, preview.online) {
-                (Some(members), Some(online)) if members >= 5 || online > 0 => {
-                    i18n::fill(tr("{0} online, {1} members"), &[&online, &members])
-                }
-                _ if preview.voice => preview.channel.clone(),
-                _ => format!("#{}", preview.channel),
-            };
-            body.push(
-                self.cx.look.found_card(
-                    Some(
-                        self.cx
-                            .avatar(preview.icon.as_deref(), &preview.name, 48.0, 24.0, 1.0),
-                    ),
-                    preview.name.clone(),
-                    [detail],
-                ),
-            );
+            body.push(self.found(preview));
         }
-        let status = if join.form.is_some() {
-            tr(
-                "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app.",
-            )
-        } else if join.captcha.is_some() {
+        let status = if join.captcha.is_some() {
             tr("Discord asks for a captcha first. Solve it in your browser.")
         } else if join.joining {
             tr("Joining...")
@@ -830,9 +855,7 @@ impl<'a> View<'a> {
         if let Some(error) = &join.error {
             body.push(form::note_in(error.as_str(), theme.danger));
         }
-        let confirm = if join.form.is_some() {
-            tr("Open in browser")
-        } else if join.member {
+        let confirm = if join.member {
             tr("Open Server")
         } else if preview.is_some() {
             tr("Join Server")
@@ -844,7 +867,7 @@ impl<'a> View<'a> {
         let mut row_ = vec![
             action(
                 theme,
-                if join.form.is_some() || confirm.is_empty() {
+                if confirm.is_empty() {
                     tr("Close")
                 } else if self.cx.state.server_creation.is_some() && !join.joining {
                     "Back"

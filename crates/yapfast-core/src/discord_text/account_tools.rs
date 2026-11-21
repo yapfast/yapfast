@@ -189,7 +189,7 @@ pub(super) fn command(
 
 /// Runs a request in the background and sends its end as an event; without
 /// a Discord account the event carries why not.
-fn ask<T, Fut>(
+pub(super) fn ask<T, Fut>(
     discord: Result<&Discord, &str>,
     events: &UnboundedSender<Event>,
     what: &'static str,

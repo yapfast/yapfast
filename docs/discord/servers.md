@@ -245,9 +245,22 @@ expired invite (10006, 50020), a ban (40007), too many servers (30001), a
 full server (30019) and paused invites (40069).
 
 When the answer has `show_verification_form`, the server asks new members
-to fill in its form, such as accepting its rules, before they may talk.
-Yapfast doesn't show forms or onboarding questions yet, so the dialog says
-so and opens the channel in Discord's web app, where the form waits. A voice
+to fill in its form (membership screening), such as accepting its rules,
+before they may talk. The dialog stays open and shows the form natively
+(`server_dialogs/screening.rs`): the server's description, its rules with a
+switch to agree to them, text and paragraph questions and multiple choice,
+with required ones starred. Submit is enabled once every required question
+is answered. The form is read with
+`GET /guilds/{id}/member-verification?with_guild=false&invite_code=` and
+handed in with `PUT /guilds/{id}/requests/@me` carrying its `version` and
+the `form_fields` with their `response`
+(`yapfast-discord/src/screening.rs`). Discord's answer is `APPROVED` (the
+dialog closes and the server's channel opens), `REJECTED` (the dialog says
+the server turned the answers down) or a pending state (the dialog says the
+server's moderators decide). A failed load shows its error with a Try again
+button. These two endpoints and the status names are written from
+Discord's client behaviour and have not been run against Discord. Onboarding
+questions, which are a separate feature, are not shown. A voice
 channel's invite joins the server and opens the channel without joining the
 call. Discord's client also sends `invite_instance_id` from a message's
 invite card, which Yapfast doesn't show yet, so it leaves that out.

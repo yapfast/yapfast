@@ -49,6 +49,7 @@ pub mod remote_auth;
 mod rpc;
 pub mod rtp;
 pub mod scheduled_event;
+pub mod screening;
 pub mod search;
 pub mod server_settings;
 pub mod service;

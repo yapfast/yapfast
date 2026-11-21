@@ -147,8 +147,9 @@ member list, the DMs, and the lists still to come build on it.
   closes it. Escape closes the pad, then the window. The main profile
   shows its Board, Activity and Wishlist tabs where the card is 880 px or
   wider, in the editor's words ("Your Widgets", "N Items", "Current
-  activity", that adding more from Yapfast is coming soon, and the board's
-  note while the profile loads or after it failed to). A server's has what it edits over its banner and Nitro's offer
+  activity", and the board's note while the profile loads or after it failed
+  to). They show the profile as it is; Yapfast doesn't edit the board or the
+  wishlist, so nothing there pretends to. A server's has what it edits over its banner and Nitro's offer
   over what takes it. Once something changed the form kit's
   `Unsaved` bar offers Reset and Save Changes, which waits while a text is
   too long or a picture is read. Escape ends the editing, closes what's

@@ -2909,8 +2909,8 @@ impl Discord {
         Ok(profile::recent_entries(&self.api.outbox(user).await?))
     }
 
-    /// Names a board's games and applications. What Discord doesn't say
-    /// stays as it is, and the board shows without it.
+    /// Names a board's games. What Discord doesn't say stays as it is, and
+    /// the board shows without it.
     pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
         let mut games: Vec<&str> = widgets
             .iter()
@@ -2927,18 +2927,6 @@ impl Discord {
             }
         }
         crate::widgets::name_games(widgets, &known);
-        let applications: Vec<String> = widgets
-            .iter()
-            .filter_map(|widget| widget.application.clone())
-            .collect();
-        if applications.is_empty() {
-            return;
-        }
-        let ids: Vec<&str> = applications.iter().map(String::as_str).collect();
-        match self.api.public_applications(&ids).await {
-            Ok(answer) => crate::widgets::name_applications(widgets, &answer),
-            Err(error) => tracing::debug!(%error, "could not get a board's applications"),
-        }
     }
 
     /// The items on a wishlist, by the id a profile gave, as Discord's client
@@ -3198,6 +3186,27 @@ impl Discord {
         )
         .await?;
         Ok(invite::Joined::of(&answer, preview))
+    }
+
+    /// The form a server asks the account to fill in after joining by
+    /// `code`; see [`Api::member_verification`].
+    pub async fn member_form(&self, guild: &str, code: &str) -> Result<crate::screening::Form> {
+        let answer = self.api.member_verification(guild, code).await?;
+        crate::screening::Form::of(&answer)
+            .context("This server's form has nothing Yapfast can show.")
+    }
+
+    /// Hands in a server's form, each field with its response; see
+    /// [`Api::submit_member_verification`].
+    pub async fn submit_member_form(
+        &self,
+        guild: &str,
+        version: &str,
+        answered: &[(crate::screening::Field, crate::screening::Response)],
+    ) -> Result<crate::screening::Review> {
+        let body = crate::screening::body(version, answered);
+        let answer = self.api.submit_member_verification(guild, &body).await?;
+        Ok(crate::screening::Review::of(&answer))
     }
 
     /// A server's preview, by its id; see [`Api::guild_preview`].

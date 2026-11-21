@@ -789,6 +789,69 @@ fn joins_a_listed_server_once_and_remembers_it() {
 }
 
 #[test]
+fn a_joined_server_that_has_a_form_shows_it_and_one_without_stays_quiet() {
+    use crate::chat::{ScreeningField, ScreeningForm, ScreeningKind};
+    let mut app = discovering();
+    app.dispatch(Action::JoinDiscovered("10".into()));
+    let effects = app.apply(Event::DiscoverJoined {
+        id: "10".into(),
+        result: Ok(()),
+    });
+    // The form of the joined server is asked for, by its server id.
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::LoadScreening { server, code }))]
+            if server == "discord:10" && code.is_empty()
+    ));
+    // A server without a form answers with an error, or with no questions.
+    app.apply(Event::ScreeningLoaded {
+        server: "discord:10".into(),
+        result: Err("Unknown form.".into()),
+    });
+    assert!(app.state.join.is_none());
+    let form = |fields| ScreeningForm {
+        version: "v1".into(),
+        description: String::new(),
+        fields,
+    };
+    app.apply(Event::ScreeningLoaded {
+        server: "discord:10".into(),
+        result: Ok(form(vec![])),
+    });
+    assert!(app.state.join.is_none());
+    // One that has questions opens the dialog, as for a joined invite.
+    let rules = ScreeningField {
+        kind: ScreeningKind::Terms,
+        label: "Rules".into(),
+        description: None,
+        required: true,
+        values: vec!["Be kind".into()],
+        agreed: false,
+        text: String::new(),
+        choice: None,
+    };
+    app.apply(Event::ScreeningLoaded {
+        server: "discord:10".into(),
+        result: Ok(form(vec![rules.clone()])),
+    });
+    let dialog = app
+        .state
+        .join
+        .as_ref()
+        .and_then(|join| join.form.as_ref())
+        .expect("the form is shown");
+    assert_eq!(dialog.server, "discord:10");
+    assert_eq!(dialog.form.as_ref().map(|form| form.fields.len()), Some(1));
+    // A form of a server that wasn't joined from the list is not opened.
+    app.state.join = None;
+    app.apply(Event::ScreeningLoaded {
+        server: "discord:77".into(),
+        result: Ok(form(vec![rules])),
+    });
+    assert!(app.state.join.is_none());
+}
+
+#[test]
 fn a_server_the_account_is_in_is_not_joined_again() {
     let mut app = discovering();
     app.state.servers.push(Arc::new(ChatServer {

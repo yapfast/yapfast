@@ -129,7 +129,8 @@ own, which a stream hands to the event loop as messages; nothing polls.
   (on the Friends page "Friends", with the people icon), the Inbox
   (Unreads and Mentions
   of the rooms the core knows, a click going there) and Help (18 px
-  glyphs in 32 px boxes), and minimize,
+  glyphs in 32 px boxes; it opens Settings on Keybinds, Yapfast's own list of
+  shortcuts, and sends nobody to Discord's help pages), and minimize,
   maximize and close, drawn as 10 px strokes the way Discord's frame draws
   them; its ground moves the window after a 3 px drag and a
   double click maximizes it, and its edges resize it. It goes while the

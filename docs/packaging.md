@@ -187,7 +187,7 @@ page has the rest.
 
 Update and restart is shown only when this copy can replace itself, and
 installs only what a person asked for: there is no automatic install, and
-About's "Install updates automatically" switch stays greyed out and off.
+About has no switch for one.
 `src/update/install.rs` does the work, for two installs:
 
 - **A Linux AppImage** that the person can write to. The release's AppImage

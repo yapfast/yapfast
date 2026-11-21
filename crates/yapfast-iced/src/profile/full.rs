@@ -486,13 +486,6 @@ fn board_cards<'a>(
                 .align_y(Alignment::Center),
             );
         }
-        if !widget.lists_games {
-            card = card.push(
-                text(tr("This one only shows in Discord for now."))
-                    .size(12)
-                    .color(inks.ink3),
-            );
-        }
         list = list.push(
             container(card)
                 .padding(14)
@@ -577,8 +570,7 @@ fn wishlist_cards<'a>(
 }
 
 /// What the profile editor's tabs show of the profile as it will be: the
-/// widgets and the wishlist with what adding to them from here is, and
-/// what's going on now. `board` is the board's note while the profile
+/// widgets and the wishlist as they are, and what's going on now. `board` is the board's note while the profile
 /// loads or after it failed to.
 pub(super) fn editor_tab_page<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -590,11 +582,6 @@ pub(super) fn editor_tab_page<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let heading = |words: String| text(words).size(13).font(SEMIBOLD).color(inks.ink2);
-    let soon = || {
-        text(tr("Adding more from Yapfast is coming soon."))
-            .size(12)
-            .color(inks.ink3)
-    };
     let page = match tab {
         Tab::Activity => {
             let mut list = column![heading(tr("Current activity").to_owned())].spacing(10);
@@ -618,7 +605,6 @@ pub(super) fn editor_tab_page<'a>(
                     } else {
                         list = list.push(heading(tr("Your Widgets").to_owned()));
                     }
-                    list = list.push(soon());
                 }
             }
             board_cards(ctx, shown, inks, list)
@@ -637,9 +623,6 @@ pub(super) fn editor_tab_page<'a>(
                 list = list.push(note(inks.ink2, look.wishlist_note));
             } else if items.is_empty() {
                 list = list.push(note(inks.ink2, tr("Nothing on your wishlist yet.")));
-            }
-            if look.wishlist_note.is_empty() || !items.is_empty() {
-                list = list.push(soon());
             }
             wishlist_cards(ctx, shown, items, inks, list)
         }

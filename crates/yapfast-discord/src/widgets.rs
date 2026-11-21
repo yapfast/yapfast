@@ -1,6 +1,6 @@
 //! The widgets on someone's profile board, as `widgets` in their profile
 //! gives them: `{id, data: {type, ...}}`, the game lists' `data` holding
-//! `games: [{game_id, comment, tags}]`.
+//! `games: [{game_id, comment, tags}]`. Only game lists are shown.
 
 use serde_json::Value;
 
@@ -16,12 +16,8 @@ pub const GAMES_AT_ONCE: usize = 20;
 pub struct Widget {
     /// Its heading, as Discord's client gives its type.
     pub title: String,
-    /// The application it shows, whose name is its heading.
-    pub application: Option<String>,
-    /// The games it lists, for a game list.
+    /// The games it lists.
     pub games: Vec<WidgetGame>,
-    /// It's a game list, rather than something else shown only in Discord.
-    pub lists_games: bool,
 }
 
 /// A game on a widget.
@@ -45,8 +41,10 @@ pub struct Game {
     pub icon: Option<String>,
 }
 
-/// The widgets in a profile. Those of a type Discord's client doesn't know
-/// are left out, as it leaves them out; a game listed twice shows once.
+/// The game lists in a profile. A widget of another type (an application, a
+/// personal note, a clips gallery), whose contents Yapfast doesn't show, is
+/// left out with those Discord's client doesn't know; a game listed twice
+/// shows once.
 pub fn parse(value: &Value) -> Vec<Widget> {
     value["widgets"]
         .as_array()
@@ -58,14 +56,11 @@ pub fn parse(value: &Value) -> Vec<Widget> {
 
 fn widget(value: &Value) -> Option<Widget> {
     let data = &value["data"];
-    let (title, lists_games) = match data["type"].as_str()? {
-        "favorite_games" => ("Favorite Game", true),
-        "current_games" => ("Games in Rotation", true),
-        "want_to_play_games" => ("Want to Play", true),
-        "played_games" => ("Games I Like", true),
-        "application" => ("Application", false),
-        "personal" => ("Personal", false),
-        "clips_gallery" => ("Clips Gallery", false),
+    let title = match data["type"].as_str()? {
+        "favorite_games" => "Favorite Game",
+        "current_games" => "Games in Rotation",
+        "want_to_play_games" => "Want to Play",
+        "played_games" => "Games I Like",
         _ => return None,
     };
     let mut seen = std::collections::HashSet::new();
@@ -88,9 +83,7 @@ fn widget(value: &Value) -> Option<Widget> {
         .collect();
     Some(Widget {
         title: title.to_owned(),
-        application: data["application_id"].as_str().map(str::to_owned),
         games,
-        lists_games,
     })
 }
 
@@ -135,25 +128,6 @@ pub fn name_games(widgets: &mut [Widget], games: &[Game]) {
     }
 }
 
-/// Heads application widgets with the names in an answer from `GET
-/// /applications/public`.
-pub fn name_applications(widgets: &mut [Widget], applications: &Value) {
-    for widget in widgets {
-        let Some(id) = widget.application.as_deref() else {
-            continue;
-        };
-        let name = applications
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|application| application["id"].as_str() == Some(id))
-            .and_then(|application| application["name"].as_str());
-        if let Some(name) = name {
-            widget.title = name.to_owned();
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -185,7 +159,6 @@ mod tests {
                 "Games I Like"
             ]
         );
-        assert!(widgets.iter().all(|widget| widget.lists_games));
         assert_eq!(widgets[0].games[0].id, "10");
         assert_eq!(widgets[0].games[0].comment.as_deref(), Some("The best"));
         let rotation: Vec<_> = widgets[1].games.iter().map(|game| &game.id).collect();
@@ -195,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn other_widgets_keep_their_heading_and_unknown_ones_go() {
+    fn widgets_that_are_not_game_lists_and_unknown_ones_go() {
         let profile = json!({"widgets": [
             {"id": "a", "data": {"type": "application", "application_id": "20"}},
             {"id": "b", "data": {"type": "personal", "header": "Hi", "sections": []}},
@@ -203,16 +176,7 @@ mod tests {
             {"id": "d", "data": {"type": "something_new"}},
             {"id": "e"},
         ]});
-        let mut widgets = parse(&profile);
-        let titles: Vec<_> = widgets.iter().map(|widget| widget.title.as_str()).collect();
-        assert_eq!(titles, ["Application", "Personal", "Clips Gallery"]);
-        assert!(widgets.iter().all(|widget| !widget.lists_games));
-        name_applications(
-            &mut widgets,
-            &json!([{"id": "20", "name": "A Bot", "icon": "h"}]),
-        );
-        assert_eq!(widgets[0].title, "A Bot");
-        assert_eq!(widgets[0].application.as_deref(), Some("20"));
+        assert_eq!(parse(&profile), []);
         assert_eq!(parse(&json!({})), []);
         assert_eq!(parse(&json!({"widgets": null})), []);
     }

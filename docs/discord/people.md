@@ -634,8 +634,11 @@ the wishlist's age check (`nsfwAllowed`), Filter and Browse the Shop.
 
 The Board comes with the profile: `widgets`, each `{id, data: {type,
 ...}}`. A game list's `data` holds `games: [{game_id, comment, tags}]`, read
-as the client reads them, a game listed twice showing once and an unknown
-type left out. Their headings are the client's:
+as the client reads them, a game listed twice showing once. Only game lists
+are shown: a widget of another type (`application`, `personal`,
+`clips_gallery`), whose contents Yapfast doesn't read, is left out with an
+unknown type, rather than shown as a heading with nothing under it. The
+headings of the game lists are the client's:
 
 | `type` | Heading | Shows |
 | --- | --- | --- |
@@ -643,9 +646,6 @@ type left out. Their headings are the client's:
 | `current_games` | Games in Rotation | Its games |
 | `want_to_play_games` | Want to Play | Its games |
 | `played_games` | Games I Like | Its games |
-| `application` | The application's name, from `GET /applications/public` | A line that it only shows in Discord |
-| `personal` | Personal | The same line |
-| `clips_gallery` | Clips Gallery | The same line |
 
 Games are named by `GET /games?game_ids=...`, at most 20 at once as the
 client asks, when the tab first opens, and only if it has any. A game's

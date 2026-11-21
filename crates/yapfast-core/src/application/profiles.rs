@@ -463,11 +463,9 @@ impl Application {
     }
 }
 
-/// Whether a board has games or applications to name.
+/// Whether a board has games to name.
 pub(super) fn names_games(widgets: &[ProfileWidget]) -> bool {
-    widgets
-        .iter()
-        .any(|widget| !widget.games.is_empty() || widget.application.is_some())
+    widgets.iter().any(|widget| !widget.games.is_empty())
 }
 
 /// Puts `profile` on screen in `view`. Presence and activities come from the

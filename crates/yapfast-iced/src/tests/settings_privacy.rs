@@ -1,20 +1,13 @@
-//! Privacy pages exercise existing preferences, account gating and browser
-//! destinations with the preview's fixtures. No account or browser is used.
+//! Privacy pages exercise existing preferences and account gating with the
+//! preview's fixtures. No account is used.
 
-use iced_test::Simulator;
-use yapfast_core::{
-    application::{Action, DmScreen, Navigation},
-    chat::{Command, DiscordCommand, Event as BackendEvent},
-};
+use yapfast_core::chat::{Command, DiscordCommand, Event as BackendEvent};
 
 use super::{change, interact, preview, shows, start};
 use crate::{
     app::{App, Message},
     layout::Animate,
-    settings::{
-        Event, Section,
-        privacy::{Event as PrivacyEvent, Handoff},
-    },
+    settings::{Event, Section},
 };
 
 fn open(app: &mut App, section: Section) {
@@ -38,91 +31,35 @@ fn click(app: &mut App, label: &str) {
     });
 }
 
-fn handoff(app: &App, label: &str) -> Handoff {
-    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
-    ui.click(label).expect(label);
-    let mut messages = ui.into_messages();
-    let Some(Message::Settings(Event::Privacy(PrivacyEvent::Open(destination)))) = messages.next()
-    else {
-        panic!("a browser handoff from {label}");
-    };
-    assert!(messages.next().is_none(), "one explicit action");
-    destination
-}
-
 #[test]
-fn settings_privacy_pages_offer_explicit_official_browser_handoffs() {
+fn settings_privacy_pages_hold_only_native_controls() {
     let (mut app, _folder) = preview();
     let commands_before = app.client.sent.len();
-    for (section, title, destination, path) in [
-        (
-            Section::ContentSocial,
-            "Content & Social",
-            Handoff::ContentSocial,
-            "217916488",
-        ),
-        (
-            Section::DataPrivacy,
-            "Data & Privacy",
-            Handoff::DataPrivacy,
-            "/privacy/policy/",
-        ),
-        (
-            Section::FamilyCenter,
-            "Family Center",
-            Handoff::FamilyCenter,
-            "14155043715735",
-        ),
-        (
-            Section::FriendRequests,
-            "Friend Requests",
-            Handoff::FriendRequests,
-            "217916488",
-        ),
-        (
-            Section::Accessibility,
-            "Accessibility",
-            Handoff::Accessibility,
-            "1500010454681",
-        ),
-        (
-            Section::StreamerMode,
-            "Streamer Mode",
-            Handoff::StreamerMode,
-            "218485407",
-        ),
-        (
-            Section::ActivityPrivacy,
-            "Activity Privacy",
-            Handoff::ActivityPrivacy,
-            "7931156448919",
-        ),
+    for (section, title) in [
+        (Section::ContentSocial, "Content & Social"),
+        (Section::DataPrivacy, "Data & Privacy"),
+        (Section::Accessibility, "Accessibility"),
+        (Section::StreamerMode, "Streamer Mode"),
+        (Section::ActivityPrivacy, "Activity Privacy"),
     ] {
         open(&mut app, section);
         assert!(shows(&app, title), "{title}");
-        assert!(shows(&app, "IN DISCORD"));
-        let guide = if section == Section::DataPrivacy {
-            "Read Discord's privacy policy"
-        } else {
-            "Read Discord's guide"
-        };
-        assert_eq!(handoff(&app, guide), destination);
-        assert!(destination.url().contains(path));
-        assert!(
-            destination
-                .url()
-                .starts_with("https://support.discord.com/")
-                || destination == Handoff::DataPrivacy
-        );
-        let browser = handoff(&app, "Open Discord in browser");
-        assert_eq!(browser, Handoff::Discord);
-        assert_eq!(browser.url(), "https://discord.com/channels/@me");
+        assert!(!shows(&app, "IN DISCORD"), "{title} sends nobody away");
+        assert!(!shows(&app, "Open Discord in browser"), "{title}");
     }
     assert_eq!(
         app.client.sent.len(),
         commands_before,
         "no account commands from browsing pages"
     );
+}
+
+#[test]
+fn settings_privacy_has_no_pages_that_only_point_to_discord() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Account);
+    assert!(!shows(&app, "Family Center"));
+    assert!(!shows(&app, "Friend Requests"));
 }
 
 #[test]
@@ -267,26 +204,10 @@ fn settings_privacy_account_controls_are_absent_in_preview_or_without_an_account
                 "Hide messages from people you blocked",
             ),
             (Section::DataPrivacy, "Mark messages read on Discord"),
-            (Section::FriendRequests, "Review requests in Yapfast"),
             (Section::ActivityPrivacy, "Share the game you play"),
         ] {
             open(&mut app, section);
             assert!(!shows(&app, hidden), "{hidden}");
-            assert!(shows(&app, "Open Discord in browser"));
         }
     }
-}
-
-#[test]
-fn settings_privacy_requests_opens_the_real_requests_screen_from_a_server() {
-    let (mut app, _folder) = preview();
-    linked(&mut app);
-    app.client
-        .dispatch(Action::Navigate(Navigation::Server("friends".into())));
-    let _ = app.sync();
-    open(&mut app, Section::FriendRequests);
-    click(&mut app, "Review requests in Yapfast");
-    assert!(!app.win.settings.is_open());
-    assert_eq!(app.client.state().navigation, Navigation::DirectMessages);
-    assert_eq!(app.client.state().dm_screen, Some(DmScreen::Requests));
 }

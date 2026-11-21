@@ -874,7 +874,6 @@ fn full_profile_with_tabs(large: bool) -> Application {
             }),
             widgets: vec![chat::ProfileWidget {
                 title: "Want to Play".into(),
-                lists_games: true,
                 games: vec![chat::ProfileGame {
                     id: "7".into(),
                     name: "Unknown game".into(),

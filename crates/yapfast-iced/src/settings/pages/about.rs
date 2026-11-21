@@ -93,11 +93,6 @@ impl<'a> Page<'a> {
             .fresh(self.fresh("update-nightlies"))
             .view(self.cx.look),
         );
-        parts.push(
-            switch(tr("Install updates automatically"), false, None)
-                .description(tr("Not available yet."))
-                .view(self.cx.look),
-        );
         parts.push(form::heading(theme, tr("LINKS")));
         let ink = crate::theme::rgb(theme.text);
         let link = |label, icon, page| -> Element<'a, Message> {

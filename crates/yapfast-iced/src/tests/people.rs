@@ -1003,9 +1003,7 @@ fn the_full_profiles_tab_is_settled_as_it_opens() {
     change(&mut app, |state| {
         profile(state).widgets = vec![yapfast_core::chat::ProfileWidget {
             title: "Favourite Games".into(),
-            application: None,
             games: Vec::new(),
-            lists_games: true,
         }];
     });
     assert!(shows(&app, "Board"), "the Board's tab comes");
