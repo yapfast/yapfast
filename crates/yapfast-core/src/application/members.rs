@@ -464,6 +464,13 @@ impl Application {
 
     /// Opens a member's dialog: their nickname, or for another member, a
     /// timeout, a kick or a ban, each only when this account may.
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn ask_member(
         &mut self,
         place: String,
@@ -529,7 +536,7 @@ impl Application {
     /// deafens, moves or disconnects them in voice, when this account may;
     /// Discord's GUILD_MEMBER_UPDATE or VOICE_STATE_UPDATE shows it.
     pub(super) fn change_member(
-        &mut self,
+        &self,
         place: String,
         user: String,
         change: MemberChange,

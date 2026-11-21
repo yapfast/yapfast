@@ -83,6 +83,7 @@ static int input_event(int fd, uint32_t mask, void *data) {
     clock_gettime(CLOCK_MONOTONIC, &now);
     double x, y;
     unsigned int code, down;
+    int notches;
     if (sscanf(message, "move %lf %lf", &x, &y) == 2) {
         notify_motion_absolute(&seat, &now, (struct weston_coord_global){.c = {x, y}});
         notify_pointer_frame(&seat);
@@ -94,6 +95,22 @@ static int input_event(int fd, uint32_t mask, void *data) {
          * winit 0.30 turns only discrete steps from a wheel source into scrolling. */
         notify_axis_source(&seat, WL_POINTER_AXIS_SOURCE_FINGER);
         struct weston_pointer_axis_event axis = {.axis = WL_POINTER_AXIS_VERTICAL_SCROLL, .value = y};
+        notify_axis(&seat, &now, &axis);
+        notify_pointer_frame(&seat);
+    } else if (sscanf(message, "wheel %d", &notches) == 1) {
+        /* A mouse wheel's notches, discrete steps from a wheel source;
+         * negative scrolls up. */
+        notify_axis_source(&seat, WL_POINTER_AXIS_SOURCE_WHEEL);
+        struct weston_pointer_axis_event axis = {
+            .axis = WL_POINTER_AXIS_VERTICAL_SCROLL, .value = 15.0 * notches,
+            .has_discrete = true, .discrete = notches};
+        notify_axis(&seat, &now, &axis);
+        notify_pointer_frame(&seat);
+    } else if (strncmp(message, "lift", 4) == 0) {
+        /* The touchpad's fingers lift: an axis of nothing, which Weston
+         * sends as axis_stop, ending the scroll (winit's Ended phase). */
+        notify_axis_source(&seat, WL_POINTER_AXIS_SOURCE_FINGER);
+        struct weston_pointer_axis_event axis = {.axis = WL_POINTER_AXIS_VERTICAL_SCROLL, .value = 0};
         notify_axis(&seat, &now, &axis);
         notify_pointer_frame(&seat);
     } else if (sscanf(message, "key %u %u", &code, &down) == 2) {

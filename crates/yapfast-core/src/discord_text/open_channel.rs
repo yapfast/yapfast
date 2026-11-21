@@ -14,11 +14,14 @@ use crate::chat::SendOptions;
 use super::{
     channels::SharedPreviews,
     render::{
-        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered, sent_id,
-        system_body, used_command,
+        chat_card, chat_embed, chat_notice, chat_poll, chat_voice, custom_emoji, rendered,
+        reply_snippet, sent_id, system_body, used_command,
     },
     *,
 };
+
+/// How long after joining a server Discord marks a member as new.
+const NEW_MEMBER_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 
 pub(super) struct Pending {
     pub(super) nonce: String,
@@ -1566,20 +1569,28 @@ impl OpenChannel {
         let mut rows = Vec::with_capacity(self.shown.messages.len() + pending.len());
         let mut kept = std::mem::take(&mut self.rendered);
         for (order, message) in &self.shown.messages {
-            let id = match &message.nonce {
-                Some(nonce) if self.sent.contains(nonce) => format!("n:{nonce}"),
-                _ => format!("d:{}", message.id),
+            // Its row's id, written out only for a row made anew.
+            let (prefix, key) = match &message.nonce {
+                Some(nonce) if self.sent.contains(nonce) => ("n:", nonce),
+                _ => ("d:", &message.id),
             };
             let row = match kept.remove(order) {
                 // A thread it leads to changes apart from the message.
                 Some(row)
-                    if row.id == id
+                    if row.id.strip_prefix(prefix) == Some(key.as_str())
                         && row.thread
-                            == self.thread_link(server.map(|server| &**server), message) =>
+                            == self.thread_link(
+                                &snapshot.names,
+                                server.map(|server| &**server),
+                                message,
+                            ) =>
                 {
                     row
                 }
-                _ => Arc::new(self.render(discord, &snapshot, server, message, id, &mut wanted)),
+                _ => {
+                    let id = format!("{prefix}{key}");
+                    Arc::new(self.render(discord, &snapshot, server, message, id, &mut wanted))
+                }
             };
             self.rendered.insert(*order, Arc::clone(&row));
             rows.push(row);
@@ -1609,14 +1620,16 @@ impl OpenChannel {
                 },
                 reply: pending.reply.as_ref().and_then(|id| {
                     let original = self.message(id.parse().unwrap_or_default())?;
+                    let (body, emoji) =
+                        reply_snippet(discord, server.map(|server| &**server), &original.content);
                     Some(Reply {
                         author: name(&original.author_id, &original.author),
                         avatar: Some(discord.avatar(Some(&self.guild), &original.author_id)),
-                        body: plain_snippet(&crate::spoiler::hide(
-                            &discord.render(server.map(|server| &**server), &original.content),
-                        )),
+                        body,
+                        emoji,
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
+                        tag: discord::server_tag(discord.server_tag(&original.author_id)),
                     })
                 }),
                 attachments: pending
@@ -1744,19 +1757,26 @@ impl OpenChannel {
                 author_id,
                 author,
                 content,
-            } => Reply {
-                author: name(author_id, author),
-                avatar: Some(discord.avatar(Some(&self.guild), author_id)),
-                body: plain_snippet(&crate::spoiler::hide(&discord.render(server, content))),
-                item: Some(format!("d:{id}")),
-                color: server.and_then(|server| discord.color(server, author_id)),
-            },
+            } => {
+                let (body, emoji) = reply_snippet(discord, server, content);
+                Reply {
+                    author: name(author_id, author),
+                    avatar: Some(discord.avatar(Some(&self.guild), author_id)),
+                    body,
+                    emoji,
+                    item: Some(format!("d:{id}")),
+                    color: server.and_then(|server| discord.color(server, author_id)),
+                    tag: discord::server_tag(discord.server_tag(author_id)),
+                }
+            }
             DiscordReply::Deleted => Reply {
                 author: String::new(),
                 avatar: None,
                 body: "The original message was deleted.".into(),
+                emoji: Vec::new(),
                 item: None,
                 color: None,
+                tag: None,
             },
             DiscordReply::Unknown { id } => Reply {
                 author: String::new(),
@@ -1767,8 +1787,10 @@ impl OpenChannel {
                     "Loading the original message..."
                 }
                 .into(),
+                emoji: Vec::new(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
+                tag: None,
             },
         });
         let timestamp = message.timestamp();
@@ -1798,6 +1820,16 @@ impl OpenChannel {
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
             tag: discord::server_tag(discord.server_tag(&message.author_id)),
+            // Discord's client marks a person, not a bot, who joined in the
+            // last week, unless the server itself is that new.
+            new_member: server.is_some() && !message.bot && {
+                let now = crate::clock::now_ms();
+                now.saturating_sub(yapfast_discord::message::snowflake_ms(&self.guild))
+                    >= NEW_MEMBER_MS
+                    && discord
+                        .joined_at(&self.guild, &message.author_id)
+                        .is_some_and(|joined| now.saturating_sub(joined) < NEW_MEMBER_MS)
+            },
             forwarded: message.forwarded,
             body,
             formatted: ordinary,
@@ -1832,7 +1864,7 @@ impl OpenChannel {
             can_forward: message.forwardable && self.rendered_with.may_forward,
             pinned: message.pinned,
             can_pin: ordinary && shared && self.rendered_with.may_pin,
-            thread: self.thread_link(server, message),
+            thread: self.thread_link(&snapshot.names, server, message),
             poll: message.poll.as_ref().map(|poll| chat_poll(poll, own)),
             voice: chat_voice(message),
             notice: chat_notice(message),
@@ -1851,16 +1883,15 @@ impl OpenChannel {
             .map(|server| &*server.server);
         self.rendered.iter().any(|(order, row)| {
             row.thread.is_some()
-                && self
-                    .shown
-                    .messages
-                    .get(order)
-                    .is_some_and(|message| row.thread != self.thread_link(server, message))
+                && self.shown.messages.get(order).is_some_and(|message| {
+                    row.thread != self.thread_link(&snapshot.names, server, message)
+                })
         })
     }
 
     fn thread_link(
         &self,
+        names: &yapfast_discord::service::SharedNames,
         server: Option<&yapfast_discord::ready::Server>,
         message: &Message,
     ) -> Option<ThreadLink> {
@@ -1868,6 +1899,15 @@ impl OpenChannel {
         let known =
             server.and_then(|server| server.threads.iter().find(|known| known.id == link.id));
         let details = known.and_then(|known| known.thread.as_deref());
+        let recent = server
+            .zip(details.and_then(|details| details.recent.as_deref()))
+            .map(|(server, recent)| discord::recent_message(server, &names.read(), recent));
+        // Its newest message's time, else its start's, which its id holds.
+        let last = details
+            .map(|details| details.last_message)
+            .filter(|&last| last != 0)
+            .or_else(|| link.id.parse().ok())
+            .unwrap_or_default();
         Some(ThreadLink {
             room: discord::room_id(&self.guild, &link.id),
             name: known.map_or_else(|| link.name.clone(), |known| known.name.clone()),
@@ -1876,6 +1916,8 @@ impl OpenChannel {
                 .map(|details| details.messages)
                 .or((message.system.is_none()).then_some(link.messages)),
             archived: details.map_or(link.archived, |details| details.archived),
+            recent,
+            active_ms: discord::snowflake_ms(last),
         })
     }
 

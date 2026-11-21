@@ -265,6 +265,9 @@ libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
 archive (`native/av1.c`), a picture out for each frame in, or H265 with the
 HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
 libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames.
+When a mobile sender signals its orientation in RTP, the viewer keeps the
+last signaled orientation for that video source and applies it before display.
+The upright dimensions determine how the picture fits in the shared frame.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor

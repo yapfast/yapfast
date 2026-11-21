@@ -437,7 +437,7 @@ impl MemberLists {
         });
         if let Some(count) = list.count() {
             snapshots.send_modify(|snapshot| {
-                Arc::make_mut(snapshot).listed = Some((channel.to_owned(), count))
+                Arc::make_mut(snapshot).listed = Some((channel.to_owned(), count));
             });
         }
     }

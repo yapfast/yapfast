@@ -41,7 +41,7 @@ annoyed me enough to write my own in Rust.
 
 Yapfast does the same job (doing nothing) in about 30 MB. There's no browser
 engine anywhere in it or near it: it talks to Discord's API itself and draws its
-own window with [Slint](https://slint.dev) and Skia, like a game would. Your
+own window with [iced](https://iced.rs), like a game would. Your
 servers, DMs, friends, voice and GIFs are all there, and if you know Discord,
 you already know where everything is.
 
@@ -395,7 +395,7 @@ Vencord ones could be ported once it does.
 <br>
 
 Serein draws with wgpu, which costs more memory before you've opened a single
-channel. Yapfast draws with Slint, on the processor by default (WAY lighter) or
+channel. Yapfast draws with iced, on the processor by default (WAY lighter) or
 the GPU if you ask. It also does Matrix (from source, for now), DeepFilterNet
 noise suppression on top of RNNoise, voice gates, and the cached GIF picker.
 It's still missing a few things, like media channels and activities.
@@ -424,11 +424,11 @@ brings the right Rust, Clang and native libraries. From the project folder:
 # Try the UI without an account
 nix develop path:./nix --command cargo run --locked -- --preview
 
-# Run it for real, with Discord and Matrix
+# Run it for real: Discord only, like the release
 nix develop path:./nix --command cargo run --locked
 
-# Discord only, like the release
-nix develop path:./nix --command cargo run --locked --no-default-features --features desktop,discord
+# With Matrix too
+nix develop path:./nix --command cargo run --locked --features matrix
 
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
@@ -442,17 +442,13 @@ scripts/check --fast
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
 installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
-the same libwebrtc and Skia archives the Nix shell pins, except that the
-Nix shell renames one libjpeg table in Skia's (`nix/prepare-skia-native.py`).
-Without that, libwebrtc and Skia both define `jpeg_natural_order`, so
-`build.rs` links such a build with `--allow-multiple-definition`; the two
-tables are the same.
+the same libwebrtc archive the Nix shell pins.
 
 | Read this | For |
 | --- | --- |
 | [Contributing](CONTRIBUTING.md) | What a pull request needs: checks, memory numbers, commit style |
 | [Development](docs/development.md) | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
-| [Architecture](docs/architecture.md) | How `yapfast-core` and the Slint client fit together |
+| [Architecture](docs/architecture.md) | How `yapfast-core` and the window fit together |
 | [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |
 | [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
 | [Voice](docs/voice.md) | Calls, devices and audio processing |
@@ -472,11 +468,10 @@ Yapfast speaks to Discord the way its own apps do, as documented by
 [Discord Userdoccers](https://docs.discord.food), a community effort to
 document the user side of Discord's API. Thanks to everyone who writes it <3
 
-It stands on [Slint](https://slint.dev), [Skia](https://skia.org),
-[LiveKit](https://livekit.io) and WebRTC,
+It stands on [iced](https://iced.rs), [LiveKit](https://livekit.io) and WebRTC,
 [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk) and
 [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet). My patches to
-Slint live in [`vendor/`](vendor), with the rest of the code.
+iced live in [`vendor/`](vendor), with the rest of the code.
 
 <sub>Yapfast isn't affiliated with or endorsed by Discord Inc. Discord is a
 trademark of Discord Inc.</sub>

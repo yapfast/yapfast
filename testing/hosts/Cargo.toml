@@ -1,0 +1,37 @@
+[package]
+name = "yapfast-test-hosts"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "GPL-3.0-or-later"
+description = "Stand-ins scripts/ui-session runs beside Yapfast: a tray and a recorder of the test display"
+
+# A package of their own, not examples of yapfast: an example builds with
+# yapfast's dev-dependencies, which turn on yapfast-core/test-fixtures, so
+# ui-session's build of the window would compile yapfast-core, the window
+# and the binary a second time, beside the ones cargo build makes. Their
+# dependencies use no features yapfast doesn't, so building them beside
+# yapfast changes none of its units.
+[[bin]]
+name = "tray_host"
+path = "../tray_host.rs"
+
+[[bin]]
+name = "record_host"
+path = "../record_host.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# tray_host: a StatusNotifierWatcher on the session's bus.
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+# record_host: Weston's capture protocol, signals and poll, and the mapping
+# of the frames it hashes; all already in the tree.
+wayland-client = "0.31.15"
+wayland-backend = { version = "0.3.17", features = ["client_system"] }
+wayland-scanner = "0.31.11"
+libc = "0.2.189"
+memmap2 = "0.9"
+tempfile.workspace = true
+
+[lints]
+workspace = true
