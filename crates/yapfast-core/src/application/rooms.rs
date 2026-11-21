@@ -127,6 +127,10 @@ pub enum MenuChoice {
     /// Open a Discord server's settings, to the pages this account may
     /// change.
     ServerSettings,
+    /// Open a Discord server's boost summary, or Discord's app directory
+    /// in the browser: only its header's dropdown offers them.
+    ServerBoost,
+    AppDirectory,
 }
 
 /// How long [`MenuChoice::Mute`] mutes for, as Discord's client offers.

@@ -21,6 +21,11 @@ pub const THREAD_NAME_LIMIT: usize = 100;
 /// How long a name Discord's client makes from a message may grow before
 /// it's cut.
 const DEFAULT_NAME: usize = 40;
+/// How long a chain of replies must be for the reply bar to offer a thread
+/// from it (Discord's own threshold is not known, its bar showed it at 6),
+/// and how far up one is followed.
+const REPLY_CHAIN_OFFER: usize = 5;
+const REPLY_CHAIN_LIMIT: usize = 100;
 
 /// Where in Discord's client a thread starts, which it tells Discord.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -419,6 +424,32 @@ impl Application {
                 .selected
                 .as_deref()
                 .is_some_and(|room| self.thread_starts(room).0)
+    }
+
+    /// How many messages long the chain of replies is that the open reply
+    /// answers (the one replied to, what it answers, and so on up to the
+    /// first, among the messages the room shows), when it is long enough
+    /// for Discord's bar to offer a thread from it and one can start here:
+    /// "Would you like to follow this series of 6 replies more easily?"
+    pub fn reply_chain_to_thread(&self) -> Option<usize> {
+        let Some(Compose::Reply { item, .. }) = self.state.compose() else {
+            return None;
+        };
+        if !self.can_start_threads() || !item.starts_with("d:") {
+            return None;
+        }
+        let mut length = 0;
+        let mut next = Some(item.as_str());
+        while let Some(found) = next.and_then(|item| self.state.message(item)) {
+            length += 1;
+            // A message that answers itself, or a long chain, ends it.
+            next = found
+                .reply
+                .as_ref()
+                .and_then(|reply| reply.item.as_deref())
+                .filter(|_| length < REPLY_CHAIN_LIMIT);
+        }
+        (length >= REPLY_CHAIN_OFFER).then_some(length)
     }
 
     /// Opens the "New Thread" form beside a channel: the open one, or for

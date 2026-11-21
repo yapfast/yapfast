@@ -143,6 +143,8 @@ pub enum Icon {
     /// The note's filled info disc, the friends' kebab and the new group
     /// DM, which Discord draws in these shapes.
     CircleInfoFilled,
+    /// The reply bar's cancel: a disc with an X cut out of it.
+    CircleXFilled,
     EllipsisVertical,
     MessageCirclePlus,
     UserCheck,
@@ -395,6 +397,7 @@ impl Icon {
             Icon::Verified => icon!("verified.svg"),
             Icon::Scallop => icon!("scallop.svg"),
             Icon::CircleInfoFilled => icon!("circle-info-filled.svg"),
+            Icon::CircleXFilled => icon!("circle-x-filled.svg"),
             Icon::EllipsisVertical => icon!("ellipsis-vertical.svg"),
             Icon::MessageCirclePlus => icon!("message-circle-plus.svg"),
             Icon::UserCheck => icon!("user-check.svg"),

@@ -397,6 +397,7 @@ impl<'a> View<'a> {
         };
         column![
             field,
+            kit::divider(theme),
             row![rail, grid].height(Length::Fill),
             kit::foot(foot, 46.0, theme)
         ]

@@ -1,12 +1,12 @@
 //! Someone's menu and the dialog it leads to: a right click on a member, a
 //! friend or Active Now's card, or a profile's More, lists what the core
-//! offers for them (`Application::person_choices`) in Discord's order, each
-//! row with its icon. Unfriending, blocking, a note, a friend's
-//! nickname, a call's question and a server's moderation ask first in the
-//! person dialog. Roles, Invite to server, Mute and Apps open submenus
-//! beside their rows: the server's roles to tick, the servers to invite
-//! them to, how long to mute their DM, and the apps' user commands to run
-//! on them.
+//! offers for them (`Application::person_choices`) in Discord's order. Its
+//! rows have no icons, as Discord's has none but Copy ID's. Unfriending,
+//! blocking, a note, a friend's nickname, a call's question and a server's
+//! moderation ask first in the person dialog. Roles, Invite to server, Mute
+//! and Apps open submenus beside their rows: the server's roles to tick,
+//! the servers to invite them to, how long to mute their DM, and the apps'
+//! user commands to run on them.
 
 use std::borrow::Cow;
 
@@ -94,7 +94,8 @@ pub fn open_person_menu(
             let separated = group.replace(starts).is_some_and(|last| last != starts);
             let tick = ticked(choice);
             let mut row = MenuRow {
-                icon: Some(crate::place_menus::icon(choice)),
+                // Discord's menu for someone has no icons but Copy ID's.
+                icon: (choice == MenuChoice::CopyId).then(|| crate::place_menus::icon(choice)),
                 danger: danger(choice),
                 separated,
                 subtitle: (choice == MenuChoice::AddNote)
@@ -120,7 +121,9 @@ pub fn open_person_menu(
     app.win.menu = Some(Menu {
         place: Some(user.to_owned()),
         location,
-        ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
+        ..Menu::new(at, rows)
+            .width(crate::menus::PERSON_WIDTH)
+            .lone_icons()
     });
     // Its Apps follow the permissions as they are now.
     app.client.dispatch(Action::AskAppCommands);

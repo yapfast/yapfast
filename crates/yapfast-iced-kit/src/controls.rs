@@ -467,7 +467,7 @@ pub fn separator<'a, M: Clone + 'a>(theme: &Theme) -> Element<'a, M> {
 /// 17 px, its line 8 px down.
 pub fn menu_separator<'a, M: Clone + 'a>(theme: &Theme) -> Element<'a, M> {
     let line = if theme.bonfire {
-        crate::style::hex(0x35353a)
+        crate::style::hex(0x35353b)
     } else {
         theme.line
     };
@@ -553,7 +553,7 @@ impl crate::look::Look<'_> {
         light: Light,
         press: M,
     ) -> Element<'a, M> {
-        self.menu_item_sized(item, light, press, ITEM)
+        self.menu_row(item, light, press, ITEM, false)
     }
 
     /// A context menu's row as Discord draws them: 32 px, 34 with an arrow,
@@ -575,7 +575,7 @@ impl crate::look::Look<'_> {
         } else {
             ITEM
         };
-        let row = self.menu_item_sized(item, light, press, height);
+        let row = self.menu_row(item, light, press, height, true);
         if iconic {
             row
         } else {
@@ -592,15 +592,35 @@ impl crate::look::Look<'_> {
         press: M,
         height: f32,
     ) -> Element<'a, M> {
+        self.menu_row(item, light, press, height, false)
+    }
+
+    /// A menu row `height` tall. A `context` menu's words are drawn in
+    /// Discord's brightest ink (251, 251, 251 on Bonfire, not the 239 of
+    /// running text) and its submenu's arrow in the muted one, which turns
+    /// to the words' ink under the pointer.
+    fn menu_row<'a, M: Clone + 'a>(
+        self,
+        item: Item<'a>,
+        light: Light,
+        press: M,
+        height: f32,
+        context: bool,
+    ) -> Element<'a, M> {
         let theme = self.theme;
         let lit = light == Light::Lit(true);
+        let words = if context {
+            theme.channel_white
+        } else {
+            theme.text
+        };
         // Discord tints a destructive row under the pointer reddish and
         // leaves its text red.
         let ink = |_: bool| {
             if item.danger {
                 theme.danger_text
             } else {
-                theme.text
+                words
             }
         };
         let icon_ink = match (item.danger, lit) {
@@ -638,7 +658,12 @@ impl crate::look::Look<'_> {
             face = face.push(self.checkbox(ticked, lit));
         }
         if item.check == Check::Submenu {
-            face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text));
+            let arrow = if context && !lit {
+                theme.muted
+            } else {
+                theme.text
+            };
+            face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, arrow));
         }
         let height = if tall { height.max(44.0) } else { height };
         let face = container(face)

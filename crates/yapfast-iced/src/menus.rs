@@ -32,6 +32,12 @@ const MENU_MARGIN: f32 = 8.0;
 /// A menu's width; the composer's and a message's are wider.
 pub const WIDTH: f32 = 224.0;
 pub const FIELD_WIDTH: f32 = 255.0;
+/// A server's header's dropdown, as Discord's: 220 px whatever its words
+/// are, which are cut to "…" where they don't fit.
+pub const HEADER_WIDTH: f32 = 220.0;
+/// Someone's menu, as Discord's: as wide as its rows need, 177 px at the
+/// least.
+pub const PERSON_WIDTH: f32 = 177.0;
 /// A message's menu as Discord's: 280 px, its rows 36 px with a 20 px
 /// icon and a 16 px chevron, its quick reactions 44 px tiles with a 20 px
 /// emoji.
@@ -69,6 +75,13 @@ pub struct Menu {
     /// How its point is read, and its width.
     pub anchor: Anchor,
     pub width: f32,
+    /// Its width is its own whatever its rows need, and its words are cut
+    /// to what it leaves them.
+    pub fixed: bool,
+    /// Whether a row's icon stands alone: someone's menu as Discord draws
+    /// it has none but its Copy ID, and the rows without keep no room for
+    /// one.
+    pub lone_icons: bool,
     /// Someone in a call, by its room and their id: their voice menu, with
     /// their volumes over its rows while they're someone else.
     pub voice: Option<(String, String)>,
@@ -99,6 +112,8 @@ impl Menu {
             location: crate::person_menu::CONTEXT_MENU,
             anchor: Anchor::Pointer,
             width: WIDTH,
+            fixed: false,
+            lone_icons: false,
             voice: None,
             volumes: None,
             sub: None,
@@ -109,9 +124,11 @@ impl Menu {
     }
 
     /// Whether its rows leave room for an icon or tick: a message's always,
-    /// others when a row has one.
+    /// others when a row has one, unless the icons stand alone.
     fn slot(&self) -> bool {
-        self.place.is_none() || ticks(&self.rows) || self.rows.iter().any(|row| row.icon.is_some())
+        self.place.is_none()
+            || ticks(&self.rows)
+            || (!self.lone_icons && self.rows.iter().any(|row| row.icon.is_some()))
     }
 
     /// How wide the menu (`None`) or row `sub`'s submenu shows.
@@ -129,6 +146,7 @@ impl Menu {
                 .collect()
         });
         match sub {
+            None if self.fixed => self.width,
             None => fits[0].max(self.width),
             Some(sub) => fits.get(sub + 1).copied().unwrap_or(0.0).max(SUB_WIDTH),
         }
@@ -141,6 +159,19 @@ impl Menu {
 
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Exactly `width` wide, its words cut to "…" where they don't fit.
+    pub fn fixed(mut self, width: f32) -> Self {
+        self.width = width;
+        self.fixed = true;
+        self
+    }
+
+    /// Its icons stand alone: a row without one keeps no room for it.
+    pub fn lone_icons(mut self) -> Self {
+        self.lone_icons = true;
         self
     }
 
@@ -1093,7 +1124,7 @@ impl<'a> View<'a> {
             let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
                 mouse_area(self.item(
-                    self.menu_entry(entry, slot),
+                    self.menu_entry(entry, slot, menu.fixed.then_some(width)),
                     light,
                     Message::Menu(Event::Choose(index)),
                     message,
@@ -1162,9 +1193,13 @@ impl<'a> View<'a> {
 
     /// A menu row as [`App::menu_item`] draws it, with its submenu's
     /// chevron.
-    fn menu_entry(self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
+    fn menu_entry(self, entry: &'a MenuRow, slot: bool, room: Option<f32>) -> Item<'a> {
+        let label: &'a str = &entry.label;
         Item {
-            label: entry.label.as_ref().into(),
+            label: match room {
+                Some(width) => cut(entry, label, slot, width),
+                None => label.into(),
+            },
             icon: entry.icon,
             danger: entry.danger,
             slot,
@@ -1191,7 +1226,7 @@ impl<'a> View<'a> {
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
             rows = rows.push(
                 mouse_area(self.item(
-                    self.menu_entry(entry, slot),
+                    self.menu_entry(entry, slot, None),
                     light,
                     Message::Menu(Event::SubChoose(index)),
                     menu.item.is_some(),
@@ -1310,69 +1345,101 @@ fn ticks(rows: &[MenuRow]) -> bool {
         .any(|row| row.check == crate::controls::Check::Current)
 }
 
+/// How wide `content` is in `font` at `size`.
+fn measure(content: &str, size: f32, font: iced::Font) -> f32 {
+    use iced::advanced::{
+        graphics::text::Paragraph,
+        text::{self, LineHeight, Paragraph as _, Shaping, Wrapping},
+    };
+    Paragraph::with_text(text::Text {
+        content,
+        bounds: iced::Size::INFINITE,
+        size: size.into(),
+        line_height: LineHeight::default(),
+        font,
+        align_x: text::Alignment::Default,
+        align_y: iced::alignment::Vertical::Top,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::None,
+    })
+    .min_width()
+}
+
+/// The font a row's words are in.
+fn row_font(row: &MenuRow, message: bool) -> iced::Font {
+    if row.check == crate::controls::Check::Current {
+        crate::fonts::BOLD
+    } else if message {
+        crate::fonts::SEMIBOLD
+    } else {
+        crate::fonts::MEDIUM
+    }
+}
+
+/// What a row keeps beside its words: the room of its icon or tick and its
+/// checkbox or chevron, with the gaps between.
+fn beside(row: &MenuRow, slot: bool, message: bool) -> f32 {
+    use crate::controls::{Check, ITEM_ICON};
+    let current = row.check == Check::Current;
+    let (glyph, chevron) = if message {
+        (MESSAGE_ICON, MESSAGE_CHEVRON)
+    } else {
+        (ITEM_ICON, crate::controls::SUBMENU_ARROW)
+    };
+    let icon = if slot || row.icon.is_some() || current {
+        glyph as f32 + ROW_GAP
+    } else {
+        0.0
+    };
+    let end = match row.check {
+        Check::Box(_) => CHECKBOX + ROW_GAP,
+        Check::Submenu => chevron as f32 + ROW_GAP,
+        _ if !row.submenu.is_empty() => chevron as f32 + ROW_GAP,
+        _ => 0.0,
+    };
+    icon + end
+}
+
 /// How wide a menu of `rows` has to be to show each whole: a row's padding,
 /// its icon or tick's room, its words, and its checkbox or chevron, inside
 /// the panel's padding; a `message`'s menu's rows as [`message_item`]
 /// draws them.
 fn fit(rows: &[MenuRow], slot: bool, message: bool) -> f32 {
-    use crate::controls::{Check, ITEM_ICON};
-    use iced::advanced::{
-        graphics::text::Paragraph,
-        text::{self, LineHeight, Paragraph as _, Shaping, Wrapping},
-    };
-    let words = |content: &str, size: f32, font| {
-        Paragraph::with_text(text::Text {
-            content,
-            bounds: iced::Size::INFINITE,
-            size: size.into(),
-            line_height: LineHeight::default(),
-            font,
-            align_x: text::Alignment::Default,
-            align_y: iced::alignment::Vertical::Top,
-            shaping: Shaping::Advanced,
-            wrapping: Wrapping::None,
-        })
-        .min_width()
-    };
     rows.iter()
         .map(|row| {
-            let current = row.check == Check::Current;
-            let font = if current {
-                crate::fonts::BOLD
-            } else if message {
-                crate::fonts::SEMIBOLD
-            } else {
-                crate::fonts::MEDIUM
-            };
-            let (glyph, chevron) = if message {
-                (MESSAGE_ICON, MESSAGE_CHEVRON)
-            } else {
-                (ITEM_ICON, crate::controls::SUBMENU_ARROW)
-            };
-            let label = words(&row.label, 14.0, font);
-            let subtitle = row
-                .subtitle
-                .as_deref()
-                .map_or(0.0, |subtitle| words(subtitle, 12.0, crate::fonts::REGULAR));
-            let icon = if slot || row.icon.is_some() || current {
-                glyph as f32 + ROW_GAP
-            } else {
-                0.0
-            };
-            let end = match row.check {
-                Check::Box(_) => CHECKBOX + ROW_GAP,
-                Check::Submenu => chevron as f32 + ROW_GAP,
-                _ if !row.submenu.is_empty() => chevron as f32 + ROW_GAP,
-                _ => 0.0,
-            };
-            2.0 * (ROW_PAD + PAD) + icon + label.max(subtitle) + end
+            let label = measure(&row.label, 14.0, row_font(row, message));
+            let subtitle = row.subtitle.as_deref().map_or(0.0, |subtitle| {
+                measure(subtitle, 12.0, crate::fonts::REGULAR)
+            });
+            2.0 * (ROW_PAD + PAD) + beside(row, slot, message) + label.max(subtitle)
         })
         .fold(MENU_NARROWEST, f32::max)
         .ceil()
 }
 
-/// The narrowest a menu is, as Discord's.
-const MENU_NARROWEST: f32 = 188.0;
+/// `label`, a row's words, cut to "…" where they don't fit the room a menu
+/// `width` wide leaves them.
+fn cut<'a>(row: &MenuRow, label: &'a str, slot: bool, width: f32) -> std::borrow::Cow<'a, str> {
+    let font = row_font(row, false);
+    let room = width - 2.0 * (ROW_PAD + PAD) - beside(row, slot, false);
+    if measure(label, 14.0, font) <= room {
+        return label.into();
+    }
+    let mut kept: Vec<char> = label.chars().collect();
+    while kept.pop().is_some() {
+        let mut shorter: String = kept.iter().collect();
+        shorter.truncate(shorter.trim_end().len());
+        shorter.push('…');
+        if measure(&shorter, 14.0, font) <= room {
+            return shorter.into();
+        }
+    }
+    "…".into()
+}
+
+/// The narrowest a menu is: someone's menu in Discord measures 177 px
+/// across with its widest row ("Zu Server einladen" and its arrow).
+const MENU_NARROWEST: f32 = 177.0;
 
 /// A row's padding at each side, the gap between its parts, and its
 /// checkbox, as [`App::menu_item`] draws them.

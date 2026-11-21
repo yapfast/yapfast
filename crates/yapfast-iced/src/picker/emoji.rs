@@ -25,7 +25,7 @@ use std::{
 use iced::{
     Alignment, Element, Length, Padding, Rectangle, Size, Task,
     advanced::{graphics::text::cosmic_text, image::Handle},
-    widget::{Space, button, column, container, mouse_area, row, stack, text},
+    widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
 };
 use yapfast_core::{
     application::Action,
@@ -50,7 +50,7 @@ use crate::{
 };
 
 const CELL: f32 = 48.0;
-const GLYPH: u32 = 32;
+const GLYPH: u32 = 40;
 const HEADING: f32 = 28.0;
 /// The grid's padding beside its cells.
 const INSET: f32 = 8.0;
@@ -835,18 +835,18 @@ impl<'a> View<'a> {
         let wash = theme.wash(0.12);
         let selected_tone = self.cx.layout.emoji_skin_tone;
         let (_, _, hand) = TONES.get(selected_tone).unwrap_or(&TONES[0]);
-        let skin = button(
-            row![
-                self.face_view(tab, &Face::Unicode(hand), 22.0, 18, 1.0),
-                text("Skin tone").size(12),
-            ]
-            .spacing(4)
-            .align_y(Alignment::Center),
+        // Discord's header: the hand alone, 46 px across, and a 40 px button.
+        let skin = tooltip(
+            button(self.face_view(tab, &Face::Unicode(hand), 46.0, 24, 1.0))
+                .padding(0)
+                .width(46)
+                .height(40)
+                .on_press(Message::Picker(Event::ToggleSkinTones))
+                .style(lit_style(None, wash, 8.0)),
+            crate::controls::tip(theme, tr("Skin tone")),
+            tooltip::Position::Top,
         )
-        .padding([0, 8])
-        .height(32)
-        .on_press(Message::Picker(Event::ToggleSkinTones))
-        .style(lit_style(Some(theme.active), wash, 6.0));
+        .gap(6);
         let mut fields = row![
             container(kit::search_field(
                 &picker.field,
@@ -860,15 +860,15 @@ impl<'a> View<'a> {
         .align_y(Alignment::Center);
         if picker.target == Target::Composer && upload_servers(self.cx.app).next().is_some() {
             fields = fields.push(
-                button(text(tr("Add Emoji")).size(12).font(SEMIBOLD))
-                    .padding([0, 8])
-                    .height(32)
+                button(text(tr("Add Emoji")).size(16).font(SEMIBOLD))
+                    .padding([0, 16])
+                    .height(40)
                     .on_press(Message::Picker(Event::AddEmoji))
-                    .style(lit_style(Some(theme.active), wash, 6.0)),
+                    .style(lit_style(Some(theme.tray_line), wash, 8.0)),
             );
         }
         let field = container(fields)
-            .padding(Padding::from(10).bottom(6))
+            .padding(Padding::ZERO.left(16).right(16).bottom(12))
             .width(Length::Fill);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
@@ -977,38 +977,32 @@ impl<'a> View<'a> {
         });
         let named = |face: &'a Face| -> Element<'a, Message> {
             let mut words = column![kit::foot_words(names::title(&face.key()), true, theme)];
-            let mut icon = None;
             if let Face::Custom(_, server) = face
-                && let Some((name, url)) = tab.servers.get(*server)
+                && let Some((name, _)) = tab.servers.get(*server)
             {
                 words = words.push(
                     text(i18n::fill(tr("from {}"), &[name]))
-                        .size(12)
-                        .color(theme.muted)
+                        .size(14)
+                        .color(theme.secondary)
                         .wrapping(text::Wrapping::None),
                 );
-                icon = url
-                    .as_deref()
-                    .and_then(|url| self.cx.picture(url, 22, 22, true));
             }
-            let mut details = row![
-                self.face_view(tab, face, 30.0, 26, 1.0),
+            row![
+                self.face_view(tab, face, 32.0, 32, 1.0),
                 words.width(Length::Fill),
             ]
-            .spacing(10)
-            .align_y(Alignment::Center);
-            if let Some(handle) = icon {
-                details = details.push(Pic::square(handle, 22.0));
-            }
-            details.width(Length::Fill).into()
+            .spacing(7)
+            .align_y(Alignment::Center)
+            .width(Length::Fill)
+            .into()
         };
         let shown: Element<'a, Message> = match (pointed, section) {
             (Some(face), _) => named(face),
             (None, Some(section)) => row![
-                self.section_mark(tab, &section.mark, 30.0, 26),
+                self.section_mark(tab, &section.mark, 32.0, 28),
                 kit::foot_words(section.name.clone(), true, theme)
             ]
-            .spacing(10)
+            .spacing(7)
             .align_y(Alignment::Center)
             .into(),
             (None, None) => match first {
@@ -1026,17 +1020,18 @@ impl<'a> View<'a> {
                 ),
             },
         };
+        // Discord's foot: the smile, 24 px across, then 25 px to the emoji.
         let foot: Element<'a, Message> = row![
             self.cx
                 .look
                 .glyph(Icon::Smile, 22, theme.secondary)
-                .boxed(32.0),
+                .boxed(24.0),
+            Space::new().width(25),
             shown
         ]
-        .spacing(10)
         .align_y(Alignment::Center)
         .into();
-        let mut view = column![field];
+        let mut view = column![field, kit::divider(theme)];
         if let Some(choices) = tab.choices {
             view = view.push(self.emoji_choice_view(tab, choices));
         }

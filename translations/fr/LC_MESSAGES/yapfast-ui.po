@@ -154,12 +154,12 @@ msgid ">30d ago"
 msgstr "il y a plus de 30 jours"
 
 #: crates/yapfast-iced/src/composer.rs
-msgid "@ Off"
-msgstr "@ désactivé"
+msgid "@ OFF"
+msgstr "@ DÉSACTIVÉ"
 
 #: crates/yapfast-iced/src/composer.rs
-msgid "@ On"
-msgstr "@ activé"
+msgid "@ ON"
+msgstr "@ ACTIVÉ"
 
 #: crates/yapfast-iced/src/signin.rs
 msgid "@you:matrix.org"
@@ -552,6 +552,10 @@ msgstr "Tout contenu"
 #: crates/yapfast-iced/src/looks.rs
 msgid "APP"
 msgstr "APP"
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "App Directory"
+msgstr "Répertoire des applications"
 
 #: crates/yapfast-iced/src/settings/mod.rs
 msgid "App Settings"
@@ -1196,6 +1200,10 @@ msgstr "Copier le lien du message"
 #: crates/yapfast-iced/src/menus.rs
 msgid "Copy selection"
 msgstr "Copier la sélection"
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Copy server ID"
+msgstr "Copier l'identifiant du serveur"
 
 #: crates/yapfast-iced/src/menus.rs
 msgid "Copy text"
@@ -4496,8 +4504,8 @@ msgid "Reply"
 msgstr "Répondre"
 
 #: crates/yapfast-iced/src/composer.rs
-msgid "Replying to "
-msgstr "Réponse à "
+msgid "Replying to"
+msgstr "Réponse à"
 
 #: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
 msgid "Requests"
@@ -4943,6 +4951,10 @@ msgstr "Liste des bannis du serveur"
 msgid "SERVER BANNER BACKGROUND"
 msgstr "ARRIÈRE-PLAN DE LA BANNIÈRE DU SERVEUR"
 
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Server Boost"
+msgstr "Boost de serveur"
+
 #: crates/yapfast-iced/src/looks.rs
 msgid "Server boosting since {}"
 msgstr "Boost du serveur depuis {}"
@@ -5154,6 +5166,10 @@ msgstr "Se déconnecter"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "SIGNALS"
 msgstr "SIGNAUX"
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Skin tone"
+msgstr "Teinte de peau"
 
 #: crates/yapfast-iced/src/settings/updates.rs
 msgid "Skip this version"
@@ -6545,6 +6561,10 @@ msgstr "Liste de souhaits"
 msgid "with {}"
 msgstr "avec {}"
 
+#: crates/yapfast-iced/src/composer.rs
+msgid "Would you like to follow this series of {} replies more easily?"
+msgstr "Voulez-vous suivre plus facilement cette série de {} réponses ?"
+
 #: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
 msgid "Would you like to sync {0} permissions with {1}?"
 msgstr "Voulez-vous synchroniser les permissions de {0} avec {1} ?"
@@ -7466,6 +7486,11 @@ msgstr "{month}/{day}/{year}"
 msgctxt "short date"
 msgid "{year}-{month}-{day}"
 msgstr "{year}-{month}-{day}"
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgctxt "user menu"
+msgid "Invite to server"
+msgstr "Inviter sur le serveur"
 
 #: crates/yapfast-core/src/clock.rs
 msgctxt "weekday"

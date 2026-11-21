@@ -407,9 +407,11 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
     assert_eq!(
         app.header_choices("discord:10"),
         [
+            ServerBoost,
             ServerSettings,
             CreateChannel,
             CreateCategory,
+            AppDirectory,
             ServerNotifications,
             EditServerProfile,
             HideMuted,

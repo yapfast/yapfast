@@ -30,8 +30,10 @@ member list, the DMs, and the lists still to come build on it.
   menu (`person_menu.rs`), built from the core's `person_choices`:
   Profile, Mention, Message, Call, Add Note,
   the friend and block choices, Mute, Timeout, Kick and Ban by name, Pin,
-  and Copy ID, each row with its icon (`place_menus::icon`, one for a
-  choice in every menu that offers it). Roles, Invite to server, Mute and Apps open submenus built
+  and Copy ID. As in Discord, no row has an icon but Copy ID's
+  (`place_menus::icon`), and the others keep no room for one; the menu is
+  as wide as its rows need, 177 px at the least, its words in the brightest
+  ink and its submenu arrows muted. Roles, Invite to server, Mute and Apps open submenus built
   as the menu opens: the server's roles this account may give or take
   (ticked where held, each tick sent at once with the menu kept open), the
   servers to invite them to, how long to mute their DM, and the open

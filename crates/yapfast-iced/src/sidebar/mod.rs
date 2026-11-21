@@ -348,7 +348,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.win.menu = None;
                 return Task::none();
             }
-            let at = Point::new(crate::rail::WIDTH + INSET, HEADER - 4.0);
+            // Discord's dropdown is centred under the header, 3 px below it.
+            let at = Point::new(
+                crate::rail::WIDTH + (self::width(&app.layout) - crate::menus::HEADER_WIDTH) / 2.0,
+                HEADER + 3.0,
+            );
             return crate::place_menus::open_place_menu(app, &server, at, true);
         }
         Event::Invite | Event::InviteTo(_) => {

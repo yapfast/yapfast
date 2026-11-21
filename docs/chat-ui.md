@@ -289,9 +289,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   pictures; a section reached before warming finishes can still show placeholders.
   A drag that changed the width keeps it in
   `layout.json` (`picker_width`), written once the drags have stopped for a
-  second, and it comes back at the next start. Skin tone offers six variants
-  where the emoji font has them and keeps the choice on this device. A custom
-  emoji's footer identifies its server with the server's name and icon.
+  second, and it comes back at the next start. Skin tone, the hand beside the
+  search field, offers six variants where the emoji font has them and keeps
+  the choice on this device. A custom emoji's footer identifies its server
+  with the server's name. The panel is Discord's: content inside a 1 px edge,
+  a 40 px search field (a 1 px line at rest, a 2 px accent ring while it has
+  the keys), a line under the header, 40 px emoji in 48 px cells and a darker
+  rail and foot.
   When the current server has ranked custom emoji, Popular in the server's
   name lists them in Discord's order above the rest of the picker.
   Add Emoji in the composer's picker offers the servers where the account can
@@ -569,7 +573,14 @@ The window follows Discord's arrangement:
   the Menu key or Shift+F10 open it too. A person with a plus, on the
   header's right, invites to the server. The dropdown lists the choices of the
   server's menu that Discord's dropdown has, in its order, from the same list
-  (`Application::header_choices`), so the two can't disagree. A Discord
+  (`Application::header_choices`), so the two can't disagree: Server Boost
+  (the boost summary) first, then invite, settings, create channel and
+  category, the App Directory (Discord's, in the browser), the channel list
+  and notification choices, one's own server profile, hiding muted channels,
+  leaving and, with Developer Mode on, Copy server ID, each group under a
+  line. It is 220px wide, centred under the header and 3px below it, and a
+  word it has no room for ends in "…" (a notification row shows no second
+  line there). A Discord
   channel list heads each category's channels with its name; a category
   without channels shows its heading alone, unless its permissions hide it.
   A right click on a heading, or the Menu key or Shift+F10 on it, opens the

@@ -83,6 +83,15 @@ macro_rules! declare_theme {
             /// other themes).
             pub nav_read: Color,
             pub nav_open: Color,
+            /// The expression picker's rail and foot, darker than its grid,
+            /// its edge and the line under its header, the line round its
+            /// search field at rest, and the lit tab's ground (Discord's on
+            /// Bonfire; the panel, edge, line and active colours on other
+            /// themes).
+            pub tray: Color,
+            pub tray_line: Color,
+            pub field_line: Color,
+            pub tab_on: Color,
             /// Text selected in the timeline and fields: the accent at 35%.
             pub selection: Color,
             /// A mention's colour without one of its own.
@@ -110,6 +119,10 @@ macro_rules! declare_theme {
                     channel_white: Color::TRANSPARENT,
                     nav_read: Color::TRANSPARENT,
                     nav_open: Color::TRANSPARENT,
+                    tray: Color::TRANSPARENT,
+                    tray_line: Color::TRANSPARENT,
+                    field_line: Color::TRANSPARENT,
+                    tab_on: Color::TRANSPARENT,
                     selection: Color::TRANSPARENT,
                     mention: Color::TRANSPARENT,
                     iced: iced::Theme::Dark,
@@ -142,12 +155,16 @@ impl Theme {
             } else {
                 self.raised
             },
-            menu_line: if dark {
+            menu_line: if self.bonfire {
+                crate::style::hex(0x35353b)
+            } else if dark {
                 mix(self.line, Color::BLACK, 0.95)
             } else {
                 self.line
             },
-            composer: if dark {
+            composer: if self.bonfire {
+                crate::style::hex(0x222327)
+            } else if dark {
                 mix(self.field, Color::WHITE, 0.99)
             } else {
                 self.field
@@ -181,6 +198,26 @@ impl Theme {
                 crate::style::hex(0xefeff1)
             } else {
                 self.text
+            },
+            tray: if self.bonfire {
+                crate::style::hex(0x1a1a1e)
+            } else {
+                self.panel
+            },
+            tray_line: if self.bonfire {
+                crate::style::hex(0x323237)
+            } else {
+                self.edge
+            },
+            field_line: if self.bonfire {
+                crate::style::hex(0x37373d)
+            } else {
+                self.line
+            },
+            tab_on: if self.bonfire {
+                crate::style::hex(0x36363c)
+            } else {
+                self.active
             },
             selection: Color {
                 a: 0.35,

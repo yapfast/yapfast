@@ -410,7 +410,9 @@ impl<'a> View<'a> {
         } else {
             stack![kit::note(tab.note.clone(), theme), kit::grid(rows, theme)].into()
         };
-        column![header, body].height(Length::Fill).into()
+        column![header, kit::divider(theme), body]
+            .height(Length::Fill)
+            .into()
     }
 
     fn gif_tile(

@@ -974,21 +974,6 @@ impl<'c> crate::ctx::Ctx<'c> {
         (parts.into(), inline_edited)
     }
 
-    /// Single-line plain text with inline custom emoji pictures (animating
-    /// when `plays` is true), falling back cleanly to `:name:` until each
-    /// emoji's picture arrives; prefixed by `prefix` spans if any.
-    pub fn inline_emoji_line(
-        self,
-        prefix: &[&'c str],
-        text: &'c str,
-        emoji: &'c [yapfast_core::chat::CustomEmoji],
-        look: Look,
-        emoji_side: u32,
-        plays: bool,
-    ) -> Element<'c, Message> {
-        self.inline_emoji_line_mark(prefix, text, emoji, look, (emoji_side, None), plays)
-    }
-
     /// A timeline reply's snippet, with the original's media mark inline
     /// after its text rather than pushed to the far end of the row.
     pub fn reply_preview(

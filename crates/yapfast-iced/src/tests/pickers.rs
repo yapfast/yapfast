@@ -312,9 +312,8 @@ fn the_rail_names_the_section_under_the_pointer_at_the_foot() {
 fn emoji_skin_tone_is_kept_and_applied_to_the_search_pick() {
     let (mut app, folder) = preview();
     let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Emoji));
-    interact(&mut app, |ui| {
-        ui.click("Skin tone").expect("skin tone chooser");
-    });
+    // The hand alone is the button, as Discord's.
+    let _ = app.update(Message::Picker(Event::ToggleSkinTones));
     for label in [
         "Default",
         "Light",

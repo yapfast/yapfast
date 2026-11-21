@@ -35,7 +35,10 @@ fn a_messages_menu_replies_to_it() {
         Some(Compose::Reply { author, .. }) => assert_eq!(author, "Riley"),
         _ => panic!("not replying"),
     }
-    assert!(shows(&app, &format!("Replying to Riley: {text}")));
+    assert!(
+        shows(&app, "Replying to"),
+        "Discord's bar says whom it is to"
+    );
 }
 
 #[test]
@@ -1369,7 +1372,8 @@ fn reply_quotes_render_static_and_animated_custom_emoji_and_fall_back_until_load
         );
     }
 
-    // Replying to a message with custom emoji also renders in the composer reply bar.
+    // Replying to a message with custom emoji opens Discord's bar, which names
+    // whom and shows none of the text.
     let _ = app.update(Message::Control("theme bonfire".into()));
     change(&mut app, |state| {
         state.messages = Arc::new(vec![Arc::new(ChatMessage {
@@ -1386,8 +1390,5 @@ fn reply_quotes_render_static_and_animated_custom_emoji_and_fall_back_until_load
     interact(&mut app, |ui| {
         ui.click("Reply").expect("Reply");
     });
-    assert!(
-        shows(&app, "Replying to desu: hey \u{2003}"),
-        "composer reply bar renders inline custom emoji placeholder"
-    );
+    assert!(shows(&app, "Replying to"), "the reply bar opened");
 }

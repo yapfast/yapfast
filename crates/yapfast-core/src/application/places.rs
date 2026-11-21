@@ -16,15 +16,20 @@ pub struct ListedCategory {
     pub empty: bool,
 }
 
-/// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 10] = [
+/// The server menu's choices its header's dropdown lists, in Discord's
+/// order: boosting, then inviting, settings and making channels, the app
+/// directory, the channel list's and notifications' choices, one's own
+/// profile and hiding muted channels, leaving, and copying the id.
+const HEADER: [MenuChoice; 12] = [
+    MenuChoice::ServerBoost,
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
     MenuChoice::CreateCategory,
+    MenuChoice::AppDirectory,
+    MenuChoice::ShowAllChannels,
     MenuChoice::ServerNotifications,
     MenuChoice::EditServerProfile,
-    MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
     MenuChoice::CopyId,
@@ -154,7 +159,12 @@ impl Application {
         if !self.discord_server(server) {
             return vec![];
         }
-        let offered = self.menu_choices(server);
+        let mut offered = self.menu_choices(server);
+        // Its boost summary and Discord's app directory are the
+        // dropdown's own, while Discord is there.
+        if self.state.discord_online {
+            offered.extend([MenuChoice::ServerBoost, MenuChoice::AppDirectory]);
+        }
         HEADER
             .into_iter()
             .filter(|choice| offered.contains(choice))

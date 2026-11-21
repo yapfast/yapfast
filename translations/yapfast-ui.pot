@@ -155,11 +155,11 @@ msgid ">30d ago"
 msgstr ""
 
 #: crates/yapfast-iced/src/composer.rs
-msgid "@ Off"
+msgid "@ OFF"
 msgstr ""
 
 #: crates/yapfast-iced/src/composer.rs
-msgid "@ On"
+msgid "@ ON"
 msgstr ""
 
 #: crates/yapfast-iced/src/signin.rs
@@ -552,6 +552,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/looks.rs
 msgid "APP"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "App Directory"
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/mod.rs
@@ -1196,6 +1200,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/menus.rs
 msgid "Copy selection"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Copy server ID"
 msgstr ""
 
 #: crates/yapfast-iced/src/menus.rs
@@ -4497,7 +4505,7 @@ msgid "Reply"
 msgstr ""
 
 #: crates/yapfast-iced/src/composer.rs
-msgid "Replying to "
+msgid "Replying to"
 msgstr ""
 
 #: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/sidebar/channels.rs
@@ -4944,6 +4952,10 @@ msgstr ""
 msgid "SERVER BANNER BACKGROUND"
 msgstr ""
 
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Server Boost"
+msgstr ""
+
 #: crates/yapfast-iced/src/looks.rs
 msgid "Server boosting since {}"
 msgstr ""
@@ -5154,6 +5166,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "SIGNALS"
+msgstr ""
+
+#: crates/yapfast-iced/src/picker/emoji.rs
+msgid "Skin tone"
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/updates.rs
@@ -6546,6 +6562,10 @@ msgstr ""
 msgid "with {}"
 msgstr ""
 
+#: crates/yapfast-iced/src/composer.rs
+msgid "Would you like to follow this series of {} replies more easily?"
+msgstr ""
+
 #: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/server_dialogs.rs
 msgid "Would you like to sync {0} permissions with {1}?"
 msgstr ""
@@ -7466,6 +7486,11 @@ msgstr ""
 #: crates/yapfast-core/src/clock.rs
 msgctxt "short date"
 msgid "{year}-{month}-{day}"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgctxt "user menu"
+msgid "Invite to server"
 msgstr ""
 
 #: crates/yapfast-core/src/clock.rs

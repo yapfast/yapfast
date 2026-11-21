@@ -727,6 +727,7 @@ impl<'a> SideComposer<'a> {
                 reply,
                 Message::Thread(Event::TogglePing),
                 Message::Thread(Event::CancelReply),
+                10.0,
             ));
         }
         container(compose.push(frame))

@@ -23,7 +23,7 @@ use crate::{
     app::{App, Message, NOBODY},
     controls::{self, lit_style},
     field::{self, Field, MenuEdit},
-    fonts::BOLD,
+    fonts::{BOLD, MEDIUM},
     menus::{Menu, MenuAct, MenuRow},
     picker::{Tab, Target},
     pictures::Icon,
@@ -34,8 +34,11 @@ use crate::{
 /// The composer's field and the inline edit's, for the app's focus tasks.
 pub const COMPOSER: &str = "composer";
 pub const EDIT: &str = "edit";
-/// The reply bar's height.
-pub const BAR: f32 = 36.0;
+/// The reply bar's height, and the thread offer's under it.
+pub const BAR: f32 = 37.0;
+const OFFER: f32 = 32.0;
+/// Inside the reply card's 10 px corners and its 1 px outline.
+const CARD_INNER: f32 = 9.0;
 /// The composer's least height (`ClientStyle.composer-height`), the room
 /// over and under its text, beside it, and under its buttons.
 pub const HEIGHT: f32 = 58.0;
@@ -129,29 +132,19 @@ pub struct Look {
     pub plus: bool,
 }
 
-/// What the reply bar over a composer shows: whom it replies to, the first
-/// line's text and custom emoji, and whether it mentions them.
+/// What the reply bar over a composer shows: whom it replies to, and
+/// whether it mentions them. Discord's bar does not show the message's
+/// text.
 pub struct ReplyBar<'a> {
     pub author: &'a str,
-    pub body: &'a str,
-    pub emoji: &'a [yapfast_core::chat::CustomEmoji],
     pub ping: bool,
 }
 
-/// A reply's bar over a composer: its author, first line, custom emoji, and
-/// whether it mentions them.
+/// A reply's bar over a composer: its author and whether it mentions them.
 pub fn reply_bar_info(compose: Option<&Compose>) -> Option<ReplyBar<'_>> {
-    let Compose::Reply {
-        author,
-        body,
-        emoji,
-        ping,
-        ..
-    } = compose?;
+    let Compose::Reply { author, ping, .. } = compose?;
     Some(ReplyBar {
         author,
-        body: body.lines().next().unwrap_or_default(),
-        emoji,
         ping: *ping,
     })
 }
@@ -688,14 +681,6 @@ pub fn insert(app: &mut App, which: Writing, inserted: &str) {
     crate::suggest::caret_moved(app, which, &text, caret);
 }
 
-/// A composer button, kept [`BUTTON_INSET`] off the box's foot, so it stays
-/// on the last line as the field grows.
-fn lift<'a>(button: Element<'a, Message>) -> Element<'a, Message> {
-    container(button)
-        .padding(Padding::ZERO.bottom(BUTTON_INSET))
-        .into()
-}
-
 /// What the composer shows for the open room.
 pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     let state = ctx.state;
@@ -812,13 +797,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
-        if let Some(reply) = reply_bar_info(ctx.state.compose()) {
-            compose = compose.push(reply_bar(ctx, reply));
-        }
-        compose = compose.push(if look.locked {
-            locked_bar(ctx)
-        } else {
-            composer_box(ctx, &look)
+        compose = compose.push(match reply_bar_info(ctx.state.compose()) {
+            _ if look.locked => locked_bar(ctx),
+            Some(reply) => reply_card(ctx, &look, reply),
+            None => composer_box(ctx, &look, false),
         });
     }
     let foot: Element<'a, Message> = if look.hint.is_empty() {
@@ -841,11 +823,27 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .into()
 }
 
-/// The box with the field and its buttons, and the suggestions over it.
-fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Message> {
+/// The box with the field and its buttons, and the suggestions over it; in
+/// the reply's card (`carded`) it has no outline of its own, the card's
+/// bottom corners inside the card's.
+fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look, carded: bool) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let header = ctx.header;
-    let replying = ctx.state.compose().is_some();
+    // Without its own outline the box is 2 px lower inside: its text and
+    // buttons keep their places, the field a pixel less at the top and foot.
+    let pad = if carded { PAD - 1.0 } else { PAD };
+    let inset = if carded {
+        BUTTON_INSET - 1.0
+    } else {
+        BUTTON_INSET
+    };
+    // A button kept `inset` off the box's foot ([`BUTTON_INSET`]), so it
+    // stays on the last line as the field grows.
+    let lift = move |button: Element<'a, Message>| -> Element<'a, Message> {
+        container(button)
+            .padding(Padding::ZERO.bottom(inset))
+            .into()
+    };
     // Discord's words: `Message @sam` in a DM, `Message #general` in a
     // channel, a quoted thread name, and a group's own name as it is.
     let name = &header.name;
@@ -871,9 +869,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     )
     .padding(Padding {
         // Under the pills, 10 px from them.
-        top: if commanding { 10.0 } else { PAD },
+        top: if commanding { 10.0 } else { pad },
         right: 6.0,
-        bottom: PAD,
+        bottom: pad,
         left: 12.0,
     })
     .enabled(look.enabled)
@@ -964,18 +962,16 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         theme.field
     };
     let edge = theme.outline_field;
-    let radius = if replying {
-        corners([0.0, 0.0, 10.0, 10.0])
-    } else {
-        10.0.into()
-    };
     let mut inside = column![];
     if let Some(tray) = crate::uploads::tray(ctx) {
         inside = inside.push(tray);
     }
-    let frame = container(inside.push(line))
-        .width(Length::Fill)
-        .style(move |_| crate::style::outlined(ground, edge, radius));
+    let frame = container(inside.push(line)).width(Length::Fill);
+    let frame = if carded {
+        frame.style(move |_| rounded(ground, corners([0.0, 0.0, CARD_INNER, CARD_INNER])))
+    } else {
+        frame.style(move |_| crate::style::outlined(ground, edge, 10.0))
+    };
     Popover::new(
         frame,
         crate::suggest::suggestions_view(ctx, Writing::Draft),
@@ -984,39 +980,102 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     .into()
 }
 
-/// The bar over the field while replying: who to, the mention's toggle,
-/// and the cancel.
-fn reply_bar<'a>(ctx: crate::ctx::Ctx<'a>, reply: ReplyBar<'a>) -> Element<'a, Message> {
-    reply_bar_for(
+/// The card Discord puts a reply's bar and the composer in: a 1 px
+/// outline round the bar (who to, the mention's toggle and the cancel), the
+/// offer of a thread where the chain of replies is long, and the composer's
+/// box, a rule between each.
+fn reply_card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    look: &Look,
+    reply: ReplyBar<'a>,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let (ground, edge) = (theme.menu, theme.outline_field);
+    let mut card = column![reply_bar_for(
         ctx,
         reply,
         Message::Write(Event::TogglePing),
         Message::Write(Event::CancelReply),
-    )
+        CARD_INNER,
+    )];
+    if let (Some(count), Some(Compose::Reply { item, .. })) =
+        (ctx.app.reply_chain_to_thread(), ctx.state.compose())
+    {
+        card = card.push(rule(ctx)).push(thread_offer(ctx, item, count));
+    }
+    card = card.push(rule(ctx)).push(composer_box(ctx, look, true));
+    container(card)
+        .width(Length::Fill)
+        .padding(1)
+        .style(move |_| crate::style::outlined(ground, edge, 10.0))
+        .into()
 }
 
-/// A reply's bar over a composer: who to, the mention's toggle
-/// (`toggle`) and the cancel (`cancel`).
+/// The 1 px line between the card's rows.
+fn rule<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    let line = ctx.look.theme.menu_line;
+    container(Space::new())
+        .width(Length::Fill)
+        .height(1)
+        .style(move |_| rounded(line, 0.0))
+        .into()
+}
+
+/// Discord's offer under a reply's bar, where it answers a long chain of
+/// replies: a thread from the message, which holds them together.
+fn thread_offer<'a>(ctx: crate::ctx::Ctx<'a>, item: &str, count: usize) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let ground = theme.menu;
+    let words = i18n::fill(
+        tr("Would you like to follow this series of {} replies more easily?"),
+        &[&count],
+    );
+    let link = button(text(tr("Create Thread")).size(14).font(MEDIUM))
+        .padding(0)
+        .on_press(Message::Thread(crate::thread::Event::Start(
+            item.to_owned(),
+        )))
+        .style(controls::ink_style(theme.link, theme.text));
+    container(
+        row![
+            text(words)
+                .size(14)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None),
+            link,
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+    )
+    .padding(Padding::ZERO.left(16).right(16))
+    .width(Length::Fill)
+    .height(OFFER)
+    .clip(true)
+    .align_y(Alignment::Center)
+    .style(move |_| rounded(ground, 0.0))
+    .into()
+}
+
+/// A reply's bar: who to, the mention's toggle (`toggle`) and the cancel
+/// (`cancel`), as Discord's: the toggle's words and a rule before the
+/// cancel's disc on the right. Its top corners are `radius` round.
 pub fn reply_bar_for<'a>(
     ctx: crate::ctx::Ctx<'a>,
     reply: ReplyBar<'a>,
     toggle: Message,
     cancel: Message,
+    radius: f32,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let ground = theme.sidebar;
-    let ink = if reply.ping {
-        theme.accent
-    } else {
-        theme.muted
-    };
+    let ground = theme.menu;
+    let ink = if reply.ping { theme.link } else { theme.muted };
     let toggle = button(
-        text(if reply.ping { tr("@ On") } else { tr("@ Off") })
-            .size(13)
+        text(if reply.ping { tr("@ ON") } else { tr("@ OFF") })
+            .size(14)
             .font(BOLD)
             .color(ink),
     )
-    .padding([0, 8])
+    .padding([0, 6])
     .height(28)
     .on_press(toggle)
     .style(lit_style(None, theme.hover, 6.0));
@@ -1026,36 +1085,41 @@ pub fn reply_bar_for<'a>(
         tooltip::Position::Top,
     )
     .gap(6);
+    let line = theme.menu_line;
+    let words = row![
+        text(tr("Replying to"))
+            .size(14)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+        text(reply.author)
+            .size(14)
+            .font(BOLD)
+            .color(theme.text)
+            .wrapping(text::Wrapping::None),
+    ]
+    .spacing(4);
     container(
         row![
-            ctx.look.glyph(Icon::Reply, 16, theme.muted),
-            container(ctx.inline_emoji_line(
-                &[tr("Replying to "), reply.author, ": "],
-                reply.body,
-                reply.emoji,
-                crate::markdown::Look {
-                    size: 14.0,
-                    line_height: 20.0,
-                    ink: theme.secondary,
-                },
-                16,
-                false,
-            ))
-            .width(Length::Fill)
-            .clip(true),
+            container(words).width(Length::Fill).clip(true),
             toggle,
+            Space::new().width(6),
+            container(Space::new())
+                .width(1)
+                .height(20)
+                .style(move |_| rounded(line, 0.0)),
+            Space::new().width(7),
             ctx.look
-                .icon_button(Icon::X, tr("Cancel reply"), cancel)
-                .size(28.0, 16),
+                .icon_button(Icon::CircleXFilled, tr("Cancel reply"), cancel)
+                .size(24.0, 17),
         ]
-        .spacing(8)
         .align_y(Alignment::Center),
     )
-    .padding(Padding::ZERO.left(14).right(4))
+    .padding(Padding::ZERO.left(16).right(12))
+    .width(Length::Fill)
     .height(BAR)
     .clip(true)
     .align_y(Alignment::Center)
-    .style(move |_| rounded(ground, corners([10.0, 10.0, 0.0, 0.0])))
+    .style(move |_| rounded(ground, corners([radius, radius, 0.0, 0.0])))
     .into()
 }
 

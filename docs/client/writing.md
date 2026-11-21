@@ -3,9 +3,13 @@
 ## Writing
 
 The composer (`composer.rs`) shows, in a message
-request's place, its Accept and Ignore; over the field, the reply's bar
-with "@ On" or "@ Off" (whether the reply mentions its author) and its
-cancel; in a channel this account may not write in, Discord's one bar
+request's place, its Accept and Ignore; over the field, in one card with
+it, the reply's bar as Discord's: "Replying to" and the author (not the
+message), "@ ON" or "@ OFF" (whether the reply mentions its author) and
+its cancel, and, where the replied-to message answers a chain of five or
+more, "Would you like to follow this series of N replies more easily?" with
+a Create Thread link (`Application::reply_chain_to_thread`; Discord's own
+length for the offer is not known); in a channel this account may not write in, Discord's one bar
 saying so; under it, why it can't send (timed out until a time in the
 clock Settings chose, Discord disconnected) when it can't, and in a build
 with Matrix whether the room is end-to-end encrypted (with a lock if it

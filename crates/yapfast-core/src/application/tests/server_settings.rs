@@ -105,9 +105,9 @@ fn server_settings_open_only_with_a_page_she_may_change() {
     let at = |choice| choices.iter().position(|known| *known == choice).unwrap();
     assert!(at(HideMuted) < at(ServerSettings) && at(ServerSettings) < at(EditServerProfile));
     assert_eq!(
-        app.header_choices("discord:10")[0],
-        ServerSettings,
-        "after Invite, as Discord's dropdown has it"
+        app.header_choices("discord:10")[..2],
+        [ServerBoost, ServerSettings],
+        "after Server Boost and Invite, as Discord's dropdown has it"
     );
     assert_eq!(
         app.settings_sections("discord:10"),

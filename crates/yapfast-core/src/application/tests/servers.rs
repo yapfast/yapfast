@@ -372,14 +372,17 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
     assert_eq!(
         app.header_choices("discord:10"),
         [
+            ServerBoost,
             ServerSettings,
+            AppDirectory,
             ServerNotifications,
             EditServerProfile,
             HideMuted,
             LeaveServer,
             CopyId
         ],
-        "the header's dropdown lists the menu's choices in its own order"
+        "the header's dropdown lists the menu's choices in its own order, \
+         with its boost summary and the app directory"
     );
     assert!(app.header_choices("discord:10:11").is_empty());
     assert_eq!(
@@ -492,7 +495,7 @@ fn discord_invites_go_to_a_channel_this_account_may_invite_to() {
         );
     });
     assert_eq!(app.menu_choices("discord:10")[1], Invite);
-    assert_eq!(app.header_choices("discord:10")[0], Invite);
+    assert_eq!(app.header_choices("discord:10")[..2], [ServerBoost, Invite]);
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [

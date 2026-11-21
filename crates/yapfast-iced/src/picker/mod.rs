@@ -134,11 +134,13 @@ impl Picker {
         }
     }
 
-    /// The tab's own grid's width, beside its rail.
+    /// The tab's own grid's width, beside its rail, inside the panel's 1 px
+    /// edge.
     fn grid_width(&self) -> f32 {
+        let inside = self.size().width - 2.0;
         match self.tab {
-            Tab::Gifs => self.size().width,
-            Tab::Emoji | Tab::Stickers => self.size().width - kit::RAIL,
+            Tab::Gifs => inside,
+            Tab::Emoji | Tab::Stickers => inside - kit::RAIL,
         }
     }
 
