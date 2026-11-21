@@ -77,14 +77,9 @@ pub(super) fn editor_middle<'a>(
             column![
                 heading(main, tr("Connections"), inks),
                 link_text(
-                    "Connections help",
+                    tr("Manage connections"),
                     inks.ink2,
-                    Message::Link(
-                        crate::settings::account::Workflow::ConnectionsHelp
-                            .url()
-                            .into(),
-                        Point::ORIGIN
-                    )
+                    Message::Settings(crate::settings::Event::Connections),
                 ),
             ]
             .spacing(6),

@@ -3218,6 +3218,50 @@ pub enum DiscordCommand {
     /// Read the gifts the account bought and can still give.
     /// [`Event::GiftsLoaded`] follows.
     LoadGifts,
+    /// Read the apps the account authorized. [`Event::AuthorizedAppsLoaded`]
+    /// follows.
+    LoadAuthorizedApps,
+    /// Take the authorization with this id back.
+    /// [`Event::AuthorizedAppRevoked`] follows.
+    RevokeAuthorizedApp {
+        id: String,
+    },
+    /// Read the devices the account is signed in on.
+    /// [`Event::DevicesLoaded`] follows.
+    LoadDevices,
+    /// Sign the devices with these session hashes out.
+    /// [`Event::DevicesLoggedOut`] follows.
+    LogOutDevices {
+        ids: Vec<String>,
+    },
+    /// Read the services the account linked. [`Event::ConnectionsLoaded`]
+    /// follows.
+    LoadConnections,
+    /// Unlink a connected account. [`Event::AccountDisconnected`] follows.
+    DisconnectAccount {
+        service: String,
+        id: String,
+    },
+    /// Show a connected account on the profile or not, and let it show as an
+    /// activity or not; `None` leaves it. [`Event::ConnectionShown`] follows.
+    ShowConnection {
+        service: String,
+        id: String,
+        visible: Option<bool>,
+        activity: Option<bool>,
+    },
+    /// Ask for the page that links an account of a service.
+    /// [`Event::ConnectionLink`] follows.
+    LinkConnection {
+        service: String,
+    },
+    /// Change the account's username, email or password; `password` is the
+    /// current one. [`Event::AccountChanged`] follows.
+    ChangeAccount {
+        field: crate::account_tools::AccountField,
+        value: String,
+        password: String,
+    },
     /// Buy the Shop product with this SKU with Orbs.
     /// [`Event::ProductBought`] follows.
     BuyProduct {
@@ -4863,6 +4907,58 @@ pub enum Event {
     /// none.
     GiftsLoaded {
         result: Result<Vec<crate::storefront::GiftToGive>, String>,
+    },
+    /// The apps [`DiscordCommand::LoadAuthorizedApps`] read, or why Discord
+    /// listed none.
+    AuthorizedAppsLoaded {
+        result: Result<Vec<crate::account_tools::AuthorizedApp>, String>,
+    },
+    /// Whether [`DiscordCommand::RevokeAuthorizedApp`] took the
+    /// authorization with this id back.
+    AuthorizedAppRevoked {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// The devices [`DiscordCommand::LoadDevices`] read, or why Discord
+    /// listed none.
+    DevicesLoaded {
+        result: Result<Vec<crate::account_tools::Device>, String>,
+    },
+    /// Whether [`DiscordCommand::LogOutDevices`] signed these sessions out.
+    DevicesLoggedOut {
+        ids: Vec<String>,
+        result: Result<(), String>,
+    },
+    /// The services [`DiscordCommand::LoadConnections`] read, or why
+    /// Discord listed none.
+    ConnectionsLoaded {
+        result: Result<Vec<crate::account_tools::Connection>, String>,
+    },
+    /// Whether [`DiscordCommand::DisconnectAccount`] unlinked the account.
+    AccountDisconnected {
+        service: String,
+        id: String,
+        result: Result<(), String>,
+    },
+    /// Whether [`DiscordCommand::ShowConnection`] changed how the account
+    /// shows.
+    ConnectionShown {
+        service: String,
+        id: String,
+        visible: Option<bool>,
+        activity: Option<bool>,
+        result: Result<(), String>,
+    },
+    /// The page [`DiscordCommand::LinkConnection`] asked for, to open in the
+    /// browser, or why Discord gave none.
+    ConnectionLink {
+        service: String,
+        result: Result<String, String>,
+    },
+    /// Whether [`DiscordCommand::ChangeAccount`] changed the account.
+    AccountChanged {
+        field: crate::account_tools::AccountField,
+        result: Result<(), String>,
     },
     /// What the gift [`DiscordCommand::ResolveGift`] looked up by its
     /// code shows, or why Discord showed nothing.

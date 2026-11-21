@@ -17,6 +17,7 @@ use crate::{
     voice::{self, JoinSound, Phase},
 };
 
+mod account_tools;
 mod activity_panel;
 mod arrange;
 mod aside;
@@ -542,6 +543,8 @@ pub struct AppState {
     /// The gifts the account bought and can still give, read when the
     /// composer's Gift button opens.
     pub gifts: crate::storefront::GiftInventory,
+    /// What My Account's tabs list and change, read when they open.
+    pub account_tools: crate::account_tools::AccountTools,
     /// The codes of the gifts being redeemed, until Discord answers, so a
     /// dialog closed and opened again meanwhile shows the answer.
     pub redeeming_gifts: Vec<String>,
@@ -1965,6 +1968,36 @@ pub enum Action {
     JoinDiscovered(String),
     /// Read the gifts the account bought and can still give.
     LoadGifts,
+    /// Read My Account's lists: the authorized apps, the signed-in devices
+    /// and the connected accounts.
+    LoadAuthorizedApps,
+    LoadDevices,
+    LoadConnections,
+    /// Take an authorization back, by its id.
+    RevokeAuthorizedApp(String),
+    /// Sign devices out, by their session hashes.
+    LogOutDevices(Vec<String>),
+    /// Unlink a connected account.
+    DisconnectAccount {
+        service: String,
+        id: String,
+    },
+    /// Show a connected account on the profile or not, and as an activity
+    /// or not; `None` leaves it.
+    ShowConnection {
+        service: String,
+        id: String,
+        visible: Option<bool>,
+        activity: Option<bool>,
+    },
+    /// Open the page that links an account of a service, in the browser.
+    LinkConnection(String),
+    /// Change the username, email or password, with the current password.
+    ChangeAccount {
+        field: crate::account_tools::AccountField,
+        value: String,
+        password: String,
+    },
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -3528,6 +3561,24 @@ impl Application {
             Action::MoreDiscover => self.more_discover(),
             Action::JoinDiscovered(id) => self.join_discovered(id),
             Action::LoadGifts => self.load_gifts(),
+            Action::LoadAuthorizedApps => self.load_authorized_apps(),
+            Action::LoadDevices => self.load_devices(),
+            Action::LoadConnections => self.load_connections(),
+            Action::RevokeAuthorizedApp(id) => self.revoke_authorized_app(id),
+            Action::LogOutDevices(ids) => self.log_out_devices(ids),
+            Action::DisconnectAccount { service, id } => self.disconnect_account(service, id),
+            Action::ShowConnection {
+                service,
+                id,
+                visible,
+                activity,
+            } => self.show_connection(service, id, visible, activity),
+            Action::LinkConnection(service) => self.link_connection(service),
+            Action::ChangeAccount {
+                field,
+                value,
+                password,
+            } => self.change_account(field, value, password),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -4718,6 +4769,33 @@ impl Application {
             Event::DiscoverJoined { id, result } => return self.discover_joined(id, result),
             Event::ShopLoaded { result } => return self.shop_loaded(result),
             Event::GiftsLoaded { result } => return self.gifts_loaded(result),
+            Event::AuthorizedAppsLoaded { result } => return self.authorized_apps_loaded(result),
+            Event::AuthorizedAppRevoked { id, result } => {
+                return self.authorized_app_revoked(id, result);
+            }
+            Event::DevicesLoaded { result } => return self.devices_loaded(result),
+            Event::DevicesLoggedOut { ids, result } => {
+                return self.devices_logged_out(ids, result);
+            }
+            Event::ConnectionsLoaded { result } => return self.connections_loaded(result),
+            Event::AccountDisconnected {
+                service,
+                id,
+                result,
+            } => return self.account_disconnected(service, id, result),
+            Event::ConnectionShown {
+                service,
+                id,
+                visible,
+                activity,
+                result,
+            } => return self.connection_shown(service, id, visible, activity, result),
+            Event::ConnectionLink { service, result } => {
+                return self.connection_link(service, result);
+            }
+            Event::AccountChanged { field, result } => {
+                return self.account_changed(field, result);
+            }
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),
             Event::ChannelLoaded { room, result } => self.channel_settings_loaded(&room, result),

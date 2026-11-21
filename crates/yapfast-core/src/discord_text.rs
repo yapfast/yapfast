@@ -38,6 +38,7 @@ use crate::{
 };
 
 mod account;
+mod account_tools;
 mod app_commands;
 mod audit_log;
 mod channels;

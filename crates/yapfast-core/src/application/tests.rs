@@ -276,6 +276,8 @@ fn change_marks(
 }
 
 #[cfg(feature = "discord")]
+mod account_tools;
+#[cfg(feature = "discord")]
 mod arrange;
 #[cfg(feature = "discord")]
 mod audit_log;

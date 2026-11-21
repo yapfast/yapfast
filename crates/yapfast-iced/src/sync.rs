@@ -980,6 +980,7 @@ impl App {
             .collect::<Vec<_>>()
             .into_iter()
             .chain(crate::settings::voice::entrance_pictures(self))
+            .chain(crate::settings::account::pictures(self))
         {
             want(Some(&url));
         }

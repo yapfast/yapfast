@@ -105,13 +105,19 @@ impl App {
         if let Event::Reopen = event {
             return self.open_settings(self.win.settings_section);
         }
+        // The Connections tab opens Settings first, where they're closed.
+        let opened = if let Event::Connections = event {
+            self.open_settings(Section::Account)
+        } else {
+            Task::none()
+        };
         let mut cx = cx!(self);
         let Some(settings) = self.win.settings.get_mut() else {
-            return Task::none();
+            return opened;
         };
         let task = settings.update(event, &mut cx);
         self.win.settings_section = settings.section();
-        Task::batch([task, self.settle()])
+        Task::batch([opened, task, self.settle()])
     }
 
     pub fn settings_escape(&mut self) -> Task<Message> {

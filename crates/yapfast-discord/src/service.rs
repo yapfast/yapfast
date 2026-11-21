@@ -3247,6 +3247,87 @@ impl Discord {
         Ok(gift::Owned::list(&self.api.gift_codes().await?))
     }
 
+    /// The apps this account authorized; see [`Api::authorized_apps`].
+    pub async fn authorized_apps(&self) -> Result<Vec<crate::account_tools::AuthorizedApp>> {
+        Ok(crate::account_tools::AuthorizedApp::list(
+            &self.api.authorized_apps().await?,
+        ))
+    }
+
+    /// Takes the authorization `id` back, so its app can no longer act for
+    /// this account.
+    pub async fn revoke_authorized_app(&self, id: &str) -> Result<()> {
+        self.api.revoke_authorized_app(id).await
+    }
+
+    /// The devices this account is signed in on, this one marked when READY
+    /// named its session.
+    pub async fn devices(&self) -> Result<Vec<crate::account_tools::Device>> {
+        let answer = self.api.auth_sessions().await?;
+        Ok(crate::account_tools::Device::list(
+            &answer,
+            self.api.session_hash().as_deref(),
+        ))
+    }
+
+    /// Signs the devices with these session hashes out.
+    pub async fn log_out_devices(&self, hashes: &[String]) -> Result<()> {
+        self.api.log_out_sessions(hashes).await
+    }
+
+    /// The services this account linked.
+    pub async fn connected_accounts(&self) -> Result<Vec<crate::account_tools::Connection>> {
+        Ok(crate::account_tools::Connection::list(
+            &self.api.connections().await?,
+        ))
+    }
+
+    /// Unlinks the connected account `id` of a service.
+    pub async fn disconnect_account(&self, service: &str, id: &str) -> Result<()> {
+        self.api.disconnect_account(service, id).await
+    }
+
+    /// Shows a connected account on the profile or not, and lets it show as
+    /// an activity or not; what is `None` stays as it is.
+    pub async fn show_connection(
+        &self,
+        service: &str,
+        id: &str,
+        visible: Option<bool>,
+        activity: Option<bool>,
+    ) -> Result<()> {
+        let mut body = serde_json::Map::new();
+        if let Some(visible) = visible {
+            body.insert("visibility".into(), json!(u8::from(visible)));
+        }
+        if let Some(activity) = activity {
+            body.insert("show_activity".into(), json!(activity));
+        }
+        self.api
+            .update_connection(service, id, &Value::Object(body))
+            .await
+    }
+
+    /// The address of a service's page that links an account of it.
+    pub async fn connection_url(&self, service: &str) -> Result<String> {
+        self.api.connection_authorize_url(service).await
+    }
+
+    /// Changes this account's username, email or password, as My Account
+    /// does: `body` holds the new value and the current password. A new
+    /// password gives a new login, which takes the old one's place here and
+    /// in the saved account, as a refresh of the login does.
+    pub async fn change_account(&self, body: &Value) -> Result<()> {
+        let answer = self.api.modify_me(body).await?;
+        if let Some(token) = answer["token"].as_str().filter(|token| !token.is_empty()) {
+            let earlier = self.api.current_token();
+            if earlier != token {
+                session::relogin(&self.api, &earlier, token).await;
+            }
+        }
+        Ok(())
+    }
+
     /// Redeems the gift with this code for this account; `channel` is
     /// where its link was opened, when it was a channel. Discord sends
     /// the entitlement it grants over the gateway.

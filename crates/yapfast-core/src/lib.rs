@@ -11,6 +11,7 @@ use anyhow::Context;
 #[cfg(feature = "discord")]
 pub use yapfast_discord;
 
+pub mod account_tools;
 pub mod application;
 mod audio_io;
 pub use audio_io::{set_windows_effects, silence_audio};

@@ -77,6 +77,11 @@ pub(super) async fn run(
     }
     loop {
         snapshots.send_modify(|snapshot| Arc::make_mut(snapshot).status = Status::Connecting);
+        // A new password gave a new login meanwhile, which reconnecting uses.
+        let current = shared.api.current_token();
+        if !current.is_empty() && current != token {
+            token = current;
+        }
         let connect = async {
             // Without one kept, the page goes first, so the first identify
             // says the current build.
@@ -99,6 +104,9 @@ pub(super) async fn run(
         };
         let (error, up) = match connected {
             Ok((gateway, ready)) => {
+                shared
+                    .api
+                    .remember_session(ready["auth_session_id_hash"].as_str());
                 if let Some(refreshed) = ready::auth_token(&ready) {
                     let earlier = std::mem::replace(&mut token, refreshed.to_owned());
                     relogin(&shared.api, &earlier, &token).await;
@@ -160,7 +168,7 @@ pub(super) async fn run(
 /// Discord refreshed the login in READY, and the one Yapfast identified with
 /// is to go: requests, identifying again, the credential store and the
 /// files kept all take the new one. The gateway takes it from READY itself.
-async fn relogin(api: &Api, earlier: &str, token: &str) {
+pub(super) async fn relogin(api: &Api, earlier: &str, token: &str) {
     tracing::info!("Discord refreshed the login");
     api.relogin(token);
     let (earlier, token) = (earlier.to_owned(), token.to_owned());

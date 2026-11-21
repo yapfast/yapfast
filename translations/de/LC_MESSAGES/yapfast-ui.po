@@ -257,6 +257,14 @@ msgstr "Wird angenommen"
 msgid "Account"
 msgstr "Konto"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "ACCOUNT DETAILS"
+msgstr "KONTODETAILS"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Accounts of other services you linked to Discord. They can show on your profile, and some can show what you do as an activity."
+msgstr "Konten anderer Dienste, die du mit Discord verknüpft hast. Sie können in deinem Profil erscheinen, und manche können zeigen, was du machst, als Aktivität."
+
 #: crates/yapfast-iced/src/settings/keybinds.rs
 msgid "ACTION"
 msgstr "AKTION"
@@ -288,6 +296,14 @@ msgstr "Aktivität — {}"
 #: crates/yapfast-iced/src/server_settings/roles/members.rs
 msgid "Add"
 msgstr "Hinzufügen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Add a bot to servers"
+msgstr "Einen Bot zu Servern hinzufügen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "ADD A CONNECTION"
+msgstr "VERBINDUNG HINZUFÜGEN"
 
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "Add a friend"
@@ -557,6 +573,10 @@ msgstr "Beliebiger Inhalt"
 msgid "APP"
 msgstr "APP"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "App access"
+msgstr "App-Zugriff"
+
 #: crates/yapfast-iced/src/settings/mod.rs
 msgid "App Settings"
 msgstr "App-Einstellungen"
@@ -580,6 +600,10 @@ msgstr "Filter anwenden"
 #: crates/yapfast-iced/src/composer/tools.rs crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Apps"
 msgstr "Apps"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Apps you let into your Discord account. Revoking one ends its access, and it has to ask you again."
+msgstr "Apps, die du in dein Discord-Konto gelassen hast. Wenn du eine widerrufst, verliert sie den Zugriff und muss dich erneut fragen."
 
 #: crates/yapfast-iced/src/composer/tools.rs
 msgid "Apps: finish or clear your message first"
@@ -636,6 +660,10 @@ msgstr "Audit-Log"
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "Author Type"
 msgstr "Autorentyp"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Authorized Apps"
+msgstr "Autorisierte Apps"
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
@@ -837,7 +865,11 @@ msgstr "KAMERA"
 msgid "CAMERAS"
 msgstr "KAMERAS"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Can: {0}"
+msgstr "Darf: {0}"
+
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
 msgid "Cancel"
 msgstr "Abbrechen"
 
@@ -872,6 +904,10 @@ msgstr "KATEGORIENAME"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Category Settings"
 msgstr "Kategorieeinstellungen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Change"
+msgstr "Ändern"
 
 #: crates/yapfast-iced/src/profile/editor/menus.rs crates/yapfast-iced/src/profile/editor/mod.rs
 msgid "Change Avatar"
@@ -908,6 +944,10 @@ msgstr "Deinen Spitznamen ändern"
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "Change {}'s nickname"
 msgstr "Spitznamen von {} ändern"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Changing it signs your other devices out."
+msgstr "Beim Ändern werden deine anderen Geräte abgemeldet."
 
 #: crates/yapfast-iced/src/forward.rs crates/yapfast-iced/src/switcher.rs
 msgid "Channel"
@@ -992,6 +1032,10 @@ msgstr "Wähle eine DM oder einen Serverkanal, um eine Nachricht zu schreiben."
 #: crates/yapfast-iced/src/commands.rs
 msgid "Choose a file"
 msgstr "Datei auswählen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Choose a server"
+msgstr "Server auswählen"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Choose an entrance sound"
@@ -1109,6 +1153,10 @@ msgstr "DM schließen"
 msgid "Close search"
 msgstr "Suche schließen"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Close server list"
+msgstr "Serverliste schließen"
+
 #: crates/yapfast-iced/src/settings/mod.rs
 msgid "Close Settings"
 msgstr "Einstellungen schließen"
@@ -1157,6 +1205,10 @@ msgstr "Vergleichen"
 msgid "Confirm"
 msgstr "Bestätigen"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Confirm new password"
+msgstr "Neues Passwort bestätigen"
+
 #: crates/yapfast-iced/src/signin.rs
 msgid "Confirm on your phone"
 msgstr "Auf dem Handy bestätigen"
@@ -1168,6 +1220,10 @@ msgstr "Wird bestätigt ..."
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Connect your accounts to share your in-game status and activity. You're in control of what you share."
 msgstr "Verbinde deine Konten, um deinen Spielstatus und deine Aktivität zu teilen. Du entscheidest, was du teilst."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Connected accounts"
+msgstr "Verknüpfte Konten"
 
 #: crates/yapfast-iced/src/sidebar/voice.rs
 msgid "Connected on another client"
@@ -1189,13 +1245,17 @@ msgstr "Verbindung"
 msgid "Connection lost"
 msgstr "Verbindung verloren"
 
-#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs
+#: crates/yapfast-iced/src/profile/body.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/settings/account.rs
 msgid "Connections"
 msgstr "Verbindungen"
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Context Menu"
 msgstr "Kontextmenü"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Control your Discord client"
+msgstr "Deinen Discord-Client steuern"
 
 #: crates/yapfast-iced/src/call/details.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/settings/mod.rs crates/yapfast-iced/src/settings/pages/about.rs
 msgid "Copied"
@@ -1381,6 +1441,10 @@ msgstr "Die Zugangsdaten werden im Anmeldedatenspeicher des Betriebssystems abge
 msgid "Current activity"
 msgstr "Aktuelle Aktivität"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Current password"
+msgstr "Aktuelles Passwort"
+
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Custom client themes"
 msgstr "Eigene Client-Designs"
@@ -1545,6 +1609,10 @@ msgstr "Entwicklermodus"
 msgid "Development build"
 msgstr "Entwicklungsversion"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Devices"
+msgstr "Geräte"
+
 #: crates/yapfast-iced/src/server_settings/ownership.rs
 msgid "Didn’t receive a code or it expired? Resend it."
 msgstr "Keinen Code erhalten oder er ist abgelaufen? Sende ihn erneut."
@@ -1561,7 +1629,7 @@ msgstr "Direktnachrichten"
 msgid "Direct messages"
 msgstr "Direktnachrichten"
 
-#: src/tray.rs crates/yapfast-iced/src/place_menus.rs
+#: src/tray.rs crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/settings/account.rs
 msgid "Disconnect"
 msgstr "Trennen"
 
@@ -1584,6 +1652,10 @@ msgstr "Discord hat für diese Seite nichts aufgelistet."
 #: crates/yapfast-iced/src/composer.rs
 msgid "Discord is disconnected. Yapfast is reconnecting."
 msgstr "Discord ist getrennt. Yapfast verbindet sich neu."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Discord is not connected, so this list can't be read."
+msgstr "Discord ist nicht verbunden, deshalb kann diese Liste nicht gelesen werden."
 
 #: crates/yapfast-iced/src/mfa.rs
 msgid "Discord is sending a code to your phone."
@@ -1645,9 +1717,17 @@ msgstr "Nachricht ausblenden"
 msgid "Display"
 msgstr "Anzeige"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Display as activity status"
+msgstr "Als Aktivitätsstatus anzeigen"
+
 #: crates/yapfast-iced/src/profile/editor/styles.rs
 msgid "Display Name Style"
 msgstr "Anzeigenamen-Stil"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Display on profile"
+msgstr "Im Profil anzeigen"
 
 #: crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Display role members separately from online members"
@@ -1749,6 +1829,10 @@ msgstr "Einladungslink bearbeiten."
 msgid "Edit keybind"
 msgstr "Tastenkombination bearbeiten"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Edit main profile"
+msgstr "Hauptprofil bearbeiten"
+
 #: crates/yapfast-iced/src/menus.rs
 msgid "Edit message"
 msgstr "Nachricht bearbeiten"
@@ -1777,6 +1861,10 @@ msgstr "Sticker bearbeiten"
 msgid "EDIT THEME"
 msgstr "DESIGN BEARBEITEN"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Edit your display name, pronouns, bio and pictures in Yapfast."
+msgstr "Bearbeite Anzeigenamen, Pronomen, Bio und Bilder in Yapfast."
+
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Effect"
 msgstr "Effekt"
@@ -1784,6 +1872,10 @@ msgstr "Effekt"
 #: crates/yapfast-iced/src/profile/editor/styles.rs
 msgid "Effect on"
 msgstr "Effekt an"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Email"
+msgstr "E-Mail"
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Emoji"
@@ -2699,6 +2791,10 @@ msgstr "Stumm beitreten und abhängen."
 msgid "Join Server"
 msgstr "Server beitreten"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Join servers for you"
+msgstr "Für dich Servern beitreten"
+
 #: crates/yapfast-iced/src/call/dm.rs
 msgid "Join the call"
 msgstr "Dem Anruf beitreten"
@@ -2895,6 +2991,26 @@ msgstr "Verknüpfen"
 msgid "Link a Discord account first."
 msgstr "Verknüpfe zuerst ein Discord-Konto."
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Link a Discord account to change its details."
+msgstr "Verknüpfe ein Discord-Konto, um seine Details zu ändern."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Link a Discord account to edit its profile."
+msgstr "Verknüpfe ein Discord-Konto, um sein Profil zu bearbeiten."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Link a Discord account to see its apps."
+msgstr "Verknüpfe ein Discord-Konto, um seine Apps zu sehen."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Link a Discord account to see its connections."
+msgstr "Verknüpfe ein Discord-Konto, um seine Verbindungen zu sehen."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Link a Discord account to see its devices."
+msgstr "Verknüpfe ein Discord-Konto, um seine Geräte zu sehen."
+
 #: crates/yapfast-iced/src/accounts.rs
 msgid "Link another Discord account to switch between them."
 msgstr "Verknüpfe einen weiteren Discord-Account, um zwischen ihnen zu wechseln."
@@ -2999,7 +3115,7 @@ msgstr "Lade Threads..."
 msgid "Loading your gifts"
 msgstr "Deine Geschenke werden geladen"
 
-#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/voice.rs
+#: crates/yapfast-iced/src/call/corner.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/info_cards.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/playback.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced/src/reactions.rs crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/settings/voice.rs
 msgid "Loading..."
 msgstr "Wird geladen ..."
 
@@ -3047,6 +3163,10 @@ msgstr "Niedrig"
 msgid "Main Profile"
 msgstr "Hauptprofil"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Main profile"
+msgstr "Hauptprofil"
+
 #: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
 msgid "Mainframe"
 msgstr "Mainframe"
@@ -3066,6 +3186,10 @@ msgstr "Link wird erstellt ..."
 #: crates/yapfast-iced/src/accounts.rs crates/yapfast-iced/src/status.rs
 msgid "Manage Accounts"
 msgstr "Accounts verwalten"
+
+#: crates/yapfast-iced/src/profile/editor/card.rs
+msgid "Manage connections"
+msgstr "Verbindungen verwalten"
 
 #: crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Manage Members ({})"
@@ -3455,6 +3579,10 @@ msgstr "Neu"
 msgid "New Category"
 msgstr "Neue Kategorie"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "New email address"
+msgstr "Neue E-Mail-Adresse"
+
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "New Group DM"
 msgstr "Neue Gruppen-DM"
@@ -3466,6 +3594,10 @@ msgstr "Neue Kalimba"
 #: src/notify.rs crates/yapfast-iced/src/sidebar/channels.rs crates/yapfast-iced/src/switcher.rs
 msgid "New message"
 msgstr "Neue Nachricht"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "New password"
+msgstr "Neues Passwort"
 
 #: crates/yapfast-iced/src/forum.rs
 msgid "New Post"
@@ -3482,6 +3614,10 @@ msgstr "Neues Design"
 #: crates/yapfast-iced/src/thread.rs
 msgid "New Thread"
 msgstr "Neuer Thread"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "New username"
+msgstr "Neuer Benutzername"
 
 #: crates/yapfast-iced/src/timeline/view.rs
 msgid "Newer messages"
@@ -3523,9 +3659,17 @@ msgstr "Nitro Basic"
 msgid "Nitro is active on your account"
 msgstr "Nitro ist auf deinem Konto aktiv"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "No accounts are linked."
+msgstr "Es sind keine Konten verknüpft."
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "NO ACTIVE INVITE LINKS"
 msgstr "KEINE AKTIVEN EINLADUNGSLINKS"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "No apps are authorized."
+msgstr "Es sind keine Apps autorisiert."
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "No audio devices found. Connect one, then refresh."
@@ -3558,6 +3702,10 @@ msgstr "Noch keine abgeholten Quests"
 #: crates/yapfast-iced/src/forward.rs
 msgid "No conversations match."
 msgstr "Keine Unterhaltungen gefunden."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "No devices are signed in."
+msgstr "Es sind keine Geräte angemeldet."
 
 #: crates/yapfast-iced/src/sidebar/rows.rs
 msgid "No direct messages yet. Existing DMs appear here after syncing."
@@ -3710,6 +3858,10 @@ msgstr "Keine Rollen"
 #: crates/yapfast-iced/src/sidebar/destinations/discover.rs
 msgid "No server matches {}."
 msgstr "Kein Server passt zu {}."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "No server profiles are available."
+msgstr "Es sind keine Serverprofile verfügbar."
 
 #: crates/yapfast-iced/src/profile/editor/menus.rs
 msgid "No Server Tag"
@@ -4067,7 +4219,7 @@ msgstr "Ausgabeoptionen"
 msgid "Output Volume"
 msgstr "Ausgabelautstärke"
 
-#: crates/yapfast-iced/src/channel_settings.rs
+#: crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/settings/account.rs
 msgid "Overview"
 msgstr "Übersicht"
 
@@ -4087,7 +4239,7 @@ msgstr "Server mit Partner- oder Verifiziert-Status müssen sich für Anfragen z
 msgid "PASSWORD"
 msgstr "PASSWORT"
 
-#: crates/yapfast-iced/src/mfa.rs
+#: crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/settings/account.rs
 msgid "Password"
 msgstr "Passwort"
 
@@ -4367,6 +4519,10 @@ msgstr "Profilrahmen"
 msgid "PROFILES"
 msgstr "PROFILE"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Profiles"
+msgstr "Profile"
+
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Prompt members to reply to welcome messages with a sticker."
 msgstr "Fordere Mitglieder auf, auf Willkommensnachrichten mit einem Sticker zu antworten."
@@ -4422,6 +4578,18 @@ msgstr "Auf Beitrag reagieren"
 #: crates/yapfast-iced/src/reactions.rs
 msgid "Reactions"
 msgstr "Reaktionen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Read the list again"
+msgstr "Liste erneut lesen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Read your member info in servers"
+msgstr "Deine Mitgliedsinfos in Servern lesen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Read your messages"
+msgstr "Deine Nachrichten lesen"
 
 #: crates/yapfast-iced/src/server_settings/profile.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Reading the picture..."
@@ -4659,6 +4827,10 @@ msgstr "Erneut versuchen"
 msgid "Retry saved session"
 msgstr "Gespeicherte Sitzung erneut versuchen"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Revoke"
+msgstr "Widerrufen"
+
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Revoke Ban"
 msgstr "Ban aufheben"
@@ -4731,7 +4903,7 @@ msgstr "Sakura"
 msgid "Sam"
 msgstr "Sam"
 
-#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/status.rs
+#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/status.rs
 msgid "Save"
 msgstr "Speichern"
 
@@ -4767,7 +4939,7 @@ msgstr "Video speichern"
 msgid "Save {}"
 msgstr "{} speichern"
 
-#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced-kit/src/form.rs
+#: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced-kit/src/form.rs
 msgid "Saving..."
 msgstr "Wird gespeichert ..."
 
@@ -4894,6 +5066,30 @@ msgstr "Sichere Verbindung"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Security Actions"
 msgstr "Sicherheitsaktionen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "See the servers you are in"
+msgstr "Die Server sehen, in denen du bist"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "See what you are playing"
+msgstr "Sehen, was du spielst"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "See your connected accounts"
+msgstr "Deine verknüpften Konten sehen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "See your email address"
+msgstr "Deine E-Mail-Adresse sehen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "See your friends"
+msgstr "Deine Freunde sehen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "See your username and avatar"
+msgstr "Deinen Benutzernamen und Avatar sehen"
 
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "See {} more"
@@ -5075,6 +5271,10 @@ msgstr "Server-Stummschaltung"
 msgid "Server Profile"
 msgstr "Serverprofil"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Server profiles"
+msgstr "Serverprofile"
+
 #: crates/yapfast-iced/src/place_menus.rs crates/yapfast-iced/src/server_settings/mod.rs
 msgid "Server settings"
 msgstr "Servereinstellungen"
@@ -5247,13 +5447,21 @@ msgstr "Bei Yapfast anmelden"
 msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
 msgstr "Melde dich mit deinem Matrix-Passwort an. Single Sign-on ist noch nicht verfügbar."
 
-#: crates/yapfast-iced/src/settings/pages/account.rs
+#: crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/settings/pages/account.rs
 msgid "Sign out"
 msgstr "Abmelden"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Sign out all other devices"
+msgstr "Alle anderen Geräte abmelden"
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "SIGNALS"
 msgstr "SIGNALE"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Signed-in devices"
+msgstr "Angemeldete Geräte"
 
 #: crates/yapfast-iced/src/picker/emoji.rs
 msgid "Skin tone"
@@ -5727,6 +5935,10 @@ msgstr "Die hinzugefügte Nachricht wird nicht in diese Slowmode-Kanäle gesende
 msgid "the Microsoft Store"
 msgstr "den Microsoft Store"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "The new passwords are not the same."
+msgstr "Die neuen Passwörter stimmen nicht überein."
+
 #: src/update/install.rs
 msgid "The new version didn't pass its start-up check."
 msgstr "Die neue Version hat die Startprüfung nicht bestanden."
@@ -5778,6 +5990,10 @@ msgstr "Die Prüfsummen des Releases sind kein Text."
 #: crates/yapfast-iced/src/tag_card.rs
 msgid "The server has limited who can see this profile."
 msgstr "Der Server hat eingeschränkt, wer dieses Profil sehen kann."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "The service's own sign-in page opens in your browser. When you are done there, read the list again."
+msgstr "Die Anmeldeseite des Dienstes öffnet sich in deinem Browser. Wenn du dort fertig bist, lies die Liste erneut."
 
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "The Shop is empty"
@@ -5862,6 +6078,10 @@ msgstr "Diese Unterhaltung hat noch keine angepinnten Nachrichten."
 #: src/update/install.rs
 msgid "This copy can't update itself. Get the new version from the release page."
 msgstr "Diese Kopie kann sich nicht selbst aktualisieren. Hole dir die neue Version von der Release-Seite."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "This device"
+msgstr "Dieses Gerät"
 
 #: crates/yapfast-iced/src/bot_modal.rs
 msgid "This form has a part Yapfast can't fill yet. Use it in Discord."
@@ -6043,7 +6263,7 @@ msgstr "Wahr"
 msgid "Try adding authorType: user to your search."
 msgstr "Versuche, authorType: user zu deiner Suche hinzuzufügen."
 
-#: crates/yapfast-iced/src/signin.rs
+#: crates/yapfast-iced/src/settings/account.rs crates/yapfast-iced/src/signin.rs
 msgid "Try again"
 msgstr "Erneut versuchen"
 
@@ -6134,6 +6354,10 @@ msgstr "Kanalkategorie nicht mehr folgen"
 #: crates/yapfast-iced/src/call/details.rs crates/yapfast-iced/src/server_settings/people.rs
 msgid "Unknown"
 msgstr "Unbekannt"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Unknown device"
+msgstr "Unbekanntes Gerät"
 
 #: crates/yapfast-iced/src/settings/keybinds.rs
 msgid "Unknown key"
@@ -6243,6 +6467,10 @@ msgstr "Update verfügbar · {}"
 msgid "Update checks are turned off."
 msgstr "Die Suche nach Updates ist ausgeschaltet."
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Update your activity"
+msgstr "Deine Aktivität aktualisieren"
+
 #: crates/yapfast-iced/src/settings/updates.rs
 msgid "UPDATES"
 msgstr "UPDATES"
@@ -6327,6 +6555,10 @@ msgstr "Nutze eigene und animierte Emojis in jedem Server und Chat."
 msgid "Use Emoji"
 msgstr "Emojis verwenden"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Use its commands in servers"
+msgstr "Ihre Befehle in Servern nutzen"
+
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Use permissions to customize who can do what in this category."
 msgstr "Mit Berechtigungen legst du fest, wer in dieser Kategorie was tun darf."
@@ -6379,7 +6611,7 @@ msgstr "Benutzereinstellungen"
 msgid "User volume"
 msgstr "Benutzerlautstärke"
 
-#: crates/yapfast-iced/src/friends/mod.rs
+#: crates/yapfast-iced/src/friends/mod.rs crates/yapfast-iced/src/settings/account.rs
 msgid "Username"
 msgstr "Benutzername"
 
@@ -6605,6 +6837,10 @@ msgstr[1] "Wir haben {n} Ergebnisse von Benutzern ausgeblendet, die du ignoriert
 msgid "What Nitro gives you"
 msgstr "Das bekommst du mit Nitro"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "What people add you by."
+msgstr "Womit Leute dich hinzufügen."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "What question do you want to ask?"
 msgstr "Welche Frage möchtest du stellen?"
@@ -6625,9 +6861,17 @@ msgstr "Wenn ein Freund eine Aktivität startet, etwa ein Spiel spielt oder im S
 msgid "When the message was sent"
 msgstr "Wann die Nachricht gesendet wurde"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Where Discord writes to you."
+msgstr "Wohin Discord dir schreibt."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "Where would you like to go?"
 msgstr "Wo möchtest du hin?"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Where your account is signed in. Sign out a device you do not know."
+msgstr "Wo dein Konto angemeldet ist. Melde ein Gerät ab, das du nicht kennst."
 
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "While Yapfast is focused"
@@ -6943,6 +7187,10 @@ msgstr "Dein Desktop bietet Yapfast keine globalen Tastenkürzel an"
 msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
 msgstr "Dein Desktop zeichnet die Titelleiste und die Schaltflächen des Fensters, wie bei seinen anderen Fenstern. Aus zeichnet Yapfast sie selbst."
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Your email was changed. Discord asks you to confirm it by mail."
+msgstr "Deine E-Mail wurde geändert. Discord bittet dich, sie per E-Mail zu bestätigen."
+
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
 msgid "Your Matrix notification rules decide"
 msgstr "Deine Matrix-Benachrichtigungsregeln entscheiden darüber,"
@@ -6954,6 +7202,10 @@ msgstr "Dein eigener Look"
 #: src/update.rs
 msgid "your package manager"
 msgstr "deine Paketverwaltung"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Your password was changed. Other devices are signed out."
+msgstr "Dein Passwort wurde geändert. Andere Geräte sind abgemeldet."
 
 #: crates/yapfast-iced/src/picker/gifs.rs
 msgid "Your perfect GIF is in another castle. Try the suggested keywords below!"
@@ -6967,6 +7219,10 @@ msgstr "Dein Abo"
 msgid "Your profile in {}"
 msgstr "Dein Profil in {}"
 
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Your profiles"
+msgstr "Deine Profile"
+
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Your roles on this Discord server don't let you join this channel."
 msgstr "Mit deinen Rollen auf diesem Discord-Server kannst du diesem Kanal nicht beitreten."
@@ -6978,6 +7234,10 @@ msgstr "Dein Bildschirm"
 #: crates/yapfast-iced/src/server_dialogs/create.rs
 msgid "Your server is where you and your friends hang out. Make yours and start talking."
 msgstr "Dein Server ist der Ort, wo du und deine Freunde abhängen. Erstelle jetzt deinen eigenen und rede drauflos."
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "Your username was changed."
+msgstr "Dein Benutzername wurde geändert."
 
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Your Widgets"
@@ -6998,6 +7258,14 @@ msgstr "Hineinzoomen"
 #: crates/yapfast-iced/src/image_viewer.rs
 msgid "Zoom out"
 msgstr "Herauszoomen"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "{0} (access was taken back, link it again)"
+msgstr "{0} (Zugriff wurde entzogen, verknüpfe es erneut)"
+
+#: crates/yapfast-iced/src/settings/account.rs
+msgid "{0} (verified)"
+msgstr "{0} (verifiziert)"
 
 #: crates/yapfast-iced/src/active_now.rs crates/yapfast-iced/src/message/reaction_chips.rs
 msgid "{0} and {1}"

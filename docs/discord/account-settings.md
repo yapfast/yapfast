@@ -1,61 +1,89 @@
 # Account settings
 
 Settings > My Account contains a native Yapfast form with Overview, Profiles,
-Connections, Authorized Apps, Devices and Nitro & Billing tabs. These are local
-tabs of the account module, not extra entries in the shared settings navigation.
-The module is `crates/yapfast-iced/src/settings/account.rs`; its only state is
-the selected tab and whether the server chooser is open.
+Connections, Authorized Apps and Devices tabs. These are local tabs of the
+account module, not extra entries in the shared settings navigation. The module
+is `crates/yapfast-iced/src/settings/account.rs`; its state is the selected tab,
+whether the server chooser is open and the username, email or password form
+that is open. The lists and the progress of every request live in the core
+(`yapfast_core::account_tools::AccountTools`, in `AppState::account_tools`).
 
-## Profiles in Yapfast
+Everything on these tabs is done inside Yapfast. There is no button that sends
+you to Discord's website to finish the job, and no placeholder: what Yapfast
+cannot do natively is not shown (see "Not in Yapfast" below).
 
-Overview keeps the existing account card, reconnect, custom status, Edit profile
-and sign-out controls. Profiles > Edit main profile dispatches the existing
-`Action::EditProfile`. Choose a server uses the servers already in the core's
-snapshot, borrows their names and builds its choices only while expanded.
-It offers available Discord servers whose existing menu permits
-`EditServerProfile`, then dispatches that action with the selected server's id.
-An unavailable or unknown server from a stale choice is ignored. The core still
-checks whether a profile may be edited.
+## Overview
 
-Both editors use the existing profile loading, editing, validation, save, reset
-and error handling. Their supported fields and Nitro restrictions are described
-in [main profiles](people.md#editing-ones-main-profile) and
-[server profiles](people.md#editing-ones-server-profile). Opening an editor
-closes settings. A Discord identity is required for these controls; there is no
-placeholder editor when none is linked. The editor's Connections help opens the
-official account-connections guide rather than an unverified settings URL.
+Overview keeps the account card, reconnect, custom status, Edit profile and
+sign-out controls, and adds Account details: Username, Email and Password, each
+with a Change button that opens a small form.
 
-## Official workflows in the browser
+* Username and Email ask for the new value and the current password.
+* Password asks for the new password twice and the current one. The Save button
+  stays off until the two new passwords are the same.
+* The change is `PATCH /users/@me` with the current `password` and one of
+  `username`, `email` or `new_password`. Discord answers a password change with
+  a new token; Yapfast keeps it (`service/session.rs::relogin`) so the account
+  stays linked while Discord signs the other devices out.
+* The current password is cleared from the form after each try, so a refused
+  change asks for it again. A refusal's reason is shown under the form.
+* Nothing is sent in the preview or while Discord is not connected.
 
-The Open Discord in browser button uses `https://discord.com/app` through the
-existing browser opener. It opens the web app, without promising to select a
-settings page. Each tab says to choose the page there and shows the manual
-navigation path. Help buttons contain "help" in their label and open the specific
-official article. Explore Nitro on discord.com opens the public Nitro page.
+## Profiles
 
-| Tab | Workflow after opening Discord | Official source |
-| --- | --- | --- |
-| Overview | User Settings > My Account for username, email and phone changes, password and authentication | [Usernames](https://support.discord.com/hc/en-us/articles/12620128861463-New-Usernames-Display-Names), [email](https://support.discord.com/hc/en-us/articles/4423385681175-How-to-Change-your-Discord-Account-s-Email), [phone numbers](https://support.discord.com/hc/en-us/articles/4413460214807-How-to-Remove-a-Phone-Number-From-a-Discord-Account), [passwords](https://support.discord.com/hc/en-us/articles/218410947-How-to-Reset-or-Change-Your-Forgotten-Password-on-Discord), [authentication](https://support.discord.com/hc/en-us/articles/219576828-Setting-up-Multi-Factor-Authentication) |
-| Connections | User Settings > Connections for external accounts | [Account Connections FAQ](https://support.discord.com/hc/en-us/articles/32330173689623-Account-Connections-on-Discord-FAQ) |
-| Authorized Apps | User Settings > Authorized Apps to review apps and permissions | [Discord's account-security guide](https://support.discord.com/hc/en-us/articles/24160905919511-My-Discord-Account-was-Hacked-or-Compromised) |
-| Devices | User Settings > Devices to review signed-in devices | [Official Devices announcement](https://discord.com/blog/discord-update-november-1-2022-changelog); the tab's Login help opens the [QR login guide](https://support.discord.com/hc/en-us/articles/360039213771-QR-Code-Login-FAQ) |
-| Nitro & Billing | User Settings > Subscriptions for plans and renewals; User Settings > Billing for payment methods, history and documents | [Managing Subscriptions and Billing FAQ](https://support.discord.com/hc/en-us/articles/360017693772-Managing-Subscriptions-and-Billing-FAQ), [public Nitro page](https://discord.com/nitro) |
+Profiles > Edit main profile dispatches `Action::EditProfile`. Choose a server
+uses the servers already in the core's snapshot and offers the available Discord
+servers whose menu permits `EditServerProfile`. An unavailable or unknown server
+from a stale choice is ignored. The editors are described in
+[main profiles](people.md#editing-ones-main-profile) and
+[server profiles](people.md#editing-ones-server-profile). The profile editor's
+Connections row links to the Connections tab here (`settings::Event::Connections`).
 
-## Boundaries and verification
+## Authorized Apps
 
-Visiting these tabs sends no backend request. They neither fetch nor display
-email addresses, phone numbers, authorized-app lists, connected-account lists,
-device sessions, subscription balances, renewal dates or payment data. They
-collect no credentials, authentication codes or payment details. Account
-security, connection changes, authorization changes, remote session logout,
-purchases, subscription changes and cancellations remain manual workflows in
-Discord. There are no new account deletion or disabling controls.
+`GET /oauth2/tokens` lists the apps the account let in: name, description, icon
+and scopes, each scope in words ("See your username and avatar"). Revoke is
+`DELETE /oauth2/tokens/{id}` and removes the row when Discord agrees; when it
+refuses, the row stays and the reason is shown.
 
-The existing profile API and local fixtures cover the editors; no new Discord
-endpoint, command, core state or fake route is needed. The tests in
-`crates/yapfast-iced/src/tests/settings_account.rs` exercise tab navigation
-without backend traffic, main and server editor dispatch, missing-identity and
-empty-server cases, stale server choices, explicit manual navigation, and the
-labels and destinations of browser actions. Browser opening is suppressed by
-the existing test configuration. These tests use preview state and the local
-Discord snapshot fixture, never a live account.
+## Devices
+
+`GET /auth/sessions` lists where the account is signed in: platform, operating
+system, location and when it last used the account. The device Yapfast runs on is
+the one whose session hash the gateway's READY sent as `auth_session_id_hash`; it
+is marked "This device" and has no Sign out button. Sign out is
+`POST /auth/sessions/logout` with the session hashes; "Sign out all other devices"
+shows when more than one other device is listed.
+
+## Connections
+
+`GET /users/@me/connections` lists the linked services. Each shows its name,
+whether it is verified, and two switches: Display on profile and Display as
+activity status (`PATCH /users/@me/connections/{type}/{id}`). Disconnect is
+`DELETE` on the same path. Add a connection asks `GET /connections/{type}/authorize`
+for the service's sign-in page, which opens in the browser: the provider's own
+sign-in cannot be drawn inside Yapfast, Discord completes the link on its side,
+and "Read the list again" shows the result. The services offered are
+`yapfast_core::account_tools::SERVICES`.
+
+## Not in Yapfast
+
+These are not shown, because they cannot be done natively and a button that only
+opens a web page is not acceptable:
+
+* Phone numbers and multi-factor authentication (they need Discord's SMS and
+  authenticator enrolment flows).
+* Nitro and Boost purchases and subscription management, payment methods,
+  billing history and invoices: real money is never spent from a blind call. Orb
+  purchases and Shop items bought with Orbs are native; see the Shop docs.
+* Account deletion and disabling.
+
+## Verification
+
+The discord endpoints and answer shapes above are written from Discord's client
+behaviour and have not been run against a live account; the lists are parsed
+tolerantly (`yapfast-discord/src/account_tools.rs` has unit tests for the
+shapes). The core's tests cover busy keys, refusals and the unconnected
+preview; `crates/yapfast-iced/src/tests/settings_account.rs` drives the tabs,
+revoking, signing out, the switches, the forms and the profile editor's link
+with the preview's fixtures, never a live account.

@@ -293,6 +293,9 @@ pub struct Api {
     http: Client,
     /// Empty without a login; Discord may refresh it in READY.
     token: RwLock<String>,
+    /// The hash of this login's session, which READY names and the list of
+    /// signed-in devices marks this device by.
+    session_hash: RwLock<Option<String>>,
     /// The API's base URL: Discord's, or the test server's.
     pub(crate) base: String,
     limits: Limits,
@@ -329,6 +332,7 @@ impl Api {
         Ok(Self {
             http,
             token: RwLock::new(token),
+            session_hash: RwLock::new(None),
             base,
             limits: Limits::default(),
             refusals: Refusals::default(),
@@ -413,6 +417,28 @@ impl Api {
         self.token
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The login requests go with now, which is the one Discord refreshed
+    /// it to, or the new one a password change gave.
+    pub(crate) fn current_token(&self) -> String {
+        self.token().clone()
+    }
+
+    /// Keeps the hash of this login's session, which READY gives.
+    pub(crate) fn remember_session(&self, hash: Option<&str>) {
+        *self
+            .session_hash
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = hash.map(str::to_owned);
+    }
+
+    /// The hash of this login's session, when READY gave one.
+    pub(crate) fn session_hash(&self) -> Option<String> {
+        self.session_hash
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// Asks with `token` from now on: Discord refreshed the login to it.
@@ -1470,6 +1496,64 @@ impl Api {
     pub(crate) async fn connections(&self) -> Result<Value> {
         self.json(self.request(Method::GET, "/users/@me/connections"))
             .await
+    }
+
+    /// The apps this account let into it, as User Settings > Authorized
+    /// Apps lists them: each authorization with its scopes and app.
+    pub(crate) async fn authorized_apps(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/oauth2/tokens")).await
+    }
+
+    /// Takes back what the authorization `id` let its app do.
+    pub(crate) async fn revoke_authorized_app(&self, id: &str) -> Result<()> {
+        let path = format!("/oauth2/tokens/{}", encode(id));
+        self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// The devices this account is signed in on, as User Settings > Devices
+    /// lists them.
+    pub(crate) async fn auth_sessions(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/auth/sessions")).await
+    }
+
+    /// Signs the devices whose sessions have these hashes out.
+    pub(crate) async fn log_out_sessions(&self, hashes: &[String]) -> Result<()> {
+        let body = json!({ "session_id_hashes": hashes });
+        self.empty(with_json(
+            self.request(Method::POST, "/auth/sessions/logout"),
+            &body,
+        ))
+        .await
+    }
+
+    /// Unlinks the connected account `id` of a service.
+    pub(crate) async fn disconnect_account(&self, service: &str, id: &str) -> Result<()> {
+        let path = format!("/users/@me/connections/{}/{}", encode(service), encode(id));
+        self.empty(self.request(Method::DELETE, &path)).await
+    }
+
+    /// Changes how a connected account shows: on the profile, and as an
+    /// activity.
+    pub(crate) async fn update_connection(
+        &self,
+        service: &str,
+        id: &str,
+        body: &Value,
+    ) -> Result<()> {
+        let path = format!("/users/@me/connections/{}/{}", encode(service), encode(id));
+        self.empty(with_json(self.request(Method::PATCH, &path), body))
+            .await
+    }
+
+    /// The address of a service's own page that links an account of it, to
+    /// open in a browser: Discord finishes the link when it's done.
+    pub(crate) async fn connection_authorize_url(&self, service: &str) -> Result<String> {
+        let path = format!("/connections/{}/authorize", encode(service));
+        let answer = self.json(self.request(Method::GET, &path)).await?;
+        answer["url"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord gave no address to link the account at")
     }
 
     /// A token for the linked Spotify account `id`, which Discord renews.

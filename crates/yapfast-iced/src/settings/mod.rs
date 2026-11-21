@@ -276,6 +276,9 @@ pub enum Event {
     /// My Account's and the Discord page's buttons.
     Account(pages::AccountEvent),
     AccountPage(account::Event),
+    /// Opens the Connections tab of My Account, as the profile editor's
+    /// link does.
+    Connections,
     Privacy(privacy::Event),
     Game(pages::GameEvent),
     Voice(voice::Event),
@@ -373,6 +376,10 @@ impl Settings {
             Event::Pref(pref) => self.pref(pref, cx),
             Event::Account(event) => self.account_event(event, cx),
             Event::AccountPage(event) => return self.account_page_event(event, cx),
+            Event::Connections => {
+                return self
+                    .account_page_event(account::Event::Show(account::Tab::Connections), cx);
+            }
             Event::Privacy(event) => privacy::update(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
