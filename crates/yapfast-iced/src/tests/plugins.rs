@@ -543,12 +543,12 @@ fn the_devtools_are_off_until_turned_on() {
     let _ = app.update(crate::app::Message::Settings(Event::Plugin(
         PluginEvent::Open(PLUGIN.into()),
     )));
-    assert!(!shows(&app, "Devtools"));
+    assert!(!shows(&app, "DEVTOOLS"));
     let _ = app.update(crate::app::Message::Settings(Event::Plugin(
         PluginEvent::SetDevtools(true),
     )));
     assert!(app.layout.plugin_devtools);
-    assert!(shows(&app, "Devtools"));
+    assert!(shows(&app, "DEVTOOLS"));
     assert!(shows(&app, "Console") && shows(&app, "Slots") && shows(&app, "Calls"));
     assert!(shows(&app, "Reload"));
     draw(
@@ -563,7 +563,7 @@ fn the_devtools_are_off_until_turned_on() {
     let _ = app.update(crate::app::Message::Settings(Event::Plugin(
         PluginEvent::SetDevtools(false),
     )));
-    assert!(!shows(&app, "Devtools"));
+    assert!(!shows(&app, "DEVTOOLS"));
 }
 
 /// The site question denies itself after a minute without an answer, for

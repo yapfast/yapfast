@@ -1190,7 +1190,6 @@ impl<'a> Page<'a> {
             ));
         }
         if !plugin.log.is_empty() {
-            parts.push(form::heading(theme, "RECENT LOG"));
             let lines: Vec<Element<'a, Message>> = plugin
                 .log
                 .iter()
@@ -1209,9 +1208,18 @@ impl<'a> Page<'a> {
                         .into()
                 })
                 .collect();
-            parts.push(form::card(
+            let height = if lines.len() > 8 {
+                Length::Fixed(200.0)
+            } else {
+                Length::Shrink
+            };
+            parts.push(section(
                 theme,
-                scrollable(form::group(lines)).height(Length::Fixed(200.0)),
+                "RECENT LOG",
+                [form::card(
+                    theme,
+                    scrollable(form::group(lines)).height(height),
+                )],
             ));
         }
         parts.extend(self.looks(theme, plugin));
@@ -1404,13 +1412,12 @@ impl<'a> Page<'a> {
         // The memory figure is the instance's ceiling, said as one: Extism
         // keeps an instance's store to itself, so what it uses right now
         // can't be read (docs/plugins/host.md).
+        let memory = memory.strip_prefix("Uses up to ").unwrap_or(&memory);
         let usage = format!(
-            "{cpu} \u{b7} {} host calls \u{b7} {} (its ceiling; what it uses now isn't reported)",
+            "{cpu} \u{b7} {} host calls \u{b7} a ceiling of {memory} (what it uses now isn't reported)",
             kept.calls,
-            memory.to_lowercase()
         );
         let mut parts = vec![
-            form::heading(theme, "Devtools"),
             row![
                 text(usage)
                     .size(13)
@@ -1566,13 +1573,20 @@ impl<'a> Page<'a> {
                 }
             }
         };
+        // A short console is as tall as what it holds; a long one scrolls,
+        // kept at its newest line.
+        let height = if lines.len() > 8 {
+            Length::Fixed(240.0)
+        } else {
+            Length::Shrink
+        };
         parts.push(form::card(
             theme,
             scrollable(container(form::group(lines)).padding([0, 8]))
                 .anchor_bottom()
-                .height(Length::Fixed(240.0)),
+                .height(height),
         ));
-        parts
+        vec![section(theme, "DEVTOOLS", parts)]
     }
 
     /// A plugin's own settings page: what it draws on it, its cells named by
@@ -1701,7 +1715,7 @@ impl<'a> Page<'a> {
                     theme,
                     "Roll back",
                     ActionKind::Plain,
-                    Some(plugin_message(PluginEvent::RollBack(id.clone()))),
+                    Some(plugin_message(PluginEvent::RollBack(id))),
                 )
                 .into(),
             );
@@ -1733,10 +1747,12 @@ impl<'a> Page<'a> {
                 .map(|refused: &Refused| refused.message.clone());
             rows.push(self.setting_row(theme, setting, value, state.enabled, refused, form_state));
         }
-        let mut parts = vec![form::heading(theme, "Settings")];
         let reset = self.reset_line(theme);
-        parts.push(form::card(theme, form::group([form::group(rows), reset])));
-        parts
+        vec![section(
+            theme,
+            "SETTINGS",
+            [form::card(theme, form::group([form::group(rows), reset]))],
+        )]
     }
 
     #[cfg(feature = "plugins")]
@@ -2528,7 +2544,7 @@ fn permission_row<'a>(theme: &Theme, plugin: &Installed, line: page::Line) -> El
 /// How wide a list's column of row actions is: Revoke, Details and the like
 /// all fit, so they line up down the list whatever the words beside them.
 #[cfg(feature = "plugins")]
-const ACTIONS: f32 = 96.0;
+const ACTIONS: f32 = 120.0;
 
 /// A list in a card, as a settings page lists things: a row each, a thin line
 /// between rows, and the same room above and below every row.
