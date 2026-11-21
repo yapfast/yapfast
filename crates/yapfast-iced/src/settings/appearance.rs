@@ -2,10 +2,13 @@
 //! click shows one at once and keeps it), New theme and each custom theme's
 //! pencil opening the editor, whose changes show at once (Save keeps them
 //! among the person's own themes, Cancel puts the theme from before back),
-//! and the profile switches. See docs/themes.md.
+//! Import beside New theme and Export in the editor sharing a theme as a
+//! file, and the profile switches. See docs/themes.md.
+
+use std::path::{Path, PathBuf};
 
 use iced::{
-    Alignment, Border, Color, Element, Length,
+    Alignment, Border, Color, Element, Length, Task,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -106,6 +109,14 @@ impl Editor {
     fn valid(&self) -> bool {
         self.fields.iter().all(|(_, _, wrong)| !wrong)
     }
+
+    /// The name in the field, or "My theme" if it holds none.
+    fn kept_name(&self) -> String {
+        match self.name.trim() {
+            "" => "My theme".to_owned(),
+            name => name.to_owned(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +131,14 @@ pub enum Event {
     Save,
     Cancel,
     Delete,
+    /// Opens the system's file dialog for a theme file to import.
+    Import,
+    /// The file it gave, by its path.
+    Imported(PathBuf),
+    /// Opens the system's file dialog to save the theme in the editor.
+    Export,
+    /// The name the file was saved under, or why it couldn't be.
+    Exported(String, Result<(), String>),
     Profile(Cosmetic, bool),
 }
 
@@ -140,14 +159,21 @@ fn theme_message(event: Event) -> Message {
 }
 
 impl Settings {
-    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) {
+    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
-            Event::Choose(id) => choose(cx, &id),
-            Event::New => self.new_theme(cx),
+            Event::Choose(id) => {
+                self.theme_note = None;
+                choose(cx, &id);
+            }
+            Event::New => {
+                self.theme_note = None;
+                self.new_theme(cx);
+            }
             Event::Edit(id) => {
                 let Some(custom) = cx.themes.custom.iter().find(|custom| custom.id == id) else {
-                    return;
+                    return Task::none();
                 };
+                self.theme_note = None;
                 let editor = Editor::new(
                     Some(custom.id.clone()),
                     custom.base,
@@ -161,10 +187,10 @@ impl Settings {
                     .map(|start| (start.base, start.theme, copy_name(start.name)))
                     .collect();
                 let Some(editor) = self.editor.as_mut() else {
-                    return;
+                    return Task::none();
                 };
                 let Some((base, theme, name)) = starts.get(index).cloned() else {
-                    return;
+                    return Task::none();
                 };
                 // It takes the new start's name too, unless the person
                 // named it.
@@ -204,8 +230,13 @@ impl Settings {
             Event::Save => self.save_theme(cx),
             Event::Cancel => self.cancel_theme(cx),
             Event::Delete => self.delete_theme(cx),
+            Event::Import => return import_dialog(),
+            Event::Imported(path) => self.import_theme(&path, cx),
+            Event::Export => return self.export_dialog(),
+            Event::Exported(name, result) => self.exported(&name, result),
             Event::Profile(cosmetic, on) => self::cosmetic(cx, cosmetic, on),
         }
+        Task::none()
     }
 
     /// Opens the editor on a copy of the theme shown, which can start from
@@ -264,10 +295,8 @@ impl Settings {
         let Some(editor) = self.close_editor(cx) else {
             return;
         };
-        let name = match editor.name.trim() {
-            "" => "My theme".to_owned(),
-            name => name.to_owned(),
-        };
+        self.theme_note = None;
+        let name = editor.kept_name();
         let custom = &mut cx.themes.custom;
         let saved = editor
             .editing
@@ -294,9 +323,103 @@ impl Settings {
         choose(cx, &id);
     }
 
+    /// The theme in the editor as a file to share, and the name to suggest
+    /// for it: nothing while a colour's field holds no colour, or the
+    /// editor is closed.
+    pub(crate) fn theme_file(&self) -> Option<(String, String)> {
+        let editor = self.editor.as_ref().filter(|editor| editor.valid())?;
+        let name = editor.kept_name();
+        let text = palette::export(&name, editor.base, &editor.theme);
+        Some((palette::file_name(&name), text))
+    }
+
+    /// Asks where to save the theme in the editor.
+    fn export_dialog(&self) -> Task<Message> {
+        let Some((file_name, text)) = self.theme_file() else {
+            return Task::none();
+        };
+        Task::perform(
+            async move {
+                let file = rfd::AsyncFileDialog::new()
+                    .set_title("Export theme")
+                    .set_file_name(file_name)
+                    .add_filter("Yapfast theme", &["json"])
+                    .save_file()
+                    .await?;
+                let result = std::fs::write(file.path(), text).map_err(|error| error.to_string());
+                Some((file.file_name(), result))
+            },
+            |saved| match saved {
+                Some((name, result)) => theme_message(Event::Exported(name, result)),
+                None => Message::Nothing,
+            },
+        )
+    }
+
+    /// Says how writing the theme file went.
+    fn exported(&mut self, name: &str, result: Result<(), String>) {
+        self.theme_note = Some(match result {
+            Ok(()) => (format!("Exported to {name}."), false),
+            Err(error) => {
+                tracing::warn!(%error, "could not write a theme file");
+                (format!("Couldn't save the theme file: {error}"), true)
+            }
+        });
+    }
+
+    /// Keeps the theme in a file among the person's own, and chooses it, or
+    /// says why it can't. Nothing changes while the editor is open: the
+    /// colours the window shows are the edit's.
+    fn import_theme(&mut self, path: &Path, cx: &mut Cx<'_>) {
+        use std::io::Read;
+        if self.editor.is_some() {
+            self.theme_note = Some((
+                "Save or cancel the theme being edited first.".to_owned(),
+                true,
+            ));
+            return;
+        }
+        let mut bytes = Vec::new();
+        let read = std::fs::File::open(path)
+            .and_then(|file| file.take(palette::FILE_LIMIT + 1).read_to_end(&mut bytes));
+        if let Err(error) = read {
+            tracing::warn!(%error, "could not read a theme file");
+            self.theme_note = Some((format!("Couldn't read the file: {error}"), true));
+            return;
+        }
+        let imported = match palette::import(&bytes) {
+            Ok(imported) => imported,
+            Err(error) => {
+                self.theme_note = Some((error.to_string(), true));
+                return;
+            }
+        };
+        let custom = &mut cx.themes.custom;
+        let id = palette::new_id(custom);
+        custom.push(Custom {
+            id: id.clone(),
+            name: imported.name.clone(),
+            base: imported.base,
+            theme: imported.theme,
+        });
+        cx.keep("custom_themes", &cx.themes.custom);
+        choose(cx, &id);
+        let skipped = match imported.skipped {
+            0 => String::new(),
+            1 => " 1 colour in the file isn't a colour, so it uses the base theme's.".to_owned(),
+            skipped => format!(
+                " {skipped} colours in the file aren't colours, so it uses the base theme's."
+            ),
+        };
+        let note = format!("Imported {}.{skipped}", imported.name);
+        self.theme_note = Some((note, false));
+    }
+
     /// Closes the editor and shows the theme from before it opened.
     pub(super) fn cancel_theme(&mut self, cx: &mut Cx<'_>) {
-        self.close_editor(cx);
+        if self.close_editor(cx).is_some() {
+            self.theme_note = None;
+        }
     }
 
     /// Deletes the theme edited; if it was the chosen one, Yap shows.
@@ -311,6 +434,7 @@ impl Settings {
         let Some(editor) = self.close_editor(cx) else {
             return;
         };
+        self.theme_note = None;
         if let Some(id) = editor.editing {
             cx.themes.custom.retain(|custom| custom.id != id);
             cx.keep("custom_themes", &cx.themes.custom);
@@ -319,6 +443,25 @@ impl Settings {
         let id = id.to_owned();
         choose(cx, &id);
     }
+}
+
+/// The system's file dialog for a theme file: `Event::Imported` with it, or
+/// nothing if it's closed.
+fn import_dialog() -> Task<Message> {
+    Task::perform(
+        async {
+            rfd::AsyncFileDialog::new()
+                .set_title("Import theme")
+                .add_filter("Yapfast theme", &["json"])
+                .pick_file()
+                .await
+                .map(|file| file.path().to_owned())
+        },
+        |path| match path {
+            Some(path) => theme_message(Event::Imported(path)),
+            None => Message::Nothing,
+        },
+    )
 }
 
 /// Chooses the theme `id` and keeps the choice, if there's such a theme:
@@ -369,14 +512,26 @@ impl<'a> Page<'a> {
                 .description(description)
                 .view(self.cx.look)
         };
-        form::page([
-            form::title(theme, "Appearance"),
+        let mut parts = vec![form::title(theme, "Appearance")];
+        parts.extend(self.theme_note());
+        parts.extend([
             form::group([
                 form::beside(
                     form::heading(theme, "THEME"),
-                    action(theme, "New theme", Kind::Plain, Some(theme_message(Event::New)))
-                        .small()
-                        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text))),
+                    form::buttons([
+                        action(theme, "Import", Kind::Plain, Some(theme_message(Event::Import)))
+                            .small()
+                            .icon(self.cx.look.icon(
+                                Icon::Folder,
+                                16,
+                                crate::theme::rgb(theme.text),
+                            ))
+                            .into(),
+                        action(theme, "New theme", Kind::Plain, Some(theme_message(Event::New)))
+                            .small()
+                            .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text)))
+                            .into(),
+                    ]),
                 ),
                 tiles,
             ]),
@@ -428,7 +583,19 @@ impl<'a> Page<'a> {
             ]
             .spacing(12)
             .into(),
-        ])
+        ]);
+        form::page(parts)
+    }
+
+    /// How the last theme import or export went, under the title, in the
+    /// danger's ink if it failed.
+    fn theme_note(self) -> Option<Element<'a, Message>> {
+        let (note, wrong) = self.s.theme_note.as_ref()?;
+        let theme = self.cx.look.theme;
+        Some(form::note_in(
+            note.as_str(),
+            if *wrong { theme.danger } else { theme.muted },
+        ))
     }
 
     /// The themes as tiles, as many 150 px or wider across as fit.
@@ -540,43 +707,58 @@ impl<'a> Page<'a> {
         stack![face, placed(pencil, width - 8.0 - 24.0, 8.0 + 78.0 + 6.0)].into()
     }
 
-    /// The editor: the name with Save and Cancel, what a new theme starts
-    /// from, Dark, each colour's field, and Delete for a saved one.
+    /// The editor: the name with Save, Cancel and Export, what a new theme
+    /// starts from, Dark, each colour's field, and Delete for a saved one.
     fn editor_view(self, editor: &'a Editor, starts_open: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let mut parts = vec![
-            form::title(theme, "Appearance"),
-            form::group([
-                form::heading(
+        let mut parts = vec![form::title(theme, "Appearance")];
+        parts.extend(self.theme_note());
+        parts.push(form::group([
+            form::heading(
+                theme,
+                if editor.editing.is_some() {
+                    "EDIT THEME"
+                } else {
+                    "NEW THEME"
+                },
+            ),
+            row![
+                form::field(theme, NAME, "Name", &editor.name)
+                    .on_input(|name| theme_message(Event::Name(name)))
+                    .on_submit(theme_message(Event::Save)),
+                action(
                     theme,
-                    if editor.editing.is_some() {
-                        "EDIT THEME"
-                    } else {
-                        "NEW THEME"
-                    },
+                    "Save",
+                    Kind::Primary,
+                    editor.valid().then(|| theme_message(Event::Save))
                 ),
-                row![
-                    form::field(theme, NAME, "Name", &editor.name)
-                        .on_input(|name| theme_message(Event::Name(name)))
-                        .on_submit(theme_message(Event::Save)),
-                    action(
-                        theme,
-                        "Save",
-                        Kind::Primary,
-                        editor.valid().then(|| theme_message(Event::Save))
-                    ),
-                    action(
-                        theme,
-                        "Cancel",
-                        Kind::Plain,
-                        Some(theme_message(Event::Cancel))
-                    )
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .into(),
-            ]),
-        ];
+                action(
+                    theme,
+                    "Cancel",
+                    Kind::Plain,
+                    Some(theme_message(Event::Cancel))
+                ),
+                action(
+                    theme,
+                    "Export",
+                    Kind::Plain,
+                    editor.valid().then(|| theme_message(Event::Export))
+                )
+                .icon(self.cx.look.icon(
+                    Icon::Download,
+                    16,
+                    // Greyed with the label while a field holds no colour.
+                    crate::theme::rgb(if editor.valid() {
+                        theme.text
+                    } else {
+                        theme.faint
+                    }),
+                ))
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into(),
+        ]));
         if editor.editing.is_none() {
             let names: Vec<String> = palette::starts(&self.cx.themes.custom)
                 .map(|start| start.name.to_owned())

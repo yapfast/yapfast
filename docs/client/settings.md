@@ -86,7 +86,10 @@ recording. Each change is kept at once in
   theme's pencil edits it. A colour's field shows its change at once, or
   says "Not a colour"; Save keeps the theme among the person's own and
   chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Then the system
+  from before, and a saved one's Delete asks once more. Import, beside New
+  theme, and Export, in the editor beside Save and Cancel, open the system's
+  file dialog and share a theme as a file (see [themes](../themes.md#sharing-themes));
+  a line under the title says how it went. Then the system
   title bar's switch, where Yapfast can draw its own, and the profile
   switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
