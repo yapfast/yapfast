@@ -544,6 +544,9 @@ pub struct AppState {
     pub quests: crate::storefront::QuestsPage,
     /// What the Shop screen lists, loaded when it opens.
     pub shop: crate::storefront::ShopPage,
+    /// The boosts the account can give the server whose boost progress is
+    /// open, loaded when it opens.
+    pub boosts: crate::storefront::BoostPage,
     /// The dialog that makes, changes or deletes a Discord channel or
     /// category, while it's open.
     pub channel_dialog: Option<ChannelDialog>,
@@ -1931,10 +1934,18 @@ pub enum Action {
     /// Show a screen of the DM list in place of the conversation.
     OpenDmScreen(DmScreen),
     /// Load the Quests screen's quests again, or the Shop's categories;
-    /// accept a quest that is on offer, by its id.
+    /// accept a quest that is on offer, by its id, or claim the reward of
+    /// a finished one.
     RefreshQuests,
     RefreshShop,
     AcceptQuest(String),
+    ClaimQuest(String),
+    /// Buy a Shop product with Orbs, by its SKU.
+    BuyProduct(String),
+    /// Read the boosts the account can give the Discord server with this id.
+    LoadBoosts(String),
+    /// Give the Discord server with this id one of the account's free boosts.
+    BoostServer(String),
     /// Show Browse Channels for the Discord server navigated to in place
     /// of its conversation.
     BrowseChannels,
@@ -3490,6 +3501,10 @@ impl Application {
             Action::RefreshQuests => self.load_quests(),
             Action::RefreshShop => self.load_shop(),
             Action::AcceptQuest(id) => self.accept_quest(id),
+            Action::ClaimQuest(id) => self.claim_quest(id),
+            Action::BuyProduct(sku) => self.buy_product(sku),
+            Action::LoadBoosts(server) => self.load_boosts(server),
+            Action::BoostServer(server) => self.boost_server(server),
             Action::BrowseChannels => self.open_browse(),
             Action::BrowseFollow { room, follow } => self.browse_follow(room, follow),
             Action::MessagePerson(user) => self.message_person(user),
@@ -4665,6 +4680,11 @@ impl Application {
             } => return self.event_interest_set(event, interested, result),
             Event::QuestsLoaded { result } => return self.quests_loaded(result),
             Event::QuestAccepted { id, result } => return self.quest_accepted(id, result),
+            Event::QuestCaptcha { id, page } => return self.quest_captcha(id, page),
+            Event::QuestClaimed { id, result } => return self.quest_claimed(id, result),
+            Event::ProductBought { sku, result } => return self.product_bought(sku, result),
+            Event::BoostsLoaded { server, result } => return self.boosts_loaded(server, result),
+            Event::ServerBoosted { server, result } => return self.server_boosted(server, result),
             Event::ShopLoaded { result } => return self.shop_loaded(result),
             Event::GiftResolved { code, result } => return self.gift_resolved(code, result),
             Event::GiftRedeemed { code, result } => return self.gift_redeemed(code, result),

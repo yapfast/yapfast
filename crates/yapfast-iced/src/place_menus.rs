@@ -284,12 +284,9 @@ pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Me
         MenuChoice::EditServerProfile => Action::EditServerProfile(place),
         MenuChoice::ServerSettings => Action::OpenServerSettings(place),
         // The dropdown's own: the open server's boost summary, which has
-        // its screen, and Discord's app directory in the browser.
+        // its screen.
         MenuChoice::ServerBoost => {
             return app.boost_goal_event(crate::boost_goal::Event::Open);
-        }
-        MenuChoice::AppDirectory => {
-            return crate::links::follow_link(app, APP_DIRECTORY, Point::ORIGIN);
         }
         MenuChoice::EditChannel => Action::OpenChannelSettings(place),
         MenuChoice::Invite => Action::OpenInvite(place),
@@ -616,21 +613,17 @@ pub fn until(seconds: u64, twelve_hour: bool) -> String {
     }
 }
 
-/// Where Discord lists the apps a server may add.
-const APP_DIRECTORY: &str = "https://discord.com/application-directory";
-
 /// Which group a choice is in, in a server's header's dropdown, as Discord
-/// draws its lines: boosting; inviting, settings, making channels and the
-/// app directory; the channel list and notifications; one's own profile and
-/// hiding muted channels; leaving; the id.
+/// draws its lines: boosting; inviting, settings and making channels; the
+/// channel list and notifications; one's own profile and hiding muted
+/// channels; leaving; the id.
 pub fn header_group(choice: MenuChoice) -> u8 {
     match choice {
         MenuChoice::ServerBoost => 1,
         MenuChoice::Invite
         | MenuChoice::ServerSettings
         | MenuChoice::CreateChannel
-        | MenuChoice::CreateCategory
-        | MenuChoice::AppDirectory => 2,
+        | MenuChoice::CreateCategory => 2,
         MenuChoice::ShowAllChannels | MenuChoice::ServerNotifications => 3,
         MenuChoice::EditServerProfile | MenuChoice::HideMuted => 4,
         MenuChoice::LeaveServer => 5,
@@ -721,7 +714,6 @@ pub fn icon(choice: MenuChoice) -> Icon {
         }
         C::ShowAllChannels | C::AddToChannelList => Icon::Eye,
         C::ServerBoost => Icon::Gem,
-        C::AppDirectory => Icon::Apps,
         C::Block | C::Unblock => Icon::Ban,
         C::Mute | C::ChannelMute | C::MuteServer => Icon::BellOff,
         C::Unmute | C::ChannelNotifications | C::UnmuteServer | C::ServerNotifications => {
@@ -820,6 +812,5 @@ pub fn label(choice: MenuChoice) -> &'static str {
         MenuChoice::EditServerProfile => tr("Edit server profile"),
         MenuChoice::ServerSettings => tr("Server settings"),
         MenuChoice::ServerBoost => tr("Server Boost"),
-        MenuChoice::AppDirectory => tr("App Directory"),
     }
 }

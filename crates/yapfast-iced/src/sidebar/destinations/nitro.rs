@@ -1,6 +1,7 @@
 //! The Nitro screen: what Nitro gives, which plan the account is on, the
 //! boosts it has put into servers, and Free against Nitro side by side.
-//! Subscribing needs Discord's checkout, so its buttons open discord.com.
+//! Subscribing needs Discord's checkout, which Yapfast has none of, so the
+//! one way to start Nitro here is a gift code, redeemed in Yapfast.
 
 use iced::{
     Alignment, Element, Length,
@@ -9,14 +10,13 @@ use iced::{
 };
 use yapfast_core::i18n::{fill, tr};
 
-use super::{GAP, NITRO_URL, NitroTab, columns, fade, frame, grid, handoff, heading, pill, room};
+use super::{Event, GAP, GIFT_CODE, NitroTab, columns, fade, frame, grid, heading, pill, room};
 use crate::{
     app::Message,
-    controls::{Kind, action, bar},
+    controls::{self, Kind, action, bar},
     ctx::Ctx,
     fonts::{BOLD, SEMIBOLD},
     pictures::Icon,
-    settings::Section,
     style::{hex, round, rounded},
 };
 
@@ -69,33 +69,12 @@ fn home<'a>(cx: Ctx<'a>, width: f32) -> Element<'a, Message> {
     if nitro {
         offer = offer.push(pill(cx, tr("Nitro is active on your account")));
     }
-    let main: Element<'a, Message> = if nitro {
-        action(
-            theme,
-            tr("Manage your subscription"),
-            Kind::Plain,
-            Some(Message::Settings(crate::settings::Event::Open(
-                Section::Account,
-            ))),
-        )
-        .into()
-    } else {
-        handoff(cx, tr("Upgrade"), NITRO_URL, Kind::Primary)
-    };
-    offer = offer
-        .push(
-            row![main, handoff(cx, tr("Gift Nitro"), NITRO_URL, Kind::Plain)]
-                .spacing(12)
-                .align_y(Alignment::Center),
-        )
-        .push(
-            text(tr(
-                "Discord Nitro is a subscription that renews itself. You can cancel it any time in your settings.",
-            ))
+    offer = offer.push(redeem(cx)).push(
+        text(tr("Have a gift code or a gift link? Redeem it here."))
             .size(12)
             .color(theme.channel_white)
             .align_x(Horizontal::Center),
-        );
+    );
     let hero = container(offer)
         .padding([48, 24])
         .width(Length::Fill)
@@ -114,6 +93,36 @@ fn home<'a>(cx: Ctx<'a>, width: f32) -> Element<'a, Message> {
         ),
     ]
     .spacing(24)
+    .into()
+}
+
+/// The field for a gift code or a gift link, and its button: Redeem opens
+/// the gift's own dialog, which shows what it grants before it is redeemed.
+/// The button waits for something that reads as a gift.
+fn redeem<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let code = cx.pages.code.as_str();
+    let ready = yapfast_core::yapfast_discord::gift::from_text(code).is_some()
+        && (cx.state.discord_online || cx.state.preview);
+    let mut input = controls::field(theme, GIFT_CODE, tr("Gift code or link"), code, false, true)
+        .size(14)
+        .padding([8, 12])
+        .width(320)
+        .on_input(|code| Message::Pages(Event::Code(code)));
+    if ready {
+        input = input.on_submit(Message::Pages(Event::Redeem));
+    }
+    row![
+        input,
+        action(
+            theme,
+            tr("Redeem"),
+            Kind::Primary,
+            ready.then_some(Message::Pages(Event::Redeem)),
+        ),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center)
     .into()
 }
 
@@ -258,10 +267,7 @@ fn plans<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let nitro = cx.app.discord_nitro();
     let (name, words) = if nitro {
-        (
-            tr("Nitro"),
-            tr("Your account has Nitro. Billing and cancelling are in Settings."),
-        )
+        (tr("Nitro"), tr("Your account has Nitro."))
     } else {
         (
             tr("Free"),
@@ -280,14 +286,12 @@ fn plans<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
         ]
         .spacing(4),
     );
-    let plan = |name: &'static str, words: &'static str, label: &'static str, kind: Kind| {
+    let plan = |name: &'static str, words: &'static str| {
         card(
             cx,
             column![
                 text(name).size(20).font(BOLD).color(theme.text),
                 text(words).size(14).color(theme.secondary),
-                Space::new().height(8),
-                handoff(cx, label, NITRO_URL, kind),
             ]
             .spacing(6)
             .width(Length::Fill),
@@ -299,22 +303,26 @@ fn plans<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
             plan(
                 tr("Nitro Basic"),
                 tr("A lighter plan with custom emoji and bigger uploads."),
-                tr("See Nitro Basic"),
-                Kind::Plain,
             ),
             plan(
                 tr("Nitro"),
                 tr("Every perk, with Server Boosts and a look of your own."),
-                tr("Get Nitro"),
-                Kind::Primary,
             ),
         ]
         .spacing(GAP),
-        text(tr(
-            "Discord shows the price for your country when you subscribe."
-        ))
-        .size(13)
-        .color(theme.secondary),
+        heading(cx, tr("Redeem a gift")),
+        card(
+            cx,
+            column![
+                text(tr(
+                    "Yapfast takes no payments. A gift code or a gift link starts a plan here."
+                ))
+                .size(14)
+                .color(theme.secondary),
+                redeem(cx),
+            ]
+            .spacing(12),
+        ),
     ]
     .spacing(16)
     .into()

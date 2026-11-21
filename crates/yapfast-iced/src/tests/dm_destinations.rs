@@ -1,7 +1,6 @@
 //! The DM sidebar's Nitro, Shop and Quests screens: opened in Yapfast from
 //! the DM navigation rows alongside Friends and Requests, each with its own
-//! tabs; the Quests accepted here, the Shop searched, and the purchase and
-//! the claim handed to discord.com.
+//! tabs; the Quests accepted and claimed here, the Shop searched.
 
 use iced::{Settings, widget::Id};
 use iced_test::Simulator;
@@ -18,7 +17,7 @@ use crate::{
     browser,
     sidebar::{
         self,
-        destinations::{NITRO_URL, NitroTab, QUESTS_URL, QuestTab, SEARCH, SHOP_URL, ShopTab},
+        destinations::{GIFT_CODE, NitroTab, QuestTab, SEARCH, ShopTab},
     },
 };
 
@@ -71,6 +70,16 @@ fn product(sku: &str, name: &str) -> Product {
     }
 }
 
+/// A product that costs Orbs and no money.
+fn orbs_product(sku: &str, name: &str, cost: u64) -> Product {
+    Product {
+        sku: sku.into(),
+        name: name.into(),
+        orbs: Some(cost),
+        ..Product::default()
+    }
+}
+
 /// Discord's answers, as the core holds them once they have come.
 fn stocked(app: &mut App) {
     change(app, |state| {
@@ -93,7 +102,7 @@ fn stocked(app: &mut App) {
                 Category {
                     sku: "c2".into(),
                     name: "Lo-fi vibes".into(),
-                    products: vec![product("p3", "Rain")],
+                    products: vec![orbs_product("p3", "Rain", 400)],
                     ..Category::default()
                 },
             ],
@@ -206,7 +215,7 @@ fn the_quests_screen_lists_discords_quests_and_accepts_one() {
 }
 
 #[test]
-fn a_finished_quest_is_claimed_on_discord_com() {
+fn a_finished_quest_is_claimed_in_yapfast() {
     let (mut app, _folder) = preview();
     dm_home(&mut app);
     stocked(&mut app);
@@ -217,10 +226,11 @@ fn a_finished_quest_is_claimed_on_discord_com() {
     interact(&mut app, |ui| {
         ui.click("Claim reward").expect("the claim button");
     });
-    assert_eq!(
-        browser::take_opened(),
-        [QUESTS_URL],
-        "a claim may ask for a captcha, which only discord.com shows"
+    assert_eq!(app.client.state().quests.claiming, ["q1"]);
+    assert!(shows(&app, "Claiming"), "no second press while it waits");
+    assert!(
+        browser::take_opened().is_empty(),
+        "claiming is asked of Discord by Yapfast, not sent to discord.com"
     );
 }
 
@@ -239,7 +249,7 @@ fn the_quests_screen_says_when_discord_lists_none() {
 }
 
 #[test]
-fn the_shop_shows_categories_searches_and_opens_products_on_discord_com() {
+fn the_shop_shows_categories_searches_and_lists_money_products_without_a_checkout() {
     let (mut app, _folder) = preview();
     dm_home(&mut app);
     stocked(&mut app);
@@ -248,10 +258,12 @@ fn the_shop_shows_categories_searches_and_opens_products_on_discord_com() {
     assert!(shows(&app, "550"), "the account's Orbs");
     assert!(shows(&app, "Palm"));
 
+    // A product priced in money has its price and nothing to press: Yapfast
+    // has no checkout, and nothing sends the reader to discord.com either.
     interact(&mut app, |ui| {
         ui.click("Palm").expect("a product");
     });
-    assert_eq!(browser::take_opened(), [format!("{SHOP_URL}#itemSkuId=p1")]);
+    assert!(browser::take_opened().is_empty());
 
     interact(&mut app, |ui| {
         ui.click("Shop the collection")
@@ -278,6 +290,56 @@ fn the_shop_shows_categories_searches_and_opens_products_on_discord_com() {
 }
 
 #[test]
+fn an_orbs_product_is_bought_in_yapfast_after_a_second_press() {
+    let (mut app, _folder) = preview();
+    dm_home(&mut app);
+    stocked(&mut app);
+    open(&mut app, "Shop");
+    assert!(!shows(&app, "Buy for 400"));
+    interact(&mut app, |ui| {
+        ui.click("Buy").expect("the Buy button of the Orbs product");
+    });
+    assert_eq!(app.pages.confirm.as_deref(), Some("p3"));
+    assert!(
+        app.client.state().shop.buying.is_empty(),
+        "one press buys nothing"
+    );
+    assert!(shows(&app, "Buy for 400"));
+
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(app.pages.confirm, None);
+    assert!(!shows(&app, "Buy for 400"));
+
+    interact(&mut app, |ui| {
+        ui.click("Buy").expect("Buy");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Buy for 400").expect("the confirming press");
+    });
+    assert_eq!(app.pages.confirm, None);
+    assert_eq!(app.client.state().shop.buying, ["p3"]);
+    assert!(shows(&app, "Buying"), "no second purchase while it waits");
+    assert!(
+        browser::take_opened().is_empty(),
+        "buying is asked of Discord by Yapfast, not sent to discord.com"
+    );
+}
+
+#[test]
+fn a_product_costing_more_orbs_than_the_account_has_cannot_be_bought() {
+    let (mut app, _folder) = preview();
+    dm_home(&mut app);
+    stocked(&mut app);
+    change(&mut app, |state| state.shop.orbs = Some(399));
+    open(&mut app, "Shop");
+    assert!(shows(&app, "Not enough Orbs"));
+    assert!(!shows(&app, "Buy"));
+    assert!(app.client.state().shop.buying.is_empty());
+}
+
+#[test]
 fn the_shop_search_says_when_nothing_matches() {
     let (mut app, _folder) = preview();
     dm_home(&mut app);
@@ -291,16 +353,16 @@ fn the_shop_search_says_when_nothing_matches() {
 }
 
 #[test]
-fn the_nitro_screen_has_its_tabs_and_hands_the_checkout_to_discord_com() {
+fn the_nitro_screen_has_its_tabs_and_sends_nobody_to_discord_com() {
     let (mut app, _folder) = preview();
     dm_home(&mut app);
     open(&mut app, "Nitro");
     assert!(shows(&app, "UNLOCK A WORLD OF PERKS WITH NITRO"));
+    // Yapfast has no checkout, so no button here sells or opens a page.
+    for sold in ["Upgrade", "Gift Nitro", "Get Nitro", "See Nitro Basic"] {
+        assert!(!shows(&app, sold), "{sold} has no checkout to open");
+    }
     assert!(browser::take_opened().is_empty());
-    interact(&mut app, |ui| {
-        ui.click("Upgrade").expect("the hero's button");
-    });
-    assert_eq!(browser::take_opened(), [NITRO_URL]);
 
     for (tab, event, heading) in [
         ("Perks", NitroTab::Perks, "In Yapfast"),
@@ -313,5 +375,42 @@ fn the_nitro_screen_has_its_tabs_and_hands_the_checkout_to_discord_com() {
         });
         assert_eq!(app.pages.nitro, event);
         assert!(shows(&app, heading), "{tab} shows {heading}");
+        for sold in ["Upgrade", "Gift Nitro", "Get Nitro", "See Nitro Basic"] {
+            assert!(!shows(&app, sold), "{tab} offers {sold}");
+        }
     }
+    assert!(browser::take_opened().is_empty());
+}
+
+#[test]
+fn a_gift_code_typed_on_the_nitro_screen_opens_its_gift_to_redeem() {
+    let (mut app, _folder) = preview();
+    dm_home(&mut app);
+    change(&mut app, |state| state.discord_online = true);
+    open(&mut app, "Nitro");
+
+    // Something that is no code leaves Redeem without a press.
+    interact(&mut app, |ui| {
+        ui.click(Id::new(GIFT_CODE)).expect("the gift code field");
+        ui.typewrite("nope");
+    });
+    assert_eq!(app.pages.code, "nope");
+    interact(&mut app, |ui| {
+        let _ = ui.click("Redeem");
+    });
+    assert!(app.client.state().gift.is_none());
+
+    // A gift link is read as its code, and its dialog takes over.
+    app.pages.code.clear();
+    interact(&mut app, |ui| {
+        ui.click(Id::new(GIFT_CODE)).expect("the gift code field");
+        ui.typewrite("https://discord.gift/2CG6SV9QtRxerJTgCYNDnU7M");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Redeem").expect("Redeem");
+    });
+    let gift = app.client.state().gift.clone().expect("the gift's dialog");
+    assert_eq!(gift.code, "2CG6SV9QtRxerJTgCYNDnU7M");
+    assert!(app.pages.code.is_empty(), "the field is emptied");
+    assert!(browser::take_opened().is_empty());
 }

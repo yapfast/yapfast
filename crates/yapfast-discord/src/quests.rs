@@ -3,8 +3,8 @@
 //! what it asks (play it for so many minutes, stream it, watch a video) and
 //! what it gives (Orbs, a decoration, a code), and the account's progress
 //! if it was accepted. Their pictures are on the CDN under `quests/{id}/`.
-//! Yapfast lists them and accepts them; progress is made in the game or
-//! the video, which only Discord's own client reports.
+//! Yapfast lists them, accepts them and claims their rewards; progress is
+//! made in the game or the video, which only Discord's own client reports.
 
 use chrono::DateTime;
 use serde_json::Value;
@@ -132,6 +132,23 @@ pub fn parse_claimed(value: &Value) -> Vec<Quest> {
         .as_array()
         .map(|quests| quests.iter().filter_map(claimed).collect())
         .unwrap_or_default()
+}
+
+/// Why Discord didn't give the reward of a quest that was claimed, from its
+/// answer's `errors`; `None` when it gave it.
+pub fn claim_error(answer: &Value) -> Option<String> {
+    let errors = answer["errors"]
+        .as_array()
+        .filter(|errors| !errors.is_empty())?;
+    let words: Vec<&str> = errors
+        .iter()
+        .filter_map(|error| error["message"].as_str().or_else(|| error.as_str()))
+        .collect();
+    Some(if words.is_empty() {
+        "Discord didn't give the reward.".to_owned()
+    } else {
+        words.join(" ")
+    })
 }
 
 /// The address of a quest's picture on the CDN: the first of `names` that
@@ -333,6 +350,25 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_claim_that_gave_nothing_says_why() {
+        assert_eq!(
+            claim_error(&json!({"claimed_at": "2026-11-21", "errors": []})),
+            None
+        );
+        assert_eq!(claim_error(&json!({"claimed_at": "2026-11-21"})), None);
+        assert_eq!(
+            claim_error(
+                &json!({"errors": [{"code": 1, "message": "No address."}, {"message": "Try later."}]})
+            ),
+            Some("No address. Try later.".to_owned())
+        );
+        assert_eq!(
+            claim_error(&json!({"errors": [{"code": 1}]})).as_deref(),
+            Some("Discord didn't give the reward.")
+        );
+    }
 
     fn available() -> Value {
         json!({

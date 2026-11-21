@@ -112,6 +112,12 @@ pub struct QuestsPage {
     pub error: Option<String>,
     /// The quests being accepted, until Discord answers.
     pub accepting: Vec<String>,
+    /// The quests whose rewards are being claimed, until Discord answers,
+    /// which may wait on a captcha.
+    pub claiming: Vec<String>,
+    /// The page with the captcha Discord asked for before a claim, to open
+    /// again if the browser tab was closed.
+    pub captcha: Option<String>,
 }
 
 /// What a product is.
@@ -163,6 +169,37 @@ impl Category {
     }
 }
 
+/// What the account's boosts are doing, for one server.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BoostSlots {
+    /// The boosts that can be given to a server now.
+    pub free: u32,
+    /// The boosts the account has given this server.
+    pub here: u32,
+    /// The boosts the account has given other servers.
+    pub elsewhere: u32,
+    /// The free boosts that are resting after being moved.
+    pub resting: u32,
+}
+
+/// The boosts the account can give, read for the server whose progress is
+/// open, and what giving one came to.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BoostPage {
+    /// The server these answers are for, by its id.
+    pub server: Option<String>,
+    /// What Discord said of the account's boosts.
+    pub slots: Option<BoostSlots>,
+    /// Asked for and not answered.
+    pub loading: bool,
+    /// A boost is being given, until Discord answers.
+    pub applying: bool,
+    /// Why the last asking or giving failed.
+    pub error: Option<String>,
+    /// A boost was given to the server in this run.
+    pub given: bool,
+}
+
 /// The Shop screen's data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ShopPage {
@@ -172,9 +209,24 @@ pub struct ShopPage {
     pub loading: bool,
     pub loaded: bool,
     pub error: Option<String>,
+    /// The products being bought with Orbs, by SKU, until Discord answers.
+    pub buying: Vec<String>,
+    /// The products bought in this run, by SKU.
+    pub bought: Vec<String>,
+    /// Why the last purchase didn't go through.
+    pub refused: Option<String>,
 }
 
 impl ShopPage {
+    /// The Orbs a product costs, if Orbs buy it.
+    pub fn cost(&self, sku: &str) -> Option<u64> {
+        self.categories
+            .iter()
+            .flat_map(|category| &category.products)
+            .find(|product| product.sku == sku)
+            .and_then(|product| product.orbs)
+    }
+
     /// The products whose name or summary holds `query`, in the order the
     /// categories list them; every product for an empty query.
     pub fn search(&self, query: &str) -> Vec<&Product> {

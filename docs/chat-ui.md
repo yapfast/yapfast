@@ -575,8 +575,7 @@ The window follows Discord's arrangement:
   server's menu that Discord's dropdown has, in its order, from the same list
   (`Application::header_choices`), so the two can't disagree: Server Boost
   (the boost summary) first, then invite, settings, create channel and
-  category, the App Directory (Discord's, in the browser), the channel list
-  and notification choices, one's own server profile, hiding muted channels,
+  category, the channel list and notification choices, one's own server profile, hiding muted channels,
   leaving and, with Developer Mode on, Copy server ID, each group under a
   line. It is 220px wide, centred under the header and 3px below it, and a
   word it has no room for ends in "…" (a notification row shows no second

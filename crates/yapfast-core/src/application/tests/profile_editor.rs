@@ -19,7 +19,6 @@ fn a_server_profile_is_edited_as_discords_per_server_profile_editor_does() {
         [
             ServerBoost,
             ServerSettings,
-            AppDirectory,
             ServerNotifications,
             EditServerProfile,
             HideMuted,

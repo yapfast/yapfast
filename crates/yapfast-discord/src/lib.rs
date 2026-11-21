@@ -4,6 +4,7 @@
 pub mod activity;
 pub mod activity_feed;
 pub mod api;
+pub mod boost;
 pub mod cache;
 mod call_connection;
 pub mod call_stats;

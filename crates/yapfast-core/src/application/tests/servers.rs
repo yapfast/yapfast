@@ -374,7 +374,6 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
         [
             ServerBoost,
             ServerSettings,
-            AppDirectory,
             ServerNotifications,
             EditServerProfile,
             HideMuted,
@@ -382,7 +381,7 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
             CopyId
         ],
         "the header's dropdown lists the menu's choices in its own order, \
-         with its boost summary and the app directory"
+         with its boost summary"
     );
     assert!(app.header_choices("discord:10:11").is_empty());
     assert_eq!(

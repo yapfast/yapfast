@@ -137,7 +137,7 @@ pub(crate) fn known_build_number() -> u64 {
 }
 
 /// A random UUID, as the web client makes them, with `cleared` bits unset.
-fn uuid(cleared: u128) -> String {
+pub(crate) fn uuid(cleared: u128) -> String {
     let mut bits = rand::random::<u128>();
     // Version 4, variant 1.
     bits = (bits & !(0xf << 76)) | (0x4 << 76);

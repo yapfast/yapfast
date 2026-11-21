@@ -17,16 +17,16 @@ pub struct ListedCategory {
 }
 
 /// The server menu's choices its header's dropdown lists, in Discord's
-/// order: boosting, then inviting, settings and making channels, the app
-/// directory, the channel list's and notifications' choices, one's own
-/// profile and hiding muted channels, leaving, and copying the id.
-const HEADER: [MenuChoice; 12] = [
+/// order: boosting, then inviting, settings and making channels, the channel
+/// list's and notifications' choices, one's own profile and hiding muted
+/// channels, leaving, and copying the id. Discord's own App Directory row is
+/// left out: it is a web page, which Yapfast doesn't send anyone to.
+const HEADER: [MenuChoice; 11] = [
     MenuChoice::ServerBoost,
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
     MenuChoice::CreateCategory,
-    MenuChoice::AppDirectory,
     MenuChoice::ShowAllChannels,
     MenuChoice::ServerNotifications,
     MenuChoice::EditServerProfile,
@@ -160,10 +160,9 @@ impl Application {
             return vec![];
         }
         let mut offered = self.menu_choices(server);
-        // Its boost summary and Discord's app directory are the
-        // dropdown's own, while Discord is there.
+        // Its boost summary is the dropdown's own, while Discord is there.
         if self.state.discord_online {
-            offered.extend([MenuChoice::ServerBoost, MenuChoice::AppDirectory]);
+            offered.push(MenuChoice::ServerBoost);
         }
         HEADER
             .into_iter()

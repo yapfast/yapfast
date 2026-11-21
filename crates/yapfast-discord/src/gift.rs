@@ -22,6 +22,18 @@ pub(crate) fn code(link: &str) -> Option<String> {
     (8..=32).contains(&code.len()).then_some(code)
 }
 
+/// The gift code in what someone typed or pasted: a gift link
+/// (`discord.gift/{code}`, `discord.com/gifts/{code}`) or the bare code,
+/// with the spaces around it dropped.
+pub fn from_text(text: &str) -> Option<String> {
+    let text = text.trim();
+    match crate::link::parse(text) {
+        Some(crate::link::Route::Gift { code }) => Some(code),
+        Some(_) => None,
+        None => code(text.strip_suffix('.').unwrap_or(text)),
+    }
+}
+
 /// The gift code flags that keep a gift from being redeemed with a click:
 /// it needs a payment source, or it's from a promotion, which Discord's
 /// client redeems only on its promotion page.
@@ -104,6 +116,31 @@ mod tests {
             "store_listing": {"sku": {"id": "521847234246082599", "name": "Nitro"}},
             "subscription_plan": {"id": "642251038925127690", "name": "Nitro Monthly"},
         })
+    }
+
+    #[test]
+    fn reads_a_code_from_what_was_typed() {
+        for text in [
+            "2CG6SV9QtRxerJTgCYNDnU7M",
+            "  2CG6SV9QtRxerJTgCYNDnU7M\n",
+            "2CG6-SV9Q-tRxe-rJTg-CYND-nU7M",
+            "https://discord.gift/2CG6SV9QtRxerJTgCYNDnU7M",
+            "https://discord.com/gifts/2CG6SV9QtRxerJTgCYNDnU7M",
+        ] {
+            assert_eq!(
+                from_text(text).as_deref(),
+                Some("2CG6SV9QtRxerJTgCYNDnU7M"),
+                "{text}"
+            );
+        }
+        for text in [
+            "",
+            "short",
+            "not a code",
+            "https://discord.com/channels/@me",
+        ] {
+            assert_eq!(from_text(text), None, "{text}");
+        }
     }
 
     #[test]

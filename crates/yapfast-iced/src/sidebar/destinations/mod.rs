@@ -1,12 +1,12 @@
 //! The Nitro, Shop and Quests screens on the DM home: opened in Yapfast in
 //! place of a conversation, as Discord's are. The Quests and the Shop list
-//! what Discord offers, with its pictures, and Quests are accepted here;
-//! what needs Discord's own checkout (paying, subscribing, claiming a
-//! reward, which may ask for a captcha) opens discord.com from a button.
+//! what Discord offers, with its pictures, and Quests are accepted and
+//! claimed here and a product that costs Orbs is bought here. Paying money
+//! needs Discord's own checkout, which Yapfast has none of, so nothing sends
+//! the user to discord.com: the Nitro screen redeems a gift code instead.
 
 use iced::{
-    Alignment, Background, Border, Color, Element, Length, Padding, Point, Size, Task, border,
-    gradient,
+    Alignment, Background, Border, Color, Element, Length, Padding, Size, Task, border, gradient,
     widget::{Column, Space, button, container, row, stack, text},
 };
 use yapfast_core::{
@@ -16,7 +16,7 @@ use yapfast_core::{
 
 use crate::{
     app::{App, Message},
-    controls::{self, Kind, action, bar},
+    controls::{self, bar},
     ctx::Ctx,
     fonts::{MEDIUM, SEMIBOLD},
     pictures::Icon,
@@ -28,12 +28,11 @@ mod nitro;
 mod quests;
 mod shop;
 
-pub const NITRO_URL: &str = "https://discord.com/nitro";
-pub const SHOP_URL: &str = "https://discord.com/shop";
-pub const QUESTS_URL: &str = "https://discord.com/discovery/quests";
-
 /// The search field's id in the Shop's header.
 pub const SEARCH: &str = "shop-search";
+
+/// The gift code field's id on the Nitro screen.
+pub const GIFT_CODE: &str = "nitro-gift-code";
 
 /// The room each side of a page, the widest its content gets, and the
 /// room between its cards.
@@ -49,8 +48,13 @@ pub struct Pages {
     pub nitro: NitroTab,
     /// What the Shop's search field holds.
     pub search: String,
+    /// What the Nitro screen's gift code field holds.
+    pub code: String,
     /// The category the Shop's Browse tab shows alone, by its SKU.
     pub category: Option<String>,
+    /// The product whose Buy was pressed once, by its SKU, until it is
+    /// pressed again to confirm or cancelled.
+    pub confirm: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -85,8 +89,18 @@ pub enum Event {
     /// A category of the Shop, shown alone in Browse; `None` shows them all.
     Category(Option<String>),
     Search(String),
+    /// What the Nitro screen's gift code field now holds.
+    Code(String),
+    /// Opens the gift the typed code names, to redeem it.
+    Redeem,
     /// Accepts the quest with this id.
     Accept(String),
+    /// Claims the reward of the finished quest with this id.
+    Claim(String),
+    /// Asks to confirm buying the product with this SKU, or drops it.
+    Confirm(Option<String>),
+    /// Buys the product with this SKU with Orbs.
+    Buy(String),
     /// Asks Discord for the open screen's list again.
     Refresh,
 }
@@ -106,7 +120,20 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Nitro(tab) => app.pages.nitro = tab,
         Event::Search(query) => app.pages.search = query,
+        Event::Code(code) => app.pages.code = code,
+        Event::Redeem => {
+            if let Some(code) = yapfast_core::yapfast_discord::gift::from_text(&app.pages.code) {
+                app.pages.code.clear();
+                app.client.dispatch(Action::OpenGiftLink(code));
+            }
+        }
         Event::Accept(id) => app.client.dispatch(Action::AcceptQuest(id)),
+        Event::Claim(id) => app.client.dispatch(Action::ClaimQuest(id)),
+        Event::Confirm(sku) => app.pages.confirm = sku,
+        Event::Buy(sku) => {
+            app.pages.confirm = None;
+            app.client.dispatch(Action::BuyProduct(sku));
+        }
         Event::Refresh => match crate::friends::dm_screen(app) {
             Some(DmScreen::Quests) => app.client.dispatch(Action::RefreshQuests),
             Some(DmScreen::Shop) => app.client.dispatch(Action::RefreshShop),
@@ -156,14 +183,7 @@ pub fn header<'a>(cx: Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
             .into_iter()
             .map(|(label, tab)| (label, pages.nitro == tab, Event::Nitro(tab)))
             .collect(),
-            action(
-                theme,
-                tr("Gift Nitro"),
-                Kind::Plain,
-                Some(Message::Link(NITRO_URL.into(), Point::ORIGIN)),
-            )
-            .small()
-            .into(),
+            Space::new().into(),
         ),
         DmScreen::Shop => (
             Icon::Shop,
@@ -388,23 +408,6 @@ fn heading<'a>(cx: Ctx<'a>, label: impl text::IntoFragment<'a>) -> Element<'a, M
         .font(SEMIBOLD)
         .color(cx.look.theme.text)
         .into()
-}
-
-/// A button that opens discord.com's page for what only Discord's own
-/// checkout does.
-fn handoff<'a>(
-    cx: Ctx<'a>,
-    label: impl Into<std::borrow::Cow<'a, str>>,
-    url: impl Into<String>,
-    kind: Kind,
-) -> Element<'a, Message> {
-    action(
-        cx.look.theme,
-        label,
-        kind,
-        Some(Message::Link(url.into(), Point::ORIGIN)),
-    )
-    .into()
 }
 
 /// What a screen says while its list loads, or when it can't: the same

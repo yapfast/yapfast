@@ -310,6 +310,11 @@
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
 // /_control/gift-redeems lists each redemption. Gift AbCdEfGhIjKlMnOp needs
 // a payment source.
+// Server Boosts: GET /users/@me/guilds/premium/subscription-slots lists
+// Alice's three boosts (one free, one still resting after a move, one on
+// another server), PUT /guilds/{id}/premium/subscriptions places the free
+// ones named by user_premium_guild_subscription_slot_ids, and GET
+// /_control/boosts lists each placement.
 // Quests and the Shop answer as Discord's pages ask: GET /quests/@me lists
 // three quests (one to accept, one under way, one done), GET
 // /quests/@me/claimed one claimed, POST /quests/{id}/enroll accepts one and
@@ -5176,13 +5181,33 @@ const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
 const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
 /** Each quest Alice accepted, oldest first, for GET /_control/quest-enrollments. */
 const questEnrollments: Record<string, unknown>[] = [];
+/** Each quest reward Alice claimed, oldest first, for GET /_control/quest-claims. */
+const questClaims: Record<string, unknown>[] = [];
 /** The quests' status for Alice by quest id, which accepting one changes. */
 const questStatus = new Map<string, Record<string, unknown> | null>([
   ["9100000000000000001", null],
   ["9100000000000000002", { user_id: "0", quest_id: "9100000000000000002", enrolled_at: "2026-11-19T10:00:00+00:00", completed_at: null, claimed_at: null, progress: { WATCH_VIDEO: { event_name: "WATCH_VIDEO", value: 20 } } }],
   ["9100000000000000003", { user_id: "0", quest_id: "9100000000000000003", enrolled_at: "2026-11-18T10:00:00+00:00", completed_at: "2026-11-19T10:00:00+00:00", claimed_at: null, progress: {} }],
 ]);
+/** Alice's boost slots, which placing one on a server changes. */
+const boostSlots: Record<string, any>[] = [
+  { id: "9300000000000000001", subscription_id: "1", canceled: false, cooldown_ends_at: null, premium_guild_subscription: null },
+  { id: "9300000000000000002", subscription_id: "1", canceled: false, cooldown_ends_at: "2999-01-01T00:00:00+00:00", premium_guild_subscription: null },
+  { id: "9300000000000000003", subscription_id: "1", canceled: false, cooldown_ends_at: null, premium_guild_subscription: { id: "9400000000000000001", guild_id: "1400000000000000999", ended: false } },
+];
+/** Each placement of a boost, oldest first, for GET /_control/boosts. */
+const boostPlacements: Record<string, unknown>[] = [];
 const ORBS = 550;
+/** The Orbs Alice has spent in the Shop, and each purchase, oldest first,
+ *  for GET /_control/orb-purchases. */
+let orbsSpent = 0;
+const orbPurchases: Record<string, unknown>[] = [];
+/** What each Orbs product of the Shop costs, by SKU. */
+const ORB_PRICES = new Map<string, number>([
+  ["9200000000000000021", 1200],
+  ["9200000000000000022", 1800],
+  ["9200000000000000023", 300],
+]);
 function wireQuest(id: string, name: string, game: string, publisher: string, task: string, target: number, reward: Record<string, unknown>) {
   return {
     id,
@@ -8095,6 +8120,20 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     questEnrollments.push({ id, location: body.location ?? null });
     return json(status);
   }
+  // Claiming a finished quest's reward; one not finished is refused in the
+  // answer's errors, as Discord does.
+  if (method === "POST" && (m = path.match(/^\/quests\/(\d+)\/claim-reward$/))) {
+    const id = m[1]!;
+    const status = questStatus.get(id);
+    if (!status) return json({ message: "Unknown Quest", code: 10000 }, 404);
+    const body: any = await req.json().catch(() => ({}));
+    if (!status.completed_at || status.claimed_at) {
+      return json({ claimed_at: null, entitlements: [], errors: [{ code: "QUEST_NOT_COMPLETED", message: "This quest is not finished." }] });
+    }
+    status.claimed_at = new Date().toISOString();
+    questClaims.push({ id, location: body.location ?? null, platform: body.platform ?? null });
+    return json({ claimed_at: status.claimed_at, entitlements: [], errors: [] });
+  }
   // The Shop: categories with products, and Alice's Orbs.
   if (method === "GET" && path === "/collectibles-categories") {
     const money = (amount: number) => ({ amount, currency: "eur", exponent: 2 });
@@ -8122,11 +8161,41 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         products: [
           shopProduct("9200000000000000021", "Cosy Cat", 0, { amount: 1200, currency: "discord_orb", exponent: 0 }, origin),
           shopProduct("9200000000000000022", "Moon Oasis", 1, { amount: 1800, currency: "discord_orb", exponent: 0 }, origin),
+          shopProduct("9200000000000000023", "Tiny Star", 0, { amount: 300, currency: "discord_orb", exponent: 0 }, origin),
         ],
       },
     ]);
   }
-  if (method === "GET" && path === "/users/@me/virtual-currency/balance") return json({ balance: ORBS });
+  if (method === "GET" && path === "/users/@me/virtual-currency/balance") return json({ balance: ORBS - orbsSpent });
+  if (method === "GET" && path === "/users/@me/guilds/premium/subscription-slots") return json(boostSlots);
+  // Placing boosts: only free slots are taken, and each is refused once its
+  // cooldown runs or it is on a server.
+  if (method === "PUT" && (m = path.match(/^\/guilds\/(\d+)\/premium\/subscriptions$/))) {
+    const guild = m[1]!;
+    const body: any = await req.json().catch(() => ({}));
+    const ids: unknown[] = Array.isArray(body.user_premium_guild_subscription_slot_ids) ? body.user_premium_guild_subscription_slot_ids : [];
+    const taken = ids.map((id) => boostSlots.find((slot) => slot.id === id));
+    if (taken.length === 0 || taken.some((slot) => !slot || slot.canceled || slot.premium_guild_subscription || (slot.cooldown_ends_at && Date.parse(slot.cooldown_ends_at) > Date.now()))) {
+      return json({ message: "Invalid Form Body", code: 50035, errors: { user_premium_guild_subscription_slot_ids: { _errors: [{ code: "BASE_TYPE_BAD_LENGTH", message: "Subscription slot is not available." }] } } }, 400);
+    }
+    for (const slot of taken) {
+      slot!.premium_guild_subscription = { id: `${slot!.id}1`, guild_id: guild, ended: false };
+      boostPlacements.push({ guild, slot: slot!.id });
+    }
+    return json(taken.map((slot) => slot!.premium_guild_subscription));
+  }
+  // Buying an Orbs product with Orbs: refused without the Orbs for it, or
+  // for one that Orbs don't buy; nothing is charged in money.
+  if (method === "POST" && (m = path.match(/^\/virtual-currency\/skus\/(\d+)\/redeem$/))) {
+    const sku = m[1]!;
+    const body: any = await req.json().catch(() => ({}));
+    const cost = ORB_PRICES.get(sku);
+    if (cost === undefined) return json({ message: "Unknown SKU", code: 10000 }, 404);
+    if (ORBS - orbsSpent < cost) return json({ message: "Insufficient virtual currency balance", code: 100000 }, 400);
+    orbsSpent += cost;
+    orbPurchases.push({ sku, cost, checkout: typeof body.checkout_session_id === "string" });
+    return json([{ id: `${sku}01`, sku_id: sku, type: 1 }]);
+  }
 
   // Apps' commands, once Alice types "/"; see "Commands" in the header.
   const commandIndex = commandIndexRoute(method, path);
@@ -9967,6 +10036,15 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/quest-enrollments") {
       return Response.json(questEnrollments);
+    }
+    if (req.method === "GET" && path === "/_control/quest-claims") {
+      return Response.json(questClaims);
+    }
+    if (req.method === "GET" && path === "/_control/boosts") {
+      return Response.json(boostPlacements);
+    }
+    if (req.method === "GET" && path === "/_control/orb-purchases") {
+      return Response.json(orbPurchases);
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);

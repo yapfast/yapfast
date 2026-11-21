@@ -1,11 +1,13 @@
 //! The Shop screen: Discord's categories of avatar decorations, profile
 //! effects, nameplates and bundles, with their pictures and prices, in
-//! the tabs Featured, Browse and Orbs Shop, and a search over them.
-//! Paying needs Discord's checkout, so a product opens its page there.
+//! the tabs Featured, Browse and Orbs Shop, and a search over them. A
+//! product that costs Orbs is bought here, after a second press to confirm
+//! it; Yapfast has no checkout for money, so a product priced only in money
+//! is listed with its price and nothing to press.
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Point, Size,
-    widget::{Column, Space, button, column, container, row, stack, text},
+    Alignment, Border, Color, Element, Length, Size,
+    widget::{Column, Space, column, container, row, stack, text},
 };
 use yapfast_core::{
     i18n::{fill, tr},
@@ -13,8 +15,8 @@ use yapfast_core::{
 };
 
 use super::{
-    Event, Pages, SEARCH, SHOP_URL, ShopTab, columns, contain, corners, cover, fade, frame, grid,
-    heading, room, status,
+    Event, Pages, SEARCH, ShopTab, columns, contain, corners, cover, fade, frame, grid, heading,
+    room, status,
 };
 use crate::{
     app::Message,
@@ -130,9 +132,13 @@ pub(super) fn screen<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
             ShopTab::Orbs => orbs(cx, content, page, width),
         };
     }
+    if let Some(refused) = &page.refused {
+        content = content.push(text(refused.as_str()).size(14).color(theme.danger));
+    }
     content = content.push(note(
         cx,
-        tr("Purchases are completed on discord.com. A product opens its page there.").to_owned(),
+        tr("Products that cost Orbs are bought here. Products priced in money are for looking at.")
+            .to_owned(),
     ));
     frame(cx, content.into())
 }
@@ -351,7 +357,8 @@ fn kind_label(kind: ProductKind) -> &'static str {
 }
 
 /// A product's card: its picture, its name and kind, and its price, in
-/// money or in Orbs. Pressing it opens the product on discord.com.
+/// money or in Orbs. One that costs Orbs has a Buy button, which asks to be
+/// pressed again to confirm before it spends them.
 fn card<'a>(cx: Ctx<'a>, product: &'a Product, width: f32, orbs: bool) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let art = contain(
@@ -392,15 +399,67 @@ fn card<'a>(cx: Ctx<'a>, product: &'a Product, width: f32, orbs: bool) -> Elemen
     if !kind.is_empty() {
         words = words.push(text(kind).size(12).color(theme.secondary));
     }
-    button(column![picture, words, price].spacing(8))
+    let mut body = column![picture, words, price].spacing(8);
+    if let Some(cost) = product.orbs {
+        body = body.push(buy(cx, product, cost));
+    }
+    let raised = theme.raised;
+    container(body)
         .padding(12)
         .width(width)
-        .on_press(Message::Link(
-            format!("{SHOP_URL}#itemSkuId={}", product.sku),
-            Point::ORIGIN,
-        ))
-        .style(controls::lit_style(Some(theme.raised), theme.hover, 12.0))
+        .style(move |_| rounded(raised, 12))
         .into()
+}
+
+/// What a product that costs Orbs offers under its price: Buy, then to
+/// confirm or cancel, or what became of the purchase.
+fn buy<'a>(cx: Ctx<'a>, product: &'a Product, cost: u64) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let page = &cx.state.shop;
+    let sku = &product.sku;
+    if page.bought.contains(sku) {
+        return action(theme, tr("Bought"), Kind::Plain, None)
+            .small()
+            .into();
+    }
+    if page.buying.contains(sku) {
+        return action(theme, tr("Buying"), Kind::Primary, None)
+            .small()
+            .into();
+    }
+    if page.orbs.is_some_and(|orbs| orbs < cost) {
+        return action(theme, tr("Not enough Orbs"), Kind::Plain, None)
+            .small()
+            .into();
+    }
+    if cx.pages.confirm.as_deref() == Some(sku.as_str()) {
+        return row![
+            action(
+                theme,
+                fill(tr("Buy for {}"), &[&cost]),
+                Kind::Success,
+                Some(Message::Pages(Event::Buy(sku.clone()))),
+            )
+            .small(),
+            action(
+                theme,
+                tr("Cancel"),
+                Kind::Plain,
+                Some(Message::Pages(Event::Confirm(None))),
+            )
+            .small(),
+        ]
+        .spacing(6)
+        .into();
+    }
+    action(
+        theme,
+        tr("Buy"),
+        Kind::Primary,
+        Some(Message::Pages(Event::Confirm(Some(sku.clone())))),
+    )
+    .small()
+    .into()
 }
 
 /// A category as the wide banner: its picture shaded on the left, its

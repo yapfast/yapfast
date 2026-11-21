@@ -3265,6 +3265,27 @@ impl Discord {
         self.api.enroll_quest(id).await.map(drop)
     }
 
+    /// Claims the reward of the quest `id`, showing each captcha Discord
+    /// asks for first: `captcha` hears its page's address. Discord may
+    /// answer with the errors that kept the reward from being given.
+    pub async fn claim_quest(&self, id: &str, captcha: impl FnMut(&str)) -> Result<()> {
+        let api = &self.api;
+        let answer = crate::captcha::solving(
+            |solved| async move {
+                let solved = solved
+                    .as_ref()
+                    .map(|(captcha, solution)| (captcha, solution.as_str()));
+                api.claim_quest(id, solved).await
+            },
+            captcha,
+        )
+        .await?;
+        match crate::quests::claim_error(&answer) {
+            Some(error) => Err(anyhow!(error)),
+            None => Ok(()),
+        }
+    }
+
     /// The Shop's categories, and this account's Orbs when Discord says
     /// them: the Shop shows without the balance.
     pub async fn shop(&self) -> Result<(Vec<crate::shop::Category>, Option<u64>)> {
@@ -3277,6 +3298,32 @@ impl Discord {
             }
         };
         Ok((categories, orbs))
+    }
+
+    /// The account's boosts as they stand for the server `guild`.
+    pub async fn boost_slots(&self, guild: &str) -> Result<crate::boost::Slots> {
+        let answer = self.api.boost_slots().await?;
+        Ok(crate::boost::slots(&answer, guild, chrono::Utc::now()))
+    }
+
+    /// Gives the server `guild` one of the account's free boosts. Fails
+    /// with a sentence for it when none is free.
+    pub async fn boost_server(&self, guild: &str) -> Result<()> {
+        let slots = self.boost_slots(guild).await?;
+        let slot = slots
+            .free
+            .first()
+            .context("You have no free boost for this server.")?;
+        self.api
+            .boost_guild(guild, std::slice::from_ref(slot))
+            .await?;
+        Ok(())
+    }
+
+    /// Buys the Shop product with this SKU with Orbs; see
+    /// [`Api::buy_with_orbs`].
+    pub async fn buy_with_orbs(&self, sku: &str) -> Result<()> {
+        self.api.buy_with_orbs(sku).await.map(drop)
     }
 
     /// What authorizing the application `request` names would do; see

@@ -3204,9 +3204,30 @@ pub enum DiscordCommand {
     AcceptQuest {
         id: String,
     },
+    /// Claim the reward of the finished quest with this id.
+    /// [`Event::QuestCaptcha`] follows for each captcha Discord asks for
+    /// first, and [`Event::QuestClaimed`] at the end.
+    ClaimQuest {
+        id: String,
+    },
     /// Load the Shop screen's categories and this account's Orbs.
     /// [`Event::ShopLoaded`] follows.
     LoadShop,
+    /// Buy the Shop product with this SKU with Orbs.
+    /// [`Event::ProductBought`] follows.
+    BuyProduct {
+        sku: String,
+    },
+    /// Read the boosts the account can give the Discord server with this
+    /// id. [`Event::BoostsLoaded`] follows.
+    LoadBoosts {
+        server: String,
+    },
+    /// Give the Discord server with this id one of the account's free
+    /// boosts. [`Event::ServerBoosted`] follows.
+    BoostServer {
+        server: String,
+    },
     /// Look up a Discord gift by its code, before offering to redeem
     /// it. [`Event::GiftResolved`] follows.
     ResolveGift {
@@ -4760,6 +4781,36 @@ pub enum Event {
     /// this id, or why it didn't.
     QuestAccepted {
         id: String,
+        result: Result<(), String>,
+    },
+    /// The address of the page with a captcha Discord asked for before
+    /// giving the reward of the quest with this id.
+    QuestCaptcha {
+        id: String,
+        page: String,
+    },
+    /// Whether [`DiscordCommand::ClaimQuest`] claimed the reward of the
+    /// quest with this id, or why it didn't.
+    QuestClaimed {
+        id: String,
+        result: Result<(), String>,
+    },
+    /// Whether [`DiscordCommand::BuyProduct`] bought the product with this
+    /// SKU, or why it didn't.
+    ProductBought {
+        sku: String,
+        result: Result<(), String>,
+    },
+    /// The account's boosts that [`DiscordCommand::LoadBoosts`] read for the
+    /// server, or why Discord showed none.
+    BoostsLoaded {
+        server: String,
+        result: Result<crate::storefront::BoostSlots, String>,
+    },
+    /// Whether [`DiscordCommand::BoostServer`] gave the server a boost, or
+    /// why it didn't.
+    ServerBoosted {
+        server: String,
         result: Result<(), String>,
     },
     /// The Shop's categories and this account's Orbs that

@@ -12,8 +12,8 @@ use yapfast_core::{
 };
 
 use super::{
-    Event, QUESTS_URL, QuestTab, columns, contain, corners, cover, fade, frame, grid, heading,
-    pill, room, status,
+    Event, QuestTab, columns, contain, corners, cover, fade, frame, grid, heading, pill, room,
+    status,
 };
 use crate::{
     app::Message,
@@ -216,13 +216,21 @@ fn actions<'a>(cx: Ctx<'a>, quest: &'a Quest, wide: bool) -> Element<'a, Message
             Kind::Primary,
             None,
         )),
-        // Claiming may ask for a captcha, which only discord.com can show.
-        QuestStatus::Completed => fit(action(
-            theme,
-            tr("Claim reward"),
-            Kind::Success,
-            Some(Message::Link(QUESTS_URL.into(), Point::ORIGIN)),
-        )),
+        // Claiming may ask for a captcha, whose page opens in the browser
+        // and waits there until it is solved.
+        QuestStatus::Completed => {
+            let claiming = cx.state.quests.claiming.contains(&quest.id);
+            fit(action(
+                theme,
+                if claiming {
+                    tr("Claiming")
+                } else {
+                    tr("Claim reward")
+                },
+                Kind::Success,
+                (!claiming).then(|| Message::Pages(Event::Claim(quest.id.clone()))),
+            ))
+        }
         QuestStatus::Claimed => fit(action(theme, tr("Claimed"), Kind::Plain, None)),
     });
     buttons.into()

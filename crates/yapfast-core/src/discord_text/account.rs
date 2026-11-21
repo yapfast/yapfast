@@ -1300,6 +1300,106 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ClaimQuest { id }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let captchas = events.clone();
+                    let shown = id.clone();
+                    let result = discord
+                        .claim_quest(&id, |page| {
+                            let _ = captchas.send(Event::QuestCaptcha {
+                                id: shown.clone(),
+                                page: page.to_owned(),
+                            });
+                        })
+                        .await
+                        .map_err(|error| {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not claim a quest's reward"
+                            );
+                            format!("Couldn't claim the reward: {error}")
+                        });
+                    let _ = events.send(Event::QuestClaimed { id, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::QuestClaimed {
+                    id,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::BuyProduct { sku }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord.buy_with_orbs(&sku).await.map_err(|error| {
+                        tracing::warn!(error = format!("{error:#}"), "could not buy a product");
+                        format!("Couldn't buy it: {error}")
+                    });
+                    let _ = events.send(Event::ProductBought { sku, result });
+                });
+            }
+            Err(error) => {
+                let _ = events.send(Event::ProductBought {
+                    sku,
+                    result: Err(error.into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::LoadBoosts { server }) = command {
+        let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+            let _ = events.send(Event::BoostsLoaded {
+                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                server,
+            });
+            return None;
+        };
+        let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
+        tokio::spawn(async move {
+            let result = discord
+                .boost_slots(&guild)
+                .await
+                .map(|slots| crate::storefront::BoostSlots {
+                    free: slots.free.len() as u32,
+                    here: slots.here,
+                    elsewhere: slots.elsewhere,
+                    resting: slots.resting,
+                })
+                .map_err(|error| {
+                    tracing::warn!(error = format!("{error:#}"), "could not read the boosts");
+                    format!("Couldn't read your boosts: {error}")
+                });
+            let _ = events.send(Event::BoostsLoaded { server, result });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::BoostServer { server }) = command {
+        let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+            let _ = events.send(Event::ServerBoosted {
+                result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                server,
+            });
+            return None;
+        };
+        let (discord, events, guild) = (discord.clone(), events.clone(), guild.to_owned());
+        tokio::spawn(async move {
+            let result = discord.boost_server(&guild).await.map_err(|error| {
+                tracing::warn!(error = format!("{error:#}"), "could not boost a server");
+                format!("Couldn't boost the server: {error}")
+            });
+            let _ = events.send(Event::ServerBoosted { server, result });
+        });
+        return None;
+    }
     if let Command::Discord(DiscordCommand::LoadShop) = command {
         match discord {
             Ok(discord) => {

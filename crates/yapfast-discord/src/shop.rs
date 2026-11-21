@@ -1,8 +1,8 @@
 //! Discord's Shop: collectibles (avatar decorations, profile effects,
 //! nameplates, bundles) in categories, from `GET /collectibles-categories`,
 //! and the account's Orbs from `GET /users/@me/virtual-currency/balance`.
-//! Yapfast lists them with their pictures and prices; paying is done on
-//! discord.com, as a card or Orbs needs Discord's own checkout.
+//! Yapfast lists them with their pictures and prices, and buys those that
+//! cost Orbs; it has no checkout for money.
 
 use serde_json::Value;
 

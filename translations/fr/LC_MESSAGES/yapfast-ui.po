@@ -53,6 +53,10 @@ msgstr "1 h"
 msgid "1 minute"
 msgstr "1 minute"
 
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "1 more boost is resting after it was moved."
+msgstr "1 autre boost est en pause après avoir été déplacé."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "1 week"
 msgstr "1 semaine"
@@ -553,10 +557,6 @@ msgstr "Tout contenu"
 msgid "APP"
 msgstr "APP"
 
-#: crates/yapfast-iced/src/place_menus.rs
-msgid "App Directory"
-msgstr "Répertoire des applications"
-
 #: crates/yapfast-iced/src/settings/mod.rs
 msgid "App Settings"
 msgstr "Paramètres de l'application"
@@ -757,9 +757,17 @@ msgstr "Objectif de boosts"
 msgid "Boost Perks"
 msgstr "Avantages Boost"
 
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "Boost this server"
+msgstr "Booster ce serveur"
+
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "BOOSTER"
 msgstr "BOOSTER"
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "Boosting"
+msgstr "Boost en cours"
 
 #: crates/yapfast-iced/src/server_settings/roles/list.rs
 msgid "BOT"
@@ -768,6 +776,10 @@ msgstr "BOT"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Bot Invite"
 msgstr "Invitation de bot"
+
+#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
+msgid "Bought"
+msgstr "Acheté"
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs
 msgid "Browse"
@@ -780,6 +792,18 @@ msgstr "Parcourir les salons"
 #: crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Bundle"
 msgstr "Pack"
+
+#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
+msgid "Buy"
+msgstr "Acheter"
+
+#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
+msgid "Buy for {}"
+msgstr "Acheter pour {}"
+
+#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
+msgid "Buying"
+msgstr "Achat en cours"
 
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
@@ -809,7 +833,7 @@ msgstr "CAMÉRA"
 msgid "CAMERAS"
 msgstr "CAMÉRAS"
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/search_filters.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
 msgid "Cancel"
 msgstr "Annuler"
 
@@ -1016,6 +1040,10 @@ msgstr "Récupérée"
 #: crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs
 msgid "Claimed Quests"
 msgstr "Quêtes récupérées"
+
+#: crates/yapfast-iced/src/sidebar/destinations/quests.rs
+msgid "Claiming"
+msgstr "Réclamation"
 
 #: crates/yapfast-iced/src/status.rs
 msgid "CLEAR AFTER"
@@ -1553,17 +1581,9 @@ msgstr "Discord envoie un code à votre téléphone."
 msgid "Discord lists nothing to buy for your account at the moment."
 msgstr "Discord ne propose rien à acheter pour votre compte pour le moment."
 
-#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Discord Nitro is a subscription that renews itself. You can cancel it any time in your settings."
-msgstr "Discord Nitro est un abonnement qui se renouvelle automatiquement. Vous pouvez le résilier à tout moment dans vos paramètres."
-
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Discord shows"
 msgstr "Discord affiche"
-
-#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Discord shows the price for your country when you subscribe."
-msgstr "Discord affiche le prix pour votre pays au moment de vous abonner."
 
 #: crates/yapfast-iced/src/composer.rs
 msgid "Discord thinks {} may be spam"
@@ -1629,7 +1649,7 @@ msgstr "Ne plus demander"
 msgid "Don't delete any"
 msgstr "Ne rien supprimer"
 
-#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/moderation.rs
+#: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Done"
 msgstr "Terminé"
 
@@ -2213,10 +2233,6 @@ msgstr "Gaming"
 msgid "Generate a new link"
 msgstr "Générer un nouveau lien"
 
-#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Get Nitro"
-msgstr "Obtenir Nitro"
-
 #: crates/yapfast-iced/src/settings/pages/about.rs
 msgid "Get the newest features before release. Expect some bugs."
 msgstr "Obtenez les dernières fonctionnalités avant leur sortie. Attendez-vous à quelques bugs."
@@ -2241,9 +2257,9 @@ msgstr "GIF"
 msgid "Gift"
 msgstr "Cadeau"
 
-#: crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Gift Nitro"
-msgstr "Offrir Nitro"
+#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
+msgid "Gift code or link"
+msgstr "Code cadeau ou lien"
 
 #: crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Glow"
@@ -2304,6 +2320,10 @@ msgstr "Accélération matérielle. Désactivée, Yapfast dessine avec le proces
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "Has"
 msgstr "Contient"
+
+#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
+msgid "Have a gift code or a gift link? Redeem it here."
+msgstr "Tu as un code cadeau ou un lien cadeau ? Utilise-le ici."
 
 #: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
 msgid "Headbang"
@@ -3011,10 +3031,6 @@ msgstr "Gérer les membres ({})"
 msgid "Manage Privacy"
 msgstr "Gérer la confidentialité"
 
-#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Manage your subscription"
-msgstr "Gérer votre abonnement"
-
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Manual Verification"
 msgstr "Vérification manuelle"
@@ -3715,6 +3731,10 @@ msgstr "Tous les membres ne sont pas affichés, utilisez la recherche pour trouv
 msgid "Not available yet."
 msgstr "Pas encore disponible."
 
+#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
+msgid "Not enough Orbs"
+msgstr "Pas assez d'Orbs"
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Not sending"
 msgstr "N'envoie pas"
@@ -4263,6 +4283,10 @@ msgstr "Serveur privé"
 msgid "Private Thread"
 msgstr "Fil privé"
 
+#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
+msgid "Products that cost Orbs are bought here. Products priced in money are for looking at."
+msgstr "Les produits qui coûtent des Orbs s'achètent ici. Les produits au prix en argent sont à regarder seulement."
+
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Profile"
 msgstr "Profil"
@@ -4298,10 +4322,6 @@ msgstr "Les pronoms peuvent comporter jusqu'à {} caractères."
 #: crates/yapfast-iced/src/header_popovers.rs crates/yapfast-iced/src/switcher.rs
 msgid "Protip:"
 msgstr "Astuce :"
-
-#: crates/yapfast-iced/src/sidebar/destinations/shop.rs
-msgid "Purchases are completed on discord.com. A product opens its page there."
-msgstr "Les achats se terminent sur discord.com. Un produit y ouvre sa page."
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Push to talk"
@@ -4347,6 +4367,10 @@ msgstr "Réactions"
 msgid "Reading the picture..."
 msgstr "Lecture de l'image..."
 
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "Reading your boosts..."
+msgstr "Lecture de tes boosts..."
+
 #: crates/yapfast-iced/src/profile/editor/card.rs
 msgid "Reading..."
 msgstr "Lecture..."
@@ -4390,6 +4414,14 @@ msgstr "Récupérer"
 #: crates/yapfast-iced/src/signin.rs
 msgid "Recovery key"
 msgstr "Clé de récupération"
+
+#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
+msgid "Redeem"
+msgstr "Utiliser"
+
+#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
+msgid "Redeem a gift"
+msgstr "Utiliser un cadeau"
 
 #: crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Refresh"
@@ -4563,7 +4595,7 @@ msgstr "Restaurer"
 msgid "Results for {}"
 msgstr "Résultats pour {}"
 
-#: crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
+#: crates/yapfast-iced/src/boost_goal.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/sidebar/destinations/mod.rs crates/yapfast-iced/src/sidebar/destinations/quests.rs crates/yapfast-iced/src/sidebar/destinations/shop.rs
 msgid "Retry"
 msgstr "Réessayer"
 
@@ -4802,10 +4834,6 @@ msgstr "Connexion sécurisée"
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Security Actions"
 msgstr "Actions de sécurité"
-
-#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "See Nitro Basic"
-msgstr "Voir Nitro Basic"
 
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "See {} more"
@@ -6159,10 +6187,6 @@ msgstr "La recherche de mises à jour est désactivée."
 msgid "UPDATES"
 msgstr "MISES À JOUR"
 
-#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Upgrade"
-msgstr "Passer à Nitro"
-
 #: crates/yapfast-iced/src/profile/editor/card.rs
 msgid "Upgrade Nitro"
 msgstr "Améliorer Nitro"
@@ -6645,6 +6669,10 @@ msgstr "Yapfast passe au GPU au redémarrage. Le redémarrage quitte tout appel 
 msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
 msgstr "Yapfast passe au processeur au redémarrage. Le redémarrage quitte tout appel en cours."
 
+#: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
+msgid "Yapfast takes no payments. A gift code or a gift link starts a plan here."
+msgstr "Yapfast n'accepte aucun paiement. Un code cadeau ou un lien cadeau lance un abonnement ici."
+
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "Yapfast theme"
 msgstr "Thème Yapfast"
@@ -6664,6 +6692,14 @@ msgstr "Année-Mois-Jour"
 #: crates/yapfast-core/src/clock.rs
 msgid "Yesterday at {time}"
 msgstr "Hier à {time}"
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "You boost this server with 1 boost."
+msgstr "Tu boostes ce serveur avec 1 boost."
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "You boost this server with {} boosts."
+msgstr "Tu boostes ce serveur avec {} boosts."
 
 #: crates/yapfast-iced/src/uploads.rs
 msgid "You can add comments before uploading."
@@ -6719,9 +6755,25 @@ msgstr "Vous n'avez aucun ami en commun"
 msgid "You don't have any servers in common"
 msgstr "Vous n'avez aucun serveur en commun"
 
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "You have 1 boost to give."
+msgstr "Tu as 1 boost à donner."
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "You have no boosts to give. Boosts come with Nitro."
+msgstr "Tu n'as aucun boost à donner. Les boosts viennent avec Nitro."
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "You have no free boost to give."
+msgstr "Tu n'as aucun boost libre à donner."
+
 #: crates/yapfast-iced/src/search_filters.rs
 msgid "You have reached the maximum length for a search query."
 msgstr "Vous avez atteint la longueur maximale d'une requête de recherche."
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "You have {} boosts to give."
+msgstr "Tu as {} boosts à donner."
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "You haven't banned anybody...\nbut if and when you must, do not hesitate!"
@@ -6800,12 +6852,20 @@ msgid "You've been invited to join a server"
 msgstr "Vous avez été invité à rejoindre un serveur"
 
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
-msgid "Your account has Nitro. Billing and cancelling are in Settings."
-msgstr "Votre compte a Nitro. La facturation et la résiliation se trouvent dans les paramètres."
+msgid "Your account has Nitro."
+msgstr "Ton compte a Nitro."
 
 #: crates/yapfast-iced/src/sidebar/destinations/nitro.rs
 msgid "Your account has no Nitro. The plans below add perks."
 msgstr "Votre compte n'a pas Nitro. Les formules ci-dessous ajoutent des avantages."
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "Your boost was added."
+msgstr "Ton boost a été ajouté."
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "YOUR BOOSTS"
+msgstr "TES BOOSTS"
 
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Your camera is off."
@@ -7196,6 +7256,10 @@ msgstr "Encore {} min"
 #: crates/yapfast-iced/src/sidebar/destinations/mod.rs
 msgid "{} minutes"
 msgstr "{} minutes"
+
+#: crates/yapfast-iced/src/boost_goal.rs
+msgid "{} more boosts are resting after they were moved."
+msgstr "{} autres boosts sont en pause après avoir été déplacés."
 
 #: crates/yapfast-iced/src/timeline/view.rs
 msgid "{} new message"

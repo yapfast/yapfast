@@ -766,10 +766,55 @@ impl Api {
             .await
     }
 
+    /// Claims the reward of a finished quest, as Quest Home does: `{claimed_at,
+    /// entitlements, errors}`. Discord may ask for a [`Captcha`] first, whose
+    /// solution goes with the next try.
+    pub async fn claim_quest(&self, id: &str, solved: Option<(&Captcha, &str)>) -> Result<Value> {
+        let path = format!("/quests/{}/claim-reward", encode(id));
+        let body = json!({
+            "location": crate::quests::QUEST_HOME_DESKTOP,
+            // Cross platform: the reward isn't tied to a console.
+            "platform": 0,
+            "is_targeted": false,
+        });
+        let mut request = with_json(self.request(Method::POST, &path), &body);
+        if let Some((captcha, solution)) = solved {
+            for (name, value) in captcha.headers(solution) {
+                request = request.header(name, value);
+            }
+        }
+        self.json(request).await
+    }
+
     /// The Shop's collectible categories with their products, bundles
     /// among them: a list of categories.
     pub async fn collectibles_categories(&self) -> Result<Value> {
         self.json(self.request(Method::GET, "/collectibles-categories?include_bundles=true"))
+            .await
+    }
+
+    /// Buys a Shop product with Orbs, as the checkout does when the account
+    /// pays with them: the entitlements it now has. Nothing is charged in
+    /// money, and Discord refuses when the Orbs fall short.
+    pub async fn buy_with_orbs(&self, sku: &str) -> Result<Value> {
+        let path = format!("/virtual-currency/skus/{}/redeem", encode(sku));
+        let body = json!({"checkout_session_id": crate::client::uuid(0)});
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// The boosts this account has, as slots, whether placed or free; see
+    /// [`crate::boost::slots`].
+    pub async fn boost_slots(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/users/@me/guilds/premium/subscription-slots"))
+            .await
+    }
+
+    /// Gives the server `guild` the boosts of these slots.
+    pub async fn boost_guild(&self, guild: &str, slots: &[String]) -> Result<Value> {
+        let path = format!("/guilds/{}/premium/subscriptions", encode(guild));
+        let body = json!({"user_premium_guild_subscription_slot_ids": slots});
+        self.json(with_json(self.request(Method::PUT, &path), &body))
             .await
     }
 

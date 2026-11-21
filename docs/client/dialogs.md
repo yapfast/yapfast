@@ -107,15 +107,16 @@ summary (`boost_goal.rs`), with the current server's name, reported level,
 reported boost total, a meter comparing that total with the next standard
 threshold, and the three thresholds. These are comparisons of totals, not
 claims about perk allocations. Server members can view it without management
-permissions; only Discord's own management flow changes allocations.
+permissions. Under it, YOUR BOOSTS says how many boosts the account can give
+and offers **Boost this server** when it has a free one (see the server
+header's section in `discord/servers.md`).
 
 The screen holds only a server id and reads the shared state on each view.
 Updates appear while it stays open. A hidden count, offline connection,
 unavailable or missing server, or unknown tier has an explicit unavailable
-state. Purchase and management guide always opens Discord's official
-boosting guide in the browser, including when data is unavailable.
+state, with Done still there to close it. Nothing in it opens a browser.
 
 Close, Done, Escape and a click on the backdrop close it. Navigating away
 or closing the window drops it too. The frame scrolls in a short window.
-The fixture tests in `tests/boost_goal.rs` cover these paths and the exact
-external link without opening a browser or changing an account.
+The fixture tests in `tests/boost_goal.rs` cover these paths and what is
+sent to Discord without opening a browser or changing an account.
