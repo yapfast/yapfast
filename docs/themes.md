@@ -225,6 +225,10 @@ the `pressed` picture shows and the glyph moves down `travel` pixels (2 when
 left out, at most 6); a key without a `pressed` picture moves down with it.
 Bubblegum's candy keys are drawn this way, so they go down when pressed
 rather than lying painted on the composer.
+A surface's ground and art take the same round corner as the border round
+it: a rim picture's own outer arc (measured from the picture, stretched with
+it), the corners it shares with a rounded floating pane, or its own radius;
+a picture that overhangs the surface is cut to its box with those corners.
 
 Chrome label substitutions, prefix/suffix marks and time marks are applied to
 ordinary navigation, timeline and composer labels (IRC times and authors

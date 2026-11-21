@@ -379,6 +379,10 @@ pub struct ArtLayer {
     /// its edges inked (Bubblegum's plum rim). It's drawn over what's in
     /// the surface, as its border is, so scrolled content passes under it.
     pub rim: bool,
+    /// A rim's outer corner radius, in the picture's pixels: what's under
+    /// it (the surface's ground and its other art) is cut to the same
+    /// round corner, so nothing shows past the rim's arc.
+    pub rim_radius: f32,
 }
 
 #[derive(Clone)]
@@ -2813,6 +2817,7 @@ fn art_layer(
         let alpha = |x: u32, y: u32| picture.get_pixel(x.min(w - 1), y.min(h - 1)).0[3];
         w > 8 && h > 8 && alpha(w / 2, h / 2) == 0 && alpha(0, h / 2) > 200 && alpha(w / 2, 0) > 200
     };
+    let rim_radius = if rim { rim_corner(&picture) } else { 0.0 };
     let corners = if pin.is_some() {
         tape_strips(&picture)
     } else {
@@ -2841,7 +2846,31 @@ fn art_layer(
         pin,
         corners,
         rim,
+        rim_radius,
     })
+}
+
+/// The outer corner radius of a rim picture, in its pixels: the largest of
+/// its four corners, each found where its diagonal first meets ink (a
+/// round corner of radius r leaves r(1 - 1/√2) clear along it), and a
+/// pixel more for the arc's soft edge.
+fn rim_corner(picture: &image::RgbaImage) -> f32 {
+    let (w, h) = picture.dimensions();
+    let reach = w.min(h) / 2;
+    let corner = |flip_x: bool, flip_y: bool| {
+        (0..reach)
+            .find(|&d| {
+                let x = if flip_x { w - 1 - d } else { d };
+                let y = if flip_y { h - 1 - d } else { d };
+                picture.get_pixel(x, y).0[3] > 24
+            })
+            .map_or(0.0, |d| d as f32 / (1.0 - std::f32::consts::FRAC_1_SQRT_2))
+    };
+    let most = [(false, false), (true, false), (true, true), (false, true)]
+        .into_iter()
+        .map(|(x, y)| corner(x, y))
+        .fold(0.0f32, f32::max);
+    if most > 0.0 { most + 1.0 } else { 0.0 }
 }
 
 /// See [`ArtLayer::pin`].

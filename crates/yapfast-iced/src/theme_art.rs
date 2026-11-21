@@ -1657,6 +1657,9 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
         let bounds = layout.bounds();
         let elapsed = clock_seconds(tree);
         let pins = self.pins;
+        // Under a rim, every other layer is cut to the rim's round corner,
+        // so nothing (an LCD grid) shows past its arc.
+        let rim = rim_round(self.layers, bounds);
         renderer.with_layer(bounds, |renderer| {
             for art in self.layers {
                 if art.pin.is_some() || pins == Pins::Only {
@@ -1684,14 +1687,15 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                     // past a bubble's or a card's round corners.
                     let radii = {
                         let most = bounds.width.min(bounds.height) / 2.0;
-                        if self.round.0 <= 0.0 {
-                            [0.0; 4]
-                        } else if self.round.1 {
-                            [self.round.0; 4]
+                        // Inside a rounded pane a surface without corners of
+                        // its own still takes the corners it shares with it.
+                        let declared = if self.round.1 {
+                            [self.round.0.max(0.0); 4]
                         } else {
-                            crate::widgets::pane_radii(bounds, self.round.0)
-                        }
-                        .map(|radius| radius.min(most))
+                            crate::widgets::pane_radii(bounds, self.round.0.max(0.0))
+                        };
+                        with_rim(declared, rim)
+                            .map(|radius| radius.min(most))
                     };
                     if radii.iter().any(|radius| *radius > 0.0)
                         && drift == Vector::new(0.0, 0.0)
@@ -1766,14 +1770,33 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                     && (at.width - bounds.width).abs() < 0.5
                     && (at.height - bounds.height).abs() < 0.5;
                 let most = bounds.width.min(bounds.height) / 2.0;
-                let radii = if !fills || (self.round.1 && self.round.0 <= 0.0) {
+                let radii = if art.rim {
                     [0.0; 4]
                 } else if self.round.1 {
-                    [self.round.0; 4]
+                    [self.round.0.max(rim); 4]
                 } else {
-                    crate::widgets::pane_radii(bounds, self.round.0)
+                    with_rim(crate::widgets::pane_radii(bounds, self.round.0.max(0.0)), rim)
                 }
                 .map(|radius| radius.min(most));
+                // A still picture that overhangs a round-cornered surface
+                // is cut to the surface's box once and drawn with its
+                // corners; a smaller one, inside the box, is drawn as it is.
+                let overhangs = !fills
+                    && (at.x < bounds.x - 0.5
+                        || at.y < bounds.y - 0.5
+                        || at.x + at.width > bounds.x + bounds.width + 0.5
+                        || at.y + at.height > bounds.y + bounds.height + 0.5);
+                if overhangs
+                    && radii.iter().any(|radius| *radius > 0.0)
+                    && drift == Vector::new(0.0, 0.0)
+                    && art.frames.is_empty()
+                    && art.sheet.is_none()
+                    && let Some(whole) = fitted_whole(&art.handle, at, bounds)
+                {
+                    crate::widgets::draw_picture(renderer, &whole, bounds, radii, art.layer.opacity);
+                    continue;
+                }
+                let radii = if fills { radii } else { [0.0; 4] };
                 draw(renderer, art, at, elapsed, runs, radii);
             }
         });
@@ -1915,6 +1938,65 @@ fn tiled_whole(
     })
 }
 
+thread_local! {
+    /// Pictures laid larger than their surface (`cover`), cut to its box
+    /// once per size so they can be drawn with its round corners.
+    static FITTED: std::cell::RefCell<std::collections::HashMap<(u64, [i32; 4], [i32; 4]), iced::advanced::image::Handle>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// `picture` drawn at `at` and seen through `bounds`, as one picture of the
+/// bounds' whole pixels: a layer that overhangs its surface, made into one
+/// that fills it exactly, so it takes the surface's round corners rather
+/// than showing past them.
+fn fitted_whole(
+    picture: &iced::advanced::image::Handle,
+    at: Rectangle,
+    bounds: Rectangle,
+) -> Option<iced::advanced::image::Handle> {
+    let iced::advanced::image::Handle::Rgba {
+        width: pw,
+        height: ph,
+        pixels,
+        ..
+    } = picture
+    else {
+        return None;
+    };
+    let (w, h) = (bounds.width.round() as u32, bounds.height.round() as u32);
+    let (aw, ah) = (at.width.round() as u32, at.height.round() as u32);
+    if *pw == 0 || *ph == 0 || w == 0 || h == 0 || w > 4096 || h > 4096 || aw > 8192 || ah > 8192 {
+        return None;
+    }
+    let id = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        picture.id().hash(&mut hasher);
+        hasher.finish()
+    };
+    let round = |r: Rectangle| {
+        [r.x.round() as i32, r.y.round() as i32, r.width.round() as i32, r.height.round() as i32]
+    };
+    let key = (id, round(at), round(bounds));
+    FITTED.with_borrow_mut(|kept| {
+        if let Some(found) = kept.get(&key) {
+            return Some(found.clone());
+        }
+        let source = image::RgbaImage::from_raw(*pw, *ph, pixels.to_vec())?;
+        let scaled = image::imageops::resize(&source, aw.max(1), ah.max(1), image::imageops::FilterType::Triangle);
+        let mut out = image::RgbaImage::new(w, h);
+        let dx = (at.x - bounds.x).round() as i64;
+        let dy = (at.y - bounds.y).round() as i64;
+        image::imageops::overlay(&mut out, &scaled, dx, dy);
+        if kept.len() >= TILED_KEPT {
+            kept.clear();
+        }
+        let handle = iced::advanced::image::Handle::from_rgba(w, h, out.into_raw());
+        kept.insert(key, handle.clone());
+        Some(handle)
+    })
+}
+
 fn draw(
     renderer: &mut iced::Renderer,
     art: &ArtLayer,
@@ -2028,14 +2110,97 @@ impl<M> Widget<M, Theme, iced::Renderer> for Glass<'_> {
 }
 
 /// A surface's solid ground, rounded where it meets the pane it's in.
-struct PaneGround {
+/// A fill at `stock` corners that also rounds the corners it shares with
+/// the rounded pane it's drawn in, as the pane's ground does: a shade over
+/// a server's banner at the top of a theme's floating list.
+pub fn pane_fill<'a, M: 'a>(background: Background, stock: [f32; 4]) -> Element<'a, M> {
+    Element::new(PaneFill { background, stock })
+}
+
+struct PaneFill {
+    background: Background,
+    stock: [f32; 4],
+}
+
+impl<M> Widget<M, Theme, iced::Renderer> for PaneFill {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut Tree,
+        _renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::Node::new(limits.max())
+    }
+
+    fn draw(
+        &self,
+        _tree: &Tree,
+        renderer: &mut iced::Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _viewport: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let bounds = layout.bounds();
+        let most = bounds.width.min(bounds.height) / 2.0;
+        let pane = crate::widgets::pane_radii(bounds, 0.0);
+        let [top_left, top_right, bottom_right, bottom_left] =
+            std::array::from_fn(|corner| self.stock[corner].max(pane[corner]).min(most));
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: iced::Border {
+                    radius: iced::border::Radius {
+                        top_left,
+                        top_right,
+                        bottom_right,
+                        bottom_left,
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            self.background,
+        );
+    }
+}
+
+/// The round corner a surface's rim draws at `bounds`: its picture's
+/// outer corner stretched with it (the lesser stretch, as the arc shrinks
+/// with the narrower side), 0 without a rim.
+fn rim_round(layers: &[ArtLayer], bounds: Rectangle) -> f32 {
+    layers
+        .iter()
+        .filter(|art| art.rim && art.rim_radius > 0.0)
+        .map(|art| {
+            let across = bounds.width / art.width.max(1) as f32;
+            let down = bounds.height / art.height.max(1) as f32;
+            art.rim_radius * across.min(down)
+        })
+        .fold(0.0, f32::max)
+}
+
+/// `radii`, each corner at least `rim` (a rim rounds all four).
+fn with_rim(radii: [f32; 4], rim: f32) -> [f32; 4] {
+    radii.map(|radius| radius.max(rim))
+}
+
+struct PaneGround<'a> {
+    /// The surface's art, whose rim (if any) its corners follow.
+    layers: &'a [ArtLayer],
     background: Background,
     radius: f32,
     /// Rounds all its corners wherever it is: it floats over the pane.
     own: bool,
 }
 
-impl<M> Widget<M, Theme, iced::Renderer> for PaneGround {
+impl<M> Widget<M, Theme, iced::Renderer> for PaneGround<'_> {
     fn size(&self) -> Size<Length> {
         Size::new(Length::Fill, Length::Fill)
     }
@@ -2068,6 +2233,7 @@ impl<M> Widget<M, Theme, iced::Renderer> for PaneGround {
         } else {
             crate::widgets::pane_radii(bounds, self.radius)
         };
+        let radii = with_rim(radii, rim_round(self.layers, bounds));
         let [top_left, top_right, bottom_right, bottom_left] = radii.map(|radius| radius.min(most));
         renderer.fill_quad(
             renderer::Quad {
@@ -2088,8 +2254,8 @@ impl<M> Widget<M, Theme, iced::Renderer> for PaneGround {
     }
 }
 
-impl<'a, M: 'a> From<PaneGround> for Element<'a, M> {
-    fn from(ground: PaneGround) -> Self {
+impl<'a, M: 'a> From<PaneGround<'a>> for Element<'a, M> {
+    fn from(ground: PaneGround<'a>) -> Self {
         Element::new(ground)
     }
 }
@@ -2761,12 +2927,27 @@ impl<M> Widget<M, Theme, iced::Renderer> for TopLeftEdges {
     ) {
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
-        // The right and bottom edges reach past the pane and are cut off.
-        let reach = self.width + self.radius + 1.0;
+        // The right and bottom edges reach past the pane and are cut off,
+        // except where the sidebar is a rounded pane of its own (a glass
+        // gap): there the edges follow the pane's corners, so the top line
+        // bends down at its round corner instead of running past it.
+        let pane = crate::widgets::pane_radii(bounds, 0.0);
+        let reach = self.width + self.radius.max(pane[0]) + 1.0;
+        let right = pane[1] > 0.0 || pane[2] > 0.0;
+        let bottom = pane[2] > 0.0 || pane[3] > 0.0;
         let ring = Rectangle::new(
             bounds.position(),
-            Size::new(bounds.width + reach, bounds.height + reach),
+            Size::new(
+                bounds.width + if right { 0.0 } else { reach },
+                bounds.height + if bottom { 0.0 } else { reach },
+            ),
         );
+        let radius = iced::border::Radius {
+            top_left: self.radius.max(pane[0]),
+            top_right: if right { pane[1] } else { self.radius },
+            bottom_right: if right && bottom { pane[2] } else { self.radius },
+            bottom_left: if bottom { pane[3] } else { self.radius },
+        };
         renderer.with_layer(bounds, |renderer| {
             renderer.fill_quad(
                 renderer::Quad {
@@ -2774,7 +2955,7 @@ impl<M> Widget<M, Theme, iced::Renderer> for TopLeftEdges {
                     border: iced::Border {
                         color: self.colour,
                         width: self.width,
-                        radius: self.radius.into(),
+                        radius,
                     },
                     ..Default::default()
                 },
@@ -3285,6 +3466,7 @@ pub fn surface<'a>(
     // corners round, whatever pane it sits in.
     let floats = matches!(surface, ArtSurface::Actions | ArtSurface::Account);
     let base = PaneGround {
+        layers,
         own: floats,
         background,
         radius: if ctx.look.theme.packaged() {

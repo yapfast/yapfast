@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, faded, rounded},
+    style::{faded, rounded},
     widgets::Pic,
 };
 
@@ -106,6 +106,7 @@ impl<'a> super::View<'a> {
                     iced::Size::new(size.width.min(width), height),
                 )
                 .radius_each([12.0, 0.0, 0.0, 0.0])
+                .pane_corners()
                 .into()
             }));
         }
@@ -117,14 +118,9 @@ impl<'a> super::View<'a> {
         );
         layers = layers
             .push(
-                container(Space::new())
+                container(crate::theme_art::pane_fill(shade, [12.0, 0.0, 0.0, 0.0]))
                     .width(Length::Fill)
-                    .height(HEADER)
-                    .style(move |_| container::Style {
-                        background: Some(shade),
-                        border: crate::style::round(corners([12.0, 0.0, 0.0, 0.0])),
-                        ..Default::default()
-                    }),
+                    .height(HEADER),
             )
             .push(bar_);
         layers.width(Length::Fill).height(height).into()

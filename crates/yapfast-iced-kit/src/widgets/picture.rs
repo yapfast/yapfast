@@ -20,6 +20,10 @@ pub struct Pic {
     opacity: f32,
     /// Degrees it turns about its centre, as a theme's leaning tile.
     turn: f32,
+    /// Rounds, besides `radius`, the corners it shares with the rounded
+    /// pane it's drawn in (a theme's floating pane), so it never shows
+    /// past the pane's arc.
+    pane: bool,
 }
 
 impl Pic {
@@ -31,6 +35,7 @@ impl Pic {
             radius: [0.0; 4],
             opacity: 1.0,
             turn: 0.0,
+            pane: false,
         }
     }
 
@@ -57,6 +62,12 @@ impl Pic {
 
     pub fn radius_each(mut self, radius: [f32; 4]) -> Self {
         self.radius = radius;
+        self
+    }
+
+    /// Also rounds the corners it shares with its rounded pane.
+    pub fn pane_corners(mut self) -> Self {
+        self.pane = true;
         self
     }
 
@@ -116,7 +127,13 @@ impl<M> Widget<M, Theme, Renderer> for Pic {
             );
             return;
         }
-        draw_picture(renderer, &self.handle, bounds, self.radius, self.opacity);
+        let radius = if self.pane {
+            let pane = super::glass::pane_radii(bounds, 0.0);
+            std::array::from_fn(|corner| self.radius[corner].max(pane[corner]))
+        } else {
+            self.radius
+        };
+        draw_picture(renderer, &self.handle, bounds, radius, self.opacity);
     }
 }
 
