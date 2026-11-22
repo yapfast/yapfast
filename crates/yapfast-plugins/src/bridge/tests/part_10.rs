@@ -325,6 +325,8 @@ fn nothing_holds_what_no_plugin_intercepts() {
                 name: "a.txt".to_owned(),
                 bytes: 1,
                 content_type: None,
+                upload: 0,
+                hold: false,
             }),
             "room-1",
         )

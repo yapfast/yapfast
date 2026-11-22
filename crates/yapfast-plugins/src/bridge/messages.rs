@@ -32,6 +32,21 @@ pub enum Notice {
         name: Option<String>,
         blocked: Option<String>,
     },
+    /// A plugin in the `attachment.pre_upload` chain kept the file to work on
+    /// its bytes: the composer says so until [`Notice::UploadFinished`].
+    UploadHeld {
+        id: u64,
+        plugin: PluginId,
+        name: String,
+    },
+    /// The plugin that held a file said what goes: this file, under this
+    /// name, or none, and text for the composer.
+    UploadFinished {
+        id: u64,
+        file: Option<(std::path::PathBuf, u64)>,
+        name: String,
+        insert: Option<String>,
+    },
     /// A plugin's state changed, for the page that lists them.
     Status {
         plugin: PluginId,

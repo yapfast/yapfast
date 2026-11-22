@@ -344,7 +344,9 @@ impl Capability {
             Capability::PresenceWrite => "Changes your status",
             Capability::NotificationsManage => "Can mute and mark things read",
             Capability::TypingIntercept => "Can hide that you're typing",
-            Capability::UploadsIntercept => "Can change files you upload",
+            Capability::UploadsIntercept => {
+                "Can read and change files you upload, or send them somewhere else"
+            }
             Capability::MediaRead => "Reads attachments and pictures",
             Capability::FilesSave => "Saves files where you choose",
             Capability::VoiceRead => "Sees your calls",

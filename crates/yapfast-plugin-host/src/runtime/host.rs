@@ -309,7 +309,7 @@ fn waits_for_answer(name: &str) -> bool {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 89] = [
+const FORWARDED: [&str; 92] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -400,6 +400,10 @@ const FORWARDED: [&str; 89] = [
     method::DRAFTS_LIST,
     method::ACCOUNT_SESSIONS,
     method::RELATIONSHIPS_AFFINITIES,
+    // A held upload's bytes, which the parent reads and writes on disk.
+    method::UPLOADS_READ,
+    method::UPLOADS_WRITE,
+    method::UPLOADS_FINISH,
     method::SPOTIFY_NOW,
     method::SPOTIFY_PLAY,
     method::SPOTIFY_PAUSE,

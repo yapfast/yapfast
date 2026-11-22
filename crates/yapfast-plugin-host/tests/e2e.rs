@@ -170,6 +170,8 @@ fn the_sample_plugin_answers_every_kind_of_hook() {
                 name: "cat.png".into(),
                 bytes: 1024,
                 content_type: Some("image/png".into()),
+                upload: 0,
+                hold: false,
             }),
         ),
         (

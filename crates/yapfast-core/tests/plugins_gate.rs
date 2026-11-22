@@ -768,6 +768,7 @@ fn the_headers_a_plugin_writes_are_not_the_ones_that_go() {
         ],
         body_base64: Some("aGk=".to_owned()),
         tag: None,
+        body_upload: None,
     };
     let outcome = runtime()
         .block_on(fixture.gate.fetch(&fixture.plugin, request, 0))
@@ -800,6 +801,7 @@ fn the_headers_a_plugin_writes_are_not_the_ones_that_go() {
         headers: vec![("x-note".to_owned(), "a\r\ncookie: x".to_owned())],
         body_base64: None,
         tag: None,
+        body_upload: None,
     };
     assert!(
         runtime()
@@ -832,6 +834,7 @@ fn a_credential_does_not_follow_a_redirect_to_another_host() {
         headers: vec![("Authorization".to_owned(), "Bearer plugin-own".to_owned())],
         body_base64: None,
         tag: None,
+        body_upload: None,
     };
     let outcome = runtime()
         .block_on(fixture.gate.fetch(&fixture.plugin, request, 0))

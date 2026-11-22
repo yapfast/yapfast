@@ -18,6 +18,9 @@ impl Session {
             call::method::NET_SEND | call::method::NET_CLOSE => {
                 return self.socket_call(shared, plugin, &call);
             }
+            call::method::UPLOADS_READ
+            | call::method::UPLOADS_WRITE
+            | call::method::UPLOADS_FINISH => return upload_call(shared, plugin, &call),
             _ => {}
         }
         let registry = shared.registry();
@@ -359,6 +362,87 @@ impl Session {
             // Everything else is named in the contract so a plugin can
             // feature-detect it, and answers so rather than failing to link.
             _ => HostReturn::Unsupported,
+        }
+    }
+}
+
+/// `uploads.read`, `uploads.write` and `uploads.finish`: a file the
+/// `attachment.pre_upload` chain holds, read in pieces, replaced, and let go.
+/// Each needs `uploads.intercept`, which is what put the plugin in the chain,
+/// and each is refused for a file that isn't this plugin's to touch.
+pub(super) fn upload_call(shared: &Shared, plugin: &PluginId, call: &HostCall) -> HostReturn {
+    let permissions = shared
+        .registry()
+        .entry(plugin)
+        .map(|entry| entry.manifest.permissions.clone())
+        .unwrap_or_default();
+    if let Err(denial) = crate::permissions::check(&permissions, Capability::UploadsIntercept) {
+        return HostReturn::Denied {
+            reason: denial.reason().to_owned(),
+        };
+    }
+    let method = call.method.as_str();
+    let failed = |message: String| HostReturn::Error { message };
+    match method {
+        call::method::UPLOADS_READ => {
+            let request: call::UploadRead = match call.parse() {
+                Ok(request) => request,
+                Err(error) => return wrong_payload(method, error),
+            };
+            match shared.uploads().read(plugin, &request) {
+                Ok((piece, bytes, eof)) => answered(&call::UploadPiece {
+                    data_base64: call::base64::encode(&piece),
+                    offset: request.offset,
+                    bytes,
+                    eof,
+                }),
+                Err(message) => failed(message),
+            }
+        }
+        call::method::UPLOADS_WRITE => {
+            let request: call::UploadWrite = match call.parse() {
+                Ok(request) => request,
+                Err(error) => return wrong_payload(method, error),
+            };
+            let Some(bytes) = call::base64::decode(&request.data_base64) else {
+                return failed("`data_base64` isn't base64".to_owned());
+            };
+            match shared
+                .uploads()
+                .write(plugin, request.upload, request.offset, &bytes)
+            {
+                Ok(written) => HostReturn::Ok(serde_json::json!({ "written": written })),
+                Err(message) => failed(message),
+            }
+        }
+        _ => {
+            let request: call::UploadFinish = match call.parse() {
+                Ok(request) => request,
+                Err(error) => return wrong_payload(method, error),
+            };
+            let name = match request.name.as_deref().map(saved_name) {
+                Some(Ok(name)) => Some(name),
+                Some(Err(message)) => {
+                    return failed(message.replace("`files.save` suggests", "an upload has"));
+                }
+                None => None,
+            };
+            let finished =
+                shared
+                    .uploads()
+                    .finish(plugin, request.upload, request.send, name, request.insert);
+            match finished {
+                Ok(finished) => {
+                    shared.announce(Notice::UploadFinished {
+                        id: request.upload,
+                        file: finished.file,
+                        name: finished.name,
+                        insert: finished.insert,
+                    });
+                    HostReturn::Ok(serde_json::Value::Bool(true))
+                }
+                Err(message) => failed(message),
+            }
         }
     }
 }

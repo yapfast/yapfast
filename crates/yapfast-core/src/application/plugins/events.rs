@@ -86,6 +86,15 @@ impl Application {
             News::Notice(Notice::Attachment { id, name, blocked }) => {
                 self.plugins_upload_answered(id, name, blocked)
             }
+            News::Notice(Notice::UploadHeld { id, plugin, name }) => {
+                self.plugins_upload_held(id, &plugin, &name)
+            }
+            News::Notice(Notice::UploadFinished {
+                id,
+                file,
+                name,
+                insert,
+            }) => self.plugins_upload_finished(id, file, name, insert),
             News::Notice(Notice::Status { plugin, status }) => {
                 let mut effects = vec![AppEffect::Plugin(Effect::Status { plugin, status })];
                 effects.extend(self.plugins_interface_moved());

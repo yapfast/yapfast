@@ -92,6 +92,15 @@ impl HookOutcome {
         }))
     }
 
+    /// Keep the file the upload hook is about, to read, replace or send
+    /// elsewhere, and say what goes later with [`crate::uploads::finish`].
+    pub fn hold(attachment: &AttachmentPending) -> Self {
+        HookOutcome::Changed(HookSubject::Attachment(AttachmentPending {
+            hold: true,
+            ..attachment.clone()
+        }))
+    }
+
     /// The new subject, whatever it is.
     pub fn changed(subject: HookSubject) -> Self {
         HookOutcome::Changed(subject)
@@ -122,8 +131,12 @@ mod tests {
         }))
         .expect("a link hook");
         let asked = link.link().expect("a link");
-        let answer = serde_json::to_value(HookOutcome::offer(asked, "Open in Spotify", "spotify:track:1"))
-            .unwrap();
+        let answer = serde_json::to_value(HookOutcome::offer(
+            asked,
+            "Open in Spotify",
+            "spotify:track:1",
+        ))
+        .unwrap();
         assert_eq!(
             answer,
             json!({"changed": {"link": {"url": "https://open.spotify.com/track/1",

@@ -38,7 +38,7 @@ audio capabilities, which share one line.
 | `presence.write` | Status, custom status, activity | Changes your status |
 | `notifications.manage` | Mute, mark as read | Can mute and mark things read |
 | `typing.intercept` | Stop the typing indicator being sent | Can hide that you're typing |
-| `uploads.intercept` | Rename or strip files before upload | Can change files you upload |
+| `uploads.intercept` | Rename, withhold, read or replace files before upload, or send them to its own host | Can read and change files you upload, or send them somewhere else |
 | `media.read` | Bytes of attachments, avatars and emoji | Reads attachments and pictures |
 | `files.save` | Hand the person a file to save, through the system's save dialog | Saves files where you choose |
 | `voice.read` | The call: who is in it, who speaks, mute, deafen, screens and cameras | Sees your calls |

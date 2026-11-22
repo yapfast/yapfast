@@ -690,9 +690,15 @@ impl PluginState {
     }
 
     /// Runs the chain in front of an upload, and answers the id it is held
-    /// under when a plugin may rename or withhold it.
-    pub fn attachment(&mut self, pending: AttachmentPending) -> Option<u64> {
-        self.bridge.attachment(pending)
+    /// under when a plugin may rename, withhold, read or replace it: the file
+    /// is at `path`, and a replacement is held to `limit`, the room's.
+    pub fn attachment(
+        &mut self,
+        pending: AttachmentPending,
+        path: &Path,
+        limit: u64,
+    ) -> Option<u64> {
+        self.bridge.attachment(pending, path, limit)
     }
 
     /// Turns a plugin on or off: the registry entry, the helper's instances and

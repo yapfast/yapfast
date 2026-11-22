@@ -25,6 +25,54 @@ const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// answer, the most a manifest may ask for, at well under 1 Mbit/s.
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(180);
 
+/// How much of a streamed file is read from disk at once.
+const FILE_PIECE: usize = 256 * 1024;
+
+/// A file body as it goes: what comes before it, the file a piece at a time,
+/// each piece read off the runtime's threads, and what comes after. At most
+/// one piece is in memory, and no more than the size the gate was told is
+/// sent, so a file that grows while it uploads can't outrun its length.
+fn file_stream(
+    body: std::sync::Arc<crate::network::FileBody>,
+) -> BoxStream<'static, std::io::Result<Vec<u8>>> {
+    use std::io::Read;
+    let before = futures_util::stream::iter([Ok(body.before.clone())]);
+    let after = futures_util::stream::iter([Ok(body.after.clone())]);
+    let start = (body.path.clone(), None::<std::fs::File>, body.size);
+    let pieces = futures_util::stream::unfold(Some(start), |state| async move {
+        let (path, file, left) = state?;
+        if left == 0 {
+            return None;
+        }
+        let read = tokio::task::spawn_blocking(move || {
+            let mut file = match file {
+                Some(file) => file,
+                None => std::fs::File::open(&path)?,
+            };
+            let mut piece = vec![0; FILE_PIECE.min(left as usize)];
+            let read = file.read(&mut piece)?;
+            if read == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "the file got shorter while it was being sent",
+                ));
+            }
+            piece.truncate(read);
+            Ok((path, file, piece))
+        })
+        .await;
+        match read {
+            Ok(Ok((path, file, piece))) => {
+                let left = left - piece.len() as u64;
+                Some((Ok(piece), Some((path, Some(file), left))))
+            }
+            Ok(Err(error)) => Some((Err(error), None)),
+            Err(error) => Some((Err(std::io::Error::other(error)), None)),
+        }
+    });
+    before.chain(pieces).chain(after).boxed()
+}
+
 /// Opens one connection per request, to the address the gate resolved.
 #[derive(Debug, Default)]
 pub struct PinnedTransport;
@@ -59,10 +107,17 @@ impl Transport for PinnedTransport {
             let method = reqwest::Method::from_bytes(plan.method.as_bytes())
                 .with_context(|| format!("`{}` isn't an HTTP method", plan.method))?;
             let mut request = client.request(method, url);
+            // A form made here says its own type, with its boundary.
+            let own_type = plan
+                .file
+                .as_ref()
+                .is_some_and(|file| file.content_type.is_some());
             for (name, value) in &plan.headers {
                 // reqwest writes these from the request it is building, and a
                 // plan's copy would either double them or contradict it.
-                if name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("content-length")
+                if name.eq_ignore_ascii_case("host")
+                    || name.eq_ignore_ascii_case("content-length")
+                    || own_type && name.eq_ignore_ascii_case("content-type")
                 {
                     continue;
                 }
@@ -70,6 +125,15 @@ impl Transport for PinnedTransport {
             }
             if let Some(body) = &plan.body {
                 request = request.body(body.to_vec());
+            }
+            if let Some(file) = &plan.file {
+                // A stream says no length of its own, and many file hosts
+                // refuse a chunked upload, so the length goes as a header.
+                request = request.header(reqwest::header::CONTENT_LENGTH, file.length());
+                if let Some(kind) = &file.content_type {
+                    request = request.header(reqwest::header::CONTENT_TYPE, kind.as_str());
+                }
+                request = request.body(reqwest::Body::wrap_stream(file_stream(file.clone())));
             }
 
             let response = request.send().await.context("the request failed")?;
@@ -103,5 +167,43 @@ impl Transport for PinnedTransport {
                 body,
             })
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file body goes as the bytes before it, the file in pieces and the
+    /// bytes after, and no more of the file than the size it was given.
+    #[test]
+    fn a_file_body_streams_its_form_around_the_file() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let path = folder.path().join("big.bin");
+        let file: Vec<u8> = (0..FILE_PIECE * 2 + 10).map(|n| n as u8).collect();
+        std::fs::write(&path, &file).expect("a file");
+        let body = std::sync::Arc::new(crate::network::FileBody {
+            path,
+            size: (FILE_PIECE * 2 + 5) as u64,
+            before: b"<".to_vec(),
+            after: b">".to_vec(),
+            content_type: None,
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("a runtime");
+        let pieces: Vec<Vec<u8>> = runtime.block_on(async {
+            file_stream(body)
+                .map(|piece| piece.expect("a piece"))
+                .collect()
+                .await
+        });
+        let sent: Vec<u8> = pieces.concat();
+        assert_eq!(sent.len(), FILE_PIECE * 2 + 5 + 2);
+        assert_eq!(sent[0], b'<');
+        assert_eq!(&sent[1..sent.len() - 1], &file[..FILE_PIECE * 2 + 5]);
+        assert_eq!(*sent.last().unwrap(), b'>');
+        assert!(pieces.iter().all(|piece| piece.len() <= FILE_PIECE));
     }
 }

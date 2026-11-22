@@ -41,13 +41,36 @@ impl Bridge {
     /// The file itself stays in the application: the chain is about its name,
     /// its size and its type, and the answer names what the upload should be
     /// called or why it doesn't go. [`Notice::Attachment`] carries it back.
-    pub fn attachment(&mut self, pending: AttachmentPending) -> Option<u64> {
+    ///
+    /// The plugins in the chain may read the file at `path` while it runs, by
+    /// the `upload` number the subject carries, and one that answers `hold`
+    /// keeps it to replace or send elsewhere; `limit` is the largest file the
+    /// room takes, which a replacement is held to.
+    pub fn attachment(
+        &mut self,
+        mut pending: AttachmentPending,
+        path: &std::path::Path,
+        limit: u64,
+    ) -> Option<u64> {
         let room = pending.room.clone();
-        self.hold_hook(
+        // The number `hold_hook` gives it, so the subject can carry it.
+        let id = self.next_send + 1;
+        pending.upload = id;
+        pending.hold = false;
+        let chain = self.shared.registry().chain(HookKind::AttachmentPreUpload);
+        self.shared.uploads().hold(
+            id,
+            crate::uploads::Held::new(&room, &pending.name, path, pending.bytes, limit, chain),
+        );
+        let held = self.hold_hook(
             HookKind::AttachmentPreUpload,
             HookSubject::Attachment(pending),
             &room,
-        )
+        );
+        if held.is_none() {
+            self.shared.uploads().release(id);
+        }
+        held
     }
 
     /// Asks the plugins that offer to open links about one the person clicked,

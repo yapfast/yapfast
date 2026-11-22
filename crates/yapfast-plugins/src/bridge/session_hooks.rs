@@ -70,11 +70,14 @@ impl Session {
                     %reason,
                     "a plugin withheld a typing indicator"
                 ),
-                HookKind::AttachmentPreUpload => shared.announce(Notice::Attachment {
-                    id: held.id,
-                    name: None,
-                    blocked: Some(reason),
-                }),
+                HookKind::AttachmentPreUpload => {
+                    shared.uploads().release(held.id);
+                    shared.announce(Notice::Attachment {
+                        id: held.id,
+                        name: None,
+                        blocked: Some(reason),
+                    });
+                }
                 HookKind::ActivityPrePublish | HookKind::LinkOpen | HookKind::SwitcherRank => {}
             },
             HookOutcome::Block { .. } => {
@@ -95,6 +98,23 @@ impl Session {
             HookOutcome::Changed(HookSubject::Attachment(attachment))
                 if held.hook == HookKind::AttachmentPreUpload =>
             {
+                // A plugin that holds the file keeps it past the chain, and
+                // says what goes with `uploads.finish`.
+                if attachment.hold
+                    && let Some(plugin) = by
+                    && shared
+                        .uploads()
+                        .keep(held.id, &plugin, &attachment.name)
+                        .is_some()
+                {
+                    shared.announce(Notice::UploadHeld {
+                        id: held.id,
+                        plugin,
+                        name: attachment.name,
+                    });
+                    return;
+                }
+                shared.uploads().release(held.id);
                 shared.announce(Notice::Attachment {
                     id: held.id,
                     name: Some(attachment.name),

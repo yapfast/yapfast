@@ -44,6 +44,7 @@ pub mod store;
 pub mod transport;
 pub mod tweaks;
 pub mod ui;
+pub mod uploads;
 pub mod view;
 pub mod web_picture;
 

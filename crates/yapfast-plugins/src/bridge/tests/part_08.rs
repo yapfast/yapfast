@@ -186,6 +186,8 @@ fn a_file_is_held_for_the_upload_chain_and_comes_back_renamed() {
         name: "cat.JPG".to_owned(),
         bytes: 2_048,
         content_type: Some("image/jpeg".to_owned()),
+        upload: 0,
+        hold: false,
     };
     let held = hold(
         &mut session,

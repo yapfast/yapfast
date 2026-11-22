@@ -136,6 +136,96 @@ pub struct ConnectPlan {
     /// The body, shared rather than copied so a redirect that keeps the method
     /// doesn't duplicate it.
     pub body: Option<Arc<[u8]>>,
+    /// A body streamed from a file on disk instead, `http.fetch`'s
+    /// `body_upload`: never read whole into memory.
+    pub file: Option<Arc<FileBody>>,
+}
+
+/// A file sent as a request's body, read from disk as it goes: a held upload,
+/// whole or as one part of a form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileBody {
+    pub path: PathBuf,
+    pub size: u64,
+    /// What goes before and after the file: a form's fields and boundaries,
+    /// or nothing.
+    pub before: Vec<u8>,
+    pub after: Vec<u8>,
+    /// The `Content-Type` the body is sent with, a form's with its boundary;
+    /// none leaves the plugin's own header.
+    pub content_type: Option<String>,
+}
+
+impl FileBody {
+    /// A held file, as the whole body or inside a `multipart/form-data` form
+    /// with a boundary of its own.
+    pub fn new(
+        path: PathBuf,
+        size: u64,
+        name: &str,
+        form: Option<&yapfast_plugin_api::call::UploadForm>,
+    ) -> Result<Self, Denial> {
+        let Some(form) = form else {
+            return Ok(FileBody {
+                path,
+                size,
+                before: Vec::new(),
+                after: Vec::new(),
+                content_type: None,
+            });
+        };
+        let plain = |text: &str, what: &str| {
+            if text
+                .bytes()
+                .any(|byte| byte.is_ascii_control() || byte == b'"')
+            {
+                Err(Denial::new(format!(
+                    "the form's {what} `{text}` carries a quote or a control character"
+                )))
+            } else {
+                Ok(())
+            }
+        };
+        let field = form.field.as_deref().unwrap_or("file");
+        let filename = form.filename.as_deref().unwrap_or(name);
+        let content_type = form
+            .content_type
+            .as_deref()
+            .unwrap_or("application/octet-stream");
+        plain(field, "field")?;
+        plain(filename, "file name")?;
+        plain(content_type, "type")?;
+        let boundary = format!("yapfast-{}", uuid::Uuid::new_v4().simple());
+        let mut before = Vec::new();
+        for (name, value) in &form.fields {
+            plain(name, "field")?;
+            before.extend_from_slice(
+                format!(
+                    "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+                )
+                .as_bytes(),
+            );
+        }
+        before.extend_from_slice(
+            format!(
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; \
+                 filename=\"{filename}\"\r\nContent-Type: {content_type}\r\n\r\n"
+            )
+            .as_bytes(),
+        );
+        Ok(FileBody {
+            path,
+            size,
+            before,
+            after: format!("\r\n--{boundary}--\r\n").into_bytes(),
+            content_type: Some(format!("multipart/form-data; boundary={boundary}")),
+        })
+    }
+
+    /// The bytes the request's body has in all.
+    pub fn length(&self) -> u64 {
+        self.before.len() as u64 + self.size + self.after.len() as u64
+    }
 }
 
 /// A response's head, and its body as it arrives.
@@ -702,9 +792,29 @@ impl NetworkGate {
         response_cap: u64,
         any_host: bool,
     ) -> Result<Outcome> {
+        self.fetch_with(plugin, request, response_cap, any_host, None)
+            .await
+    }
+
+    /// [`Self::fetch_reaching`], with a body streamed from a file: a held
+    /// upload, which the caller has already checked is this plugin's.
+    pub async fn fetch_with(
+        &self,
+        plugin: &PluginId,
+        request: HttpRequest,
+        response_cap: u64,
+        any_host: bool,
+        file: Option<Arc<FileBody>>,
+    ) -> Result<Outcome> {
         let permissions = self.declared(plugin)?;
         let cap = read_cap(response_cap);
         let mut method = checked_method(&request.method)?;
+        if file.is_some() && request.body_base64.is_some() {
+            return Err(
+                Denial::new("a request has `body_base64` or `body_upload`, not both").into(),
+            );
+        }
+        let mut file = file;
         let mut body = request_body(&request)?;
         let mut headers = sanitized_headers(&request.headers)?;
         let mut target = Target::parse(&request.url)?;
@@ -727,6 +837,7 @@ impl NetworkGate {
                 addresses,
                 headers: request_headers(&target, &headers),
                 body: body.clone(),
+                file: file.clone(),
             };
             let slot = self.slots.acquire(plugin)?;
             let served = self.transport.send(plan).await?;
@@ -767,6 +878,7 @@ impl NetworkGate {
             if matches!(served.status, 301..=303) && method != "GET" && method != "HEAD" {
                 method = "GET".to_owned();
                 body = None;
+                file = None;
             }
             let next = target.resolve_location(&location)?;
             if next.host() != target.host() || next.port() != target.port() {

@@ -590,7 +590,10 @@ pub fn capability(name: &str) -> (String, Tone) {
         "presence.write" => ("Changes your status", Tone::Normal),
         "notifications.manage" => ("Can mute and mark things read", Tone::Normal),
         "typing.intercept" => ("Can hide that you're typing", Tone::Normal),
-        "uploads.intercept" => ("Can change files you upload", Tone::Strong),
+        "uploads.intercept" => (
+            "Can read and change files you upload, or send them to another site instead",
+            Tone::Strong,
+        ),
         "media.read" => ("Reads attachments and pictures", Tone::Normal),
         "files.save" => ("Saves files where you choose", Tone::Normal),
         "voice.read" => ("Sees your calls", Tone::Normal),

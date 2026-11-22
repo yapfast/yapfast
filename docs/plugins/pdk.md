@@ -209,6 +209,7 @@ wrapper:
 | `app` | `version`, `version_string`: what Yapfast this is |
 | `log` | `error`, `warn`, `info`: lines in the plugin's own ring, shown on its page |
 | `account` | `attach`, `set_activity`, `clear_activity`, `set_profile`, `search`, `drafts`, `sessions`, `affinities`, `server_affinities`, and `account::spotify`'s `now`, `play`, `pause`, `next`, `previous`, `seek`, `volume`, `shuffle`, `repeat`: each answered later, as a [`Pending`](#a-call-that-answers-later) ([the account's own calls](abi.md#the-accounts-own-calls)) |
+| `uploads` | `read`, `read_all`, `write` and `finish`, the bytes of the file an `attachment_pre_upload` hook is about, with `HookOutcome::hold` to keep it and `HttpRequest::with_upload` to send it to a host of the plugin's own, streamed from disk ([a file's bytes](abi.md#a-files-bytes)) |
 | `image` | Not a call: `png` and `gif` write RGBA pixels as a PNG or a looping animated GIF in the module, and `Image::draw_scaled` squashes one picture over another, which is a petpet frame; `account::Attachment::bytes` sends what they made |
 
 `plugin.publish` and `plugin.subscribe` have no wrapper of their own: they go

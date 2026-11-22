@@ -59,6 +59,7 @@ pub mod plugin;
 pub mod settings;
 pub mod storage;
 pub mod timers;
+pub mod uploads;
 pub mod wire;
 
 /// The modules and types a plugin's `lib.rs` wants, in one line.
@@ -72,7 +73,7 @@ pub mod prelude {
     pub use crate::json;
     pub use crate::wire::method;
     pub use crate::yapfast_plugin;
-    pub use crate::{account, app, call, http, image, log, settings, storage, timers};
+    pub use crate::{account, app, call, http, image, log, settings, storage, timers, uploads};
 
     pub use crate::call::{CallResult, HostReturn, Pending};
     pub use crate::command::{Command, Reply};

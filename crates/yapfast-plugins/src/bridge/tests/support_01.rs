@@ -189,6 +189,9 @@ pub(super) fn shared_with_world(
         sandbox: std::sync::atomic::AtomicU8::new(0),
         limits,
         world,
+        uploads: Mutex::new(crate::uploads::Uploads::new(
+            directory.join("plugins-attach").join("uploads"),
+        )),
         wake,
     })
 }

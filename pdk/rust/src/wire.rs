@@ -376,6 +376,9 @@ pub mod method {
     pub const DRAFTS_LIST: &str = "drafts.list";
     pub const ACCOUNT_SESSIONS: &str = "account.sessions";
     pub const RELATIONSHIPS_AFFINITIES: &str = "relationships.affinities";
+    pub const UPLOADS_READ: &str = "uploads.read";
+    pub const UPLOADS_WRITE: &str = "uploads.write";
+    pub const UPLOADS_FINISH: &str = "uploads.finish";
     pub const SPOTIFY_NOW: &str = "spotify.now";
     pub const SPOTIFY_PLAY: &str = "spotify.play";
     pub const SPOTIFY_PAUSE: &str = "spotify.pause";
@@ -454,6 +457,41 @@ pub struct HttpRequest {
     /// The plugin's own name for this request, echoed in its answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// A held upload as the body, streamed from disk by Yapfast.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_upload: Option<UploadBody>,
+}
+
+/// `http.fetch`'s `body_upload`: a file `attachment_pre_upload` holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadBody {
+    pub upload: u64,
+    #[serde(default)]
+    pub replacement: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<UploadForm>,
+}
+
+/// A `multipart/form-data` form around a held file.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadForm {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<(String, String)>,
+}
+
+/// `uploads.read`'s answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadPiece {
+    pub data_base64: String,
+    pub offset: u64,
+    pub bytes: u64,
+    pub eof: bool,
 }
 
 impl HttpRequest {
@@ -595,6 +633,16 @@ pub struct AttachmentPending {
     pub bytes: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// The number the `uploads` calls name this file by while it is held.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub upload: u64,
+    /// In an answer: keep the file past the chain, and finish it later.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold: bool,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 /// A hook's question to the plugin.

@@ -45,6 +45,7 @@ impl HttpRequest {
             headers: Vec::new(),
             body_base64: None,
             tag: None,
+            body_upload: None,
         }
     }
 
@@ -59,6 +60,19 @@ impl HttpRequest {
     /// The same request with one more header.
     pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.push((name.into(), value.into()));
+        self
+    }
+
+    /// The same request with a held upload as its body, streamed from disk by
+    /// Yapfast: whole, or as the `field` of a `multipart/form-data` form after
+    /// the text `fields`.
+    pub fn with_upload(mut self, upload: u64, form: Option<wire::UploadForm>) -> Self {
+        self.body_base64 = None;
+        self.body_upload = Some(wire::UploadBody {
+            upload,
+            replacement: false,
+            form,
+        });
         self
     }
 

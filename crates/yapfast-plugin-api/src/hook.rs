@@ -262,6 +262,18 @@ pub struct AttachmentPending {
     pub bytes: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    /// The number `uploads.read`, `uploads.write`, `uploads.finish` and
+    /// `http.fetch`'s `body_upload` name this file by, while it is held.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub upload: u64,
+    /// In an answer: the plugin keeps the file to work on, and says what goes
+    /// with `uploads.finish`. The composer goes on without it meanwhile.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold: bool,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 /// A hook's question to one plugin.

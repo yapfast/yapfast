@@ -54,6 +54,39 @@ impl Session {
                 return;
             }
         };
+        // A held upload as the body: streamed from disk by the gate, after
+        // the same check `uploads.read` makes.
+        let file = match &request.body_upload {
+            None => None,
+            Some(upload) => {
+                if let Err(denial) =
+                    crate::permissions::check(&permissions, Capability::UploadsIntercept)
+                {
+                    self.reply(
+                        &plugin,
+                        id,
+                        HostReturn::Denied {
+                            reason: denial.reason().to_owned(),
+                        },
+                    );
+                    return;
+                }
+                let found = shared
+                    .uploads()
+                    .body(&plugin, upload.upload, upload.replacement);
+                let made = found.and_then(|(path, size, name)| {
+                    crate::network::FileBody::new(path, size, &name, upload.form.as_ref())
+                        .map_err(|denial| denial.reason().to_owned())
+                });
+                match made {
+                    Ok(body) => Some(Arc::new(body)),
+                    Err(message) => {
+                        self.reply(&plugin, id, HostReturn::Error { message });
+                        return;
+                    }
+                }
+            }
+        };
         // A build with no transport can't make the request. The contract's
         // `unsupported` is the answer that lets a plugin feature-detect it rather
         // than wait for a result that will never come.
@@ -89,7 +122,13 @@ impl Session {
             let mut asked = false;
             let answer = loop {
                 let decided = gate
-                    .fetch_reaching(&plugin, request.clone(), response_cap, any_host)
+                    .fetch_with(
+                        &plugin,
+                        request.clone(),
+                        response_cap,
+                        any_host,
+                        file.clone(),
+                    )
                     .await;
                 match decided {
                     Ok(crate::network::Outcome::Done(answer)) => {
@@ -232,6 +271,7 @@ impl Session {
                 headers: Vec::new(),
                 body_base64: None,
                 tag: None,
+                body_upload: None,
             };
             let fetched = gate
                 .fetch_reaching(&plugin, request, crate::web_picture::MAX_BYTES, false)

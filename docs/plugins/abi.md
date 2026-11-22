@@ -270,7 +270,7 @@ from any other it is the fail-open answer and the message goes as it was.
   "subject": { "typing": { "room": "room-1" } } }
 { "hook": "attachment_pre_upload",
   "subject": { "attachment": { "room": "room-1", "name": "cat.JPG", "bytes": 2048,
-                               "content_type": "image/jpeg" } } }
+                               "content_type": "image/jpeg", "upload": 7 } } }
 ```
 
 Two hooks are asked by the interface, and neither can stop anything:
@@ -304,6 +304,51 @@ is answered by `changed` with the `attachment` it should be uploaded as — a ne
 `block` with the reason the person sees where the file would have gone. Both
 chains answer under a deadline of their own, so the composer never waits longer
 than a table's worth of them ([the helper](host.md#deadlines)).
+
+### A file's bytes
+
+`upload` names the file while the chain holds it. A plugin in the chain may read
+it, inside its hook, and a plugin that wants more time answers `changed` with
+the same `attachment` and `"hold": true`: the chain ends there, the composer
+says "*Name* is working on cat.JPG." and goes on without the file, and the file
+is that plugin's until it says what goes. Nothing about the file is ever whole
+in memory: a read is one piece off the disk, a write goes straight to a file of
+its own, and an upload to another host is streamed from the disk by the network
+gate.
+
+| Call | Payload | Answer |
+| --- | --- | --- |
+| `uploads.read` | `{ upload, offset?, length?, replacement? }`, at most 512 KiB a piece | `{ data_base64, offset, bytes, eof }`, `bytes` the whole file's size |
+| `uploads.write` | `{ upload, offset, data_base64 }`, each piece where the last ended | `{ written }`, the bytes written so far |
+| `uploads.finish` | `{ upload, send: "original" \| "replacement" \| "nothing", name?, insert? }` | `true` |
+
+`uploads.write` is for a plugin that held the file, and writes the file that
+goes in its place, which is held to the room's own limit (Discord's for the
+account and the conversation); `replacement: true` reads that file back.
+`uploads.finish` ends the hold: the person's file, the plugin's or nothing goes
+with the message, under `name` if it gives one, and `insert` is text put into
+that conversation's composer, after what is there: the link to the file on the
+plugin's own host, say. A plugin that is turned off, suspended or uninstalled
+with a file held lets it go as the person picked it.
+
+`http.fetch` takes the held file as its body with `body_upload` in place of
+`body_base64`:
+
+```json
+{ "method": "POST", "url": "https://catbox.moe/user/api.php",
+  "body_upload": { "upload": 7,
+                   "form": { "field": "fileToUpload",
+                             "fields": [["reqtype", "fileupload"]] } } }
+```
+
+Without `form` the file is the whole body; with it, it is one part of a
+`multipart/form-data` form with a boundary and a `Content-Type` made here, the
+text `fields` first, `filename` the upload's name unless given and its part's
+type `application/octet-stream` unless `content_type` says. `replacement: true`
+sends the plugin's written file. The length is sent as `Content-Length`, the
+request goes through the same gate as any other, and the host still has to be
+in the manifest's `network` (or allowed in a dialog). The answer is the host's,
+as `http.fetch` answers any request.
 
 A command's answer is `none`, `notice` with a line for the person to see in the
 room they typed it in, `value` with the plugin's own JSON, or `failed` with a

@@ -50,6 +50,9 @@ impl Bridge {
             sandbox: std::sync::atomic::AtomicU8::new(0),
             limits: Mutex::new(limits),
             world,
+            uploads: Mutex::new(crate::uploads::Uploads::new(
+                data_dir.join("plugins-attach").join("uploads"),
+            )),
             wake,
         });
         shared.publish();

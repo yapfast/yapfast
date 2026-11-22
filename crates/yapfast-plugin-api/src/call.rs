@@ -131,6 +131,13 @@ pub mod method {
     // Who Discord ranks closest to the account, read-only: `relationships.read`.
     pub const RELATIONSHIPS_AFFINITIES: &str = "relationships.affinities";
 
+    // The bytes of a file `attachment_pre_upload` holds: read it in pieces,
+    // write the file that goes in its place, and say what goes.
+    // `uploads.intercept`.
+    pub const UPLOADS_READ: &str = "uploads.read";
+    pub const UPLOADS_WRITE: &str = "uploads.write";
+    pub const UPLOADS_FINISH: &str = "uploads.finish";
+
     /// Every name above, in the order they are declared.
     ///
     /// A method is reachable only if the code in front of it knows its name, so
@@ -138,7 +145,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 89] = [
+    pub const ALL: [&str; 92] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -228,6 +235,9 @@ pub mod method {
         SPOTIFY_SHUFFLE,
         SPOTIFY_REPEAT,
         RELATIONSHIPS_AFFINITIES,
+        UPLOADS_READ,
+        UPLOADS_WRITE,
+        UPLOADS_FINISH,
     ];
 
     /// The Spotify calls, which share one capability.
@@ -339,6 +349,117 @@ pub struct HttpRequest {
     /// answered later: the plugin's own name for this request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
+    /// The body is a file `attachment_pre_upload` holds for this plugin,
+    /// streamed from disk as it is sent, so a file of any size never crosses
+    /// the pipe or sits in memory. Instead of `body_base64`, never with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_upload: Option<UploadBody>,
+}
+
+/// `http.fetch`'s `body_upload`: which held file, and whether it goes as the
+/// whole body or as one part of a `multipart/form-data` form, as most file
+/// hosts take one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadBody {
+    /// The `upload` the hook's subject named.
+    pub upload: u64,
+    /// The file the plugin wrote with `uploads.write`, rather than the one
+    /// the person picked.
+    #[serde(default)]
+    pub replacement: bool,
+    /// Send it inside a form, with the boundary and the `Content-Type` made
+    /// here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<UploadForm>,
+}
+
+/// A `multipart/form-data` form around a held file: its own field, and the
+/// text fields before it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadForm {
+    /// The file's field name, `file` unless given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// The file name the form gives, the upload's own unless given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    /// The file part's type, `application/octet-stream` unless given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// Text fields, in order, before the file.
+    #[serde(default)]
+    pub fields: Vec<(String, String)>,
+}
+
+/// `uploads.read`: a piece of the held file, from `offset`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadRead {
+    pub upload: u64,
+    #[serde(default)]
+    pub offset: u64,
+    /// At most [`UploadRead::MAX_PIECE`], which is also the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u32>,
+    /// The plugin's written file, rather than the person's.
+    #[serde(default)]
+    pub replacement: bool,
+}
+
+impl UploadRead {
+    /// The most one read answers: a frame's worth once it is base64.
+    pub const MAX_PIECE: u32 = 512 * 1024;
+}
+
+/// `uploads.read`'s answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UploadPiece {
+    pub data_base64: String,
+    pub offset: u64,
+    /// The whole file's size.
+    pub bytes: u64,
+    /// Whether this piece reaches its end.
+    pub eof: bool,
+}
+
+/// `uploads.write`: the next piece of the file that goes in place of the
+/// person's, at `offset`, which is where the last piece ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadWrite {
+    pub upload: u64,
+    #[serde(default)]
+    pub offset: u64,
+    pub data_base64: String,
+}
+
+/// `uploads.finish`: what goes, once the plugin is done with a file it held.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UploadFinish {
+    pub upload: u64,
+    pub send: UploadSend,
+    /// A new name for what goes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Text put into the composer where the person is writing: a link to the
+    /// file on the plugin's own host, say, when nothing goes to Discord.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert: Option<String>,
+}
+
+/// Which file goes with the message, if any.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadSend {
+    /// The person's file, as they picked it.
+    Original,
+    /// The file the plugin wrote with `uploads.write`.
+    Replacement,
+    /// Nothing: the file stays off the message.
+    Nothing,
 }
 
 impl HttpRequest {
@@ -354,6 +475,7 @@ impl HttpRequest {
             headers: Vec::new(),
             body_base64: None,
             tag: None,
+            body_upload: None,
         }
     }
 }

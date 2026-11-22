@@ -205,12 +205,20 @@ impl Application {
             name: file.name.clone(),
             bytes: file.size,
             content_type: content_type(&file.name),
+            upload: 0,
+            hold: false,
         };
+        let limit = self
+            .state
+            .rooms
+            .iter()
+            .find(|candidate| candidate.id == room)
+            .map_or(file.size, |candidate| candidate.upload_limit);
         let held = self
             .state
             .plugins
             .as_mut()
-            .and_then(|plugins| plugins.attachment(pending));
+            .and_then(|plugins| plugins.attachment(pending, &file.path, limit));
         match held {
             Some(id) => {
                 self.pending_uploads
@@ -249,6 +257,71 @@ impl Application {
         }
         staged.push(file);
         vec![]
+    }
+
+    /// A plugin kept a file to work on its bytes: the composer says so, and
+    /// goes on without it until the plugin says what goes.
+    pub(super) fn plugins_upload_held(
+        &mut self,
+        id: u64,
+        plugin: &PluginId,
+        name: &str,
+    ) -> Vec<AppEffect> {
+        if self.pending_uploads.contains_key(&id) {
+            let by = self.plugin_name(plugin);
+            self.state.notice = Some(format!("{by} is working on {name}."));
+        }
+        vec![]
+    }
+
+    /// The plugin that held a file said what goes: the file it wrote or the
+    /// person's, under the name it gives, or nothing, and text for the
+    /// composer, such as a link to where it put the file.
+    pub(in crate::application) fn plugins_upload_finished(
+        &mut self,
+        id: u64,
+        file: Option<(std::path::PathBuf, u64)>,
+        name: String,
+        insert: Option<String>,
+    ) -> Vec<AppEffect> {
+        let Some((room, mut staged)) = self.pending_uploads.remove(&id) else {
+            return vec![];
+        };
+        self.state.notice = None;
+        let mut effects = Vec::new();
+        if let Some(text) = insert {
+            let draft = self.state.drafts.get(&room).cloned().unwrap_or_default();
+            let joined = if draft.is_empty() || draft.ends_with(char::is_whitespace) {
+                format!("{draft}{text}")
+            } else {
+                format!("{draft} {text}")
+            };
+            effects.extend(self.set_draft_in(room.clone(), joined));
+        }
+        let Some((path, size)) = file else {
+            return effects;
+        };
+        staged.name = upload_name(&name, &staged.name);
+        if path != staged.path {
+            staged.image = ["png", "jpg", "jpeg", "gif", "webp"].iter().any(|kind| {
+                staged
+                    .name
+                    .rsplit_once('.')
+                    .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case(kind))
+            });
+        }
+        staged.path = path;
+        staged.size = size;
+        let files = self.state.staged.entry(room).or_default();
+        if files.len() >= crate::chat::MAX_FILES {
+            self.state.notice = Some(format!(
+                "A message carries up to {} files.",
+                crate::chat::MAX_FILES
+            ));
+            return effects;
+        }
+        files.push(staged);
+        effects
     }
 
     /// Sends the draft a held chain answered with, once its answer comes.

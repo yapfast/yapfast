@@ -56,11 +56,14 @@ impl HeldSend {
                 id: self.id,
                 room: self.draft.room,
             }),
-            HookKind::AttachmentPreUpload => shared.announce(Notice::Attachment {
-                id: self.id,
-                name: None,
-                blocked: None,
-            }),
+            HookKind::AttachmentPreUpload => {
+                shared.uploads().release(self.id);
+                shared.announce(Notice::Attachment {
+                    id: self.id,
+                    name: None,
+                    blocked: None,
+                });
+            }
             // Nothing holds an activity: Yapfast publishes none, so a chain in
             // front of one can't have anything waiting on it. A link and the
             // switcher are already on screen; no answer leaves them as they are.

@@ -102,6 +102,9 @@ pub(crate) struct Shared {
     /// What the application knows, which the reads answer from: a host call
     /// is answered in this task, not on the thread that holds the state.
     pub(super) world: Arc<dyn World>,
+    /// The files `attachment_pre_upload` holds while plugins read or replace
+    /// their bytes.
+    pub(super) uploads: Mutex<crate::uploads::Uploads>,
     pub(super) wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
 
@@ -215,7 +218,23 @@ impl Shared {
     }
 
     pub(super) fn announce(&self, notice: Notice) {
+        // A plugin that stops can't finish the files it held: they go as the
+        // person picked them.
+        if let Notice::SlotsGone(plugin) = &notice {
+            for id in self.uploads().let_go(plugin) {
+                (self.wake)(Notice::Attachment {
+                    id,
+                    name: None,
+                    blocked: None,
+                });
+            }
+        }
         (self.wake)(notice);
+    }
+
+    /// The held uploads.
+    pub(super) fn uploads(&self) -> std::sync::MutexGuard<'_, crate::uploads::Uploads> {
+        self.uploads.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Why plugins are off, when they are.
