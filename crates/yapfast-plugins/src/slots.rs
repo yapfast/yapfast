@@ -55,10 +55,13 @@ pub enum Slot {
     AccountIdentity,
     /// In place of the welcome at the top of a conversation's history.
     TimelineIntro,
+    /// Over the account, always shown, in or out of a call: a small player,
+    /// a status, buttons.
+    AccountPanel,
 }
 
 impl Slot {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::Banner,
         Self::Toast,
         Self::Composer,
@@ -76,6 +79,7 @@ impl Slot {
         Self::SidebarBanner,
         Self::AccountIdentity,
         Self::TimelineIntro,
+        Self::AccountPanel,
     ];
 
     /// Its name, as a plugin and its input name it.
@@ -98,6 +102,7 @@ impl Slot {
             Self::SidebarBanner => "sidebar.banner",
             Self::AccountIdentity => "account.identity",
             Self::TimelineIntro => "timeline.intro",
+            Self::AccountPanel => "account.panel",
         }
     }
 
@@ -159,7 +164,7 @@ impl Slot {
         match self {
             Self::Toast | Self::Dialog => 3,
             Self::Banner | Self::ProfileBadges | Self::ProfileSection => 4,
-            Self::HoverBar | Self::CallActions => 2,
+            Self::HoverBar | Self::CallActions | Self::AccountPanel => 2,
             Self::PickerTab => 4,
             // One page per plugin, which only its own page shows.
             Self::SettingsPage => usize::MAX,

@@ -601,6 +601,7 @@ count of changes moved, and only the message rows whose decorations changed.
 | Person menu | `menu.user` | A person's menu, the same way | 4 buttons | 4 | 64 |
 | Profile section | `profile.section` | On a person's card and full profile, under the badges, headed by the plugin's name | Any widget | 4 | 256 |
 | Voice panel | `voice.panel` | In the voice panel over the account while in a call, on a line under Yapfast's buttons | 3 buttons | 4 | 64 |
+| Account panel | `account.panel` | Over the account at the sidebar's foot, always shown, in or out of a call, under a line crediting the plugin: a small player, a status, buttons | Any widget | 2 | 64 |
 | Call controls | `call.actions` | In a call's controls, after a line, before Leave | 2 buttons | 2 | 64 |
 | Picker tab | `picker.tab` | A tab of the composer's emoji and sticker picker, named by the plugin, after Yapfast's three | Any widget | 4 | 256 |
 | Settings page | `settings.page` | The plugin's own page under Settings → Plugins ([settings](settings.md#a-plugins-own-page)) | Any widget | its own | 256 |

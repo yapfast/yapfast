@@ -39,6 +39,18 @@ impl App {
         if let Some(dock) = crate::call::dock::view(self.ctx()) {
             foot = foot.push(dock);
         }
+        // What plugins keep over the account, in or out of a call.
+        #[cfg(feature = "plugins")]
+        if self.client.state().plugin_slots.is_some() {
+            let subject = self
+                .client
+                .state()
+                .selected_room()
+                .map_or("", |room| room.id.as_str());
+            if let Some(panel) = crate::plugin_slots::account_panel(self.ctx(), subject) {
+                foot = foot.push(panel);
+            }
+        }
         let navigation = container(column![
             row![
                 crate::rail::view(&self.rail, self.ctx()),

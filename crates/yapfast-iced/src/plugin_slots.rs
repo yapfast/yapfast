@@ -852,6 +852,33 @@ pub fn profile_sections<'a>(ctx: Ctx<'a>, person: &'a str) -> Option<Element<'a,
     any.then(|| sections.into())
 }
 
+/// What plugins show over the account, always, in or out of a call: each
+/// plugin's small tree under a line crediting it, the subject the open
+/// conversation (`account.panel`).
+pub fn account_panel<'a>(ctx: Ctx<'a>, subject: &'a str) -> Option<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let mut panels = column![].spacing(6).width(Length::Fill);
+    let mut any = false;
+    for (drawn, plugin) in shown(ctx, Slot::AccountPanel) {
+        panels = panels.push(
+            column![
+                credit(theme, plugin),
+                container(draw(ctx, drawn, plugin, subject))
+                    .width(Length::Fill)
+                    .clip(true),
+            ]
+            .spacing(4),
+        );
+        any = true;
+    }
+    any.then(|| {
+        container(panels)
+            .padding([6, 10])
+            .width(Length::Fill)
+            .into()
+    })
+}
+
 /// The tabs plugins add to the emoji and sticker picker: each plugin's name
 /// as a tab, and the chosen one's drawing.
 pub fn picker_tabs(ctx: Ctx<'_>) -> Vec<&PluginName> {
