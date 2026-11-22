@@ -1,5 +1,6 @@
 //! Discord's HTTP API, called the way the web client calls it.
 
+use std::fmt::Write as _;
 use std::sync::RwLock;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -11,7 +12,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa, scheduled_event,
+    mfa, scheduled_event, search,
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -97,6 +98,14 @@ pub const BANS_PAGE: usize = 1000;
 pub enum MembersSearch {
     Found(Value),
     Indexing(f64),
+}
+
+/// What a search of messages gave: Discord's page, or its answer that it's
+/// still indexing, with the whole seconds its `Retry-After` asks to wait.
+#[derive(Debug)]
+pub enum Searched {
+    Page(Value),
+    Indexing(Option<u64>),
 }
 
 /// How many audit log entries Audit Log fetches at a time, as Discord's
@@ -408,10 +417,12 @@ impl Api {
 
     /// Asks with `token` from now on: Discord refreshed the login to it.
     pub fn relogin(&self, token: &str) {
-        *self
-            .token
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = token.to_owned();
+        token.clone_into(
+            &mut self
+                .token
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
     }
 
     /// Trades a remote login's ticket for the login, encrypted with the key
@@ -521,11 +532,14 @@ impl Api {
     /// Up to [`PAGE`] messages of a channel, newest first, as [`Span`] says.
     pub async fn messages(&self, channel: &str, span: Span<'_>) -> Result<Vec<Value>> {
         let mut path = format!("/channels/{channel}/messages?limit={PAGE}");
-        match span {
-            Span::Latest => {}
-            Span::Before(id) => path.push_str(&format!("&before={id}")),
-            Span::After(id) => path.push_str(&format!("&after={id}")),
-            Span::Around(id) => path.push_str(&format!("&around={id}")),
+        let from = match span {
+            Span::Latest => None,
+            Span::Before(id) => Some(("before", id)),
+            Span::After(id) => Some(("after", id)),
+            Span::Around(id) => Some(("around", id)),
+        };
+        if let Some((side, id)) = from {
+            let _ = write!(path, "&{side}={id}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(messages) => Ok(messages),
@@ -675,7 +689,7 @@ impl Api {
             "/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=false"
         );
         if let Some(guild) = guild {
-            path.push_str(&format!("&guild_id={guild}"));
+            let _ = write!(path, "&guild_id={guild}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -686,7 +700,7 @@ impl Api {
         let mut path =
             "/content-inventory/users/@me?for_game_profile=false&feature=inbox".to_owned();
         if let Some(token) = refresh_token {
-            path.push_str(&format!("&refresh_token={}", encode(token)));
+            let _ = write!(path, "&refresh_token={}", encode(token));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -941,7 +955,7 @@ impl Api {
             encode(emoji)
         );
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(users) => Ok(users),
@@ -978,7 +992,7 @@ impl Api {
         let mut path =
             format!("/channels/{channel}/polls/{message}/answers/{answer}?limit={limit}");
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Object(mut answer) => match answer.remove("users") {
@@ -1047,29 +1061,55 @@ impl Api {
         }
     }
 
-    /// Discord's answer to a search of messages, the newest first, from the
+    /// Discord's answer to a search of messages in `sort`'s order, from the
     /// `offset`th; see [`crate::service::Found`]. With a server, it searches
     /// the server, in the channels `params` names with `channel_id`, or all
     /// of them; without one, the DM `channel`. `params` are the rest of the
     /// query string, such as `content`, `author_id` and `has`, each name
-    /// repeated for several values, as Discord's client sends them.
+    /// repeated for several values, as Discord's client sends them. After
+    /// Discord answered that it's still indexing, `attempts` counts the
+    /// answers so far, which the client sends again with each try.
     pub async fn search(
         &self,
         guild: Option<&str>,
         channel: &str,
         params: &[(&str, String)],
+        sort: search::Sort,
         offset: u32,
-    ) -> Result<Value> {
+        attempts: u32,
+    ) -> Result<Searched> {
         let mut query = String::new();
-        for (name, value) in params {
-            query.push_str(&format!("{name}={}&", encode(value)));
+        for (name, value) in params.iter().chain(&sort.params()) {
+            let _ = write!(query, "{name}={}&", encode(value));
         }
-        query.push_str(&format!("offset={offset}"));
+        let _ = write!(query, "offset={offset}");
+        if attempts > 0 {
+            let _ = write!(query, "&attempts={attempts}");
+        }
         let path = match guild {
             Some(guild) => format!("/guilds/{guild}/messages/search?{query}"),
             None => format!("/channels/{channel}/messages/search?{query}"),
         };
-        self.json(self.request(Method::GET, &path)).await
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            // The client reads whole seconds from the header, as parseInt.
+            let seconds = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| {
+                    let digits = value.trim().split('.').next()?;
+                    digits.parse::<u64>().ok()
+                });
+            return Ok(Searched::Indexing(seconds));
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        let page =
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?;
+        Ok(Searched::Page(page))
     }
 
     /// Discord's answer to a search of a channel's threads, as its client's
@@ -1499,7 +1539,7 @@ impl Api {
     pub async fn bans(&self, guild: &str, after: Option<&str>) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/bans?limit={BANS_PAGE}");
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1514,10 +1554,10 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/bans/search?limit=10");
         if let Some(query) = query {
-            path.push_str(&format!("&query={}", encode(query)));
+            let _ = write!(path, "&query={}", encode(query));
         }
         for id in user_ids {
-            path.push_str(&format!("&user_ids={}", encode(id)));
+            let _ = write!(path, "&user_ids={}", encode(id));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1541,13 +1581,13 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/audit-logs?limit={AUDIT_PAGE}");
         if let Some(before) = before {
-            path.push_str(&format!("&before={}", encode(before)));
+            let _ = write!(path, "&before={}", encode(before));
         }
         if let Some(user) = user {
-            path.push_str(&format!("&user_id={}", encode(user)));
+            let _ = write!(path, "&user_id={}", encode(user));
         }
         if let Some(action) = action {
-            path.push_str(&format!("&action_type={action}"));
+            let _ = write!(path, "&action_type={action}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1920,7 +1960,7 @@ impl Api {
             encode(code)
         );
         if let Some(typed) = typed {
-            path.push_str(&format!("&inputValue={}", encode(typed)));
+            let _ = write!(path, "&inputValue={}", encode(typed));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -2455,6 +2495,9 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
+        (StatusCode::NOT_FOUND, Some(INVALID_REMOTE_AUTH_TICKET)) => {
+            anyhow!("Discord rejected the QR sign-in ticket. Try again with a new code.")
+        }
         (_, Some(BANNED)) => anyhow!("You're banned from this server."),
         (_, Some(TOO_MANY_SERVERS)) => {
             anyhow!("You're in as many servers as Discord allows. Leave one to join another.")
@@ -2565,6 +2608,7 @@ const ALREADY_FRIENDS: u64 = 80007;
 const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
+const INVALID_REMOTE_AUTH_TICKET: u64 = 20042;
 const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
@@ -2701,7 +2745,7 @@ fn encode(segment: &str) -> String {
         if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
             encoded.push(byte as char);
         } else {
-            encoded.push_str(&format!("%{byte:02X}"));
+            let _ = write!(encoded, "%{byte:02X}");
         }
     }
     encoded

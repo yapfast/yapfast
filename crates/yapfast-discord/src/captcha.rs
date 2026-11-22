@@ -13,6 +13,7 @@
 use std::{fmt, time::Duration};
 
 use anyhow::{Context, Result, bail};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use serde_json::Value;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -21,6 +22,9 @@ use tokio::{
 
 /// How long the page waits for someone to solve it.
 const WAIT: Duration = Duration::from_secs(10 * 60);
+/// Browsers can preconnect without sending a request yet.
+const REQUEST_WAIT: Duration = Duration::from_secs(10);
+const MAX_CONNECTIONS: usize = 8;
 /// The most a request to the page may send: the solution is a few KiB.
 const MOST: usize = 64 * 1024;
 
@@ -133,12 +137,18 @@ impl Page {
     /// and the solution comes back as a POST to the same path.
     pub async fn solution(&self) -> Result<String> {
         tokio::time::timeout(WAIT, async {
+            let mut requests = FuturesUnordered::new();
             loop {
-                let (stream, _) = self.listener.accept().await?;
-                match self.answer(stream).await {
-                    Ok(Some(solution)) => return Ok(solution),
-                    Ok(None) => {}
-                    Err(error) => tracing::debug!(%error, "a captcha page request failed"),
+                tokio::select! {
+                    connection = self.listener.accept(), if requests.len() < MAX_CONNECTIONS => {
+                        let (stream, _) = connection?;
+                        requests.push(tokio::time::timeout(REQUEST_WAIT, self.answer(stream)));
+                    }
+                    Some(answer) = requests.next() => match answer {
+                        Ok(Ok(Some(solution))) => return Ok(solution),
+                        Ok(Ok(None)) | Err(_) => {}
+                        Ok(Err(error)) => tracing::debug!(%error, "a captcha page request failed"),
+                    },
                 }
             }
         })
@@ -326,6 +336,39 @@ mod tests {
         let status = client.get(elsewhere).send().await.unwrap().status();
         assert_eq!(status, reqwest::StatusCode::NOT_FOUND);
         client.post(&url).body("solved").send().await.unwrap();
+        assert_eq!(solution.await.unwrap().unwrap(), "solved");
+    }
+
+    #[tokio::test]
+    async fn an_idle_browser_connection_does_not_block_the_captcha() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let page = Page::serve(&captcha()).await.unwrap();
+        // A browser can open a connection before it has a request to send.
+        let _idle = TcpStream::connect(page.listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let url = page.url.clone();
+        let solution = tokio::spawn(async move { page.solution().await });
+        let status = client
+            .get(&url)
+            .send()
+            .await
+            .map_err(reqwest::Error::without_url)
+            .expect("the captcha page did not respond")
+            .status();
+        assert_eq!(status, reqwest::StatusCode::OK);
+        let status = client
+            .post(&url)
+            .body("solved")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, reqwest::StatusCode::NO_CONTENT);
         assert_eq!(solution.await.unwrap().unwrap(), "solved");
     }
 }

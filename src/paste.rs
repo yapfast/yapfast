@@ -81,7 +81,10 @@ fn read_arboard() -> Clipboard {
 }
 
 /// Pixels as a PNG file to attach.
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+#[cfg_attr(
+    target_os = "linux",
+    allow(dead_code, reason = "Linux pastes pictures as they come")
+)]
 fn png(pixels: &image::RgbaImage) -> Clipboard {
     let mut png = std::io::Cursor::new(Vec::new());
     match pixels.write_to(&mut png, image::ImageFormat::Png) {
@@ -533,7 +536,10 @@ mod windows {
 /// their unused fourth byte, as Chromium's do, which image's decoder would
 /// drop, so they're read here. A bitmap whose alpha is zero throughout is
 /// opaque.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only Windows' clipboard holds bitmaps")
+)]
 fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
     const BI_RGB: u32 = 0;
     let u32_at = |at: usize| Some(u32::from_le_bytes(dib.get(at..at + 4)?.try_into().ok()?));

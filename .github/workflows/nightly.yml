@@ -73,13 +73,12 @@ jobs:
       - uses: cachix/install-nix-action@v31.11.5
         with:
           github_access_token: ${{ github.token }}
+      # The MSVC CRT and Windows SDK cargo-xwin downloads.
       - uses: actions/cache@v6.1.0
         with:
-          path: |
-            ~/.cache/cargo-xwin
-            .local/windows/skia-static-production/build.json
-            .local/windows/skia-static-production/prepared
-          key: windows-skia-${{ hashFiles('nix/flake.lock', 'nix/prepare-windows-skia.py', 'nix/prepare-skia-native.py', 'nix/skia-windows-builder/**') }}
+          path: ~/.cache/cargo-xwin
+          key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
+      # Cache dependencies before scripts/set-version changes Cargo.lock.
       - uses: Swatinem/rust-cache@v2.9.3
         with:
           cache-on-failure: true
@@ -114,7 +113,7 @@ jobs:
             .github
             packaging/keys
       - run: sudo apt-get install -y --no-install-recommends minisign
-      - uses: actions/download-artifact@8.0.2
+      - uses: actions/download-artifact@v8.0.2
         with:
           path: dist
       - name: Publish

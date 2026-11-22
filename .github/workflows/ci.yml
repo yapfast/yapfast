@@ -80,9 +80,9 @@ jobs:
       matrix:
         include:
           - name: clippy
-            run: cargo clippy --locked --workspace --exclude feature-union --all-targets -- -D warnings
+            run: cargo clippy --locked --workspace --all-targets -- -D warnings
           - name: tests
-            run: cargo test --locked --workspace --exclude feature-union
+            run: cargo test --locked --workspace
     steps:
       - uses: actions/checkout@v7.0.1
         with:

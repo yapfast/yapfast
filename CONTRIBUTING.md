@@ -26,13 +26,14 @@ Tools are pinned in `prek.toml`; prek installs their isolated environments on
 the first run, including Node.js for Prettier. No project Python environment
 or npm install is needed.
 
-See [Code style](docs/code-style.md) for language rules, exclusions and commands.
+Formatting and lint rules are defined in `prek.toml`, `ruff.toml`,
+`.clang-format` and `.editorconfig`.
 
 ### Build checks
 
 [Development](docs/development.md) covers running the app, and
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
-flows from `ui/*.slint` to `application/`.
+flows from the window to `application/`.
 
 Nix is optional. `nix develop path:./nix` gives you the pinned toolchain and
 libraries. Without it, [Without Nix](README.md#without-nix) lists what Linux
@@ -51,10 +52,10 @@ scripts/check --fast
 scripts/test-fake-discord
 ```
 
-`scripts/check` runs lint and formatting hooks, doc links, Clippy, the tests and a smoke run of
+`scripts/check` runs formatting, doc links, Clippy, the tests and a smoke run of
 the default build. It enters the dev shell when Nix is installed, and uses your
-own tools otherwise. Each compile of the UI crate takes 6–8 GiB of memory, which
-is why its steps run one after another. Add `--matrix` when you change code that
+own tools otherwise. Its steps run one after another, as two compiles at once
+can run a machine out of memory. Add `--matrix` when you change code that
 Matrix shares.
 
 `scripts/test-fake-discord` runs the Discord service tests against
@@ -67,14 +68,21 @@ and say what you skipped in the pull request, so someone else can run it:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --locked --profile fast --all-targets --workspace --exclude feature-union -- -D warnings
-cargo test --locked --profile fast --workspace --exclude feature-union
+cargo clippy --locked --profile fast --all-targets --workspace -- -D warnings
+cargo test --locked --profile fast --workspace
 ```
 
 For a Discord feature, follow
 [Adding a Discord feature](docs/discord/adding-a-feature.md), which goes through
 it layer by layer. Look up the endpoint, payload or gateway event on
 https://docs.discord.food, and give the fake the same shape.
+
+The window (`crates/yapfast-iced`) is laid out in
+[How the client is built](docs/client/structure.md): one module per area with
+its own state, events, `update` and `view`, and the kit they build from. A
+new screen or dialog follows
+[Adding a screen](docs/client/structure.md#adding-a-screen), and each area's
+behaviour is written down in its doc under [docs/client](docs/client/README.md).
 
 To see a Discord change, run your build against the fake, with the fake in one
 terminal and Yapfast in another:
@@ -95,7 +103,7 @@ linking an account against the fake. The comment at the top of
 With Nix, `scripts/ui-session` does the same on a private display, and adds
 screenshots and scripted input; run it with `--help`.
 
-A coding agent is fine. `CLAUDE.md` gives it these commands and rules, and
+A coding agent is fine. `AGENTS.md` gives it these commands and rules, and
 assumes Nix, so tell it if you don't use it. Read what it wrote and run the result
 before you open the pull request.
 
@@ -117,16 +125,11 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 ## Pull requests
 
 Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
-toolchain in `rust-toolchain.toml`. Separate jobs run lint, formatting and doc links,
-and the default workspace build's `cargo check`, strict Clippy and tests.
-`cargo audit --deny warnings` and `cargo machete` are temporarily commented out
-until the dependency findings are addressed in a separate PR.
-CI uses the development profile to avoid
-release optimization costs, while retaining the manifest's optimized noise
-suppression dependencies. Compilation excludes `feature-union`, which is for
-optional Matrix builds. CI also runs on
-pushes to `main` and can be started manually. Run the Matrix and fake Discord
-checks above locally when your change needs them.
+toolchain in `rust-toolchain.toml`. Jobs run the prek hooks, Rust formatting,
+`cargo audit` (with the SQLite advisory excluded), `cargo machete`, strict Clippy
+and workspace tests. Clippy and tests run in parallel, each with its own cache.
+CI also runs on pushes to `main` and can be started manually. Run the Matrix and
+fake Discord checks above locally when your change needs them.
 
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.

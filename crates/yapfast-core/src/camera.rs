@@ -110,6 +110,7 @@ mod native {
         // terminated, for this call.
         let devices = unsafe { &mut *user.cast::<Vec<Device>>() };
         let text = |chars| {
+            // SAFETY: both strings are terminated, as above.
             unsafe { CStr::from_ptr(chars) }
                 .to_string_lossy()
                 .into_owned()
@@ -142,6 +143,7 @@ mod native {
         // SAFETY: `user` is the camera's boxed sink, alive until the camera
         // closes, which waits for its thread; the planes last for this call.
         let sink = unsafe { &mut *user.cast::<Sink>() };
+        // SAFETY: the picture and its planes last for this call, as above.
         if let Some(picture) = unsafe { picture.as_ref().and_then(|raw| I420::from_raw(raw)) } {
             sink(&picture);
         }

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
-use super::{Input, Output, Sample, platform, windows_effects};
+use super::{Input, Output, Sample, windows_effects};
 
 /// How often a stream sees whether it's on the endpoint it should be.
 const LOOK: Duration = Duration::from_secs(2);
@@ -20,7 +20,7 @@ const LOOK: Duration = Duration::from_secs(2);
 const RETRY: Duration = Duration::from_millis(500);
 
 type Open<T> = Box<dyn Fn(Option<&str>) -> Result<T> + Send>;
-/// [`platform::endpoint`], or a test's stand-in.
+/// [`super::endpoint`], or a test's stand-in.
 type Endpoint = fn(Option<&str>, bool) -> String;
 
 /// A stream, the device it's for, and the endpoint it's on.
@@ -149,7 +149,7 @@ impl<S: Sample> LastingOutput<S> {
     ) -> Result<Self> {
         let open = move |speaker: Option<&str>| Output::open(speaker, name, rate, channels, queue);
         Ok(Self {
-            lasting: Lasting::open(speaker, true, name, Box::new(open), platform::endpoint)?,
+            lasting: Lasting::open(speaker, true, name, Box::new(open), super::endpoint)?,
             channels,
             rate,
         })
@@ -195,7 +195,7 @@ impl<S: Sample> LastingInput<S> {
         let open =
             move |microphone: Option<&str>| Input::open(microphone, name, rate, channels, fragment);
         Ok(Self {
-            lasting: Lasting::open(microphone, false, name, Box::new(open), platform::endpoint)?,
+            lasting: Lasting::open(microphone, false, name, Box::new(open), super::endpoint)?,
             channels,
             rate,
         })

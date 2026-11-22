@@ -352,7 +352,7 @@ impl Application {
                 if !may(Some(emoji.user.as_ref().map(|user| user.id.clone()))) {
                     return vec![];
                 }
-                emoji.name = name.clone();
+                emoji.name.clone_from(&name);
                 EmojiAction::Rename { id, name }
             }
             EmojiInput::Delete(id) => {

@@ -233,7 +233,7 @@ impl Application {
         let Some(forum) = self.state.forum.as_mut().filter(|_| !wanted.is_empty()) else {
             return vec![];
         };
-        forum.asking = wanted.clone();
+        forum.asking.clone_from(&wanted);
         vec![Effect::Backend(Command::Discord(DiscordCommand::Posts {
             room: forum.list.room.clone(),
             posts: wanted,
