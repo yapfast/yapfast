@@ -46,7 +46,7 @@ pub struct ListedMember {
     /// The RGB colour of their highest coloured role, and where its
     /// gradient ends when that role's name is one.
     pub color: Option<u32>,
-    pub color_end: Option<u32>,
+    pub color_end: Option<(u32, Option<u32>)>,
     /// Their custom status, else what they're doing, as Discord shows it.
     pub activity: Option<String>,
     /// What they're doing, in full, as their profile shows it.
