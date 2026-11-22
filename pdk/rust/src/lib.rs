@@ -55,6 +55,7 @@ pub mod http;
 pub mod image;
 pub mod input;
 pub mod log;
+pub mod microphone;
 pub mod oauth;
 pub mod overlay;
 pub mod plugin;
@@ -76,7 +77,8 @@ pub mod prelude {
     pub use crate::wire::method;
     pub use crate::yapfast_plugin;
     pub use crate::{
-        account, app, call, http, image, log, oauth, overlay, settings, storage, timers, uploads,
+        account, app, call, http, image, log, microphone, oauth, overlay, settings, storage,
+        timers, uploads,
     };
 
     pub use crate::call::{CallResult, HostReturn, Pending};

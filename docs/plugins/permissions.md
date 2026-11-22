@@ -15,10 +15,9 @@ manifests, kept in `grants.json`, and shown at install.
 
 The dialog lists them in this order, which is the contract crate's order and not
 the order the manifest happens to write. A capability the manifest doesn't
-declare isn't shown, because the plugin can't use it. One row below says it is
-not shown at all: nothing in this build is behind `microphone` yet
-([its design](audio-processing.md)), so a manifest may still name it and reading
-it leaves it out.
+declare isn't shown, because the plugin can't use it. Every capability below
+has something behind it; changing the voice that goes into a call is the one
+part of the microphone still a design ([audio processing](audio-processing.md)).
 
 The last column is the dialog's own wording, a sentence each except the two
 audio capabilities, which share one line.
@@ -43,7 +42,7 @@ audio capabilities, which share one line.
 | `files.save` | Hand the person a file to save, through the system's save dialog | Saves files where you choose |
 | `voice.read` | The call: who is in it, who speaks, mute, deafen, screens and cameras | Sees your calls |
 | `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
-| `microphone` | Hear or process the microphone | Not shown: no path is behind it yet, see [the design](audio-processing.md) |
+| `microphone` | Record the microphone as Ogg Opus or PCM, asked about the first time, with a red bar while it does | Records your microphone when it asks: you're asked the first time, and a red bar shows while it does, with Stop |
 | `notifications` | OS notifications | Shows notifications |
 | `clipboard.write` | Write to the clipboard on a gesture | Writes to your clipboard |
 | `ui.modify` | Change, hide or replace named parts of the interface | Can change Yapfast's interface |
@@ -69,9 +68,9 @@ audio capabilities, which share one line.
 | `oauth.login` | Sign the person in to the services its `oauth` names, in their browser, with its own app, and use the account through `http.fetch` | Asks you to sign in to another site in your browser, and uses that account |
 | `activity.read` | `game_start` and `game_stop`, the game Yapfast sees this account playing | Sees which game you're playing, even when you hide it |
 
-One of those sentences is shown in the dialog's danger tone:
+Two of those sentences are shown in the dialog's danger tone:
 `messages.send.background`, the one that lets a plugin act as the person without
-them. The lines that reach something people care about are a step below it, in
+them, and `microphone`. The lines that reach something people care about are a step below it, in
 bold: `messages.read`, `messages.intercept`, `messages.send`, `messages.retain`,
 `servers.manage`, `uploads.intercept`, `ui.modify`, `messages.attach`,
 `profile.write`, `messages.search`, `drafts.read` and `account.sessions`.

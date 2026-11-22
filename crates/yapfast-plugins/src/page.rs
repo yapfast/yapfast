@@ -598,7 +598,10 @@ pub fn capability(name: &str) -> (String, Tone) {
         "files.save" => ("Saves files where you choose", Tone::Normal),
         "voice.read" => ("Sees your calls", Tone::Normal),
         "audio.play" | "audio.speak" => ("Plays sounds and speech", Tone::Normal),
-        "microphone" => ("Records your microphone", Tone::Strong),
+        "microphone" => (
+            "Records your microphone when it asks: you're asked the first time, and a red bar shows while it does, with Stop",
+            Tone::Danger,
+        ),
         "notifications" => ("Shows notifications", Tone::Normal),
         "clipboard.write" => ("Writes to your clipboard", Tone::Normal),
         "ui.modify" => ("Can change Yapfast's interface", Tone::Strong),

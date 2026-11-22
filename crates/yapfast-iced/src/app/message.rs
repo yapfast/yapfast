@@ -54,6 +54,9 @@ pub enum Message {
     /// The agent strip's Stop: the plugin may no longer send without a key.
     #[cfg(feature = "plugins")]
     PluginStopAgent(yapfast_plugin_api::PluginId),
+    /// The recording bar's Stop: the plugin's recording ends now.
+    #[cfg(feature = "plugins")]
+    PluginStopRecording,
     /// The save dialog a plugin's `files.save` opened closed: the file name
     /// saved under, nothing for a cancel, or why the write failed.
     #[cfg(feature = "plugins")]

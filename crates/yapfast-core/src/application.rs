@@ -643,6 +643,10 @@ pub struct AppState {
     /// that asked for them.
     #[cfg(feature = "plugins")]
     pub plugin_overlay_ticker: Option<crate::plugins::bridge::OverlayTicker>,
+    /// The plugin recording the microphone, which a red bar the plugin can't
+    /// hide names for as long as it does, with Stop.
+    #[cfg(feature = "plugins")]
+    pub plugin_recording: Option<crate::application::plugins::RecordingShown>,
     /// The link the leaving dialog is about while plugins are asked, and what
     /// they offered to open it in.
     #[cfg(feature = "plugins")]
@@ -2641,6 +2645,9 @@ pub struct Application {
     plugin_game: Option<Option<String>>,
     /// The friends' presences the plugins were last told of, at the
     /// `people_changes` they were read at.
+    /// The recording under way, which its plugin or the person stops.
+    #[cfg(feature = "plugins")]
+    plugin_recorder: Option<crate::plugins::recorder::Recording>,
     #[cfg(feature = "plugins")]
     plugin_friend_presences: Option<(u64, std::collections::BTreeMap<String, &'static str>)>,
     feed_asks: activity_panel::FeedAsks,

@@ -86,6 +86,7 @@ impl Session {
             // Asked about the first time like the tier, though not behind
             // its switch.
             call::method::PROFILE_SET => Capability::ProfileWrite,
+            call::method::MICROPHONE_START => Capability::Microphone,
             call::method::NET_LISTEN => Capability::NetListen,
             call::method::NET_CONNECT => Capability::NetSocket,
             // A plugin with hosts of its own reaches those while `net.any`

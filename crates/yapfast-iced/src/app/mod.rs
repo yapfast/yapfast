@@ -545,6 +545,15 @@ impl App {
                 Task::none()
             }
             #[cfg(feature = "plugins")]
+            Message::PluginStopRecording => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::StopRecording,
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
             Message::PluginSaved(plugin, call, saved) => {
                 self.client
                     .dispatch(yapfast_core::application::Action::Plugin(

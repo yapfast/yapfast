@@ -567,6 +567,12 @@ impl PluginState {
         self.identities.forget_person(person)
     }
 
+    /// What a recording answers its plugin through, once the plugin system
+    /// runs.
+    pub fn answerer(&mut self) -> Option<crate::plugins::bridge::Answerer> {
+        self.bridge.answerer()
+    }
+
     /// What paces plugins' overlays, once the plugin system runs.
     pub fn overlay_ticker(&mut self) -> Option<crate::plugins::bridge::OverlayTicker> {
         self.bridge.overlay_ticker()

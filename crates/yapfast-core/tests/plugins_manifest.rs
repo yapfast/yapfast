@@ -237,15 +237,17 @@ fn the_review_leaves_out_a_capability_nothing_checks() {
         [
             Capability::UiModify,
             Capability::FilesSave,
+            Capability::Microphone,
             Capability::TypingIntercept
         ],
-        "the typing hook and the save dialog are drawn from these capabilities; the microphone isn't"
+        "the typing hook, the save dialog and the microphone are all built now"
     );
     assert_eq!(
         manifest.capabilities(),
         [
             Capability::TypingIntercept,
             Capability::FilesSave,
+            Capability::Microphone,
             Capability::UiModify
         ],
         "and the dialog's order is the contract crate's"

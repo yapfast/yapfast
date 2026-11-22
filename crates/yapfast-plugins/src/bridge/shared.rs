@@ -121,6 +121,9 @@ pub(crate) struct KeptBody {
     pub(super) path: std::path::PathBuf,
     pub(super) bytes: u64,
     pub(super) at: Instant,
+    /// A recording's length in milliseconds and its waveform, which make it
+    /// one `messages.voice` can send.
+    pub(super) voice: Option<(u64, String)>,
 }
 
 /// How long a large answer's body is kept unread.
@@ -133,7 +136,9 @@ impl Shared {
         let id = self.next_body.fetch_add(1, Ordering::Relaxed) + 1;
         let mut bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);
         bodies.retain(|_, kept| {
-            let fresh = kept.at.elapsed() < KEEP_BODY;
+            // A recording is the plugin's to send for as long as the session
+            // lasts; only an answer's body goes after ten minutes.
+            let fresh = kept.voice.is_some() || kept.at.elapsed() < KEEP_BODY;
             if !fresh {
                 let _ = std::fs::remove_file(&kept.path);
             }
@@ -146,9 +151,48 @@ impl Shared {
                 path,
                 bytes,
                 at: Instant::now(),
+                voice: None,
             },
         );
         id
+    }
+
+    /// Keeps a recording for its plugin to read and send.
+    pub(super) fn keep_recording(
+        &self,
+        plugin: &PluginId,
+        path: std::path::PathBuf,
+        bytes: u64,
+        voice: Option<(u64, String)>,
+    ) -> u64 {
+        let id = self.keep_body(plugin, path, bytes);
+        if let Some(kept) = self
+            .bodies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&id)
+        {
+            kept.voice = voice;
+        }
+        id
+    }
+
+    /// A recording of this plugin's that can go as a voice message: its file,
+    /// its length in milliseconds and its waveform.
+    pub(super) fn recording(
+        &self,
+        plugin: &PluginId,
+        id: u64,
+    ) -> Result<(std::path::PathBuf, u64, String), String> {
+        let bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);
+        let kept = bodies
+            .get(&id)
+            .filter(|kept| kept.plugin == *plugin)
+            .ok_or_else(|| format!("no recording of this plugin's is kept as {id}"))?;
+        let (duration, waveform) = kept.voice.clone().ok_or_else(|| {
+            "only an Opus recording goes as a voice message, as Discord takes one".to_owned()
+        })?;
+        Ok((kept.path.clone(), duration, waveform))
     }
 
     /// A piece of a kept body, for the plugin it is.

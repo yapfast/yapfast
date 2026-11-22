@@ -306,6 +306,12 @@ impl App {
         if let Some(overlay) = crate::plugin_overlay::layer(self) {
             layers = layers.push(overlay);
         }
+        // A plugin recording the microphone is named at the top, over all a
+        // plugin draws, for as long as it records.
+        #[cfg(feature = "plugins")]
+        if let Some(bar) = crate::plugin_slots::recording_bar(self.ctx()) {
+            layers = layers.push(bar);
+        }
         #[cfg(feature = "plugins")]
         if let Some(consent) = crate::dialogs::consent_view(self.ctx())
             .or_else(|| crate::dialogs::powerful_view(self.ctx()))

@@ -975,6 +975,63 @@ pub fn agent_strip<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
     )
 }
 
+/// The bar at the top of the window while a plugin records the microphone:
+/// a red dot, whose recording it is, how long it has run, and Stop. It is
+/// Yapfast's own, drawn over everything a plugin draws, and no part a plugin
+/// can hide or replace.
+pub fn recording_bar<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let shown = cx.state.plugin_recording.as_ref()?;
+    let theme = cx.look.theme;
+    let danger = theme.danger;
+    let seconds = yapfast_core::clock::now_ms().saturating_sub(shown.since_ms) / 1000;
+    let on = iced::Color::WHITE;
+    let bar = container(
+        row![
+            text("●").size(13).color(on),
+            text(format!("{} is recording your microphone", shown.by))
+                .size(13)
+                .font(BOLD)
+                .color(on),
+            text(format!("{}:{:02}", seconds / 60, seconds % 60))
+                .size(13)
+                .font(MEDIUM)
+                .color(on),
+            iced::widget::button(text("Stop").size(12).font(BOLD).color(danger))
+                .on_press(Message::PluginStopRecording)
+                .padding([3, 10])
+                .style(move |_, _| iced::widget::button::Style {
+                    background: Some(on.into()),
+                    border: iced::Border {
+                        radius: 10.0.into(),
+                        ..iced::Border::default()
+                    },
+                    ..iced::widget::button::Style::default()
+                }),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .padding([5, 8])
+    .style(move |_| {
+        iced::widget::container::Style::default()
+            .background(danger)
+            .border(iced::Border {
+                radius: 16.0.into(),
+                ..iced::Border::default()
+            })
+    });
+    Some(
+        container(bar)
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .padding(iced::Padding {
+                top: 10.0,
+                ..iced::Padding::ZERO
+            })
+            .into(),
+    )
+}
+
 /// The line over the conversation while a plugin's sound plays: whose it is,
 /// so a sound from nowhere always has a name.
 pub fn playing_strip<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {

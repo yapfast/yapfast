@@ -250,7 +250,7 @@ impl Capability {
     /// `typing.pre_send` and `attachment.pre_upload` ask for, and the chain
     /// those hooks run is picked by them.
     pub fn is_implemented(self) -> bool {
-        !matches!(self, Capability::Microphone)
+        true
     }
 
     /// Whether this is one of the powerful tier: abilities past the sandbox's
@@ -274,7 +274,7 @@ impl Capability {
     /// what everyone sees on the account. Only the powerful tier also waits
     /// for the switch in Advanced.
     pub fn asks_first(self) -> bool {
-        self.is_powerful() || matches!(self, Capability::ProfileWrite)
+        self.is_powerful() || matches!(self, Capability::ProfileWrite | Capability::Microphone)
     }
 
     /// The name written in a manifest.
@@ -363,7 +363,9 @@ impl Capability {
             Capability::VoiceRead => "Sees your calls",
             Capability::AudioPlay => "Plays sounds",
             Capability::AudioSpeak => "Speaks out loud",
-            Capability::Microphone => "Records your microphone",
+            Capability::Microphone => {
+                "Records your microphone when it asks, once you say yes, while a red bar says so"
+            }
             Capability::Notifications => "Shows notifications",
             Capability::ClipboardWrite => "Writes to your clipboard",
             Capability::UiModify => "Can change Yapfast's interface",
@@ -763,13 +765,14 @@ mod tests {
             [
                 Capability::MessagesRead,
                 Capability::FilesSave,
+                Capability::Microphone,
                 Capability::TypingIntercept
             ],
-            "the typing hook and the save dialog are real, the microphone isn't"
+            "the microphone records now"
         );
         assert!(
-            !Capability::Microphone.is_implemented(),
-            "the processing hook isn't there yet"
+            Capability::Microphone.is_implemented() && Capability::Microphone.asks_first(),
+            "a recording is asked about the first time"
         );
         assert!(
             Capability::NetSocket.is_implemented(),

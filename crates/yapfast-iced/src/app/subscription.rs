@@ -123,6 +123,11 @@ impl App {
                     .map(|_| Message::Call(crate::call::Event::Second)),
             );
         }
+        // The recording bar's clock goes on while a plugin records.
+        #[cfg(feature = "plugins")]
+        if self.client.state().plugin_recording.is_some() {
+            subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Nothing));
+        }
         // The site question's clock, and the devtools' view of a plugin, each
         // second while they show.
         #[cfg(feature = "plugins")]

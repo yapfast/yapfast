@@ -1,11 +1,11 @@
-# The microphone: a design, not yet built
+# Processing the microphone in a call: a design, not yet built
 
-`microphone` is the one capability in the contract with nothing behind it. A
-manifest may name it, and reading the manifest leaves it out, so the review
-never promises something that doesn't happen
-([permissions](permissions.md#the-capabilities)). This page is what would be
-built behind it, so that a voice changer or a soundboard can be written as a
-plugin without the plugin ever holding the microphone on its own terms.
+`microphone` records now: a plugin asks, the person says yes the first time,
+a red bar shows while it records, and the recording comes back as Ogg Opus or
+PCM ([the ABI](abi.md#the-microphone)). What isn't built is a plugin changing
+the voice that goes into a call as it goes. This page is what would be built
+for that, so that a voice changer or a soundboard can be written as a plugin
+without the plugin ever holding the microphone on its own terms.
 
 What is built today, and what the two would use:
 
@@ -72,9 +72,8 @@ strike, and the person is told in the indicator below. Turning the plugin off,
 way.
 
 **What a plugin can't do with it.** It hears only what the person would send,
-and only while they would send it; it can't record (there is no file it can
-write but `files.save`, behind a click, and nothing streams to it but the
-frames); it can't send audio while the person is muted; it never sees what
+and only while they would send it; it doesn't record through the stage (a
+recording is `microphone.start`'s, with its own bar); it can't send audio while the person is muted; it never sees what
 others in the call say. A soundboard that mixes its own asset into the voice
 does it inside `yf_audio`, with its asset's samples, under the same budget.
 

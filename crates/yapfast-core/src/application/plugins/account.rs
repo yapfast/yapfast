@@ -19,6 +19,16 @@ pub struct ActivityShown {
     pub name: String,
 }
 
+/// A plugin recording the microphone, as the red bar names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordingShown {
+    pub plugin: PluginId,
+    /// The plugin's name.
+    pub by: String,
+    /// When it started, in Unix milliseconds, for the bar's clock.
+    pub since_ms: u64,
+}
+
 /// Whether a call is answered once Discord or Spotify has, rather than now.
 pub(super) fn answered_later(request: &AppCall) -> bool {
     matches!(
@@ -29,6 +39,7 @@ pub(super) fn answered_later(request: &AppCall) -> bool {
             | AppCall::Sessions
             | AppCall::Affinities(_)
             | AppCall::Spotify(_)
+            | AppCall::SendVoice { .. }
     )
 }
 
@@ -80,6 +91,17 @@ impl Application {
             AppCall::Search(request) => Some(PluginAsk::Search(request)),
             AppCall::Sessions => Some(PluginAsk::Sessions),
             AppCall::Affinities(request) => Some(PluginAsk::Affinities(request)),
+            AppCall::SendVoice {
+                room,
+                path,
+                duration_ms,
+                waveform,
+            } => Some(PluginAsk::Voice {
+                room,
+                path,
+                duration_ms,
+                waveform,
+            }),
             AppCall::Spotify(action) => Some(PluginAsk::Spotify(action)),
             other => {
                 let (more, answer) = self.plugins_call(&plugin, other);
@@ -101,6 +123,79 @@ impl Application {
             )));
         }
         effects
+    }
+
+    /// Starts a plugin's recording, which answers its call when it ends: one
+    /// at a time, from the microphone chosen for calls, with the red bar up
+    /// while it runs.
+    pub(super) fn plugins_record(
+        &mut self,
+        plugin: PluginId,
+        call: u64,
+        format: yapfast_plugin_api::call::RecordingFormat,
+        max_seconds: Option<u32>,
+    ) -> Vec<AppEffect> {
+        if let Some(shown) = &self.state.plugin_recording {
+            let message = format!("{} is recording the microphone already", shown.by);
+            self.plugins_reply(&plugin, call, HostReturn::Error { message });
+            return Vec::new();
+        }
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        let folder = crate::plugins::recorder::folder(plugins.attach_dir());
+        let Some(answerer) = plugins.answerer() else {
+            return Vec::new();
+        };
+        match crate::plugins::recorder::start(
+            plugin.clone(),
+            call,
+            format,
+            max_seconds,
+            self.state.voice.microphone.clone(),
+            &folder,
+            answerer,
+        ) {
+            Ok(recording) => {
+                self.state.plugin_recording = Some(RecordingShown {
+                    by: self.plugin_name(&plugin),
+                    plugin,
+                    since_ms: crate::clock::now_ms(),
+                });
+                self.plugin_recorder = Some(recording);
+                vec![AppEffect::Plugin(Effect::Recording)]
+            }
+            Err(error) => {
+                self.plugins_reply(
+                    &plugin,
+                    call,
+                    HostReturn::Error {
+                        message: format!("{error:#}"),
+                    },
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    /// A recording ended, or its plugin stopped: the bar goes.
+    pub(super) fn plugins_recording_ended(&mut self, plugin: &PluginId) -> Vec<AppEffect> {
+        if let Some(recording) = &self.plugin_recorder
+            && recording.plugin == *plugin
+        {
+            recording.stop_for_plugin();
+            self.plugin_recorder = None;
+        }
+        if self
+            .state
+            .plugin_recording
+            .as_ref()
+            .is_some_and(|shown| shown.plugin == *plugin)
+        {
+            self.state.plugin_recording = None;
+            return vec![AppEffect::Plugin(Effect::Recording)];
+        }
+        Vec::new()
     }
 
     /// Takes a plugin's activity off the account, when it is turned off or

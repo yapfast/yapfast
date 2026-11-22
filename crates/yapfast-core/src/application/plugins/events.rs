@@ -63,6 +63,19 @@ impl Application {
                 call,
                 request: crate::plugins::state::AppCall::SaveFile { name, bytes },
             }) => self.plugins_save_file(plugin, call, name, bytes),
+            // A recording answers its call when it ends.
+            News::Notice(Notice::Call {
+                plugin,
+                call,
+                request:
+                    crate::plugins::state::AppCall::Record {
+                        format,
+                        max_seconds,
+                    },
+            }) => self.plugins_record(plugin, call, format, max_seconds),
+            News::Notice(Notice::RecordingEnded { plugin }) => {
+                self.plugins_recording_ended(&plugin)
+            }
             // Discord or Spotify answers these, later, under the same call.
             News::Notice(Notice::Call {
                 plugin,
@@ -347,8 +360,9 @@ impl Application {
                 if let Some(plugins) = self.state.plugins.as_mut() {
                     plugins.web_pictures.forget(plugin.as_str());
                 }
-                // A plugin that stopped draws no overlay.
+                // A plugin that stopped draws no overlay, and records nothing.
                 self.state.plugin_overlays.remove(plugin.as_str());
+                let _ = self.plugins_recording_ended(&plugin);
                 // A plugin that stopped adds nothing to the title any more.
                 if self
                     .state

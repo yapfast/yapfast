@@ -289,11 +289,30 @@ impl Application {
             AppCall::Drafts => (Vec::new(), self.plugins_drafts()),
             // Answered once Discord or Spotify has, by `plugins_ask`; a call
             // that reaches here wasn't routed there.
+            AppCall::RecordStop => match &self.plugin_recorder {
+                Some(recording) if recording.plugin == *plugin => {
+                    recording.stop_for_plugin();
+                    (Vec::new(), done)
+                }
+                _ => (
+                    Vec::new(),
+                    HostReturn::Error {
+                        message: "this plugin isn't recording".to_owned(),
+                    },
+                ),
+            },
+            AppCall::Record { .. } => (
+                Vec::new(),
+                HostReturn::Error {
+                    message: "a recording is answered when it ends".to_owned(),
+                },
+            ),
             AppCall::SetPluginActivity { .. }
             | AppCall::SetProfile(_)
             | AppCall::Search(_)
             | AppCall::Sessions
             | AppCall::Affinities(_)
+            | AppCall::SendVoice { .. }
             | AppCall::Spotify(_) => (
                 Vec::new(),
                 HostReturn::Error {

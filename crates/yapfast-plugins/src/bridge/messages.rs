@@ -60,6 +60,8 @@ pub enum Notice {
         plugin: PluginId,
         layer: Option<yapfast_plugin_api::call::OverlaySet>,
     },
+    /// A plugin's recording ended, so the red bar goes.
+    RecordingEnded { plugin: PluginId },
     /// A plugin's decorations should be asked again: what it keeps changed.
     Redecorate { plugin: PluginId },
     /// How a person looks, or everyone when `person` is none, should be asked
@@ -324,6 +326,22 @@ pub enum AppCall {
     Affinities(yapfast_plugin_api::account::AffinitiesRequest),
     /// The linked Spotify: read or control its playback.
     Spotify(yapfast_plugin_api::account::SpotifyAction),
+    /// Record the microphone, after the person's yes, while a red bar says
+    /// so: `microphone.start`, answered when the recording ends.
+    Record {
+        format: yapfast_plugin_api::call::RecordingFormat,
+        max_seconds: Option<u32>,
+    },
+    /// Stop the plugin's recording: `microphone.stop`.
+    RecordStop,
+    /// Send a recording as a voice message: `messages.voice`, under the
+    /// send's rails. The file is Ogg Opus, already checked to be the plugin's.
+    SendVoice {
+        room: String,
+        path: std::path::PathBuf,
+        duration_ms: u64,
+        waveform: String,
+    },
 }
 
 /// A file a plugin sends that it made, or that its package carries: a name,

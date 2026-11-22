@@ -138,6 +138,13 @@ pub mod method {
     pub const SPOTIFY_VOLUME: &str = "spotify.volume";
     pub const SPOTIFY_SHUFFLE: &str = "spotify.shuffle";
     pub const SPOTIFY_REPEAT: &str = "spotify.repeat";
+    // The microphone: a recording the person sees being made, and a voice
+    // message sent from one. `microphone`.
+    pub const MICROPHONE_START: &str = "microphone.start";
+    pub const MICROPHONE_STOP: &str = "microphone.stop";
+    pub const MICROPHONE_READ: &str = "microphone.read";
+    pub const MESSAGES_VOICE: &str = "messages.voice";
+
     // A free-floating layer over the window: `overlay`.
     pub const OVERLAY_SET: &str = "overlay.set";
     pub const OVERLAY_CLEAR: &str = "overlay.clear";
@@ -165,7 +172,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 102] = [
+    pub const ALL: [&str; 106] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -262,6 +269,10 @@ pub mod method {
         RELATIONSHIPS_AFFINITIES,
         OVERLAY_SET,
         OVERLAY_CLEAR,
+        MICROPHONE_START,
+        MICROPHONE_STOP,
+        MICROPHONE_READ,
+        MESSAGES_VOICE,
         UPLOADS_READ,
         UPLOADS_WRITE,
         UPLOADS_FINISH,
@@ -421,6 +432,55 @@ pub struct UploadForm {
     /// Text fields, in order, before the file.
     #[serde(default)]
     pub fields: Vec<(String, String)>,
+}
+
+/// `microphone.start`: a recording of the microphone, which the person sees
+/// being made for as long as it lasts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MicrophoneStart {
+    /// `opus`, the default: Ogg Opus, 48 kHz mono, as Discord's voice
+    /// messages are; or `pcm`: a WAV of 16-bit 48 kHz mono samples.
+    #[serde(default)]
+    pub format: RecordingFormat,
+    /// Stops by itself after this many seconds; it runs until stopped when
+    /// left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_seconds: Option<u32>,
+}
+
+/// What a recording is written as.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordingFormat {
+    #[default]
+    Opus,
+    Pcm,
+}
+
+/// `microphone.start`'s answer, once the recording ended: stopped by the
+/// plugin, by the person, or by its length.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Recorded {
+    /// What `microphone.read` and `messages.voice` name it by.
+    pub recording: u64,
+    pub format: RecordingFormat,
+    pub duration_ms: u64,
+    /// The file's size.
+    pub bytes: u64,
+    /// Its loudness, one byte a point, a point per 100 ms and at most 256,
+    /// base64: Discord's voice message waveform.
+    pub waveform: String,
+    /// `plugin`, `person` or `length`: who stopped it.
+    pub stopped_by: String,
+}
+
+/// `messages.voice`: a recording sent as a voice message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VoiceSend {
+    pub room: String,
+    pub recording: u64,
 }
 
 /// `overlay.set`: what the plugin's layer over the window shows now, and how

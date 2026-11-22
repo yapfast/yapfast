@@ -143,6 +143,10 @@ pub struct Upload {
 }
 
 /// The most files one message can carry.
+/// A message's flag for a voice message (docs.discord.food, resources/message,
+/// Message Flags): its audio attachment is shown as one.
+pub const IS_VOICE_MESSAGE: u64 = 1 << 13;
+
 pub const MAX_FILES: usize = 10;
 
 /// The most channels one bulk read acknowledgement carries.
@@ -606,6 +610,32 @@ impl Api {
                 });
             }
         }
+        let path = format!("/channels/{channel}/messages");
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Sends an uploaded recording as a voice message (docs.discord.food,
+    /// resources/message, Voice Messages): the `IS_VOICE_MESSAGE` flag, no
+    /// content, and the one audio attachment with its `duration_secs` and
+    /// base64 `waveform`.
+    pub async fn send_voice(
+        &self,
+        channel: &str,
+        upload: &Upload,
+        duration_secs: f64,
+        waveform: &str,
+        nonce: &str,
+    ) -> Result<Value> {
+        let mut body = message_body("", nonce);
+        body["flags"] = IS_VOICE_MESSAGE.into();
+        body["attachments"] = json!([{
+            "id": "0",
+            "filename": upload.filename,
+            "uploaded_filename": upload.uploaded_filename,
+            "duration_secs": duration_secs,
+            "waveform": waveform,
+        }]);
         let path = format!("/channels/{channel}/messages");
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await

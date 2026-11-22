@@ -83,6 +83,37 @@ impl Session {
                 .map(AppCall::Search),
             call::method::DRAFTS_LIST => Ok(AppCall::Drafts),
             call::method::ACCOUNT_SESSIONS => Ok(AppCall::Sessions),
+            call::method::MICROPHONE_START => {
+                // No payload is an Opus recording until it is stopped.
+                if request.payload.is_null() {
+                    Ok(AppCall::Record {
+                        format: Default::default(),
+                        max_seconds: None,
+                    })
+                } else {
+                    request
+                        .parse::<yapfast_plugin_api::call::MicrophoneStart>()
+                        .map(|start| AppCall::Record {
+                            format: start.format,
+                            max_seconds: start.max_seconds,
+                        })
+                }
+            }
+            call::method::MICROPHONE_STOP => Ok(AppCall::RecordStop),
+            call::method::MESSAGES_VOICE => {
+                match request.parse::<yapfast_plugin_api::call::VoiceSend>() {
+                    Err(error) => return Some(wrong_payload(method, error)),
+                    Ok(voice) => match shared.recording(plugin, voice.recording) {
+                        Ok((path, duration_ms, waveform)) => Ok(AppCall::SendVoice {
+                            room: voice.room,
+                            path,
+                            duration_ms,
+                            waveform,
+                        }),
+                        Err(message) => return Some(HostReturn::Error { message }),
+                    },
+                }
+            }
             call::method::RELATIONSHIPS_AFFINITIES => {
                 // No payload is the plain list of people.
                 if request.payload.is_null() {
@@ -355,6 +386,14 @@ impl Session {
         {
             return Some(answer);
         }
+        // The microphone is asked about the first time the same way, and the
+        // red bar shows for as long as each recording runs.
+        if matches!(app, AppCall::Record { .. })
+            && let Err(answer) =
+                self.powerful_gate(shared, plugin, &permissions, Capability::Microphone)
+        {
+            return Some(answer);
+        }
         // §9.1's guard rails for sending: a person's action behind it, or the
         // capability that says the plugin sends on its own, and five sends in
         // any ten seconds either way. Editing, deleting and reacting act as
@@ -364,6 +403,7 @@ impl Session {
         if matches!(
             app,
             AppCall::Send { .. }
+                | AppCall::SendVoice { .. }
                 | AppCall::Edit { .. }
                 | AppCall::Delete { .. }
                 | AppCall::React { .. }

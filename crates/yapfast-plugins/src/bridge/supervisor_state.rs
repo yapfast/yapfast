@@ -383,3 +383,58 @@ impl Bridge {
         Some(OverlayTicker { commands, shared })
     }
 }
+
+/// What a recording made away from the window answers through: the plugin's
+/// call, the file kept for it to read and send, and the red bar going. Cheap
+/// to clone, and nothing it does waits.
+#[derive(Clone)]
+pub struct Answerer {
+    commands: tokio::sync::mpsc::UnboundedSender<Request>,
+    shared: Arc<Shared>,
+}
+
+impl std::fmt::Debug for Answerer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Answerer")
+    }
+}
+
+impl Answerer {
+    /// Answers one of `plugin`'s calls.
+    pub fn answer(&self, plugin: &PluginId, call: u64, answer: HostReturn) {
+        let _ = self.commands.send(Request::CallAnswer {
+            plugin: plugin.clone(),
+            call,
+            answer,
+        });
+    }
+
+    /// Keeps a finished recording for `plugin`: `microphone.read` reads it,
+    /// and with `voice` (its length and waveform) `messages.voice` sends it.
+    /// The number it is kept under.
+    pub fn keep_recording(
+        &self,
+        plugin: &PluginId,
+        path: std::path::PathBuf,
+        bytes: u64,
+        voice: Option<(u64, String)>,
+    ) -> u64 {
+        self.shared.keep_recording(plugin, path, bytes, voice)
+    }
+
+    /// Says a plugin's recording ended, so the window takes its bar away.
+    pub fn recording_ended(&self, plugin: &PluginId) {
+        self.shared.announce(Notice::RecordingEnded {
+            plugin: plugin.clone(),
+        });
+    }
+}
+
+impl Bridge {
+    /// What a recording answers through, once the plugin system runs.
+    pub fn answerer(&mut self) -> Option<Answerer> {
+        let shared = Arc::clone(&self.shared);
+        let commands = self.supervisor()?.commands.clone();
+        Some(Answerer { commands, shared })
+    }
+}

@@ -30,6 +30,7 @@
 pub mod audio;
 pub mod identity;
 pub mod presence;
+pub mod recorder;
 pub mod retention;
 pub mod state;
 pub mod tasks;

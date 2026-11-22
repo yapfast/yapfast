@@ -61,6 +61,12 @@ pub(super) fn command(
                 Err(error) => failed(&error),
             },
             PluginAsk::Affinities(request) => affinities(&discord, request).await,
+            PluginAsk::Voice {
+                room,
+                path,
+                duration_ms,
+                waveform,
+            } => voice(&discord, &room, &path, duration_ms, &waveform).await,
             PluginAsk::Spotify(action) => match discord.spotify(spotify_command(action)).await {
                 Ok(value) => HostReturn::Ok(value),
                 Err(refusal) => HostReturn::Error {
@@ -151,6 +157,38 @@ fn sessions_of(answer: &serde_json::Value) -> Vec<SessionView> {
             })
         })
         .collect()
+}
+
+/// A recording sent as a voice message, as Discord's clients send one: the
+/// Ogg Opus uploaded, then a message with only it, flagged a voice message,
+/// with its length and waveform.
+async fn voice(
+    discord: &Discord,
+    room: &str,
+    path: &std::path::Path,
+    duration_ms: u64,
+    waveform: &str,
+) -> HostReturn {
+    let Some((guild, channel)) = discord::parse_room(room) else {
+        return HostReturn::Error {
+            message: format!("{room} isn't a Discord conversation"),
+        };
+    };
+    let bytes = match tokio::fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return HostReturn::Error {
+                message: format!("the recording can't be read: {error}"),
+            };
+        }
+    };
+    match discord
+        .send_voice_message(guild, channel, bytes, duration_ms as f64 / 1000.0, waveform)
+        .await
+    {
+        Ok(()) => HostReturn::Ok(serde_json::Value::Bool(true)),
+        Err(error) => failed(&error),
+    }
 }
 
 /// Discord's affinity scores, read-only, as a plugin is told them: people by

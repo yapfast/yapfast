@@ -2824,6 +2824,13 @@ pub enum PluginAsk {
     Sessions,
     /// `relationships.affinities`.
     Affinities(yapfast_plugin_api::account::AffinitiesRequest),
+    /// `messages.voice`: a recording sent as a voice message.
+    Voice {
+        room: String,
+        path: std::path::PathBuf,
+        duration_ms: u64,
+        waveform: String,
+    },
     /// The `spotify.*` calls.
     Spotify(yapfast_plugin_api::account::SpotifyAction),
 }

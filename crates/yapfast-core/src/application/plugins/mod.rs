@@ -29,6 +29,8 @@ use crate::plugins::state::{Notice, PreSend};
 
 /// Something a person or a plugin asks the plugin system to do.
 pub enum Action {
+    /// The person pressed Stop on the red bar of a plugin's recording.
+    StopRecording,
     /// Turns a plugin on, which reads its manifest, grants what it asks for
     /// and starts its instance, or off, which drops it; no restart either way.
     SetEnabled { plugin: PluginId, enabled: bool },
@@ -109,6 +111,8 @@ pub enum Effect {
     /// What a plugin's overlay shows changed: the window draws the layer
     /// again, and its pictures are read once each.
     Overlay,
+    /// A plugin's recording began or ended: the red bar shows or goes.
+    Recording,
     /// A plugin coloured a code block, or stopped colouring it: a row that shows
     /// the block lays its text out again, and draws the block in the tones the
     /// application keeps for it.
@@ -135,7 +139,7 @@ pub struct PowerfulAsk {
     pub sentence: String,
 }
 
-pub use account::ActivityShown;
+pub use account::{ActivityShown, RecordingShown};
 
 /// A plugin sending as an agent, for the indicator the window shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -381,6 +385,12 @@ impl Application {
                 remember,
             } => self.plugins_answer_consent(&plugin, &host, allow, remember),
             Action::Command { plugin, invocation } => self.plugins_run(plugin, invocation),
+            Action::StopRecording => {
+                if let Some(recording) = &self.plugin_recorder {
+                    recording.stop_for_person();
+                }
+                vec![]
+            }
             Action::SendHeld(draft) => self.plugins_send_held(draft),
             Action::AnswerPowerful {
                 plugin,

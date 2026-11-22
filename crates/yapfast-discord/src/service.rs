@@ -1746,6 +1746,32 @@ impl Discord {
         message::parse(&value).ok_or_else(|| anyhow!("could not understand Discord's answer"))
     }
 
+    /// Sends a recording as a voice message: the Ogg Opus uploaded as
+    /// Discord's clients name one, then the message with only it.
+    pub async fn send_voice_message(
+        &self,
+        guild: &str,
+        channel: &str,
+        ogg: Vec<u8>,
+        duration_secs: f64,
+        waveform: &str,
+    ) -> Result<()> {
+        let uploads = self
+            .upload(channel, vec![("voice-message.ogg".to_owned(), ogg)])
+            .await?;
+        let nonce = format!("{}", rand::random::<u64>() >> 1);
+        let sent = self
+            .api
+            .send_voice(channel, &uploads[0], duration_secs, waveform, &nonce)
+            .await;
+        if sent.is_err() {
+            self.discard(&uploads).await;
+        }
+        let value = sent?;
+        self.write_names().learn_message(server(guild), &value);
+        Ok(())
+    }
+
     /// Uploads files for a message in `channel`, given as their names and
     /// contents, all at once as Discord's client does; if one fails, the
     /// others are thrown away.

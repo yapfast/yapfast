@@ -297,7 +297,8 @@ impl Client {
             | Plugin::Slots
             | Plugin::Identity
             | Plugin::CodeBlocks
-            | Plugin::Overlay => {}
+            | Plugin::Overlay
+            | Plugin::Recording => {}
             Plugin::SaveFile(ask) => self.plugin_outbox.save.push(ask),
         }
     }

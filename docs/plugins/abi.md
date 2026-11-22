@@ -610,6 +610,39 @@ for that answer and then goes on, or is `denied` with the person's no.
 | `net.send` | `{ socket, text \| data_base64 }` | `true`, or an `error` for a connection that closed |
 | `net.close` | `{ socket }` | `true`; the `closed` news follows |
 
+### The microphone
+
+A plugin with `microphone` records it, after the person said yes the first
+time, in the dialog the powerful tier's first use opens (without its switch),
+and for as long as a recording runs Yapfast shows a red bar at the top of the
+window naming the plugin, with how long it has run and Stop. The bar is
+Yapfast's own, over everything a plugin draws; no `ui.modify` reaches it.
+
+| Call | Payload | Answer |
+| --- | --- | --- |
+| `microphone.start` | `{ format?: "opus" \| "pcm", max_seconds? }` | `pending`, then, when it ends, `{ recording, format, duration_ms, bytes, waveform, stopped_by }`; `stopped_by` is `plugin`, `person` or `length` |
+| `microphone.stop` | none | `true` |
+| `microphone.read` | `{ body, offset?, length? }`, `body` the `recording` | `{ data_base64, offset, bytes, eof }`, 512 KiB at most, as `http.read` |
+| `messages.voice` | `{ room, recording }` | `pending`, then `true` once Discord took the voice message |
+
+One recording runs at a time, from the microphone chosen for calls, on a
+thread of its own that writes the file as it goes, 20 ms at a time: `opus` is
+Ogg Opus at 48 kHz mono and 32 kbit/s, what Discord's clients send as a voice
+message (docs.discord.food, resources/message, Voice Messages), and `pcm` a WAV
+of 16-bit 48 kHz mono samples. `waveform` is the loudest sample of each 100 ms,
+one byte a point and at most 256 points, averaged down for a longer recording,
+base64: Discord's voice message waveform. A plugin that stops, or is turned
+off, ends its recording.
+
+`messages.voice` sends an Opus recording of the plugin's own as Discord's
+clients send a voice message: the file uploaded as `voice-message.ogg`
+(`POST /channels/{id}/attachments`, then the upload), and a message with the
+`IS_VOICE_MESSAGE` flag (`1 << 13`), no content, and the one attachment with its
+`duration_secs` and `waveform`. It is a send, under `messages.send` and the
+send's rails: a click behind it, or `messages.send.background`, and five sends
+in ten seconds. Discord itself refuses one where the account lacks
+`SEND_VOICE_MESSAGES`, and says so.
+
 ### Signing in to a service
 
 A plugin with `oauth.login` signs the person in to a service its manifest's

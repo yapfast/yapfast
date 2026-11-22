@@ -313,6 +313,10 @@ pub mod method {
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
     pub const OVERLAY_SET: &str = "overlay.set";
+    pub const MICROPHONE_START: &str = "microphone.start";
+    pub const MICROPHONE_STOP: &str = "microphone.stop";
+    pub const MICROPHONE_READ: &str = "microphone.read";
+    pub const MESSAGES_VOICE: &str = "messages.voice";
     pub const OVERLAY_CLEAR: &str = "overlay.clear";
     pub const HTTP_READ: &str = "http.read";
     pub const HTTP_RELEASE: &str = "http.release";
