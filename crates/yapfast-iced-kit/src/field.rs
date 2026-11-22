@@ -1125,7 +1125,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                     (Some(key::Named::Backspace), _) if self.tabs && inner.editor.is_empty() => {
                         return publish(shell, Event::BackFromEmpty);
                     }
-                    (Some(key::Named::ArrowUp), _) if modifiers.alt() && !self.single => {
+                    (Some(key::Named::ArrowUp), _)
+                        if *modifiers == keyboard::Modifiers::ALT && !self.single =>
+                    {
                         return publish(shell, Event::UpToMessages);
                     }
                     (_, Some('v')) if command && !modifiers.alt() && self.pastes => {

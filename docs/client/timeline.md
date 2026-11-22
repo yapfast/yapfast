@@ -206,7 +206,8 @@ slash command, where one may write, is written in the composer
   composer lands on the newest, lit with its hover bar and a 3 px
   marigold edge down its left (`Lanes::keyed`); the arrows, Page
   Up and Down, Home and End step; Enter (or the Menu key, or Shift+F10)
-  opens its menu, + reacts, R replies, E edits, Delete deletes, C copies,
+  opens its menu, + reacts, R replies, E edits, P pins or unpins,
+  Delete or Backspace deletes, C copies,
   F forwards, Alt+Enter marks it unread, and Escape goes back to the
   composer. A press anywhere but on the list takes the keys from the
   messages too (`follow_press`, before each update, against the list's

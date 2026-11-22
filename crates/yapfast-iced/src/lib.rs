@@ -112,6 +112,7 @@ mod signin;
 mod status;
 use yapfast_iced_kit::style;
 mod keybinds;
+mod shortcuts;
 mod suggest;
 mod switcher;
 mod sync;

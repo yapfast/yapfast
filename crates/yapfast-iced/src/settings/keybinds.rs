@@ -1,14 +1,14 @@
-//! Keybinds, as Discord's Keybinds page: "Add a Keybind", and each
-//! keybind's action, its keys with Record keybind, a remove button and what
-//! the action does; and what records a keybind's keys, push to talk's on
+//! Keybinds: compact custom rows with an action, inline recorder, delete
+//! and enable controls, and the built-in shortcuts in grouped cards.
+//! What records a keybind's keys, push to talk's on
 //! Voice's page among them. What a keybind is, how it's kept and how its
 //! keys are recorded is the core's (`yapfast_core::keybinds`); the root
 //! watches them (`crate::keybinds`).
 
 use iced::{
-    Alignment, Element, Length,
+    Alignment, Border, Element, Length, Padding,
     keyboard::{self, Key as Pressed, Location, key},
-    widget::{column, container, row},
+    widget::{Space, button, column, container, row, text},
 };
 use yapfast_core::keybinds::{Action, Binding, Key, Recorder, Shortcut};
 
@@ -21,11 +21,6 @@ use crate::{
     pictures::Icon,
     theme::Theme,
 };
-
-/// The actions' column, as wide as the longest, so rows line up; and a
-/// row's keys' box.
-const ACTION_WIDTH: f32 = 220.0;
-const KEYS_WIDTH: f32 = 180.0;
 
 /// Which keybind records: push to talk's (Voice's), or a row's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,6 +50,8 @@ pub enum Heard {
 
 #[derive(Clone, Debug)]
 pub enum Event {
+    Configure,
+    Enabled(usize, bool),
     Add,
     Remove(usize),
     /// A row's action chosen, by its place in [`Action::OFFERED`].
@@ -131,11 +128,25 @@ impl Settings {
     pub(super) fn keybind_event(&mut self, event: Event, cx: &mut Cx<'_>) {
         let keybinds = &mut cx.layout.keybinds;
         match event {
+            Event::Enabled(row, enabled) => {
+                let Some(binding) = keybinds.get_mut(row) else {
+                    return;
+                };
+                binding.enabled = enabled;
+                self.record = None;
+            }
+            Event::Configure => {
+                self.configure_keybinds = !self.configure_keybinds;
+                self.record = None;
+                self.open = None;
+                return;
+            }
             Event::Add => {
                 let id = keybinds.iter().map(|binding| binding.id).max().unwrap_or(0) + 1;
                 keybinds.push(Binding {
                     id,
                     action: Action::Unassigned,
+                    enabled: true,
                     keys: None,
                 });
             }
@@ -168,30 +179,78 @@ impl Settings {
 impl<'a> Page<'a> {
     pub(super) fn keybinds_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
-        });
-        let mut parts = vec![
-            form::beside(
-                form::title(theme, "Keybinds"),
+        let mut custom = column![
+            section_title(theme, "Custom Keybinds"),
+            text("Custom keyboard shortcuts let you mute, deafen or talk from any app.")
+                .size(13)
+                .color(theme.secondary),
+            Space::new().height(8),
+            action(
+                theme,
+                if self.s.configure_keybinds {
+                    "Close Global Keybinds"
+                } else {
+                    "Configure Global Keybinds"
+                },
+                Kind::Primary,
+                Some(keybind_message(Event::Configure))
+            )
+            .wide(38.0),
+        ]
+        .spacing(8);
+        if self.s.configure_keybinds {
+            let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
+                "Add a keybind, choose what it does, and record its keys.".to_owned()
+            });
+            custom = custom.push(form::note(theme, note));
+            for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {
+                custom = custom.push(self.keybind_row(row, binding));
+            }
+            custom = custom.push(
                 action(
                     theme,
                     "Add a Keybind",
-                    Kind::Plain,
+                    Kind::Primary,
                     Some(keybind_message(Event::Add)),
-                ),
-            ),
-            form::note(theme, note),
-        ];
-        for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {
-            parts.push(self.keybind_row(row, binding));
+                )
+                .wide(38.0),
+            );
         }
-        form::page(parts)
+        let defaults = column![
+            section_title(theme, "Default Keybinds"),
+            shortcut_card(theme, &[("Show Keyboard Shortcuts List", "Ctrl + /")]),
+        ]
+        .spacing(24);
+        let mut parts = column![custom, defaults].spacing(40);
+        // The help row stands alone, followed by the message actions as
+        // in Discord's list. Keep the labels shared with the actual list.
+        for index in [3, 1, 2, 4, 0] {
+            let (heading, shortcuts) = crate::shortcuts::GROUPS[index];
+            let mut group = column![
+                text(if index == 3 { "Messages" } else { heading })
+                    .size(18)
+                    .font(crate::fonts::SEMIBOLD)
+                    .color(theme.text)
+            ]
+            .spacing(8);
+            if index == 3 {
+                group = group.push(text("These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.")
+                    .size(13).color(theme.secondary));
+            }
+            let shortcuts = if index == 0 {
+                &shortcuts[1..]
+            } else {
+                shortcuts
+            };
+            group = group
+                .push(Space::new().height(8))
+                .push(shortcut_card(theme, shortcuts));
+            parts = parts.push(group);
+        }
+        parts.width(Length::Fill).into()
     }
 
-    /// A keybind's row, on the sunken ground: its action, its keys and
-    /// their recorder, the remove button, what the action does and what
-    /// the desktop did with it.
+    /// Compact action and recorder fields, delete and enable controls.
     fn keybind_row(self, row: usize, binding: &'a Binding) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let settings = self.s;
@@ -202,19 +261,16 @@ impl<'a> Page<'a> {
         let chosen = Action::OFFERED
             .iter()
             .position(|&action| action == binding.action);
-        let actions = column![
-            form::heading(theme, "ACTION"),
-            form::dropdown(
-                names,
-                chosen,
-                settings.open == Some(Drop::Keybind(row)),
-                Message::Settings(SettingsEvent::Drop(Drop::Keybind(row))),
-                move |index| keybind_message(Event::Action(row, index)),
-            )
-            .view(self.cx.look),
-        ]
-        .spacing(8)
-        .width(ACTION_WIDTH);
+        let actions = form::dropdown(
+            names,
+            chosen,
+            settings.open == Some(Drop::Keybind(row)),
+            Message::Settings(SettingsEvent::Drop(Drop::Keybind(row))),
+            move |index| keybind_message(Event::Action(row, index)),
+        )
+        .height(38.0)
+        .width(Length::FillPortion(1))
+        .view(self.cx.look);
         let target = Target::Row(row);
         let recorded = settings.recorded(target);
         let recording = recorded.is_some();
@@ -223,42 +279,201 @@ impl<'a> Page<'a> {
             .as_ref()
             .map(Shortcut::name)
             .unwrap_or_default();
-        let empty = keys.is_empty();
-        let keys = column![
-            form::heading(theme, "KEYBIND"),
-            form::buttons([
-                form::capture(theme, keys, recorded, KEYS_WIDTH),
-                record_button(theme, target, recording, empty),
-            ]),
-        ]
-        .spacing(8)
-        .width(Length::Fill);
+        let shown = match recorded {
+            Some(keys) if keys.is_empty() => "Press a key...".to_owned(),
+            Some(keys) => keys,
+            None if keys.is_empty() => "No Keybind Set".to_owned(),
+            None => keys,
+        };
+        let (ground, edge, ink) = (
+            theme.field,
+            if recording {
+                theme.accent
+            } else {
+                crate::theme::mix(theme.field, theme.muted, 0.35)
+            },
+            if binding.keys.is_none() && !recording {
+                theme.muted
+            } else {
+                theme.text
+            },
+        );
+        let (rest, hover, button_ink) = if recording {
+            (theme.danger, theme.danger_hover, theme.on_danger)
+        } else {
+            (theme.button_default, theme.button_default_hover, theme.text)
+        };
+        let record = button(
+            container(
+                text(if recording { "Stop" } else { "Record" })
+                    .size(13)
+                    .font(crate::fonts::MEDIUM),
+            )
+            .height(Length::Fill)
+            .align_y(Alignment::Center),
+        )
+        .height(28)
+        .padding([0, 12])
+        .on_press(Message::Settings(SettingsEvent::Record(target, !recording)))
+        .style(move |_, status| button::Style {
+            background: Some(
+                if matches!(status, button::Status::Hovered | button::Status::Pressed) {
+                    hover
+                } else {
+                    rest
+                }
+                .into(),
+            ),
+            text_color: button_ink,
+            border: Border {
+                radius: 4.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let keys = container(
+            row![
+                container(
+                    text(shown)
+                        .size(14)
+                        .color(ink)
+                        .wrapping(text::Wrapping::None)
+                )
+                .width(Length::Fill)
+                .clip(true),
+                record,
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .padding(Padding {
+            top: 4.0,
+            right: 4.0,
+            bottom: 4.0,
+            left: 12.0,
+        })
+        .height(38)
+        .align_y(Alignment::Center)
+        .width(Length::FillPortion(1))
+        .style(move |_| container::Style {
+            background: Some(ground.into()),
+            border: Border {
+                color: edge,
+                width: 1.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        });
         let remove = self
             .cx
             .look
             .icon_button(
-                Icon::X,
+                Icon::Trash,
                 "Remove Keybind",
                 keybind_message(Event::Remove(row)),
             )
             .size(32.0, 16);
+        let toggle = form::toggle(
+            theme,
+            binding.enabled,
+            Some(keybind_message(Event::Enabled(row, !binding.enabled))),
+        );
         let mut body = column![
-            row![actions, keys, remove]
-                .spacing(12)
-                .align_y(Alignment::Start),
-            form::note(theme, binding.action.description()),
+            row![actions, keys, remove, toggle]
+                .spacing(8)
+                .align_y(Alignment::Center)
         ]
-        .spacing(12);
+        .spacing(4);
         if let Some(given) = self.cx.keybinds.given_note(&binding.shortcut_id()) {
             body = body.push(form::note(theme, given));
         }
-        let ground = theme.sunken;
-        container(body)
-            .padding(16)
-            .width(Length::Fill)
-            .style(move |_| crate::style::rounded(ground, 8))
-            .into()
+        body.into()
     }
+}
+
+fn section_title<'a>(theme: &Theme, label: &'a str) -> Element<'a, Message> {
+    text(label)
+        .size(24)
+        .font(crate::fonts::SEMIBOLD)
+        .color(theme.text)
+        .into()
+}
+
+fn shortcut_card<'a>(theme: &Theme, shortcuts: &[(&'a str, &'a str)]) -> Element<'a, Message> {
+    let mut rows = column![];
+    for (index, &(label, keys)) in shortcuts.iter().enumerate() {
+        if index > 0 {
+            rows = rows.push(crate::controls::bar(theme.line, Length::Fill, 1));
+        }
+        let mut chords = column![keycaps(theme, keys.split(" / ").next().unwrap_or(keys))]
+            .spacing(5)
+            .align_x(Alignment::End);
+        if let Some((first, second)) = keys.split_once(" / ") {
+            // "Ctrl + Alt + Up / Down" shows the modifiers on both lines.
+            let alternative = first.rsplit_once(" + ").map_or_else(
+                || second.to_owned(),
+                |(prefix, _)| format!("{prefix} + {second}"),
+            );
+            chords = chords.push(keycaps(theme, &alternative));
+        }
+        rows = rows.push(
+            container(
+                row![
+                    text(label)
+                        .size(15)
+                        .color(theme.secondary)
+                        .width(Length::Fill),
+                    chords,
+                ]
+                .spacing(16)
+                .align_y(Alignment::Center),
+            )
+            .padding([16, 16])
+            .width(Length::Fill),
+        );
+    }
+    let (ground, line) = (theme.raised, theme.line);
+    container(rows)
+        .width(Length::Fill)
+        .clip(true)
+        .style(move |_| container::Style {
+            background: Some(ground.into()),
+            border: Border {
+                color: line,
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
+fn keycaps<'a>(theme: &Theme, chord: &str) -> Element<'a, Message> {
+    let (ground, line, ink) = (theme.panel, theme.line, theme.secondary);
+    row(chord.split(" + ").map(|key| {
+        let label = match key {
+            "Up" => "↑".to_owned(),
+            "Down" => "↓".to_owned(),
+            "Left" => "←".to_owned(),
+            "Right" => "→".to_owned(),
+            _ => key.to_uppercase(),
+        };
+        container(text(label).size(11).font(crate::fonts::SEMIBOLD).color(ink))
+            .padding([3, 6])
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border: Border {
+                    color: line,
+                    width: 1.0,
+                    radius: 3.0.into(),
+                },
+                ..Default::default()
+            })
+            .into()
+    }))
+    .spacing(4)
+    .align_y(Alignment::Center)
+    .into()
 }
 
 /// A keybind's recorder's button: Record keybind, Edit keybind, or Stop
