@@ -482,6 +482,10 @@ pub(crate) async fn call(
                 discord.ring(&channel).await
             }));
         }
+        // Who the voice server says is connected goes to the gateway's
+        // snapshots, which list there anyone its voice states miss.
+        let connected = call.connected();
+        let mut heard = 0;
         let mut ticks = tokio::time::interval(Duration::from_millis(150));
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut volumes = crate::volume::changes();
@@ -491,6 +495,11 @@ pub(crate) async fn call(
         let lost = tokio::time::sleep(MOVE_GRACE);
         tokio::pin!(lost);
         loop {
+            if connected.changes() != heard {
+                let (changes, users) = connected.read();
+                heard = changes;
+                discord.heard_in_call(guild, &channel, &users);
+            }
             let talking = capture.as_ref().is_some_and(Capture::talking);
             let participants = discord_participants(
                 &discord_states.borrow(),
@@ -987,6 +996,10 @@ pub(crate) async fn call(
                         channel = to;
                         moved_to(state, &discord_states.borrow(), guild, &channel);
                         snapshots.send_replace(state.clone());
+                        // Those connected in the last channel aren't in
+                        // this one; the call's connection there says who is.
+                        discord.heard_in_call(guild, &channel, &[]);
+                        heard = connected.changes();
                     }
                     // Discord moved the call to another voice server: the
                     // call carries on there.
@@ -1078,6 +1091,7 @@ pub(crate) async fn call(
     drop(cameras);
     hearing.set_output(None);
     call.leave();
+    discord.heard_in_call(guild, &channel, &[]);
     discord.leave(guild);
     result
 }

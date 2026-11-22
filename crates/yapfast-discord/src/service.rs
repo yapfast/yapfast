@@ -700,6 +700,8 @@ enum Request {
         thread: Option<Value>,
         beside: bool,
     },
+    /// Who the voice server says is connected to this account's call.
+    Heard(Option<tracker::Heard>),
     /// The thread shown beside the channel on screen, or none.
     Beside {
         guild: String,
@@ -1012,6 +1014,7 @@ impl Discord {
                 inactive: None,
                 viewing: None,
                 beside: None,
+                heard: None,
             },
         ));
         let kept_commands = commands::Kept::watching(live.subscribe());
@@ -4074,6 +4077,19 @@ impl Discord {
         answer
             .await
             .map_err(|_| anyhow!("Discord disconnected while joining voice."))?
+    }
+
+    /// Who the voice server of this account's call in `channel` of `guild`
+    /// says is connected, by Discord user id, as [`crate::voice::Call::connected`]
+    /// gives them; none once the call ends. The gateway's voice states may
+    /// miss some, who snapshots then list in that channel too.
+    pub fn heard_in_call(&self, guild: &str, channel: &str, users: &[u64]) {
+        let heard = (!users.is_empty()).then(|| tracker::Heard {
+            guild: guild.to_owned(),
+            channel: channel.to_owned(),
+            users: users.iter().map(u64::to_string).collect(),
+        });
+        let _ = self.requests.send(Request::Heard(heard));
     }
 
     pub fn leave(&self, guild: &str) {

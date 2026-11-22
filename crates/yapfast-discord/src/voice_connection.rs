@@ -19,6 +19,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 use crate::{
     dave::{Dave, Out},
     rtp::{Codec, Transport},
+    voice::VOICE_PRESENCE,
     websocket,
 };
 
@@ -433,12 +434,14 @@ impl Connection {
             let mut text = data.to_string();
             text.truncate(400);
             tracing::debug!(op, data = %text, "the voice server said while connecting");
+            log_video(*op, data);
             if let Some(user) = announced(*op, data) {
                 dave.recognise(user);
             }
         }
         send_out(&mut ws, dave.start(version)).await?;
         for event in dave_early {
+            log_clients(&event);
             send_out(&mut ws, dave.handle(event)).await?;
         }
         tracing::info!(
@@ -491,6 +494,7 @@ impl Connection {
                     }
                     Incoming::Json(op, data) => self.early.push((op, data)),
                     Incoming::Dave(event) => {
+                        log_clients(&event);
                         let out = self.dave.handle(event);
                         send_out(&mut ws, out).await?;
                     }
@@ -534,17 +538,49 @@ impl Connection {
     pub async fn handle(&mut self, message: Incoming) -> Result<Option<(u64, Value)>> {
         match message {
             Incoming::Dave(event) => {
+                log_clients(&event);
                 let out = self.dave.handle(event);
                 send_out(&mut self.ws, out).await?;
                 Ok(None)
             }
             Incoming::Json(op, data) => {
+                log_video(op, &data);
                 if let Some(user) = announced(op, &data) {
                     self.dave.recognise(user);
                 }
                 Ok(Some((op, data)))
             }
         }
+    }
+}
+
+/// Logs who the voice server says connected (op 11) or left (op 13).
+fn log_clients(event: &Event) {
+    match event {
+        Event::ClientsConnect(connect) => tracing::debug!(
+            target: VOICE_PRESENCE,
+            users = ?connect.user_ids,
+            "voice server: clients connected (op 11)"
+        ),
+        Event::ClientDisconnect(disconnect) => tracing::debug!(
+            target: VOICE_PRESENCE,
+            user = disconnect.user_id.0,
+            "voice server: client disconnected (op 13)"
+        ),
+        _ => {}
+    }
+}
+
+/// Logs whom a video message (op 12), which comes for everyone in a call,
+/// names.
+fn log_video(op: u64, data: &Value) {
+    if op == 12 {
+        tracing::debug!(
+            target: VOICE_PRESENCE,
+            user = data["user_id"].as_str(),
+            audio_ssrc = data["audio_ssrc"].as_u64(),
+            "voice server: video attributes (op 12)"
+        );
     }
 }
 

@@ -131,6 +131,41 @@ the list scrolls or shows another server, as a dialog, the quick switcher
 or a ringing call covers the window, and as its channel empties, is deleted
 or is filtered out by the channel search.
 
+## Who is in voice, and where they went missing
+
+The gateway says who is in each voice channel: READY_SUPPLEMENTAL's voice
+states for each server (and READY's, should a server there carry them),
+GUILD_CREATE's, VOICE_STATE_UPDATE, and for large servers this account
+doesn't watch, PASSIVE_UPDATE_V2's updated and removed voice states (V1's
+lists everyone in voice there). DM and group DM calls come in CALL_CREATE,
+CALL_UPDATE and CALL_DELETE. `service/tracker.rs` keeps them, and snapshots
+list them under each voice channel and in the call.
+
+While Yapfast is in a call, the call's voice server says exactly who is
+connected to it: op 11 names those who connect (everyone already there when
+the call connects), op 13 those who leave, and speaking (op 5) and video
+(op 12) messages name a user too. The call keeps that set
+(`voice::Call::connected`), and Yapfast passes it on to the gateway's
+snapshots (`Discord::heard_in_call`), which list in the call's channel anyone
+connected whom the gateway's voice states miss: by the name and avatar
+Yapfast knows for them, or as "Discord user", neither muted nor deafened.
+The sidebar under the channel and the call's participants both show them.
+Once the gateway reports them, its voice state stands; op 13, a move to
+another channel and the end of the call take them out. The set outlasts a
+new gateway session, so people stay listed while READY's voice states come
+again.
+
+To see where someone went missing, `YAPFAST_LOG=yapfast_discord::voice_presence`
+turns on debug logs for only this (`YAPFAST_LOG=debug` turns on all of
+Yapfast's). Each voice state the tracker applies that joins, moves or
+leaves someone logs its server, channel, user and event (`from=`), and each
+READY, READY_SUPPLEMENTAL, GUILD_CREATE, PASSIVE_UPDATE_V1/V2 and
+CALL_DELETE logs how many voice states it carried or removed per server; the
+call's voice connection logs the users op 11, op 12 and op 13 name. They
+carry ids only, no messages. `lists_who_the_voice_server_says_is_in_the_call`
+checks the list against the fake, whose `POST
+/_control/voice-clients?user=ID` sends op 11, and with `&left` op 13.
+
 ## The call's channel line
 
 As in Discord's voice panel, the dock's line under the status ("gen ·

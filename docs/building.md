@@ -427,7 +427,9 @@ on the tester's actual GPU.
 Yapfast logs only its own operational events at info level and above. Dependency
 logs are disabled on purpose, because they can expose authentication data or
 message content. Yapfast ignores `RUST_LOG`; `YAPFAST_LOG=debug` turns on Yapfast's own
-debug logs (`crates/yapfast-core/src/logging.rs`).
+debug logs (`crates/yapfast-core/src/logging.rs`), and naming some of Yapfast's
+targets, separated by commas, turns on only theirs, such as
+`YAPFAST_LOG=yapfast_discord::voice_presence` for who is in voice.
 Typed text never enters the log. Future errors must use fixed event
 names and safe classifications rather than raw protocol responses or SDK Debug
 output.
