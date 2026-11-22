@@ -749,19 +749,20 @@ fn reveal(app: &App, key: &str) -> Task<Message> {
     Task::none()
 }
 
-/// The window's own rows in view, by their place in the sidebar's rows,
-/// for the pictures asked for.
-pub fn open_rows_in_view(app: &App, from: f32, to: f32) -> Vec<usize> {
+/// The sidebar rows the tree has in view, the window's own place's and
+/// those of other places open in it, for the pictures asked for.
+pub fn rows_in_view(app: &App, from: f32, to: f32) -> Vec<&SideRow> {
     let gap = row_gap(app);
     let mut top = 0.0;
     let mut shown = Vec::new();
     for row in &app.sidebar.tree {
         let height = height(&app.sidebar.rows, row, &app.theme, gap);
-        if let TreeKind::Open(index) = row.kind
-            && top + height >= from
-            && top <= to
-        {
-            shown.push(index);
+        if top + height >= from && top <= to {
+            match &row.kind {
+                TreeKind::Open(index) => shown.extend(app.sidebar.rows.get(*index)),
+                TreeKind::Other(side) => shown.push(side.as_ref()),
+                _ => {}
+            }
         }
         top += height;
     }

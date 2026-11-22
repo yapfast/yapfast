@@ -281,3 +281,33 @@ fn the_tree_draws_only_open_places_and_rows_near_its_view() {
     change(&mut stock, |_| {});
     assert!(stock.sidebar.tree.is_empty());
 }
+
+#[test]
+fn the_rows_of_another_open_place_ask_for_their_pictures() {
+    let (mut app, _folder) = tree_theme();
+    if !open(&app, COOP) {
+        toggle(&mut app, COOP);
+    }
+    let others: Vec<String> = app
+        .sidebar
+        .tree
+        .iter()
+        .filter_map(|row| match &row.kind {
+            TreeKind::Other(side) => match side.as_ref() {
+                crate::sidebar::SideRow::Room(room) => Some(room.id.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    assert!(!others.is_empty(), "Co-op crew's rows are in the tree");
+    let shown = crate::sidebar::tree::rows_in_view(&app, 0.0, f32::MAX);
+    for id in others {
+        assert!(
+            shown
+                .iter()
+                .any(|row| matches!(row, crate::sidebar::SideRow::Room(room) if room.id == id)),
+            "{id}'s pictures are asked for"
+        );
+    }
+}

@@ -756,7 +756,6 @@ impl App {
                 }
             }
         }
-        let mut top = 0.0;
         let (from, to) = (
             self.sidebar.scroll.offset - MARGIN,
             self.sidebar.scroll.offset + self.sidebar.scroll.height + MARGIN,
@@ -766,18 +765,24 @@ impl App {
             .channel_rows(&self.theme.id)
             .and_then(|rows| rows.gap)
             .unwrap_or(crate::sidebar::GAP);
-        // Under a theme's server tree the rows are where the tree has them.
-        let in_tree = (!self.sidebar.tree.is_empty())
-            .then(|| crate::sidebar::tree::open_rows_in_view(self, from, to));
-        for (index, row) in self.sidebar.rows.iter().enumerate() {
-            let height = row.height(&self.theme, channel_gap);
-            let shown = match &in_tree {
-                Some(shown) => shown.contains(&index),
-                None => top + height >= from && top <= to,
-            };
-            if let crate::sidebar::SideRow::Room(room) = row
-                && shown
-            {
+        // Under a theme's server tree the rows are where the tree has them,
+        // other places' with them.
+        let side_rows = if self.sidebar.tree.is_empty() {
+            let mut shown = Vec::new();
+            let mut top = 0.0;
+            for row in &self.sidebar.rows {
+                let height = row.height(&self.theme, channel_gap);
+                if top + height >= from && top <= to {
+                    shown.push(row);
+                }
+                top += height;
+            }
+            shown
+        } else {
+            crate::sidebar::tree::rows_in_view(self, from, to)
+        };
+        for row in side_rows {
+            if let crate::sidebar::SideRow::Room(room) = row {
                 want(room.avatar.as_deref());
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
@@ -798,7 +803,6 @@ impl App {
                     want(person.avatar.as_deref());
                 }
             }
-            top += height;
         }
         for url in self.cards.pictures(&self.client.app, &self.profiles) {
             want(Some(&url));
