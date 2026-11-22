@@ -30,10 +30,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0 # incremental builds only bloat the CI cache
-  # Less debuginfo: faster builds, smaller cache. Backtraces still have file:line.
-  CARGO_PROFILE_DEV_DEBUG: line-tables-only
-  CARGO_PROFILE_TEST_DEBUG: line-tables-only
-
 jobs:
   # TODO: uncomment once #313 bump versions and #314 code formatting are merged,
   # otherwise CI will fail on the existing code.
@@ -79,9 +75,9 @@ jobs:
       matrix:
         include:
           - name: clippy
-            run: cargo clippy --locked --workspace --all-targets -- -D warnings
+            run: cargo clippy --locked --profile fast --workspace --all-targets -- -D warnings
           - name: tests
-            run: cargo test --locked --workspace
+            run: cargo test --locked --profile fast --workspace
     steps:
       - uses: actions/checkout@v7.0.1
         with:
