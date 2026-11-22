@@ -719,6 +719,14 @@ impl Api {
             .await
     }
 
+    /// Every profile effect's description, as the client's effect store
+    /// fetches them: `{profile_effect_configs: [{id, sku_id, effects, ...}]}`,
+    /// which names the effects the shop no longer sells too.
+    pub async fn profile_effect_configs(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/user-profile-effects"))
+            .await
+    }
+
     /// What someone did lately, as the client fetches it for their profile's
     /// Activity tab: `{entries: [{content_type, extra, ...}]}`.
     pub async fn outbox(&self, user: &str) -> Result<Value> {

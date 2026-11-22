@@ -2504,11 +2504,23 @@ impl Discord {
             return Ok(Some(kept.clone()));
         }
         let asked = Instant::now();
-        let product = self.api.collectibles_product(sku).await?;
         let pick = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.subsec_nanos() as usize);
-        let found = profile_effect::parse(sku, &product, pick);
+        // The shop describes what it sells; an effect it doesn't, such as
+        // one from a quest or one no longer sold, has no product, and
+        // Discord's client finds it among every effect's description.
+        let found = match self.api.collectibles_product(sku).await {
+            Ok(product) => profile_effect::parse(sku, &product, pick),
+            Err(error) if crate::api::code(&error).is_some() => None,
+            Err(error) => return Err(error),
+        };
+        let found = match found {
+            Some(found) => Some(found),
+            None => {
+                profile_effect::from_configs(sku, &self.api.profile_effect_configs().await?, pick)
+            }
+        };
         let Some(effect) = found else {
             tracing::info!(sku, "the shop has no profile effect with this SKU");
             return Ok(None);
