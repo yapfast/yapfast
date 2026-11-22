@@ -30,6 +30,7 @@ use yapfast_core::{
 use crate::{
     app::Message,
     fonts::{BOLD, REGULAR},
+    pictures::Icon,
     piece::Piece,
 };
 
@@ -52,6 +53,19 @@ pub struct Run {
     pub emoji: Option<(String, String)>,
     /// A word a search found, which its result highlights.
     pub highlight: bool,
+    /// Its part of a file link's pill: the paperclip, or the file's name.
+    pub file: FilePart,
+}
+
+/// A part of a file link's pill, which runs draw as one pill: the
+/// paperclip (its text [`EMOJI_MARK`], the kit's icon drawn in its room)
+/// and the file's name after it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FilePart {
+    #[default]
+    None,
+    Clip,
+    Name,
 }
 
 /// Whether a coloured link is a mention drawn on a pill: a person's, a
@@ -64,25 +78,52 @@ fn pilled(link: &str) -> bool {
 }
 
 /// A bare link to a file sent on Discord shows as Discord's client shows
-/// it: a paperclip and the file's name on a pill of the mention colour. A
-/// masked one keeps its words.
-fn file_pills(runs: &mut [Run], color: u32) {
-    for run in runs {
-        let Some(link) = run.link.as_deref() else {
-            continue;
-        };
-        if run.text != link || run.color.is_some() {
-            continue;
-        }
-        if let Some(name) = links::attachment_name(link) {
-            run.text = format!("{FILE_CLIP}{name}");
-            run.color = Some(color);
+/// it: its outline paperclip and the file's name on a pill of the mention
+/// colour, in two runs (the clip's room, then the name). A masked one
+/// keeps its words.
+fn file_pills(runs: &mut Vec<Run>, color: u32) {
+    if !runs.iter().any(|run| {
+        run.color.is_none()
+            && run
+                .link
+                .as_deref()
+                .is_some_and(|link| run.text == link && links::attachment_name(link).is_some())
+    }) {
+        return;
+    }
+    let mut pilled = Vec::with_capacity(runs.len() + 1);
+    for run in runs.drain(..) {
+        let name = run
+            .link
+            .as_deref()
+            .filter(|link| run.text == *link && run.color.is_none())
+            .and_then(links::attachment_name)
+            .map(str::to_owned);
+        match name {
+            Some(name) => {
+                pilled.push(Run {
+                    text: EMOJI_MARK.to_string(),
+                    color: Some(color),
+                    file: FilePart::Clip,
+                    ..run.clone()
+                });
+                pilled.push(Run {
+                    text: name,
+                    color: Some(color),
+                    file: FilePart::Name,
+                    ..run
+                });
+            }
+            None => pilled.push(run),
         }
     }
+    *runs = pilled;
 }
 
-/// The paperclip a file link's pill starts with, and the gap after it.
-const FILE_CLIP: &str = "\u{1f4ce}\u{2009}";
+/// The paperclip's size against its text's, and the room after it, as
+/// Discord's 16 px clip before 16 px text with a 4 px gap.
+const CLIP_SCALE: f32 = 1.0;
+const CLIP_GAP: f32 = 4.0;
 
 /// What a search's found words are marked with in its results. The
 /// client's colour is in a stylesheet Yapfast hasn't read, so this is a
@@ -195,6 +236,7 @@ impl Run {
             && self.highlight == other.highlight
             && self.emoji.is_none()
             && other.emoji.is_none()
+            && self.file == other.file
     }
 }
 
@@ -614,6 +656,7 @@ fn inline(markdown: &str) -> Vec<Run> {
             color: style.colors.last().copied(),
             emoji: None,
             highlight: false,
+            file: FilePart::None,
         };
         match runs.last_mut() {
             Some(last) if last.same_style(&run) => last.text.push_str(text),
@@ -827,14 +870,21 @@ impl<'c> crate::ctx::Ctx<'c> {
             // pill of its colour; other coloured text (a notice's names,
             // links and time) shows in the colour alone.
             if run.link.as_deref().is_some_and(pilled) {
+                // A file link's two runs make one pill: rounded at its
+                // ends, the clip's gap inside it.
+                let (left, right, corners) = match run.file {
+                    FilePart::None => (2.0, 2.0, [4.0; 4]),
+                    FilePart::Clip => (2.0, CLIP_GAP, [4.0, 0.0, 0.0, 4.0]),
+                    FilePart::Name => (0.0, 2.0, [0.0, 4.0, 4.0, 0.0]),
+                };
                 piece = piece
                     .background(theme.token_colour("mention-chip", Color { a: 0.16, ..color }))
-                    .border(crate::style::round(4))
+                    .border(crate::style::round(crate::style::corners(corners)))
                     .padding(Padding {
                         top: -1.5,
                         bottom: -1.5,
-                        left: 2.0,
-                        right: 2.0,
+                        left,
+                        right,
                     });
             }
         } else if run.link.is_some() {
@@ -905,6 +955,17 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .enumerate()
                 .map(|(index, run)| {
                     let span = self.run_span(run, ink);
+                    // A file link's paperclip, the kit's icon in the
+                    // pill's colour, drawn once for each size and colour.
+                    if run.file == FilePart::Clip {
+                        let clip = (size * CLIP_SCALE).round();
+                        let rgb = run.color.unwrap_or(0);
+                        pictures.push((
+                            index,
+                            self.look.icons.coloured(Icon::Paperclip, clip as u32, rgb),
+                        ));
+                        return span.size(clip);
+                    }
                     if let Some((url, _)) = &run.emoji {
                         let playing = plays
                             .then(|| self.playing_emoji(url, side as u32, &self.pictures.players))
@@ -1120,12 +1181,19 @@ mod tests {
     fn a_bare_link_to_a_discord_file_is_its_name_on_a_pill() {
         let url = "https://cdn.discordapp.com/attachments/1/2/notes.txt?ex=1";
         let shown = runs(&format!("see {url} now"));
-        let pill = shown
+        let pill: Vec<_> = shown
             .iter()
-            .find(|run| run.link.as_deref() == Some(url))
-            .expect("the link");
-        assert_eq!(pill.text, format!("{FILE_CLIP}notes.txt"));
-        assert_eq!(pill.color, Some(0x00a8fc));
+            .filter(|run| run.link.as_deref() == Some(url))
+            .map(|run| (run.text.as_str(), run.file, run.color))
+            .collect();
+        assert_eq!(
+            pill,
+            [
+                (EMOJI_MARK_STR, FilePart::Clip, Some(0x00a8fc)),
+                ("notes.txt", FilePart::Name, Some(0x00a8fc)),
+            ],
+            "its clip's room, then its name, one pill"
+        );
         assert!(pilled(url));
         // A masked one keeps its words, uncoloured.
         let masked = runs(&format!("[the notes]({url})"));
