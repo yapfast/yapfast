@@ -221,12 +221,13 @@ mod tests {
 
     #[test]
     fn a_themes_scrollbar_paint_inks_the_bar() {
-        let theme = Theme::new("kit-scrollbar-owner", true).worked_out();
         let scroller = Color::from_rgb8(0x12, 0x34, 0x56);
-        theme.register_metrics(Metrics {
-            paints: HashMap::from([("scrollbar".to_owned(), Background::Color(scroller))]),
-            ..Metrics::default()
-        });
+        let theme = Theme::new("kit-scrollbar-owner", true)
+            .worked_out()
+            .with_metrics(std::sync::Arc::new(Metrics {
+                paints: HashMap::from([("scrollbar".to_owned(), Background::Color(scroller))]),
+                ..Metrics::default()
+            }));
         let bar = scrollbar(&theme);
         assert_eq!((bar.rest, bar.pointed), (scroller, scroller));
         let stock = scrollbar(&Theme::new("kit-scrollbar-stock", true).worked_out());

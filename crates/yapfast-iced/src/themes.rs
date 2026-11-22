@@ -70,6 +70,7 @@ pub struct Installed {
     /// keep what Settings → Themes lists them with, so six installed
     /// themes don't hold six themes' pictures and sounds.
     live: bool,
+    /// Its theme, carrying `metrics` as they were last set.
     shown: Theme,
     metrics: yapfast_iced_kit::theme::Metrics,
     motion: package::Motion,
@@ -81,6 +82,13 @@ pub struct Installed {
     content: content::Content,
     art: ThemeArt,
     layout: theme_layout::Layout,
+}
+
+impl Installed {
+    /// Gives its theme the metrics as they are now.
+    fn metrics_changed(&mut self) {
+        self.shown.set_metrics(Some(Arc::new(self.metrics.clone())));
+    }
 }
 
 /// How fast theme motion may run given window visibility, focus, Settings
@@ -700,7 +708,7 @@ fn resolve_package(
     let cues_on = sound_prefs.interface && sound_prefs.volume > 0;
     metrics.hover_cue = cues_on && sounds.cues.contains_key(&media::SoundSlot::Hover);
     metrics.press_cue = cues_on && sounds.cues.contains_key(&media::SoundSlot::Press);
-    shown.register_metrics(metrics.clone());
+    let shown = shown.with_metrics(Arc::new(metrics.clone()));
     let based_on = package.based_on.clone();
     let preview = thumbnail.unwrap_or_else(|| installed_preview(&folder, &package.preview));
     Ok(Installed {
@@ -1304,6 +1312,28 @@ impl Themes {
         theme(id, &found)
     }
 
+    /// Gives `theme` its package's metrics as they are now. A resize
+    /// re-bakes glass and a sound choice arms cues without the theme
+    /// shown again, so the theme the window draws with takes them here.
+    /// A theme with no metrics keeps none.
+    pub fn refresh_metrics(&self, theme: &mut Theme) {
+        if !theme.packaged() {
+            return;
+        }
+        let Some(fresh) = self
+            .package(&theme.id)
+            .and_then(|package| package.shown.package_metrics())
+        else {
+            return;
+        };
+        if !theme
+            .package_metrics()
+            .is_some_and(|metrics| Arc::ptr_eq(metrics, fresh))
+        {
+            theme.set_metrics(Some(fresh.clone()));
+        }
+    }
+
     /// The chosen theme's id, as Appearance and Themes mark it.
     pub fn chosen_id(&self) -> &str {
         if let Some(trial) = &self.trial {
@@ -1443,7 +1473,6 @@ impl Themes {
 
     pub fn clear_creator_preview(&mut self) {
         self.creator_preview = None;
-        Theme::unregister_metrics(CREATOR_PREVIEW_ID);
     }
 
     /// Removes one custom theme from live theme state and repairs choice
@@ -1453,7 +1482,6 @@ impl Themes {
     pub fn forget_custom(&mut self, root: &Path, id: &str) -> bool {
         self.custom.retain(|custom| custom.id != id);
         self.companions.retain(|companion| companion.id != id);
-        Theme::unregister_metrics(id);
         if self.trial.as_ref().is_some_and(|trial| trial.id == id) {
             self.trial = None;
         }
@@ -1502,7 +1530,6 @@ impl Themes {
         if self.dev_folder.is_some() {
             self.dev = None;
             self.dev_off = true;
-            Theme::unregister_metrics(DEV_ID);
         }
         if let Some(shown) = self.chosen.take() {
             self.previous = Some(shown);
@@ -1718,7 +1745,7 @@ impl Themes {
             // The blur there is shows stretched until the new one is baked.
             pane.blurred = pane.blurred.stretched_to(glass_window(window));
             installed.metrics.tooltip = tooltip_surface(&installed.art);
-            installed.shown.register_metrics(installed.metrics.clone());
+            installed.metrics_changed();
             changed = true;
         }
         if changed {
@@ -1771,7 +1798,7 @@ impl Themes {
             };
             pane.blurred = blurred;
             installed.metrics.tooltip = tooltip_surface(&installed.art);
-            installed.shown.register_metrics(installed.metrics.clone());
+            installed.metrics_changed();
             changed = true;
         }
         changed
@@ -1782,7 +1809,7 @@ impl Themes {
     pub fn motion_changed(&mut self, performance: Performance, reduced: bool) {
         for installed in self.packages_mut() {
             installed.metrics.motion = motion(&installed.motion, performance, reduced);
-            installed.shown.register_metrics(installed.metrics.clone());
+            installed.metrics_changed();
             installed.art.performance = performance;
             installed.art.reduced_motion = reduced;
         }
@@ -1793,7 +1820,7 @@ impl Themes {
     pub fn readable_changed(&mut self, readable: bool) {
         for installed in self.packages_mut() {
             installed.metrics.readable_text = readable;
-            installed.shown.register_metrics(installed.metrics.clone());
+            installed.metrics_changed();
         }
     }
 
@@ -1848,7 +1875,7 @@ impl Themes {
             cues_on && installed.sounds.cues.contains_key(&media::SoundSlot::Hover);
         installed.metrics.press_cue =
             cues_on && installed.sounds.cues.contains_key(&media::SoundSlot::Press);
-        installed.shown.register_metrics(installed.metrics.clone());
+        installed.metrics_changed();
         true
     }
 
@@ -2248,8 +2275,7 @@ fn apply_resolution(
     let cues_on = installed.sound_prefs.interface && installed.sound_prefs.volume > 0;
     metrics.hover_cue = cues_on && sounds.cues.contains_key(&media::SoundSlot::Hover);
     metrics.press_cue = cues_on && sounds.cues.contains_key(&media::SoundSlot::Press);
-    shown.register_metrics(metrics.clone());
-    installed.shown = shown;
+    installed.shown = shown.with_metrics(Arc::new(metrics.clone()));
     installed.metrics = metrics;
     installed.palette_preview = palette;
     installed.motion = resolved.motion;
@@ -3971,7 +3997,6 @@ macro_rules! from_palette {
     ($($name:ident,)*) => {
         /// The core's `theme`, named `id`, as the window paints with it.
         pub fn theme(id: &str, theme: &palette::Theme) -> Theme {
-            Theme::unregister_metrics(id);
             let mut shown = Theme::new(id, theme.dark);
             shown.bonfire = theme.bonfire();
             $(shown.$name = color(theme.$name);)*
@@ -4221,7 +4246,7 @@ mod tests {
         );
 
         // Deleting that creator and later reusing its custom id for a plain
-        // palette must not inherit the package's global companion metrics.
+        // palette must not inherit the package's metrics.
         drop(themes);
         let palette_only = Custom {
             id: "custom:1".into(),
@@ -4947,7 +4972,7 @@ mod tests {
         );
         let mut kit_metrics = metrics(&resolved, Performance::Full, false);
         kit_metrics.types = typography(Path::new("."), &resolved);
-        shown.register_metrics(kit_metrics);
+        let shown = shown.with_metrics(Arc::new(kit_metrics));
         assert!(matches!(
             shown.package_paint("chat"),
             Some(iced::Background::Gradient(_))
@@ -5042,7 +5067,7 @@ mod tests {
         );
         assert_eq!(art.footer_height, Some(72.0));
 
-        shown.register_metrics(metrics(&resolved, Performance::Light, false));
+        let shown = shown.with_metrics(Arc::new(metrics(&resolved, Performance::Light, false)));
         assert_eq!(shown.motion(), yapfast_iced_kit::theme::Motion::default());
     }
 
@@ -5267,7 +5292,7 @@ mod tests {
         );
         kit_metrics.tooltip = tooltip_surface(&art);
         kit_metrics.hover_cue = true;
-        shown.register_metrics(kit_metrics);
+        let shown = shown.with_metrics(Arc::new(kit_metrics));
 
         assert_eq!(
             shown.motion().unfocused,

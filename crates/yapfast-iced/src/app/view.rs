@@ -725,12 +725,16 @@ impl App {
         if self.protected() {
             return crate::themes::stock_theme();
         }
-        self.win
+        let mut theme = self
+            .win
             .settings
             .get()
             .and_then(crate::settings::Settings::preview)
             .cloned()
-            .unwrap_or_else(|| self.themes.shown())
+            .unwrap_or_else(|| self.themes.shown());
+        // A preview kept since may have older metrics than its package.
+        self.themes.refresh_metrics(&mut theme);
+        theme
     }
 
     /// Shows [`Self::wanted_theme`].
@@ -763,11 +767,9 @@ impl App {
         // palette-valued Theme. Converted stills, fitter jobs and animation
         // players must all restart under the newly resolved content look.
         self.win.pictures.forget();
-        // Companion metrics are deliberately kept beside the kit Theme so
-        // its public shape stays Wired's. Two resolutions can therefore
-        // compare equal here while changing fonts, spacing, shapes, layout
-        // or art. Always invalidate laid-out/cached surfaces after resolving
-        // a theme; palette equality is not theme-resolution equality.
+        // Two resolutions of a package can share every colour while
+        // their fonts, spacing, shapes, layout or art differ, so what's
+        // laid out or cached always goes after a theme is shown.
         crate::fonts::set_default_family(body_family(&theme));
         let _old = std::mem::replace(&mut self.theme, theme);
         self.show_roster(false);

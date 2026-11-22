@@ -183,6 +183,8 @@ impl App {
         // An accent whose tick stopped mid-colour (the window went still)
         // takes its colour as of now, so it never stays half way.
         self.step_accent(std::time::Instant::now(), true);
+        // A resize's glass or a sound choice's cues reach the theme shown.
+        self.themes.refresh_metrics(&mut self.theme);
         self.sync_cues();
         Task::batch(tasks)
     }

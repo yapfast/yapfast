@@ -707,8 +707,8 @@ pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + 
 }
 
 /// A menu panel whose ground can be left clear for the theme's art/glass
-/// surface renderer. The ordinary form also preserves explicit package
-/// `menu` paint through the companion registry.
+/// surface renderer. The ordinary form also keeps a package's own `menu`
+/// paint, from the theme's metrics.
 pub fn menu_panel_over(
     theme: &Theme,
     transparent: bool,

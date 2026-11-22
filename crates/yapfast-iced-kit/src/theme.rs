@@ -5,16 +5,14 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    sync::{Arc, LazyLock, RwLock},
+    sync::{Arc, RwLock},
     time::Duration,
 };
 
 use iced::{Background, Border, Color, Font, Shadow, Vector, font::Weight};
 
-/// The non-colour parts of an installed theme. They are registered by the
-/// app when it resolves a package and looked up by [`Theme::id`], keeping
-/// [`Theme`] itself as the one, unchanged conversion boundary shared by the
-/// kit and the app.
+/// The non-colour parts of an installed theme. The app sets them on the
+/// [`Theme`] it makes from a package; a theme without them draws stock.
 #[derive(Clone, Debug, Default)]
 pub struct Metrics {
     /// Package colour tokens which cannot live in [`Theme`] without
@@ -368,9 +366,6 @@ impl Motion {
     }
 }
 
-static METRICS: LazyLock<RwLock<HashMap<String, Arc<Metrics>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
 static CUE_HANDLER: RwLock<Option<fn(CueEvent)>> = RwLock::new(None);
 
 /// Registers the app-level callback invoked when kit buttons trigger a hover
@@ -477,6 +472,8 @@ macro_rules! declare_theme {
             /// What iced's own styles read: the theme's ground, text and
             /// accent.
             iced: iced::Theme,
+            /// A package's fonts, shapes and spacing, if one dresses it.
+            metrics: Shared,
         }
 
         impl Theme {
@@ -500,6 +497,7 @@ macro_rules! declare_theme {
                     selection: Color::TRANSPARENT,
                     mention: Color::TRANSPARENT,
                     iced: iced::Theme::Dark,
+                    metrics: Shared(None),
                 }
             }
         }
@@ -508,43 +506,49 @@ macro_rules! declare_theme {
 
 for_theme_colours!(declare_theme);
 
+/// A theme's metrics, which compare by pointer: two themes are equal only
+/// if they share the same package metrics, and comparing stays cheap.
+#[derive(Clone, Debug)]
+struct Shared(Option<Arc<Metrics>>);
+
+impl PartialEq for Shared {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
 impl Theme {
-    /// Registers the non-colour tokens resolved for this theme id. The app
-    /// calls this once while reading installed packages; built-in and custom
-    /// colour themes have no entry and therefore retain every Wired metric.
-    pub fn register_metrics(&self, metrics: Metrics) {
-        METRICS
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(self.id.clone(), Arc::new(metrics));
+    /// This theme with a package's fonts, shapes and spacing. Built-in and
+    /// colour-only themes have none and keep every Wired metric.
+    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
+        self.set_metrics(Some(metrics));
+        self
     }
 
-    /// Removes companion tokens for `id`. The app calls this before making
-    /// a colour-only theme with an id that may previously have belonged to
-    /// a package (notably a deleted creator theme), so stale fonts, shapes
-    /// and spacing cannot leak into the replacement.
-    pub fn unregister_metrics(id: &str) {
-        METRICS
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(id);
+    /// Sets or clears this theme's package metrics.
+    pub fn set_metrics(&mut self, metrics: Option<Arc<Metrics>>) {
+        self.metrics = Shared(metrics);
+    }
+
+    /// The package metrics this theme draws with, if any.
+    pub fn package_metrics(&self) -> Option<&Arc<Metrics>> {
+        self.metrics.0.as_ref()
     }
 
     /// Whether an installed theme package dresses the window.
     pub fn packaged(&self) -> bool {
-        self.metrics().is_some()
+        self.metrics.0.is_some()
     }
 
-    fn metrics(&self) -> Option<Arc<Metrics>> {
-        METRICS
-            .read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&self.id)
-            .cloned()
+    fn metrics(&self) -> Option<&Metrics> {
+        self.metrics.0.as_deref()
     }
 
-    /// A layout outline keyed by its theme place name. This companion
-    /// registry keeps dashed rendering out of the public Theme struct.
+    /// A layout outline keyed by its theme place name.
     pub fn outline(&self, place: &str) -> Option<Outline> {
         self.metrics()
             .and_then(|metrics| metrics.outlines.get(place).copied())
@@ -1238,8 +1242,8 @@ mod tests {
     }
 
     #[test]
-    fn unregistering_metrics_restores_wired_fallbacks() {
-        let theme = Theme::new("test:reused-metrics", true);
+    fn metrics_belong_to_the_theme_that_carries_them() {
+        let stock = Theme::new("test:reused-metrics", true);
         let mut metrics = Metrics::default();
         metrics.shapes.insert(
             "button".into(),
@@ -1248,10 +1252,19 @@ mod tests {
                 ..Shape::default()
             },
         );
-        theme.register_metrics(metrics);
-        assert_eq!(theme.surface_radius("button", 6.0), 19.0);
+        let metrics = Arc::new(metrics);
+        let dressed = stock.clone().with_metrics(metrics.clone());
+        assert_eq!(dressed.surface_radius("button", 6.0), 19.0);
+        // A theme of the same id without them draws Wired's.
+        assert_eq!(stock.surface_radius("button", 6.0), 6.0);
+        assert!(dressed.packaged() && !stock.packaged());
 
-        Theme::unregister_metrics(&theme.id);
-        assert_eq!(theme.surface_radius("button", 6.0), 6.0);
+        assert_ne!(dressed, stock);
+        assert_eq!(dressed, stock.clone().with_metrics(metrics));
+        assert_ne!(
+            dressed,
+            stock.with_metrics(Arc::new(Metrics::default())),
+            "other metrics, even equal ones, are another theme"
+        );
     }
 }

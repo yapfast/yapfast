@@ -316,6 +316,10 @@ fn an_installed_theme_applies_and_turns_off_from_themes() {
     let _ = app.update(crate::settings::appearance_event(
         crate::settings::ThemeEvent::ThemeInterfaceVolume(id.into(), 73),
     ));
+    assert!(
+        app.theme.has_hover_cue(),
+        "the theme shown takes the cue armed"
+    );
     assert!(!app.layout.theme_sounds[id].on);
     assert!(app.layout.theme_sounds[id].interface);
     assert_eq!(app.layout.theme_sounds[id].volume, 73);
@@ -336,6 +340,7 @@ fn an_installed_theme_applies_and_turns_off_from_themes() {
         let _ = app.update(crate::settings::appearance_event(event));
     }
     assert!(!app.layout.theme_sounds.contains_key(id));
+    assert!(!app.theme.has_hover_cue());
     assert!(
         stored(&folder)["theme_sounds"]
             .as_object()
@@ -852,13 +857,14 @@ fn creator_assets_follow_undo_start_over_and_async_generations() {
     let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::Cancel)));
     assert!(
         app.themes.find(crate::themes::CREATOR_PREVIEW_ID).is_none(),
-        "cancel removes the draft registry companion"
+        "cancel removes the draft package"
     );
     assert_eq!(
-        preview.surface_radius("button", 6.0),
+        app.theme.surface_radius("button", 6.0),
         stock.radius(6.0),
-        "cancel unregisters the preview's kit metrics"
+        "the window lets go of the preview's metrics"
     );
+    assert!(!app.theme.packaged());
 }
 
 #[test]
