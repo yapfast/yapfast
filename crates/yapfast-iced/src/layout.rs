@@ -64,6 +64,9 @@ pub struct Layout {
     pub readable_text: bool,
     /// The rail's open folders, by folder id.
     pub open_folders: BTreeSet<String>,
+    /// The one folder open in a theme's server tree that opens one at a
+    /// time (`expand: "one"`), kept apart so the rail's stay as they were.
+    pub tree_folder: Option<String>,
     /// Each server's collapsed categories, by server id: a Discord category
     /// by its room id, any other by its heading.
     pub collapsed: HashMap<String, BTreeSet<String>>,

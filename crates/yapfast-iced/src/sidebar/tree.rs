@@ -146,6 +146,26 @@ pub fn on(app: &App) -> bool {
         .is_some_and(|layout| layout.rail == Some(yapfast_core::themes::layout::RailSide::Tree))
 }
 
+/// Whether the tree opens one folder at a time, keeping it in
+/// `tree_folder` rather than the rail's open folders.
+pub fn one_folder(app: &App) -> bool {
+    on(app)
+        && app
+            .themes
+            .package_layout(&app.theme.id)
+            .is_some_and(|layout| !layout.tree.expand_many)
+}
+
+/// The folders open where they're shown: the rail's, or the one folder of
+/// a tree that opens one at a time.
+pub fn folders_shown(app: &App) -> std::borrow::Cow<'_, std::collections::BTreeSet<String>> {
+    if one_folder(app) {
+        std::borrow::Cow::Owned(app.layout.tree_folder.iter().cloned().collect())
+    } else {
+        std::borrow::Cow::Borrowed(&app.layout.open_folders)
+    }
+}
+
 /// A place's key in `tree_open`.
 fn place_key(navigation: &Navigation) -> &str {
     match navigation {
@@ -202,17 +222,15 @@ pub fn follow_place(app: &mut App) {
                 .iter()
                 .find(|known| &known.id == server)
                 .and_then(|known| known.folder.clone())
-            && !app.layout.open_folders.contains(&folder.id)
+            && !folders_shown(app).contains(&folder.id)
         {
-            let one_at_a_time = app
-                .themes
-                .package_layout(&app.theme.id)
-                .is_some_and(|layout| !layout.tree.expand_many);
-            if one_at_a_time {
-                app.layout.open_folders.clear();
+            if one_folder(app) {
+                app.layout.tree_folder = Some(folder.id);
+                crate::layout::store(app.client.root(), "tree_folder", &app.layout.tree_folder);
+            } else {
+                app.layout.open_folders.insert(folder.id);
+                crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
             }
-            app.layout.open_folders.insert(folder.id);
-            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
         }
     }
     if selected != now.1

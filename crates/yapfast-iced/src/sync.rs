@@ -134,7 +134,7 @@ impl App {
             crate::sidebar::tree::follow_place(self);
         }
         let state = self.client.state();
-        let rail = rail(state, &self.layout.open_folders);
+        let rail = rail(state, &crate::sidebar::tree::folders_shown(self));
         if self.rail.items != rail {
             self.rail.items = rail;
         }

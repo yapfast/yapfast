@@ -611,22 +611,24 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Folder(id) => {
             app.lists_shown = None;
-            let was_open = app.layout.open_folders.remove(&id);
-            let one_at_a_time = app
-                .themes
-                .package_layout(&app.theme.id)
-                .is_some_and(|layout| {
-                    layout.rail == Some(yapfast_core::themes::layout::RailSide::Tree)
-                        && !layout.tree.expand_many
-                });
-            if !was_open {
-                if one_at_a_time {
-                    app.layout.open_folders.clear();
+            if crate::sidebar::tree::one_folder(app) {
+                // A tree that opens one folder at a time keeps it apart:
+                // the rail's open folders stay for the stock theme.
+                let open = app.layout.tree_folder.take();
+                if open.as_deref() != Some(id.as_str()) {
+                    app.layout.tree_folder = Some(id);
                 }
-                app.layout.open_folders.insert(id);
+                crate::layout::store(app.client.root(), "tree_folder", &app.layout.tree_folder);
+            } else {
+                if !app.layout.open_folders.remove(&id) {
+                    app.layout.open_folders.insert(id);
+                }
+                crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
             }
-            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
-            app.rail.items = rail(app.client.state(), &app.layout.open_folders);
+            app.rail.items = rail(
+                app.client.state(),
+                &crate::sidebar::tree::folders_shown(app),
+            );
             return app.ask();
         }
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),

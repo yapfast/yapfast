@@ -349,3 +349,45 @@ fn the_links_are_measured_as_tall_as_theyre_drawn_under_short_channel_rows() {
         );
     }
 }
+
+#[test]
+fn a_tree_that_opens_one_folder_leaves_the_rails_folders_as_they_were() {
+    use crate::rail::Kind;
+    let folder = tempfile::tempdir_in(super::local()).expect("test folder");
+    let mut app = tree_theme_in(&folder);
+    change(&mut app, |state| {
+        for server in &mut state.servers {
+            let server = std::sync::Arc::make_mut(server);
+            server.folder = Some(yapfast_core::chat::ServerFolder {
+                id: format!("folder:{}", server.id),
+                name: None,
+                color: None,
+            });
+        }
+    });
+    // As the stock rail left them.
+    let stock: std::collections::BTreeSet<String> =
+        ["folder:friends", "folder:coop", "folder:gone"]
+            .map(String::from)
+            .into();
+    app.layout.open_folders = stock.clone();
+    let open_folder = |app: &mut App, id: &str| {
+        let _ = app.update(Message::Rail(crate::rail::Event::Folder(id.into())));
+    };
+    let opened = |app: &App| -> Vec<String> {
+        app.rail
+            .items
+            .iter()
+            .filter(|item| matches!(item.kind, Kind::Folder { open: true, .. }))
+            .map(|item| item.id.clone())
+            .collect()
+    };
+    open_folder(&mut app, "folder:friends");
+    assert_eq!(opened(&app), ["folder:friends"]);
+    open_folder(&mut app, "folder:coop");
+    assert_eq!(opened(&app), ["folder:coop"], "one at a time");
+    assert_eq!(app.layout.open_folders, stock, "the rail's are kept");
+    open_folder(&mut app, "folder:coop");
+    assert!(opened(&app).is_empty());
+    assert_eq!(app.layout.open_folders, stock);
+}
