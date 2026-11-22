@@ -140,7 +140,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   `layout.json`, off by default), a message whose text, code blocks and all,
   runs past fifteen lines shows its first twelve, cut off, with Show more
   under it; Show more shows it whole, and Show less folds it again. Its
-  pictures, embeds and reactions show under it either way. Each message
+  pictures, embeds and reactions show under it either way, though an
+  embed's description past ten of its lines folds the same way to eight,
+  with its own Show more, which shares the message's fold. Each message
   keeps its own choice while Yapfast runs, in the timeline and the thread
   beside it, and starts folded again after a restart. Folding measures the
   text as laid out, so it follows the window's width and the text size.

@@ -210,7 +210,7 @@ pub fn message_content<'a>(
             },
         );
         content = content.push(if ctx.layout.collapse_long {
-            folding(ctx, index, body)
+            folding(ctx, index, body, BODY_FOLD)
         } else {
             body
         });
@@ -1435,11 +1435,13 @@ fn author_line<'a>(
 
 /// A body that folds, when long messages fold: once it's a few lines past
 /// twelve, so Show more never uncovers only a line or two, it's cut to
-/// twelve with Show more under it.
-fn folding<'a>(
+/// twelve with Show more under it. An embed's description folds the same
+/// way, sharing the message's fold, past ten of its lines to eight.
+pub(super) fn folding<'a>(
     ctx: crate::ctx::Ctx<'a>,
     index: usize,
     body: Element<'a, Message>,
+    (long, cut): (f32, f32),
 ) -> Element<'a, Message> {
     let item = ctx.row_item(index);
     let whole = ctx.lanes.timeline.revealed.contains(&fold_key(&item));
@@ -1452,14 +1454,11 @@ fn folding<'a>(
     .padding(0)
     .on_press(Message::Timeline(crate::timeline::Event::Unfold(item)))
     .style(controls::ink_style(theme.link, theme.text));
-    Fold::new(
-        body,
-        more,
-        !whole,
-        (LINE_HEIGHT * 15.0, LINE_HEIGHT * 12.0, 3.0),
-    )
-    .into()
+    Fold::new(body, more, !whole, (long, cut, 3.0)).into()
 }
+
+/// A message's body folds past fifteen lines to twelve.
+const BODY_FOLD: (f32, f32) = (LINE_HEIGHT * 15.0, LINE_HEIGHT * 12.0);
 
 /// Before this thread (by its snowflake, July 2022), Discord counted a
 /// thread's messages only up to 50.
