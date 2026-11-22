@@ -37,8 +37,13 @@ pub struct Peeking {
     /// The room under the pointer while Alt is held, and where the pointer
     /// was as it came there, which the cards' top follows.
     pub wanted: Option<(String, f32)>,
-    /// Where the pointer is while Alt is held with the switch on.
+    /// Where the pointer is while Alt is held with the switch on, or where
+    /// it was as it came onto the row it's on.
     pub pointer: f32,
+    /// The pointer came onto another sidebar row and where isn't known
+    /// yet: its next move says, so a peek opened by Alt while it rests
+    /// there still opens level with the row.
+    pub placing: bool,
     /// The cards of the messages peeked at, made once as they came, and
     /// the room they're of.
     pub found: Vec<Found>,
@@ -117,15 +122,16 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::At(at) => {
             app.peek.pointer = at.y;
+            app.peek.placing = false;
             Task::none()
         }
     }
 }
 
-/// Where the pointer is, only while Alt alone is held with the switch on,
-/// so the cards open level with the row.
+/// Where the pointer is, while Alt alone is held with the switch on and
+/// once after it comes onto a row, so the cards open level with the row.
 pub fn subscription(app: &App) -> Option<Subscription<Message>> {
-    (app.layout.peek_channels && alt_only(app.modifiers)).then(|| {
+    (app.layout.peek_channels && (alt_only(app.modifiers) || app.peek.placing)).then(|| {
         iced::event::listen_with(|event, _, _| match event {
             iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                 Some(Message::Peek(Event::At(position)))

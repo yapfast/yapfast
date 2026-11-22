@@ -335,6 +335,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.sidebar.voice_card_off = false;
             }
             crate::app::point(&mut app.pointed.side, id, entered);
+            // Where the pointer came onto the row, for a peek's height.
+            app.peek.placing = entered && app.layout.peek_channels;
             // A DM's nameplate and moving decoration come as it's
             // pointed at; a peek follows the row.
             return Task::batch([app.ask(), crate::peek::follow(app)]);
