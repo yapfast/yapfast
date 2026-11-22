@@ -562,7 +562,9 @@ impl<'a> Page<'a> {
         } else {
             theme.panel
         };
-        let radius = crate::sheet::RADIUS;
+        // Inside the card's 1 px edge, as the sheet's parts (see
+        // `sheet::backdrop`).
+        let radius = crate::sheet::inner_radius(theme);
         let content = container(column![header, body])
             .width(Length::Fill)
             .height(Length::Fill)
@@ -599,9 +601,7 @@ impl<'a> Page<'a> {
         let card = if decorated {
             crate::widgets::Wrap::new(
                 card,
-                crate::widgets::Pane {
-                    radius: theme.radius(radius),
-                },
+                crate::widgets::Pane { radius },
             )
             .into()
         } else {

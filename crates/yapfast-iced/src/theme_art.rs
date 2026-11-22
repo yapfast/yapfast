@@ -1690,7 +1690,7 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                         // Inside a rounded pane a surface without corners of
                         // its own still takes the corners it shares with it.
                         let declared = if self.round.1 {
-                            [self.round.0.max(0.0); 4]
+                            own_in_pane(bounds, self.round.0.max(0.0))
                         } else {
                             crate::widgets::pane_radii(bounds, self.round.0.max(0.0))
                         };
@@ -1773,7 +1773,7 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                 let radii = if art.rim {
                     [0.0; 4]
                 } else if self.round.1 {
-                    [self.round.0.max(rim); 4]
+                    with_rim(own_in_pane(bounds, self.round.0.max(0.0)), rim)
                 } else {
                     with_rim(crate::widgets::pane_radii(bounds, self.round.0.max(0.0)), rim)
                 }
@@ -2186,6 +2186,12 @@ fn rim_round(layers: &[ArtLayer], bounds: Rectangle) -> f32 {
         .fold(0.0, f32::max)
 }
 
+/// `radius` on every corner, rounder where the surface shares a corner
+/// with the rounded pane it's drawn in.
+fn own_in_pane(bounds: Rectangle, radius: f32) -> [f32; 4] {
+    crate::widgets::pane_radii(bounds, 0.0).map(|pane| pane.max(radius))
+}
+
 /// `radii`, each corner at least `rim` (a rim rounds all four).
 fn with_rim(radii: [f32; 4], rim: f32) -> [f32; 4] {
     radii.map(|radius| radius.max(rim))
@@ -2228,8 +2234,11 @@ impl<M> Widget<M, Theme, iced::Renderer> for PaneGround<'_> {
         let bounds = layout.bounds();
         // A radius past half the side draws a bar in iced: hold it there.
         let most = bounds.width.min(bounds.height) / 2.0;
+        // A surface with corners of its own (the account card) still
+        // takes the rounder corners of a pane it fills, or the pane's
+        // ground shows round its corner.
         let radii = if self.own {
-            [self.radius; 4]
+            own_in_pane(bounds, self.radius)
         } else {
             crate::widgets::pane_radii(bounds, self.radius)
         };
