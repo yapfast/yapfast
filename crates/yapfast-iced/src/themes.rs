@@ -874,10 +874,14 @@ impl Themes {
         {
             return Some(package);
         }
-        self.installed
-            .iter()
-            .chain(&self.companions)
-            .find(|package| package.id == id)
+        // Only an installed package's id has its prefix, and only a custom
+        // theme the creator made has a companion: a built-in or colour-only
+        // theme, the stock look's, is no package at once.
+        if id.starts_with(INSTALLED) {
+            self.installed.iter().find(|package| package.id == id)
+        } else {
+            self.companions.iter().find(|package| package.id == id)
+        }
     }
 
     fn package_mut(&mut self, id: &str) -> Option<&mut Installed> {
@@ -900,10 +904,11 @@ impl Themes {
         {
             return Some(package);
         }
-        self.installed
-            .iter_mut()
-            .chain(&mut self.companions)
-            .find(|package| package.id == id)
+        if id.starts_with(INSTALLED) {
+            self.installed.iter_mut().find(|package| package.id == id)
+        } else {
+            self.companions.iter_mut().find(|package| package.id == id)
+        }
     }
 
     fn packages_mut(&mut self) -> impl Iterator<Item = &mut Installed> {
