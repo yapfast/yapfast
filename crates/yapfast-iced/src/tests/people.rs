@@ -1277,3 +1277,31 @@ fn a_full_profiles_plain_name_selects_and_a_styled_one_doesnt() {
     assert!(copied.is_empty(), "{copied:?}");
     assert_eq!(status, iced::event::Status::Ignored);
 }
+
+#[test]
+fn a_theme_cuts_peoples_names_only_once_let() {
+    let face = |name: &str| {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../yapfast-iced-kit/fonts")
+                .join(name),
+        )
+        .expect("a face")
+    };
+    let (first, second) = (face("DisplayName-8Bit.ttf"), face("DisplayName-Modern.ttf"));
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({
+            "type": { "names": { "style": "ransom", "fonts": ["a.ttf", "b.ttf"],
+                "papers": [["#ffffff", "#000000"]] } }
+        }),
+        &[("a.ttf", &first), ("b.ttf", &second)],
+    );
+    assert!(
+        app.themes.ransom(&app.theme.id).is_some(),
+        "the theme cuts names"
+    );
+    assert!(!crate::theme_chrome::cuts_names(app.ctx()), "not until let");
+    let id = app.theme.id.clone();
+    app.layout.theme_content.insert(id);
+    assert!(crate::theme_chrome::cuts_names(app.ctx()));
+}

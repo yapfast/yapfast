@@ -366,12 +366,20 @@ impl<'a> crate::ctx::Ctx<'a> {
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
+    /// What the theme does to people's names, pictures, cards and embeds,
+    /// when the person let it (Settings → Themes); none otherwise.
+    pub fn theme_content(self) -> Option<&'a yapfast_core::themes::content::Content> {
+        let id = &self.look.theme.id;
+        self.themes
+            .content(id, self.layout.theme_content.contains(id))
+    }
+
     /// A name on one line, in its style's font and, outside a server, its
     /// style's first colour, as the lists draw a styled name.
     pub fn person_name(
         self,
         name: impl Into<Cow<'a, str>>,
-        ink: NameInk<'a>,
+        ink: NameInk<'_>,
     ) -> Element<'a, Message> {
         let name = name.into();
         let content = self.themes.content(

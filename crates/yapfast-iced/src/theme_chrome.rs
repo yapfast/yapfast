@@ -292,9 +292,41 @@ pub fn ransom<'a>(ctx: crate::ctx::Ctx<'a>, name: &str, size: f32) -> Option<Ele
     ransom_in(ctx, name, size, None)
 }
 
+/// [`ransom`] for a person's name: it's their own look, so only while the
+/// person lets the theme restyle people's names.
+pub fn name_ransom<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    name: &str,
+    size: f32,
+) -> Option<Element<'a, Message>> {
+    name_ransom_in(ctx, name, size, None)
+}
+
+/// [`name_ransom`] with its scraps `height` tall, as a line that holds
+/// them gives Slint's (a message's author line).
+pub fn name_ransom_in<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    name: &str,
+    size: f32,
+    height: Option<f32>,
+) -> Option<Element<'a, Message>> {
+    if !cuts_names(ctx) {
+        return None;
+    }
+    ransom_in(ctx, name, size, height)
+}
+
+/// Whether the theme cuts people's names as ransom notes: it has the
+/// faces, Readable text is off, and the person lets it restyle names.
+pub fn cuts_names(ctx: crate::ctx::Ctx<'_>) -> bool {
+    ctx.themes.ransom(&ctx.look.theme.id).is_some()
+        && !ctx.look.theme.is_readable_text()
+        && ctx.theme_content().is_some()
+}
+
 /// [`ransom`] with its scraps `height` tall, as a line that holds them
 /// gives Slint's (a message's author line).
-pub fn ransom_in<'a>(
+fn ransom_in<'a>(
     ctx: crate::ctx::Ctx<'a>,
     name: &str,
     size: f32,

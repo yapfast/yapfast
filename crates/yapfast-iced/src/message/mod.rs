@@ -361,6 +361,14 @@ pub fn message_content<'a>(
             // As Slint's irc log: the nick on a group's first line only,
             // its column blank under it.
             let nick: Element<'a, Message> = if look.first {
+                // The person's own name style, as the other layouts keep it
+                // unless the theme may restyle names.
+                let style = looks::name_look(
+                    ctx.state.cosmetics.style(message.style.as_deref()),
+                    &message.author,
+                    ctx.in_server,
+                    theme.dark,
+                );
                 ctx.person_name(
                     ctx.themes.marked(
                         &theme.id,
@@ -372,6 +380,7 @@ pub fn message_content<'a>(
                         500,
                         message.color.map_or(theme.text, crate::style::hex),
                     )
+                    .style(style.as_ref())
                     .key(message.sender.as_str()),
                 )
             } else {
@@ -1282,7 +1291,7 @@ fn author_line<'a>(
         .then(|| {
             // Scraps the author line's height (Slint's take its height,
             // a little taller than this line).
-            crate::theme_chrome::ransom_in(
+            crate::theme_chrome::name_ransom_in(
                 ctx,
                 &author,
                 theme.type_size("names", text_size(ctx)) * 0.85,

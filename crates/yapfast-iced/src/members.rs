@@ -211,6 +211,36 @@ pub(crate) fn lines_in_view(tops: &[f32], scroll: &crate::sync::Scroll) -> (usiz
     (first, last)
 }
 
+/// A theme's one ink for the list's names (`ink.name`): over everyone's
+/// own colour only while the person lets the theme style people's names,
+/// else only over the stock ink of a name with no colour of its own.
+fn list_name_ink(
+    cx: Ctx<'_>,
+    rows: Option<&yapfast_core::themes::lists::MemberRows>,
+    look: &MemberLook,
+) -> Option<Color> {
+    let ink = rows?.name_ink?;
+    let own = look.color.is_some()
+        || look
+            .style
+            .as_ref()
+            .is_some_and(|style| !style.colors.is_empty());
+    takes_name_ink(own, cx.theme_content().is_some()).then(|| crate::themes::argb(ink))
+}
+
+/// Whether a theme's list ink goes over a name: one with no colour of its
+/// own, or any while the theme may restyle people's names.
+fn takes_name_ink(own_colour: bool, content_allowed: bool) -> bool {
+    !own_colour || content_allowed
+}
+
+/// Whether a member's row keeps their avatar decoration: a theme that draws
+/// presence as words or a glyph leaves it out only where the person lets
+/// it restyle people's avatars.
+fn keeps_decoration(presence_dot: bool, content_allowed: bool) -> bool {
+    presence_dot || !content_allowed
+}
+
 /// Where a member's presence dot sits on a face `face` wide: `dot` wide
 /// (16 px stock), `out` past its corner (Discord's 4 px, at 20, 20).
 fn dot_at(face: f32, dot: Option<f32>, out: Option<f32>) -> Point {
@@ -1452,10 +1482,8 @@ impl<'a> View<'a> {
             },
             hex,
         );
-        let ink = rows
-            .and_then(|rows| rows.name_ink)
-            .map(crate::themes::argb)
-            .unwrap_or(stock);
+        let themed_ink = list_name_ink(self.cx, rows, look);
+        let ink = themed_ink.unwrap_or(stock);
         let name = crate::themes::list_case(rows.and_then(|rows| rows.case), &look.name);
         let size = rows
             .and_then(|rows| rows.size)
@@ -1496,7 +1524,7 @@ impl<'a> View<'a> {
                 .font_role(name_role)
                 .style(look.style.as_ref())
                 .key(&look.id)
-                .fixed(rows.and_then(|rows| rows.name_ink).is_some()),
+                .fixed(themed_ink.is_some()),
         );
         let glowing = rows.and_then(|rows| rows.name_glow).is_some();
         name_layers = name_layers.push(controls::placed(
@@ -1885,9 +1913,10 @@ impl<'a> View<'a> {
                 avatar_opacity
             })
             .decoration(
-                (avatar_size > 0.0 && show_presence_dot)
-                    .then_some(look.decoration.as_deref())
-                    .flatten(),
+                (avatar_size > 0.0
+                    && keeps_decoration(show_presence_dot, self.cx.theme_content().is_some()))
+                .then_some(look.decoration.as_deref())
+                .flatten(),
                 pointed,
             )
             .dot(
@@ -1932,9 +1961,7 @@ impl<'a> View<'a> {
             ),
             opacity,
         );
-        let color = themed
-            .and_then(|rows| rows.name_ink)
-            .map(crate::themes::argb)
+        let color = list_name_ink(self.cx, themed, look)
             .map_or(stock_color, |colour| faded(colour, opacity));
         let marked = self.cx.themes.marked(
             &theme.id,
@@ -1969,7 +1996,7 @@ impl<'a> View<'a> {
             .style
             .is_none()
             .then(|| {
-                crate::theme_chrome::ransom(
+                crate::theme_chrome::name_ransom(
                     self.cx,
                     &look.name,
                     // As Slint's member rows: the rows' own size, else the
@@ -2551,7 +2578,23 @@ mod tests {
     use iced::Color;
     use yapfast_core::themes::content::Nameplates;
 
-    use super::{dot_at, finished_ago, policy_palette, running_for, show_nameplate};
+    use super::{
+        dot_at, finished_ago, keeps_decoration, policy_palette, running_for, show_nameplate,
+        takes_name_ink,
+    };
+
+    #[test]
+    fn a_themes_list_ink_and_presence_leave_peoples_own_looks_unless_let() {
+        // Off: role colours and decorations stay; a plain name takes the ink.
+        assert!(!takes_name_ink(true, false));
+        assert!(takes_name_ink(false, false));
+        assert!(keeps_decoration(false, false));
+        // Let: the theme's ink over everyone, and its presence words over
+        // the decorations.
+        assert!(takes_name_ink(true, true));
+        assert!(!keeps_decoration(false, true));
+        assert!(keeps_decoration(true, true));
+    }
 
     #[test]
     fn a_members_dot_sits_where_discords_does_unless_a_theme_moves_it() {

@@ -191,18 +191,22 @@ pub(super) fn profile_body<'a>(
         Some(name) => name,
         // A theme that cuts names cuts a plain one here, as Slint's card.
         None => {
-            crate::theme_chrome::ransom(ctx, profile.name.as_str(), theme_size(ctx, metrics.name))
-                .unwrap_or_else(|| {
-                    // In the theme's names face and weight, as Slint's
-                    // `Look.name-font` (Hurt's blackletter).
-                    selectable(
-                        ctx,
-                        profile.name.as_str(),
-                        metrics.name,
-                        theme.font("names", BOLD),
-                        inks.ink,
-                    )
-                })
+            crate::theme_chrome::name_ransom(
+                ctx,
+                profile.name.as_str(),
+                theme_size(ctx, metrics.name),
+            )
+            .unwrap_or_else(|| {
+                // In the theme's names face and weight, as Slint's
+                // `Look.name-font` (Hurt's blackletter).
+                selectable(
+                    ctx,
+                    profile.name.as_str(),
+                    metrics.name,
+                    theme.font("names", BOLD),
+                    inks.ink,
+                )
+            })
         }
     };
     // Discord's card has the badges beside the username, up to six of
@@ -704,7 +708,7 @@ pub(crate) fn profile_name<'a>(
     // A theme that cuts names cuts a plain one here too, as Slint's card.
     let name: Element<'a, Message> = styled_name(ctx, shown, size)
         .or_else(|| {
-            crate::theme_chrome::ransom(ctx, &shown.look.profile().name, theme_size(ctx, size))
+            crate::theme_chrome::name_ransom(ctx, &shown.look.profile().name, theme_size(ctx, size))
         })
         .unwrap_or_else(|| {
             text(shown.look.profile().name.clone())
