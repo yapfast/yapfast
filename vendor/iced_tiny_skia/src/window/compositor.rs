@@ -210,49 +210,42 @@ pub fn present(
         .front()
         .filter(|(_, previous_background)| *previous_background == background_color)
         .map(|(previous, _)| previous);
-    let changes: Vec<Vec<Rectangle>> = {
+    let changes = {
         let current = renderer.layers();
         match front {
-            Some(previous) => current
-                .iter()
-                .enumerate()
-                .map(|(index, layer)| match previous.get(index) {
-                    Some(before) => Layer::damage(before, layer),
-                    None => layer.extent(),
-                })
-                .collect(),
-            None => current.iter().map(|layer| vec![layer.bounds]).collect(),
+            // Yapfast port (patch 41): paired by place where they lie, the
+            // layers that came or went partway between.
+            Some(previous) => crate::layer::changes(previous, current),
+            None => crate::layer::Changes {
+                layers: current.iter().map(|layer| vec![layer.bounds]).collect(),
+                gone: Vec::new(),
+                shifted: None,
+            },
         }
     };
 
     // Yapfast port (patch 23): the compositor is told what differs from
     // the frame it shows, the one presented last, not the whole window.
-    // That is `changes` and what the layers that went drew, as
-    // `damage::diff` against it would find (patch 32 already worked it
-    // out). The draw's `damage` is against the buffer's own older frame.
+    // That is `changes` and what the layers that went drew (patch 32
+    // already worked it out). The draw's `damage` is against the buffer's
+    // own older frame.
     let bounds = Rectangle::with_size(viewport.logical_size());
-    let shown = front.map(|previous| {
-        let current = changes.len();
-        changes
-            .iter()
-            .flatten()
-            .copied()
-            .chain(previous.iter().skip(current).flat_map(Layer::extent))
-            .collect::<Vec<_>>()
-    });
-    renderer.layer_changes(changes, viewport.scale_factor(), physical_size);
+    let shown = front.map(|_| changes.all().collect::<Vec<_>>());
+    renderer.layer_changes(
+        changes.layers,
+        changes.shifted,
+        viewport.scale_factor(),
+        physical_size,
+    );
 
     // Yapfast port (patch 27): a layer that came or went damages what it
-    // drew (`Layer::extent`), not its bounds.
+    // drew (`Layer::extent`), not its bounds; (patch 41) paired as above.
     let damage = last_layers
         .and_then(|(last_layers, last_background)| {
             (*last_background == background_color).then(|| {
-                damage::diff(
-                    last_layers,
-                    renderer.layers(),
-                    Layer::extent,
-                    Layer::damage,
-                )
+                crate::layer::changes(last_layers, renderer.layers())
+                    .all()
+                    .collect()
             })
         })
         .unwrap_or_else(|| vec![Rectangle::with_size(viewport.logical_size())]);

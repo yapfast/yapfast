@@ -240,7 +240,7 @@ impl Layer {
                 .collect(),
             Item::Cached(_, bounds, _) => vec![*bounds],
         });
-        let images = self.images.iter().map(|image| image.bounds().expand(1.0));
+        let images = self.images.iter().filter_map(image_reach);
         quads
             .chain(text)
             .chain(primitives)
@@ -337,7 +337,13 @@ impl Layer {
         let images = damage::list(
             &previous.images,
             &current.images,
-            |image| vec![image.bounds().expand(1.0)],
+            // Yapfast port (patch 40): where it can draw, inside the layer.
+            |image| {
+                image_reach(image)
+                    .and_then(|reach| reach.intersection(&current.bounds))
+                    .into_iter()
+                    .collect()
+            },
             same_image,
         );
 
@@ -353,6 +359,94 @@ impl Layer {
 /// `Rgba` handle's derived equality compares every byte of its pixels:
 /// each frame compared each picture's whole buffer with itself, a theme's
 /// window-sized art and glass among them (13% of a scrolled frame's work).
+/// Yapfast port (patch 41): what changed from one frame's layers to the
+/// next's. Stock paired the two frames' layers by place alone, so a layer
+/// added or gone partway (a list's picture scrolled into view) paired every
+/// layer after it with the one before it: a window-sized overlay with a
+/// pane, a pane with a picture, each pair damaging both. Under a theme's
+/// overlays, a scrolled list redrew the whole window every frame.
+pub struct Changes {
+    /// What each of the new frame's layers changed (a new one, what it
+    /// draws), in its order.
+    pub layers: Vec<Vec<Rectangle>>,
+    /// What the layers that went drew.
+    pub gone: Vec<Rectangle>,
+    /// With fewer or more layers than before, the first not paired by its
+    /// place: what was drawn up to it pairs as before, past it not.
+    pub shifted: Option<usize>,
+}
+
+impl Changes {
+    /// Everything that changed.
+    pub fn all(&self) -> impl Iterator<Item = Rectangle> + '_ {
+        self.layers.iter().flatten().chain(&self.gone).copied()
+    }
+}
+
+/// Yapfast port (patch 41): pairs `previous`'s layers with `current`'s:
+/// by place when there are as many, else those at the start that lie
+/// where they lay by place and those at the end from the end, the rest
+/// between them gone or new.
+pub fn changes(previous: &[Layer], current: &[Layer]) -> Changes {
+    let (head, tail) = if previous.len() == current.len() {
+        (current.len(), 0)
+    } else {
+        let most = previous.len().min(current.len());
+        let same = |(a, b): &(&Layer, &Layer)| a.bounds == b.bounds;
+        let tail = previous
+            .iter()
+            .rev()
+            .zip(current.iter().rev())
+            .take_while(same)
+            .count()
+            .min(most);
+        let head = previous
+            .iter()
+            .zip(current)
+            .take(most - tail)
+            .take_while(same)
+            .count();
+        (head, tail)
+    };
+    let first_tail = current.len() - tail;
+    let layers = current
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            if index < head {
+                Layer::damage(&previous[index], layer)
+            } else if index >= first_tail {
+                Layer::damage(&previous[index - first_tail + previous.len() - tail], layer)
+            } else {
+                layer.extent()
+            }
+        })
+        .collect();
+    let gone = previous[head..previous.len() - tail]
+        .iter()
+        .flat_map(Layer::extent)
+        .collect();
+    Changes {
+        layers,
+        gone,
+        shifted: (previous.len() != current.len()).then_some(head),
+    }
+}
+
+/// Yapfast port (patch 40): where a picture or SVG can draw: its turned
+/// bounds, a pixel out for an anti-aliased edge, cut to its own clip, as
+/// the engine cuts it (patch 30). Stock damaged its whole bounds: a
+/// picture laid larger than its box (`ContentFit::Cover`, a theme's
+/// leaning card) damaged far past it, and once regions merged, a list
+/// scrolled under Zine drew the whole window again each frame.
+fn image_reach(image: &Image) -> Option<Rectangle> {
+    let (Image::Raster { clip_bounds, .. } | Image::Vector { clip_bounds, .. }) = image;
+    image
+        .bounds()
+        .expand(1.0)
+        .intersection(&clip_bounds.expand(1.0))
+}
+
 fn same_image(a: &Image, b: &Image) -> bool {
     match (a, b) {
         (
@@ -591,6 +685,134 @@ mod tests {
             "{damage:?}"
         );
         assert!(area < 100.0 * 40.0, "{area} px damaged");
+    }
+
+    #[test]
+    fn a_picture_larger_than_its_clip_damages_only_its_clip() {
+        let window = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        // A picture 400 px square, cut to the 100 by 60 px box it covers,
+        // that moves a little (a list scrolled): what changed lies in the
+        // box, not round the whole picture.
+        let clip = Rectangle {
+            x: 300.0,
+            y: 300.0,
+            width: 100.0,
+            height: 60.0,
+        };
+        let handle = core::image::Handle::from_rgba(4, 4, vec![255u8; 4 * 4 * 4]);
+        let at = |y: f32| {
+            let mut layer = <Layer as graphics::Layer>::with_bounds(window);
+            layer.draw_raster(
+                core::Image::new(handle.clone()),
+                Rectangle {
+                    x: 150.0,
+                    y,
+                    width: 400.0,
+                    height: 400.0,
+                },
+                clip,
+                Transformation::IDENTITY,
+            );
+            layer
+        };
+        let damage = Layer::damage(&at(130.0), &at(131.0));
+        assert!(!damage.is_empty());
+        let reach = clip.expand(1.0);
+        for region in &damage {
+            assert!(
+                region.intersection(&reach) == Some(*region),
+                "{region:?} lies outside {reach:?}"
+            );
+        }
+        let extent = at(130.0).extent();
+        assert_eq!(extent, vec![reach]);
+    }
+
+    #[test]
+    fn a_layer_come_partway_leaves_the_layers_after_it_paired() {
+        let window = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let layer = |bounds: Rectangle, quad: Rectangle| {
+            let mut layer = <Layer as graphics::Layer>::with_bounds(bounds);
+            layer.draw_quad(
+                Quad {
+                    bounds: quad,
+                    ..Quad::default()
+                },
+                Background::Color(core::Color::WHITE),
+                Transformation::IDENTITY,
+            );
+            layer
+        };
+        let list = Rectangle {
+            x: 300.0,
+            y: 100.0,
+            width: 400.0,
+            height: 600.0,
+        };
+        let picture = |y: f32| {
+            let bounds = Rectangle {
+                x: 320.0,
+                y,
+                width: 200.0,
+                height: 100.0,
+            };
+            layer(bounds, bounds)
+        };
+        let overlay = || layer(window, window);
+        let members = || {
+            let bounds = Rectangle {
+                x: 760.0,
+                y: 100.0,
+                width: 240.0,
+                height: 600.0,
+            };
+            layer(bounds, bounds)
+        };
+        // A list scrolled by 10 px brings a third picture into view; the
+        // members and a window-sized overlay above it are unchanged.
+        let previous = vec![
+            layer(list, list),
+            picture(200.0),
+            picture(400.0),
+            members(),
+            overlay(),
+        ];
+        let current = vec![
+            layer(list, list),
+            picture(190.0),
+            picture(390.0),
+            picture(590.0),
+            members(),
+            overlay(),
+        ];
+        let changes = changes(&previous, &current);
+        assert_eq!(changes.shifted, Some(1));
+        assert!(changes.layers[4].is_empty() && changes.layers[5].is_empty());
+        let reach = list.expand(1.0);
+        for region in changes.all() {
+            assert!(
+                region.intersection(&reach) == Some(region),
+                "{region:?} lies outside the list"
+            );
+        }
+        // As many layers as before pair by place, as stock did.
+        let same = changes_of_same(&current);
+        assert_eq!(same.shifted, None);
+        assert!(same.all().next().is_none());
+    }
+
+    fn changes_of_same(layers: &[Layer]) -> Changes {
+        changes(layers, layers)
     }
 
     #[test]

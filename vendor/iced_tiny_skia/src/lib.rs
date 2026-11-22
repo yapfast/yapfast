@@ -275,16 +275,18 @@ impl Renderer {
     pub fn layer_changes(
         &mut self,
         changes: Vec<Vec<Rectangle>>,
+        shifted: Option<usize>,
         scale_factor: f32,
         size: Size<u32>,
     ) {
         let keep = KEEP_BACKDROP.load(std::sync::atomic::Ordering::Relaxed);
-        self.layer_changes_kept(changes, scale_factor, size, keep);
+        self.layer_changes_kept(changes, shifted, scale_factor, size, keep);
     }
 
     fn layer_changes_kept(
         &mut self,
         changes: Vec<Vec<Rectangle>>,
+        shifted: Option<usize>,
         scale_factor: f32,
         size: Size<u32>,
         keep: bool,
@@ -308,7 +310,10 @@ impl Renderer {
                 Point::new(left as f32, top as f32),
                 Size::new((right - left) as f32, (bottom - top) as f32),
             );
+            // Patch 41: drawn past a layer that came or went partway, it
+            // was drawn with other layers than those now in its place.
             kept.layers <= changes.len()
+                && shifted.is_none_or(|head| kept.layers <= head)
                 && !changes[..kept.layers]
                     .iter()
                     .flatten()
@@ -901,10 +906,32 @@ mod tests {
         }
     }
 
+    /// A frame of layers each with its own bounds, the first the root's.
+    type Layered = Vec<(Rectangle, Vec<(Rectangle, Color)>)>;
+
+    fn build_layered(renderer: &mut Renderer, frame: &Layered) {
+        renderer.reset(rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32));
+        for (index, (bounds, quads)) in frame.iter().enumerate() {
+            if index > 0 {
+                renderer.start_layer(*bounds);
+            }
+            for &(bounds, color) in quads {
+                renderer.fill_quad(Quad { bounds, ..Quad::default() }, color);
+            }
+            if index > 0 {
+                renderer.end_layer();
+            }
+        }
+    }
+
     /// The frame drawn whole by a new renderer.
     fn whole(frame: &Frame) -> Vec<u32> {
+        whole_with(|renderer| build(renderer, frame))
+    }
+
+    fn whole_with(build: impl FnOnce(&mut Renderer)) -> Vec<u32> {
         let mut renderer = Renderer::new(Font::DEFAULT, Pixels(16.0));
-        build(&mut renderer, frame);
+        build(&mut renderer);
         let mut pixels = vec![0u32; (WIDTH * HEIGHT) as usize];
         let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut pixels), WIDTH, HEIGHT).expect("pixmap");
         let mut mask = tiny_skia::Mask::new(WIDTH, HEIGHT).expect("mask");
@@ -937,24 +964,22 @@ mod tests {
         }
 
         fn draw(&mut self, frame: &Frame) {
-            build(&mut self.renderer, frame);
+            self.draw_with(|renderer| build(renderer, frame));
+        }
+
+        fn draw_with(&mut self, build: impl FnOnce(&mut Renderer)) {
+            build(&mut self.renderer);
             let current = self.renderer.layers().to_vec();
             let window = rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32);
-            let (changes, damage) = match &self.last {
-                Some(previous) => (
-                    current
-                        .iter()
-                        .enumerate()
-                        .map(|(index, layer)| match previous.get(index) {
-                            Some(before) => Layer::damage(before, layer),
-                            None => layer.extent(),
-                        })
-                        .collect(),
-                    damage::group(damage::diff(previous, &current, Layer::extent, Layer::damage), window),
-                ),
-                None => (current.iter().map(|layer| vec![layer.bounds]).collect(), vec![window]),
+            let (changes, shifted, damage) = match &self.last {
+                Some(previous) => {
+                    let changes = crate::layer::changes(previous, &current);
+                    let damage = damage::group(changes.all().collect(), window);
+                    (changes.layers, changes.shifted, damage)
+                }
+                None => (current.iter().map(|layer| vec![layer.bounds]).collect(), None, vec![window]),
             };
-            self.renderer.layer_changes_kept(changes, 1.0, Size::new(WIDTH, HEIGHT), self.keep);
+            self.renderer.layer_changes_kept(changes, shifted, 1.0, Size::new(WIDTH, HEIGHT), self.keep);
             let viewport = Viewport::with_physical_size(Size::new(WIDTH, HEIGHT), 1.0);
             let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut self.pixels), WIDTH, HEIGHT).expect("pixmap");
             if !damage.is_empty() {
@@ -1060,6 +1085,72 @@ mod tests {
     }
 
     #[test]
+    fn pictures_scrolling_in_and_out_under_an_overlay_draw_as_the_whole_frame() {
+        // Art, a list whose pictures are layers of their own, coming and
+        // going as it scrolls, members beside it, and a see-through
+        // overlay over the whole window (patch 41).
+        let list = rect(100.0, 20.0, 200.0, 160.0);
+        let see_through = |r, g, b| Color { r, g, b, a: 0.5 };
+        let frame = |offset: f32, tip: f32, pictures: &[f32]| -> Layered {
+            let mut frame: Layered = vec![
+                (
+                    rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32),
+                    vec![
+                        (rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32), Color::from_rgb(0.2, 0.2, 0.2)),
+                        (rect(60.0, 0.0, 200.0, 150.0), see_through(1.0, 0.0, 0.0)),
+                    ],
+                ),
+                (list, vec![(rect(110.0, 30.0 - offset, 180.0, 20.0), see_through(0.0, 0.0, 1.0))]),
+            ];
+            for &y in pictures {
+                let picture = rect(120.0, y - offset, 120.0, 30.0);
+                if let Some(cut) = picture.intersection(&list) {
+                    frame.push((cut, vec![(picture, see_through(1.0, 1.0, 0.0))]));
+                }
+            }
+            frame.push((rect(310.0, 20.0, 80.0, 160.0), vec![(rect(310.0, 20.0, 80.0, 160.0), see_through(0.0, 1.0, 0.0))]));
+            frame.push((
+                rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32),
+                vec![
+                    (rect(0.0, 0.0, WIDTH as f32, 30.0), see_through(0.0, 0.0, 0.0)),
+                    (rect(0.0, 170.0, WIDTH as f32, 30.0), see_through(0.0, 0.0, 0.0)),
+                    // A tooltip over the members, moving: what's under it
+                    // is kept drawn up to the overlay, past the pictures.
+                    (rect(320.0, 60.0 + tip, 50.0, 20.0), see_through(1.0, 1.0, 1.0)),
+                ],
+            ));
+            frame
+        };
+        let pictures = [60.0, 120.0, 180.0, 240.0];
+        let frames: Vec<Layered> = [
+            (0.0, 0.0),
+            (0.0, 4.0),
+            (0.0, 8.0),
+            (30.0, 12.0),
+            (30.0, 16.0),
+            (70.0, 20.0),
+            (72.0, 24.0),
+            (72.0, 28.0),
+            (40.0, 32.0),
+            (40.0, 36.0),
+            (0.0, 40.0),
+        ]
+        .into_iter()
+        .map(|(offset, tip)| frame(offset, tip, &pictures))
+        .collect();
+        let mut window = Window::new();
+        let mut kept = 0;
+        for (index, frame) in frames.iter().enumerate() {
+            window.draw_with(|renderer| build_layered(renderer, frame));
+            kept = kept.max(window.renderer.backdrop.kept.len());
+            let expected = whole_with(|renderer| build_layered(renderer, frame));
+            let differing = window.pixels.iter().zip(&expected).filter(|(a, b)| a != b).count();
+            assert_eq!(differing, 0, "frame {index}: {differing} pixels differ");
+        }
+        assert!(kept > 0, "the backdrop was used");
+    }
+
+    #[test]
     fn nothing_is_kept_unless_the_app_keeps_backdrops() {
         let art = rect(0.0, 0.0, 200.0, 120.0);
         let mut window = Window::new();
@@ -1089,7 +1180,7 @@ mod tests {
         window.draw(&frame(art, 5.0, 0.0));
         assert!(!window.renderer.backdrop.kept.is_empty());
         // The app's zoom changed: same buffer, another scale.
-        window.renderer.layer_changes_kept(vec![Vec::new(); 3], 1.25, Size::new(WIDTH, HEIGHT), true);
+        window.renderer.layer_changes_kept(vec![Vec::new(); 3], None, 1.25, Size::new(WIDTH, HEIGHT), true);
         assert!(window.renderer.backdrop.kept.is_empty());
     }
 

@@ -266,5 +266,25 @@ change spans several places):
     box's size is cut on exactly the pixels it covers. A test in
     `engine.rs`.
 
+40. `layer.rs` `image_reach`, `Layer::damage`, `Layer::extent`: a
+    picture or SVG damages where it can draw, its turned bounds cut to
+    its own clip, as `engine.rs` cuts it (patch 30). Stock damaged its
+    whole bounds, so a picture larger than its box (`ContentFit::Cover`,
+    a theme's leaning card) damaged far past it; merged, the regions of
+    a list scrolled under Zine came to the whole window each frame. A
+    test in `layer.rs`.
+
+41. `layer.rs` `changes`, `window/compositor.rs` `present`, `lib.rs`
+    `layer_changes`: with fewer or more layers than the frame before,
+    layers are paired by place from the start while they lie where they
+    lay, and from the end, the rest between them gone or new. Stock
+    paired them by place alone, so a layer come or gone partway (a
+    list's picture scrolled into view) paired each layer after it with
+    the one before it: a window-sized overlay with a pane, each pair
+    damaging both, and a list scrolled under a theme's overlays redrew
+    the whole window every frame. What the backdrop kept drawn past the
+    first unpaired layer is let go, as the layers it was drawn with are
+    no longer those in its place. Tests in `layer.rs` and `lib.rs`.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.
