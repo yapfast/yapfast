@@ -781,3 +781,27 @@ fn under_the_desktops_title_bar_discords_bar_stays_without_moving_the_window() {
     window_bar::fit_window(&mut app);
     assert_eq!(app.window.height, frame.height);
 }
+
+#[test]
+fn a_notifications_open_in_split_view_opens_its_room_beside_the_open_one() {
+    let general = "discord:10:11";
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    change(&mut app, |state| state.selected = None);
+    // Off, as split view is by default, no notification offers it.
+    assert!(!crate::shell::notify_split(&app, general));
+    app.layout.split_view = true;
+    change(&mut app, |state| state.split_view = true);
+    assert!(
+        crate::shell::notify_split(&app, general),
+        "a channel it can show"
+    );
+    app.layout.split_notify = Some(false);
+    assert!(!crate::shell::notify_split(&app, general), "its button off");
+    app.layout.split_notify = None;
+    heard(
+        &mut app,
+        Heard::Opened(format!("{}{general}", crate::SPLIT)),
+    );
+    let aside = app.client.state().aside.as_ref().expect("beside");
+    assert!(aside.split && aside.room == general);
+}

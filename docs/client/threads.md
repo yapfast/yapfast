@@ -105,6 +105,14 @@ shows is kept as `split_room` and opens there again on the next start once
 listed (`Action::RestoreSplit`), unless Reopen the split on start is off
 (`split_restore`). Turning split view off closes it.
 
+A message's desktop notification offers Open in split view beside Open
+for a room split view can show (`shell::notify_split`), unless
+Notification button is off (`split_notify`). The notification service
+says only which button was clicked, so Ctrl+click on a notification can't
+work; the button does that job. It comes back as `Heard::Opened` with the
+room after `desktop::SPLIT`. Linux's freedesktop notifications show it as
+an action; Windows' toasts keep only Open.
+
 ## A voice channel's chat
 
 A Discord voice channel's chat opens in the same panel beside its call

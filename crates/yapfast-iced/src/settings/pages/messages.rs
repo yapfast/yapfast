@@ -188,6 +188,12 @@ impl<'a> Page<'a> {
                     layout.split_restore.unwrap_or(true),
                     Pref::SplitRestore,
                 ),
+                self.flip(
+                    "Notification button",
+                    "A message's notification offers Open in split view beside Open, where the desktop shows buttons.",
+                    layout.split_notify.unwrap_or(true),
+                    Pref::SplitNotify,
+                ),
             ];
             shown =
                 shown.push(iced::widget::container(parts).padding(iced::Padding::ZERO.left(24)));

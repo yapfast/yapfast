@@ -434,6 +434,12 @@ impl App {
                 if room == ABOUT {
                     return Task::batch([open, crate::updates::open_about(self)]);
                 }
+                // Its Open in split view: beside the open room.
+                if let Some(room) = room.strip_prefix(crate::desktop::SPLIT) {
+                    let closed = self.close_settings();
+                    self.client.dispatch(Action::OpenSplit(room.to_owned()));
+                    return Task::batch([open, closed, self.sync()]);
+                }
                 let closed = self.close_settings();
                 self.client.dispatch(Action::OpenChat(room));
                 Task::batch([open, closed, self.sync()])
@@ -745,7 +751,8 @@ impl App {
             && !focused
             && let Some(notifier) = &self.shell.notifier
         {
-            notifier.show(alert, prefs.notification_text.unwrap_or(true));
+            let split = notify_split(self, &alert.room);
+            notifier.show(alert, prefs.notification_text.unwrap_or(true), split);
         }
         task
     }
@@ -925,4 +932,12 @@ impl App {
             _ => None,
         })
     }
+}
+
+/// Whether a message's notification offers Open in split view: with split
+/// view and its notification button on, for a room split view can show.
+pub(crate) fn notify_split(app: &App, room: &str) -> bool {
+    app.layout.split_view
+        && app.layout.split_notify.unwrap_or(true)
+        && app.client.state().can_split(room)
 }

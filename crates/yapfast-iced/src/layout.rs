@@ -101,6 +101,9 @@ pub struct Layout {
     pub split_view: bool,
     pub split_click: Option<bool>,
     pub split_restore: Option<bool>,
+    /// A message's notification offers Open in split view, unless turned
+    /// off.
+    pub split_notify: Option<bool>,
     pub split_width: Option<f32>,
     pub split_room: Option<String>,
     /// DMs pinned to the top of the list, by room id, the first pinned
