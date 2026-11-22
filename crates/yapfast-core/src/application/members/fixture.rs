@@ -99,6 +99,7 @@ pub fn member_server(alice: &[&str]) -> Application {
             presence: None,
             activity: None,
             activities: Default::default(),
+            style: None,
         }]
         .into(),
         names: SharedNames::new(Arc::new(RwLock::new(names))),

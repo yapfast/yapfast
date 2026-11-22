@@ -1675,6 +1675,7 @@ impl Tracker {
                     activities: known
                         .map(|known| known.activities.clone())
                         .unwrap_or_default(),
+                    style: names.style(None, user),
                 }
             })
             .collect();
