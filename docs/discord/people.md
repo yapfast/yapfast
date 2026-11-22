@@ -1105,7 +1105,9 @@ an error. As Discord's desktop client does when a game connects, it asks
 first time the game names an image, `GET /oauth2/applications/{id}/assets`
 for its images' ids. Images given by https address go to
 `POST /applications/{id}/external-assets` and show through the media proxy
-as `mp:` assets; each client's last 32 addresses are kept. Timestamps in
+as `mp:` assets; each client's cache holds up to 32 addresses. When it fills,
+older images are dropped while keeping both pictures the current activity
+uses. Timestamps in
 seconds become the gateway's milliseconds, and buttons become labels with
 their addresses in the activity's `metadata`. Playing, Listening, Watching
 and Competing activities show. Yapfast copies only the fields it knows, so a
@@ -1116,6 +1118,17 @@ disconnects, the one before shows again, and once none is left, the game
 detection found. The activity lasts through reconnecting to the gateway and
 is never saved. Presence updates keep to Discord's limit, as every other
 presence change does.
+
+Disconnects and CLOSE are read while an image lookup is in flight, so closing
+an application restores the previous RPC activity without waiting for HTTP
+or the game detector's next scan. Completed clients are removed before queued
+updates are applied. If no RPC activity remains, the process detector verifies
+its fallback immediately; a closed application needs no second periodic scan
+before another running application takes its place. Local cards follow this,
+subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+obeys the Gateway limit of five presence updates per 20 seconds. At most four
+commands and 64 KiB of payload wait behind an in-flight lookup per client;
+exceeding that bound closes the connection.
 
 ## Listening to Spotify
 

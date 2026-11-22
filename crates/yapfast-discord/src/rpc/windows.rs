@@ -103,4 +103,143 @@ mod tests {
         .await
         .unwrap();
     }
+
+    #[tokio::test]
+    async fn rpc_disconnect_restores_the_other_application_without_a_timer() {
+        switches_while_loading(false).await;
+    }
+
+    #[tokio::test]
+    async fn rpc_close_restores_the_other_application_without_waiting_for_http() {
+        switches_while_loading(true).await;
+    }
+
+    async fn switches_while_loading(close: bool) {
+        use crate::{
+            api::Api,
+            service::{Snapshot, Status},
+        };
+        use serde_json::{Value, json};
+        use std::{sync::Arc, time::Duration};
+        use tokio::{net::TcpListener, sync::watch, time::timeout};
+
+        let prefix = format!("yapfast-switch-test-{}-{close}", std::process::id());
+        let socket = Socket::bind_prefix(&runtime_directory(), &prefix).unwrap();
+        let path = socket.path.clone();
+        let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut api = Api::anonymous().unwrap();
+        api.base = format!("http://{}", http.local_addr().unwrap());
+        let (loading, mut image_loading) = watch::channel(false);
+        let http_worker = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = http.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                    assert!(request.len() < 8192);
+                }
+                let request = String::from_utf8(request).unwrap();
+                if request.starts_with("POST /applications/22/external-assets ") {
+                    // Discord's image lookup stalls while the app exits.
+                    loading.send_replace(true);
+                    std::future::pending::<()>().await;
+                }
+                assert!(request.starts_with("GET /oauth2/applications/"));
+                let body = br#"{"name":"Fixture"}"#;
+                stream
+                    .write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
+                stream.write_all(body).await.unwrap();
+            }
+        });
+        let (_snapshots, snapshots) = watch::channel(Arc::new(Snapshot {
+            status: Status::Online,
+            user_id: Some("42".into()),
+            ..Default::default()
+        }));
+        let (shown, mut activity) = watch::channel(None);
+        let server = tokio::spawn(async move {
+            super::super::serve(socket, Arc::new(api), snapshots, &shown).await;
+        });
+
+        async fn command(
+            stream: &mut tokio::net::windows::named_pipe::NamedPipeClient,
+            opcode: u32,
+            value: Value,
+        ) -> Value {
+            super::super::write(stream, opcode, &serde_json::to_vec(&value).unwrap())
+                .await
+                .unwrap();
+            let (opcode, payload) = super::super::read(stream).await.unwrap();
+            assert_eq!(opcode, 1);
+            serde_json::from_slice(&payload).unwrap()
+        }
+        async fn shows(activity: &mut watch::Receiver<Option<Arc<Value>>>, details: &str) {
+            timeout(
+                Duration::from_secs(1),
+                activity.wait_for(|value| {
+                    value
+                        .as_ref()
+                        .is_some_and(|value| value["details"] == details)
+                }),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        }
+        let mut first = ClientOptions::new().open(&path).unwrap();
+        assert_eq!(
+            command(&mut first, 0, json!({"v":1,"client_id":"11"})).await["evt"],
+            "READY"
+        );
+        command(&mut first, 1, json!({"cmd":"SET_ACTIVITY","nonce":"first","args":{"pid":1,"activity":{"details":"First"}}})).await;
+        shows(&mut activity, "First").await;
+        let mut second = ClientOptions::new().open(&path).unwrap();
+        assert_eq!(
+            command(&mut second, 0, json!({"v":1,"client_id":"22"})).await["evt"],
+            "READY"
+        );
+        command(&mut second, 1, json!({"cmd":"SET_ACTIVITY","nonce":"second","args":{"pid":2,"activity":{"details":"Second"}}})).await;
+        shows(&mut activity, "Second").await;
+        drop(second);
+        shows(&mut activity, "First").await;
+        let mut second = ClientOptions::new().open(&path).unwrap();
+        command(&mut second, 0, json!({"v":1,"client_id":"22"})).await;
+        command(&mut second, 1, json!({"cmd":"SET_ACTIVITY","nonce":"again","args":{"pid":2,"activity":{"details":"Second"}}})).await;
+        shows(&mut activity, "Second").await;
+        super::super::write(&mut second, 1, &serde_json::to_vec(&json!({"cmd":"SET_ACTIVITY","nonce":"image","args":{"pid":2,"activity":{"details":"New image","assets":{"large_image":"https://example.com/cover.png"}}}})).unwrap()).await.unwrap();
+        timeout(
+            Duration::from_secs(1),
+            image_loading.wait_for(|loading| *loading),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        if close {
+            super::super::write(&mut second, 2, &[]).await.unwrap();
+            shows(&mut activity, "First").await;
+            drop(second);
+        } else {
+            drop(second);
+            shows(&mut activity, "First").await;
+        }
+        drop(first);
+        timeout(Duration::from_secs(1), activity.wait_for(Option::is_none))
+            .await
+            .unwrap()
+            .unwrap();
+        drop(activity);
+        timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap();
+        http_worker.abort();
+    }
 }

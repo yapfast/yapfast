@@ -4,7 +4,7 @@
 //! and is deliberately unsupported here.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::Arc,
     time::Duration,
@@ -36,6 +36,7 @@ const MAX_PACKET: usize = 64 * 1024;
 /// shows a new cover with each song.
 const KEPT_IMAGES: usize = 32;
 const MAX_CLIENTS: usize = 16;
+const MAX_PENDING: usize = 4;
 const WAIT: Duration = Duration::from_secs(15);
 
 pub(crate) fn start(
@@ -82,6 +83,7 @@ async fn serve(
         let removed = tokio::select! {
             biased;
             () = activity.closed() => break,
+            Some(done) = clients.join_next(), if !clients.is_empty() => done.ok(),
             accepted = socket.accept(), if clients.len() < MAX_CLIENTS => {
                 let Ok(stream) = accepted else {
                     // Out of descriptors, say: wait rather than end RPC for good.
@@ -114,7 +116,6 @@ async fn serve(
                 }
                 None
             }
-            Some(done) = clients.join_next(), if !clients.is_empty() => done.ok(),
         };
         if let Some(id) = removed {
             connected.remove(&id);
@@ -133,13 +134,41 @@ async fn serve(
     // Dropping JoinSet aborts clients; Socket releases the listener.
 }
 
+/// Keeps partial framing across select! cancellations while an HTTP lookup
+/// finishes. No extra reader task or polling timer per connected app.
+#[derive(Default)]
+struct Packets {
+    header: [u8; 8],
+    header_read: usize,
+    payload: Vec<u8>,
+    payload_read: usize,
+}
+
+impl Packets {
+    async fn read(&mut self, stream: &mut (impl AsyncRead + Unpin)) -> Result<(u32, Vec<u8>)> {
+        while self.header_read < self.header.len() {
+            let read = stream.read(&mut self.header[self.header_read..]).await?;
+            ensure!(read > 0, "RPC client disconnected");
+            self.header_read += read;
+        }
+        let opcode = u32::from_le_bytes(self.header[..4].try_into()?);
+        let size = u32::from_le_bytes(self.header[4..].try_into()?) as usize;
+        ensure!(size <= MAX_PACKET, "RPC packet too large");
+        self.payload.resize(size, 0);
+        while self.payload_read < size {
+            let read = stream.read(&mut self.payload[self.payload_read..]).await?;
+            ensure!(read > 0, "RPC client disconnected");
+            self.payload_read += read;
+        }
+        self.header_read = 0;
+        self.payload_read = 0;
+        Ok((opcode, std::mem::take(&mut self.payload)))
+    }
+}
+
+#[cfg(test)]
 async fn read(stream: &mut (impl AsyncRead + Unpin)) -> Result<(u32, Vec<u8>)> {
-    let opcode = stream.read_u32_le().await?;
-    let size = stream.read_u32_le().await? as usize;
-    ensure!(size <= MAX_PACKET, "RPC packet too large");
-    let mut payload = vec![0; size];
-    stream.read_exact(&mut payload).await?;
-    Ok((opcode, payload))
+    Packets::default().read(stream).await
 }
 
 async fn write(stream: &mut (impl AsyncWrite + Unpin), opcode: u32, payload: &[u8]) -> Result<()> {
@@ -163,7 +192,8 @@ async fn connection(
     updates: mpsc::Sender<(u64, Option<Arc<Value>>)>,
     id: u64,
 ) -> Result<()> {
-    let (opcode, payload) = tokio::time::timeout(WAIT, read(&mut stream)).await??;
+    let mut packets = Packets::default();
+    let (opcode, payload) = tokio::time::timeout(WAIT, packets.read(&mut stream)).await??;
     let handshake: Value = serde_json::from_slice(&payload)?;
     let client = handshake["client_id"].as_str().unwrap_or_default();
     if opcode != 0 || handshake["v"] != 1 || !snowflake(client) {
@@ -203,12 +233,21 @@ async fn connection(
         "data":{"v":1,"config":{"cdn_host":"cdn.discordapp.com","api_endpoint":"//discord.com/api","environment":"production"},"user":user}})).await?;
     let mut assets = None;
     let mut images = Assets::new();
+    let (mut input, mut output) = tokio::io::split(stream);
+    let mut pending = VecDeque::<(u32, Vec<u8>)>::new();
+    let mut pending_bytes = 0;
     loop {
-        let (opcode, payload) = read(&mut stream).await?;
+        let (opcode, payload) = match pending.pop_front() {
+            Some((opcode, payload)) => {
+                pending_bytes -= payload.len();
+                (opcode, payload)
+            }
+            None => packets.read(&mut input).await?,
+        };
         match opcode {
             2 => return Ok(()),
             3 => {
-                write(&mut stream, 4, &payload).await?;
+                write(&mut output, 4, &payload).await?;
                 continue;
             }
             4 => continue,
@@ -221,14 +260,14 @@ async fn connection(
         let nonce = &packet["nonce"];
         if cmd != "SET_ACTIVITY" {
             send(
-                &mut stream,
+                &mut output,
                 json!({"cmd":cmd,"nonce":nonce,"evt":"ERROR",
                 "data":{"code":4002,"message":"Only SET_ACTIVITY is supported"}}),
             )
             .await?;
             continue;
         }
-        let result = async {
+        let resolve = async {
             let args = &packet["args"];
             ensure!(
                 args["pid"].as_u64().is_some_and(|pid| pid > 0),
@@ -242,15 +281,24 @@ async fn connection(
                 return Ok(None);
             }
             let pictures = &args["activity"]["assets"];
-            let (addresses, keys): (Vec<&str>, Vec<&str>) = ["large_image", "small_image"]
+            let mut addresses = Vec::new();
+            let mut named_assets = false;
+            for image in ["large_image", "small_image"]
                 .iter()
                 .filter_map(|key| pictures[key].as_str())
-                .partition(|image| web_address(image, 512));
-            let addresses: Vec<&str> = addresses
-                .into_iter()
-                .filter(|address| !images.contains_key(*address))
-                .collect();
-            if assets.is_none() && !keys.is_empty() {
+            {
+                if web_address(image, usize::MAX) {
+                    ensure!(image.len() <= 512, "image address is too long");
+                    if !images.contains_key(image) && !addresses.contains(&image) {
+                        addresses.push(image);
+                    }
+                } else {
+                    // Asset ids already have their gateway form; only named
+                    // keys need an HTTP lookup.
+                    named_assets |= !snowflake(image);
+                }
+            }
+            if assets.is_none() && named_assets {
                 let response = tokio::time::timeout(WAIT, api.rpc_assets(&client)).await??;
                 assets = Some(asset_lookup(&response)?);
             }
@@ -259,28 +307,48 @@ async fn connection(
                 let response =
                     tokio::time::timeout(WAIT, api.rpc_external_assets(&client, &addresses))
                         .await??;
-                if images.len() + addresses.len() > KEPT_IMAGES {
-                    images.clear();
-                }
-                images.extend(external_lookup(&response)?);
+                remember_images(&mut images, &response, pictures)?;
             }
             normalize(&args["activity"], &client, &name, assets.as_ref(), &images)
                 .map(|value| Some(Arc::new(value)))
-        }
-        .await;
+        };
+        tokio::pin!(resolve);
+        let result = loop {
+            tokio::select! {
+                // Read disconnects/CLOSE even while Discord resolves images
+                // or holds the HTTP request back behind a rate limit.
+                received = packets.read(&mut input) => {
+                    let (opcode, payload) = received?;
+                    match opcode {
+                        2 => return Ok(()),
+                        3 => write(&mut output, 4, &payload).await?,
+                        4 => {},
+                        1 => {
+                            ensure!(pending.len() < MAX_PENDING
+                                && pending_bytes + payload.len() <= MAX_PACKET,
+                                "too many pending RPC requests");
+                            pending_bytes += payload.len();
+                            pending.push_back((opcode, payload));
+                        }
+                        _ => bail!("invalid RPC opcode"),
+                    }
+                }
+                result = &mut resolve => break result,
+            }
+        };
         match result {
             Ok(value) => {
                 // Bound queued updates even when games publish very frequently.
                 updates.send((id, value.clone())).await?;
                 send(
-                    &mut stream,
+                    &mut output,
                     json!({"cmd":cmd,"nonce":nonce,"evt":null,"data":value}),
                 )
                 .await?;
             }
             Err(error) => {
                 send(
-                    &mut stream,
+                    &mut output,
                     json!({"cmd":cmd,"nonce":nonce,"evt":"ERROR",
                     "data":{"code":4000,"message":error.to_string()}}),
                 )
@@ -298,6 +366,21 @@ fn snowflake(value: &str) -> bool {
 }
 
 type Assets = HashMap<String, String>;
+
+/// Evict older covers without evicting a cached image this very activity
+/// still uses, such as the artist badge beside a new album cover.
+fn remember_images(images: &mut Assets, response: &Value, pictures: &Value) -> Result<()> {
+    let new = external_lookup(response)?;
+    if images.len() + new.len() > KEPT_IMAGES {
+        images.retain(|url, _| {
+            ["large_image", "small_image"]
+                .iter()
+                .any(|key| pictures[key].as_str() == Some(url))
+        });
+    }
+    images.extend(new);
+    Ok(())
+}
 
 fn web_address(text: &str, longest: usize) -> bool {
     text.len() <= longest && (text.starts_with("https://") || text.starts_with("http://"))
@@ -597,6 +680,30 @@ mod tests {
     }
 
     #[test]
+    fn rotating_covers_keeps_the_current_activities_cached_artist_image() {
+        let artist = "https://example.com/artist.png";
+        let cover = "https://example.com/new-cover.png";
+        let mut images = Assets::from([(artist.into(), "mp:artist".into())]);
+        for n in 1..KEPT_IMAGES {
+            images.insert(
+                format!("https://example.com/old-{n}.png"),
+                format!("mp:old-{n}"),
+            );
+        }
+        let activity = json!({"type":2,"assets":{"large_image":cover,"small_image":artist}});
+        remember_images(
+            &mut images,
+            &json!([{"url":cover,"external_asset_path":"external/new-cover"}]),
+            &activity["assets"],
+        )
+        .unwrap();
+        let shown = normalize(&activity, "42", "Liner", None, &images).unwrap();
+        assert_eq!(shown["assets"]["small_image"], "mp:artist");
+        assert_eq!(shown["assets"]["large_image"], "mp:external/new-cover");
+        assert_eq!(images.len(), 2);
+    }
+
+    #[test]
     fn rejects_invalid_activity_without_losing_the_previous_one() {
         for value in [
             json!([]),
@@ -697,5 +804,24 @@ mod tests {
                 .contains("too large")
         );
         writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn framing_keeps_partial_headers_and_payloads_when_a_lookup_finishes() {
+        let (mut client, mut stream) = tokio::io::duplex(64);
+        let mut packets = Packets::default();
+        let frame = [1, 0, 0, 0, 4, 0, 0, 0, b't', b'e', b's', b't'];
+        for part in [&frame[..3], &frame[3..10]] {
+            client.write_all(part).await.unwrap();
+            // The HTTP side wins select! while a partial packet is buffered.
+            let reading = packets.read(&mut stream);
+            tokio::pin!(reading);
+            assert!(futures_util::poll!(&mut reading).is_pending());
+        }
+        client.write_all(&frame[10..]).await.unwrap();
+        assert_eq!(
+            packets.read(&mut stream).await.unwrap(),
+            (1, b"test".to_vec())
+        );
     }
 }
