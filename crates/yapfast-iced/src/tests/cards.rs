@@ -595,3 +595,38 @@ fn a_long_list_of_mutual_friends_is_searched_by_name() {
     assert!(shows(&app, "Ivy"));
     assert!(!shows(&app, "Ann"), "the others are left out");
 }
+
+/// A card with nothing else going on shows the call they're in, as
+/// Discord's popout does.
+#[test]
+fn a_card_shows_the_call_theyre_in() {
+    use std::sync::Arc;
+    use yapfast_core::chat::VoicePerson;
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    super::change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: user.clone(),
+            name: "Riley".into(),
+            ..Default::default()
+        }];
+    });
+    let _ = app.open_card(user, Point::new(500.0, 200.0));
+    let _ = app.sync();
+    assert!(shows(&app, "In voice"));
+    assert!(shows(&app, "Join"));
+}

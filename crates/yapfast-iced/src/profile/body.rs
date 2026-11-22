@@ -242,7 +242,19 @@ pub(super) fn profile_body<'a>(
         let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
         let card =
             crate::profile::activity::activity_card_view(ctx, first, &inks, menu, false, look.bot);
-        body = body.push(activity_tiles(card, look.activities.len() > 1, &inks, mode));
+        // The voice card is the last of Discord's cards: one more behind.
+        let voice = crate::people::voice_spots(ctx.state).contains_key(profile.id.as_str());
+        body = body.push(activity_tiles(
+            card,
+            look.activities.len() > 1 || voice,
+            &inks,
+            mode,
+        ));
+    } else if !mode.large()
+        && let Some(card) = crate::profile::activity::voice_card(ctx, &profile.id, &inks)
+    {
+        // With nothing else going on, the call they're in is the card.
+        body = body.push(activity_tiles(card, false, &inks, mode));
     }
     if !mode.large() && !look.own && (!profile.friends.is_empty() || !profile.servers.is_empty()) {
         body = body.push(mutual_line(ctx, shown, &inks, mode));
