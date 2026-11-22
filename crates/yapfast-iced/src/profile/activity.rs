@@ -339,3 +339,59 @@ fn activity_art<'a>(
     }
     container(pictures).width(outer).height(outer).into()
 }
+
+/// The voice channel someone is in, as Discord's voice card shows it on
+/// their profile: "In voice", the channel and its server, up to four of
+/// the faces there, and Join, or Open once this account is in it. None
+/// when they're in no voice channel this account can see.
+pub fn voice_card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    person: &str,
+    inks: &Inks,
+) -> Option<Element<'a, Message>> {
+    let state = ctx.state;
+    let (room, channel, server) = crate::people::voice_spots(state).get(person).copied()?;
+    let people: Vec<&yapfast_core::chat::VoicePerson> = state
+        .rooms
+        .iter()
+        .find(|listed| listed.id == room)
+        .map(|listed| listed.people.iter().collect())
+        .unwrap_or_default();
+    let mut faces = row![].spacing(2);
+    for face in people.iter().take(4) {
+        faces = faces.push(ctx.avatar(face.avatar.as_deref(), &face.name, 24.0, 12.0, 1.0));
+    }
+    let here = state.voice.room.as_deref() == Some(room);
+    let (label, press) = if here {
+        (
+            "Open",
+            Message::Side(crate::sidebar::Event::Open(room.to_owned())),
+        )
+    } else {
+        (
+            "Join",
+            Message::Call(crate::call::Event::Join(room.to_owned())),
+        )
+    };
+    let words = column![
+        row![
+            ctx.look.glyph(Icon::Speaker, 12, inks.ink),
+            elide(channel.to_owned())
+                .size(12)
+                .font(SEMIBOLD)
+                .color(inks.ink)
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center),
+        elide(format!("in {server}")).size(12).color(inks.ink2),
+    ]
+    .spacing(4)
+    .width(Length::Fill);
+    let card = column![
+        elide("In voice").size(12).font(MEDIUM).color(inks.ink),
+        row![faces, words].spacing(12).align_y(Alignment::Center),
+        action(ctx.look.theme, label, Kind::Plain, Some(press)).small(),
+    ]
+    .spacing(8);
+    Some(card.into())
+}

@@ -510,3 +510,44 @@ fn an_authors_card_is_theirs_by_their_discord_id() {
     let card = app.profiles.card.as_ref().expect("their card");
     assert_eq!(card.user, "1450000000000000000");
 }
+
+/// The full profile's Activity tab starts with the call they're in, as
+/// Discord's: "In voice", the channel and its server, and Join.
+#[test]
+fn the_activity_tab_shows_the_call_theyre_in_with_join() {
+    use std::sync::Arc;
+    use yapfast_core::chat::VoicePerson;
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    super::change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: user.clone(),
+            name: "Riley".into(),
+            ..Default::default()
+        }];
+    });
+    let _ = app.open_card(user, Point::new(500.0, 200.0));
+    let _ = app.update(Message::Profile(crate::profile::Event::Enlarge(
+        Some(crate::profile::look::Tab::Activity),
+        false,
+    )));
+    let _ = app.sync();
+    assert!(shows(&app, "In voice"));
+    assert!(shows(&app, "Party"));
+    assert!(shows(&app, "in Co-op crew"));
+    assert!(shows(&app, "Join"));
+}

@@ -221,7 +221,11 @@ pub(super) fn tab_page<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let blank = match tab {
-        Tab::Activity => look.activities.is_empty() && profile.recent.is_empty(),
+        Tab::Activity => {
+            look.activities.is_empty()
+                && profile.recent.is_empty()
+                && !crate::people::voice_spots(ctx.state).contains_key(profile.id.as_str())
+        }
         Tab::Friends => profile.friends.is_empty(),
         Tab::Servers => profile.servers.is_empty(),
         Tab::Board | Tab::Wishlist => false,
@@ -395,6 +399,10 @@ fn activity_tab<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let mut list = column![].spacing(8);
+    // The call they're in comes first, as Discord's Activity tab has it.
+    if let Some(card) = crate::profile::activity::voice_card(ctx, &profile.id, inks) {
+        list = list.push(activity_tile(card, inks));
+    }
     for activity in &look.activities {
         list = list.push(activity_tile(
             crate::profile::activity::activity_card_view(ctx, activity, inks, None, true, look.bot),
@@ -634,8 +642,12 @@ pub(super) fn editor_tab_page<'a>(
     let page = match tab {
         Tab::Activity => {
             let mut list = column![heading("Current activity".to_owned())].spacing(10);
-            if look.activities.is_empty() {
+            let voice = crate::profile::activity::voice_card(ctx, &profile.id, inks);
+            if look.activities.is_empty() && voice.is_none() {
                 list = list.push(note(inks.ink3, "Nothing going on right now."));
+            }
+            if let Some(card) = voice {
+                list = list.push(activity_tile(card, inks));
             }
             for activity in &look.activities {
                 list = list.push(activity_tile(
