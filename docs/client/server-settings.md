@@ -125,9 +125,11 @@ then the settings.
 - Overview: the name, for a text or announcement channel the topic, for
   those and a voice channel slowmode stepped through Discord's intervals
   with the arrows either side of it and the Age-Restricted Channel switch,
-  and for a voice channel or stage Bitrate (8 kbps up to 96, or 128, 256
-  or 384 with the server's boosts), a voice channel's Video Quality (Auto
-  or 720p), User Limit and Region Override, each stepped the same way.
+  and for a voice channel or stage Bitrate, a slider from 8 kbps up to 96,
+  or 128, 256 or 384 with the server's boosts, a voice channel's Video
+  Quality (Auto or 720p), User Limit, a slider from none (∞) to 99, and
+  Region Override, a list of Automatic and Discord's regions (the kit's
+  dropdown, open in the screen's own state).
 - Permissions (the page fills the frame and scrolls its own list): the
   notice of whether a channel's permissions follow its category, with
   Sync Now when they don't; Private Channel (or Category), which takes
