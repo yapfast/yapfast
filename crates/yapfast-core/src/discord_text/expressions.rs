@@ -76,6 +76,24 @@ pub(super) fn command(
             });
             return None;
         }
+        // Someone's badges, for their badge window.
+        Command::Discord(DiscordCommand::Badges { user }) => {
+            let Ok(discord) = discord else {
+                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let _ = events.send(Event::Badges { user, result });
+                return None;
+            };
+            let (discord, events) = (discord.clone(), events.clone());
+            tokio::spawn(async move {
+                let result = discord
+                    .badge_directory(&user)
+                    .await
+                    .map(|badges| badges.into_iter().map(Into::into).collect())
+                    .map_err(|error| format!("Couldn't load the badges: {error}"));
+                let _ = events.send(Event::Badges { user, result });
+            });
+            return None;
+        }
         // Joining a tag's server from its card.
         Command::Discord(DiscordCommand::JoinTagServer { server }) => {
             let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {

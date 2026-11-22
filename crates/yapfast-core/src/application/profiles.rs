@@ -300,6 +300,57 @@ impl Application {
         }
     }
 
+    /// Opens someone's badge window on the badge clicked, from the profile
+    /// on screen; this account's goes to its own window, as the client's
+    /// does, which lists every badge there is.
+    pub(super) fn show_badges(&mut self, user: String, badge: Option<u64>) -> Vec<Effect> {
+        let own = self.state.discord_user.as_deref() == Some(user.as_str());
+        let name = [&self.state.profile, &self.state.panel_profile]
+            .into_iter()
+            .flatten()
+            .map(|view| &view.profile)
+            .find(|profile| profile.id == user)
+            .map(|profile| profile.name.clone())
+            .unwrap_or_default();
+        let asked = if own { "@me".to_owned() } else { user };
+        let preview = self.state.preview;
+        self.state.badge_window = Some(crate::chat::BadgeWindow {
+            user: asked.clone(),
+            name,
+            badge,
+            badges: None,
+            error: preview.then(|| "Nothing to show in the preview.".to_owned()),
+        });
+        if preview {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(DiscordCommand::Badges {
+            user: asked,
+        }))]
+    }
+
+    /// Badges a window asked for came, or didn't.
+    pub(super) fn badges_came(
+        &mut self,
+        user: &str,
+        result: Result<Vec<crate::chat::DirectoryBadge>, String>,
+    ) {
+        if let Some(window) = self
+            .state
+            .badge_window
+            .as_mut()
+            .filter(|window| window.user == user)
+        {
+            match result {
+                Ok(badges) => {
+                    window.badges = Some(badges);
+                    window.error = None;
+                }
+                Err(error) => window.error = Some(error),
+            }
+        }
+    }
+
     /// A tab of the full profile opened: it asks Discord once for what it
     /// shows, and only for the full profile, never for a card.
     pub(super) fn open_profile_tab(&mut self, tab: ProfileTab) -> Vec<Effect> {

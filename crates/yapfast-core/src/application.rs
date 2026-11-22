@@ -659,6 +659,8 @@ pub struct AppState {
     /// What Discord last answered for a server tag's card, by the id of the
     /// server it asked about; the card shows it while it's for its server.
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
+    /// The badge window open, someone's or this account's own.
+    pub badge_window: Option<chat::BadgeWindow>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
     /// When this account may send again in a room whose slowmode it waits
@@ -2483,6 +2485,13 @@ pub enum Action {
     /// ask Discord for the server's profile, which it gives again from what
     /// it fetched in the last few minutes.
     OpenServerTag(String),
+    /// Open someone's badge window on a badge, or this account's own when
+    /// it's theirs.
+    ShowBadges {
+        user: String,
+        badge: Option<u64>,
+    },
+    CloseBadges,
     /// Join the server a tag's card shows, which anyone may join.
     JoinTagServer(String),
     /// Show the profile of the other person in a one-to-one DM, large.
@@ -4285,6 +4294,11 @@ impl Application {
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
             Action::OpenServerTag(server) => self.open_server_tag(server),
+            Action::ShowBadges { user, badge } => self.show_badges(user, badge),
+            Action::CloseBadges => {
+                self.state.badge_window = None;
+                vec![]
+            }
             Action::JoinTagServer(server) => self.join_tag_server(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
@@ -4705,6 +4719,7 @@ impl Application {
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
             Event::TagServer { server, result } => self.show_tag_server(server, result),
+            Event::Badges { user, result } => self.badges_came(&user, result),
             Event::TagServerJoined { server, result } => {
                 return self.tag_server_joined(server, result);
             }

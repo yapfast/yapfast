@@ -10,6 +10,7 @@
 //! [`name_style`] its Display Name Style window.
 
 pub(crate) mod activity;
+pub(crate) mod badges;
 pub mod body;
 mod cosmetic;
 pub mod editor;
@@ -95,6 +96,9 @@ pub enum Event {
     Enlarge(Option<Tab>, bool),
     /// The full profile's Mutual Friends search changed.
     FriendSearch(String),
+    /// A badge clicked: its person's badge window, on it.
+    ShowBadges(String, Option<u64>),
+    CloseBadges,
     /// A mutual tab scrolled: its offset and the height it shows.
     TabScrolled(f32, f32),
     Close,
@@ -408,6 +412,10 @@ impl Profiles {
                 return self.point_effect(true, pointed, cx.state());
             }
             Event::EffectTick(generation) => return self.effect_tick(generation, cx.state()),
+            Event::ShowBadges(user, badge) => {
+                cx.dispatch(Action::ShowBadges { user, badge });
+            }
+            Event::CloseBadges => cx.dispatch(Action::CloseBadges),
             Event::FriendSearch(words) => {
                 self.friend_search = words;
                 return Task::none();
@@ -843,6 +851,7 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
     let state = ctx.state;
     let cosmetics = state.cosmetics;
     let mut urls = crate::profile::editor::editor_pictures(ctx);
+    urls.extend(badges::pictures(ctx));
     if let Some((_, shown)) = &ctx.profiles.account {
         let profile = shown.look.profile();
         urls.extend(profile.banner.clone());

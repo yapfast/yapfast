@@ -22,6 +22,8 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
     Inbox,
+    /// Someone's badge window, over the profile it opened from.
+    BadgeWindow,
     Mfa,
     ConfirmDelete,
     /// A bot's select menu, over the app's form it may be on.
@@ -71,7 +73,7 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 42] = [
+const LAYERS: [Layer; 43] = [
     Layer::Inbox,
     Layer::Mfa,
     Layer::ConfirmDelete,
@@ -102,6 +104,7 @@ const LAYERS: [Layer; 42] = [
     Layer::ClipFull,
     Layer::FullCall,
     Layer::Picker,
+    Layer::BadgeWindow,
     Layer::ServerCard,
     Layer::ExpressionCard,
     Layer::TagCard,
@@ -295,6 +298,7 @@ impl App {
             Layer::ServerCard => self.cards.server.is_some(),
             Layer::ExpressionCard => self.cards.expression.is_some(),
             Layer::TagCard => self.win.tag_card.is_open(),
+            Layer::BadgeWindow => state.badge_window.is_some(),
             Layer::Card => self.profiles.card.is_some() || self.profiles.shown.is_some(),
             Layer::RoleCard => state.role.is_some(),
             Layer::Selection => self.timeline.selection.is_some(),
@@ -636,6 +640,11 @@ impl App {
             Layer::ServerCard => self.info_event(crate::info_cards::Event::CloseServer),
             Layer::ExpressionCard => self.info_event(crate::info_cards::Event::CloseExpression),
             Layer::TagCard => self.tag_card_event(crate::tag_card::Event::Close),
+            Layer::BadgeWindow => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::CloseBadges);
+                Task::none()
+            }
             Layer::Card => {
                 self.profiles.revert_note();
                 self.update(Message::Profile(crate::profile::Event::Close))

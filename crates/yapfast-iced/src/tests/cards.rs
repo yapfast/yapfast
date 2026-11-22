@@ -726,3 +726,55 @@ fn a_board_games_tags_show_as_pills() {
     assert!(shows(&app, "Factorio"));
     assert!(shows(&app, "Obsessed") && shows(&app, "Looking for tips"));
 }
+
+/// The badge window lists the badges, the one clicked first, with their
+/// level, rarity and when they were had; Escape closes it.
+#[test]
+fn the_badge_window_lists_badges_with_their_levels() {
+    use yapfast_core::chat::{BadgeWindow, DirectoryBadge, DirectoryLevel};
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.badge_window = Some(BadgeWindow {
+            user: "4242".into(),
+            name: "Nia".into(),
+            badge: Some(20),
+            badges: Some(vec![
+                DirectoryBadge {
+                    id: 14,
+                    name: "Quests".into(),
+                    owned: true,
+                    rarity: 1,
+                    ..Default::default()
+                },
+                DirectoryBadge {
+                    id: 20,
+                    name: "Game Time".into(),
+                    owned: true,
+                    rarity: 1,
+                    level: Some("Ironclad".into()),
+                    level_rarity: 3,
+                    unlocked: Some("Oct 27, 2026".into()),
+                    levels: vec![DirectoryLevel {
+                        name: "Casual".into(),
+                        owned: true,
+                        milestone: "1 hour".into(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ]),
+            error: None,
+        });
+    });
+    assert!(shows(&app, "Nia's Badges"));
+    assert!(shows(&app, "Game Time") && shows(&app, "Ironclad") && shows(&app, "Epic"));
+    assert!(shows(&app, "Unlocked Oct 27, 2026"));
+    let window = app.client.state().badge_window.clone().unwrap();
+    let order: Vec<u64> = crate::profile::badges::ordered(&window)
+        .iter()
+        .map(|badge| badge.id)
+        .collect();
+    assert_eq!(order, [20, 14], "the one clicked first");
+    escape(&mut app);
+    assert!(app.client.state().badge_window.is_none());
+}

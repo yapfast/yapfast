@@ -635,6 +635,7 @@ pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<P
     badges
         .into_iter()
         .map(|badge| ProfileBadge {
+            directory: yapfast_discord::profile::directory_id(&badge.id),
             description: badge.description,
             icon: badge.icon,
             link: badge.link,

@@ -1017,13 +1017,26 @@ pub(crate) fn badge_rows<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Elem
                     Some(picture) => Pic::square(picture, 20.0).into(),
                     None => Space::new().width(20).height(20).into(),
                 };
-            let face: Element<'a, Message> = match &badge.link {
-                Some(link) => button(picture)
+            // A badge Discord's window knows opens it on that badge, as
+            // Discord's client does; a bot's keep their links.
+            let window = badge
+                .directory
+                .filter(|_| !shown.look.bot && !profile.id.is_empty() && !ctx.state.preview);
+            let face: Element<'a, Message> = match (window, &badge.link) {
+                (Some(number), _) => button(picture)
+                    .padding(0)
+                    .on_press(Message::Profile(Event::ShowBadges(
+                        profile.id.clone(),
+                        Some(number),
+                    )))
+                    .style(|_, _| iced::widget::button::Style::default())
+                    .into(),
+                (None, Some(link)) => button(picture)
                     .padding(0)
                     .on_press(Message::Link(link.clone(), Point::ORIGIN))
                     .style(|_, _| iced::widget::button::Style::default())
                     .into(),
-                None => picture,
+                (None, None) => picture,
             };
             // A badge that levels up has Discord's card for a tooltip,
             // after the pointer rests on it, as Discord's waits.

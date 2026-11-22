@@ -1077,6 +1077,92 @@ pub struct ProfileBadge {
     pub link: Option<String>,
     /// What its tooltip shows when it levels up.
     pub level: Option<ProfileBadgeLevel>,
+    /// The number Discord's badge window knows it by, when it knows it: a
+    /// click opens the window on it.
+    pub directory: Option<u64>,
+}
+
+/// A level of a badge that levels up; see [`DirectoryBadge`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryLevel {
+    pub name: String,
+    pub icon: String,
+    pub owned: bool,
+    pub milestone: String,
+}
+
+/// A badge in a badge window, the account's own or someone's; see
+/// `yapfast_discord::profile::DirectoryBadge` for its fields.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryBadge {
+    pub id: u64,
+    pub name: String,
+    pub owned: bool,
+    pub earnable: bool,
+    pub description: String,
+    pub info: String,
+    /// 1 common, 2 rare, 3 epic, 5 mythic.
+    pub rarity: u8,
+    pub icon: String,
+    pub unlocked: Option<String>,
+    pub next_name: Option<String>,
+    pub next_icon: Option<String>,
+    pub done: u64,
+    pub span: u64,
+    pub helper: String,
+    pub levels: Vec<DirectoryLevel>,
+    /// The level the client shows it at, and that level's rarity and
+    /// picture.
+    pub level: Option<String>,
+    pub level_rarity: u8,
+    pub level_art: String,
+}
+
+#[cfg(feature = "discord")]
+impl From<yapfast_discord::profile::DirectoryBadge> for DirectoryBadge {
+    fn from(badge: yapfast_discord::profile::DirectoryBadge) -> Self {
+        Self {
+            id: badge.id,
+            name: badge.name,
+            owned: badge.owned,
+            earnable: badge.earnable,
+            description: badge.description,
+            info: badge.info,
+            rarity: badge.rarity,
+            icon: badge.icon,
+            unlocked: badge.unlocked,
+            next_name: badge.next_name,
+            next_icon: badge.next_icon,
+            done: badge.done,
+            span: badge.span,
+            helper: badge.helper,
+            level: badge.level,
+            level_rarity: badge.level_rarity,
+            level_art: badge.level_art,
+            levels: badge
+                .levels
+                .into_iter()
+                .map(|level| DirectoryLevel {
+                    name: level.name,
+                    icon: level.icon,
+                    owned: level.owned,
+                    milestone: level.milestone,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Someone's badge window: whose, the badge it opened on, and their badges
+/// once Discord answers, or why it failed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BadgeWindow {
+    /// Their Discord id, or `@me` for this account's own.
+    pub user: String,
+    pub name: String,
+    pub badge: Option<u64>,
+    pub badges: Option<Vec<DirectoryBadge>>,
+    pub error: Option<String>,
 }
 
 /// The level a badge has reached, as its tooltip shows it.
@@ -3444,6 +3530,11 @@ pub enum DiscordCommand {
     TagServer {
         server: String,
     },
+    /// Someone's badges for their badge window, or `@me` for this
+    /// account's own; [`Event::Badges`] follows.
+    Badges {
+        user: String,
+    },
     /// Join the server a tag's card shows, one anyone may join.
     /// [`Event::TagServerJoined`] follows.
     JoinTagServer {
@@ -4591,6 +4682,11 @@ pub enum Event {
     TagServer {
         server: String,
         result: TagServerAnswer,
+    },
+    /// The badges a badge window asked for, or why they didn't come.
+    Badges {
+        user: String,
+        result: Result<Vec<DirectoryBadge>, String>,
     },
     /// Whether [`DiscordCommand::JoinTagServer`] joined the server.
     TagServerJoined {

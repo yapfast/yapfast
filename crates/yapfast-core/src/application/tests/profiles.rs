@@ -1099,3 +1099,42 @@ fn a_tags_card_joins_a_public_server() {
         Some("Couldn't join the server: no")
     );
 }
+
+/// A badge opens its person's badge window, which asks Discord for their
+/// badges; one's own asks for every badge there is, as `@me`.
+#[test]
+fn a_badge_opens_its_persons_badge_window() {
+    let mut app = discord_server();
+    let asked = |effects: Vec<Effect>| {
+        effects.into_iter().find_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::Badges { user })) => Some(user),
+            _ => None,
+        })
+    };
+    let effects = app.dispatch(Action::ShowBadges {
+        user: "4242".into(),
+        badge: Some(14),
+    });
+    assert_eq!(asked(effects).as_deref(), Some("4242"));
+    let window = app.state.badge_window.clone().unwrap();
+    assert_eq!((window.badge, window.badges), (Some(14), None));
+    app.apply(Event::Badges {
+        user: "4242".into(),
+        result: Ok(vec![chat::DirectoryBadge {
+            id: 14,
+            name: "Quests".into(),
+            owned: true,
+            ..Default::default()
+        }]),
+    });
+    let window = app.state.badge_window.clone().unwrap();
+    assert_eq!(window.badges.unwrap()[0].name, "Quests");
+    app.dispatch(Action::CloseBadges);
+    assert!(app.state.badge_window.is_none());
+    let me = app.state.discord_user.clone().expect("signed in");
+    let effects = app.dispatch(Action::ShowBadges {
+        user: me,
+        badge: None,
+    });
+    assert_eq!(asked(effects).as_deref(), Some("@me"));
+}

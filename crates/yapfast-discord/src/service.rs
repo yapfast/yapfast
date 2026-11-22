@@ -1934,6 +1934,13 @@ impl Discord {
     /// card doesn't wait for it: this runs once it is on screen. It asks once
     /// for each kept profile, which then has the levels. Whether any badge has
     /// a level now.
+    /// Someone's badges as their badge window shows them, from
+    /// `GET /users/{id}/badges`: what they own, at the levels they reached;
+    /// for `@me`, every badge there is, owned or still to be had.
+    pub async fn badge_directory(&self, user: &str) -> Result<Vec<profile::DirectoryBadge>> {
+        Ok(profile::badge_directory(&self.api.badges(user).await?))
+    }
+
     pub async fn badge_levels(&self, guild: &str, user: &str, badges: &mut [Badge]) -> bool {
         if !badges
             .iter()
