@@ -63,7 +63,7 @@ audio capabilities, which share one line.
 | `window.title` | A few words after the window's title | Adds a few words to the window's title |
 | `switcher.rank` | See the quick switcher's search and what it found, and reorder or leave out places | Sees what you search in the quick switcher, and can reorder it |
 | `app.timing` | `startup_timing`, once a session | Reads how long Yapfast took to start |
-| `relationships.read` | `relationship_add`, `relationship_remove` and `relationship_request` | Sees friends being added and removed, and friend requests |
+| `relationships.read` | `relationship_add`, `relationship_remove`, `relationship_request` and `relationships.affinities` | Sees friends being added and removed, friend requests, and who Discord ranks you closest to |
 | `images.web` | Pictures from the HTTPS hosts in `network`, in what it draws | Shows pictures from the sites it lists |
 
 One of those sentences is shown in the dialog's danger tone:
@@ -382,10 +382,18 @@ of a conversation or a server (Discord's page of 25), and Discord's search rate
 limit is the account's. `drafts.list` answers the drafts held in the composer.
 `account.sessions` lists the devices signed in, from `GET /auth/sessions`
 ([docs.discord.food, authentication](https://docs.discord.food/authentication#auth-session-object)),
-up to 50, and never signs any out. Relationship affinities
-(`GET /users/@me/affinities/users` on the same site) are not available:
-Yapfast never asks for them and holds nothing to answer from, so there is no
-call.
+up to 50, and never signs any out.
+
+**Affinities.** `relationships.affinities`, under `relationships.read`, reads
+Discord's own scores of who the account is closest to, the ones
+ImplicitRelationships sorts by, read-only and asked of Discord each time
+(Yapfast keeps none): `GET /users/@me/affinities/users` (`{ user_id, affinity }`
+each), `GET /users/@me/affinities/v2/users` for `"detailed": true` (the DM,
+call, server-message and overall probabilities and ranks, `is_friend` and the
+two segments), and `GET /users/@me/affinities/guilds` for `"of": "servers"`
+([docs.discord.food, user](https://docs.discord.food/resources/user#get-user-affinities)).
+People are named by their Discord user id, as the relationship events name
+them, and servers as `rooms.list` does; each list is highest first.
 
 **Spotify.** Discord lends the account's linked Spotify an access token
 (`GET /users/@me/connections/spotify/{id}/access-token`), which is how Yapfast

@@ -27,6 +27,7 @@ pub(super) fn answered_later(request: &AppCall) -> bool {
             | AppCall::SetProfile(_)
             | AppCall::Search(_)
             | AppCall::Sessions
+            | AppCall::Affinities(_)
             | AppCall::Spotify(_)
     )
 }
@@ -78,6 +79,7 @@ impl Application {
             }
             AppCall::Search(request) => Some(PluginAsk::Search(request)),
             AppCall::Sessions => Some(PluginAsk::Sessions),
+            AppCall::Affinities(request) => Some(PluginAsk::Affinities(request)),
             AppCall::Spotify(action) => Some(PluginAsk::Spotify(action)),
             other => {
                 let (more, answer) = self.plugins_call(&plugin, other);

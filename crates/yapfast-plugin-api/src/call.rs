@@ -128,6 +128,8 @@ pub mod method {
     pub const SPOTIFY_VOLUME: &str = "spotify.volume";
     pub const SPOTIFY_SHUFFLE: &str = "spotify.shuffle";
     pub const SPOTIFY_REPEAT: &str = "spotify.repeat";
+    // Who Discord ranks closest to the account, read-only: `relationships.read`.
+    pub const RELATIONSHIPS_AFFINITIES: &str = "relationships.affinities";
 
     /// Every name above, in the order they are declared.
     ///
@@ -136,7 +138,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 88] = [
+    pub const ALL: [&str; 89] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -225,6 +227,7 @@ pub mod method {
         SPOTIFY_VOLUME,
         SPOTIFY_SHUFFLE,
         SPOTIFY_REPEAT,
+        RELATIONSHIPS_AFFINITIES,
     ];
 
     /// The Spotify calls, which share one capability.

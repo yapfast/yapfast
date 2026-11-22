@@ -375,6 +375,7 @@ pub mod method {
     pub const MESSAGES_SEARCH: &str = "messages.search";
     pub const DRAFTS_LIST: &str = "drafts.list";
     pub const ACCOUNT_SESSIONS: &str = "account.sessions";
+    pub const RELATIONSHIPS_AFFINITIES: &str = "relationships.affinities";
     pub const SPOTIFY_NOW: &str = "spotify.now";
     pub const SPOTIFY_PLAY: &str = "spotify.play";
     pub const SPOTIFY_PAUSE: &str = "spotify.pause";

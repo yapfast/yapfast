@@ -157,6 +157,22 @@ pub fn sessions() -> Result<Pending> {
     ask(method::ACCOUNT_SESSIONS, Value::Null)
 }
 
+/// Who Discord ranks closest to the account, read-only, highest first:
+/// `relationships.read`. `{ users: [{ person, affinity }] }`, with v2's
+/// probabilities and ranks when `detailed`.
+pub fn affinities(detailed: bool) -> Result<Pending> {
+    ask(
+        method::RELATIONSHIPS_AFFINITIES,
+        json!({ "of": "users", "detailed": detailed }),
+    )
+}
+
+/// The servers Discord ranks the account uses most, read-only:
+/// `{ servers: [{ server, affinity }] }`.
+pub fn server_affinities() -> Result<Pending> {
+    ask(method::RELATIONSHIPS_AFFINITIES, json!({ "of": "servers" }))
+}
+
 /// The linked Spotify: `spotify.control`. Yapfast makes the requests with the
 /// token Discord lends and the plugin never sees it. Control needs Spotify
 /// Premium; a free account's calls fail with a sentence saying so.

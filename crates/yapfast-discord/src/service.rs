@@ -295,6 +295,28 @@ pub struct Found {
     pub threads: Vec<(String, String, Option<String>)>,
 }
 
+/// Which of Discord's affinity lists to read (docs.discord.food,
+/// resources/user).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Affinities {
+    /// `GET /users/@me/affinities/users`: `{ user_id, affinity }` each.
+    Users,
+    /// `GET /users/@me/affinities/v2/users`: the probabilities and ranks.
+    UsersDetailed,
+    /// `GET /users/@me/affinities/guilds`: `{ guild_id, affinity }` each.
+    Servers,
+}
+
+impl Affinities {
+    pub(crate) fn path(self) -> &'static str {
+        match self {
+            Affinities::Users => "/users/@me/affinities/users",
+            Affinities::UsersDetailed => "/users/@me/affinities/v2/users",
+            Affinities::Servers => "/users/@me/affinities/guilds",
+        }
+    }
+}
+
 /// What a search came to: messages, or Discord still indexing what it
 /// searches after the client would have stopped asking.
 #[derive(Debug)]
@@ -1069,6 +1091,14 @@ impl Discord {
     /// Auth Sessions), `{ user_sessions: [...] }`.
     pub async fn auth_sessions(&self) -> Result<Value> {
         self.api.auth_sessions().await
+    }
+
+    /// Discord's affinity scores for this account, read-only: who it is most
+    /// likely to talk to, or which servers it uses most (docs.discord.food,
+    /// resources/user). `{ user_affinities: [...] }` or `{ guild_affinities:
+    /// [...] }`, as Discord answers.
+    pub async fn affinities(&self, which: Affinities) -> Result<Value> {
+        self.api.affinities(which.path()).await
     }
 
     /// Changes this account's bio and pronouns, as the profile editor does:

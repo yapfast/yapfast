@@ -279,6 +279,8 @@ pub enum AppCall {
     Drafts,
     /// The devices signed in to the account: `account.sessions`.
     Sessions,
+    /// Who Discord ranks closest to the account: `relationships.affinities`.
+    Affinities(yapfast_plugin_api::account::AffinitiesRequest),
     /// The linked Spotify: read or control its playback.
     Spotify(yapfast_plugin_api::account::SpotifyAction),
 }

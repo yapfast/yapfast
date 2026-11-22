@@ -60,6 +60,7 @@ pub(super) fn command(
                 Ok(answer) => listed(sessions_of(&answer)),
                 Err(error) => failed(&error),
             },
+            PluginAsk::Affinities(request) => affinities(&discord, request).await,
             PluginAsk::Spotify(action) => match discord.spotify(spotify_command(action)).await {
                 Ok(value) => HostReturn::Ok(value),
                 Err(refusal) => HostReturn::Error {
@@ -149,6 +150,79 @@ fn sessions_of(answer: &serde_json::Value) -> Vec<SessionView> {
         .collect()
 }
 
+/// Discord's affinity scores, read-only, as a plugin is told them: people by
+/// their user id, highest first, and servers as `rooms.list` names them.
+async fn affinities(
+    discord: &Discord,
+    request: yapfast_plugin_api::account::AffinitiesRequest,
+) -> HostReturn {
+    use yapfast_plugin_api::account::AffinityOf;
+    let which = match (request.of, request.detailed) {
+        (AffinityOf::Servers, _) => yapfast_discord::service::Affinities::Servers,
+        (AffinityOf::Users, false) => yapfast_discord::service::Affinities::Users,
+        (AffinityOf::Users, true) => yapfast_discord::service::Affinities::UsersDetailed,
+    };
+    match discord.affinities(which).await {
+        Ok(answer) => listed(affinities_of(&answer)),
+        Err(error) => failed(&error),
+    }
+}
+
+/// The three answers Discord gives (docs.discord.food, resources/user,
+/// User Affinity Object and its v2), read into one shape.
+fn affinities_of(answer: &serde_json::Value) -> yapfast_plugin_api::account::Affinities {
+    use yapfast_plugin_api::account::{Affinities, ServerAffinity, UserAffinity};
+    let float = |value: &serde_json::Value| value.as_f64();
+    let rank = |value: &serde_json::Value| value.as_u64().and_then(|n| u32::try_from(n).ok());
+    let text = |value: &serde_json::Value| value.as_str().map(str::to_owned);
+    let mut users: Vec<UserAffinity> = answer["user_affinities"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            // v1 names the person `user_id`, v2 `other_user_id`.
+            if let Some(person) = entry["user_id"].as_str() {
+                return Some(UserAffinity {
+                    person: person.to_owned(),
+                    affinity: float(&entry["affinity"]).unwrap_or_default(),
+                    ..UserAffinity::default()
+                });
+            }
+            let person = entry["other_user_id"].as_str()?.to_owned();
+            let communication = float(&entry["communication_probability"]);
+            Some(UserAffinity {
+                person,
+                affinity: communication.unwrap_or_default(),
+                is_friend: entry["is_friend"].as_bool(),
+                user_segment: text(&entry["user_segment"]),
+                other_user_segment: text(&entry["other_user_segment"]),
+                dm_probability: float(&entry["dm_probability"]),
+                dm_rank: rank(&entry["dm_rank"]),
+                vc_probability: float(&entry["vc_probability"]),
+                vc_rank: rank(&entry["vc_rank"]),
+                server_message_probability: float(&entry["server_message_probability"]),
+                server_message_rank: rank(&entry["server_message_rank"]),
+                communication_probability: communication,
+                communication_rank: rank(&entry["communication_rank"]),
+            })
+        })
+        .collect();
+    users.sort_by(|a, b| b.affinity.total_cmp(&a.affinity));
+    let mut servers: Vec<ServerAffinity> = answer["guild_affinities"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            Some(ServerAffinity {
+                server: crate::discord::server_id(entry["guild_id"].as_str()?),
+                affinity: float(&entry["affinity"]).unwrap_or_default(),
+            })
+        })
+        .collect();
+    servers.sort_by(|a, b| b.affinity.total_cmp(&a.affinity));
+    Affinities { users, servers }
+}
+
 /// One page of a search, as the search box asks Discord for it, newest first.
 async fn search(
     discord: &Discord,
@@ -218,5 +292,40 @@ mod tests {
         assert_eq!(sessions.len(), 1, "one without an id hash is left out");
         assert_eq!(sessions[0].os.as_deref(), Some("Linux"));
         assert_eq!(sessions[0].location.as_deref(), Some("Berlin"));
+    }
+
+    #[test]
+    fn affinities_are_read_from_each_of_discords_answers() {
+        // docs.discord.food, resources/user: v1's example shape.
+        let v1 = affinities_of(&json!({"user_affinities": [
+            {"user_id": "2", "affinity": 0.25},
+            {"user_id": "3", "affinity": 0.75},
+            {"affinity": 1.0}
+        ]}));
+        assert_eq!(v1.users.len(), 2, "one without an id is left out");
+        assert_eq!(v1.users[0].person, "3", "highest first");
+        assert!(v1.users[0].dm_rank.is_none());
+        assert!(v1.servers.is_empty());
+
+        // v2, from the same page's example.
+        let v2 = affinities_of(&json!({"user_affinities": [{
+            "other_user_id": "1001086404203389018", "user_segment": "HFU_MAU",
+            "other_user_segment": "HFU_MAU", "is_friend": true,
+            "dm_probability": 0.8697, "dm_rank": 1, "vc_probability": 0.0048,
+            "vc_rank": 4, "server_message_probability": 0.8469,
+            "server_message_rank": 6, "communication_probability": 0.5738,
+            "communication_rank": 1
+        }]}));
+        let person = &v2.users[0];
+        assert_eq!(person.person, "1001086404203389018");
+        assert_eq!(person.affinity, 0.5738);
+        assert_eq!(person.is_friend, Some(true));
+        assert_eq!(person.vc_rank, Some(4));
+        assert_eq!(person.user_segment.as_deref(), Some("HFU_MAU"));
+
+        let servers = affinities_of(&json!({"guild_affinities": [
+            {"guild_id": "9", "affinity": 0.5}
+        ]}));
+        assert_eq!(servers.servers[0].server, crate::discord::server_id("9"));
     }
 }

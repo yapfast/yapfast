@@ -379,7 +379,7 @@ impl Capability {
             }
             Capability::AppTiming => "Reads how long Yapfast took to start",
             Capability::RelationshipsRead => {
-                "Sees friends being added and removed, and friend requests"
+                "Sees friends being added and removed, friend requests, and who Discord ranks you closest to"
             }
             Capability::ImagesWeb => "Shows pictures from the sites it lists",
         }

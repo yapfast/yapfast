@@ -134,6 +134,11 @@ fn each_account_call_needs_the_capability_the_review_showed() {
             "account.sessions",
         ),
         (
+            call::method::RELATIONSHIPS_AFFINITIES,
+            serde_json::Value::Null,
+            "relationships.read",
+        ),
+        (
             call::method::SPOTIFY_NOW,
             serde_json::Value::Null,
             "spotify.control",
@@ -231,6 +236,7 @@ fn an_activity_search_sessions_drafts_and_spotify_reach_the_application() {
             "messages.search",
             "drafts.read",
             "account.sessions",
+            "relationships.read",
             "spotify.control",
         ],
     );
@@ -291,6 +297,30 @@ fn an_activity_search_sessions_drafts_and_spotify_reach_the_application() {
         serde_json::Value::Null,
     );
     assert_eq!(handed(&notices), AppCall::Sessions);
+    ask_with(
+        &shared,
+        &plugin,
+        call::method::RELATIONSHIPS_AFFINITIES,
+        serde_json::Value::Null,
+    );
+    assert_eq!(handed(&notices), AppCall::Affinities(Default::default()));
+    ask_with(
+        &shared,
+        &plugin,
+        call::method::RELATIONSHIPS_AFFINITIES,
+        serde_json::json!({ "of": "servers" }),
+    );
+    let AppCall::Affinities(asked) = handed(&notices) else {
+        panic!("affinities");
+    };
+    assert_eq!(asked.of, yapfast_plugin_api::account::AffinityOf::Servers);
+    let answer = ask_with(
+        &shared,
+        &plugin,
+        call::method::RELATIONSHIPS_AFFINITIES,
+        serde_json::json!({ "of": "channels" }),
+    );
+    assert!(matches!(answer, HostReturn::Error { .. }), "{answer:?}");
     ask_with(
         &shared,
         &plugin,

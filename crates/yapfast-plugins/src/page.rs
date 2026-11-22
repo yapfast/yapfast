@@ -653,7 +653,7 @@ pub fn capability(name: &str) -> (String, Tone) {
         "window.title" => ("Adds a few words to the window's title", Tone::Normal),
         "app.timing" => ("Reads how long Yapfast took to start", Tone::Normal),
         "relationships.read" => (
-            "Sees friends being added and removed, and friend requests",
+            "Sees friends being added and removed, friend requests, and who Discord ranks you closest to",
             Tone::Normal,
         ),
         "images.web" => ("Shows pictures from the sites it lists", Tone::Normal),

@@ -1327,6 +1327,13 @@ impl Api {
         self.json(self.request(Method::GET, "/auth/sessions")).await
     }
 
+    /// Discord's affinity scores for this account (docs.discord.food,
+    /// resources/user, Get User Affinities, Get User Affinities v2, Get Guild
+    /// Affinities): `path` is one of the three, each a GET with no query.
+    pub(crate) async fn affinities(&self, path: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, path)).await
+    }
+
     /// The services linked to this account, as READY's `connected_accounts`.
     pub(crate) async fn connections(&self) -> Result<Value> {
         self.json(self.request(Method::GET, "/users/@me/connections"))

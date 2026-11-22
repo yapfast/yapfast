@@ -38,6 +38,7 @@ pub(super) fn is_app_call(method: &str) -> bool {
             | call::method::MESSAGES_SEARCH
             | call::method::DRAFTS_LIST
             | call::method::ACCOUNT_SESSIONS
+            | call::method::RELATIONSHIPS_AFFINITIES
     ) || call::method::SPOTIFY.contains(&method)
 }
 
@@ -69,6 +70,7 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         AppCall::Search(_) => Some(Capability::MessagesSearch),
         AppCall::Drafts => Some(Capability::DraftsRead),
         AppCall::Sessions => Some(Capability::AccountSessions),
+        AppCall::Affinities(_) => Some(Capability::RelationshipsRead),
         AppCall::Spotify(_) => Some(Capability::SpotifyControl),
         // Navigation and the composer need no capability; the plan gives them
         // a recent gesture instead, and the composer is the person's own text.

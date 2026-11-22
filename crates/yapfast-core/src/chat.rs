@@ -2822,6 +2822,8 @@ pub enum PluginAsk {
     Search(yapfast_plugin_api::account::SearchRequest),
     /// `account.sessions`.
     Sessions,
+    /// `relationships.affinities`.
+    Affinities(yapfast_plugin_api::account::AffinitiesRequest),
     /// The `spotify.*` calls.
     Spotify(yapfast_plugin_api::account::SpotifyAction),
 }

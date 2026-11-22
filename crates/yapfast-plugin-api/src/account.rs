@@ -300,6 +300,82 @@ pub struct SessionView {
     pub location: Option<String>,
 }
 
+/// `relationships.affinities`' payload: whose affinities, and how much of
+/// Discord's answer.
+///
+/// Discord's own scores (docs.discord.food, resources/user, Get User
+/// Affinities): `GET /users/@me/affinities/users`, `.../v2/users` for the
+/// detailed form, and `.../guilds`. Read-only, and needs `relationships.read`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AffinitiesRequest {
+    /// `users`, the default, or `servers`.
+    pub of: AffinityOf,
+    /// For `users`: Discord's v2 answer, with its probabilities and ranks for
+    /// DMs, calls, server messages and talking at all.
+    pub detailed: bool,
+}
+
+/// Whose affinities `relationships.affinities` reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AffinityOf {
+    #[default]
+    Users,
+    Servers,
+}
+
+/// `relationships.affinities`' answer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Affinities {
+    /// For `users`: each person Discord scores, with the score, highest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub users: Vec<UserAffinity>,
+    /// For `servers`: each server, as `rooms.list` names it, with its score.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub servers: Vec<ServerAffinity>,
+}
+
+/// One person's affinity: their Discord user id, as the relationship events
+/// name people, and Discord's score. The `detailed` fields are v2's, each
+/// absent from the plain answer.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct UserAffinity {
+    pub person: String,
+    /// v1's score; in the detailed answer, `communication_probability`.
+    pub affinity: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_friend: Option<bool>,
+    /// `HFU_MAU`, `NON_HFU_MAU` or `NON_MAU`, as Discord writes them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_segment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub other_user_segment: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dm_probability: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dm_rank: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vc_probability: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vc_rank: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_message_probability: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_message_rank: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication_probability: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub communication_rank: Option<u32>,
+}
+
+/// One server's affinity.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ServerAffinity {
+    pub server: String,
+    pub affinity: f64,
+}
+
 /// What a Spotify control call asks for. The method names it; the payload
 /// carries what the call needs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

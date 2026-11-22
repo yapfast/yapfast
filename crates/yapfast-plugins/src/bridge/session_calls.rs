@@ -83,6 +83,16 @@ impl Session {
                 .map(AppCall::Search),
             call::method::DRAFTS_LIST => Ok(AppCall::Drafts),
             call::method::ACCOUNT_SESSIONS => Ok(AppCall::Sessions),
+            call::method::RELATIONSHIPS_AFFINITIES => {
+                // No payload is the plain list of people.
+                if request.payload.is_null() {
+                    Ok(AppCall::Affinities(Default::default()))
+                } else {
+                    request
+                        .parse::<yapfast_plugin_api::account::AffinitiesRequest>()
+                        .map(AppCall::Affinities)
+                }
+            }
             spotify if call::method::SPOTIFY.contains(&spotify) => {
                 match yapfast_plugin_api::account::SpotifyAction::of(spotify, &request.payload) {
                     Ok(action) => Ok(AppCall::Spotify(action)),

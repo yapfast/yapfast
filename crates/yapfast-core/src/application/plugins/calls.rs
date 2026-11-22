@@ -292,6 +292,7 @@ impl Application {
             | AppCall::SetProfile(_)
             | AppCall::Search(_)
             | AppCall::Sessions
+            | AppCall::Affinities(_)
             | AppCall::Spotify(_) => (
                 Vec::new(),
                 HostReturn::Error {
