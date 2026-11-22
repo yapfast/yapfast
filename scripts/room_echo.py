@@ -104,7 +104,7 @@ def score(out, noise):
         ]:
             x = align(x, dry)
             early, late = tails(x, ends, speaking)
-            row += f"{wideband_pesq(dry, x):8.2f} {early:6.1f} / {late:5.1f}"
+            row = f"{row}{wideband_pesq(dry, x):8.2f} {early:6.1f} / {late:5.1f}"
         print(row)
     speech = np.fromfile(noise / "speech.f32", np.float32).astype(np.float64)
     print("\nNoise mixes: PESQ-WB against the clean speech.")

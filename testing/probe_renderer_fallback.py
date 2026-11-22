@@ -86,7 +86,7 @@ def launch(name, data, renderer=None, environment=None, wait=2.0, keep=False):
 
 def check(name, condition, detail):
     results.append({"scenario": name, "passed": bool(condition), "detail": detail})
-    print(("PASS " if condition else "FAIL ") + name + ": " + detail, flush=True)
+    print(f"{('PASS ' if condition else 'FAIL ')}{name}: {detail}", flush=True)
 
 
 def opened(log):
@@ -157,5 +157,5 @@ check(
     f"renderers={opened(log)}",
 )
 
-(args.output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
+(args.output / "results.json").write_text(f"{json.dumps(results, indent=2)}\n")
 raise SystemExit(0 if all(result["passed"] for result in results) else 1)

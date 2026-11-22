@@ -103,7 +103,7 @@ def main():
             metadata, doc, doc / "licenses", skia_archive, skia_source, webrtc
         )
         (doc / "THIRD-PARTY.json").write_text(
-            json.dumps(dependencies, indent=2) + "\n", encoding="utf-8"
+            f"{json.dumps(dependencies, indent=2)}\n", encoding="utf-8"
         )
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["nixpkgs"]["locked"]
         build = {
@@ -121,7 +121,7 @@ def main():
             "source_archive_sha256": digest(source_path),
             **build,
         }
-        (doc / "BUILD.json").write_text(json.dumps(build, indent=2) + "\n", encoding="utf-8")
+        (doc / "BUILD.json").write_text(f"{json.dumps(build, indent=2)}\n", encoding="utf-8")
 
         # Fixed owners and times, so the same AppDir packs to the same file.
         # mksquashfs takes the times from SOURCE_DATE_EPOCH, which the

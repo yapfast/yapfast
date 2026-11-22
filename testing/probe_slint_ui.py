@@ -35,7 +35,7 @@ args.output.mkdir(parents=True, exist_ok=True)
 width, height = map(int, args.size.split("x"))
 environment = dict(os.environ, YAPFAST_UI_TEST_SIZE=args.size)
 session_directory = args.output / (
-    "connected-session-" + uuid.uuid4().hex if args.connected else "unused-preview-session"
+    f"connected-session-{uuid.uuid4().hex}" if args.connected else "unused-preview-session"
 )
 command = [
     str(args.exe.resolve()),
@@ -52,7 +52,7 @@ if args.connected:
     helpers = runpy.run_path(str(ROOT / "testing/check_stack.py"))
     request, require = helpers["request"], helpers["require"]
     homeserver = "http://localhost:18008"
-    username = "slint" + uuid.uuid4().hex
+    username = f"slint{uuid.uuid4().hex}"
     password = "talktestonly"
     require(
         *request(
@@ -242,9 +242,10 @@ with (args.output / "app.log").open("wb") as log:
                         21,
                         44,
                     ],
+                    strict=True,
                 )
             )
-            keys.update(dict(zip("1234567890", range(2, 12))))
+            keys.update(dict(zip("1234567890", range(2, 12), strict=True)))
             keys.update({" ": 57, ".": 52, "/": 53, "-": 12})
             for character in text:
                 if character == ":":
@@ -286,7 +287,7 @@ with (args.output / "app.log").open("wb") as log:
                 *request(
                     homeserver,
                     "GET",
-                    "/_matrix/client/v3/rooms/" + room_path + "/messages?dir=b&limit=20",
+                    f"/_matrix/client/v3/rooms/{room_path}/messages?dir=b&limit=20",
                     token=seed["access_token"],
                 )
             )["chunk"]
@@ -350,23 +351,25 @@ with (args.output / "app.log").open("wb") as log:
             type_text("masked password")
             capture("password-entry")
         (args.output / "actions.json").write_text(
-            json.dumps(
-                {
-                    "renderer": args.renderer,
-                    "size": args.size,
-                    "connected": args.connected,
-                    "long_name": args.long_name,
-                    "checks": wire_check,
-                    "origin": [origin_x, origin_y],
-                    "binary_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                    "isolation": "Private Weston, virtual input and private D-Bus only. "
-                    "No microphone or speakers opened.",
-                    "validation": "Coordinate actions and screenshots require visual inspection; "
-                    "captures alone do not assert success.",
-                },
-                indent=2,
-            )
-            + "\n"
+            f"{
+                json.dumps(
+                    {
+                        'renderer': args.renderer,
+                        'size': args.size,
+                        'connected': args.connected,
+                        'long_name': args.long_name,
+                        'checks': wire_check,
+                        'origin': [origin_x, origin_y],
+                        'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
+                        'isolation': 'Private Weston, virtual input and private D-Bus only. '
+                        'No microphone or speakers opened.',
+                        'validation': 'Coordinate actions and screenshots require '
+                        'visual inspection; '
+                        'captures alone do not assert success.',
+                    },
+                    indent=2,
+                )
+            }\n"
         )
     finally:
         if seed:

@@ -81,6 +81,7 @@ try:
                 "--nocapture",
             ],
             env=env,
+            check=False,
         )
         raise SystemExit(result.returncode)
 finally:

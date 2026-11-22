@@ -55,7 +55,7 @@ def frames(results_path, log_path):
                 {key: sample[key] for key in ("renderer", "profile", "new_buffers_per_second")}
             )
         )
-    Path(results_path).write_text(json.dumps(results, indent=2) + "\n")
+    Path(results_path).write_text(f"{json.dumps(results, indent=2)}\n")
 
 
 if len(sys.argv) == 4 and sys.argv[1] == "--frames":
@@ -149,11 +149,10 @@ seeded = subprocess.run(
         YAPFAST_TEST_VOICE_ROOT=str(fixture),
         YAPFAST_TEST_EXTRA_MESSAGES=str(args.messages),
     ),
+    check=False,
 )
 if seeded.returncode != 0:
-    raise SystemExit(
-        "Posting the history failed:\n" + seeded.stdout[-3000:] + seeded.stderr[-3000:]
-    )
+    raise SystemExit(f"Posting the history failed:\n{seeded.stdout[-3000:]}{seeded.stderr[-3000:]}")
 try:
     for renderer in renderers:
         log = (args.output / f"{renderer}.log").open("wb")
@@ -175,7 +174,7 @@ try:
             )
             origin_x, origin_y = origin_x / args.scale, origin_y / args.scale
 
-            def click(x, y):
+            def click(x, y, *, origin_x=origin_x, origin_y=origin_y):
                 INPUT["click"](origin_x + x, origin_y + y)
                 time.sleep(0.3)
 
@@ -185,7 +184,7 @@ try:
             voice_harness.capture(args.output, f"{renderer}-idle")
             results.append(sample(yapfast.pid, renderer, "settled idle, long history open"))
 
-            def scroll(running):
+            def scroll(running, *, origin_x=origin_x, origin_y=origin_y):
                 INPUT["send"](
                     f"move {origin_x + width / args.scale * 0.6} "
                     f"{origin_y + height / args.scale * 0.5}"
@@ -215,20 +214,21 @@ try:
             log.close()
 finally:
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(args.exe),
-                "binary_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "Private headless Weston (GL renderer, same GPU), "
-                "private D-Bus without services",
-                "history": f"sample conversation plus {args.messages} text messages",
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(args.exe),
+                    'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'Private headless Weston (GL renderer, same GPU), '
+                    'private D-Bus without services',
+                    'history': f'sample conversation plus {args.messages} text messages',
+                    'samples': results,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

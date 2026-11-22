@@ -234,16 +234,17 @@ def main():
         source_url = (
             f"https://github.com/yapfast/yapfast/releases/tag/v{version}{flavour['suffix']}"
         )
+        agpl_note = (
+            ", with the exact source of\nthe libraries it includes under the AGPL," if rtc else ""
+        )
         (package / "SOURCE.txt").write_text(
-            f"The source code of this build of Yapfast {version}"
-            + (
-                ", with the exact source of\nthe libraries it includes under the AGPL,"
-                if rtc
-                else ""
-            )
-            + " is published with it:\n\n"
-            f"  {source_url}\n  {source_path.name}, SHA-256 in BUILD.json\n\n"
-            "and in the repository, https://github.com/yapfast/yapfast. The licenses folder\n"
+            f"The source code of this build of Yapfast {version}{agpl_note} is published with it:\n"
+            "\n"
+            f"  {source_url}\n"
+            f"  {source_path.name}, SHA-256 in BUILD.json\n"
+            "\n"
+            "and in the repository, https://github.com/yapfast/yapfast. The "
+            "licenses folder\n"
             "holds every dependency's own license and notices.\n",
             encoding="utf-8",
             newline="\r\n",
@@ -268,26 +269,41 @@ def main():
             secrets = "password or recovery key"
         edition = f" ({flavour['edition']})" if flavour["edition"] else ""
         (package / "README.txt").write_text(
-            f"Yapfast{edition} for 64-bit Windows 10/11\n\n"
+            f"Yapfast{edition} for 64-bit Windows 10/11\n"
+            "\n"
             "1. Extract the entire ZIP to a folder.\n"
             "2. Double-click yapfast.exe.\n"
-            + first_steps
-            + "No Rust, Visual Studio, or separate app installation is required.\n"
+            f"{first_steps}No Rust, Visual Studio, or separate app installation is "
+            "required.\n"
             "Yapfast writes diagnostics to yapfast.log in its data folder,\n"
-            "%LOCALAPPDATA%\\Yapfast\\Yapfast\\data, or to the console run-yapfast.cmd opens.\n"
-            "Windows stores session secrets in Credential Manager and app data\n"
-            "under your Windows user profile. Keep the first verified session.\n\n"
-            "Voice: select a voice channel and Join voice; the gear chooses devices.\n"
+            "%LOCALAPPDATA%\\Yapfast\\Yapfast\\data, or to the console "
+            "run-yapfast.cmd opens.\n"
+            "Windows stores session secrets in Credential Manager and app "
+            "data\n"
+            "under your Windows user profile. Keep the first verified "
+            "session.\n"
+            "\n"
+            "Voice: select a voice channel and Join voice; the gear chooses "
+            "devices.\n"
             "Use headphones for the first two-machine audio test.\n"
-            "If anything fails, record the error text, Windows version, GPU and\n"
-            f"audio device model. Never send your {secrets} in logs.\n\n"
-            "If Yapfast closes immediately, run run-yapfast.cmd to keep its error visible.\n\n"
+            "If anything fails, record the error text, Windows version, GPU "
+            "and\n"
+            f"audio device model. Never send your {secrets} in logs.\n"
+            "\n"
+            "If Yapfast closes immediately, run run-yapfast.cmd to keep its "
+            "error visible.\n"
+            "\n"
             "Yapfast switches to software rendering if the GPU cannot start.\n"
             "To choose it yourself, run run-yapfast.cmd --renderer software.\n"
-            "To retry the GPU after a fallback, run run-yapfast.cmd --renderer gpu.\n\n"
-            "Yapfast is free software under the GNU General Public License, version 3\n"
-            "or later, in LICENSE.txt. Dependency notices and original licenses are\n"
-            "included; SOURCE.txt says where this build's source code is published.\n",
+            "To retry the GPU after a fallback, run run-yapfast.cmd "
+            "--renderer gpu.\n"
+            "\n"
+            "Yapfast is free software under the GNU General Public License, "
+            "version 3\n"
+            "or later, in LICENSE.txt. Dependency notices and original "
+            "licenses are\n"
+            "included; SOURCE.txt says where this build's source code is "
+            "published.\n",
             encoding="utf-8",
         )
         (package / "run-yapfast.cmd").write_text(
@@ -317,7 +333,7 @@ def main():
             Path(os.environ["LK_CUSTOM_WEBRTC"]),
         )
         (package / "THIRD-PARTY.json").write_text(
-            json.dumps(dependencies, indent=2) + "\n", encoding="utf-8"
+            f"{json.dumps(dependencies, indent=2)}\n", encoding="utf-8"
         )
         build = {
             "version": version,
@@ -340,13 +356,13 @@ def main():
             "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
             "executable_sha256": digest(executable),
             "source_archive_sha256": digest(source_path),
-            "webrtc_tag": "webrtc-51ef663",
-            "webrtc_archive_sha256": "0a56a5c91b3b7b4222082b8a09388d16"
-            "a802cde22d67295beb24c55700755b30",
+            "webrtc_tag": "webrtc-a545de4",
+            "webrtc_archive_sha256": "862403fcb248c7d8803487e4c22b8821c6"
+            "130e89100cb9c69be95ef45ff46146",
         }
         if rtc:
             build["homeserver_default"] = "https://matrix.org"
-        (package / "BUILD.json").write_text(json.dumps(build, indent=2) + "\n", encoding="utf-8")
+        (package / "BUILD.json").write_text(f"{json.dumps(build, indent=2)}\n", encoding="utf-8")
         zip_directory(package, archive_path)
         installer_path = (
             None

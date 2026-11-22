@@ -124,13 +124,14 @@ def wideband_pesq(reference, degraded):
 def sent_blocks(log, blocks):
     """The blocks the gate sent, from processes_a_recording's output."""
     sent, start = np.zeros(blocks, bool), None
-    for line in open(log):
-        if opened := re.match(r"opened at ([\d.]+) s, sending (\d+) blocks", line):
-            start = round(float(opened[1]) * 100)
-            sent[start - int(opened[2]) + 1 : start + 1] = True
-        elif closed := re.match(r"closed at ([\d.]+) s", line):
-            sent[start : round(float(closed[1]) * 100)] = True
-            start = None
+    with Path(log).open(encoding="utf-8") as stream:
+        for line in stream:
+            if opened := re.match(r"opened at ([\d.]+) s, sending (\d+) blocks", line):
+                start = round(float(opened[1]) * 100)
+                sent[start - int(opened[2]) + 1 : start + 1] = True
+            elif closed := re.match(r"closed at ([\d.]+) s", line):
+                sent[start : round(float(closed[1]) * 100)] = True
+                start = None
     if start is not None:
         sent[start:] = True
     return sent

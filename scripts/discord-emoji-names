@@ -20,7 +20,7 @@ OUT = Path(__file__).resolve().parent.parent / "src" / "discord_emoji_names.rs"
 
 
 def fetch(name):
-    with urllib.request.urlopen(f"{BASE}/{name}") as answer:
+    with urllib.request.urlopen(f"{BASE}/{name}", timeout=30) as answer:
         return json.load(answer)
 
 

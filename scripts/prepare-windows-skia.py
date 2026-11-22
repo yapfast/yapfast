@@ -31,7 +31,7 @@ SOURCE_URL = (
 )
 SOURCE_SHA256 = "dad0161d334409990f6f4409d1a26c1b0389e1668b79c0e175aecef651fd346d"
 KEY = "30669978c3f39a73e8a7-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static"
-PACKAGE = "skia-binaries-" + KEY + ".tar.gz"
+PACKAGE = f"skia-binaries-{KEY}.tar.gz"
 
 # These pins mirror windowsSkiaDependencies in nix/flake.nix. Googlesource's
 # +archive tarballs have no enclosing directory; GitHub's has one to strip.
@@ -86,7 +86,7 @@ def say(message):
 
 
 def fail(message: str) -> NoReturn:
-    raise SystemExit("error: " + message)
+    raise SystemExit(f"error: {message}")
 
 
 def remove_tree(path, *, ignore_errors=False):
@@ -173,7 +173,7 @@ def open_https(url):
         )
         request_path = parsed.path or "/"
         if parsed.query:
-            request_path += "?" + parsed.query
+            request_path = f"{request_path}?{parsed.query}"
         try:
             connection.request(
                 "GET", request_path, headers={"User-Agent": "Yapfast Skia preparation"}
@@ -224,20 +224,20 @@ def download(url, destination, expected_hash, label):
     if destination.is_file():
         actual = digest(destination)
         if actual == expected_hash:
-            say("Verified cached " + label)
+            say(f"Verified cached {label}")
             return actual
-        say("Cached " + label + " has the wrong SHA-256; replacing it")
+        say(f"Cached {label} has the wrong SHA-256; replacing it")
         destination.unlink()
 
-    say("Downloading " + label)
-    temporary = destination.with_name(destination.name + ".part")
+    say(f"Downloading {label}")
+    temporary = destination.with_name(f"{destination.name}.part")
     temporary.unlink(missing_ok=True)
     actual = fetch_to_file(url, temporary, label)
     if actual != expected_hash:
         temporary.unlink(missing_ok=True)
         fail(f"{label} SHA-256 mismatch: expected {expected_hash}, got {actual}")
     replace_path(temporary, destination)
-    say("Verified SHA-256 for " + label)
+    say(f"Verified SHA-256 for {label}")
     return actual
 
 
@@ -391,13 +391,13 @@ def download_nix_archive(url, destination, expected_hash, label, *, hash_strip_r
     if destination.is_file():
         actual = tar_nar_hash(destination, strip_root=hash_strip_root)
         if actual == expected:
-            say("Verified cached unpacked hash for " + label)
+            say(f"Verified cached unpacked hash for {label}")
             return {"archive_sha256": digest(destination), "nix_unpacked_sha256": actual}
-        say("Cached " + label + " does not match its pinned unpacked hash; replacing it")
+        say(f"Cached {label} does not match its pinned unpacked hash; replacing it")
         destination.unlink()
 
-    say("Downloading " + label)
-    temporary = destination.with_name(destination.name + ".part")
+    say(f"Downloading {label}")
+    temporary = destination.with_name(f"{destination.name}.part")
     temporary.unlink(missing_ok=True)
     archive_hash = fetch_to_file(url, temporary, label)
     actual = tar_nar_hash(temporary, strip_root=hash_strip_root)
@@ -405,7 +405,7 @@ def download_nix_archive(url, destination, expected_hash, label, *, hash_strip_r
         temporary.unlink(missing_ok=True)
         fail(f"{label} unpacked SHA-256 mismatch: expected {expected}, got {actual}")
     replace_path(temporary, destination)
-    say("Verified pinned unpacked SHA-256 for " + label)
+    say(f"Verified pinned unpacked SHA-256 for {label}")
     return {"archive_sha256": archive_hash, "nix_unpacked_sha256": actual}
 
 
@@ -496,15 +496,15 @@ def ensure_source():
     replace_path(staging, SOURCE_TREE, tree=True)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     write_json(manifest_path, expected)
-    say("Skia source is ready at " + str(SOURCE_TREE))
+    say(f"Skia source is ready at {SOURCE_TREE!s}")
     return expected
 
 
 def write_json(path, value):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary = path.with_name(f"{path.name}.tmp")
+    temporary.write_text(f"{json.dumps(value, indent=2)}\n", encoding="utf-8")
     os.replace(temporary, path)
 
 
@@ -609,6 +609,7 @@ def visual_studio_environment(vcvars):
                 "if errorlevel 1 exit /b %ERRORLEVEL%\r\n"
                 "set\r\n",
                 encoding="utf-8",
+                newline="",
             )
             result = subprocess.run(
                 [command, "/d", "/c", str(batch)],
@@ -616,11 +617,12 @@ def visual_studio_environment(vcvars):
                 capture_output=True,
                 encoding="mbcs",
                 errors="replace",
+                check=False,
             )
     except OSError as error:
         fail(f"could not initialize the Visual Studio x64 environment: {error}")
     if result.returncode:
-        fail("vcvarsall.bat x64 failed: " + result.stderr.strip())
+        fail(f"vcvarsall.bat x64 failed: {result.stderr.strip()}")
     environment = {}
     for line in result.stdout.splitlines():
         name, separator, value = line.partition("=")
@@ -750,13 +752,14 @@ def find_gn():
             capture_output=True,
             encoding="utf-8",
             errors="replace",
+            check=False,
         )
     except OSError as error:
         fail(f"could not start the pinned GN fetch: {error}; install GN and put gn.exe on PATH")
     if result.returncode or not pinned.is_file():
         detail = (result.stderr or result.stdout).strip()
         if detail:
-            detail = ": " + detail
+            detail = f": {detail}"
         fail(
             f"could not fetch the pinned GN from chrome-infra-packages{detail}; "
             "install GN and put gn.exe on PATH"
@@ -777,12 +780,12 @@ def make_gn_args(vc, toolset_version, sdk, sdk_version, llvm):
         [
             'target_os="win"',
             'target_cpu="x64"',
-            "win_vc=" + gn_quote(vc),
-            "win_toolchain_version=" + json.dumps(toolset_version),
-            "win_sdk=" + gn_quote(sdk),
-            "win_sdk_version=" + json.dumps(sdk_version),
-            "clang_win=" + gn_quote(llvm["root"]),
-            "clang_win_version=" + json.dumps(llvm["version"]),
+            f"win_vc={gn_quote(vc)}",
+            f"win_toolchain_version={json.dumps(toolset_version)}",
+            f"win_sdk={gn_quote(sdk)}",
+            f"win_sdk_version={json.dumps(sdk_version)}",
+            f"clang_win={gn_quote(llvm['root'])}",
+            f"clang_win_version={json.dumps(llvm['version'])}",
             "is_trivial_abi=false",
             'extra_cflags+=["/MT", "-D__RTMINTRIN_H"]',
         ]
@@ -835,7 +838,7 @@ def prepare_toolchain(jobs):
     for name, value in vs_environment.items():
         set_env(environment, name, value)
     old_path = next((value for name, value in environment.items() if name.upper() == "PATH"), "")
-    set_env(environment, "PATH", str(llvm["bin"]) + os.pathsep + old_path)
+    set_env(environment, "PATH", f"{llvm['bin']!s}{os.pathsep}{old_path}")
     set_env(environment, "LIBCLANG_PATH", llvm["bin"])
     # skia-bindings reads LLVM_HOME before C:\Program Files\LLVM, C:\LLVM and
     # %USERPROFILE%\scoop\apps\llvm\current, and an LLVM that is only on PATH
@@ -894,9 +897,8 @@ def cargo_builder(cargo, environment):
         "--message-format=json-render-diagnostics",
     ]
     say(
-        "Building pinned Windows Skia with cargo build --release ("
-        + str(environment["SKIA_NINJA_COMMAND"])
-        + ")"
+        "Building pinned Windows Skia with cargo build --release "
+        f"({environment['SKIA_NINJA_COMMAND']!s})"
     )
     outputs = []
     with log_path.open("w", encoding="utf-8") as log:
@@ -956,11 +958,11 @@ def create_raw_archive(native_output, source_tree):
     if not license_file.is_file():
         fail(f"pinned Skia license is missing at {license_file}")
     shutil.copy2(license_file, native / "LICENSE_SKIA")
-    (native / "key.txt").write_text(KEY + "\n", encoding="utf-8")
+    (native / "key.txt").write_text(f"{KEY}\n", encoding="utf-8")
     (native / "tag.txt").write_text("0.157.0\n", encoding="utf-8")
 
     raw = WORK / PACKAGE
-    temporary = raw.with_name(raw.name + ".tmp")
+    temporary = raw.with_name(f"{raw.name}.tmp")
     with (
         temporary.open("wb") as output,
         gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed,
@@ -989,11 +991,11 @@ def run_native_prepare(raw, raw_hash, llvm):
             "YAPFAST_SKIA_STATIC_SHA256": raw_hash,
             "YAPFAST_SKIA_NM": str(llvm["nm"]),
             "YAPFAST_SKIA_OBJCOPY": str(llvm["objcopy"]),
-            "PATH": str(llvm["bin"]) + os.pathsep + os.environ.get("PATH", ""),
+            "PATH": f"{llvm['bin']!s}{os.pathsep}{os.environ.get('PATH', '')}",
         }
     )
     say("Renaming the JPEG table and checking the native archive with nix/prepare-skia-native.py")
-    result = subprocess.run([sys.executable, str(helper)], cwd=ROOT, env=environment)
+    result = subprocess.run([sys.executable, str(helper)], cwd=ROOT, env=environment, check=False)
     if result.returncode:
         fail(
             f"nix/prepare-skia-native.py failed with exit code {result.returncode}; "
@@ -1008,9 +1010,10 @@ def run_native_prepare(raw, raw_hash, llvm):
 
 def read_json(path):
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError, ValueError:
         return None
+    return value if isinstance(value, dict) else None
 
 
 def existing_build_is_current(stamp_path, inputs, raw, prepared, helper_stamp):
@@ -1045,13 +1048,15 @@ def archive_uri():
     slash leaves `/C:/...`, which cannot be opened. A quote in the path is
     percent-encoded, since `--print-env` output is pasted into a shell.
     """
-    return "file://" + str((WORK / "prepared" / PACKAGE).resolve().as_posix()).replace("'", "%27")
+    return (
+        f"""file://{str((WORK / "prepared" / PACKAGE).resolve().as_posix()).replace("'", "%27")}"""
+    )
 
 
 def print_environment():
     # Only the archive: the build scripts pick clang-cl for MSVC by themselves
     # when nothing set CC/CXX, and a compiler the person chose must win.
-    print("$env:SKIA_BINARIES_URL = '" + archive_uri() + "'")
+    print(f"$env:SKIA_BINARIES_URL = '{archive_uri()}'")
 
 
 def run_application_build(cargo):
@@ -1133,7 +1138,7 @@ def main():
             "native_prepare_stamp_sha256": digest(helper_stamp),
         }
         write_json(stamp_path, stamp)
-        say("Prepared and stamped " + str(prepared))
+        say(f"Prepared and stamped {prepared!s}")
         print(prepared)
 
     if args.build:

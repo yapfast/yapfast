@@ -77,7 +77,7 @@ def provision(env=None):
     for line in output.splitlines():
         if "--data-dir" in line and line.rstrip().endswith("/alice"):
             return ROOT / Path(line.split("--data-dir", 1)[1].strip()).parent
-    raise SystemExit("voice demo did not report its accounts:\n" + output)
+    raise SystemExit(f"voice demo did not report its accounts:\n{output}")
 
 
 def capture(folder, name):
@@ -302,7 +302,7 @@ class Participant:
 
     def send(self, command):
         with self.commands.open("a") as commands:
-            commands.write(command + "\n")
+            commands.write(f"{command}\n")
 
     def status(self):
         if self.process.poll() is not None:
@@ -318,7 +318,11 @@ class Participant:
             try:
                 self.process.wait(timeout=60)
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.process.wait(timeout=10)
         self.log.close()
 
 

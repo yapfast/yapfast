@@ -130,6 +130,7 @@ def gpu_memory(pid):
             capture_output=True,
             text=True,
             timeout=15,
+            check=False,
         ).stdout
     except OSError, subprocess.TimeoutExpired:
         return None
@@ -199,7 +200,7 @@ class Load:
 
     def send(self, command, expect=None, timeout=240):
         with self.commands.open("a") as commands:
-            commands.write(command + "\n")
+            commands.write(f"{command}\n")
         if expect:
             self.wait(expect, timeout)
 
@@ -221,7 +222,11 @@ class Load:
             try:
                 self.process.wait(timeout=60)
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.process.wait(timeout=10)
         self.log.close()
 
 
@@ -257,7 +262,7 @@ try:
                 raise RuntimeError(f"Yapfast exited during startup; see {renderer}.log")
             origin_x, origin_y = locate_rail(capture(f"{renderer}-startup"))
 
-            def click(x, y):
+            def click(x, y, *, origin_x=origin_x, origin_y=origin_y):
                 INPUT["click"](origin_x + x, origin_y + y)
                 time.sleep(0.3)
 
@@ -316,24 +321,25 @@ finally:
     if load:
         load.stop()
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(args.exe),
-                "binary_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "Private headless Weston (GL renderer, same GPU), "
-                "private PulseAudio null sink, private D-Bus without services",
-                "remote_load": "Generated tones from one load process; "
-                "Bob plus extra fixture accounts on the local stack",
-                "history": "sample conversation: Markdown, 800x500 image, file, reply, reaction"
-                if args.seed
-                else "empty channel",
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(args.exe),
+                    'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'Private headless Weston (GL renderer, same GPU), '
+                    'private PulseAudio null sink, private D-Bus without services',
+                    'remote_load': 'Generated tones from one load process; '
+                    'Bob plus extra fixture accounts on the local stack',
+                    'history': 'sample conversation: Markdown, 800x500 image, file, reply, reaction'
+                    if args.seed
+                    else 'empty channel',
+                    'samples': results,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

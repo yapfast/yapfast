@@ -251,7 +251,7 @@ try:
 
     def window(command):
         with control.open("a") as commands:
-            commands.write(command + "\n")
+            commands.write(f"{command}\n")
         time.sleep(1)
         if command != "quit" and yapfast.poll() is not None:
             raise RuntimeError(f"Yapfast exited after {command!r}; see yapfast.log")
@@ -356,7 +356,10 @@ try:
             raise RuntimeError("participants did not finish syncing")
         for person in people:
             person.send("join")
-            if wait_for(lambda: person.status().get("phase") == "joined", 120) is None:
+            if (
+                wait_for(lambda person=person: person.status().get("phase") == "joined", 120)
+                is None
+            ):
                 raise RuntimeError(f"{person.account.name} did not join")
             time.sleep(2)
         states()
@@ -369,26 +372,29 @@ finally:
     for person in people:
         person.stop()
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(args.exe),
-                "binary_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                "participant_binary": str(args.participant_executable),
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "Private headless Weston and PulseAudio; Yapfast, every participant "
-                "process, LiveKit and Synapse share the host",
-                "renderer": args.renderer,
-                "window": [WIDTH, HEIGHT],
-                "people": args.people,
-                "yapfast_env": args.yapfast_env,
-                "history": "sample conversation: Markdown, 800x500 image, file, reply, reaction",
-                "alice": "unmuted, publishing the private null-sink monitor",
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(args.exe),
+                    'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
+                    'participant_binary': str(args.participant_executable),
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'Private headless Weston and PulseAudio; '
+                    'Yapfast, every participant '
+                    'process, LiveKit and Synapse share the host',
+                    'renderer': args.renderer,
+                    'window': [WIDTH, HEIGHT],
+                    'people': args.people,
+                    'yapfast_env': args.yapfast_env,
+                    'history': 'sample conversation: Markdown, 800x500 image, '
+                    'file, reply, reaction',
+                    'alice': 'unmuted, publishing the private null-sink monitor',
+                    'samples': results,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

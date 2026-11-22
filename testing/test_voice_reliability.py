@@ -138,7 +138,7 @@ class Participant:
 
     def send(self, command):
         with self.commands.open("a") as commands:
-            commands.write(command + "\n")
+            commands.write(f"{command}\n")
 
     def state(self):
         try:
@@ -256,6 +256,7 @@ def output_energy():
             "--latency-msec=50",
         ],
         capture_output=True,
+        check=False,
     ).stdout
     values = struct.unpack(f"<{len(samples) // 2}h", samples[: len(samples) // 2 * 2])
     if len(values) < 48000:
@@ -617,5 +618,5 @@ finally:
     for module in reversed(modules):
         subprocess.run(["pactl", "unload-module", module], check=False)
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2) + "\n")
+    args.report.write_text(f"{json.dumps(report, indent=2)}\n")
     print(f"Report {args.report}", flush=True)

@@ -14,9 +14,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_FILES = (
     "Cargo.toml",
     "Cargo.lock",
+    "flake.nix",
+    "flake.lock",
     "build.rs",
     "rust-toolchain.toml",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     ".gitignore",
 )
@@ -46,7 +49,7 @@ def zip_directory(source, destination):
     ) as archive:
         for path in sorted(source.rglob("*")):
             if path.is_file():
-                archive.write(path, source.name + "/" + path.relative_to(source).as_posix())
+                archive.write(path, f"{source.name}/{path.relative_to(source).as_posix()}")
 
 
 def license_file(path):
@@ -100,7 +103,10 @@ def source_snapshot(metadata, base, temporary, destination):
         subprocess.check_output(["git", "log", "-1", "--format=%ct"], cwd=ROOT, timeout=30)
     )
     for path in source.rglob("*"):
-        os.utime(path, (committed, committed), follow_symlinks=False)
+        symlink = path.is_symlink()
+        if symlink and os.utime not in os.supports_follow_symlinks:
+            continue
+        os.utime(path, (committed, committed), follow_symlinks=not symlink)
     zip_directory(source, destination)
     return rtc is not None
 
@@ -121,7 +127,7 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
         if item["name"] == "yapfast":
             continue
         directory = Path(item["manifest_path"]).parent
-        target = licenses / (item["name"] + "-" + item["version"])
+        target = licenses / (f"{item['name']}-{item['version']}")
         files = set()
         for parent in (directory, directory.parent, directory.parent.parent):
             files.update(path for path in parent.iterdir() if license_file(path))
@@ -151,7 +157,7 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
                 if notice_file is None:
                     continue
                 with notice_file as notice:
-                    (licenses / ("skia-native-" + Path(member.name).name)).write_bytes(
+                    (licenses / (f"skia-native-{Path(member.name).name}")).write_bytes(
                         notice.read()
                     )
     for notice in skia_source.rglob("*"):
@@ -165,7 +171,7 @@ def dependency_notices(metadata, package, licenses, skia_archive, skia_source, w
     twemoji = ROOT / "vendor" / "twemoji"
     twemoji_licenses = []
     for name in ["LICENSE-GRAPHICS", "LICENSE", "README.md", "README.yapfast.md"]:
-        target = licenses / ("twemoji-" + name)
+        target = licenses / (f"twemoji-{name}")
         shutil.copy2(twemoji / name, target)
         twemoji_licenses.append(target.relative_to(package).as_posix())
     dependencies.append(

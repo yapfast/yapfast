@@ -95,7 +95,7 @@ def provision(executable):
     for line in output.splitlines():
         if "--data-dir" in line and line.rstrip().endswith("/alice"):
             return ROOT / Path(line.split("--data-dir", 1)[1].strip()).parent
-    raise SystemExit("voice demo did not report its accounts:\n" + output)
+    raise SystemExit(f"voice demo did not report its accounts:\n{output}")
 
 
 def capture(name):
@@ -227,7 +227,7 @@ class Load:
 
     def send(self, command, expect=None, timeout=240):
         with self.commands.open("a") as commands:
-            commands.write(command + "\n")
+            commands.write(f"{command}\n")
         if expect:
             self.wait(expect, timeout)
 
@@ -249,7 +249,11 @@ class Load:
             try:
                 self.process.wait(timeout=60)
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.process.wait(timeout=10)
         self.log.close()
 
 
@@ -272,17 +276,21 @@ class FakeDiscord:
         deadline = time.monotonic() + 15
         while True:
             try:
-                urllib.request.urlopen(f"{DISCORD}/_control/health", timeout=1)
+                with urllib.request.urlopen(f"{DISCORD}/_control/health", timeout=1):
+                    pass
                 return
-            except OSError:
+            except OSError as error:
                 if self.process.poll() is not None or time.monotonic() > deadline:
-                    raise RuntimeError("the fake Discord did not start; see fake-discord.log")
+                    raise RuntimeError(
+                        "the fake Discord did not start; see fake-discord.log"
+                    ) from error
                 time.sleep(0.2)
 
     def control(self, command):
-        urllib.request.urlopen(
+        with urllib.request.urlopen(
             urllib.request.Request(f"{DISCORD}/_control/{command}", method="POST"), timeout=5
-        )
+        ):
+            pass
 
     def stop(self):
         if self.process.poll() is None:
@@ -392,7 +400,7 @@ def prewarm(executable, data):
 builds = {
     name: (args.builds / f"yapfast-{name}").resolve() for name in ("matrix", "discord", "combined")
 }
-for name, path in builds.items():
+for path in builds.values():
     if not path.exists():
         raise SystemExit(f"missing {path}; copy each feature build of target/measure/yapfast there")
 results = []
@@ -430,29 +438,30 @@ finally:
     if discord:
         discord.stop()
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binaries": {
-                    name: {
-                        "path": str(path),
-                        "bytes": path.stat().st_size,
-                        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                    }
-                    for name, path in builds.items()
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binaries': {
+                        name: {
+                            'path': str(path),
+                            'bytes': path.stat().st_size,
+                            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                        }
+                        for name, path in builds.items()
+                    },
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'Private headless Weston (GL renderer, same GPU), '
+                    'private PulseAudio null sink, private D-Bus without services',
+                    'matrix': 'local stack; Alice with a seeded #general '
+                    '(fixture conversation plus 56 messages); Bob posts from a load process',
+                    'discord': 'testing/fake_discord.ts; one server with #general '
+                    '(the same 60 messages) and Lounge; Bob posts from the fake',
+                    'samples': results,
                 },
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "Private headless Weston (GL renderer, same GPU), "
-                "private PulseAudio null sink, private D-Bus without services",
-                "matrix": "local stack; Alice with a seeded #general "
-                "(fixture conversation plus 56 messages); Bob posts from a load process",
-                "discord": "testing/fake_discord.ts; one server with #general "
-                "(the same 60 messages) and Lounge; Bob posts from the fake",
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

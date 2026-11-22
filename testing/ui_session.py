@@ -95,9 +95,10 @@ KEYS.update(
             21,
             44,
         ],
+        strict=True,
     )
 )
-KEYS.update(zip("1234567890", range(2, 12)))
+KEYS.update(zip("1234567890", range(2, 12), strict=True))
 # Characters `type` can enter on the US layout, and whether they need Shift.
 CHARACTERS = {character: (code, False) for character, code in KEYS.items() if len(character) == 1}
 CHARACTERS.update(
@@ -179,11 +180,14 @@ if args.discord:
     deadline = time.monotonic() + 20
     while True:
         try:
-            urllib.request.urlopen(f"{discord}/_control/health", timeout=1)
+            with urllib.request.urlopen(f"{discord}/_control/health", timeout=1):
+                pass
             break
-        except OSError:
+        except OSError as error:
             if fake.poll() is not None or time.monotonic() > deadline:
-                raise SystemExit("The fake Discord did not start; see " + str(state / "fake.log"))
+                raise SystemExit(
+                    f"The fake Discord did not start; see {state / 'fake.log'!s}"
+                ) from error
             time.sleep(0.2)
     environment["YAPFAST_DISCORD_TEST_SERVER"] = discord
 
@@ -240,7 +244,9 @@ def tray_command(rest):
         )
         picture.unlink()
         return f"{path} {size}"
-    result = subprocess.run([str(args.tray), *values], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(
+        [str(args.tray), *values], capture_output=True, text=True, timeout=10, check=False
+    )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"tray_host exited with {result.returncode}")
     # The window opens, or the menu acts, as Yapfast hears it.
@@ -488,6 +494,7 @@ def stop_recording():
         capture_output=True,
         text=True,
         timeout=20,
+        check=False,
     )
     duration = (
         f"{float(probe.stdout):.2f} s"

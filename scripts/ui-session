@@ -141,7 +141,10 @@ def build(discord, profile, live=False, yapfast=True, tray=False, record=False):
     ]
     print("Building:", shlex.join(command[4:]), flush=True)
     log = STATE / "build.log"
-    result = subprocess.run(command, cwd=ROOT, stdout=log.open("wb"), stderr=subprocess.STDOUT)
+    with log.open("wb") as output:
+        result = subprocess.run(
+            command, cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, check=False
+        )
     if result.returncode != 0:
         tail(log, 40)
         raise SystemExit(f"The build failed; see {log.relative_to(ROOT)}")
@@ -171,7 +174,7 @@ def send(commands, timeout=60):
                 (
                     line.split("\t", 2)
                     for line in (results.read_text().splitlines() if results.exists() else [])
-                    if line.startswith(identifier + "\t")
+                    if line.startswith(f"{identifier}\t")
                 ),
                 None,
             )

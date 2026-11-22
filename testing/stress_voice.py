@@ -99,7 +99,7 @@ class Load:
 
     def send(self, command, expect=None, timeout=600):
         with self.commands.open("a") as commands:
-            commands.write(command + "\n")
+            commands.write(f"{command}\n")
         if expect:
             started = time.monotonic()
             self.wait(expect, timeout)
@@ -124,7 +124,11 @@ class Load:
             try:
                 self.process.wait(timeout=120)
             except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(self.process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.process.wait(timeout=10)
         self.log.close()
 
 
@@ -278,22 +282,23 @@ finally:
     if load:
         load.stop()
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(args.exe),
-                "binary_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "Private headless Weston, private PulseAudio null sink; "
-                "LiveKit, Synapse and the load process share the host",
-                "remote_load": "One publish-only load process: "
-                "Bob plus fixture accounts with generated tones",
-                "joins": joins,
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(args.exe),
+                    'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'Private headless Weston, private PulseAudio null sink; '
+                    'LiveKit, Synapse and the load process share the host',
+                    'remote_load': 'One publish-only load process: '
+                    'Bob plus fixture accounts with generated tones',
+                    'joins': joins,
+                    'samples': results,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

@@ -213,7 +213,9 @@ startups = []
 build = not args.no_build
 try:
     for run in range(1, args.runs + 1):
-        subprocess.run([str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True)
+        subprocess.run(
+            [str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True, check=False
+        )
         (SESSION / "yapfast.pid").unlink(missing_ok=True)
         startup = {"run": run}
         watcher = threading.Thread(target=watch_startup, args=(startup,))
@@ -246,24 +248,27 @@ try:
             results.append(sample("After leaving the call", args.seconds, notes))
         keep_shots(run)
 finally:
-    subprocess.run([str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True)
+    subprocess.run(
+        [str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True, check=False
+    )
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(args.bin or ROOT / "target/measure/yapfast"),
-                "environment": args.env,
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "scripts/ui-session --tray: private headless Weston, "
-                "PulseAudio and D-Bus, "
-                "with testing/tray_host.rs as the tray",
-                "remote_load": f"testing/fake_discord.ts {args.fake_args}",
-                "startups": startups,
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(args.bin or ROOT / 'target/measure/yapfast'),
+                    'environment': args.env,
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'scripts/ui-session --tray: private headless Weston, '
+                    'PulseAudio and D-Bus, '
+                    'with testing/tray_host.rs as the tray',
+                    'remote_load': f'testing/fake_discord.ts {args.fake_args}',
+                    'startups': startups,
+                    'samples': results,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

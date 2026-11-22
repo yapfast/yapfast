@@ -85,9 +85,10 @@ if __name__ == "__main__":
                     21,
                     44,
                 ],
+                strict=True,
             )
         )
-        keys.update(dict(zip("1234567890", range(2, 12))))
+        keys.update(dict(zip("1234567890", range(2, 12), strict=True)))
         keys.update({" ": 57, "-": 12, ".": 52})
         for character in " ".join(args.values):
             if character not in keys:
@@ -103,7 +104,7 @@ if __name__ == "__main__":
         if args.action == "click":
             click(*map(float, args.values))
         else:
-            send("move " + " ".join(args.values))
+            send(f"move {' '.join(args.values)}")
     else:
         if len(args.values) != 1:
             parser.error("Expected Linux evdev key code.")

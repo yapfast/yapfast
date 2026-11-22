@@ -278,7 +278,7 @@ try:
         capture("full")
         steady_state = steady(yapfast, people)
         last = people[-1]
-        for cycle in range(args.rejoins):
+        for _cycle in range(args.rejoins):
             last.send("leave")
             if wait_for(lambda: last.status().get("phase") == "ready", args.timeout) is None:
                 raise RuntimeError("rejoin participant did not leave")
@@ -300,24 +300,26 @@ finally:
     for person in people:
         person.stop()
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(args.exe),
-                "binary_sha256": hashlib.sha256(args.exe.read_bytes()).hexdigest(),
-                "participant_binary": str(args.participant_executable),
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "Private headless Weston and PulseAudio; Yapfast, every participant "
-                "process, LiveKit and Synapse share the host",
-                "people": args.people,
-                "gap_seconds": args.gap,
-                "joins": joins,
-                "steady_state": steady_state,
-                "rejoins": rejoins,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(args.exe),
+                    'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
+                    'participant_binary': str(args.participant_executable),
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'Private headless Weston and PulseAudio; '
+                    'Yapfast, every participant '
+                    'process, LiveKit and Synapse share the host',
+                    'people': args.people,
+                    'gap_seconds': args.gap,
+                    'joins': joins,
+                    'steady_state': steady_state,
+                    'rejoins': rejoins,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

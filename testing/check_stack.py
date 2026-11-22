@@ -16,17 +16,18 @@ PASSWORD = "talk-test-only"
 def request(base, method, path, body=None, token=None):
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = "Bearer " + token
+        headers["Authorization"] = f"Bearer {token}"
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+    req = urllib.request.Request(f"{base}{path}", data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as error:
-        try:
-            result = json.load(error)
-        except ValueError, UnicodeError:
-            result = {}
+        with error:
+            try:
+                result = json.load(error)
+            except ValueError:
+                result = {}
         return error.code, result
 
 
@@ -43,7 +44,7 @@ def check():
     features = versions.get("unstable_features", {})
     for feature in ("org.matrix.simplified_msc3575", "org.matrix.msc4354", "org.matrix.msc4140"):
         if not features.get(feature):
-            raise RuntimeError("Test homeserver is missing " + feature)
+            raise RuntimeError(f"Test homeserver is missing {feature}")
 
     sessions = []
     try:
@@ -70,7 +71,7 @@ def check():
                         "type": "m.login.password",
                         "identifier": {"type": "m.id.user", "user": user},
                         "password": PASSWORD,
-                        "device_id": "YAPFAST_TEST_" + user.upper(),
+                        "device_id": f"YAPFAST_TEST_{user.upper()}",
                     },
                 )
             )
@@ -101,7 +102,7 @@ def check():
             *request(
                 HOMESERVER,
                 "POST",
-                "/_matrix/client/v3/user/" + user + "/openid/request_token",
+                f"/_matrix/client/v3/user/{user}/openid/request_token",
                 {},
                 alice["access_token"],
             )
@@ -136,5 +137,5 @@ if __name__ == "__main__":
     try:
         check()
     except (RuntimeError, urllib.error.URLError, TimeoutError) as error:
-        print("Backend check failed: " + str(error), file=sys.stderr)
+        print(f"Backend check failed: {error!s}", file=sys.stderr)
         sys.exit(1)

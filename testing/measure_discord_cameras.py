@@ -132,7 +132,9 @@ results = []
 build = not args.no_build
 try:
     for renderer in renderers:
-        subprocess.run([str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True)
+        subprocess.run(
+            [str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True, check=False
+        )
         session(
             "start",
             "--discord",
@@ -182,23 +184,26 @@ try:
         session("do", "click 843 718")  # Leave
         keep_shots()
 finally:
-    subprocess.run([str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True)
+    subprocess.run(
+        [str(ROOT / "scripts/ui-session"), "stop"], cwd=ROOT, capture_output=True, check=False
+    )
     keep_shots()
     (args.output / "results.json").write_text(
-        json.dumps(
-            {
-                "recorded_on": time.strftime("%Y-%m-%d"),
-                "binary": str(ROOT / "target/measure/yapfast"),
-                "os": f"{platform.system()} {platform.release()}",
-                "machine": platform.machine(),
-                "isolation": "scripts/ui-session: private headless Weston and PulseAudio",
-                "remote_load": "testing/fake_discord.ts; Bob, Carol and Dave film "
-                f"{args.camera.name} at 30 frames "
-                "a second; Alice films a 640x360 test pattern",
-                "samples": results,
-            },
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {
+                    'recorded_on': time.strftime('%Y-%m-%d'),
+                    'binary': str(ROOT / 'target/measure/yapfast'),
+                    'os': f'{platform.system()} {platform.release()}',
+                    'machine': platform.machine(),
+                    'isolation': 'scripts/ui-session: private headless Weston and PulseAudio',
+                    'remote_load': 'testing/fake_discord.ts; Bob, Carol and Dave film '
+                    f'{args.camera.name} at 30 frames '
+                    'a second; Alice films a 640x360 test pattern',
+                    'samples': results,
+                },
+                indent=2,
+            )
+        }\n"
     )
     print(f"Results {args.output / 'results.json'}", flush=True)

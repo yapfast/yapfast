@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
     weston_config = ["--no-config"]
     if args.repaint_window is not None:
         (runtime / "weston.ini").write_text(f"[core]\nrepaint-window={args.repaint_window}\n")
-        weston_config = ["--config=" + str(runtime / "weston.ini")]
+        weston_config = [f"--config={runtime / 'weston.ini'!s}"]
     environment = dict(
         os.environ,
         XDG_RUNTIME_DIR=str(runtime),
@@ -137,8 +137,8 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
             *weston_config,
             "--idle-time=0",
             "--debug",
-            "--modules=" + str(args.seat_plugin.resolve()),
-            "--log=" + str(args.compositor_log),
+            f"--modules={args.seat_plugin.resolve()!s}",
+            f"--log={args.compositor_log!s}",
         ],
         env=environment,
         stdout=subprocess.DEVNULL,
@@ -151,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
         deadline = time.monotonic() + 15
         while not (runtime / "wayland-yapfast-frameworks").exists():
             if compositor.poll() is not None or time.monotonic() > deadline:
-                raise SystemExit("Private compositor failed; see " + str(args.compositor_log))
+                raise SystemExit(f"Private compositor failed; see {args.compositor_log!s}")
             time.sleep(0.1)
         time.sleep(0.3)
         if args.audio:
@@ -162,13 +162,13 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
                 raise SystemExit("--audio requires --alsa-plugins with the PulseAudio PCM plugin")
             audio_socket = runtime / "audio.sock"
             environment.update(
-                PULSE_SERVER="unix:" + str(audio_socket),
+                PULSE_SERVER=f"unix:{audio_socket!s}",
                 PULSE_SINK="yapfast_frameworks",
                 PULSE_SOURCE="yapfast_frameworks.monitor",
                 ALSA_PLUGIN_DIR=str(args.alsa_plugins),
             )
             alsa = runtime / "alsa.conf"
-            alsa.write_text('pcm.!default { type pulse server "unix:' + str(audio_socket) + '" }\n')
+            alsa.write_text(f'pcm.!default {{ type pulse server "unix:{audio_socket!s}" }}\n')
             environment["ALSA_CONFIG_PATH"] = str(alsa)
             audio_log = args.compositor_log.with_suffix(".audio.log")
             audio = subprocess.Popen(
@@ -179,10 +179,8 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
                     "--use-pid-file=no",
                     "--exit-idle-time=-1",
                     "--disable-shm=yes",
-                    "--log-target=file:" + str(audio_log),
-                    "--load=module-native-protocol-unix socket="
-                    + str(audio_socket)
-                    + " auth-anonymous=1",
+                    f"--log-target=file:{audio_log!s}",
+                    f"--load=module-native-protocol-unix socket={audio_socket!s} auth-anonymous=1",
                     "--load=module-null-sink sink_name=yapfast_frameworks rate=48000",
                 ],
                 env=environment,
@@ -193,7 +191,7 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
             deadline = time.monotonic() + 5
             while not audio_socket.exists():
                 if audio.poll() is not None or time.monotonic() > deadline:
-                    raise SystemExit("Private audio failed; see " + str(audio_log))
+                    raise SystemExit(f"Private audio failed; see {audio_log!s}")
                 time.sleep(0.1)
         # Toolkits can require D-Bus. Give them a private session bus too.
         bus_command = ["dbus-run-session"]
