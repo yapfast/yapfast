@@ -227,19 +227,28 @@ impl App {
             self.themes.chrome(&self.theme.id),
         );
         // A floating navigation pane's ground rounds the pane's corners, and
-        // without the rail in it, it's the sidebar's paint: the account card
-        // under the list then shows the list's ground round its own corners,
-        // not a square of the rail's.
+        // without the rail in it (on the right, hidden, on top or in the
+        // tree), it's the sidebar's: the account card under the list then
+        // shows the list's ground round its own corners, not a square of
+        // the rail's.
         let navigation_style = if paned {
             let radius = self
                 .themes
                 .glass_style(&self.theme.id)
                 .map_or(0.0, |style| style.radius);
-            let ground: iced::Background = if navigation_right {
-                self.theme.surface_paint("sidebar")
-            } else {
-                rail_ground.into()
-            };
+            let sidebar_glass = self
+                .themes
+                .glass(
+                    &self.theme.id,
+                    yapfast_core::themes::package::art::ArtSurface::Sidebar,
+                )
+                .is_some();
+            let ground = navigation_ground(
+                !navigation_right && !rail_hidden,
+                rail_ground,
+                sidebar_glass,
+                self.theme.surface_paint("sidebar"),
+            );
             iced::widget::container::Style {
                 background: Some(ground),
                 border: iced::Border::default().rounded(radius),
@@ -833,6 +842,24 @@ impl App {
     }
 }
 
+/// A floating navigation pane's ground: the rail's when the rail is in it,
+/// else the sidebar's paint, clear under the sidebar's glass, as
+/// `theme_art::surface` lays no solid ground under glass.
+fn navigation_ground(
+    rail_inside: bool,
+    rail_ground: iced::Color,
+    sidebar_glass: bool,
+    sidebar_paint: iced::Background,
+) -> iced::Background {
+    if rail_inside {
+        rail_ground.into()
+    } else if sidebar_glass {
+        iced::Color::TRANSPARENT.into()
+    } else {
+        sidebar_paint
+    }
+}
+
 /// A package's tiling-window-manager-style bar. It uses the existing rail
 /// navigation messages, so its numbered workspaces are fully usable even
 /// when the rest of Wired's layout remains stock.
@@ -1040,6 +1067,17 @@ mod chrome_tests {
         chat::{ChatServer, ServerFolder},
         themes::chrome::Workspaces,
     };
+
+    #[test]
+    fn a_floating_navigations_ground_is_what_fills_it() {
+        let rail = iced::Color::from_rgb(0.1, 0.1, 0.1);
+        let sidebar = iced::Background::Color(iced::Color::from_rgb(0.2, 0.2, 0.2));
+        let clear = iced::Background::Color(iced::Color::TRANSPARENT);
+        assert_eq!(navigation_ground(true, rail, true, sidebar), rail.into());
+        // Without the rail: the sidebar's paint, clear under its glass.
+        assert_eq!(navigation_ground(false, rail, false, sidebar), sidebar);
+        assert_eq!(navigation_ground(false, rail, true, sidebar), clear);
+    }
 
     fn server(id: &str, folder: Option<(&str, &str)>) -> ChatServer {
         ChatServer {
