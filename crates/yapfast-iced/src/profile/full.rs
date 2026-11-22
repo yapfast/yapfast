@@ -530,6 +530,17 @@ fn board_tab<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> Ele
     board_cards(ctx, shown, inks, column![].spacing(12)).into()
 }
 
+/// A game's tag in sentence case, as Discord's pills: `looking_for_tips`
+/// reads "Looking for tips".
+pub(crate) fn game_tag(tag: &str) -> String {
+    let words = tag.replace('_', " ");
+    let mut letters = words.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
+}
+
 /// The board's widgets, each with its games, after what `list` holds.
 fn board_cards<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -559,6 +570,20 @@ fn board_cards<'a>(
             .spacing(2);
             if let Some(comment) = &game.comment {
                 words = words.push(text(comment.as_str()).size(12).color(inks.ink2));
+            }
+            // How they play it, in Discord's words, as small pills in
+            // sentence case.
+            if !game.tags.is_empty() {
+                let pill = inks.tile;
+                let mut tags = row![].spacing(4);
+                for tag in &game.tags {
+                    tags = tags.push(
+                        container(text(game_tag(tag)).size(11).color(inks.ink2))
+                            .padding([2, 6])
+                            .style(move |_| rounded(pill, 8)),
+                    );
+                }
+                words = words.push(tags.wrap().vertical_spacing(4));
             }
             card = card.push(
                 row![

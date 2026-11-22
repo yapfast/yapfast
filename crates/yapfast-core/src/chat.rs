@@ -1018,6 +1018,8 @@ pub struct ProfileGame {
     pub icon: Option<String>,
     /// What they said about it.
     pub comment: Option<String>,
+    /// How they play it, in Discord's words: `intermediate`, `obsessed`.
+    pub tags: Vec<String>,
 }
 
 /// Where a Discord wishlist is.

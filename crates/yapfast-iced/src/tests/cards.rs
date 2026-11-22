@@ -682,3 +682,47 @@ fn a_recent_game_shows_its_streak() {
     assert!(shows(&app, "Factorio"));
     assert!(shows(&app, "\u{26a1} 13x Streak"));
 }
+
+/// A game on the board shows how they play it, Discord's tags as pills in
+/// sentence case.
+#[test]
+fn a_board_games_tags_show_as_pills() {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::ProfileView,
+        chat::{Profile, ProfileGame, ProfileWidget},
+    };
+    assert_eq!(
+        crate::profile::full::game_tag("looking_for_tips"),
+        "Looking for tips"
+    );
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.profile = Some(Arc::new(ProfileView {
+            profile: Profile {
+                id: "123456789".into(),
+                name: "Zed".into(),
+                handle: "zed".into(),
+                widgets: vec![ProfileWidget {
+                    title: "Games in Rotation".into(),
+                    lists_games: true,
+                    games: vec![ProfileGame {
+                        id: "1".into(),
+                        name: "Factorio".into(),
+                        tags: vec!["obsessed".into(), "looking_for_tips".into()],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            large: true,
+            kept: true,
+            ..Default::default()
+        }));
+    });
+    app.profiles.tab = Some(crate::profile::look::Tab::Board);
+    let _ = app.sync();
+    assert!(shows(&app, "Factorio"));
+    assert!(shows(&app, "Obsessed") && shows(&app, "Looking for tips"));
+}

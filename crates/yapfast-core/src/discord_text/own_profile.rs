@@ -223,6 +223,7 @@ fn asked_widget(widget: &crate::chat::ProfileWidget) -> yapfast_discord::widgets
                 comment: None,
                 name: game.name.clone(),
                 icon: game.icon.clone(),
+                tags: game.tags.clone(),
             })
             .collect(),
     }
@@ -246,6 +247,7 @@ fn named_widget(
                 name: named.name,
                 icon: named.icon,
                 comment: game.comment,
+                tags: game.tags,
             })
             .collect(),
     }

@@ -757,6 +757,7 @@ pub(super) fn chat_profile(
                         name: game.name,
                         icon: game.icon,
                         comment: game.comment,
+                        tags: game.tags,
                     })
                     .collect(),
             })

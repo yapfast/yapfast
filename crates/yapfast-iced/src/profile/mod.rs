@@ -13,7 +13,7 @@ pub(crate) mod activity;
 pub mod body;
 mod cosmetic;
 pub mod editor;
-mod full;
+pub(crate) mod full;
 pub mod look;
 pub mod name_style;
 
