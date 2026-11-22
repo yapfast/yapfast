@@ -176,24 +176,32 @@ impl Frame {
     }
 }
 
-/// A handle's view of a stream's slot in the shared mapping. The slot is
-/// the UI's until it takes the next frame; the worker then gets it back as
-/// the middle slot and writes it only after its next frame, by which time
-/// the window draws the newer handle. `Shared::take` takes no frame while
-/// the last one hasn't reached the window. The mapping lives while any
-/// handle does.
+/// A handle's own copy of a stream's slot in the shared mapping, taken while the
+/// window held the file's view.
+///
+/// The slot is the UI's until it takes the next frame, but the *view* is not:
+/// the worker raises [`yapfast_core::frames`]'s release flag whenever it wants
+/// the file to itself — to give the room back after a share that went
+/// full-screen and came back to a tile, say — and the window then lets the view
+/// go after the take it is in. A handle that read the slot where it lay would be
+/// reading a mapping this process has since unmapped, which is a segfault in the
+/// drawing rather than a lost frame; `coredumpctl` has one: libyuv in
+/// `video::draw`, `SEGV_MAPERR`, just after the worker gave its room back.
+///
+/// Copying is what the CPU renderer's preview costs, and it is the only copy on
+/// this path: the picture is scaled from here, and a GPU renderer shows the
+/// worker's own picture instead ([`crate::gpu`]).
 struct SlotBytes {
-    _frames: Arc<Frames>,
+    /// The slot's pixels at the size the frame gave, copied.
+    pixels: Box<[u8]>,
+    /// The copy's address, which is what the renderer's hook knows this handle
+    /// by; a box's buffer keeps its place for as long as it lives.
     address: usize,
-    length: usize,
 }
 
 impl AsRef<[u8]> for SlotBytes {
     fn as_ref(&self) -> &[u8] {
-        // SAFETY: `address` and `length` are the slot `Frames::take` gave,
-        // inside the mapping `_frames` keeps open, and the worker doesn't
-        // write the slot while the window may still read it; see above.
-        unsafe { std::slice::from_raw_parts(self.address as *const u8, self.length) }
+        &self.pixels
     }
 }
 
@@ -473,13 +481,13 @@ fn mapped(frames: &Arc<Frames>, frame: yapfast_core::frames::Frame<'_>) -> Optio
             height,
             pixels,
         } => {
+            // Copied out of the mapping while the take still holds it: the view
+            // is let go as soon as the worker asks for the file, and the handle
+            // is drawn after that; see [`SlotBytes`].
+            let pixels: Box<[u8]> = Box::from(pixels);
             let address = pixels.as_ptr() as usize;
             register(address);
-            let bytes = SlotBytes {
-                _frames: frames.clone(),
-                address,
-                length: pixels.len(),
-            };
+            let bytes = SlotBytes { pixels, address };
             Some(Handle::from_rgba(
                 width,
                 height,
@@ -634,6 +642,12 @@ impl Shared {
         let mut waiting = self.waiting.lock().expect("video waiting");
         for (key, frames) in &sources.mapped {
             if waiting.contains(key) {
+                // The window holds this feed's picture and hasn't drawn it yet:
+                // a popup over the stream, a present that is late, a window the
+                // compositor isn't showing. The socket is drained anyway — a
+                // worker whose send fails gives the descriptors up for the rest
+                // of the stream, which is a preview that never comes back.
+                frames.drain_pictures();
                 self.skipped.store(true, Ordering::Relaxed);
                 continue;
             }

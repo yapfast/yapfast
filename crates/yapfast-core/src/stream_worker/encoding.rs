@@ -318,7 +318,10 @@ impl Encoding {
     ///
     /// `hdr` is the display's own answer about the screen, which only the card's
     /// own path reads: it is where the curve over HDR's codes runs.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a frame is the picture, where it came from, and the two clocks it is stamped with"
+    )]
     #[cfg(target_os = "linux")]
     pub(crate) fn encode_dmabuf(
         &mut self,

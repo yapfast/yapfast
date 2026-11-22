@@ -309,6 +309,8 @@ pub(super) fn import(
             return None;
         }
     };
+    // SAFETY: the plan is the picture's own numbers, as `layout` read them, and
+    // the picture was taken from its stream's socket: `texture`'s contract.
     let texture = match unsafe { texture(device, &plan) } {
         Ok(texture) => texture,
         Err(error) => {

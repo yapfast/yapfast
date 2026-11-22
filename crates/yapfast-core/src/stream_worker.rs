@@ -92,6 +92,10 @@ mod sink;
 mod watch;
 mod worker;
 
+// The card's rungs, which a Linux build carries only where a card's capture
+// does; its decision of which target a share is, `card_target`, is tested
+// everywhere.
+#[cfg(any(wgc, dup, test))]
 pub(crate) use card::*;
 pub(crate) use codec::*;
 

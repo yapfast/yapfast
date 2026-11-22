@@ -229,6 +229,21 @@ impl Frames {
         self.take_frame_timed(show).map(|(shown, _)| shown)
     }
 
+    /// Takes every picture the worker has sent since the last take, without
+    /// taking a picture out of its slot: what a window holding one it hasn't
+    /// drawn yet does, so that the socket keeps moving. A worker whose send
+    /// fails gives the descriptors up for the rest of the stream —
+    /// see [`crate::dmabuf::Sender`] — and a preview that waits a moment for its
+    /// frame is no reason for a stream to reach the window as pixels.
+    pub fn drain_pictures(&self) {
+        #[cfg(target_os = "linux")]
+        self.front
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .pictures
+            .drain();
+    }
+
     /// As [`Self::take_frame`], with when the frame shows in a video file.
     pub fn take_frame_timed<T>(&self, show: impl FnOnce(Frame<'_>) -> T) -> Option<(T, u64)> {
         let mut guard = self

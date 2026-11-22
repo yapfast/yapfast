@@ -1,6 +1,8 @@
 //! `stream_worker`'s linux.
 
-#[allow(unused_imports)]
+// The worker's own names, of which a capture names only the ones its build
+// carries.
+#[allow(unused_imports, reason = "each capture here names the names it needs")]
 use super::*;
 
 /// One way a Linux share captures a screen as the DMA-BUFs the compositor drew,

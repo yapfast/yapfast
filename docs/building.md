@@ -212,7 +212,7 @@ falls back to OpenGL, which the same archive carries, where one doesn't.
 ### Media libraries
 
 Three libraries decode and encode media, each for its own formats. The C
-files named here are in `crates/yapfast-core/native/`.
+files named here are in `crates/yapfast-media/native/`.
 
 - LiveKit's libwebrtc archive, `$LK_CUSTOM_WEBRTC` in the development shell,
   holds libvpx, dav1d, libyuv and Chromium's FFmpeg, which has H264 and

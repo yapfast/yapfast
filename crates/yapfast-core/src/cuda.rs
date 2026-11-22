@@ -81,7 +81,11 @@ unsafe extern "C" {
         v: *mut u8,
         v_stride: c_uint,
     ) -> c_int;
-    #[allow(clippy::too_many_arguments)]
+    // The C signature's parameters, in its order.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the shim's parameters, kept as the C function has them"
+    )]
     fn yapfast_cudaconvert_preview(
         convert: *mut c_void,
         width: c_uint,

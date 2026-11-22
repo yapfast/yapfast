@@ -1,5 +1,8 @@
 //! `stream_worker`'s card.
 
+// The worker's own names, which this rung's captures are written in; on Linux
+// outside tests nothing here is left to name them.
+#[cfg(any(wgc, dup, test))]
 use super::*;
 
 /// One rung of the card's capture path: a display's picture arriving as a

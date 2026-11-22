@@ -5,6 +5,10 @@ edition = "2024"
 rust-version = "1.97"
 publish = false
 license = "GPL-3.0-or-later"
+# `yapfast-core`'s build script reads the CUDA kernels' PTX from this package's
+# metadata: the kernels are compiled here, beside the C that launches them, and
+# core's `cuda` module embeds the same file instead of compiling it again.
+links = "yapfast-media"
 
 [features]
 default = []

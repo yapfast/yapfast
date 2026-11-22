@@ -234,9 +234,33 @@ fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imp
         #[cfg(windows)]
         Source::Shared(picture) => opened(import.device, import.layout, &video.frames, picture),
         #[cfg(target_os = "linux")]
-        Source::Dmabuf(picture) => linux::import(import.device, import.layout, picture)
-            .map(|bind_group| (bind_group, video.size().max(1)))
-            .ok_or_else(|| "the window's device can't import the picture".to_owned()),
+        Source::Dmabuf(picture) => {
+            // The one call a frame makes into the card, and the one a driver can
+            // hang in: what the log says before the window stops drawing is
+            // where it stopped, and a long import is said outright.
+            let (width, height) = (picture.width(), picture.height());
+            tracing::debug!(
+                width,
+                height,
+                "importing a stream's picture on the window's device"
+            );
+            let began = std::time::Instant::now();
+            let made = linux::import(import.device, import.layout, picture)
+                .map(|bind_group| (bind_group, video.size().max(1)))
+                .ok_or_else(|| "the window's device can't import the picture".to_owned());
+            let took = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if took >= SLOW_IMPORT_MS {
+                tracing::warn!(
+                    elapsed_ms = took,
+                    width,
+                    height,
+                    "a stream's picture took long to import on the window's device"
+                );
+            } else {
+                tracing::debug!(elapsed_ms = took, "imported a stream's picture");
+            }
+            made
+        }
     };
     // A picture this build can't show is refused once, so the worker sends
     // pixels from its next frame, and its slot goes back now rather than being
@@ -272,6 +296,11 @@ fn import(import: &iced_wgpu::video::Import<'_>) -> Option<iced_wgpu::video::Imp
 /// than a sentinel's one byte read as pixels.
 #[cfg(any(windows, target_os = "linux"))]
 static CLEAR: OnceLock<Arc<wgpu::BindGroup>> = OnceLock::new();
+
+/// How long an import may take before it is worth a line: a picture is a
+/// millimeter of work on the card, and seconds of it is a driver in trouble.
+#[cfg(target_os = "linux")]
+const SLOW_IMPORT_MS: u64 = 50;
 
 #[cfg(any(windows, target_os = "linux"))]
 fn transparent(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Arc<wgpu::BindGroup> {

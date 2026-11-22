@@ -355,7 +355,10 @@ pub(crate) fn watch(
             Worth::Unseen => continue,
         }
         // Only the Windows decode path below sets it.
-        #[cfg_attr(not(d3d11dec), allow(unused_mut))]
+        #[cfg_attr(
+            not(d3d11dec),
+            allow(unused_mut, reason = "only the Windows decoder's path writes it")
+        )]
         let mut abandoned = false;
         // The picture's own time on the stream, which the frames file carries to
         // the window: the sender's 90 kHz RTP clock in milliseconds, so a

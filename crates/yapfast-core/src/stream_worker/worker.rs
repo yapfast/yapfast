@@ -256,7 +256,7 @@ impl Worker {
                         tracing::warn!(
                             error = format!("{error:#}"),
                             "a stream whose pictures can't be shared as descriptors shows its pixels"
-                        )
+                        );
                     })
                     .ok()
             })
@@ -265,7 +265,13 @@ impl Worker {
         let _ = frames;
         // `mut` only where the closure is called directly: on Linux it is
         // handed to `inheriting`, which calls it, and the borrow is the same.
-        #[cfg_attr(target_os = "linux", allow(unused_mut))]
+        #[cfg_attr(
+            target_os = "linux",
+            allow(
+                unused_mut,
+                reason = "the Linux path hands it to `inheriting`, which calls it"
+            )
+        )]
         let mut spawning = || {
             command
                 .stdin(Stdio::piped())

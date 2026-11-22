@@ -166,7 +166,7 @@ Yapfast. Where Windows refuses process loopback, Yapfast shares without sound an
 logs why, as it does on Linux without a PulseAudio server.
 
 The stream's H264 goes to NVIDIA's NVENC, then AMD's AMF, through FFmpeg in
-`crates/yapfast-core/native/hwenc.c`, while "Encode streams with the GPU" is
+`crates/yapfast-media/native/hwenc.c`, while "Encode streams with the GPU" is
 on, and to x264 when neither opens or the setting is off. Intel graphics
 encode through Quick Sync, FFmpeg's `h264_qsv`, where this build carries it
 (through oneVPL), and with x264 where it doesn't: either way every frame is

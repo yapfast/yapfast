@@ -416,6 +416,11 @@ fn main() {
         match cuda_kernel() {
             Ok(ptx) => {
                 println!("cargo:rustc-env=YAPFAST_CUDA_PTX={}", ptx.display());
+                // The same path to `yapfast-core`, as `DEP_YAPFAST_MEDIA_PTX`:
+                // core's `cuda` module embeds these kernels, and reads them from
+                // here so that the .cu is compiled once, beside the C that
+                // launches it, and core carries the rung exactly where it built.
+                println!("cargo:ptx={}", ptx.display());
                 // native/cudaconvert.c is the import and the launch: the
                 // descriptor's memory as an EGLImage, that image as CUDA sees
                 // it, and the kernels above run into an NV12 buffer on the card.

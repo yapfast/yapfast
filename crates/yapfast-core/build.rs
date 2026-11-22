@@ -1,12 +1,15 @@
-//! Which of the card's own paths this build carries.
+//! Which of the card's own paths this crate carries.
 //!
-//! The shims those paths call are C, and they stay in `yapfast-core`'s
-//! `native/` for now, so this build script builds nothing: it only asks the
-//! same questions `yapfast-core`'s build script asks when it decides whether to
-//! build them, and sets the same cfgs, so that this crate's Rust and that
-//! crate's C are gated the same way. When `native/` moves below this crate the
-//! two scripts become one; until then the duplication is what keeps a build
-//! from compiling a path whose shim isn't there, or leaving one out whose is.
+//! The shims those paths call are C, and they live in `yapfast-media`'s
+//! `native/`, so this build script builds nothing: it only asks the questions
+//! `yapfast-media`'s build script asks when it decides whether to build them,
+//! and sets the same cfgs, so that this crate's Rust and that crate's C are
+//! gated the same way. The one answer it can't work out for itself is whether
+//! the CUDA kernels were made, since only that script compiles them: it comes
+//! back as `DEP_YAPFAST_MEDIA_PTX`, the PTX `cuda.rs` embeds. When `native/`
+//! moves beside this crate the two scripts become one; until then the
+//! duplication is what keeps a build from compiling a path whose shim isn't
+//! there, or leaving one out whose is.
 
 use std::{env, path::PathBuf, process::Command};
 
@@ -36,7 +39,7 @@ fn main() {
     // shims that read its headers — hwenc.c, hevc.c and the VA-API pair — are
     // built exactly where it did.
     let ffmpeg_built = env::var("DEP_FFMPEG_ENCODERS").as_deref() == Ok("1");
-    println!("cargo::warning=yapfast-media: ffmpeg encoders {ffmpeg_built}");
+    println!("cargo::warning=yapfast-core: ffmpeg encoders {ffmpeg_built}");
     println!("cargo::rerun-if-changed=build.rs");
     if target_os == "windows" {
         // Desktop Duplication is DXGI, D3D11 and D3DCompiler alone, which every
@@ -78,7 +81,7 @@ fn main() {
             return;
         };
         println!(
-            "cargo::warning=yapfast-media: vaapi decode {}, import {}, vpp {}",
+            "cargo::warning=yapfast-core: vaapi decode {}, import {}, vpp {}",
             vaapi_decode(&folders),
             vaapi_import(&folders),
             vaapi_vpp(&folders)
@@ -96,9 +99,13 @@ fn main() {
     if target_os == "linux" && discord {
         // NVIDIA's card converting a captured screen on the way to its
         // encoder: no toolkit is needed, only a clang that emits the PTX the
-        // driver loads, which is the same compiler `yapfast-core` builds it
-        // with.
-        if clang() {
+        // driver loads, which is a question `yapfast-media`'s build script
+        // answers by compiling it. Its answer arrives as the PTX's path, and
+        // the rung is carried exactly where that file was made: a compiler
+        // that can't do this leaves the module out instead of failing the
+        // build on kernels that aren't there.
+        if let Ok(ptx) = env::var("DEP_YAPFAST_MEDIA_PTX") {
+            println!("cargo::rustc-env=YAPFAST_CUDA_PTX={ptx}");
             println!("cargo::rustc-cfg=nvcuda");
         }
         // The driver's own NVDEC and oneVPL's decoder, both dlopened, so a
@@ -108,23 +115,6 @@ fn main() {
             println!("cargo::rustc-cfg=mfxdec");
         }
     }
-}
-
-/// Whether a clang is here, which is the only compiler that emits PTX and so
-/// the only thing standing between this build and the card's own converter.
-fn clang() -> bool {
-    let mut candidates = vec!["clang".to_owned()];
-    for key in ["YAPFAST_CUDA_CLANG", "CC", "CXX"] {
-        println!("cargo::rerun-if-env-changed={key}");
-        if let Ok(value) = env::var(key)
-            && !candidates.contains(&value)
-        {
-            candidates.push(value);
-        }
-    }
-    candidates
-        .iter()
-        .any(|clang| Command::new(clang).arg("--version").output().is_ok())
 }
 
 /// Whether the Windows SDK in this environment has the WinRT headers the

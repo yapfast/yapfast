@@ -17,7 +17,8 @@ fn a_worker_that_dies_says_how() {
         let worker = directory.path().join("worker");
         std::fs::write(&worker, format!("#!/bin/sh\nread job\n{script}\n")).unwrap();
         std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // Only this test starts a worker.
+        // SAFETY: only this test starts a worker, so nothing else reads the
+        // variable while it is set.
         unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
         let (worker, mut reports) = Worker::start(
             &Job::Glance {

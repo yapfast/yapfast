@@ -5,7 +5,13 @@ use super::*;
 // GLib's main context, as the portal's capture leaves it to be run: the same
 // GLib libwebrtc's capturer links, whose replies arrive there. GLib's own
 // `gboolean g_main_context_iteration(GMainContext *, gboolean)`.
+// libwebrtc asks the screen sharing portal over D-Bus through GIO, but
+// webrtc-sys only compiles against its headers: the libraries are named here,
+// where the symbol is called and the portal's are referenced.
 #[cfg(target_os = "linux")]
+#[link(name = "gio-2.0")]
+#[link(name = "gobject-2.0")]
+#[link(name = "glib-2.0")]
 unsafe extern "C" {
     fn g_main_context_iteration(context: *mut std::ffi::c_void, may_block: i32) -> i32;
 }
