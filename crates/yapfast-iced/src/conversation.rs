@@ -134,11 +134,18 @@ fn bounded_composer<'a>(
 }
 
 fn themed_composer(app: &App) -> Element<'_, Message> {
-    let composer = crate::theme_art::surface(
-        crate::composer::view(app.ctx()),
-        app.ctx(),
-        yapfast_core::themes::package::art::ArtSurface::Composer,
-    );
+    // The typing strip lies on the conversation, over the composer's
+    // own ground and art.
+    let (strip, rest) = crate::composer::parts(app.ctx());
+    let composer: Element<'_, Message> = column![
+        strip,
+        crate::theme_art::surface(
+            rest,
+            app.ctx(),
+            yapfast_core::themes::package::art::ArtSurface::Composer,
+        )
+    ]
+    .into();
     match status_line(app) {
         Some((line, true)) => column![line, composer].into(),
         Some((line, false)) => column![composer, line].into(),

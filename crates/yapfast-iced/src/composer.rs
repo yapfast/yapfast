@@ -825,7 +825,11 @@ pub fn composer_button(
     .into()
 }
 
-pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+/// The composer in two: the typing strip, and the rest under it (the
+/// bars, the box and the foot), each in the composer's gutters. A theme's
+/// composer ground lies under the rest alone, so the strip, as Discord's,
+/// has no ground of its own.
+pub fn parts<'a>(ctx: crate::ctx::Ctx<'a>) -> (Element<'a, Message>, Element<'a, Message>) {
     let look = composer_look(ctx);
     // The strip over it all, as Discord's: who else is typing, or why
     // this account can't send, and the slowmode's note.
@@ -848,7 +852,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .clip(true)
             .into()
     });
-    let mut compose = column![crate::typing::strip(ctx, hint, look.note)];
+    let gutter = ctx.look.theme.spacing().chat_padding.unwrap_or(GUTTER);
+    let strip = container(crate::typing::strip(ctx, hint, look.note))
+        .padding(Padding::ZERO.left(gutter).right(gutter))
+        .into();
+    let mut compose = column![];
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
@@ -861,10 +869,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             composer_box(ctx, &look)
         });
     }
-    let gutter = ctx.look.theme.spacing().chat_padding.unwrap_or(GUTTER);
-    container(compose.push(Space::new().height(gutter)))
+    let rest = container(compose.push(Space::new().height(gutter)))
         .padding(Padding::ZERO.left(gutter).right(gutter))
-        .into()
+        .into();
+    (strip, rest)
 }
 
 /// [`composer_button`] on a theme's key for `slot` (Bubblegum's candy
