@@ -62,7 +62,7 @@ impl Session {
                     Err(error) => return Some(wrong_payload(method, error)),
                     Ok(activity) => match activity.problems() {
                         Ok(()) => Ok(AppCall::SetPluginActivity {
-                            activity: Some(activity),
+                            activity: Some(Box::new(activity)),
                         }),
                         Err(message) => return Some(HostReturn::Error { message }),
                     },
@@ -278,9 +278,12 @@ impl Session {
                     Err(message) => return Some(HostReturn::Error { message }),
                 },
             },
-            call::method::AUDIO_SPEAK => request
-                .parse::<Speak>()
-                .map(|speak| AppCall::Speak { text: speak.text }),
+            call::method::AUDIO_SPEAK => request.parse::<Speak>().map(|speak| AppCall::Speak {
+                text: speak.text,
+                voice: speak.voice,
+                rate: speak.rate,
+                volume: speak.volume,
+            }),
             // The bytes are the plugin's and the folder is the person's: the
             // name is checked to be a name and no path, the bytes to fit one
             // frame, and the application asks where they go.

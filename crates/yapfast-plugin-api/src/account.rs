@@ -62,7 +62,8 @@ pub const SOUND_EVENTS: [&str; 12] = [
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActivitySet {
-    /// `playing`, `listening`, `watching` or `competing`; `playing` when left out.
+    /// `playing`, `streaming`, `listening`, `watching` or `competing`;
+    /// `playing` when left out. `streaming` needs `url`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     pub name: String,
@@ -87,6 +88,25 @@ pub struct ActivitySet {
     pub small_text: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub buttons: Vec<ActivityButton>,
+    /// The stream a `streaming` activity's Watch button opens: a Twitch or
+    /// YouTube address, the two Discord shows as streaming.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// The party it shows: `1 of 4`, and an id other activities can join on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub party: Option<ActivityParty>,
+}
+
+/// An activity's party (docs.discord.food, resources/presence, Activity Party
+/// Object).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActivityParty {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// How many are in it now, and how many it takes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<(u32, u32)>,
 }
 
 /// A button under an activity: its words and the page it opens.
@@ -104,19 +124,60 @@ impl ActivitySet {
     pub fn activity_type(&self) -> Result<u8, String> {
         match self.kind.as_deref().unwrap_or("playing") {
             "playing" => Ok(0),
+            "streaming" => Ok(1),
             "listening" => Ok(2),
             "watching" => Ok(3),
             "competing" => Ok(5),
             other => Err(format!(
-                "`{other}` isn't an activity a plugin shows: `playing`, `listening`, \
-                 `watching` or `competing`"
+                "`{other}` isn't an activity a plugin shows: `playing`, `streaming`, \
+                 `listening`, `watching` or `competing`"
             )),
         }
     }
 
     /// Everything wrong with it, as the plugin is told.
     pub fn problems(&self) -> Result<(), String> {
-        self.activity_type()?;
+        let kind = self.activity_type()?;
+        // Discord shows an activity as streaming only for a Twitch or YouTube
+        // address (docs.discord.food, Activity Object's `url`).
+        let streams = |url: &str| {
+            [
+                "https://twitch.tv/",
+                "https://www.twitch.tv/",
+                "https://youtube.com/",
+                "https://www.youtube.com/",
+            ]
+            .iter()
+            .any(|start| url.starts_with(start))
+        };
+        match (&self.url, kind) {
+            (Some(url), 1) if !streams(url) => {
+                return Err(
+                    "a streaming activity's `url` is a Twitch or YouTube address".to_owned(),
+                );
+            }
+            (None, 1) => {
+                return Err("a streaming activity needs the `url` of its stream".to_owned());
+            }
+            (Some(_), _) if kind != 1 => {
+                return Err("`url` is for a `streaming` activity".to_owned());
+            }
+            _ => {}
+        }
+        if let Some(party) = &self.party {
+            if let Some((now, most)) = party.size
+                && (now > most || most == 0)
+            {
+                return Err("a party's size is how many are in it of how many it takes".to_owned());
+            }
+            if party
+                .id
+                .as_ref()
+                .is_some_and(|id| id.is_empty() || id.len() > 128)
+            {
+                return Err("a party's id is 1 to 128 characters".to_owned());
+            }
+        }
         let name = self.name.trim();
         if name.is_empty() || name.chars().count() > ACTIVITY_NAME_CHARS {
             return Err(format!(
@@ -655,7 +716,29 @@ mod tests {
             kind: Some("streaming".into()),
             ..activity()
         };
-        assert!(streaming.problems().is_err());
+        assert!(streaming.problems().is_err(), "a stream needs its url");
+        let live = ActivitySet {
+            url: Some("https://www.twitch.tv/someone".into()),
+            ..streaming.clone()
+        };
+        assert_eq!(live.problems(), Ok(()));
+        assert_eq!(live.activity_type(), Ok(1));
+        let elsewhere = ActivitySet {
+            url: Some("https://example.com/live".into()),
+            ..streaming
+        };
+        assert!(
+            elsewhere.problems().is_err(),
+            "Discord streams Twitch and YouTube"
+        );
+        let party = ActivitySet {
+            party: Some(ActivityParty {
+                id: Some("lobby".into()),
+                size: Some((5, 4)),
+            }),
+            ..activity()
+        };
+        assert!(party.problems().is_err(), "five of four");
         let pictured = ActivitySet {
             large_image: Some("https://example.com/a.png".into()),
             ..activity()

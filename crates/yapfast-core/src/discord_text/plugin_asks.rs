@@ -38,7 +38,7 @@ pub(super) fn command(
         }
     };
     tokio::spawn(async move {
-        let answer = match ask {
+        let answer = match *ask {
             PluginAsk::Activity(activity) => {
                 let activity = activity.map(|activity| gateway_activity(*activity));
                 match discord.set_plugin_activity(activity).await {
@@ -113,6 +113,9 @@ pub(crate) fn gateway_activity(
             .into_iter()
             .map(|button| (button.label.trim().to_owned(), button.url))
             .collect(),
+        url: activity.url,
+        party_id: activity.party.as_ref().and_then(|party| party.id.clone()),
+        party_size: activity.party.and_then(|party| party.size),
     }
 }
 

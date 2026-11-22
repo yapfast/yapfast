@@ -96,7 +96,48 @@ pub fn play(data: Vec<u8>, volume: Option<u8>) -> Result<()> {
 /// The text is never handed to a shell: it is one argument of the program, or,
 /// where the program takes a script, a file the script reads. So nothing a
 /// plugin writes can become a command.
-pub fn speak(text: &str) -> Result<()> {
+/// How the words are said: a voice the system has, by name, a pace in percent
+/// of the system's own (50 to 200), and a loudness from 0 to 100.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Voice {
+    pub name: Option<String>,
+    pub rate: Option<u16>,
+    pub volume: Option<u8>,
+}
+
+impl Voice {
+    /// The voice's name, if it is one a speech program can be handed as one
+    /// argument: letters, digits, spaces, `-`, `_`, `.` and `+`, at most 64.
+    fn checked_name(&self) -> Result<Option<&str>> {
+        let Some(name) = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            return Ok(None);
+        };
+        if name.chars().count() > 64
+            || !name
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '+'))
+        {
+            bail!("`{name}` isn't the name of a voice");
+        }
+        Ok(Some(name))
+    }
+
+    /// The pace, held to half and twice the system's.
+    fn rate(&self) -> Option<u16> {
+        self.rate.map(|rate| rate.clamp(50, 200))
+    }
+
+    fn volume(&self) -> Option<u8> {
+        self.volume.map(|volume| volume.min(100))
+    }
+}
+
+pub fn speak(text: &str, voice: &Voice) -> Result<()> {
     let text = text.trim();
     if text.is_empty() {
         bail!("there is nothing to say");
@@ -104,7 +145,8 @@ pub fn speak(text: &str) -> Result<()> {
     if text.chars().count() > MAX_SPEECH_CHARS {
         bail!("speech is at most {MAX_SPEECH_CHARS} characters");
     }
-    let mut child = speech(format!("{text} "))?;
+    voice.checked_name()?;
+    let mut child = speech(format!("{text} "), voice)?;
     // Reaped by a thread, so no finished child is left behind and nothing here
     // waits on the one speaking.
     std::thread::Builder::new()
@@ -120,8 +162,28 @@ pub fn speak(text: &str) -> Result<()> {
 
 /// The OS's speech program, given the words to say.
 #[cfg(target_os = "linux")]
-fn speech(text: String) -> Result<std::process::Child> {
-    let started = Command::new("spd-say")
+fn speech(text: String, voice: &Voice) -> Result<std::process::Child> {
+    let mut command = Command::new("spd-say");
+    if let Some(name) = voice.checked_name()? {
+        command.arg("-y").arg(name);
+    }
+    // spd-say's pace and loudness run from -100 to 100, 0 being the default:
+    // twice as fast is 100, half as fast -100.
+    if let Some(rate) = voice.rate() {
+        let rate = i32::from(rate);
+        let scaled = if rate >= 100 {
+            rate - 100
+        } else {
+            (rate - 100) * 2
+        };
+        command.arg("-r").arg(scaled.to_string());
+    }
+    if let Some(volume) = voice.volume() {
+        command
+            .arg("-i")
+            .arg((i32::from(volume) * 2 - 100).to_string());
+    }
+    let started = command
         .arg("--")
         .arg(text)
         .stdin(Stdio::null())
@@ -133,8 +195,23 @@ fn speech(text: String) -> Result<std::process::Child> {
 }
 
 #[cfg(target_os = "macos")]
-fn speech(text: String) -> Result<std::process::Child> {
-    let started = Command::new("say")
+fn speech(text: String, voice: &Voice) -> Result<std::process::Child> {
+    let mut command = Command::new("say");
+    if let Some(name) = voice.checked_name()? {
+        command.arg("-v").arg(name);
+    }
+    // `say` paces in words a minute, about 175 by default.
+    if let Some(rate) = voice.rate() {
+        command
+            .arg("-r")
+            .arg((175 * u32::from(rate) / 100).to_string());
+    }
+    // Its loudness is an embedded command before the words.
+    let text = match voice.volume() {
+        Some(volume) => format!("[[volm {:.2}]] {text}", f32::from(volume) / 100.0),
+        None => text,
+    };
+    let started = command
         .arg(text)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -148,7 +225,7 @@ fn speech(text: String) -> Result<std::process::Child> {
 /// in a file the script reads, so nothing a plugin writes is ever parsed as
 /// part of it.
 #[cfg(target_os = "windows")]
-fn speech(text: String) -> Result<std::process::Child> {
+fn speech(text: String, voice: &Voice) -> Result<std::process::Child> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
@@ -157,10 +234,32 @@ fn speech(text: String) -> Result<std::process::Child> {
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::write(&path, text.as_bytes()).context("could not write the words to say")?;
+    // The voice, pace and loudness go as variables the script reads, so
+    // nothing a plugin chose is parsed as part of it. SAPI paces from -10 to
+    // 10, 0 being the default.
     const SCRIPT: &str = "Add-Type -AssemblyName System.Speech; $speech = New-Object \
-                          System.Speech.Synthesis.SpeechSynthesizer; $speech.Speak(\
-                          [IO.File]::ReadAllText($env:YAPFAST_SPEECH))";
-    let started = Command::new("powershell")
+                          System.Speech.Synthesis.SpeechSynthesizer; \
+                          if ($env:YAPFAST_VOICE) { $speech.SelectVoice($env:YAPFAST_VOICE) }; \
+                          if ($env:YAPFAST_RATE) { $speech.Rate = [int]$env:YAPFAST_RATE }; \
+                          if ($env:YAPFAST_VOLUME) { $speech.Volume = [int]$env:YAPFAST_VOLUME }; \
+                          $speech.Speak([IO.File]::ReadAllText($env:YAPFAST_SPEECH))";
+    let mut command = Command::new("powershell");
+    if let Some(name) = voice.checked_name()? {
+        command.env("YAPFAST_VOICE", name);
+    }
+    if let Some(rate) = voice.rate() {
+        let rate = i32::from(rate);
+        let scaled = if rate >= 100 {
+            (rate - 100) / 10
+        } else {
+            (rate - 100) / 5
+        };
+        command.env("YAPFAST_RATE", scaled.to_string());
+    }
+    if let Some(volume) = voice.volume() {
+        command.env("YAPFAST_VOLUME", volume.to_string());
+    }
+    let started = command
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
         .env("YAPFAST_SPEECH", &path)
         .stdin(Stdio::null())
@@ -175,7 +274,7 @@ fn speech(text: String) -> Result<std::process::Child> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn speech(_text: String) -> Result<std::process::Child> {
+fn speech(_text: String, _voice: &Voice) -> Result<std::process::Child> {
     bail!("this system has no speech Yapfast knows how to ask")
 }
 
@@ -364,7 +463,21 @@ mod tests {
         assert!(decode(b"not a sound").is_err());
         assert!(decode(b"RIFF....WAVE").is_err());
         assert!(decode(&wav_of(&[], 48_000)).is_err(), "no sound in it");
-        assert!(speak("   ").is_err());
-        assert!(speak(&"a".repeat(MAX_SPEECH_CHARS + 1)).is_err());
+        assert!(speak("   ", &Voice::default()).is_err());
+        assert!(speak(&"a".repeat(MAX_SPEECH_CHARS + 1), &Voice::default()).is_err());
+        let odd = Voice {
+            name: Some("en; rm -rf".into()),
+            ..Voice::default()
+        };
+        assert!(
+            speak("hi", &odd).is_err(),
+            "a voice is a name and never a command"
+        );
+        let paced = Voice {
+            rate: Some(900),
+            volume: Some(250),
+            ..Voice::default()
+        };
+        assert_eq!((paced.rate(), paced.volume()), (Some(200), Some(100)));
     }
 }

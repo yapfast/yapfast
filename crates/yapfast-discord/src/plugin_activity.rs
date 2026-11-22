@@ -35,6 +35,11 @@ pub struct PluginActivity {
     pub small_text: Option<String>,
     /// Labels and the pages they open, at most two.
     pub buttons: Vec<(String, String)>,
+    /// A streaming activity's stream.
+    pub url: Option<String>,
+    /// Its party's id, and how many are in it of how many.
+    pub party_id: Option<String>,
+    pub party_size: Option<(u32, u32)>,
 }
 
 impl PluginActivity {
@@ -44,6 +49,19 @@ impl PluginActivity {
         let mut out = json!({ "name": self.name, "type": self.kind });
         if let Some(id) = &self.application_id {
             out["application_id"] = json!(id);
+        }
+        if let Some(url) = &self.url {
+            out["url"] = json!(url);
+        }
+        if self.party_id.is_some() || self.party_size.is_some() {
+            let mut party = json!({});
+            if let Some(id) = &self.party_id {
+                party["id"] = json!(id);
+            }
+            if let Some((now, most)) = self.party_size {
+                party["size"] = json!([now, most]);
+            }
+            out["party"] = party;
         }
         for (key, value) in [("details", &self.details), ("state", &self.state)] {
             if let Some(value) = value {
@@ -180,6 +198,16 @@ mod tests {
         assert_eq!(shown["timestamps"]["start"], 5);
         assert!(shown.get("assets").is_none());
         assert_eq!(shown["buttons"], json!(["Site"]));
+        assert!(shown.get("party").is_none());
+        let streaming = PluginActivity {
+            kind: 1,
+            url: Some("https://twitch.tv/a".into()),
+            party_size: Some((1, 4)),
+            ..PluginActivity::default()
+        }
+        .to_gateway(None, None);
+        assert_eq!(streaming["url"], "https://twitch.tv/a");
+        assert_eq!(streaming["party"]["size"], json!([1, 4]));
         assert_eq!(
             shown["metadata"]["button_urls"],
             json!(["https://example.com"])

@@ -287,6 +287,11 @@ pub enum AppCall {
     /// Text for the OS's own speech.
     Speak {
         text: String,
+        voice: Option<String>,
+        /// Percent of the system's pace, 50 to 200.
+        rate: Option<u16>,
+        /// 0 to 100.
+        volume: Option<u8>,
     },
     /// A file for the person to save where they choose, in the system's save
     /// dialog: `files.save`. `name` is the one suggested, a file name already
@@ -299,7 +304,7 @@ pub enum AppCall {
     /// it away: `activity.set` and `activity.clear`. Already checked against
     /// Discord's limits.
     SetPluginActivity {
-        activity: Option<yapfast_plugin_api::account::ActivitySet>,
+        activity: Option<Box<yapfast_plugin_api::account::ActivitySet>>,
     },
     /// The account's bio, pronouns or custom status: `profile.set`, after the
     /// person allowed it the first time.

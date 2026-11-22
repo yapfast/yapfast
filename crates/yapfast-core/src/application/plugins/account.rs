@@ -54,7 +54,7 @@ impl Application {
                         .unwrap_or_else(|| plugin.to_string()),
                     name: activity.name.trim().to_owned(),
                 });
-                Some(PluginAsk::Activity(activity.map(Box::new)))
+                Some(PluginAsk::Activity(activity))
             }
             AppCall::SetProfile(profile) => {
                 // The custom status goes the way the person's own does; the
@@ -96,7 +96,7 @@ impl Application {
                 DiscordCommand::PluginAsk {
                     plugin: plugin.to_string(),
                     call,
-                    ask,
+                    ask: Box::new(ask),
                 },
             )));
         }
@@ -121,7 +121,7 @@ impl Application {
             DiscordCommand::PluginAsk {
                 plugin: String::new(),
                 call: 0,
-                ask: PluginAsk::Activity(None),
+                ask: Box::new(PluginAsk::Activity(None)),
             },
         )))
     }

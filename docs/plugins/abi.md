@@ -533,7 +533,7 @@ while nobody is there. Without one they answer `denied`.
 | Call | Payload | Answer | Does |
 | --- | --- | --- | --- |
 | `audio.play` | `{ sound_base64, volume? }` or `{ asset, volume? }` | `true` | Plays a sound file on the speakers, at `volume` percent: one the call carries, or one of the package's sound assets by name |
-| `audio.speak` | `{ text }` | `true` | Says up to 1000 characters in the OS's own voice |
+| `audio.speak` | `{ text, voice?, rate?, volume? }` | `true` | Says up to 1000 characters in the OS's speech: `voice` one of its voices by name (spd-say `-y`, `say -v`, SAPI `SelectVoice`), `rate` percent of its own pace from 50 to 200, `volume` 0 to 100 |
 | `assets.list` | none | `[{ name, kind, bytes }]` | The pictures and sounds the package carries; `kind` is `png`, `jpeg`, `gif`, `webp`, `wav`, `ogg` or `mp3` |
 | `assets.get` | `{ name }` | `{ name, kind, bytes, bytes_base64 }` | One of them, read from the store and checked again as it is read |
 
@@ -652,14 +652,14 @@ the services' own, and the sources).
 | Call | Payload | Answer |
 | --- | --- | --- |
 | `messages.attach` | `{ room, body, attachments }`, the same as `messages.send` | `true` |
-| `activity.set` | `{ name, kind?, details?, state?, start_ms?, end_ms?, application_id?, large_image?, large_text?, small_image?, small_text?, buttons? }` | `true` once Discord took its pictures |
+| `activity.set` | `{ name, kind?, details?, state?, start_ms?, end_ms?, application_id?, large_image?, large_text?, small_image?, small_text?, buttons?, url?, party?: { id?, size?: [now, most] } }`; `kind` is `playing`, `streaming` (with `url`, a Twitch or YouTube address, as Discord shows streams), `listening`, `watching` or `competing` | `true` once Discord took its pictures |
 | `activity.clear` | none | `true` |
 | `profile.set` | `{ bio?, pronouns?, custom_status?: { text, emoji? } }` | `true`; the first time it waits for the person's answer, `pending`, then goes on or is `denied` with their no |
 | `messages.search` | `{ place, query, offset? }` | `{ total, hits: [{ room, message, author, body, at }], indexing }` |
 | `drafts.list` | none | `[{ room, body }]` |
 | `account.sessions` | none | `[{ id_hash, last_used?, os?, platform?, location? }]` |
 | `relationships.affinities` | `{ of?: "users" \| "servers", detailed? }`, or none for the people | `{ users: [{ person, affinity, is_friend?, user_segment?, other_user_segment?, dm_probability?, dm_rank?, vc_probability?, vc_rank?, server_message_probability?, server_message_rank?, communication_probability?, communication_rank? }] }` or `{ servers: [{ server, affinity }] }`, highest first |
-| `spotify.now` | none | `{ playing, track?, artists, album?, uri?, duration_ms?, position_ms?, shuffle?, repeat?, volume?, device? }`, or `null` |
+| `spotify.now` | none | `{ playing, track?, artists, album?, album_art?, uri?, duration_ms?, position_ms?, shuffle?, repeat?, volume?, device? }`, or `null` |
 | `spotify.play`, `pause`, `next`, `previous` | none | `true` |
 | `spotify.seek` | `{ position_ms }` | `true` |
 | `spotify.volume` | `{ percent }`, 0 to 100 | `true` |

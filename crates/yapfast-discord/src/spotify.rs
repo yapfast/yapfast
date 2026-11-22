@@ -950,6 +950,18 @@ pub(crate) fn now_of(state: &Value, _now_ms: u64) -> Value {
     if let Some(album) = album {
         now["album"] = json!(album);
     }
+    // The cover, largest first as Spotify lists them: an episode's show has
+    // its own pictures.
+    let images = item["album"]["images"]
+        .as_array()
+        .or(item["images"].as_array())
+        .or(item["show"]["images"].as_array());
+    if let Some(art) = images
+        .and_then(|images| images.first())
+        .and_then(|image| image["url"].as_str())
+    {
+        now["album_art"] = json!(art);
+    }
     if let Some(fields) = now.as_object_mut() {
         fields.retain(|_, value| !value.is_null());
     }
@@ -973,6 +985,14 @@ pub fn now_of_activity(activity: Option<&Value>, now_ms: u64) -> Value {
             .unwrap_or_default(),
         "album": activity["assets"]["large_text"],
     });
+    // Discord's asset for a Spotify cover is `spotify:<image id>`, which is
+    // Spotify's image address after its prefix.
+    if let Some(cover) = activity["assets"]["large_image"]
+        .as_str()
+        .and_then(|asset| asset.strip_prefix("spotify:"))
+    {
+        now["album_art"] = json!(format!("{IMAGE}{cover}"));
+    }
     if let Some(id) = activity["sync_id"].as_str() {
         let kind = activity["metadata"]["type"].as_str().unwrap_or("track");
         now["uri"] = json!(format!("spotify:{kind}:{id}"));
@@ -1021,20 +1041,24 @@ mod control_tests {
         let state = json!({"is_playing": true, "progress_ms": 1000, "shuffle_state": false,
             "repeat_state": "off", "device": {"name": "Phone", "volume_percent": 40},
             "item": {"name": "Song", "uri": "spotify:track:1", "duration_ms": 3000,
-                     "artists": [{"name": "A"}, {"name": "B"}], "album": {"name": "Album"}}});
+                     "artists": [{"name": "A"}, {"name": "B"}], "album": {"name": "Album",
+                     "images": [{"url": "https://i.scdn.co/image/big"}, {"url": "https://i.scdn.co/image/small"}]}}});
         let now = now_of(&state, 0);
         assert_eq!(now["track"], "Song");
         assert_eq!(now["artists"], json!(["A", "B"]));
         assert_eq!(now["album"], "Album");
+        assert_eq!(now["album_art"], "https://i.scdn.co/image/big");
         assert_eq!(now["volume"], 40);
         assert_eq!(now_of(&Value::Null, 0), Value::Null);
         let activity = json!({"details": "Song", "state": "A; B", "sync_id": "1",
-            "timestamps": {"start": 1000, "end": 4000}, "assets": {"large_text": "Album"},
+            "timestamps": {"start": 1000, "end": 4000},
+            "assets": {"large_text": "Album", "large_image": "spotify:ab67"},
             "metadata": {"type": "track"}});
         let shared = now_of_activity(Some(&activity), 2000);
         assert_eq!(shared["uri"], "spotify:track:1");
         assert_eq!(shared["position_ms"], 1000);
         assert_eq!(shared["duration_ms"], 3000);
+        assert_eq!(shared["album_art"], "https://i.scdn.co/image/ab67");
         assert_eq!(now_of_activity(None, 0), json!({"playing": false}));
     }
 }

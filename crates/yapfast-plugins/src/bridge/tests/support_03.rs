@@ -186,6 +186,9 @@ pub(super) fn curated_actions()
             Some(Capability::AudioSpeak),
             AppCall::Speak {
                 text: "the build failed".into(),
+                voice: None,
+                rate: None,
+                volume: None,
             },
         ),
     ]

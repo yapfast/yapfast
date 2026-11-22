@@ -1351,7 +1351,7 @@ pub enum ManifestError {
 }
 
 /// The longest a manifest's description may be, in characters.
-pub const DESCRIPTION_CHARS: usize = 300;
+pub const DESCRIPTION_CHARS: usize = 2000;
 
 /// The longest one author's name may be, in characters.
 pub const AUTHOR_CHARS: usize = 64;

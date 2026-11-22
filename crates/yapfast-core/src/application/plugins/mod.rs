@@ -1318,19 +1318,20 @@ mod tests {
             plugin.clone(),
             5,
             AppCall::SetPluginActivity {
-                activity: Some(activity),
+                activity: Some(Box::new(activity)),
             },
         );
         let [
             AppEffect::Backend(Command::Discord(DiscordCommand::PluginAsk {
                 plugin: asked,
                 call: 5,
-                ask: PluginAsk::Activity(Some(_)),
+                ask,
             })),
         ] = effects.as_slice()
         else {
             panic!("one ask of the session");
         };
+        assert!(matches!(**ask, PluginAsk::Activity(Some(_))));
         assert_eq!(asked, plugin.as_str());
         assert_eq!(
             app.state
@@ -1345,11 +1346,8 @@ mod tests {
         assert!(matches!(
             gone,
             Some(AppEffect::Backend(Command::Discord(
-                DiscordCommand::PluginAsk {
-                    ask: PluginAsk::Activity(None),
-                    ..
-                }
-            )))
+                DiscordCommand::PluginAsk { ask, .. }
+            ))) if matches!(*ask, PluginAsk::Activity(None))
         ));
         assert!(app.state.plugin_activity.is_none());
         // Only the custom status: the status goes the person's way and the
@@ -2056,7 +2054,12 @@ mod tests {
 
         let (_, answer) = app.plugins_call(
             &plugin(),
-            crate::plugins::state::AppCall::Speak { text: "   ".into() },
+            crate::plugins::state::AppCall::Speak {
+                text: "   ".into(),
+                voice: None,
+                rate: None,
+                volume: None,
+            },
         );
         assert!(matches!(answer, HostReturn::Error { .. }));
     }

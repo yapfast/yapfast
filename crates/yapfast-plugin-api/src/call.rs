@@ -1144,6 +1144,15 @@ pub struct VoicePerson {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Speak {
     pub text: String,
+    /// A voice the system's speech has, by its name; the default otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    /// How fast, in percent of the system's own: 50 is half, 200 twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<u16>,
+    /// How loud, 0 to 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<u8>,
 }
 
 /// `media.get`: the bytes of an attachment, an avatar or an emoji Yapfast already

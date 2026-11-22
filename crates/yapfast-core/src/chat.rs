@@ -2837,7 +2837,7 @@ pub enum DiscordCommand {
     PluginAsk {
         plugin: String,
         call: u64,
-        ask: PluginAsk,
+        ask: Box<PluginAsk>,
     },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.

@@ -300,7 +300,19 @@ impl Application {
                     message: "this call is answered by Discord, later".to_owned(),
                 },
             ),
-            AppCall::Speak { text } => match crate::plugins::audio::speak(&text) {
+            AppCall::Speak {
+                text,
+                voice,
+                rate,
+                volume,
+            } => match crate::plugins::audio::speak(
+                &text,
+                &crate::plugins::audio::Voice {
+                    name: voice,
+                    rate,
+                    volume,
+                },
+            ) {
                 Ok(()) => (Vec::new(), done),
                 Err(error) => (
                     Vec::new(),

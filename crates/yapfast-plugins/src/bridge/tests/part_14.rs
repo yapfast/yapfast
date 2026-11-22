@@ -262,7 +262,7 @@ fn an_activity_search_sessions_drafts_and_spotify_reach_the_application() {
     // Discord's own limits are the only ones: a type that isn't a plugin's,
     // a picture with no application to take it, and a third button.
     for wrong in [
-        serde_json::json!({ "name": "Live", "kind": "streaming" }),
+        serde_json::json!({ "name": "Live", "kind": "streaming", "url": "https://example.com" }),
         serde_json::json!({ "name": "Art", "large_image": "https://example.com/a.png" }),
         serde_json::json!({ "name": "x".repeat(129) }),
     ] {
