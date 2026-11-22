@@ -1,5 +1,9 @@
 # Chat UI
 
+This guide describes shared chat behaviour and the current iced window.
+For the client modules, widgets and headless UI tests, start with
+[the client guide](client/README.md).
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and the window
 lays formatted text out itself (`crates/yapfast-iced/src/markdown.rs`).
@@ -708,9 +712,9 @@ The window follows Discord's arrangement:
 
 DM Sans (SIL Open Font License, embedded in the binary; see
 `crates/yapfast-iced-kit/fonts/README.md`) sets all text in four weights and
-an italic. The palette is layered graphite with one
-marigold accent for selection and primary actions, red only for mentions and
-destructive actions, and green only for live voice. Avatars get one of eight
+an italic. The default theme is Bonfire; Yap uses layered graphite with a
+marigold accent for selection and primary actions. See [themes](themes.md)
+for the built-in palettes and custom themes. Avatars get one of eight
 tints from the person's name.
 
 Network operations run on the existing two-worker Tokio runtime. The UI

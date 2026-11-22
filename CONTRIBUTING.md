@@ -11,9 +11,10 @@ don't build the same thing. A small fix can go straight to a pull request.
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
 flows from the window to `application/`.
 
-Nix is optional. `nix develop path:./nix` gives you the pinned toolchain and
-libraries. Without it, [Without Nix](README.md#without-nix) lists what Linux
-needs, and [Building](docs/building.md#windows) covers a native Windows build.
+On Linux, use `nix develop path:./nix` for the pinned toolchain and libraries,
+and run the Cargo commands below inside that shell. On Windows, use Cargo
+directly in PowerShell with the native prerequisites in
+[Building](docs/building.md#windows); Nix is not required.
 Build with the `fast` profile, and format before you check:
 
 ```sh
@@ -21,7 +22,7 @@ cargo build --locked --profile fast
 cargo fmt --all
 ```
 
-Run these once before you ask for a review:
+On Linux, run these once before you ask for a review:
 
 ```sh
 scripts/check --fast
@@ -39,13 +40,15 @@ Matrix shares.
 `crates/yapfast-discord`, `discord_text` or the fake; while you work, name the
 area you changed, as `scripts/test-fake-discord forum`.
 
-If you can't run a script (on Windows, say), run what you can of its steps by hand
-and say what you skipped in the pull request, so someone else can run it:
+On Windows, run the checks directly through Cargo. Say which additional
+checks you skipped in the pull request, so someone else can run them:
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --locked --profile fast --all-targets --workspace -- -D warnings
 cargo test --locked --profile fast --workspace
+cargo build --locked --profile fast --workspace
+cargo run --locked --profile fast -- --smoke-test
 ```
 
 For a Discord feature, follow
@@ -76,11 +79,18 @@ Yapfast you already have open. Add `YAPFAST_DISCORD_TEST_UNLINKED=1` to go throu
 linking an account against the fake. The comment at the top of
 `testing/fake_discord.ts` lists its options, such as `--servers 3` and `--dms 50`.
 
-With Nix, `scripts/ui-session` does the same on a private display, and adds
+In PowerShell, set the fake server before the Cargo command:
+
+```powershell
+$env:YAPFAST_DISCORD_TEST_SERVER = 'http://127.0.0.1:18400'
+cargo run --locked --profile fast -- --data-dir .local/fake-discord
+```
+
+On Linux, `scripts/ui-session` does the same on a private display, and adds
 screenshots and scripted input; run it with `--help`.
 
-A coding agent is fine. `AGENTS.md` gives it these commands and rules, and
-assumes Nix, so tell it if you don't use it. Read what it wrote and run the result
+A coding agent is fine. `AGENTS.md` gives it these commands and rules for
+native Cargo on Windows and Nix on Linux. Read what it wrote and run the result
 before you open the pull request.
 
 ## Memory and CPU
