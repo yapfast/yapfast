@@ -230,6 +230,9 @@ pub enum Icon {
     ArrowsUpDown,
     /// Left and right arrows: split view's Swap sides.
     ArrowsLeftRight,
+    /// A speech bubble's outline, in the line style of `Image` and
+    /// `History`: Mod View's Messages.
+    MessageCircleLine,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -399,6 +402,7 @@ impl Icon {
             Icon::Search => icon!("search.svg"),
             Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
             Icon::ArrowsLeftRight => icon!("arrows-left-right.svg"),
+            Icon::MessageCircleLine => icon!("message-circle-line.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),

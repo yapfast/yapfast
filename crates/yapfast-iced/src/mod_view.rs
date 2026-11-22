@@ -433,14 +433,14 @@ fn info<'a>(
         column![
             line(
                 cx,
-                Icon::MessageCircle,
+                Icon::MessageCircleLine,
                 "Messages",
                 messages,
                 messages_open.then(|| send(Event::Search(false)))
             ),
             line(
                 cx,
-                Icon::Link,
+                Icon::Chain,
                 "Links",
                 links,
                 links_open.then(|| send(Event::Search(true)))
