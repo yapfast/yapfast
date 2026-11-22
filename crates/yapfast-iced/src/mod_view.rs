@@ -373,19 +373,17 @@ fn info<'a>(
                     Kind::Plain,
                     Some(send(Event::Timeout))
                 )]
-                .spacing(4)
+                .spacing(6)
                 .align_y(Alignment::Center);
                 for (index, words) in QUICK.iter().enumerate().take(TIMEOUT_TIMES.len()) {
-                    quick = quick.push(action(
-                        theme,
-                        *words,
-                        Kind::Ghost,
-                        Some(send(Event::Quick(index))),
-                    ));
+                    // Small grounded buttons, so they read as buttons at rest.
+                    quick = quick.push(
+                        action(theme, *words, Kind::Plain, Some(send(Event::Quick(index)))).small(),
+                    );
                 }
                 column![
                     text("Time out for").size(12).color(theme.muted),
-                    quick.wrap()
+                    quick.wrap().vertical_spacing(6)
                 ]
                 .spacing(4)
                 .into()
