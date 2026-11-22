@@ -9,7 +9,7 @@ don't build the same thing. A small fix can go straight to a pull request.
 
 ### Lint and formatting
 
-Install [prek](https://prek.j178.dev/installation/) 0.5.2 or newer,
+Install [prek](https://prek.j178.dev/installation/) 0.5.11 or newer,
 then run the hooks from the repository root:
 
 ```sh
@@ -28,8 +28,8 @@ with `prek install -f`. If you use `core.hooksPath=.githooks`, the existing hook
 calls prek directly instead; no installation is needed.
 
 Tools are pinned in `prek.toml`; prek installs their isolated environments on
-the first run, including Node.js for Prettier. No project Python environment
-or npm install is needed.
+the first run for Ruff and clang-format. Other text and syntax checks are built
+into prek. No project Python environment or Node.js installation is needed.
 
 See [Code style](docs/code-style.md) for formatting rules, exclusions and commands.
 The configuration files linked there define the rules.
@@ -131,7 +131,7 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
 toolchain in `rust-toolchain.toml`. Strict Clippy and workspace tests run in
-parallel, each with its own cache. The formatting job (prek hooks and rustfmt)
+parallel, each with its own cache. The formatting job (prek, including rustfmt)
 and dependency job (cargo-audit and cargo-machete) are temporarily commented out
 until the dependency-update and formatting-baseline PRs are merged. The disabled
 audit command excludes the SQLite advisory `RUSTSEC-2026-0459`.

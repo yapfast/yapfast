@@ -1,118 +1,50 @@
 # Code style
 
-## Configuration
+| Files | Tool and configuration |
+| --- | --- |
+| Rust | rustfmt from [`rust-toolchain.toml`](../rust-toolchain.toml), standard settings |
+| Python, including shebang scripts | Ruff lint and format; [`ruff.toml`](../ruff.toml) |
+| C/C++ | clang-format; [`.clang-format`](../.clang-format) |
+| JSON, YAML, TOML, XML | Built-in prek syntax checks |
+| Markdown, JS/TS, HTML, CSS, shell, Nix, Slint | Built-in prek text checks only |
 
-| Scope                                  | Source                                          |
-| -------------------------------------- | ----------------------------------------------- |
-| Editor defaults                        | [`.editorconfig`](../.editorconfig)             |
-| Hooks, tool versions, Prettier options | [`prek.toml`](../prek.toml)                     |
-| C/C++                                  | [`.clang-format`](../.clang-format)             |
-| Python                                 | [`ruff.toml`](../ruff.toml)                     |
-| Rust toolchain                         | [`rust-toolchain.toml`](../rust-toolchain.toml) |
+[prek.toml](../prek.toml) defines the hooks and pinned tool versions. Prek manages
+cached tool environments for Ruff and clang-format. Rustfmt uses the installed
+Rust toolchain and checks formatting without changing files; other formatters apply changes.
+Built-in hooks check trailing whitespace, final newlines and merge conflicts.
 
-The configuration files define the rules. Keep this document in sync with changes to them.
+Built-in hooks enforce LF line endings (CRLF for `.bat` and `.cmd`) and a final
+newline. Markdown permits trailing spaces for hard line breaks. Indentation is
+handled by language formatters where configured; text checks do not enforce it.
+Editors can use `.clang-format` directly for the same C/C++ style as the hook.
 
-## Tool selection
-
-The primary goal is short local feedback cycles and low CI overhead. Prefer native tools,
-reuse prepared environments, and avoid running separate programs for overlapping checks.
-
-| Tool                                                         | Reason                                                                                                                                                                                       |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [prek](https://github.com/j178/prek)                         | Rust hook runner distributed as a single binary. Built-in text and syntax checks avoid separate Python hook processes. Cached tool environments avoid repeated installation.                 |
-| [ruff](https://github.com/astral-sh/ruff)                    | Native Rust implementation with caching. One tool provides Python lint, import sorting and formatting, replacing separate Flake8, isort and Black installations for the configured checks.   |
-| [clang-format](https://clang.llvm.org/docs/ClangFormat.html) | Native C/C++ formatter with configurable style. Formatting does not require compiling the application or resolving its native build dependencies.                                            |
-| [taplo](https://github.com/tamasfe/taplo)                    | Dedicated Rust TOML formatter. Handles manifests directly without adding a TOML plugin to the JavaScript toolchain.                                                                          |
-| [prettier](https://github.com/prettier/prettier)             | One formatter covers documentation, data and web files; the XML plugin covers XML. Chosen for format coverage and consistent output, with the cost of a Node.js environment managed by prek. |
-| [rustfmt](https://github.com/rust-lang/rustfmt)              | Standard Rust formatter supplied by the pinned toolchain. No additional Rust formatting dependency.                                                                                          |
-| [editor-config](https://editorconfig.org/)                   | Applies shared defaults in supporting editors. No additional hook command.                                                                                                                   |
-
-## Text files
-
-- UTF-8, LF, one final newline.
-- No trailing whitespace. Markdown permits two spaces for a hard line break.
-- Default indentation: four spaces.
-- Editor overrides for JSON/JSONC, YAML, XML, SVG, Markdown, JS/TS, Nix and shell:
-  tabs with a width of two columns. Formatters determine the final output;
-  YAML indentation uses spaces.
-- `.bat` and `.cmd` use CRLF.
-
-## Rust
-
-- Rust 2024 edition; standard rustfmt settings.
-- Format with `cargo fmt --all`.
-- The prek hook checks formatting without applying changes.
-- Build checks run Clippy with `-D warnings`.
-
-## C/C++
-
-- LLVM base style; four spaces; line width 120.
-- Opening braces stay on the declaration or control statement line.
-- Function bodies, loops and `if` bodies use multiple lines.
-- Indent `case` labels.
-- Attach pointer markers to the type: `Type* value`.
-- Sort includes with case-sensitive ordering.
-- clang-format handles layout. Native compilation checks semantics.
-
-## Python
-
-- Ruff lint and formatter; Python 3.15 target.
-- Four spaces; line width 100; double quotes.
-- Format code examples in docstrings.
-- Enabled lint families: `E`, `W`, `F`, `I`, `B` and `UP`, plus `PLW1510`.
-  These cover Python errors and warnings, undefined names, import sorting,
-  bug-prone patterns, syntax upgrades and explicit subprocess exit handling.
-- Automatic fixes run before formatting. Resolve remaining diagnostics manually.
-- Python shebang scripts are checked even without a `.py` extension.
-
-## Data, documentation and web files
-
-- TOML: Taplo, line width 100, preserve key order.
-- JSON, YAML, XML: syntax validation and Prettier.
-- Markdown, JavaScript/TypeScript, HTML and CSS: Prettier.
-- Prettier print width: 100; preserve prose wrapping; skip embedded code formatting.
-- XML: preserve significant whitespace with `xmlWhitespaceSensitivity=strict`.
-- Shell, Nix and Slint: general text checks only; no dedicated lint or format hook.
-
-## Scope
-
-- All hooks exclude `vendor/`, `target/`, `.local/`, `.venv/`, `node_modules/`,
-  `Cargo.lock`, `flake.lock`, patches, SVG files and font license files.
-- The copied Weston protocol under `testing/protocols/` is validated without reformatting.
-- Do not manually format generated or vendored files.
+Hooks exclude vendored and generated paths, lockfiles, patches, SVG files and font
+licenses as listed in `prek.toml`. Do not manually format generated or vendored files.
 
 ## Commands
 
-Setup: [Contributing — lint and formatting](../CONTRIBUTING.md#lint-and-formatting).
+See [Contributing](../CONTRIBUTING.md#lint-and-formatting) for setup.
 
 ```sh
-# Check and fix tracked files.
-prek run --all-files
-
-# Check specific files, including new files not yet tracked by Git.
+# Check and fix the files you changed.
 prek run --files path/to/file.py
 
-# Run one hook.
+# Run one hook across tracked files.
 prek run ruff-check --all-files
-
-# Apply Rust formatting.
-cargo fmt --all
 ```
 
-Inspect automatic changes and rerun until all hooks pass. A hook that modifies files
-returns a failure for that run.
+Inspect automatic changes and rerun until all hooks pass. A hook that modifies
+files fails that run. Apply Rust formatting with `cargo fmt --all` in the dev shell.
 
-## Formatting baseline and CI
+## CI
 
-This branch adds configuration without reformatting existing application code.
 The repository-wide formatting baseline is handled separately, so
-`prek run --all-files` may report existing violations and modify files unrelated
-to your change. Use `prek run --files` for focused checks and inspect all changes.
+`prek run --all-files` may modify unrelated files or report existing violations.
+Prefer focused checks while working.
 
-The formatting job (prek hooks and rustfmt) and dependency job (cargo-audit and
+The formatting job (prek, including rustfmt) and dependency job (cargo-audit and
 cargo-machete) in [CI](../.github/workflows/ci.yml) are temporarily commented out
 until the dependency-update and formatting-baseline PRs are merged. Active CI
-runs strict Clippy and workspace tests on Linux in parallel. It does not currently
-run the documentation link checker; run `scripts/check-doc-links` locally.
-The local `scripts/check --fast` also checks Rust formatting and documentation
-links, then runs Clippy, tests, a build and a smoke test.
+runs strict Clippy and workspace tests on Linux in parallel.
+Local `scripts/check --fast` also checks Rust formatting and documentation links,
+then runs Clippy, tests, a build and a smoke test.

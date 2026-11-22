@@ -1,24 +1,23 @@
-/target/
-/result/
-/inspirations/
-/.local/
-/.impeccable/review/
-__pycache__/
-.direnv/
+.idea/
+.vscode/
 .DS_Store
-node_modules/
+
+/.impeccable/review/
+/.local/
 .venv/
-.ruff_cache/
+.direnv/
+__pycache__/
+target/
 
 # Private working material, kept on this machine but out of the repository:
-# old plans and records (docs/archive), measurement data, experiments, the beta server's
-# deployment, and the design and product notes. scripts/warm-worktree copies
-# them into new worktrees.
+# scripts/warm-worktree copies these paths into new worktrees.
 /docs/archive/
 /docs/experiments/
 /docs/measurements/*
 !/docs/measurements/README.md
-/experiments/
-/deploy/
 /DESIGN.md
 /PRODUCT.md
+/deploy/
+/experiments/
+/inspirations/
+/result
