@@ -548,6 +548,7 @@ pub fn sidebar_in(
                             streaming: person.streaming,
                             video: person.video.is_some(),
                             elsewhere: false,
+                            ..Default::default()
                         })
                         .collect()
                 } else {

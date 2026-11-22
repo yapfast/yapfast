@@ -1525,7 +1525,7 @@ fn every_name_style_draws_a_name_that_shows() {
     assert!(missing.is_empty(), "names that don't show: {missing:?}");
 }
 
-/// The owner's own card, 2026-11-22: a light profile theme in the dark
+/// A card seen 2026-11-22: a light profile theme in the dark
 /// app, and a white display name style. The style takes the card's
 /// light ground, so the name is drawn dark enough to read; before, it
 /// was made for the app's dark ground and drawn white on white.
@@ -1568,4 +1568,35 @@ fn a_styled_name_on_a_light_profile_theme_reads_on_it() {
     // The card itself opens with its name drawn.
     let _ = app.update(Message::Status(crate::status::Event::Toggle));
     assert!(app.profiles.account.is_some());
+}
+
+/// Someone in a voice channel wears their server tag beside their name,
+/// as their member row does, and only while server tags show.
+#[test]
+fn someone_in_voice_wears_their_server_tag() {
+    use yapfast_core::chat::{NameStyle, ServerTag, VoicePerson};
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: "riley".into(),
+            name: "Riley".into(),
+            style: Some(Arc::new(NameStyle::new(3, 2, &[0xff00ff]))),
+            tag: Some(ServerTag {
+                text: "GUYS".into(),
+                badge: None,
+                guild: None,
+            }),
+            ..Default::default()
+        }];
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("coop".into())));
+    let _ = app.sync();
+    assert!(shows(&app, "Riley"), "Riley under Party");
+    assert!(shows(&app, "GUYS"), "with her server tag");
 }

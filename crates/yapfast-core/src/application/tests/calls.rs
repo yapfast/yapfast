@@ -800,6 +800,8 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         elsewhere: false,
         server_muted: false,
         server_deafened: false,
+        style: None,
+        tag: None,
     };
     let snapshot = |ringing: Vec<VoiceMember>, in_call: Vec<VoiceMember>| Snapshot {
         status: Status::Online,
@@ -892,6 +894,8 @@ fn do_not_disturb_shows_a_call_without_notifying() {
         elsewhere: false,
         server_muted: false,
         server_deafened: false,
+        style: None,
+        tag: None,
     };
     let mut app = Application::default();
     let effects = app.apply(discord_event(Snapshot {
