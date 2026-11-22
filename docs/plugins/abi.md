@@ -560,7 +560,7 @@ the services' own, and the sources).
 | `messages.attach` | `{ room, body, attachments }`, the same as `messages.send` | `true` |
 | `activity.set` | `{ name, kind?, details?, state?, start_ms?, end_ms?, application_id?, large_image?, large_text?, small_image?, small_text?, buttons? }` | `true` once Discord took its pictures |
 | `activity.clear` | none | `true` |
-| `profile.set` | `{ bio?, pronouns?, custom_status?: { text, emoji? } }` | `true`; `denied` the first time, while the person is asked |
+| `profile.set` | `{ bio?, pronouns?, custom_status?: { text, emoji? } }` | `true`; the first time it waits for the person's answer, `pending`, then goes on or is `denied` with their no |
 | `messages.search` | `{ place, query, offset? }` | `{ total, hits: [{ room, message, author, body, at }], indexing }` |
 | `drafts.list` | none | `[{ room, body }]` |
 | `account.sessions` | none | `[{ id_hash, last_used?, os?, platform?, location? }]` |

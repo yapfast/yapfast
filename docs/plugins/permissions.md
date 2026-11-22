@@ -374,7 +374,8 @@ pronouns (at most 40) with `PATCH /users/@me/profile`
 the request Yapfast's own profile editor makes, and the custom status the way
 the status menu sets it. It is asked about the first time each plugin uses it,
 in the dialog the powerful tier's first use opens, without waiting for that
-tier's switch; the plugin's page has Revoke for it.
+tier's switch, and the first call waits for the answer as the tier's do; the
+plugin's page has Revoke for it.
 
 **Search, drafts, devices.** `messages.search` is the search box's own search
 of a conversation or a server (Discord's page of 25), and Discord's search rate
