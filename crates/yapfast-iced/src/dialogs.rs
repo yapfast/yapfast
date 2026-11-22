@@ -44,6 +44,9 @@ pub enum Event {
     /// the picker, which leaves the question up.
     #[cfg(feature = "plugins")]
     PowerfulFolder(Option<std::path::PathBuf>),
+    /// One of the apps plugins offered the leaving link in, by its place.
+    #[cfg(feature = "plugins")]
+    OpenInApp(usize),
 }
 
 /// How long the site question waits for an answer before it denies: a
@@ -64,6 +67,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), crate::composer::refocus(app)])
         }
         Event::Leave(visit) => leave(app, visit),
+        #[cfg(feature = "plugins")]
+        Event::OpenInApp(index) => open_in_app(app, index),
         #[cfg(feature = "plugins")]
         Event::Consent { allow, remember } => answer_consent(app, allow, remember),
         #[cfg(feature = "plugins")]
@@ -409,7 +414,11 @@ pub fn leaving_view<'a>(
         Some(plugin) => format!("The plugin {plugin} wants to open a link that goes to"),
         None => "This link goes to".to_owned(),
     };
-    let body = column![
+    #[cfg(feature = "plugins")]
+    let offers = offers_view(link, cx);
+    #[cfg(not(feature = "plugins"))]
+    let offers: Option<Element<'a, Message>> = None;
+    let mut body = column![
         text("Leaving Yapfast")
             .size(18)
             .font(BOLD)
@@ -428,6 +437,13 @@ pub fn leaving_view<'a>(
         .padding([8, 10])
         .width(Length::Fill)
         .style(move |_| crate::style::rounded(sunken, 6)),
+    ]
+    .spacing(12)
+    .padding(20);
+    if let Some(offers) = offers {
+        body = body.push(offers);
+    }
+    let body = body.push(
         row![
             Space::new().width(Length::Fill),
             action(
@@ -444,9 +460,7 @@ pub fn leaving_view<'a>(
             ),
         ]
         .spacing(8),
-    ]
-    .spacing(12)
-    .padding(20);
+    );
     Some(dialog(
         theme,
         body.into(),
@@ -462,6 +476,67 @@ pub fn leave(app: &mut App, visit: bool) -> Task<Message> {
         && visit
     {
         crate::browser::open(&link);
+    }
+    #[cfg(feature = "plugins")]
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::LinkClosed,
+    ));
+    Task::none()
+}
+
+/// What plugins offered to open the leaving link in: a button each, its
+/// plugin's name under it, so the person sees whose app it is and still
+/// chooses. None until one has answered.
+#[cfg(feature = "plugins")]
+fn offers_view<'a>(link: &str, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let asked = cx
+        .state
+        .plugin_link
+        .as_ref()
+        .filter(|asked| asked.url == link)?;
+    if asked.offers.is_empty() {
+        return None;
+    }
+    let theme = cx.look.theme;
+    let mut offers = column![].spacing(6);
+    for (index, offer) in asked.offers.iter().enumerate() {
+        offers = offers.push(
+            row![
+                action(
+                    theme,
+                    offer.label.clone(),
+                    Kind::Plain,
+                    Some(Message::Dialog(Event::OpenInApp(index))),
+                ),
+                text(format!("Offered by the {} plugin", offer.name))
+                    .size(12)
+                    .color(theme.secondary),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        );
+    }
+    Some(offers.into())
+}
+
+/// Opens the leaving link in the app a plugin offered, which the person
+/// chose in the dialog.
+#[cfg(feature = "plugins")]
+fn open_in_app(app: &mut App, index: usize) -> Task<Message> {
+    let uri = app
+        .client
+        .state()
+        .plugin_link
+        .as_ref()
+        .and_then(|asked| asked.offers.get(index))
+        .map(|offer| offer.uri.clone());
+    if let Some(uri) = uri {
+        crate::browser::open(&uri);
+        app.leaving = None;
+        app.leaving_from = None;
+        app.client.dispatch(Action::Plugin(
+            yapfast_core::application::plugins::Action::LinkClosed,
+        ));
     }
     Task::none()
 }

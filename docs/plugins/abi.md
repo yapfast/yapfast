@@ -220,6 +220,19 @@ camera — and carries the call as `voice.state` answers it, below. A call that
 ended is `{ "room": null, "people": [] }`. Who is speaking is `speaking`'s, so a
 busy call doesn't resend the whole call four times a second.
 
+Three more are sent as they happen:
+
+| Event | Payload | Needs, and tapped where |
+| --- | --- | --- |
+| `startup_timing` | `{ "window_ms": …, "ready_ms": … }` | `app.timing`. Once a session, when Discord's gateway first says the account is online: milliseconds from the process starting to its window being built and to that moment, each `null` when it wasn't measured. Time spent signing in counts, so a start that waited on a person reads long |
+| `relationship_add` | `{ "person": … }` | `relationships.read`. The friends list Yapfast keeps from Discord's `RELATIONSHIP_ADD`, `UPDATE` and `REMOVE` (`yapfast-discord/src/service/tracker.rs`), once per person who became a friend, an accepted request included |
+| `relationship_remove` | `{ "person": …, "was": "friend"\|"request" }` | The same lists, once per friend or request that went |
+| `relationship_request` | `{ "person": …, "incoming": true\|false }` | The same lists, once per friend request that arrived or was sent |
+
+The relationship events compare the friends list and the requests when the
+people lists change, and nothing while no plugin listens; the first read after a
+plugin starts listening says nothing, as the member list's does.
+
 `member_join` and `member_leave` read the member list Yapfast holds for the
 conversation on screen: in a DM, a group or a small server that is everyone in
 it, and in a large server it is the part of the list Discord has sent, so a
@@ -252,6 +265,30 @@ from any other it is the fail-open answer and the message goes as it was.
   "subject": { "attachment": { "room": "room-1", "name": "cat.JPG", "bytes": 2048,
                                "content_type": "image/jpeg" } } }
 ```
+
+Two hooks are asked by the interface, and neither can stop anything:
+
+```json
+{ "hook": "link_open",
+  "subject": { "link": { "url": "https://open.spotify.com/track/1" } } }
+{ "hook": "switcher_rank",
+  "subject": { "switcher": { "query": "ge", "places": [
+      { "id": "d:1/2", "name": "general", "kind": "channel" },
+      { "id": "d:dm/3", "name": "Ann", "kind": "dm" } ] } } }
+```
+
+`link_open` is asked when the person clicks a web link on a host the plugin's
+`link-hosts` lists, each such plugin on its own, with 50 ms each and 150 ms in
+all: the answer is `changed` with the same `url` and an `offer`, `{ "label":
+"Open in Spotify", "uri": "spotify:track:1" }`, whose words are 1 to 32
+characters on one line and whose scheme the manifest's `schemes` lists. The
+leaving dialog shows at once and the offer joins it beside Visit site, under the
+plugin's name; an offer about another link, or later than that, isn't shown.
+`switcher_rank` is asked of the first plugin with `switcher.rank` for each
+search, with the first 50 places in Yapfast's order: the answer is `changed`
+with the same `query` and the places in its own order, any left out being
+hidden. One that adds a place or names one twice is ignored, and the list keeps
+Yapfast's order until the answer comes, within 60 ms.
 
 An indicator has nothing to change, so `changed` is refused for it: a plugin
 either lets it go or, with `typing.intercept`, withholds it with `block`. A file
@@ -465,6 +502,7 @@ answer says the voice was asked to speak, not that it finished.
 | --- | --- | --- | --- |
 | `voice.state` | none | `VoiceView`, or `null` outside a call | `voice.read` |
 | `files.save` | `{ name, text }` or `{ name, bytes_base64 }` | `pending`, then `{ saved, name? }` | `files.save`, and a recent user gesture |
+| `window.set_title` | `{ suffix }`, or `{}` to take it away | `true` | `window.title` |
 
 `voice.state` is the call as the call panel shows it, and nothing the panel
 doesn't: the room and its name, the server, the phase (`joining`, `connected` or
@@ -473,6 +511,11 @@ whose stream it `watching`, and `people`, at most 99, each with `id`, `own`,
 `muted`, `deafened`, `server_muted`, `speaking`, `streaming` and `video`. It is
 read-only: nothing in it mutes, moves or hears anyone, and no audio, picture or
 device leaves through it. The `voice_state` event carries the same object.
+
+`window.set_title` puts up to 32 characters on one line after the window's
+title, after a dot: *(3) Yapfast · ready in 1.2 s*. One plugin's words show at
+a time, the first to set them keeping the title until it takes them away or
+stops.
 
 `files.save` hands the person a file. The parent writes it, never the plugin: the
 system's save dialog opens titled *Save a file for* and the plugin's name, with
@@ -489,8 +532,8 @@ is laid out. Nothing else in the API writes outside the plugin's own storage.
 ### The powerful tier's calls
 
 Each needs its capability, the switch in Advanced and the person's first-use
-answer ([permissions](permissions.md#the-powerful-tier)); before the answer the
-call is `denied` saying the person is being asked.
+answer ([permissions](permissions.md#the-powerful-tier)); the first use waits
+for that answer and then goes on, or is `denied` with the person's no.
 
 | Call | Payload | Answer |
 | --- | --- | --- |
@@ -501,6 +544,9 @@ call is `denied` saying the person is being asked.
 | `fs.thumbnail` | `{ path, size? }` | `{ width, height, png_base64 }`, the longer side at most 256 px, from a picture of at most 32 MiB, decoded off every thread a person waits on |
 | `net.listen` | none | `{ listening, port, url }`, then one more answer per request: `{ request, method, path, headers, body_base64 }` |
 | `net.respond` | `{ request, status?, headers?, text \| body_base64 }` | `true`, or an `error` for a request no longer waiting |
+| `net.connect` | `{ host, port, tls?, websocket? }` | `pending`, then one answer per piece of news: `{ news: "connected", socket, address }`, `{ news: "data", socket, data_base64 }`, `{ news: "text", socket, text }` and last `{ news: "closed", socket, reason }` |
+| `net.send` | `{ socket, text \| data_base64 }` | `true`, or an `error` for a connection that closed |
+| `net.close` | `{ socket }` | `true`; the `closed` news follows |
 
 ### The account's own calls
 

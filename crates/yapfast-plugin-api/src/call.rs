@@ -100,6 +100,14 @@ pub mod method {
     pub const FS_THUMBNAIL: &str = "fs.thumbnail";
     pub const NET_LISTEN: &str = "net.listen";
     pub const NET_RESPOND: &str = "net.respond";
+    // `net.socket`, powerful too: a raw TCP or WebSocket connection out, whose
+    // data arrives as further answers to `net.connect`.
+    pub const NET_CONNECT: &str = "net.connect";
+    pub const NET_SEND: &str = "net.send";
+    pub const NET_CLOSE: &str = "net.close";
+
+    // A few words after the window's title: `window.title`.
+    pub const WINDOW_SET_TITLE: &str = "window.set_title";
 
     // Sending a plugin's own files, the account's own activity and profile,
     // the reads of search, drafts and sessions, and the linked Spotify. Each
@@ -128,7 +136,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 84] = [
+    pub const ALL: [&str; 88] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -197,6 +205,10 @@ pub mod method {
         FS_THUMBNAIL,
         NET_LISTEN,
         NET_RESPOND,
+        NET_CONNECT,
+        NET_SEND,
+        NET_CLOSE,
+        WINDOW_SET_TITLE,
         MESSAGES_ATTACH,
         ACTIVITY_SET,
         ACTIVITY_CLEAR,
@@ -615,6 +627,65 @@ impl Respond {
     fn ok() -> u16 {
         200
     }
+}
+
+/// `net.connect`: a raw connection out, under `net.socket`.
+///
+/// `tls` wraps it in TLS, checked against the system's roots for `host`;
+/// `websocket` makes it a WebSocket at that path (`/` and what follows), over
+/// `wss` with `tls` and `ws` without. The first answer says it connected,
+/// and every answer after it is a [`SocketNews`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetConnect {
+    pub host: String,
+    pub port: u16,
+    #[serde(default)]
+    pub tls: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub websocket: Option<String>,
+}
+
+/// `net.send`: bytes, or a WebSocket's text, for one open connection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetSend {
+    pub socket: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_base64: Option<String>,
+}
+
+/// `net.close`: one connection, closed from the plugin's side.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetClose {
+    pub socket: u64,
+}
+
+/// What a connection tells its plugin, as one more answer to `net.connect`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "news")]
+pub enum SocketNews {
+    /// It is open, to this address.
+    Connected { socket: u64, address: String },
+    /// Bytes arrived, or for a WebSocket, a binary message.
+    Data { socket: u64, data_base64: String },
+    /// A WebSocket's text message.
+    Text { socket: u64, text: String },
+    /// It is closed, and why: the far end, the plugin, a limit or Yapfast.
+    Closed { socket: u64, reason: String },
+}
+
+/// `window.set_title`: the few words after the window's title, or none to take
+/// them away.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowTitle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suffix: Option<String>,
+}
+
+impl WindowTitle {
+    /// The most characters a plugin adds to the title.
+    pub const MAX_SUFFIX: usize = 32;
 }
 
 /// `messages.edit`: a message of the open room, with what it should say.

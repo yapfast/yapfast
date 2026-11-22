@@ -60,6 +60,75 @@ pub struct PluginState {
     /// Who the open room's member list held, for `member_join` and
     /// `member_leave`.
     roster: crate::plugins::presence::Roster,
+    /// Pictures from the web plugins' drawings show, by plugin and address.
+    pub web_pictures: WebPictures,
+}
+
+/// What a picture from the web is while a drawing shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WebPictureState {
+    /// Asked for; the cell shows its placeholder.
+    Loading,
+    Ready(Arc<yapfast_plugins::web_picture::WebPicture>),
+    /// It couldn't be fetched or read; the cell shows its words.
+    Failed,
+}
+
+/// The pictures from the web, least recently arrived going first past
+/// [`WebPictures::KEPT`], so a plugin that cycles through addresses can't
+/// fill Yapfast's memory.
+#[derive(Default)]
+pub struct WebPictures {
+    kept: BTreeMap<(String, String), WebPictureState>,
+    order: std::collections::VecDeque<(String, String)>,
+    /// Counts arrivals, so the window knows to read them again.
+    pub changes: u64,
+}
+
+impl WebPictures {
+    /// How many are kept: each is at most 512 px a side, a megabyte.
+    pub const KEPT: usize = 48;
+
+    pub fn get(&self, plugin: &str, url: &str) -> Option<&WebPictureState> {
+        self.kept.get(&(plugin.to_owned(), url.to_owned()))
+    }
+
+    /// Notes one asked for; false when it already was.
+    pub fn ask(&mut self, plugin: &str, url: &str) -> bool {
+        let key = (plugin.to_owned(), url.to_owned());
+        if self.kept.contains_key(&key) {
+            return false;
+        }
+        self.keep(key, WebPictureState::Loading);
+        true
+    }
+
+    /// One arrived, or failed.
+    pub fn arrived(&mut self, plugin: &str, url: &str, state: WebPictureState) {
+        let key = (plugin.to_owned(), url.to_owned());
+        if !self.kept.contains_key(&key) {
+            return;
+        }
+        self.kept.insert(key, state);
+        self.changes = self.changes.wrapping_add(1);
+    }
+
+    /// Forgets one plugin's, as it stops drawing.
+    pub fn forget(&mut self, plugin: &str) {
+        self.kept.retain(|(owner, _), _| owner != plugin);
+        self.order.retain(|(owner, _)| owner != plugin);
+        self.changes = self.changes.wrapping_add(1);
+    }
+
+    fn keep(&mut self, key: (String, String), state: WebPictureState) {
+        while self.order.len() >= Self::KEPT {
+            if let Some(old) = self.order.pop_front() {
+                self.kept.remove(&old);
+            }
+        }
+        self.order.push_back(key.clone());
+        self.kept.insert(key, state);
+    }
 }
 
 impl PluginState {
@@ -118,6 +187,7 @@ impl PluginState {
             code_blocks: crate::plugins::code_block::CodeBlocks::default(),
             presences: crate::plugins::presence::Presences::default(),
             roster: crate::plugins::presence::Roster::default(),
+            web_pictures: WebPictures::default(),
         })
     }
 
@@ -186,6 +256,39 @@ impl PluginState {
     /// Turns the switch in Advanced on or off.
     pub fn set_powerful_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
         self.bridge.set_powerful_enabled(enabled)
+    }
+
+    /// Asks the plugins that offer to open links on this one's host; the ids
+    /// their offers come back under.
+    pub fn link_open(&mut self, url: &str) -> Vec<u64> {
+        self.bridge.link_open(url)
+    }
+
+    /// Asks for the pictures from the web these drawings show that nobody has
+    /// asked for yet.
+    pub fn want_pictures(&mut self, wanted: &[(String, String)]) {
+        for (plugin, url) in wanted {
+            if !self.web_pictures.ask(plugin, url) {
+                continue;
+            }
+            let asked = PluginId::parse(plugin)
+                .ok()
+                .is_some_and(|id| self.bridge.web_picture(&id, url));
+            if !asked {
+                self.web_pictures
+                    .arrived(plugin, url, WebPictureState::Failed);
+            }
+        }
+    }
+
+    /// Whether an enabled plugin ranks the quick switcher.
+    pub fn ranks_switcher(&self) -> bool {
+        self.bridge.ranks_switcher()
+    }
+
+    /// Asks it about what the switcher found.
+    pub fn switcher_rank(&mut self, pending: yapfast_plugin_api::hook::SwitcherPending) -> bool {
+        self.bridge.switcher_rank(pending)
     }
 
     /// The person's answer to a powerful capability's first-use dialog.

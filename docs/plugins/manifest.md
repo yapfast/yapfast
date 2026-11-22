@@ -85,6 +85,22 @@ path, or one that climbs out with `..`, is refused before anything is read, and
 so is an empty one; `./plugin.wasm` is the same file as `plugin.wasm` and is
 allowed.
 
+## Permissions' other fields
+
+Beside `capabilities` and `network`, `permissions` has a field for each
+capability that needs to say what it reaches, and each is refused without its
+capability ([what validation refuses](#what-validation-refuses)):
+
+| Field | With | Says |
+| --- | --- | --- |
+| `local-port` | `network.local` | The one loopback port it may fetch from |
+| `schemes` | `open.app`, `links.offer` | The URI schemes it opens, such as `spotify` |
+| `link-hosts` | `links.offer` | The hosts whose links it is asked about, as `network` writes hosts; a link anywhere else never reaches it |
+| `files` | `fs.folder`, `fs.full` | `write`, and for `fs.full` a `scope` of `home` or `disk` |
+| `listen-port` | `net.listen` | The loopback port it serves on, 1024 up |
+| `agent-per-minute` | `messages.send.agent` | Its sends a minute without a keystroke, 1 to 20 |
+| `socket-local` | `net.socket` | `true` lets its connections reach this computer and its network, which the red install box then says |
+
 ## Assets
 
 A plugin may carry its own pictures and sounds, the way a theme package carries
@@ -403,6 +419,9 @@ in the window changes.
 | Memory outside the range | `memory_pages` is below 32 or above 1024 |
 | A quota too high | `http_response_bytes` or `storage_bytes` is above the most consent may allow |
 | A port without its capability | `local-port` is set and `network.local` isn't declared |
+| Link hosts without their capability | `link-hosts` is set and `links.offer` isn't declared, or `links.offer` is declared without `link-hosts` and `schemes` |
+| Loopback sockets without their capability | `socket-local` is set and `net.socket` isn't declared |
+| Web pictures from nowhere | `images.web` is declared and `network` lists no host |
 | A command with nothing to say | Its name is empty, or its description is an empty string |
 | A label that won't show | A menu row's, rail item's, header button's or `ui` row's label is empty, over 64 characters, or carries a control character |
 | An action that isn't a name | A menu row's or button's `action`, or a `ui` row's `row` and anchor, isn't letters, digits, `-`, `_` and `.` |

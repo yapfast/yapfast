@@ -191,13 +191,17 @@ plugin that has never been activated still appears:
   so a point a manifest sets is refused as one this Yapfast doesn't have.
 
 Once it is running it can subscribe to events — messages, reactions, typing,
-presence, the member list's comings and goings, the conversation changing, the
-call and who speaks in it — and answer with data to draw: a line under a
+presence, the member list's comings and goings, friends added and removed and
+friend requests, the conversation changing, the call and who speaks in it, and
+how long this start took — and answer with data to draw: a line under a
 message, styles over its words, a card below it, or a tree inside a slot the
 interface offers ([the interface](interface.md#decorating-messages)). It can
 play its own sounds, show its own pictures and turn one into an emoji, all from
 its package's assets ([the manifest](manifest.md#assets)), read the call it is
-in, and hand the person a file to save where they choose. The interface is
+in, and hand the person a file to save where they choose. It can offer to open
+a link the person clicks in an app, beside the leaving dialog's Visit site;
+reorder or filter the quick switcher; add a few words to the window's title;
+and show pictures from the sites it lists. The interface is
 compiled, so a plugin adds no widget; it sends a tree and Yapfast's own
 components draw it.
 
@@ -218,7 +222,8 @@ raw authenticated request, no direct socket and no filesystem; network access is
 one gated HTTPS fetch to the hosts its manifest names, and nothing else, unless
 the person allows a powerful permission, which the parent then carries out on
 the plugin's behalf: files in one folder, HTTPS past the listed hosts, and a
-loopback endpoint ([the powerful tier](permissions.md#the-powerful-tier)). It can't
+loopback endpoint, and raw TCP and WebSocket connections out
+([the powerful tier](permissions.md#the-powerful-tier)). It can't
 answer with a shape the ABI doesn't define, and a host method this build doesn't
 have answers `unsupported`, so a plugin feature-detects instead of failing to
 load.
@@ -290,24 +295,27 @@ Beyond those, every method the ABI names is answered: `storage`, `settings`,
 `set_custom_status`, `set_activity`, `clear_activity`, `mark_read`, `set_mute`,
 `open_room`, `start_reply`, `start_edit`, `reactors`, `pause_invites`,
 `add_emoji`, `add_sticker`), `audio.play` and `audio.speak`, `voice.state`,
-`files.save`, `assets.list` and `assets.get`, and the hooks' answers,
+`files.save`, `assets.list` and `assets.get`, `window.set_title`, the powerful
+tier's `fs`, `net.listen`, `net.respond`, `net.connect`, `net.send` and
+`net.close`, and the hooks' answers,
 `messages.retain` and `identity.decorate`. A method this build doesn't have
 answers `unsupported`, which is what a plugin feature-detects on.
 
 What the API doesn't have is the rest of the abilities Yapfast could offer a
-plugin: providers, local reach, keybinds, more menu targets and widgets,
-attachments out (`messages.send` with bytes, which waits on the chunked frames
-above), and the changes to built-in UI beyond the part hides and the colour and
-size overlay. The `image` widget that would draw a picture asset inside a tree
-is the interface's to add; a plugin can read its pictures with `assets.get` and
-make one an emoji today.
+plugin: providers, keybinds, more menu targets and widgets, and attachments out
+(`messages.send` with bytes, which waits on the chunked frames above). Every
+change to built-in UI a manifest can name is applied: hidden and replaced
+parts, hidden, relabelled and moved menu rows, the colours and every size. An
+`image` cell draws a picture asset, or a picture from one of the hosts the
+manifest lists, fetched through the gate.
 `microphone` waits on a stage in the voice pipeline with a real-time lane of its
 own, a budget in microseconds and a kill switch the audio thread never waits on;
 [`audio-processing.md`](audio-processing.md) is the design, and nothing in this
 build hears the microphone for a plugin.
 
-The hooks are `message.pre_send`, `message.pre_edit`, `typing.pre_send` and
-`attachment.pre_upload`; `message.decorate` draws through `yf_decorate`,
+The hooks are `message.pre_send`, `message.pre_edit`, `typing.pre_send`,
+`attachment.pre_upload`, and the two the interface asks, `link_open` and
+`switcher_rank`; `message.decorate` draws through `yf_decorate`,
 `identity.decorate` answers through `yf_identity` once per (person, server), and
 `code_block.render` through `yf_code_block` once per block — and a plugin's
 colours for a block are kept, though nothing draws them yet.

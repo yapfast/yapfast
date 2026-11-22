@@ -242,6 +242,7 @@ impl App {
     }
 
     pub fn new(client: Client, size: (u32, u32)) -> (Self, Task<Message>) {
+        yapfast_core::startup::window();
         // No test reaches the speakers or the microphone.
         #[cfg(test)]
         yapfast_core::silence_audio();

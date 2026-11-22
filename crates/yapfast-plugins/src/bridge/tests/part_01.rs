@@ -117,6 +117,7 @@ fn a_held_send_loads_the_chain_and_goes_out_with_its_answer() {
         hook: HookKind::MessagePreSend,
         chain: vec![plugin.clone()],
         deadline: Instant::now() + Duration::from_millis(100),
+        switcher: None,
     };
     let request = HookRequest {
         hook: HookKind::MessagePreSend,
@@ -179,6 +180,7 @@ fn a_blocked_send_says_why_and_a_failed_chain_lets_it_through() {
         hook: HookKind::MessagePreSend,
         chain: vec![plugin.clone()],
         deadline: Instant::now() + Duration::from_millis(100),
+        switcher: None,
     };
     let request = HookRequest {
         hook: HookKind::MessagePreSend,
@@ -236,6 +238,7 @@ fn a_blocking_plugin_that_fails_holds_the_message_back() {
         hook: HookKind::MessagePreSend,
         chain: vec![plugin.clone()],
         deadline: Instant::now() + Duration::from_millis(100),
+        switcher: None,
     };
     let request = HookRequest {
         hook: HookKind::MessagePreSend,
@@ -289,6 +292,7 @@ fn a_block_from_a_plugin_that_did_not_ask_to_block_fails_open() {
         hook: HookKind::MessagePreSend,
         chain: vec![plugin.clone()],
         deadline: Instant::now() + Duration::from_millis(100),
+        switcher: None,
     };
     let request = HookRequest {
         hook: HookKind::MessagePreSend,

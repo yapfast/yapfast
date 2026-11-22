@@ -13,6 +13,9 @@ pub(super) struct HeldSend {
     /// When the person stops waiting: the moment they sent it plus the hook's
     /// whole-chain budget.
     pub(super) deadline: Instant,
+    /// For `switcher_rank`, what the plugin was shown, which its answer must
+    /// keep to.
+    pub(super) switcher: Option<yapfast_plugin_api::hook::SwitcherPending>,
 }
 
 impl HeldSend {
@@ -59,8 +62,9 @@ impl HeldSend {
                 blocked: None,
             }),
             // Nothing holds an activity: Yapfast publishes none, so a chain in
-            // front of one can't have anything waiting on it.
-            HookKind::ActivityPrePublish => {}
+            // front of one can't have anything waiting on it. A link and the
+            // switcher are already on screen; no answer leaves them as they are.
+            HookKind::ActivityPrePublish | HookKind::LinkOpen | HookKind::SwitcherRank => {}
         }
     }
 }
@@ -260,7 +264,46 @@ pub(super) fn held_hook(shared: &Shared, id: u64, hook: HookKind, room: &str) ->
         hook,
         chain,
         deadline,
+        switcher: None,
     })
+}
+
+/// Whether a plugin's offer to open a link may show: words that read as one
+/// short line, and an address whose scheme its manifest lists.
+pub(super) fn checked_offer(
+    shared: &Shared,
+    plugin: &PluginId,
+    offer: &yapfast_plugin_api::hook::LinkOffer,
+) -> Result<(), String> {
+    use yapfast_plugin_api::hook::LinkOffer;
+    let label = offer.label.trim();
+    if label.is_empty() || label.chars().count() > LinkOffer::MAX_LABEL {
+        return Err(format!(
+            "its words are 1 to {} characters",
+            LinkOffer::MAX_LABEL
+        ));
+    }
+    yapfast_plugin_api::text::check(label).map_err(str::to_owned)?;
+    if offer.uri.len() > LinkOffer::MAX_URI {
+        return Err(format!("its address is over {} bytes", LinkOffer::MAX_URI));
+    }
+    let scheme = offer
+        .uri
+        .split_once(':')
+        .map(|(scheme, _)| scheme.to_ascii_lowercase())
+        .ok_or("its address has no scheme")?;
+    let registry = shared.registry();
+    let schemes = registry
+        .entry(plugin)
+        .map(|entry| entry.manifest.permissions.schemes.clone())
+        .unwrap_or_default();
+    if !schemes
+        .iter()
+        .any(|listed| listed.eq_ignore_ascii_case(&scheme))
+    {
+        return Err(format!("its manifest doesn't list the scheme `{scheme}`"));
+    }
+    Ok(())
 }
 
 /// What came of asking for a plugin to be up.

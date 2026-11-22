@@ -51,7 +51,8 @@ use yapfast_plugin_api::capability::{Capability, HostPattern};
 use yapfast_plugin_api::event::{EventEnvelope, EventKind, TopicEvent};
 use yapfast_plugin_api::frame::{self, Frame, FrameKind};
 use yapfast_plugin_api::hook::{
-    AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, TypingPending,
+    AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, LinkPending,
+    SwitcherPending, TypingPending,
 };
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::manifest::{CommandDecl, PartDecl};
@@ -85,6 +86,7 @@ mod session_hooks;
 mod session_lifecycle;
 mod session_powerful;
 mod session_slots;
+mod session_socket;
 mod session_swap;
 mod session_timers;
 mod shared;
@@ -140,6 +142,8 @@ use session_hooks::*;
 use session_lifecycle::*;
 #[allow(unused_imports)] // the prelude the files beside this one share
 use session_slots::*;
+#[allow(unused_imports)] // the prelude the files beside this one share
+use session_socket::*;
 #[allow(unused_imports)] // the prelude the files beside this one share
 use session_swap::*;
 #[allow(unused_imports)] // the prelude the files beside this one share

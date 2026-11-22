@@ -46,11 +46,19 @@ pub enum EventKind {
     MemberLeave,
     /// What the linked Spotify plays changed: a song, a pause, a seek.
     SpotifyState,
+    /// How long this start of Yapfast took, once a session: `app.timing`.
+    StartupTiming,
+    /// Someone became a friend: `relationships.read`.
+    RelationshipAdd,
+    /// A friend, or a request, went: `relationships.read`.
+    RelationshipRemove,
+    /// A friend request arrived or was sent: `relationships.read`.
+    RelationshipRequest,
 }
 
 impl EventKind {
     /// Every kind a manifest may name after `event:`.
-    pub const ALL: [EventKind; 15] = [
+    pub const ALL: [EventKind; 19] = [
         EventKind::MessageCreate,
         EventKind::MessageUpdate,
         EventKind::MessageDelete,
@@ -66,6 +74,10 @@ impl EventKind {
         EventKind::MemberJoin,
         EventKind::MemberLeave,
         EventKind::SpotifyState,
+        EventKind::StartupTiming,
+        EventKind::RelationshipAdd,
+        EventKind::RelationshipRemove,
+        EventKind::RelationshipRequest,
     ];
 
     /// The name written after `event:` in a manifest.
@@ -86,6 +98,10 @@ impl EventKind {
             EventKind::MemberJoin => "member_join",
             EventKind::MemberLeave => "member_leave",
             EventKind::SpotifyState => "spotify_state",
+            EventKind::StartupTiming => "startup_timing",
+            EventKind::RelationshipAdd => "relationship_add",
+            EventKind::RelationshipRemove => "relationship_remove",
+            EventKind::RelationshipRequest => "relationship_request",
         }
     }
 

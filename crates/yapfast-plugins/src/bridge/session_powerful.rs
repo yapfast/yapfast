@@ -44,6 +44,160 @@ impl Session {
         }
     }
 
+    /// The powerful capability `request` needs and the person hasn't been
+    /// asked about yet, if it needs one: such a call waits for their answer
+    /// rather than being refused, and goes ahead the moment they say yes.
+    pub(super) fn powerful_unasked(
+        &self,
+        shared: &Shared,
+        plugin: &PluginId,
+        request: &HostCall,
+    ) -> Option<Capability> {
+        let permissions = shared
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.permissions.clone())?;
+        let method = request.method.as_str();
+        let capability = match method {
+            call::method::FS_LIST
+            | call::method::FS_STAT
+            | call::method::FS_READ
+            | call::method::FS_WRITE
+            | call::method::FS_THUMBNAIL => {
+                if permissions.allows(Capability::FsFolder) {
+                    Capability::FsFolder
+                } else {
+                    Capability::FsFull
+                }
+            }
+            call::method::MESSAGES_SEND | call::method::MESSAGES_ATTACH
+                if !request
+                    .payload
+                    .get("files")
+                    .and_then(serde_json::Value::as_array)
+                    .is_none_or(Vec::is_empty) =>
+            {
+                if permissions.allows(Capability::FsFolder) {
+                    Capability::FsFolder
+                } else {
+                    Capability::FsFull
+                }
+            }
+            // Asked about the first time like the tier, though not behind
+            // its switch.
+            call::method::PROFILE_SET => Capability::ProfileWrite,
+            call::method::NET_LISTEN => Capability::NetListen,
+            call::method::NET_CONNECT => Capability::NetSocket,
+            // A plugin with hosts of its own reaches those while `net.any`
+            // waits, so only one with none waits on the question.
+            call::method::HTTP_FETCH if !permissions.allows(Capability::Network) => {
+                Capability::NetAny
+            }
+            call::method::MESSAGES_EDIT
+            | call::method::MESSAGES_DELETE
+            | call::method::MESSAGES_REACT
+            | call::method::MESSAGES_SEND
+            | call::method::MESSAGES_ATTACH
+                if !shared.has_gesture(plugin)
+                    && !permissions.allows(Capability::MessagesSendBackground) =>
+            {
+                Capability::MessagesSendAgent
+            }
+            _ => return None,
+        };
+        (permissions.allows(capability)
+            && shared.powerful.check(plugin, capability) == Err(crate::powerful::Gate::Ask))
+        .then_some(capability)
+    }
+
+    /// Keeps a call until the person answers the powerful question it needs,
+    /// asking it if it isn't on screen. False when too many already wait, and
+    /// the call was answered with why.
+    pub(super) fn wait_for_powerful(
+        &mut self,
+        shared: &Shared,
+        plugin: PluginId,
+        capability: Capability,
+        call: u64,
+        request: HostCall,
+    ) {
+        let mut waiting = shared
+            .powerful_waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        // What waits holds its payload in memory, so a plugin that calls in a
+        // loop while the person reads the question holds a handful, not all.
+        if waiting
+            .iter()
+            .filter(|(owner, ..)| *owner == plugin)
+            .count()
+            >= POWERFUL_WAITING
+        {
+            drop(waiting);
+            self.reply(
+                &plugin,
+                call,
+                HostReturn::Denied {
+                    reason: crate::powerful::Gate::Ask.reason(&plugin, capability),
+                },
+            );
+            return;
+        }
+        waiting.push((plugin.clone(), capability, call, request));
+        drop(waiting);
+        let fresh = shared
+            .powerful_asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((plugin.clone(), capability));
+        if fresh {
+            shared.announce(Notice::Powerful { plugin, capability });
+        }
+    }
+
+    /// The person answered: what waited runs now, through every gate again,
+    /// or is refused with their no.
+    pub(super) fn powerful_answered(
+        &mut self,
+        shared: &Arc<Shared>,
+        plugin: &PluginId,
+        capability: Capability,
+        allow: bool,
+    ) {
+        let ready: Vec<(u64, HostCall)> = {
+            let mut waiting = shared
+                .powerful_waiting
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            let mut ready = Vec::new();
+            waiting.retain(|(owner, asked, call, request)| {
+                if owner == plugin && *asked == capability {
+                    ready.push((*call, request.clone()));
+                    false
+                } else {
+                    true
+                }
+            });
+            ready
+        };
+        for (call, request) in ready {
+            if allow {
+                self.on_call(shared, call, plugin.clone(), request);
+            } else {
+                self.reply(
+                    plugin,
+                    call,
+                    HostReturn::Denied {
+                        reason: format!(
+                            "the person said no to {plugin} using `{capability}`; it asks again \
+                             the next time it is used"
+                        ),
+                    },
+                );
+            }
+        }
+    }
+
     /// The folder a plugin reaches: the one the person picked for `fs.folder`,
     /// or for `fs.full` the home folder or the disk, as its manifest says.
     pub(super) fn files_root(
@@ -317,6 +471,9 @@ impl Session {
         }
     }
 }
+
+/// How many of one plugin's calls wait on a powerful question at once.
+const POWERFUL_WAITING: usize = 16;
 
 impl Shared {
     /// Whether `plugin` may send one more as an agent: `per_minute` in any

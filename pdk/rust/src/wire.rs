@@ -511,6 +511,10 @@ pub enum HookKind {
     AttachmentPreUpload,
     /// An activity, before it is published.
     ActivityPrePublish,
+    /// A link the person clicked, before the leaving dialog (`links.offer`).
+    LinkOpen,
+    /// What the quick switcher found for a search (`switcher.rank`).
+    SwitcherRank,
 }
 
 /// The thing a hook is about.
@@ -524,6 +528,44 @@ pub enum HookSubject {
     Attachment(AttachmentPending),
     /// An activity about to be published, as its JSON.
     Activity(Value),
+    /// A link the person clicked, and the app a plugin offers to open it in.
+    Link(LinkPending),
+    /// The quick switcher's search and what it found, in Yapfast's order.
+    Switcher(SwitcherPending),
+}
+
+/// A link on its way to the leaving dialog. Answer with the same `url` and an
+/// `offer`; the link itself can't change.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkPending {
+    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<LinkOffer>,
+}
+
+/// A button's words and the address it opens, whose scheme the manifest's
+/// `schemes` lists.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkOffer {
+    pub label: String,
+    pub uri: String,
+}
+
+/// The switcher's search and the places it found. Answer with `places` in the
+/// order to show them, leaving out any to hide.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitcherPending {
+    pub query: String,
+    pub places: Vec<SwitcherPlace>,
+}
+
+/// One place the switcher found; `kind` is `dm`, `channel`, `voice`, `thread`
+/// or `server`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwitcherPlace {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
 }
 
 /// An outgoing message, as a hook may change it.

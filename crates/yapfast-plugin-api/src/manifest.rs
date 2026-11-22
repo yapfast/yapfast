@@ -1175,6 +1175,34 @@ impl PluginManifest {
         {
             return Err(unpaired("messages.attach", "messages.send"));
         }
+        if permissions.socket_local && !permissions.allows(Capability::NetSocket) {
+            return Err(unpaired("permissions.socket-local", "net.socket"));
+        }
+        // An offer opens an app through a scheme, and is asked only about the
+        // hosts the review listed: either half missing says nothing a person
+        // could agree to.
+        if !permissions.link_hosts.is_empty() && !permissions.allows(Capability::LinksOffer) {
+            return Err(unpaired("permissions.link-hosts", "links.offer"));
+        }
+        if permissions.allows(Capability::LinksOffer)
+            && (permissions.link_hosts.is_empty() || permissions.schemes.is_empty())
+        {
+            return Err(ManifestError::Text {
+                field: "permissions.link-hosts",
+                why: "`links.offer` needs the link hosts it is asked about and the `schemes` \
+                      it opens them in"
+                    .into(),
+            });
+        }
+        // A picture from the web comes from the hosts the manifest lists, and
+        // from nowhere else.
+        if permissions.allows(Capability::ImagesWeb) && permissions.network.is_empty() {
+            return Err(ManifestError::Text {
+                field: "permissions.network",
+                why: "`images.web` shows pictures from the hosts in `network`, and it lists none"
+                    .into(),
+            });
+        }
         Ok(())
     }
 
@@ -1537,9 +1565,50 @@ mod tests {
             "the install dialog shows the tier in red"
         );
         assert!(
-            !Capability::NetSocket.is_implemented(),
-            "raw sockets are designed, not built"
+            with(r#"{"capabilities":[],"socket-local":true}"#).is_err(),
+            "loopback sockets without net.socket"
         );
+        let sockets = with(r#"{"capabilities":["net.socket"],"socket-local":true}"#)
+            .expect("a socket plugin that reaches this computer");
+        assert!(
+            sockets
+                .permissions
+                .powerful_sentence(Capability::NetSocket)
+                .contains("apps on this computer"),
+            "the red box says loopback is in reach"
+        );
+    }
+
+    #[test]
+    fn an_offer_names_its_link_hosts_and_schemes_and_web_pictures_their_hosts() {
+        let with = |permissions: &str| {
+            PluginManifest::parse(&format!(
+                r#"{{"api":1,"id":"com.example.p","name":"P","version":"1.0.0","wasm":"p.wasm",
+                    "permissions":{permissions}}}"#
+            ))
+        };
+        assert!(matches!(
+            with(r#"{"capabilities":[],"link-hosts":["open.spotify.com"]}"#),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        assert!(
+            with(r#"{"capabilities":["links.offer"],"schemes":["spotify"]}"#).is_err(),
+            "no link hosts"
+        );
+        assert!(
+            with(r#"{"capabilities":["links.offer"],"link-hosts":["open.spotify.com"]}"#).is_err(),
+            "no scheme to open them in"
+        );
+        let offers = with(
+            r#"{"capabilities":["links.offer"],"link-hosts":["open.spotify.com"],"schemes":["spotify"]}"#,
+        )
+        .expect("an app link plugin");
+        assert!(offers.permissions.link_hosts[0].matches("open.spotify.com"));
+        assert!(
+            with(r#"{"capabilities":["images.web"]}"#).is_err(),
+            "web pictures with no host"
+        );
+        assert!(with(r#"{"capabilities":["images.web"],"network":["i.example.com"]}"#).is_ok());
     }
 
     #[test]

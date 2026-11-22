@@ -22,8 +22,8 @@ use crate::{
 
 use super::{
     ASIDE, DIVIDER, EDGE, Edge, Event, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD, MENTIONED,
-    MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP, RowLook,
-    TAIL, TIMELINE, UNREAD_BAR, top_space,
+    MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, RowLook, TAIL,
+    TIMELINE, UNREAD_BAR, top_space,
 };
 
 /// What the unread bar says: how many new messages (more when the window
@@ -204,7 +204,7 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             } else {
                 top_space(look)
             },
-            bottom: ROW_GAP,
+            bottom: super::row_gap(),
             ..Padding::ZERO
         })
         .style(move |_| container::Style {
@@ -252,7 +252,7 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             .on_exit(Message::Timeline(Event::PointRow(look.item.clone(), false))),
     );
     if look.last {
-        whole = whole.push(Space::new().height(TAIL - ROW_GAP));
+        whole = whole.push(Space::new().height(TAIL - super::row_gap()));
     }
     // A window of older messages ends with what's after it: newer
     // messages loading, or a way to load them.
@@ -448,6 +448,27 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let edge = &ctx.lanes.timeline.edge;
     if edge.intro == Intro::Direct {
         return direct_welcome(ctx);
+    }
+    // A plugin that replaces the welcome draws in its place, as tall as it,
+    // so nothing under it moves. A DM's isn't replaced: Block is in it.
+    #[cfg(feature = "plugins")]
+    if let Some(drawn) = crate::plugin_slots::replaced(
+        ctx,
+        yapfast_core::plugins::slots::Slot::TimelineIntro,
+        ctx.state.selected.as_deref().unwrap_or_default(),
+        true,
+    ) {
+        return container(drawn)
+            .padding(Padding {
+                top: 16.0,
+                right: 16.0,
+                bottom: 8.0,
+                left: 16.0,
+            })
+            .width(Length::Fill)
+            .height(edge.height())
+            .clip(true)
+            .into();
     }
     let theme = ctx.look.theme;
     let title = |words: String, weight| {

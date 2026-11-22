@@ -10,6 +10,15 @@
 use super::*;
 
 impl Application {
+    /// A plugin's name as its manifest gives it, or its id.
+    pub(in crate::application) fn plugin_name(&self, plugin: &PluginId) -> String {
+        self.state
+            .plugins
+            .as_ref()
+            .and_then(|plugins| plugins.name(plugin))
+            .unwrap_or_else(|| plugin.to_string())
+    }
+
     /// [`Effect::Interface`] when the enabled plugins changed what the window
     /// draws since it last built their changes, and nothing otherwise: a
     /// status that only says a plugin went idle costs one hash of the enabled
@@ -125,6 +134,79 @@ impl Application {
             // A plugin sent as an agent: the call itself set the indicator,
             // which the window draws from the state.
             News::Notice(Notice::AgentSent { .. }) => vec![AppEffect::Plugin(Effect::Slots)],
+            // An offer for the link the leaving dialog is about; one for a
+            // link that has gone is let go.
+            News::Notice(Notice::LinkOffer {
+                id,
+                plugin,
+                label,
+                uri,
+            }) => {
+                let name = self.plugin_name(&plugin);
+                let Some(link) = self.state.plugin_link.as_mut() else {
+                    return Vec::new();
+                };
+                if !link.ids.contains(&id) || link.offers.len() >= LinkAsk::MOST_OFFERS {
+                    return Vec::new();
+                }
+                link.offers.push(LinkOfferShown {
+                    plugin,
+                    name,
+                    label,
+                    uri,
+                });
+                vec![AppEffect::Plugin(Effect::Slots)]
+            }
+            News::Notice(Notice::SwitcherRanked {
+                plugin,
+                query,
+                order,
+            }) => {
+                if self.state.switcher.as_deref() != Some(query.as_str()) {
+                    return Vec::new();
+                }
+                let name = self.plugin_name(&plugin);
+                self.state.plugin_switcher = Some(SwitcherRanking {
+                    plugin,
+                    name,
+                    query,
+                    order,
+                });
+                vec![AppEffect::Plugin(Effect::Slots)]
+            }
+            News::Notice(Notice::WebPicture {
+                plugin,
+                url,
+                picture,
+            }) => {
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    let state = match picture {
+                        Ok(picture) => crate::plugins::state::WebPictureState::Ready(picture),
+                        Err(_) => crate::plugins::state::WebPictureState::Failed,
+                    };
+                    plugins.web_pictures.arrived(plugin.as_str(), &url, state);
+                }
+                vec![AppEffect::Plugin(Effect::Slots)]
+            }
+            // One plugin's words show at a time: the first to set them keeps
+            // the title until it takes them away or stops.
+            News::Notice(Notice::WindowTitle { plugin, suffix }) => {
+                let owned_by_other = self
+                    .state
+                    .plugin_title
+                    .as_ref()
+                    .is_some_and(|shown| shown.plugin != plugin);
+                if owned_by_other {
+                    return Vec::new();
+                }
+                let name = self.plugin_name(&plugin);
+                self.state.plugin_title = suffix.map(|suffix| TitleShown {
+                    plugin,
+                    name,
+                    suffix,
+                });
+                vec![AppEffect::Plugin(Effect::Slots)]
+            }
             // A command's answer is a line in the conversation it was typed in,
             // and a failure says why where the person is looking.
             News::Notice(Notice::Fetched { url, result }) => {
@@ -176,6 +258,18 @@ impl Application {
             // every tree it left goes with it. An instance evicted for being
             // idle keeps its trees: it is still enabled.
             News::Notice(Notice::SlotsGone(plugin)) => {
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.web_pictures.forget(plugin.as_str());
+                }
+                // A plugin that stopped adds nothing to the title any more.
+                if self
+                    .state
+                    .plugin_title
+                    .as_ref()
+                    .is_some_and(|shown| shown.plugin == plugin)
+                {
+                    self.state.plugin_title = None;
+                }
                 let gone = self
                     .state
                     .plugin_slots
@@ -195,6 +289,7 @@ impl Application {
             // The store changed under the instances that drew what's on
             // screen, so all of it goes.
             News::Notice(Notice::SlotsReset) => {
+                self.state.plugin_title = None;
                 let gone = self
                     .state
                     .plugin_slots
@@ -313,6 +408,14 @@ impl Application {
                 world.publish_members(room, members);
             }
         }
+        if plugins.subscribes(EventKind::RelationshipAdd)
+            || plugins.subscribes(EventKind::RelationshipRemove)
+            || plugins.subscribes(EventKind::RelationshipRequest)
+        {
+            self.plugins_relationships();
+        } else {
+            self.plugin_relationships = None;
+        }
         if !wants_presence && !wants_roster {
             // Nobody wants presence: nothing is compared, nothing is kept, and
             // the room, the member list and the account stay where they are
@@ -337,6 +440,48 @@ impl Application {
         }
         if wants_presence {
             self.plugins_presence(room, members, account);
+        }
+    }
+
+    /// Tells the plugins with `relationships.read` who became a friend, who
+    /// stopped being one, and which friend requests came and went: the
+    /// friends list and the requests Yapfast keeps, compared when either
+    /// changes. The first read after a plugin starts listening says nothing,
+    /// as the member list's does.
+    fn plugins_relationships(&mut self) {
+        use crate::plugins::presence::{RelationshipChange, Relationships};
+        let at = self.state.people_changes;
+        if self
+            .plugin_relationships
+            .as_ref()
+            .is_some_and(|kept| kept.at == at)
+        {
+            return;
+        }
+        let now = Relationships::read(at, &self.state.discord_friends, &self.state.friend_requests);
+        let Some(before) = self.plugin_relationships.replace(now.clone()) else {
+            return;
+        };
+        let network = yapfast_plugin_api::event::Network::Discord;
+        for change in before.changes(&now) {
+            let (kind, person, payload) = match change {
+                RelationshipChange::Added(person) => (
+                    EventKind::RelationshipAdd,
+                    person.clone(),
+                    serde_json::json!({ "person": person }),
+                ),
+                RelationshipChange::Removed { person, was } => (
+                    EventKind::RelationshipRemove,
+                    person.clone(),
+                    serde_json::json!({ "person": person, "was": was }),
+                ),
+                RelationshipChange::Requested { person, incoming } => (
+                    EventKind::RelationshipRequest,
+                    person.clone(),
+                    serde_json::json!({ "person": person, "incoming": incoming }),
+                ),
+            };
+            self.plugins_observe(envelope(kind, network, None, Some(person), false, payload));
         }
     }
 
@@ -921,6 +1066,29 @@ impl Application {
         for event in envelopes {
             self.plugins_observe(event);
         }
+    }
+
+    /// How long this start took, once a session, for the plugins with
+    /// `app.timing`: sent when Discord's gateway first says the account is
+    /// online, and, for a plugin turned on later, never again this session.
+    /// Nothing in it is about a person.
+    pub(in crate::application) fn plugins_startup_timing(&mut self) {
+        if self.plugin_timing_sent || !self.plugins_want(EventKind::StartupTiming) {
+            return;
+        }
+        self.plugin_timing_sent = true;
+        let timing = crate::startup::timing();
+        self.plugins_observe(envelope(
+            EventKind::StartupTiming,
+            self.on_screen_network(),
+            None,
+            None,
+            false,
+            serde_json::json!({
+                "window_ms": timing.window_ms,
+                "ready_ms": timing.ready_ms,
+            }),
+        ));
     }
 
     /// The account signed in and its lists are here, so the calls that read

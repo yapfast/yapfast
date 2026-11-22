@@ -29,7 +29,7 @@ use crate::{
     app::{App, Message},
     controls::{self, Kind as ActionKind},
     ctx::Ctx,
-    fonts::BOLD,
+    fonts::{BOLD, MEDIUM},
     plugin_tree::{self, Act, Images, Local, Paint},
     style,
     theme::Theme,
@@ -74,6 +74,61 @@ pub struct Kept {
 }
 
 impl Kept {
+    /// Brings the pictures from the web the drawings show up to what the core
+    /// holds of them, and answers the ones nobody has asked for yet.
+    fn web_pictures(
+        &mut self,
+        slots: &Slots,
+        plugins: Option<&yapfast_core::plugins::PluginState>,
+    ) -> Vec<(String, String)> {
+        use yapfast_core::plugins::state::WebPictureState;
+        let Some(plugins) = plugins else {
+            return Vec::new();
+        };
+        let names = slots.names();
+        let trees = slots
+            .all_drawn()
+            .iter()
+            .filter_map(|drawn| Some((names.get(drawn.plugin)?, drawn.tree.as_ref())))
+            .chain(slots.all_decorations().filter_map(|decoration| {
+                Some((names.get(decoration.plugin)?, decoration.tree.as_deref()?))
+            }));
+        let mut wanted = Vec::new();
+        for (plugin, tree) in trees {
+            for cell in tree.cells() {
+                if !matches!(cell.kind, Kind::Image | Kind::Icon) {
+                    continue;
+                }
+                let Some(Source::Web { url, .. }) = ui::source(&cell.src) else {
+                    continue;
+                };
+                let at = plugin_tree::image_key(&plugin.id, &cell.src);
+                match plugins.web_pictures.get(&plugin.id, url) {
+                    None => wanted.push((plugin.id.clone(), url.to_owned())),
+                    Some(WebPictureState::Loading) => {}
+                    Some(WebPictureState::Failed) => {
+                        self.images.entry(at).or_insert(None);
+                    }
+                    Some(WebPictureState::Ready(picture)) => {
+                        if !matches!(self.images.get(&at), Some(Some(_))) {
+                            self.images.insert(
+                                at,
+                                Some(iced::widget::image::Handle::from_rgba(
+                                    picture.width,
+                                    picture.height,
+                                    picture.rgba.clone(),
+                                )),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        wanted.sort();
+        wanted.dedup();
+        wanted
+    }
+
     pub fn local(&self, plugin: &str, slot: Slot) -> &Local {
         self.locals.get(&key(plugin, slot)).unwrap_or(&self.empty)
     }
@@ -224,6 +279,17 @@ pub fn follow(app: &mut App) {
             .or_else(|| folders.get(id).and_then(|root| read_picture(root, name)))
     };
     app.plugin_kept.follow(slots, picture);
+    // Pictures from the web: asked for once each, through the plugin's gate,
+    // and shown as they arrive; a cell shows its placeholder meanwhile.
+    let wanted = app
+        .plugin_kept
+        .web_pictures(slots, plugins.map(|plugins| &**plugins));
+    if !wanted.is_empty() {
+        app.client
+            .dispatch(yapfast_core::application::Action::Plugin(
+                yapfast_core::application::plugins::Action::WantPictures(wanted),
+            ));
+    }
     // A plugin's own settings page, while it shows, gets its text areas'
     // editors as a slot's drawing does.
     let Some(slots) = app.client.app.state.plugin_slots.as_deref() else {
@@ -646,6 +712,37 @@ pub fn under_message<'a>(
     any.then(|| container(shown).padding(Padding::ZERO.top(4)).into())
 }
 
+/// What the plugin that replaces a built-in part (`ui.parts.replace`) draws in
+/// its place, credited with a small line over it, or, where there is no room
+/// for a line, in a tooltip; `None` while it hasn't drawn, and Yapfast's own
+/// part shows.
+pub fn replaced<'a>(
+    ctx: Ctx<'a>,
+    slot: Slot,
+    subject: &'a str,
+    line: bool,
+) -> Option<Element<'a, Message>> {
+    let part = slot.replaces()?;
+    let overrides = ctx.plugins_ui?;
+    let (_, owner) = overrides.replaced.iter().find(|(each, _)| *each == part)?;
+    let owner = overrides.plugins.get(*owner)?;
+    let (drawn, plugin) = shown(ctx, slot)
+        .into_iter()
+        .find(|(_, plugin)| plugin.id == owner.id)?;
+    let body = draw(ctx, drawn, plugin, subject);
+    let theme = ctx.look.theme;
+    Some(if line {
+        column![credit(theme, plugin), body].spacing(4).into()
+    } else {
+        tooltip(
+            body,
+            controls::tip(theme, format!("Drawn by the {}", credit_line(&plugin.name))),
+            tooltip::Position::Top,
+        )
+        .into()
+    })
+}
+
 /// How a plugin's part is credited: one small line, `Translator plugin`, with
 /// the plugin's id in a tooltip. The word "plugin" is what keeps it from
 /// passing for Yapfast's own; the id tells two plugins of one name apart.
@@ -859,6 +956,35 @@ pub fn agent_strip<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
                     radius: 0.0.into(),
                 })
         })
+        .into(),
+    )
+}
+
+/// The line over the conversation while a plugin's sound plays: whose it is,
+/// so a sound from nowhere always has a name.
+pub fn playing_strip<'a>(cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let shown = cx.state.plugin_playing.as_ref()?;
+    if !shown.recent(yapfast_core::clock::now_ms()) {
+        return None;
+    }
+    let theme = cx.look.theme;
+    let ground = theme.raised;
+    Some(
+        container(
+            row![
+                cx.look
+                    .glyph(crate::pictures::Icon::Volume, 14, theme.secondary),
+                text(format!("The {} plugin is playing a sound", shown.name))
+                    .size(12)
+                    .font(MEDIUM)
+                    .color(theme.secondary),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([4, 12])
+        .width(Length::Fill)
+        .style(move |_| iced::widget::container::Style::default().background(ground))
         .into(),
     )
 }

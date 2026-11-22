@@ -47,10 +47,18 @@ pub enum Slot {
     PickerTab,
     /// The plugin's own page under Settings → Plugins.
     SettingsPage,
+    /// What a plugin draws in place of the sidebar's banner, which its
+    /// manifest replaces (`ui.parts.replace`). Until it draws, Yapfast's own
+    /// shows.
+    SidebarBanner,
+    /// In place of the account's name and picture over the voice panel.
+    AccountIdentity,
+    /// In place of the welcome at the top of a conversation's history.
+    TimelineIntro,
 }
 
 impl Slot {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 17] = [
         Self::Banner,
         Self::Toast,
         Self::Composer,
@@ -65,6 +73,9 @@ impl Slot {
         Self::CallActions,
         Self::PickerTab,
         Self::SettingsPage,
+        Self::SidebarBanner,
+        Self::AccountIdentity,
+        Self::TimelineIntro,
     ];
 
     /// Its name, as a plugin and its input name it.
@@ -84,6 +95,20 @@ impl Slot {
             Self::CallActions => "call.actions",
             Self::PickerTab => "picker.tab",
             Self::SettingsPage => "settings.page",
+            Self::SidebarBanner => "sidebar.banner",
+            Self::AccountIdentity => "account.identity",
+            Self::TimelineIntro => "timeline.intro",
+        }
+    }
+
+    /// The built-in part this slot draws in place of, for the three a plugin
+    /// may replace.
+    pub fn replaces(self) -> Option<crate::ui::Part> {
+        match self {
+            Self::SidebarBanner => Some(crate::ui::Part::SidebarBanner),
+            Self::AccountIdentity => Some(crate::ui::Part::AccountIdentity),
+            Self::TimelineIntro => Some(crate::ui::Part::TimelineIntro),
+            _ => None,
         }
     }
 
@@ -138,6 +163,8 @@ impl Slot {
             Self::PickerTab => 4,
             // One page per plugin, which only its own page shows.
             Self::SettingsPage => usize::MAX,
+            // A part has one replacement: the plugin that replaces it.
+            Self::SidebarBanner | Self::AccountIdentity | Self::TimelineIntro => 1,
             _ => 4,
         }
     }

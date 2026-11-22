@@ -59,6 +59,12 @@ audio capabilities, which share one line.
 | `drafts.read` | The drafts the person left unsent | Reads the drafts you haven't sent |
 | `account.sessions` | The devices signed in to the account, read-only | Sees the devices signed in to your account and where they are |
 | `spotify.control` | The linked Spotify's playback: what plays, and its controls | Sees and controls what your Spotify plays |
+| `links.offer` | Be asked about a link the person clicks on one of the `link-hosts` it lists, and offer an app to open it in, through one of its `schemes` | Offers to open links you click in other apps |
+| `window.title` | A few words after the window's title | Adds a few words to the window's title |
+| `switcher.rank` | See the quick switcher's search and what it found, and reorder or leave out places | Sees what you search in the quick switcher, and can reorder it |
+| `app.timing` | `startup_timing`, once a session | Reads how long Yapfast took to start |
+| `relationships.read` | `relationship_add`, `relationship_remove` and `relationship_request` | Sees friends being added and removed, and friend requests |
+| `images.web` | Pictures from the HTTPS hosts in `network`, in what it draws | Shows pictures from the sites it lists |
 
 One of those sentences is shown in the dialog's danger tone:
 `messages.send.background`, the one that lets a plugin act as the person without
@@ -93,9 +99,13 @@ their own, and every one of them is behind four things at once:
 3. **A red dialog the first time each capability is used**, by each plugin,
    wherever the person is: who asks, and the same sentence. For `fs.folder` its
    button is *Choose folder*, and the folder the person picks is the only one
-   the plugin ever sees. The first call is answered `denied`, saying the person
-   is being asked; a plugin calls again once they have answered. One dialog per
-   (plugin, capability) is on screen at a time.
+   the plugin ever sees. The first call waits for the answer, `pending` like any
+   call answered later, and goes ahead the moment the person says yes, through
+   every gate again; a no answers it `denied`, saying so. One dialog per
+   (plugin, capability) is on screen at a time, and calls made while it is up
+   wait on the same answer, sixteen of a plugin's at most, since each holds its
+   payload in memory; past that a call is `denied` saying the person is being
+   asked.
 4. **One-click revoke** on the plugin's page: every powerful line has its own
    Revoke, and the next use asks again. Revoking `fs.folder` forgets the folder,
    and revoking `net.listen` stops the endpoint and retires its token.
@@ -113,7 +123,7 @@ and nothing powerful is allowed. The marketplace lists no powerful plugin as
 | `net.any` | `http.fetch` to any public HTTPS host, not only the listed ones | Can send your data to any website |
 | `net.listen` | An HTTP endpoint on `127.0.0.1` and `::1`, behind a token | Lets apps on this computer connect to it |
 | `messages.send.agent` | Sending without a keystroke, at `agent-per-minute` (1 to 20, six unsaid) | Sends messages as you without you pressing a key |
-| `net.socket` | Raw TCP or WebSocket out | Not shown: designed below, not built |
+| `net.socket` | Raw TCP, TLS over it, or a WebSocket, out; with `"socket-local": true` this computer and its network too | Can open raw connections to any server |
 
 `messages.attach` is not powerful: it sends files the plugin made, or its own
 assets, with a message, on the rails every send takes
@@ -161,14 +171,34 @@ web page that rebinds a name of its own to 127.0.0.1 can't reach the endpoint
 through a browser. One request a connection, a head of 16 KiB, a body of 1 MiB,
 eight at a time, an answer in 30 seconds or a 504.
 
-`net.socket` is designed and not built: a raw connection is a stream that
-crosses the pipe in both directions, which wants the chunked frames
-[the README](README.md#what-isnt-wired-yet) already waits on. When it comes it
-will be `net.connect { host, port, tls }` answered `pending`, data as further
-answers and `net.send` the other way, through the same address checks the gate
-makes (public addresses only, Discord's hosts refused), at most four
-connections a plugin and 1 MiB a second. Until then the capability is left out
-of what a manifest reads, as `microphone` is.
+`net.socket` opens a connection for the plugin in the parent
+([`socket.rs`](../../crates/yapfast-plugins/src/socket.rs)): `net.connect
+{ host, port, tls?, websocket? }` is answered `pending`, and every answer after
+that is the connection's news, `connected`, `data`, `text` (a WebSocket's text
+message) and `closed` with its reason, which always comes last. `net.send
+{ socket, text | data_base64 }` and `net.close { socket }` go the other way. TLS
+trusts the system's roots, as Discord's own WebSockets do, and a WebSocket is
+`wss` over it or `ws` without.
+
+The tier's rule is that a plugin is free to do what it declared and the person
+is warned rather than the plugin capped: so `net.socket` puts no limit on how
+much a connection carries, how fast or for how long. The red install box says the
+plugin can open raw connections to any server, and with `socket-local` that it
+reaches apps on this computer too. What stays is what keeps Yapfast standing or
+is part of the tier's line:
+
+- every address a name resolves to is checked before any is dialled, and
+  loopback, a private network, link-local and the rest of the gate's list
+  (above) are reached only with `"socket-local": true` in the manifest;
+- Discord's own hosts are refused, as the gate refuses them, since Discord is
+  reached through Yapfast;
+- 64 connections a plugin at once (`limits::MAX_SOCKETS`), each a task and a
+  buffer in Yapfast; 48 KiB a piece and 512 KiB a WebSocket message, so a piece
+  fits one answer on the pipe; 30 seconds to open, after which its task is let
+  go.
+
+Turning the plugin off, revoking `net.socket`, or turning powerful plugins off
+closes every connection it holds.
 
 ### Sending as an agent
 
@@ -202,6 +232,9 @@ holds the capability its contents need, so a plugin that subscribed to messages
 without `messages.read` receives none of them. A hook is the same: a plugin takes
 part in `message_pre_send` only if its manifest holds `messages.intercept`,
 because intercepting a send is not something a plugin can do by accident.
+`link_open` asks the plugins with `links.offer`, and only about a link to one of
+the hosts their `link-hosts` list; `switcher_rank` asks the first plugin with
+`switcher.rank`.
 
 | Event | Needs |
 | --- | --- |
@@ -209,6 +242,8 @@ because intercepting a send is not something a plugin can do by accident.
 | `room_selected` | `servers.read` |
 | `voice_state`, `speaking` | `voice.read` |
 | `presence`, `member_join`, `member_leave` | `people.read` |
+| `relationship_add`, `relationship_remove`, `relationship_request` | `relationships.read` |
+| `startup_timing` | `app.timing` |
 | `app_focus`, `account_ready` | Nothing, since they say nothing about a person |
 
 A read is the same: what it answers is what the capability names.
@@ -284,6 +319,8 @@ using another plugin's button, is no gesture for this one.
 | The `spotify_state` event | `spotify.control` |
 | A keybind action in the manifest, and the input it sends | `keybinds` |
 | A sound the manifest's `sounds` names | `sounds.replace` |
+| `window.set_title` | `window.title` |
+| `net.connect`, `net.send`, `net.close` | `net.socket`, the switch and the person's first yes |
 | `discord.open_room`, `start_reply`, `start_edit` | none, and a recent user gesture: without one they answer `denied` |
 
 A curated action wraps something Yapfast already does, so the capability is the

@@ -38,12 +38,14 @@ pub mod powerful;
 pub mod registry;
 pub mod settings;
 pub mod slots;
+pub mod socket;
 pub mod spawn;
 pub mod store;
 pub mod transport;
 pub mod tweaks;
 pub mod ui;
 pub mod view;
+pub mod web_picture;
 
 use std::path::{Path, PathBuf};
 

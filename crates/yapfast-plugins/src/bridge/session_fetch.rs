@@ -190,3 +190,86 @@ impl Session {
         }
     }
 }
+
+impl Session {
+    /// Fetches a picture a plugin's drawing shows from the web, through the
+    /// plugin's own gate, and decodes it off this task. The answer is a
+    /// [`Notice::WebPicture`]; a host that would need the person's say is no
+    /// picture, since nobody asked them anything.
+    pub(super) fn web_picture(&mut self, shared: &Arc<Shared>, plugin: PluginId, url: String) {
+        let shared = Arc::clone(shared);
+        let announce = |shared: &Shared, plugin: PluginId, url: String, picture| {
+            shared.announce(Notice::WebPicture {
+                plugin,
+                url,
+                picture,
+            });
+        };
+        let permissions = shared
+            .registry()
+            .entry(&plugin)
+            .map(|entry| entry.manifest.permissions.clone());
+        let checked = permissions
+            .ok_or_else(|| format!("{plugin} isn't installed"))
+            .and_then(|permissions| crate::web_picture::allowed(&permissions, &url));
+        if let Err(why) = checked {
+            announce(&shared, plugin, url, Err(why));
+            return;
+        }
+        let Some(gate) = shared.gate() else {
+            announce(
+                &shared,
+                plugin,
+                url,
+                Err("this build has no network".to_owned()),
+            );
+            return;
+        };
+        tokio::spawn(async move {
+            let request = HttpRequest {
+                method: "GET".to_owned(),
+                url: url.clone(),
+                headers: Vec::new(),
+                body_base64: None,
+                tag: None,
+            };
+            let fetched = gate
+                .fetch_reaching(&plugin, request, crate::web_picture::MAX_BYTES, false)
+                .await;
+            let bytes = match fetched {
+                Ok(crate::network::Outcome::Done(answer)) => {
+                    let response = answer.response;
+                    match (response.status, response.body_base64) {
+                        (200..=299, Some(body)) => {
+                            use base64::Engine;
+                            base64::engine::general_purpose::STANDARD
+                                .decode(body)
+                                .map_err(|error| error.to_string())
+                        }
+                        (200..=299, None) => Err(format!(
+                            "it is over {} bytes",
+                            crate::web_picture::MAX_BYTES
+                        )),
+                        (status, _) => Err(format!("the site answered {status}")),
+                    }
+                }
+                Ok(crate::network::Outcome::AwaitingConsent { host, .. }) => {
+                    Err(format!("{host} isn't allowed for {plugin}"))
+                }
+                Err(error) => Err(format!("{error:#}")),
+            };
+            let picture = match bytes {
+                Ok(bytes) => tokio::task::spawn_blocking(move || {
+                    crate::web_picture::decode(&bytes).map(Arc::new)
+                })
+                .await
+                .unwrap_or_else(|_| Err("decoding it stopped".to_owned())),
+                Err(why) => Err(why),
+            };
+            if let Err(why) = &picture {
+                tracing::info!(%plugin, %url, %why, "a plugin's picture from the web isn't shown");
+            }
+            announce(&shared, plugin, url, picture);
+        });
+    }
+}

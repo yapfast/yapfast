@@ -6,7 +6,8 @@
 //! which holds the capability that allows it, can stop a send.
 
 pub use crate::wire::{
-    AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, TypingPending,
+    AttachmentPending, Draft, HookKind, HookOutcome, HookRequest, HookSubject, LinkOffer,
+    LinkPending, SwitcherPending, SwitcherPlace, TypingPending,
 };
 
 impl HookRequest {
@@ -22,6 +23,22 @@ impl HookRequest {
     pub fn typing(&self) -> Option<&TypingPending> {
         match &self.subject {
             HookSubject::Typing(typing) => Some(typing),
+            _ => None,
+        }
+    }
+
+    /// The link this hook is about, for `link_open`.
+    pub fn link(&self) -> Option<&LinkPending> {
+        match &self.subject {
+            HookSubject::Link(link) => Some(link),
+            _ => None,
+        }
+    }
+
+    /// The switcher's search and places, for `switcher_rank`.
+    pub fn switcher(&self) -> Option<&SwitcherPending> {
+        match &self.subject {
+            HookSubject::Switcher(switcher) => Some(switcher),
             _ => None,
         }
     }
@@ -50,6 +67,31 @@ impl HookOutcome {
         HookOutcome::Changed(HookSubject::Draft(draft))
     }
 
+    /// An offer to open `link` in an app: the button's words and the address,
+    /// whose scheme the manifest's `schemes` must list.
+    pub fn offer(link: &LinkPending, label: impl Into<String>, uri: impl Into<String>) -> Self {
+        HookOutcome::Changed(HookSubject::Link(LinkPending {
+            url: link.url.clone(),
+            offer: Some(LinkOffer {
+                label: label.into(),
+                uri: uri.into(),
+            }),
+        }))
+    }
+
+    /// The switcher's places in this order: the ids of places it was given,
+    /// leaving out the ones to hide.
+    pub fn ranked(asked: &SwitcherPending, order: &[&str]) -> Self {
+        let places = order
+            .iter()
+            .filter_map(|id| asked.places.iter().find(|place| place.id == *id).cloned())
+            .collect();
+        HookOutcome::Changed(HookSubject::Switcher(SwitcherPending {
+            query: asked.query.clone(),
+            places,
+        }))
+    }
+
     /// The new subject, whatever it is.
     pub fn changed(subject: HookSubject) -> Self {
         HookOutcome::Changed(subject)
@@ -71,6 +113,37 @@ impl HookOutcome {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_link_offer_and_a_ranking_read_and_answer_as_the_app_writes_them() {
+        let link: HookRequest = serde_json::from_value(json!({
+            "hook": "link_open",
+            "subject": {"link": {"url": "https://open.spotify.com/track/1"}},
+        }))
+        .expect("a link hook");
+        let asked = link.link().expect("a link");
+        let answer = serde_json::to_value(HookOutcome::offer(asked, "Open in Spotify", "spotify:track:1"))
+            .unwrap();
+        assert_eq!(
+            answer,
+            json!({"changed": {"link": {"url": "https://open.spotify.com/track/1",
+                "offer": {"label": "Open in Spotify", "uri": "spotify:track:1"}}}})
+        );
+        let rank: HookRequest = serde_json::from_value(json!({
+            "hook": "switcher_rank",
+            "subject": {"switcher": {"query": "ge", "places": [
+                {"id": "a", "name": "general", "kind": "channel"},
+                {"id": "b", "name": "games", "kind": "voice"}]}},
+        }))
+        .expect("a switcher hook");
+        let HookOutcome::Changed(HookSubject::Switcher(ranked)) =
+            HookOutcome::ranked(rank.switcher().unwrap(), &["b"])
+        else {
+            panic!("a ranking");
+        };
+        assert_eq!(ranked.places.len(), 1);
+        assert_eq!(ranked.places[0].id, "b");
+    }
 
     fn request() -> HookRequest {
         serde_json::from_value(json!({

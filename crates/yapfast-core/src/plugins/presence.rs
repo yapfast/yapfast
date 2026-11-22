@@ -232,3 +232,114 @@ mod tests {
         );
     }
 }
+
+/// The friends and friend requests the plugins were last told of, kept only
+/// while a plugin listens for relationships.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Relationships {
+    /// The `people_changes` they were read at, so a sync that changed none of
+    /// the people lists compares nothing.
+    pub at: u64,
+    pub friends: std::collections::BTreeSet<String>,
+    /// Requests by person, and whether each came to this account.
+    pub requests: std::collections::BTreeMap<String, bool>,
+}
+
+/// One change in who is a friend.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RelationshipChange {
+    /// They are a friend now.
+    Added(String),
+    /// A friend, or a request, went.
+    Removed { person: String, was: &'static str },
+    /// A request arrived, or this account sent one.
+    Requested { person: String, incoming: bool },
+}
+
+impl Relationships {
+    /// The lists now.
+    pub fn read(at: u64, friends: &[String], requests: &[crate::chat::FriendRequest]) -> Self {
+        Relationships {
+            at,
+            friends: friends.iter().cloned().collect(),
+            requests: requests
+                .iter()
+                .map(|request| (request.id.clone(), request.incoming))
+                .collect(),
+        }
+    }
+
+    /// What changed from `self` to `now`: a request that became a friend is
+    /// an addition, and nothing else.
+    pub fn changes(&self, now: &Relationships) -> Vec<RelationshipChange> {
+        let mut changes = Vec::new();
+        for person in now.friends.difference(&self.friends) {
+            changes.push(RelationshipChange::Added(person.clone()));
+        }
+        for (person, incoming) in &now.requests {
+            if !self.requests.contains_key(person) && !now.friends.contains(person) {
+                changes.push(RelationshipChange::Requested {
+                    person: person.clone(),
+                    incoming: *incoming,
+                });
+            }
+        }
+        for person in self.friends.difference(&now.friends) {
+            changes.push(RelationshipChange::Removed {
+                person: person.clone(),
+                was: "friend",
+            });
+        }
+        for person in self.requests.keys() {
+            if !now.requests.contains_key(person) && !now.friends.contains(person) {
+                changes.push(RelationshipChange::Removed {
+                    person: person.clone(),
+                    was: "request",
+                });
+            }
+        }
+        changes
+    }
+}
+
+#[cfg(test)]
+mod relationship_tests {
+    use super::*;
+
+    fn request(id: &str, incoming: bool) -> crate::chat::FriendRequest {
+        crate::chat::FriendRequest {
+            id: id.into(),
+            name: id.into(),
+            avatar: None,
+            incoming,
+            spam: false,
+        }
+    }
+
+    #[test]
+    fn a_request_then_a_friend_then_gone_is_told_as_it_happened() {
+        let start = Relationships::read(1, &["ann".into()], &[]);
+        let asked = Relationships::read(2, &["ann".into()], &[request("bo", true)]);
+        assert_eq!(
+            start.changes(&asked),
+            [RelationshipChange::Requested {
+                person: "bo".into(),
+                incoming: true
+            }]
+        );
+        let accepted = Relationships::read(3, &["ann".into(), "bo".into()], &[]);
+        assert_eq!(
+            asked.changes(&accepted),
+            [RelationshipChange::Added("bo".into())],
+            "an accepted request is a friend added, not a request removed"
+        );
+        let unfriended = Relationships::read(4, &["bo".into()], &[]);
+        assert_eq!(
+            accepted.changes(&unfriended),
+            [RelationshipChange::Removed {
+                person: "ann".into(),
+                was: "friend"
+            }]
+        );
+    }
+}

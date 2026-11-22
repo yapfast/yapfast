@@ -204,6 +204,7 @@ fn place_menu(
             is_bot: false,
             roles: &[],
         };
+        crate::plugins_ui::edit_rows(&overrides, target, &subject, &mut rows);
         rows.extend(crate::plugins_ui::rows(&overrides, target, &subject, id));
     }
     if rows.is_empty() {

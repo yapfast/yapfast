@@ -55,6 +55,13 @@ pub(crate) struct Shared {
     /// The requests an endpoint is waiting on the plugin to answer.
     pub(super) answers:
         Mutex<BTreeMap<(PluginId, u64), tokio::sync::oneshot::Sender<crate::listen::Reply>>>,
+    /// The calls waiting on a powerful question the person hasn't answered:
+    /// each goes ahead when they say yes, and is refused when they say no.
+    pub(super) powerful_waiting: Mutex<Vec<(PluginId, Capability, u64, HostCall)>>,
+    /// Each plugin's `net.socket` connections, by the socket's number.
+    pub(super) sockets: Mutex<BTreeMap<PluginId, BTreeMap<u64, crate::socket::Handle>>>,
+    /// The next socket's number, which is never reused in a session.
+    pub(super) next_socket: AtomicU64,
     /// When each plugin last sent as an agent, for its rate.
     pub(super) agent_sends: Mutex<BTreeMap<PluginId, Vec<Instant>>>,
     /// The picture store `media.get` reads, once the application has installed

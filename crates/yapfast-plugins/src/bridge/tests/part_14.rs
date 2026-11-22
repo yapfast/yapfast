@@ -330,11 +330,12 @@ fn a_profile_write_is_asked_about_the_first_time_without_the_powerful_switch() {
     assert!(!shared.powerful.enabled(), "the Advanced switch is off");
     let bio = serde_json::json!({ "bio": "hello", "pronouns": "they/them" });
 
+    // The first use waits for the answer, as the powerful tier's does.
     let answer = ask_with(&shared, &plugin, call::method::PROFILE_SET, bio.clone());
-    let HostReturn::Denied { reason } = answer else {
-        panic!("the first use asks: {answer:?}");
-    };
-    assert!(reason.contains("being asked"), "{reason}");
+    assert!(
+        matches!(answer, HostReturn::Pending { .. }),
+        "the first use waits for the answer: {answer:?}"
+    );
     let asked = notices
         .recv_timeout(Duration::from_secs(2))
         .expect("the person is asked");
@@ -375,8 +376,21 @@ fn a_profile_write_is_asked_about_the_first_time_without_the_powerful_switch() {
         serde_json::json!({ "bio": "again" }),
     );
     assert!(
-        matches!(answer, HostReturn::Denied { .. }),
-        "revoked asks again"
+        matches!(answer, HostReturn::Pending { .. }),
+        "revoked asks again, and waits for the answer: {answer:?}"
+    );
+    let waiting = shared
+        .powerful_waiting
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(owner, capability, ..)| {
+            *owner == plugin && *capability == Capability::ProfileWrite
+        })
+        .count();
+    assert_eq!(
+        waiting, 2,
+        "the first use and the one after the revoke wait"
     );
 }
 

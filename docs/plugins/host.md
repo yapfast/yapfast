@@ -222,6 +222,16 @@ limit traps, is discarded, and is replaced by a smaller fresh one, rather than
 holding the peak for the rest of the session. The limit is per instance, from the
 manifest, and defaults to 256 pages, 16 MiB.
 
+What one instance uses right now isn't shown anywhere, and can't be without
+changing Extism. The guest's linear memory lives in the wasmtime `Store` its
+`Plugin` owns, and Extism 1.41 keeps that store to itself: `store()` is a method
+of its crate-private `Internal` trait (`src/internal.rs`, `pub(crate) trait
+Internal`; `src/plugin.rs`, `impl Internal for Plugin`), and the memory limiter
+that counts growth is crate-private too (`MemoryLimiter` in
+`src/current_plugin.rs`). So the devtools on a plugin's page say its ceiling, the
+page limit above, and say that it is one; the helper's whole resident size is
+the number that is measured.
+
 ## The OS sandbox
 
 Wasmtime keeps a guest away from files and sockets; the OS sandbox is the wall

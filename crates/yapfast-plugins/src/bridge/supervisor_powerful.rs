@@ -51,10 +51,19 @@ impl Bridge {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&(plugin.clone(), capability));
-        if allow {
-            self.shared.powerful.allow(plugin, capability, folder)?;
-        }
-        Ok(())
+        let kept = if allow {
+            self.shared.powerful.allow(plugin, capability, folder)
+        } else {
+            Ok(())
+        };
+        // The calls that waited on the question go ahead now, or are told no,
+        // whether or not the answer could be kept.
+        self.send(Request::PowerfulAnswered {
+            plugin: plugin.clone(),
+            capability,
+            allow: allow && kept.is_ok(),
+        });
+        kept
     }
 
     /// Takes one powerful capability back: the next use asks again, and an
@@ -65,7 +74,7 @@ impl Bridge {
         capability: Capability,
     ) -> anyhow::Result<()> {
         self.shared.powerful.revoke(plugin, capability)?;
-        if capability == Capability::NetListen {
+        if matches!(capability, Capability::NetListen | Capability::NetSocket) {
             self.shared.stop_serving(plugin);
         }
         Ok(())
@@ -102,8 +111,21 @@ impl Bridge {
 }
 
 impl Shared {
-    /// Stops a plugin's endpoint and lets go of the requests it held.
+    /// Stops a plugin's endpoint and lets go of the requests it held, and
+    /// closes its connections: everything of the network it holds open.
     pub(super) fn stop_serving(&self, plugin: &PluginId) {
+        let closed = self
+            .sockets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(plugin);
+        drop(closed);
+        // Its calls waiting on a powerful question have no instance to go
+        // back to.
+        self.powerful_waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(owner, ..)| owner != plugin);
         self.endpoints
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
