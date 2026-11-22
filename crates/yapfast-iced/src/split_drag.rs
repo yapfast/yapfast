@@ -157,7 +157,7 @@ pub fn view(app: &App) -> Option<Element<'_, Message>> {
     let (left, top, width, height) = zone(app);
     let accent = theme.accent;
     let words = column![
-        ctx.look.glyph(Icon::ArrowsUpDown, 28, theme.text),
+        ctx.look.glyph(Icon::ArrowsLeftRight, 28, theme.text),
         elide("Open in split view")
             .size(16)
             .font(BOLD)
