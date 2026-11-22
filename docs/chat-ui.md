@@ -42,7 +42,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the focus again. A keyboard layout without Latin letters uses the key in
   K's place. Before a search it lists the last eight conversations opened
   this session, of either network, then the Discord places this account
-  uses most, fifteen at most and not the one open. A search lists up to 50
+  uses most, fifteen at most and not the one open, headed "Previous
+  Channels"; then, under "Mentions", the conversations that mention this
+  account and aren't listed already, most mentions first
+  (`AppState::switcher_mentions`). The DM list's "Find or start a
+  conversation", at its top, is a button that opens it, as Discord's is,
+  rather than a filter. A search lists up to 50
   conversations and servers, ranked as Forward To ranks them
   ([Forwarding](discord/messages.md#forwarding)), and those as good by name;
   `@` finds people, `#` text channels, `!` voice channels and `*` servers.
