@@ -112,11 +112,15 @@ pub(super) fn reactions<'a>(
         } else {
             // Slint's 16 px emoji, centred in the chip's height so a tall
             // emoji face never reaches its edge.
-            text(reaction.key.as_str())
-                .size(CHIP_EMOJI)
-                .line_height(iced::widget::text::LineHeight::Absolute(CHIP_HEIGHT.into()))
-                .color(theme.text)
-                .into()
+            if theme.packaged() {
+                text(reaction.key.as_str())
+                    .size(CHIP_EMOJI)
+                    .line_height(iced::widget::text::LineHeight::Absolute(CHIP_HEIGHT.into()))
+                    .color(theme.text)
+                    .into()
+            } else {
+                text(reaction.key.as_str()).color(theme.text).into()
+            }
         };
         let count_words = reaction.count.to_string();
         let count_words = ctx.themes.label(
@@ -138,7 +142,8 @@ pub(super) fn reactions<'a>(
                     .font(theme.font(count_font, BOLD))
                     .color(count)
             ]
-            .spacing(6)
+            // Main's 4 px with no theme; a theme's chips as Slint drew them.
+            .spacing(if theme.packaged() { 6 } else { 4 })
             .align_y(Alignment::Center),
         )
         .padding([0, 8])

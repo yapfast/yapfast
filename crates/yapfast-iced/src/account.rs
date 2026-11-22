@@ -269,10 +269,22 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             column![
                 // As Slint's dock: 15 px bold in the window's own face (a
                 // theme's body), not the theme's names.
-                crate::elide::elide(account.name.as_str())
-                    .size(15.0)
-                    .font(theme.font("body", BOLD))
-                    .color(theme.text),
+                if theme.packaged() {
+                    crate::elide::elide(account.name.as_str())
+                        .size(15.0)
+                        .font(theme.font("body", BOLD))
+                        .color(theme.text)
+                        .into()
+                } else {
+                    // The stock look, as main's.
+                    Element::from(
+                        text(account.name.as_str())
+                            .size(15)
+                            .font(BOLD)
+                            .color(theme.text)
+                            .wrapping(text::Wrapping::None),
+                    )
+                },
                 second
             ]
             .width(Length::Fill),

@@ -107,6 +107,15 @@ pub fn label<'a>(
     font: Font,
     ink: Color,
 ) -> Element<'a, Message> {
+    // The stock look draws the line as main does: plain text, never cut.
+    if !ctx.look.theme.packaged() {
+        return iced::widget::text(words.into())
+            .size(size)
+            .font(font)
+            .color(ink)
+            .wrapping(iced::widget::text::Wrapping::None)
+            .into();
+    }
     let light = text_light(ctx, role);
     crate::elide::elide(words.into())
         .size(size)

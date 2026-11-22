@@ -146,14 +146,17 @@ impl App {
         };
         let sidebar_view =
             container(sidebar_content).width(crate::sidebar::width(&self.layout, &self.theme));
-        let account: Element<'_, Message> = container(crate::theme_art::surface(
+        let account: Element<'_, Message> = crate::theme_art::surface(
             crate::account::view(self.ctx()),
             self.ctx(),
             yapfast_core::themes::package::art::ArtSurface::Account,
-        ))
-        .height(crate::account::HEIGHT)
-        .into();
+        );
+        // A glass card is bare and fills a pane of the card's height; any
+        // other card is that tall itself, with its inset under it, as on
+        // main.
         let account = if glass_account {
+            let account: Element<'_, Message> =
+                container(account).height(crate::account::HEIGHT).into();
             container(crate::theme_art::pane(account, self.ctx(), None))
                 .padding(iced::Padding {
                     top: gap,
