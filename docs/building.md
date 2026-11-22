@@ -25,7 +25,7 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1 and iced 0.14.0. Cargo.lock pins the complete Rust
+Yapfast pins Rust 1.100 and iced 0.14.0. Cargo.lock pins the complete Rust
 graph. iced's two renderers and its text shaper, cosmic-text, are patched in
 `vendor/`; see [dependency sources](#dependency-sources) and [the vendored
 toolkit](client/toolkit.md).
@@ -394,7 +394,7 @@ building in the Nix sandbox.
 
 The supported and packaged build route remains the Linux MSVC cross-build.
 A native Windows build is for development only: it names this machine's folders
-and must not be shipped. It needs Rust 1.97.1, Visual Studio C++ tools and the
+and must not be shipped. It needs Rust 1.100, Visual Studio C++ tools and the
 Windows 10/11 SDK, LLVM with `clang-cl`, `llvm-rc` and `libclang` on `PATH`
 (the SDK's `rc.exe` can replace `llvm-rc`), and NASM on `PATH`. bindgen, which
 `thorvg-sys` runs, finds `libclang` only through `LIBCLANG_PATH`, `llvm-config

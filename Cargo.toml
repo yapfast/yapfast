@@ -194,7 +194,7 @@ opt-level = 3
 # by inlining more, for CPU and memory that measured the same. "off", as
 # false still runs LTO within each crate.
 [profile.release]
-lto = "off"
+lto = "thin"
 strip = true
 
 # Optimized like release, with symbols and incremental builds: for
