@@ -167,12 +167,11 @@ impl Report {
         self.errors.is_empty()
     }
 
-    /// The first reason it can't be used, as one sentence, whole, with what
-    /// [`super::refused_char`] names written out: an error can quote the
-    /// theme's own words, which must not reach a screen as more lines or
-    /// turned around.
+    /// The first reason it can't be used, as one [`super::sentence`]: an
+    /// error can quote the theme's own words, which must not reach a screen
+    /// as more lines, turned around or as long as the theme likes.
     pub fn reason(&self) -> Option<String> {
-        self.errors.first().map(|error| super::escaped(error))
+        self.errors.first().map(|error| super::sentence(error))
     }
 
     /// What `yapfast theme check` prints.
@@ -194,7 +193,7 @@ impl Report {
             );
         }
         for error in &self.errors {
-            let _ = writeln!(out, "error: {}", super::shown(error));
+            let _ = writeln!(out, "error: {}", super::sentence(error));
         }
         for warning in &self.warnings {
             let _ = writeln!(out, "warning: {}", super::shown(warning));
@@ -1579,6 +1578,12 @@ mod tests {
             reason.ends_with('"') && reason.contains(&"a".repeat(200)),
             "{reason}"
         );
+        let text = check(&files(&long), Strictness::Install).text();
+        assert!(text.contains(&format!("{}\"", "a".repeat(200))), "{text}");
+        // But never as long as a theme likes.
+        let huge = PLUM.replace("com.example.plum", &"a".repeat(200_000));
+        let reason = check(&files(&huge), Strictness::Install).reason().unwrap();
+        assert_eq!(reason.chars().count(), 1001, "{}", &reason[..80]);
     }
 
     /// PLUM with `options` (and anything else) added at its top level.

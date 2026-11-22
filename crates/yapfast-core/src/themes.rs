@@ -70,16 +70,26 @@ pub fn refused_char(c: char) -> bool {
 /// 160 characters, so a name in a note can't pass for Yapfast's words or
 /// push the rest off screen.
 pub fn shown(text: &str) -> String {
-    const MOST: usize = 160;
-    match text.char_indices().nth(MOST) {
+    shown_within(text, 160)
+}
+
+/// A sentence of Yapfast's that quotes a theme, such as a check's error:
+/// written out as [`shown`] writes it, but whole up to 1000 characters, so
+/// what to do, which comes last, stays, and a theme's 200 KB id still
+/// can't fill the screen.
+pub fn sentence(text: &str) -> String {
+    shown_within(text, 1000)
+}
+
+fn shown_within(text: &str, most: usize) -> String {
+    match text.char_indices().nth(most) {
         Some((cut, _)) => escaped(&text[..cut]) + "…",
         None => escaped(text),
     }
 }
 
-/// `text` with what [`refused_char`] names written out as `\u{…}`, however
-/// long: a sentence of Yapfast's that quotes a theme.
-pub fn escaped(text: &str) -> String {
+/// `text` with what [`refused_char`] names written out as `\u{…}`.
+fn escaped(text: &str) -> String {
     let mut out = String::new();
     for c in text.chars() {
         if refused_char(c) {
