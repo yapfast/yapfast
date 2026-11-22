@@ -738,24 +738,29 @@ impl App {
     }
 
     /// Ctrl+Shift+T: the way back from a theme package that made the
-    /// window hard to use. A package chosen or tried, or `--theme-dev`'s,
-    /// is turned off and kept off, and a draft Settings previews goes, so
-    /// no package shows. A palette theme stays as it is.
+    /// window hard to use. A trial ends as Revert ends it, `--theme-dev`'s
+    /// theme stops, a draft Settings previews goes, and a package chosen
+    /// is turned off and kept off, so no package shows. A palette theme
+    /// chosen stays as it is.
     pub(crate) fn turn_package_off(&mut self) {
-        let chosen = self.themes.package_shown();
+        let chosen = self.themes.chosen_package();
+        let tried = self.themes.trial().is_some();
+        let dev = self.themes.dev_shown();
         let previewed = self
             .win
             .settings
             .get()
             .and_then(crate::settings::Settings::preview)
             .is_some_and(Theme::packaged);
-        if !chosen && !previewed {
+        if !chosen && !tried && !dev && !previewed {
             return;
         }
         if let Some(settings) = self.win.settings.get_mut() {
             settings.drop_preview();
         }
         self.themes.clear_creator_preview();
+        crate::settings::theme_marketplace::revert_trial(&mut self.themes, &mut self.layout);
+        self.themes.turn_dev_off();
         if chosen {
             self.themes.turn_off(self.client.root());
             self.layout.theme = None;

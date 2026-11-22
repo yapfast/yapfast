@@ -149,6 +149,53 @@ fn ctrl_shift_t_leaves_a_palette_theme_as_it_is() {
     assert_eq!(kept["theme"], "sakura");
 }
 
+/// A package on trial ends as Revert ends it, back to the palette theme
+/// chosen, which stays kept.
+#[test]
+fn ctrl_shift_t_ends_a_trial_and_keeps_the_palette_theme() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    install_small_package(&folder);
+    let mut app = start(&folder, true);
+    assert!(app.choose_theme("sakura"));
+    app.themes
+        .try_installed("installed:dev.example.small")
+        .expect("on trial");
+    app.layout
+        .theme_sounds
+        .insert("trial".into(), crate::themes::SoundPrefs::default());
+    app.show_wanted_theme();
+    assert!(app.theme.packaged());
+    ctrl_shift_t(&mut app);
+    assert_eq!(app.theme.id, "sakura");
+    assert!(app.themes.trial().is_none());
+    assert!(!app.layout.theme_sounds.contains_key("trial"));
+    assert_eq!(stored(&folder)["theme"], "sakura");
+}
+
+/// `--theme-dev`'s theme stops, and the palette theme chosen shows again.
+#[test]
+fn ctrl_shift_t_stops_the_dev_theme_and_keeps_the_palette_theme() {
+    let (mut app, folder) = preview();
+    assert!(app.choose_theme("sakura"));
+    let dev = tempfile::tempdir_in(local()).expect("dev folder");
+    std::fs::write(
+        dev.path().join(yapfast_core::themes::MANIFEST),
+        r##"{ "theme_api": 1, "id": "dev.example.dev", "name": "Dev",
+            "version": "1.0.0", "variants": { "dark": { "base": "yap" } } }"##,
+    )
+    .unwrap();
+    app.themes
+        .develop(dev.path(), &app.layout)
+        .expect("developed");
+    app.show_wanted_theme();
+    assert!(app.theme.packaged());
+    ctrl_shift_t(&mut app);
+    assert_eq!(app.theme.id, "sakura");
+    assert!(!app.theme.packaged());
+    assert!(app.themes.dev_folder().is_none(), "no longer watched");
+    assert_eq!(stored(&folder)["theme"], "sakura");
+}
+
 /// The creator's preview is a package too: the key lets go of it, and
 /// the palette theme chosen shows again.
 #[test]

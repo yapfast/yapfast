@@ -169,6 +169,9 @@ impl Settings {
                 // default shows at the next start too, and the theme that
                 // was showing is the one Back returns to.
                 cx.themes.turn_off(cx.client.root());
+                // A trial ends with it: what it was given goes.
+                cx.layout.theme_sounds.remove("trial");
+                cx.layout.theme_content.remove("trial");
                 cx.layout.theme = None;
                 cx.layout.previous_theme = cx.themes.previous().map(|(id, _)| id.to_owned());
                 cx.request(Request::Changed(Shown::Theme));

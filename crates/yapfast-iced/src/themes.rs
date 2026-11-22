@@ -1339,18 +1339,26 @@ impl Themes {
         }
     }
 
-    /// Whether a package dresses [`Self::shown`]: one chosen or tried, or
-    /// `--theme-dev`'s.
-    pub fn package_shown(&self) -> bool {
+    /// Whether the theme chosen is a package, not a palette.
+    pub fn chosen_package(&self) -> bool {
+        self.chosen
+            .as_deref()
+            .is_some_and(|id| self.package(id).is_some())
+    }
+
+    /// Whether `--theme-dev`'s theme shows.
+    pub fn dev_shown(&self) -> bool {
         self.dev.is_some()
-            || self
-                .trial
-                .as_ref()
-                .is_some_and(|trial| self.package(&trial.id).is_some())
-            || self
-                .chosen
-                .as_deref()
-                .is_some_and(|id| self.package(id).is_some())
+    }
+
+    /// Stops showing `--theme-dev`'s theme, and watching its folder, for
+    /// the rest of this run. The theme chosen stays as it is.
+    pub fn turn_dev_off(&mut self) {
+        if self.dev_folder.is_some() {
+            self.dev = None;
+            self.dev_off = true;
+            self.settle_live();
+        }
     }
 
     /// The chosen theme's id, as Appearance and Themes mark it.
@@ -1429,6 +1437,13 @@ impl Themes {
     #[cfg(test)]
     pub fn developing(&self) -> bool {
         self.dev_folder().is_some()
+    }
+
+    /// Shows `folder` as `--theme-dev` does.
+    #[cfg(test)]
+    pub fn develop(&mut self, folder: &Path, layout: &Layout) -> Result<(), String> {
+        self.dev_folder = Some(folder.to_owned());
+        self.read_dev(layout)
     }
 
     /// `--theme-dev`'s folder while it's watched.
