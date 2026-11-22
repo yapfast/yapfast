@@ -283,7 +283,10 @@ action ran, through `yf_input`, and never which keys
 names one of the manifest's sound `assets` for each of Yapfast's sound events
 it replaces: `join`, `leave`, `mute`, `unmute`, `deafen`, `undeafen`,
 `message`, `mention`, `viewer_join`, `viewer_leave`, `stream_start` and
-`stream_stop`. A plugin with nothing but sounds needs no module.
+`stream_stop`. A plugin with nothing but sounds needs no module. The plugin's page lists each event it replaces under **Sounds**, where the
+person may choose a file of their own (WAV, Ogg or MP3, up to 16 MiB) in place
+of the plugin's, kept in the plugin's data folder, and go back to the plugin's
+sound.
 
 ## Signing in to a service
 

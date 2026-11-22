@@ -138,6 +138,8 @@ pub struct PluginPage {
     pub uninstalling: Option<String>,
     /// The open plugin's own settings page shows, rather than its details.
     pub custom: bool,
+    /// Why the last sound the person picked for a plugin wasn't taken.
+    pub sound_problem: Option<String>,
     /// Reset to defaults was pressed, and the page asks first.
     pub resetting: bool,
     /// Which of the devtools' views shows on a plugin's page.
@@ -195,6 +197,18 @@ pub enum PluginEvent {
     ConfirmPowerful(bool),
     /// Copies a plugin's local endpoint token.
     CopyToken(String),
+    /// Opens the file picker for one of the sounds a plugin replaces.
+    PickSound {
+        id: String,
+        event: String,
+    },
+    /// The person's own file for a plugin's replaced sound, or none to go
+    /// back to the plugin's own.
+    SetSound {
+        id: String,
+        event: String,
+        file: Option<std::path::PathBuf>,
+    },
     /// Runs a plugin or stops it.
     SetEnabled {
         id: String,
@@ -334,6 +348,28 @@ pub(in crate::settings) fn plugin_dialog(event: &PluginEvent) -> Option<Task<Mes
             },
         )),
         PluginEvent::CopyToken(token) => Some(iced::clipboard::write(token.clone())),
+        PluginEvent::PickSound { id, event } => {
+            let (id, event) = (id.clone(), event.clone());
+            let title = format!("Choose the sound for {}", sound_label(&event));
+            Some(Task::perform(
+                async move {
+                    rfd::AsyncFileDialog::new()
+                        .set_title(title)
+                        .add_filter("Sounds", &["wav", "ogg", "opus", "mp3"])
+                        .pick_file()
+                        .await
+                        .map(|file| file.path().to_owned())
+                },
+                move |path| match path {
+                    Some(path) => plugin_message(PluginEvent::SetSound {
+                        id: id.clone(),
+                        event,
+                        file: Some(path),
+                    }),
+                    None => Message::Nothing,
+                },
+            ))
+        }
         _ => None,
     }
 }
@@ -545,7 +581,27 @@ impl Settings {
                         ));
                     self.plugins.forget();
                 }
-                PluginEvent::CopyToken(_) => {}
+                PluginEvent::CopyToken(_) | PluginEvent::PickSound { .. } => {}
+                PluginEvent::SetSound { id, event, file } => {
+                    let read = match file.as_ref().map(std::fs::read) {
+                        Some(Ok(bytes)) => Ok(Some(bytes)),
+                        Some(Err(error)) => Err(error.to_string()),
+                        None => Ok(None),
+                    };
+                    let done = read.and_then(|file| {
+                        let plugin = yapfast_plugin_api::PluginId::parse(&id)
+                            .map_err(|_| "not a plugin".to_owned())?;
+                        cx.client
+                            .app
+                            .state
+                            .plugins
+                            .as_ref()
+                            .ok_or_else(|| "plugins aren't running".to_owned())?
+                            .set_picked_sound(&plugin, &event, file)
+                    });
+                    self.plugins.sound_problem = done.err();
+                    self.plugins.forget();
+                }
                 // Settings::update opens these dialogs before dispatching here.
                 PluginEvent::ChooseWasm | PluginEvent::ChooseFolder => {}
                 PluginEvent::InstallWasm(path) => {
@@ -1237,6 +1293,7 @@ impl<'a> Page<'a> {
                 )],
             ));
         }
+        parts.extend(self.sounds(theme, plugin));
         parts.extend(self.looks(theme, plugin));
         if self.cx.layout.plugin_devtools {
             parts.extend(self.devtools(theme, plugin));
@@ -1278,6 +1335,79 @@ impl<'a> Page<'a> {
         ]
         .spacing(8)
         .into()
+    }
+
+    /// The sounds a plugin replaces, each with the person's own file in
+    /// place of the plugin's if they picked one: a file per event, and the
+    /// way back to the plugin's.
+    #[cfg(feature = "plugins")]
+    fn sounds(self, theme: &Theme, plugin: &Installed) -> Option<Element<'a, Message>> {
+        let id = yapfast_plugin_api::PluginId::parse(&plugin.id).ok()?;
+        let sounds = self
+            .cx
+            .app
+            .state
+            .plugins
+            .as_ref()
+            .map(|plugins| plugins.replaced_sounds(&id))
+            .unwrap_or_default();
+        if sounds.is_empty() {
+            return None;
+        }
+        let mut rows: Vec<Element<'a, Message>> = sounds
+            .into_iter()
+            .map(|(event, picked)| {
+                let pick = controls::action(
+                    theme,
+                    if picked {
+                        "Change file…"
+                    } else {
+                        "Choose file…"
+                    },
+                    ActionKind::Plain,
+                    Some(plugin_message(PluginEvent::PickSound {
+                        id: plugin.id.clone(),
+                        event: event.clone(),
+                    })),
+                )
+                .small();
+                let mut buttons = row![pick].spacing(8);
+                if picked {
+                    buttons = buttons.push(
+                        controls::action(
+                            theme,
+                            "Use the plugin's",
+                            ActionKind::Plain,
+                            Some(plugin_message(PluginEvent::SetSound {
+                                id: plugin.id.clone(),
+                                event: event.clone(),
+                                file: None,
+                            })),
+                        )
+                        .small(),
+                    );
+                }
+                list_row(
+                    column![
+                        text(sound_label(&event)).size(14).color(theme.text),
+                        form::note(
+                            theme,
+                            if picked {
+                                "Your own file"
+                            } else {
+                                "The plugin's sound"
+                            },
+                        ),
+                    ]
+                    .spacing(4),
+                    Some(buttons.into()),
+                )
+            })
+            .collect();
+        if let Some(problem) = &self.s.plugins.sound_problem {
+            rows.push(text(problem.clone()).size(12).color(theme.danger).into());
+        }
+        Some(section(theme, "SOUNDS", [list_card(theme, rows)]))
     }
 
     /// Removing the plugin, at the foot of its page as the other pages keep
@@ -2786,5 +2916,17 @@ mod tests {
         );
         assert_eq!(from(Origin::Url, ""), "Installed from a URL");
         assert_eq!(from(Origin::Marketplace, ""), "From the marketplace");
+    }
+}
+
+/// A sound event's name as the page words it: `stream_start` as "Stream
+/// start".
+#[cfg(feature = "plugins")]
+fn sound_label(event: &str) -> String {
+    let words = event.replace('_', " ");
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => words,
     }
 }

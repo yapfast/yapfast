@@ -28,7 +28,67 @@ impl Bridge {
     pub fn sound_for(&self, event: &str) -> Option<(PluginId, Vec<u8>)> {
         self.shared.sound_for(event)
     }
+
+    /// The sound events a plugin's manifest replaces, each with whether the
+    /// person picked a file of their own for it: what its page lists.
+    pub fn replaced_sounds(&self, plugin: &PluginId) -> Vec<(String, bool)> {
+        let events: Vec<String> = self
+            .shared
+            .registry()
+            .entry(plugin)
+            .filter(|entry| entry.manifest.permissions.allows(Capability::SoundsReplace))
+            .map(|entry| entry.manifest.sounds.keys().cloned().collect())
+            .unwrap_or_default();
+        let folder = self.shared.picked_sounds(plugin);
+        events
+            .into_iter()
+            .map(|event| {
+                let picked = folder.join(&event).is_file();
+                (event, picked)
+            })
+            .collect()
+    }
+
+    /// The person's own file for one of the events a plugin replaces, in place
+    /// of the plugin's sound, or none to go back to the plugin's. Kept in the
+    /// plugin's data folder, so uninstalling with its data takes it too.
+    pub fn set_picked_sound(
+        &self,
+        plugin: &PluginId,
+        event: &str,
+        file: Option<Vec<u8>>,
+    ) -> Result<(), String> {
+        let mapped = self.shared.registry().entry(plugin).is_some_and(|entry| {
+            entry.manifest.permissions.allows(Capability::SoundsReplace)
+                && entry.manifest.sounds.contains_key(event)
+        });
+        if !mapped {
+            return Err(format!("{plugin} doesn't replace the {event} sound"));
+        }
+        let path = self.shared.picked_sounds(plugin).join(event);
+        let Some(bytes) = file else {
+            let _ = std::fs::remove_file(&path);
+            return Ok(());
+        };
+        if bytes.len() as u64 > PICKED_SOUND_BYTES {
+            return Err(format!(
+                "a sound is at most {} MiB",
+                PICKED_SOUND_BYTES >> 20
+            ));
+        }
+        if !yapfast_plugin_api::assets::AssetKind::sniff(&bytes).is_some_and(|kind| kind.is_sound())
+        {
+            return Err("that file isn't a WAV, Ogg or MP3 sound".to_owned());
+        }
+        if let Some(folder) = path.parent() {
+            std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+        }
+        std::fs::write(&path, bytes).map_err(|error| error.to_string())
+    }
 }
+
+/// The most a sound the person picks may hold: it is decoded whole to play.
+const PICKED_SOUND_BYTES: u64 = 16 << 20;
 
 impl Shared {
     /// Whether `plugin` declares `keybinds` and the keybind `action`.
@@ -60,6 +120,11 @@ impl Shared {
             .collect()
     }
 
+    /// Where the person's own picks for a plugin's sounds are kept.
+    pub(super) fn picked_sounds(&self, plugin: &PluginId) -> std::path::PathBuf {
+        self.store().data_dir(plugin).join("sounds")
+    }
+
     pub(super) fn sound_for(&self, event: &str) -> Option<(PluginId, Vec<u8>)> {
         let wanted: Vec<(PluginId, String)> = {
             let registry = self.registry();
@@ -73,15 +138,19 @@ impl Shared {
                 })
                 .collect()
         };
-        wanted
-            .into_iter()
-            .find_map(|(plugin, asset)| match self.asset(&plugin, &asset) {
+        wanted.into_iter().find_map(|(plugin, asset)| {
+            // A file the person picked for this event comes first.
+            if let Ok(bytes) = std::fs::read(self.picked_sounds(&plugin).join(event)) {
+                return Some((plugin, bytes));
+            }
+            match self.asset(&plugin, &asset) {
                 Ok((kind, bytes)) if kind.is_sound() => Some((plugin, bytes)),
                 Ok(_) => None,
                 Err(error) => {
                     tracing::debug!(%plugin, %asset, %error, "a replaced sound couldn't be read");
                     None
                 }
-            })
+            }
+        })
     }
 }

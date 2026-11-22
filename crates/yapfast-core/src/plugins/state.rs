@@ -212,6 +212,22 @@ impl PluginState {
         self.bridge.sound_for(event)
     }
 
+    /// The events a plugin replaces the sound of, and whether the person
+    /// picked their own file for each.
+    pub fn replaced_sounds(&self, plugin: &PluginId) -> Vec<(String, bool)> {
+        self.bridge.replaced_sounds(plugin)
+    }
+
+    /// The person's own file for one of a plugin's replaced sounds, or none.
+    pub fn set_picked_sound(
+        &self,
+        plugin: &PluginId,
+        event: &str,
+        file: Option<Vec<u8>>,
+    ) -> Result<(), String> {
+        self.bridge.set_picked_sound(plugin, event, file)
+    }
+
     pub fn world(&self) -> &Arc<crate::plugins::world::World> {
         &self.world
     }
