@@ -614,6 +614,18 @@ impl App {
                 }))
             },
         );
+        // A log's text column, which its rows' text wraps from.
+        let irc = self
+            .themes
+            .package_layout(&self.theme.id)
+            .and_then(|layout| {
+                crate::message::irc_left(
+                    layout,
+                    &self.theme,
+                    self.theme
+                        .type_size("body", crate::settings::message_size(prefs.text_size)),
+                )
+            });
         let heights: Vec<f32> = looks
             .iter()
             .enumerate()
@@ -638,6 +650,7 @@ impl App {
                             width,
                             if index == 0 { edge } else { 0.0 },
                             self.theme.spacing(),
+                            irc,
                         ) + if last { foot } else { 0.0 }
                     }
                 }

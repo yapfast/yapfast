@@ -389,17 +389,22 @@ impl Edge {
 
 /// A row's height before it's measured: the lines its text wraps to,
 /// estimated by character count at the timeline's width, its pictures and
-/// reactions, and the space and dividers above it.
+/// reactions, and the space and dividers above it. In a log (`irc`, where
+/// its text column starts) the nick shares the first line, with no author
+/// line or avatar over it.
 pub fn row_height(
     message: &ChatMessage,
     look: &RowLook,
     width: f32,
     edge: f32,
     spacing: crate::theme::Spacing,
+    irc: Option<f32>,
 ) -> f32 {
     let avatar = spacing.avatar_size.unwrap_or(AVATAR);
     let gutter = avatar + 2.0 * spacing.chat_padding.unwrap_or((GUTTER - AVATAR) / 2.0);
-    let text_width = (width - gutter - END_PAD).max(100.0);
+    let irc = irc.filter(|_| message.notice.is_none());
+    let text_width = (width - irc.unwrap_or(gutter) - END_PAD).max(100.0);
+    let headed = look.first && message.notice.is_none() && irc.is_none();
     let per_line = (text_width / CHAR).floor().max(1.0) as usize;
     let text = look.body.plain();
     let lines: usize = if text.is_empty() {
@@ -417,7 +422,7 @@ pub fn row_height(
     if header {
         content += LINE_HEIGHT;
     }
-    if look.first && message.notice.is_none() {
+    if headed {
         content += AUTHOR_LINE + AUTHOR_GAP;
     }
     let gallery = Gallery::of(&message.attachments, Placement::Message, text_width);
@@ -460,7 +465,7 @@ pub fn row_height(
     if message.thread.is_some() {
         content += THREAD_CARD;
     }
-    if look.first && message.notice.is_none() {
+    if headed {
         content = content.max(if header { avatar + 24.0 } else { avatar });
     }
     // Whole pixels, as rows are measured, so rows sit on whole pixels.

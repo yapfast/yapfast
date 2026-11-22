@@ -291,6 +291,27 @@ fn a_resolved_irc_rule_repeats_beside_every_message_line() {
 }
 
 #[test]
+fn a_logs_pictures_and_embeds_are_sized_from_its_text_column() {
+    let (mut app, _folder) = themed_messages(serde_json::json!({ "messages": "irc" }));
+    let lane = iced::Size::new(700.0, 600.0);
+    let _ = app.update(Message::Timeline(crate::timeline::Event::Viewport(lane)));
+    let ctx = app.ctx();
+    let row = (0..app.timeline.messages.len())
+        .find(|row| app.timeline.messages[*row].notice.is_none())
+        .expect("a message");
+    let left = crate::message::irc_column_left(ctx, &app.timeline.messages[row])
+        .expect("a log's text column");
+    let (place, _) = ctx.lane_place(row);
+    let room = crate::message::content_width_of(ctx, row);
+    assert!(left > 200.0, "the time, the nick and their gaps ({left})");
+    assert!(
+        left + room <= place.width,
+        "what's sized from the room fits the column ({left} + {room} in {})",
+        place.width
+    );
+}
+
+#[test]
 fn a_messages_menu_replies_to_it() {
     let (mut app, _folder) = preview();
     let text = "Yep. I should be free after dinner.";

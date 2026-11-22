@@ -1692,8 +1692,24 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
 /// `column-left`: the chat's padding, the time, the nick and the separator,
 /// 6 px apart. `None` outside a log, or for a notice.
 pub fn irc_column_left(ctx: crate::ctx::Ctx<'_>, message: &ChatMessage) -> Option<f32> {
-    let layout = ctx.themes.package_layout(&ctx.look.theme.id)?;
-    if layout.messages != Some(MessageStyle::Irc) || message.notice.is_some() {
+    if message.notice.is_some() {
+        return None;
+    }
+    irc_left(
+        ctx.themes.package_layout(&ctx.look.theme.id)?,
+        ctx.look.theme,
+        text_size(ctx),
+    )
+}
+
+/// [`irc_column_left`] for a log's messages, from the theme's layout and
+/// the messages' text size; `None` outside a log.
+pub fn irc_left(
+    layout: &yapfast_core::themes::layout::Layout,
+    theme: &crate::theme::Theme,
+    text_size: f32,
+) -> Option<f32> {
+    if layout.messages != Some(MessageStyle::Irc) {
         return None;
     }
     let time = layout.irc.time_width.unwrap_or(64.0);
@@ -1704,17 +1720,24 @@ pub fn irc_column_left(ctx: crate::ctx::Ctx<'_>, message: &ChatMessage) -> Optio
         .separator
         .clone()
         .unwrap_or_else(|| if rule { "│".into() } else { String::new() });
-    let lead = ctx.look.theme.spacing().chat_padding.unwrap_or(END_PAD);
+    let lead = theme.spacing().chat_padding.unwrap_or(END_PAD);
     // A separator is a glyph or two of the log's monospaced face.
-    let sep = separator.chars().count() as f32 * text_size(ctx) * 0.6;
+    let sep = separator.chars().count() as f32 * text_size * 0.6;
     let gaps = if time > 0.0 { 6.0 } else { 0.0 } + 6.0 + if sep > 0.0 { 6.0 } else { 0.0 };
     Some(lead + if time > 0.0 { time } else { 0.0 } + nick + sep + gaps)
 }
 
 /// The room row `row`'s content has across: its timeline's width but
-/// the gutter and the room kept for its actions.
+/// the gutter and the room kept for its actions; in a log, from its text
+/// column on.
 pub fn content_width_of(ctx: crate::ctx::Ctx<'_>, row: usize) -> f32 {
     let (lane, _) = ctx.lane_place(row);
+    if let Some(left) = ctx
+        .row_message(row)
+        .and_then(|message| irc_column_left(ctx, message))
+    {
+        return (lane.width - left - END_PAD).max(0.0);
+    }
     let width = (lane.width - crate::timeline::gutter(ctx.look.theme) - END_PAD).max(0.0);
     // In a theme's bubbles, what's sized from the room (pictures, embeds)
     // fits inside the bubble: its share of the lane, less its padding. A
