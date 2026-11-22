@@ -608,6 +608,9 @@ fn thought_bubble<'a>(
     let room = width - at.x - 12.0;
     let room = if large { room.min(180.0) } else { room };
     let status = &shown.look.thought;
+    // A status of emoji alone shows big, 32 px, in a bubble that fits
+    // it, as Discord's (`.statusEmoji_rmCN9_` with no text after it).
+    let size = if emoji_alone(status) { 29.0 } else { size };
     let mut words = row![].spacing(4);
     if let Some(emoji) = &status.emoji {
         let side = (size + 3.0_f32).round();
@@ -629,6 +632,22 @@ fn thought_bubble<'a>(
         .on_enter(Message::Profile(Event::Bubble(true)))
         .on_exit(Message::Profile(Event::Bubble(false)));
     thought(inks, dots, at, bubble_box.into())
+}
+
+/// Whether a status is emoji alone: a custom emoji with no words, or a
+/// few characters none of which is a letter, digit or ASCII.
+pub(crate) fn emoji_alone(status: &crate::looks::Status) -> bool {
+    let words = status.words.trim();
+    match &status.emoji {
+        Some(_) => words.is_empty(),
+        None => {
+            !words.is_empty()
+                && words.chars().count() <= 12
+                && words
+                    .chars()
+                    .all(|c| !c.is_ascii() && !c.is_alphanumeric() || c == ' ')
+        }
+    }
 }
 
 /// The friend request and the person's menu, over the banner's top

@@ -1601,3 +1601,27 @@ fn someone_in_voice_wears_their_server_tag() {
     assert!(shows(&app, "Riley"), "Riley under Party");
     assert!(shows(&app, "GUYS"), "with her server tag");
 }
+
+/// A status of emoji alone shows big, on a profile's bubble and in the
+/// account popover; words, or emoji among words, keep their size.
+#[test]
+fn a_status_of_emoji_alone_is_big() {
+    use crate::looks::Status;
+    let alone = |words: &str, emoji: Option<&str>| {
+        crate::profile::body::emoji_alone(&Status {
+            words: words.into(),
+            emoji: emoji.map(str::to_owned),
+            ..Status::default()
+        })
+    };
+    assert!(alone("🍵", None));
+    assert!(alone("🍵 ✨", None));
+    assert!(alone("", Some("https://cdn.discordapp.com/emojis/1.png")));
+    assert!(!alone("tea 🍵", None));
+    assert!(!alone("brb", None));
+    assert!(!alone(
+        "brb",
+        Some("https://cdn.discordapp.com/emojis/1.png")
+    ));
+    assert!(!alone("", None));
+}
