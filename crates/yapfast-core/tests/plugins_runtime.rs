@@ -412,6 +412,7 @@ fn an_enabled_plugin_answers_its_command_after_a_start() {
         yapfast_plugin_api::call::CommandInvocation {
             name: "ping".to_owned(),
             options: serde_json::Map::new(),
+            room: None,
         },
     );
 

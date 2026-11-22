@@ -2630,6 +2630,10 @@ pub struct Application {
     /// after one listens, which says nothing.
     #[cfg(feature = "plugins")]
     plugin_game: Option<Option<String>>,
+    /// The friends' presences the plugins were last told of, at the
+    /// `people_changes` they were read at.
+    #[cfg(feature = "plugins")]
+    plugin_friend_presences: Option<(u64, std::collections::BTreeMap<String, &'static str>)>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,

@@ -1090,6 +1090,9 @@ impl VoiceView {
 pub struct VoicePerson {
     /// Who they are, by Discord or Matrix user id.
     pub id: String,
+    /// Their name, as the call shows it.
+    #[serde(default)]
+    pub name: String,
     /// Whether it is this account.
     #[serde(default)]
     pub own: bool,
@@ -1294,6 +1297,10 @@ pub struct CommandInvocation {
     /// The options, by name.
     #[serde(default)]
     pub options: serde_json::Map<String, Value>,
+    /// The room the person typed it in, or the one on screen for a command
+    /// run from a menu row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<String>,
 }
 
 /// What a command answered.

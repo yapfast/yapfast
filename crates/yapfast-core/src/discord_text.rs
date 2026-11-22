@@ -727,14 +727,35 @@ pub fn plugins_observed(
         Live::Updated(message) if wants(EventKind::MessageUpdate) => {
             plugin_message(discord, channels, events, EventKind::MessageUpdate, message);
         }
-        Live::Deleted { channel, id } if wants(EventKind::MessageDelete) => plugin_said(
-            events,
-            EventKind::MessageDelete,
-            plugin_room(discord, channels, channel),
-            None,
-            false,
-            serde_json::json!({ "id": id }),
-        ),
+        Live::Deleted { channel, id } if wants(EventKind::MessageDelete) => {
+            // The message as it was, when a conversation Yapfast holds had it
+            // loaded: the event comes before the conversation lets it go, so
+            // a logger hears what was deleted, not only its id.
+            let room = plugin_room(discord, channels, channel);
+            let kept = id.parse::<u64>().ok().and_then(|order| {
+                channels
+                    .open
+                    .iter()
+                    .chain(&channels.aside)
+                    .chain(&channels.recent)
+                    .find(|held| held.channel == *channel)
+                    .and_then(|held| held.message(order))
+            });
+            let (payload, author, own) = match kept {
+                Some(message) => {
+                    let (view, own) =
+                        crate::application::plugins::message_view(discord, &room, message);
+                    let author = view.author.id.clone();
+                    (
+                        serde_json::json!({ "id": id, "message": view }),
+                        Some(author),
+                        own,
+                    )
+                }
+                None => (serde_json::json!({ "id": id }), None, false),
+            };
+            plugin_said(events, EventKind::MessageDelete, room, author, own, payload);
+        }
         Live::Reaction {
             channel,
             message,

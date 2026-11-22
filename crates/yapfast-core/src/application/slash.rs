@@ -726,6 +726,7 @@ impl Application {
                     invocation: yapfast_plugin_api::call::CommandInvocation {
                         name: command.name,
                         options: serde_json::Map::new(),
+                        room: None,
                     },
                 },
             )));

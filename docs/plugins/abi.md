@@ -152,7 +152,7 @@ a log.
 | `yf_deactivate` | Nothing | `DeactivatePayload { state }`, or `null` for none. Cut to 256 KiB |
 | `yf_event` | `EventBatch { events, results }` | Nothing |
 | `yf_hook` | `HookRequest { hook, subject }` | `HookOutcome` |
-| `yf_command` | `CommandInvocation { name, options }` | `CommandOutcome` |
+| `yf_command` | `CommandInvocation { name, options, room }`, `room` the conversation it was typed in | `CommandOutcome` |
 | `yf_decorate` | `DecorateRequest { room, message, author, body, own }` | A widget tree, an object with `tree`, `annotation`, `marks`, `hide` and `hide_media`, or `null` for none |
 | `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles }` | `MemberBadge { text, tone }`, or `null` for none |
 | `yf_identity` | `IdentityRequest { person, server, name, username, own }` | An `Identity`, or `null` for none |
@@ -192,6 +192,12 @@ An event batch arrives as:
 }
 ```
 
+A message's payload is the message as `messages.get` answers it, each file in
+`attachments` with its name, size, type and `media`, the address `media.get`
+reads. `message_delete`'s is `{ "id": … }`, with `"message"` too, the message as
+it was, when a conversation Yapfast holds had it loaded, which is what a logger
+keeps.
+
 `topics` is there only when something was published to a topic the plugin
 subscribed to; a batch with none has no field at all. Each entry is one
 `plugin.publish`, and a subscriber handles them after the batch's events.
@@ -207,7 +213,7 @@ one call with several events rather than one call each.
 | Event | Payload | Tapped where |
 | --- | --- | --- |
 | `typing` | `{ "name": … }` | Discord's gateway, for any channel the account may read |
-| `presence` | `{ "person": …, "presence": "online"\|"idle"\|"dnd"\|"offline" }` | The open room's member list, once per person whose presence moved; the first list of a conversation says nothing, and someone who left is not reported |
+| `presence` | `{ "person": …, "name": …, "presence": "online"\|"idle"\|"dnd"\|"offline", "friend"? }` | The open room's member list, once per person whose presence moved; the first list of a conversation says nothing, and someone who left is not reported. A friend's presence comes too, wherever they are, with no room and `"friend": true`, from the friends list Yapfast keeps |
 | `speaking` | `{ "person": …, "speaking": true\|false }` | The call's own voice state, once per person whose voice started or stopped, which is what `discord_audio` hears in its frames |
 | `member_join` | `{ "person": …, "name": … }` | The open room's member list, once per person who appeared in it since its last list; the first list of a conversation says nothing |
 | `member_leave` | `{ "person": … }` | The same list, once per person who left it |
@@ -226,9 +232,9 @@ These are sent as they happen:
 | Event | Payload | Needs, and tapped where |
 | --- | --- | --- |
 | `startup_timing` | `{ "window_ms": …, "ready_ms": … }` | `app.timing`. Once a session, when Discord's gateway first says the account is online: milliseconds from the process starting to its window being built and to that moment, each `null` when it wasn't measured. Time spent signing in counts, so a start that waited on a person reads long |
-| `relationship_add` | `{ "person": … }` | `relationships.read`. The friends list Yapfast keeps from Discord's `RELATIONSHIP_ADD`, `UPDATE` and `REMOVE` (`yapfast-discord/src/service/tracker.rs`), once per person who became a friend, an accepted request included |
-| `relationship_remove` | `{ "person": …, "was": "friend"\|"request" }` | The same lists, once per friend or request that went |
-| `relationship_request` | `{ "person": …, "incoming": true\|false }` | The same lists, once per friend request that arrived or was sent |
+| `relationship_add` | `{ "person": …, "name": … }` | `relationships.read`. The friends list Yapfast keeps from Discord's `RELATIONSHIP_ADD`, `UPDATE` and `REMOVE` (`yapfast-discord/src/service/tracker.rs`), once per person who became a friend, an accepted request included |
+| `relationship_remove` | `{ "person": …, "name": …, "was": "friend"\|"request" }` | The same lists, once per friend or request that went |
+| `relationship_request` | `{ "person": …, "name": …, "incoming": true\|false }` | The same lists, once per friend request that arrived or was sent |
 | `server_join` | `{ "server": …, "name": … }` | `servers.read`. The server list Yapfast keeps from Discord (`GUILD_CREATE` for a server joined, docs.discord.food, gateway events), once per Discord server that appeared in it while Discord was online |
 | `server_remove` | `{ "server": …, "name": … }` | The same list, once per server that left it: left, kicked, banned or deleted (`GUILD_DELETE` without `unavailable`). An outage keeps the server listed as unavailable, so it says nothing, and neither does signing in or a reconnect |
 | `group_dm_remove` | `{ "room": …, "name": … }` | `servers.read`. The DM list, once per group DM that left it: left, removed or deleted |
@@ -559,7 +565,7 @@ answer says the voice was asked to speak, not that it finished.
 `voice.state` is the call as the call panel shows it, and nothing the panel
 doesn't: the room and its name, the server, the phase (`joining`, `connected` or
 `reconnecting`), this account's `muted`, `deafened`, `streaming` and `video`,
-whose stream it `watching`, and `people`, at most 99, each with `id`, `own`,
+whose stream it `watching`, and `people`, at most 99, each with `id`, `name`, `own`,
 `muted`, `deafened`, `server_muted`, `speaking`, `streaming` and `video`. It is
 read-only: nothing in it mutes, moves or hears anyone, and no audio, picture or
 device leaves through it. The `voice_state` event carries the same object.
@@ -741,7 +747,7 @@ network: `app.version`, `app.locale` and `app.theme_mode` give one object;
 `account.me` the account signed in; `rooms.selected`, `rooms.get` and
 `rooms.list` the sidebar's own list; `messages.get` and `messages.history` the
 conversation on screen, because that is the timeline Yapfast keeps; and
-`people.get` and `people.member` the account and the open room's members. A
+`people.get` and `people.member` the account, the open room's members and, for `people.get`, the friends. A
 question about a room that isn't open is answered with an error saying so, and
 `rooms.selected` names the one that is. Each read needs the capability
 [`permissions.md`](permissions.md) gives it, and one answer is one frame: a page

@@ -63,6 +63,7 @@ fn a_command_answer_clears_its_request() {
     let invocation = CommandInvocation {
         name: "ping".to_owned(),
         options: serde_json::Map::new(),
+        room: None,
     };
     runtime().block_on(session.on_command(
         &shared,

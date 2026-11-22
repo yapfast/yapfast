@@ -424,6 +424,22 @@ impl Application {
             );
         }
         world.publish_selected(state.selected.as_deref());
+        if world.friends_at() != Some(state.people_changes) {
+            world.publish_friends(
+                state.people_changes,
+                state
+                    .friends
+                    .iter()
+                    .map(|friend| yapfast_plugin_api::event::PersonView {
+                        id: friend.id.clone(),
+                        name: friend.name.clone(),
+                        display_name: friend.nickname.clone(),
+                        own: false,
+                        bot: false,
+                    })
+                    .collect(),
+            );
+        }
         // The call is published as it changes, by the voice tap; this is the
         // first sync after a plugin was turned on in the middle of one.
         if !world.voice_published() {
@@ -452,6 +468,11 @@ impl Application {
             self.plugins_game();
         } else {
             self.plugin_game = None;
+        }
+        if wants_presence {
+            self.plugins_friend_presence();
+        } else {
+            self.plugin_friend_presences = None;
         }
         if !wants_presence && !wants_roster {
             // Nobody wants presence: nothing is compared, nothing is kept, and
@@ -495,27 +516,33 @@ impl Application {
         {
             return;
         }
-        let now = Relationships::read(at, &self.state.discord_friends, &self.state.friend_requests);
+        let now = Relationships::read(
+            at,
+            &self.state.discord_friends,
+            &self.state.friend_requests,
+            &self.state.friends,
+        );
         let Some(before) = self.plugin_relationships.replace(now.clone()) else {
             return;
         };
         let network = yapfast_plugin_api::event::Network::Discord;
         for change in before.changes(&now) {
+            let named = |person: &str| now.name_of(&before, person).map(str::to_owned);
             let (kind, person, payload) = match change {
                 RelationshipChange::Added(person) => (
                     EventKind::RelationshipAdd,
                     person.clone(),
-                    serde_json::json!({ "person": person }),
+                    serde_json::json!({ "person": person, "name": named(&person) }),
                 ),
                 RelationshipChange::Removed { person, was } => (
                     EventKind::RelationshipRemove,
                     person.clone(),
-                    serde_json::json!({ "person": person, "was": was }),
+                    serde_json::json!({ "person": person, "was": was, "name": named(&person) }),
                 ),
                 RelationshipChange::Requested { person, incoming } => (
                     EventKind::RelationshipRequest,
                     person.clone(),
-                    serde_json::json!({ "person": person, "incoming": incoming }),
+                    serde_json::json!({ "person": person, "incoming": incoming, "name": named(&person) }),
                 ),
             };
             self.plugins_observe(envelope(kind, network, None, Some(person), false, payload));
@@ -566,6 +593,54 @@ impl Application {
                 ),
             };
             self.plugins_observe(envelope(kind, network, room, None, true, payload));
+        }
+    }
+
+    /// Tells the plugins with `people.read` that subscribed to `presence` when a
+    /// friend's presence moved, wherever they are and whatever is on screen:
+    /// the friends list Yapfast keeps from Discord's presences, compared when
+    /// the people lists change. The event has no room, and `"friend": true`.
+    /// The first read after a plugin starts listening says nothing.
+    fn plugins_friend_presence(&mut self) {
+        let at = self.state.people_changes;
+        if self
+            .plugin_friend_presences
+            .as_ref()
+            .is_some_and(|(kept, _)| *kept == at)
+        {
+            return;
+        }
+        let now: std::collections::BTreeMap<String, &'static str> = self
+            .state
+            .friends
+            .iter()
+            .map(|friend| {
+                let presence = friend.presence.unwrap_or(crate::chat::Presence::Offline);
+                (friend.id.clone(), crate::plugins::presence::name(presence))
+            })
+            .collect();
+        let Some((_, before)) = self.plugin_friend_presences.replace((at, now.clone())) else {
+            return;
+        };
+        let network = yapfast_plugin_api::event::Network::Discord;
+        for (person, presence) in &now {
+            if before.get(person) == Some(presence) || !before.contains_key(person) {
+                continue;
+            }
+            let name = self
+                .state
+                .friends
+                .iter()
+                .find(|friend| friend.id == *person)
+                .map(|friend| friend.name.clone());
+            self.plugins_observe(envelope(
+                EventKind::Presence,
+                network,
+                None,
+                Some(person.clone()),
+                false,
+                serde_json::json!({ "person": person, "presence": presence, "name": name, "friend": true }),
+            ));
         }
     }
 
@@ -746,13 +821,17 @@ impl Application {
             .into_iter()
             .map(|(person, presence)| {
                 let own = account.as_deref() == Some(person.as_str());
+                let name = members
+                    .iter()
+                    .find(|member| member.id == person)
+                    .map(|member| member.name.clone());
                 envelope(
                     EventKind::Presence,
                     network,
                     Some(room.clone()),
                     Some(person.clone()),
                     own,
-                    serde_json::json!({ "person": person, "presence": presence }),
+                    serde_json::json!({ "person": person, "presence": presence, "name": name }),
                 )
             })
             .collect();

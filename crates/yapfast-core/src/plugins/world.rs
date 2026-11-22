@@ -144,6 +144,7 @@ pub fn voice_view(state: &crate::voice::State) -> Option<yapfast_plugin_api::cal
             .take(VoiceView::MAX_PEOPLE)
             .map(|person| VoicePerson {
                 id: person.person.clone(),
+                name: person.user.clone(),
                 own: person.local,
                 muted: person.muted,
                 deafened: person.deafened,
@@ -219,6 +220,9 @@ struct Held {
     /// on in a call publishes it.
     voice: Option<yapfast_plugin_api::call::VoiceView>,
     voice_published: bool,
+    /// The friends, by Discord user id, for `people.get`, at the
+    /// `people_changes` they were published at.
+    friends: Option<(u64, Arc<Vec<PersonView>>)>,
 }
 
 /// What the bridge answers a guest's reads from.
@@ -305,6 +309,20 @@ impl World {
         let mut held = self.held.write().unwrap_or_else(PoisonError::into_inner);
         held.rooms = Arc::new(rooms);
         held.lists = Some(changes);
+    }
+
+    /// The generation of the friends published last.
+    pub fn friends_at(&self) -> Option<u64> {
+        self.read().friends.as_ref().map(|(at, _)| *at)
+    }
+
+    /// The friends list, for `people.get` to answer about a friend who isn't
+    /// in the open room.
+    pub fn publish_friends(&self, at: u64, friends: Vec<PersonView>) {
+        self.held
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .friends = Some((at, Arc::new(friends)));
     }
 
     /// The open room, by the id the sidebar gives it.
@@ -478,8 +496,8 @@ impl World {
         Some(out)
     }
 
-    /// `people.get`: the account itself, one of the open room's members, or
-    /// nobody.
+    /// `people.get`: the account itself, one of the open room's members, a
+    /// friend, or nobody.
     pub fn person(&self, id: &str) -> Option<PersonView> {
         let held = self.read();
         if let Some(me) = held.me.as_ref().filter(|me| me.id == id) {
@@ -491,12 +509,17 @@ impl World {
                 bot: false,
             });
         }
-        let members = held.members.as_ref()?;
-        members
-            .people
-            .iter()
-            .find(|member| member.id == id)
-            .map(person)
+        let member = held.members.as_ref().and_then(|members| {
+            members
+                .people
+                .iter()
+                .find(|member| member.id == id)
+                .map(person)
+        });
+        member.or_else(|| {
+            let (_, friends) = held.friends.as_ref()?;
+            friends.iter().find(|friend| friend.id == id).cloned()
+        })
     }
 
     /// `people.member`: one person as one server sees them.
@@ -567,9 +590,9 @@ fn person(member: &ChatMember) -> PersonView {
 
 /// A message of the open room as a plugin sees it.
 ///
-/// The body is the text the timeline shows, and its files are left out the way
-/// an event's are: a plugin gets no token, and `media.get` is where bytes come
-/// from.
+/// The body is the text the timeline shows, and its files are listed with the
+/// address `media.get` reads them by: a plugin gets no token, and the address
+/// is the one the message carries.
 fn message_view(message: &ChatMessage, room: &str) -> MessageView {
     MessageView {
         id: message.id.clone(),
@@ -585,7 +608,18 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
         at: message.timestamp * 1000,
         edited: message.edited,
         deleted: message.deleted,
-        attachments: Vec::new(),
+        attachments: message
+            .attachments
+            .iter()
+            .enumerate()
+            .map(|(index, file)| yapfast_plugin_api::event::AttachmentView {
+                id: format!("{}:{index}", message.id),
+                name: file.name.clone(),
+                bytes: file.size.unwrap_or_default(),
+                media: file.url.as_deref().unwrap_or_default().to_owned(),
+                content_type: crate::application::plugins::content_type(&file.name),
+            })
+            .collect(),
         reply_to: message.reply.as_ref().and_then(|reply| reply.item.clone()),
         mentions_me: message.mentions_me,
     }

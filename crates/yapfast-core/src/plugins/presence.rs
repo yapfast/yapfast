@@ -243,6 +243,8 @@ pub struct Relationships {
     pub friends: std::collections::BTreeSet<String>,
     /// Requests by person, and whether each came to this account.
     pub requests: std::collections::BTreeMap<String, bool>,
+    /// The names of everyone above, so the one who went is named too.
+    pub names: std::collections::BTreeMap<String, String>,
 }
 
 /// One change in who is a friend.
@@ -258,7 +260,19 @@ pub enum RelationshipChange {
 
 impl Relationships {
     /// The lists now.
-    pub fn read(at: u64, friends: &[String], requests: &[crate::chat::FriendRequest]) -> Self {
+    pub fn read(
+        at: u64,
+        friends: &[String],
+        requests: &[crate::chat::FriendRequest],
+        known: &[crate::chat::Friend],
+    ) -> Self {
+        let mut names: std::collections::BTreeMap<String, String> = known
+            .iter()
+            .map(|friend| (friend.id.clone(), friend.name.clone()))
+            .collect();
+        for request in requests {
+            names.insert(request.id.clone(), request.name.clone());
+        }
         Relationships {
             at,
             friends: friends.iter().cloned().collect(),
@@ -266,7 +280,16 @@ impl Relationships {
                 .iter()
                 .map(|request| (request.id.clone(), request.incoming))
                 .collect(),
+            names,
         }
+    }
+
+    /// A person's name, from this list or the one before it.
+    pub fn name_of<'a>(&'a self, other: &'a Relationships, person: &str) -> Option<&'a str> {
+        self.names
+            .get(person)
+            .or_else(|| other.names.get(person))
+            .map(String::as_str)
     }
 
     /// What changed from `self` to `now`: a request that became a friend is
@@ -318,8 +341,8 @@ mod relationship_tests {
 
     #[test]
     fn a_request_then_a_friend_then_gone_is_told_as_it_happened() {
-        let start = Relationships::read(1, &["ann".into()], &[]);
-        let asked = Relationships::read(2, &["ann".into()], &[request("bo", true)]);
+        let start = Relationships::read(1, &["ann".into()], &[], &[]);
+        let asked = Relationships::read(2, &["ann".into()], &[request("bo", true)], &[]);
         assert_eq!(
             start.changes(&asked),
             [RelationshipChange::Requested {
@@ -327,13 +350,13 @@ mod relationship_tests {
                 incoming: true
             }]
         );
-        let accepted = Relationships::read(3, &["ann".into(), "bo".into()], &[]);
+        let accepted = Relationships::read(3, &["ann".into(), "bo".into()], &[], &[]);
         assert_eq!(
             asked.changes(&accepted),
             [RelationshipChange::Added("bo".into())],
             "an accepted request is a friend added, not a request removed"
         );
-        let unfriended = Relationships::read(4, &["bo".into()], &[]);
+        let unfriended = Relationships::read(4, &["bo".into()], &[], &[]);
         assert_eq!(
             accepted.changes(&unfriended),
             [RelationshipChange::Removed {

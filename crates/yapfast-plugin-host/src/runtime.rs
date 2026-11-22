@@ -1066,6 +1066,7 @@ mod tests {
         CommandInvocation {
             name: "filter".into(),
             options: serde_json::Map::new(),
+            room: None,
         }
     }
 

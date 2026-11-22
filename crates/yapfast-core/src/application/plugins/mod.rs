@@ -660,7 +660,16 @@ impl Application {
     /// The answer arrives as [`Notice::Command`] on the application's own event
     /// path, which is why nothing is returned here: the composer is already
     /// empty by the time the plugin replies.
-    fn plugins_run(&mut self, plugin: PluginId, invocation: CommandInvocation) -> Vec<AppEffect> {
+    fn plugins_run(
+        &mut self,
+        plugin: PluginId,
+        mut invocation: CommandInvocation,
+    ) -> Vec<AppEffect> {
+        // A command is typed in the room on screen, which is the one its
+        // answer goes to.
+        if invocation.room.is_none() {
+            invocation.room.clone_from(&self.state.selected);
+        }
         if let Some(plugins) = self.state.plugins.as_mut() {
             plugins.run_command(&plugin, invocation);
         }
@@ -821,9 +830,21 @@ pub(crate) fn message_view(
         at: message.timestamp() * 1000,
         edited: message.edited,
         deleted: false,
-        // Files are `media.get`'s, and a plugin gets no token with which to
-        // fetch one: an event names a message, not its files' addresses.
-        attachments: Vec::new(),
+        // Each file with its address, which `media.get` reads once Yapfast
+        // has the bytes: a plugin gets no token, and the address is Discord's
+        // signed CDN link, as the message itself carries it.
+        attachments: message
+            .attachments
+            .iter()
+            .enumerate()
+            .map(|(index, file)| yapfast_plugin_api::event::AttachmentView {
+                id: format!("{}:{index}", message.id),
+                name: file.name.clone(),
+                bytes: file.size.unwrap_or_default(),
+                media: file.url.to_string(),
+                content_type: content_type(&file.name),
+            })
+            .collect(),
         reply_to: match &message.reply {
             Some(yapfast_discord::message::Reply::Message { id, .. }) => Some(id.clone()),
             Some(yapfast_discord::message::Reply::Unknown { id }) if !id.is_empty() => {
@@ -874,6 +895,7 @@ fn parse_command(
         CommandInvocation {
             name: command.name.clone(),
             options,
+            room: None,
         },
     ))
 }
@@ -934,7 +956,7 @@ fn typed(value: &str, kind: OptionKind) -> Option<Value> {
 /// The type a file names, from its extension, for the
 /// `attachment.pre_upload` chain: the same name the network would guess, said
 /// once here so a plugin can decide without reading the file.
-fn content_type(name: &str) -> Option<String> {
+pub(crate) fn content_type(name: &str) -> Option<String> {
     let extension = name
         .rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase())?;

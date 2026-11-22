@@ -1540,6 +1540,7 @@ fn command(name: &str) -> CommandInvocation {
     CommandInvocation {
         name: name.into(),
         options: serde_json::Map::new(),
+        room: None,
     }
 }
 

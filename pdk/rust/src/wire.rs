@@ -523,6 +523,9 @@ pub struct CommandInvocation {
     pub name: String,
     #[serde(default)]
     pub options: serde_json::Map<String, Value>,
+    /// The room it was typed in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<String>,
 }
 
 /// What a command answered.

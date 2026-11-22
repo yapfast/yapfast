@@ -16,6 +16,8 @@ pub struct Command {
     pub name: String,
     /// The options, by the name the manifest gave them.
     pub options: serde_json::Map<String, Value>,
+    /// The room the person typed it in.
+    pub room: Option<String>,
 }
 
 impl Command {
@@ -63,6 +65,7 @@ impl From<wire::CommandInvocation> for Command {
         Command {
             name: invocation.name,
             options: invocation.options,
+            room: invocation.room,
         }
     }
 }
@@ -118,6 +121,7 @@ mod tests {
             name: "shout".to_owned(),
             options: serde_json::from_value(json!({"text": "hi", "times": 2, "loud": true}))
                 .expect("an options map"),
+            room: None,
         }
     }
 
@@ -142,6 +146,7 @@ mod tests {
         let blank = Command {
             name: "shout".to_owned(),
             options: serde_json::from_value(json!({"text": "  "})).expect("an options map"),
+            room: None,
         };
         assert!(blank.required_string("text").is_err());
     }

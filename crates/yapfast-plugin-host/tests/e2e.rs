@@ -497,6 +497,7 @@ fn the_showcase_decorates_and_its_new_calls_reach_the_parent() {
                 command: yapfast_plugin_api::call::CommandInvocation {
                     name: command.into(),
                     options: serde_json::Map::new(),
+                    room: None,
                 },
             },
         );
