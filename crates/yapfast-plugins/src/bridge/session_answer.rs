@@ -55,15 +55,12 @@ impl Session {
             // Who is in the call and who is talking is what people do, read
             // the way presence is: a capability the review names.
             call::method::VOICE_STATE => Some(Capability::VoiceRead),
-            // Drawing into the interface is a capability of its own: a plugin
-            // that declares nothing must not be able to put a banner under its
-            // own name in front of a person, or a dialog that looks like
-            // Yapfast asking for something.
-            call::method::UI_SET_SLOT
-            | call::method::UI_CLEAR_SLOT
-            | call::method::UI_NOTICE
-            | call::method::UI_TOAST
-            | call::method::UI_OPEN_DIALOG => Some(Capability::UiModify),
+            // A plugin's slots, notices, toasts and dialogs need no
+            // capability: each is the plugin's own surface and is drawn under
+            // its name, so nothing it shows can pass for Yapfast's. `ui.modify`
+            // is for changing Yapfast's own interface, which says so at
+            // install in the danger tone; asking it for a panel made every
+            // plugin that draws one look as though it rewrote the window.
             call::method::WINDOW_SET_TITLE => Some(Capability::WindowTitle),
             _ => None,
         };
