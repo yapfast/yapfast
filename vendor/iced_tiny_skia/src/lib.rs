@@ -59,6 +59,20 @@ pub struct Renderer {
     backdrop: Backdrop,
 }
 
+/// Yapfast port (patch 32): whether the window's frames keep what lies
+/// under the layers that change (`Backdrop`); off unless the app turns it
+/// on.
+static KEEP_BACKDROP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Yapfast port (patch 32): whether the window's frames keep what lies under
+/// the layers that change, for drawing those again as one copy. Worth it
+/// only when that is costly to draw (a theme's art and glass); the app
+/// turns it on for a theme that decorates its surfaces. Off, what's kept
+/// goes with the next frame.
+pub fn set_keep_backdrop(keep: bool) {
+    KEEP_BACKDROP.store(keep, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Yapfast port (patch 32): regions of the frame as drawn up to the first
 /// layer that changed in them, kept from one frame to the next. A list
 /// scrolled over a theme's art and glass changed only its own layer, yet
@@ -66,9 +80,11 @@ pub struct Renderer {
 /// again; from the second frame those come back as one copy.
 #[derive(Debug, Default)]
 struct Backdrop {
-    /// The frame's size (physical pixels) the regions were kept at.
+    /// The frame's size (physical pixels) and scale the regions were kept
+    /// at.
     width: u32,
     height: u32,
+    scale_factor: f32,
     /// The regions kept, none overlapping another, so together never more
     /// than the frame.
     kept: Vec<Kept>,
@@ -114,7 +130,8 @@ impl Backdrop {
     }
 
     /// Keeps `region` of the frame as drawn up to its first `layers`, in
-    /// place of any kept region it overlaps, reusing that one's memory.
+    /// place of any kept region it overlaps, reusing that one's memory. With
+    /// all [`Self::REGIONS`] kept, the one used least lately goes.
     fn keep(&mut self, pixels: &mut tiny_skia::PixmapMut<'_>, region: [i32; 4], layers: usize) {
         let [left, top, right, bottom] = region;
         let row_bytes = (right - left) as usize * 4;
@@ -127,19 +144,22 @@ impl Backdrop {
             }
             !overlapping
         });
-        if self.kept.len() >= Self::REGIONS {
-            let oldest = self.kept.remove(0);
+        if self.kept.len() >= Self::REGIONS
+            && let Some(lru) = (0..self.kept.len()).min_by_key(|&index| self.kept[index].used)
+        {
+            let unused = self.kept.swap_remove(lru);
             if buffer.capacity() < needed {
-                buffer = oldest.pixels;
+                buffer = unused.pixels;
             }
         }
-        // A buffer far larger than the region (a region that shrank) isn't
-        // held on to.
-        if buffer.capacity() > needed * 2 {
-            buffer = Vec::new();
-        }
+        // Sized to the region: a buffer from a larger one gives back the
+        // rest, so what's kept is never more than the frame.
         buffer.clear();
-        buffer.reserve_exact(needed);
+        if buffer.capacity() > needed {
+            buffer.shrink_to(needed);
+        } else {
+            buffer.reserve_exact(needed);
+        }
         let stride = pixels.width() as usize * 4;
         let frame = pixels.data_mut();
         for row in top..bottom {
@@ -249,17 +269,38 @@ impl Renderer {
     /// Yapfast port (patch 32): what each of this frame's layers changed
     /// since the last frame, in logical pixels. A kept region a layer under
     /// its cut changed in goes.
-    /// A frame of another size (`size`, physical pixels) keeps nothing.
+    /// A frame of another size (`size`, physical pixels) or scale keeps
+    /// nothing, and while the app hasn't turned keeping on
+    /// ([`set_keep_backdrop`]) nothing is kept at all.
     pub fn layer_changes(
         &mut self,
         changes: Vec<Vec<Rectangle>>,
         scale_factor: f32,
         size: Size<u32>,
     ) {
+        let keep = KEEP_BACKDROP.load(std::sync::atomic::Ordering::Relaxed);
+        self.layer_changes_kept(changes, scale_factor, size, keep);
+    }
+
+    fn layer_changes_kept(
+        &mut self,
+        changes: Vec<Vec<Rectangle>>,
+        scale_factor: f32,
+        size: Size<u32>,
+        keep: bool,
+    ) {
         let backdrop = &mut self.backdrop;
-        if (backdrop.width, backdrop.height) != (size.width, size.height) {
+        if !keep {
+            // Its memory goes too.
+            *backdrop = Backdrop::default();
+            return;
+        }
+        if (backdrop.width, backdrop.height, backdrop.scale_factor)
+            != (size.width, size.height, scale_factor)
+        {
             backdrop.kept.clear();
-            (backdrop.width, backdrop.height) = (size.width, size.height);
+            (backdrop.width, backdrop.height, backdrop.scale_factor) =
+                (size.width, size.height, scale_factor);
         }
         backdrop.kept.retain(|kept| {
             let [left, top, right, bottom] = kept.region;
@@ -299,7 +340,8 @@ impl Renderer {
         // layers' changes just before and of the size the regions were
         // kept at, uses them; a `screenshot` draws whole.
         let backdrop_fits = std::mem::take(&mut self.backdrop.fresh)
-            && (self.backdrop.width, self.backdrop.height) == (pixels.width(), pixels.height());
+            && (self.backdrop.width, self.backdrop.height, self.backdrop.scale_factor)
+                == (pixels.width(), pixels.height(), scale_factor);
 
         // Yapfast port (patch 32): a region partly kept is drawn as the part
         // kept and the parts round it, so a damaged area that grew or moved
@@ -879,6 +921,8 @@ mod tests {
         pixels: Vec<u32>,
         mask: tiny_skia::Mask,
         last: Option<Vec<Layer>>,
+        /// Whether the app keeps backdrops (a theme with art).
+        keep: bool,
     }
 
     impl Window {
@@ -888,6 +932,7 @@ mod tests {
                 pixels: vec![0; (WIDTH * HEIGHT) as usize],
                 mask: tiny_skia::Mask::new(WIDTH, HEIGHT).expect("mask"),
                 last: None,
+                keep: true,
             }
         }
 
@@ -909,7 +954,7 @@ mod tests {
                 ),
                 None => (current.iter().map(|layer| vec![layer.bounds]).collect(), vec![window]),
             };
-            self.renderer.layer_changes(changes, 1.0, Size::new(WIDTH, HEIGHT));
+            self.renderer.layer_changes_kept(changes, 1.0, Size::new(WIDTH, HEIGHT), self.keep);
             let viewport = Viewport::with_physical_size(Size::new(WIDTH, HEIGHT), 1.0);
             let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut self.pixels), WIDTH, HEIGHT).expect("pixmap");
             if !damage.is_empty() {
@@ -992,16 +1037,89 @@ mod tests {
         }
         assert!(kept > 0, "the backdrop was used");
 
-        // A screenshot after: a new buffer drawn whole, with no changes told
-        // for it, takes nothing from what's kept.
+        // A screenshot after a frame with no damage (so not drawn, its
+        // changes told but unused) draws whole and takes nothing kept.
         let last = frames.last().expect("frames");
         window.draw(last);
-        let mut shot = vec![0u32; (WIDTH * HEIGHT) as usize];
-        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut shot), WIDTH, HEIGHT).expect("pixmap");
+        assert!(window.renderer.backdrop.fresh, "told, not drawn");
         let viewport = Viewport::with_physical_size(Size::new(WIDTH, HEIGHT), 1.0);
-        let window_bounds = rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32);
-        window.renderer.draw(&mut pixmap, &mut window.mask, &viewport, &[window_bounds], Color::BLACK);
-        assert!(shot == whole(last), "the screenshot is the whole frame");
+        let kept: Vec<[i32; 4]> = window.renderer.backdrop.kept.iter().map(|kept| kept.region).collect();
+        // What's kept, spoilt: a screenshot that took it would show.
+        for kept in &mut window.renderer.backdrop.kept {
+            kept.pixels.fill(0x7f);
+        }
+        let shot = crate::window::compositor::screenshot(&mut window.renderer, &viewport, Color::BLACK);
+        let expected: Vec<u8> = whole(last)
+            .iter()
+            .flat_map(|pixel| {
+                let [b, g, r, a] = pixel.to_le_bytes();
+                [r, g, b, a]
+            })
+            .collect();
+        assert!(!kept.is_empty() && shot == expected, "the screenshot is the whole frame");
+    }
+
+    #[test]
+    fn nothing_is_kept_unless_the_app_keeps_backdrops() {
+        let art = rect(0.0, 0.0, 200.0, 120.0);
+        let mut window = Window::new();
+        window.keep = false;
+        for row in [0.0, 5.0, 10.0] {
+            let frame = frame(art, row, 0.0);
+            window.draw(&frame);
+            assert!(window.renderer.backdrop.kept.is_empty());
+            assert!(window.pixels == whole(&frame));
+        }
+        // Kept while on; turned off, what's kept goes, its memory with it.
+        window.keep = true;
+        window.draw(&frame(art, 15.0, 0.0));
+        window.draw(&frame(art, 20.0, 0.0));
+        assert!(!window.renderer.backdrop.kept.is_empty());
+        window.keep = false;
+        window.draw(&frame(art, 25.0, 0.0));
+        assert_eq!(window.renderer.backdrop.kept.capacity(), 0);
+        assert!(window.pixels == whole(&frame(art, 25.0, 0.0)));
+    }
+
+    #[test]
+    fn a_new_scale_keeps_nothing() {
+        let art = rect(0.0, 0.0, 200.0, 120.0);
+        let mut window = Window::new();
+        window.draw(&frame(art, 0.0, 0.0));
+        window.draw(&frame(art, 5.0, 0.0));
+        assert!(!window.renderer.backdrop.kept.is_empty());
+        // The app's zoom changed: same buffer, another scale.
+        window.renderer.layer_changes_kept(vec![Vec::new(); 3], 1.25, Size::new(WIDTH, HEIGHT), true);
+        assert!(window.renderer.backdrop.kept.is_empty());
+    }
+
+    #[test]
+    fn a_full_backdrop_lets_go_of_the_region_used_least_lately() {
+        let mut pixels = vec![0u32; (WIDTH * HEIGHT) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut pixels), WIDTH, HEIGHT).expect("pixmap");
+        let mut backdrop = Backdrop::default();
+        for index in 0..Backdrop::REGIONS as i32 {
+            backdrop.frame = index as u64;
+            backdrop.keep(&mut pixmap, [index * 40, 0, index * 40 + 30, 50], 1);
+        }
+        // The first is used every frame (a list scrolling over it).
+        backdrop.frame = 20;
+        backdrop.restore(&mut pixmap, [0, 0, 30, 50], 0);
+        // A smaller one, taking the memory of the one that goes.
+        backdrop.keep(&mut pixmap, [0, 100, 10, 110], 1);
+        let regions: Vec<[i32; 4]> = backdrop.kept.iter().map(|kept| kept.region).collect();
+        assert!(regions.contains(&[0, 0, 30, 50]), "{regions:?}");
+        assert!(!regions.contains(&[40, 0, 70, 50]), "{regions:?}");
+        assert_eq!(regions.len(), Backdrop::REGIONS);
+        // Each holds its own pixels and no more.
+        for kept in &backdrop.kept {
+            let [left, top, right, bottom] = kept.region;
+            assert_eq!(kept.pixels.capacity(), ((right - left) * (bottom - top) * 4) as usize, "{:?}", kept.region);
+        }
+        // One kept again larger grows to its size exactly.
+        backdrop.keep(&mut pixmap, [0, 100, 20, 120], 1);
+        let grown = backdrop.kept.iter().find(|kept| kept.region == [0, 100, 20, 120]).expect("kept");
+        assert_eq!(grown.pixels.capacity(), 20 * 20 * 4);
     }
 
     #[test]

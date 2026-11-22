@@ -787,6 +787,12 @@ impl App {
     pub fn show_theme(&mut self, theme: Theme) {
         self.win.icons.replace(self.themes.icons(&theme.id));
         self.themes.apply_sounds(&theme.id);
+        // The CPU renderer keeps what lies under a changing layer only under art or glass (patch 32).
+        iced_tiny_skia::set_keep_backdrop(
+            yapfast_core::themes::package::art::ArtSurface::ALL
+                .iter()
+                .any(|&surface| self.themes.decorates(&theme.id, surface)),
+        );
         self.accent_started = std::time::Instant::now();
         // A reinstalled package keeps its id: take its cues afresh.
         crate::themes::forget_synced_cues();

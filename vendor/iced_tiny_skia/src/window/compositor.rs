@@ -26,6 +26,8 @@ pub struct Surface {
     /// had the new one, and kept the old one where nothing else changed.
     layer_stack: VecDeque<(Vec<Layer>, Color)>,
     max_age: u8,
+    /// Yapfast port (patch 27): the scale its last frame was drawn at.
+    scale_factor: f32,
 }
 
 impl crate::graphics::Compositor for Compositor {
@@ -85,6 +87,7 @@ impl crate::graphics::Compositor for Compositor {
             clip_mask: tiny_skia::Mask::new(1, 1).expect("Create clip mask"),
             layer_stack: VecDeque::new(),
             max_age: 0,
+            scale_factor: 0.0,
         };
 
         if width > 0 && height > 0 {
@@ -175,6 +178,16 @@ pub fn present(
         .buffer_mut()
         .map_err(|_| compositor::SurfaceError::Lost)?;
     let waited = start.map(|_| Instant::now());
+
+    // Yapfast port (patch 27): a new scale (the app's zoom, which doesn't
+    // reconfigure the surface) redraws the window whole. Past frames'
+    // layers are in logical pixels, so diffed across it they'd damage the
+    // old scale's places, leaving the new one's stale. The renderer's
+    // backdrop lets go of what it kept on its own (`layer_changes`).
+    if surface.scale_factor != viewport.scale_factor() {
+        surface.scale_factor = viewport.scale_factor();
+        surface.layer_stack.clear();
+    }
 
     let last_layers = {
         let age = buffer.age();
@@ -324,6 +337,9 @@ pub fn screenshot(
     background_color: Color,
 ) -> Vec<u8> {
     let size = viewport.physical_size();
+    // Yapfast port (patch 32): a screenshot draws whole. Changes told for a
+    // frame that had no damage, and so wasn't drawn, are left unused.
+    renderer.backdrop.fresh = false;
 
     let mut offscreen_buffer: Vec<u32> =
         vec![0; size.width as usize * size.height as usize];

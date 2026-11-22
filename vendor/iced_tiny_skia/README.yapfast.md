@@ -160,7 +160,11 @@ change spans several places):
     its bounds), not its whole bounds. Overlays and a stack's upper
     children are window-sized layers, so stock, a tooltip appearing or
     leaving redrew the whole window: 87 ms a frame on the CPU under a
-    theme with art (Daydream), 4 ms after. Tests in `layer.rs`.
+    theme with art (Daydream), 4 ms after. Tests in `layer.rs`. Layers
+    are in logical pixels, so a frame at a new scale (the app's zoom,
+    which changes the viewport's scale without reconfiguring the surface)
+    is drawn whole and past frames' layers are dropped: diffed across the
+    change, their damage lay where the old scale put things.
 28. `lib.rs` `start_layer`: a layer started inside another is cut to its
     parent's bounds, as a clip inside a clip is. Stock, a picture cut to
     its box (`ContentFit::Cover`) or a themed button's own layer inside a
@@ -188,20 +192,28 @@ change spans several places):
     window-sized art and glass among them. The diff took 2 to 5 ms a frame
     under a theme with art, 0.1 to 0.2 ms after; Eyeliner idle went from
     19% of a core to 5%. A test in `layer.rs`.
-32. `lib.rs` `Backdrop`, `layer_changes`,
+32. `lib.rs` `Backdrop`, `layer_changes`, `set_keep_backdrop`,
     `window/compositor.rs`: regions of the frame as drawn up to the first
     layer that changed in them are kept from one frame to the next, and a
     region whose layers below that cut didn't change since comes back as
     one copy; a region partly kept is drawn as the part kept and the parts
     round it. A list scrolled over a theme's art and glass changed only its
     own layer, yet every frame drew the window's art, the panes' glass and
-    grounds under it again. Each region keeps its own pixels (at most
-    eight, none overlapping, so together never more than the frame), and
-    a region taking an old one's place reuses its memory. A region goes
-    after 120 drawn frames that didn't use it; while the window draws
+    grounds under it again. It runs only while the app says so
+    (`set_keep_backdrop`, off by default): the client turns it on in
+    `show_theme` for a theme with art or glass on any surface, where
+    what's under a change is costly to draw. Off (the stock look), nothing
+    is kept and what was goes, memory and all, with the next frame. Each
+    region keeps its own pixels, its buffer sized to it (at most eight,
+    none overlapping, so together never more than one frame: 5.2 MB at
+    1440x900, 33 MB at 4K), and a region taking an old one's place reuses
+    its memory; with eight kept, the one used least lately goes. A region
+    goes after 120 drawn frames that didn't use it; while the window draws
     nothing, what's kept stays (frames are only counted as they're drawn).
     Only the window's own frame uses them, told its layers' changes just
-    before and at the size they were kept at: `screenshot` draws whole.
+    before and at the size and scale they were kept at; `screenshot`
+    draws whole, leaving unused any changes told for a frame that had no
+    damage and so wasn't drawn.
     The compositor's damage (patch 23) is built from the same changes
     rather than diffed again. Tests in `lib.rs` compare frames drawn
     through it with each drawn whole.
