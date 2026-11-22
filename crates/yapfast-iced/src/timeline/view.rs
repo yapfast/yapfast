@@ -107,20 +107,7 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .then_some(Message::SelectClear),
         ctx.lanes.timeline.selecting.then_some(Message::SelectEnd),
     );
-    // As Discord's: the typing line has a strip of its own between the
-    // list and the composer, there whether anyone types or not, so it
-    // never lies over a message, scrolled or not, and nothing moves as it
-    // comes and goes.
-    let strip: Element<'a, Message> = match crate::typing::view(ctx) {
-        Some(typing) => container(typing)
-            .width(Length::Fill)
-            .height(crate::typing::LINE)
-            .into(),
-        None => Space::new().height(crate::typing::LINE).into(),
-    };
-    let mut layers = stack![column![list, strip]]
-        .width(Length::Fill)
-        .height(Length::Fill);
+    let mut layers = stack![list].width(Length::Fill).height(Length::Fill);
     // Discord's banner runs across the top, 7 px in from the left and 17
     // from the scrollbar's side.
     if let Some(bar) = unread_bar(ctx) {

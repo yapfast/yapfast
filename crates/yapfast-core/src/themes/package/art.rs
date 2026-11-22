@@ -736,7 +736,9 @@ fn read_keys(
         })?;
         for field in fields.keys() {
             if !["image", "pressed", "size", "travel"].contains(&field.as_str()) {
-                notes.push(format!("\"{at}.{field}\" isn't something a key takes; ignored"));
+                notes.push(format!(
+                    "\"{at}.{field}\" isn't something a key takes; ignored"
+                ));
             }
         }
         keys.insert(
@@ -1324,11 +1326,22 @@ mod tests {
         assert_eq!(gif.pressed, Some(PathBuf::from("art/key-orange-down.webp")));
         assert_eq!(gif.travel, 3.0);
         let emoji = &read.keys[&KeySlot::Emoji];
-        assert_eq!((emoji.pressed.clone(), emoji.size, emoji.travel), (None, Some((38.0, 40.0)), 2.0));
-        assert!(read.files().contains(&PathBuf::from("art/key-orange-down.webp")));
+        assert_eq!(
+            (emoji.pressed.clone(), emoji.size, emoji.travel),
+            (None, Some((38.0, 40.0)), 2.0)
+        );
+        assert!(
+            read.files()
+                .contains(&PathBuf::from("art/key-orange-down.webp"))
+        );
         assert!(art(r#"{ "keys": { "gif": { "pressed": "art/a.webp" } } }"#).is_err());
         assert!(art(r#"{ "keys": { "gif": { "image": "art/a.webp", "travel": 9 } } }"#).is_err());
-        assert!(art(r#"{ "keys": { "send": { "image": "art/a.webp" } } }"#).unwrap().keys.is_empty());
+        assert!(
+            art(r#"{ "keys": { "send": { "image": "art/a.webp" } } }"#)
+                .unwrap()
+                .keys
+                .is_empty()
+        );
     }
 
     #[test]

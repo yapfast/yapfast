@@ -599,11 +599,7 @@ impl<'a> Page<'a> {
         // As Slint's settings card: its art and glass clipped to its
         // rounded corners.
         let card = if decorated {
-            crate::widgets::Wrap::new(
-                card,
-                crate::widgets::Pane { radius },
-            )
-            .into()
+            crate::widgets::Wrap::new(card, crate::widgets::Pane { radius }).into()
         } else {
             card
         };

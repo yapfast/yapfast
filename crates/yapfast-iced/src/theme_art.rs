@@ -1694,8 +1694,7 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                         } else {
                             crate::widgets::pane_radii(bounds, self.round.0.max(0.0))
                         };
-                        with_rim(declared, rim)
-                            .map(|radius| radius.min(most))
+                        with_rim(declared, rim).map(|radius| radius.min(most))
                     };
                     if radii.iter().any(|radius| *radius > 0.0)
                         && drift == Vector::new(0.0, 0.0)
@@ -1775,7 +1774,10 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                 } else if self.round.1 {
                     with_rim(own_in_pane(bounds, self.round.0.max(0.0)), rim)
                 } else {
-                    with_rim(crate::widgets::pane_radii(bounds, self.round.0.max(0.0)), rim)
+                    with_rim(
+                        crate::widgets::pane_radii(bounds, self.round.0.max(0.0)),
+                        rim,
+                    )
                 }
                 .map(|radius| radius.min(most));
                 // A still picture that overhangs a round-cornered surface
@@ -1793,7 +1795,13 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                     && art.sheet.is_none()
                     && let Some(whole) = fitted_whole(&art.handle, at, bounds)
                 {
-                    crate::widgets::draw_picture(renderer, &whole, bounds, radii, art.layer.opacity);
+                    crate::widgets::draw_picture(
+                        renderer,
+                        &whole,
+                        bounds,
+                        radii,
+                        art.layer.opacity,
+                    );
                     continue;
                 }
                 let radii = if fills { radii } else { [0.0; 4] };
@@ -1938,10 +1946,15 @@ fn tiled_whole(
     })
 }
 
+/// Overhanging pictures cut to their surface's box, by picture, where it
+/// lies and the box.
+type FittedCache =
+    std::collections::HashMap<(u64, [i32; 4], [i32; 4]), iced::advanced::image::Handle>;
+
 thread_local! {
     /// Pictures laid larger than their surface (`cover`), cut to its box
     /// once per size so they can be drawn with its round corners.
-    static FITTED: std::cell::RefCell<std::collections::HashMap<(u64, [i32; 4], [i32; 4]), iced::advanced::image::Handle>> =
+    static FITTED: std::cell::RefCell<FittedCache> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -1975,7 +1988,12 @@ fn fitted_whole(
         hasher.finish()
     };
     let round = |r: Rectangle| {
-        [r.x.round() as i32, r.y.round() as i32, r.width.round() as i32, r.height.round() as i32]
+        [
+            r.x.round() as i32,
+            r.y.round() as i32,
+            r.width.round() as i32,
+            r.height.round() as i32,
+        ]
     };
     let key = (id, round(at), round(bounds));
     FITTED.with_borrow_mut(|kept| {
@@ -1983,7 +2001,12 @@ fn fitted_whole(
             return Some(found.clone());
         }
         let source = image::RgbaImage::from_raw(*pw, *ph, pixels.to_vec())?;
-        let scaled = image::imageops::resize(&source, aw.max(1), ah.max(1), image::imageops::FilterType::Triangle);
+        let scaled = image::imageops::resize(
+            &source,
+            aw.max(1),
+            ah.max(1),
+            image::imageops::FilterType::Triangle,
+        );
         let mut out = image::RgbaImage::new(w, h);
         let dx = (at.x - bounds.x).round() as i64;
         let dy = (at.y - bounds.y).round() as i64;
@@ -2954,7 +2977,11 @@ impl<M> Widget<M, Theme, iced::Renderer> for TopLeftEdges {
         let radius = iced::border::Radius {
             top_left: self.radius.max(pane[0]),
             top_right: if right { pane[1] } else { self.radius },
-            bottom_right: if right && bottom { pane[2] } else { self.radius },
+            bottom_right: if right && bottom {
+                pane[2]
+            } else {
+                self.radius
+            },
             bottom_left: if bottom { pane[3] } else { self.radius },
         };
         renderer.with_layer(bounds, |renderer| {

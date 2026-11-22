@@ -658,6 +658,64 @@ fn a_thread_starts_from_discords_new_thread_form() {
     app.dispatch(Action::LeaveNewThread);
     assert!(app.state.new_thread.is_none());
 
+    // Files wait in the form and go with its first message once the
+    // thread has started, as in Discord's form; they alone make one, and
+    // count as written. The first thread's message went meanwhile.
+    app.apply(Event::SendResult {
+        room: thread,
+        body: "Who's driving?".into(),
+        result: Ok(()),
+    });
+    let folder = tempfile::tempdir().unwrap();
+    let picture = folder.path().join("map.png");
+    std::fs::write(&picture, b"png").unwrap();
+    app.dispatch(Action::NewThread {
+        message: None,
+        from: ThreadFrom::PlusButton,
+    });
+    assert!(app.state.can_attach_first());
+    app.dispatch(Action::StageFirst(vec![picture.clone()]));
+    app.dispatch(Action::ToggleFirstSpoiler(0));
+    assert!(
+        app.state.staged().is_empty(),
+        "the channel's composer stays"
+    );
+    app.dispatch(Action::CloseNewThread);
+    assert!(app.state.new_thread().unwrap().leaving);
+    app.dispatch(Action::StayInNewThread);
+    app.dispatch(Action::WriteNewThread {
+        name: Some("Maps".into()),
+        body: None,
+    });
+    assert!(matches!(
+        app.dispatch(Action::CreateThread).as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::StartThread { .. }
+        ))]
+    ));
+    app.apply(server(vec![serde_json::json!({
+        "id": "501", "type": 11, "name": "Maps",
+        "parent_id": "11", "guild_id": "10", "member_count": 1,
+        "thread_metadata": {"archived": false, "locked": false},
+    })]));
+    let maps = "discord:10:501".to_owned();
+    app.apply(Event::ThreadStarted {
+        room: "discord:10:11".into(),
+        result: Ok(maps.clone()),
+    });
+    let effects = app.apply(Event::Timeline {
+        room: maps.clone(),
+        messages: timeline(vec![]),
+    });
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Backend(Command::Send { room, body, files, .. })
+            if *room == maps
+                && body.is_empty()
+                && matches!(files.as_slice(), [chat::OutgoingFile { path, spoiler: true }] if *path == picture)
+    )));
+    app.dispatch(Action::CloseAside);
+
     // An announcement channel has no private threads; where only private
     // ones may start, the form starts one, and messages offer none.
     app.dispatch(Action::SelectRoom("discord:10:12".into()));
