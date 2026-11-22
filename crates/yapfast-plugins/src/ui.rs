@@ -1218,6 +1218,10 @@ pub struct Tree {
     /// the tree's JSON, so a plugin can only be a part its manifest declares.
     #[serde(skip)]
     pub part: Option<String>,
+    /// What a dialog is about, which its widgets' inputs name: set by the
+    /// bridge from `ui.open_dialog`'s `subject`.
+    #[serde(skip)]
+    pub subject: Option<String>,
 }
 
 /// The part a plugin's tree in `slot` is drawn as: `asked`, which the

@@ -412,6 +412,8 @@ pub fn dialog<'a>(ctx: Ctx<'a>, subject: &'a str) -> Option<Element<'a, Message>
     let mut first = None;
     for (drawn, plugin) in shown(ctx, Slot::Dialog) {
         first.get_or_insert(plugin.id.as_str());
+        // What the plugin said its dialog is about, else the conversation.
+        let subject = drawn.tree.subject.as_deref().unwrap_or(subject);
         let body = draw(ctx, drawn, plugin, subject);
         cards = cards.push(notice_card(theme, plugin, Slot::Dialog, body));
     }

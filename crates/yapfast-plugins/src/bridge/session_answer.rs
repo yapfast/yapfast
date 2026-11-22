@@ -385,7 +385,7 @@ impl Session {
                     Ok(request) => request,
                     Err(error) => return wrong_payload(method, error),
                 };
-                self.paint_slot(
+                self.paint_slot_about(
                     plugin,
                     &entry.manifest.parts,
                     SetSlot {
@@ -393,6 +393,7 @@ impl Session {
                         tree: request.tree,
                         part: None,
                     },
+                    request.subject,
                 )
             }
             call::method::MEDIA_GET => {

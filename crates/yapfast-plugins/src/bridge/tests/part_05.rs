@@ -61,6 +61,7 @@ fn a_dialog_is_one_slot_a_plugin_opens_one_at_a_time() {
             call::method::UI_OPEN_DIALOG,
             OpenDialog {
                 tree: text_tree(text),
+                subject: (text == "second").then(|| "d:42".to_owned()),
             },
         )
         .expect("a call");
@@ -82,6 +83,11 @@ fn a_dialog_is_one_slot_a_plugin_opens_one_at_a_time() {
     };
     assert_eq!(*slot, Slot::Dialog);
     assert_eq!(tree.rows[0].cells[0].text, "second");
+    assert_eq!(
+        tree.subject.as_deref(),
+        Some("d:42"),
+        "what the dialog is about, which its widgets' inputs name"
+    );
 }
 
 #[test]

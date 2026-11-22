@@ -38,6 +38,17 @@ impl Session {
         parts: &[PartDecl],
         request: SetSlot,
     ) -> HostReturn {
+        self.paint_slot_about(plugin, parts, request, None)
+    }
+
+    /// [`Self::paint_slot`], with what the tree is about: a dialog's subject.
+    pub(super) fn paint_slot_about(
+        &mut self,
+        plugin: &PluginId,
+        parts: &[PartDecl],
+        request: SetSlot,
+        subject: Option<String>,
+    ) -> HostReturn {
         let Some(slot) = Slot::from_id(&request.slot) else {
             let named: Vec<&str> = Slot::ALL
                 .into_iter()
@@ -77,6 +88,7 @@ impl Session {
                 };
             }
         };
+        tree.subject = subject.filter(|subject| !subject.is_empty() && subject.len() <= 512);
         self.painting.queue(
             Instant::now(),
             slots::Output::SetSlot {

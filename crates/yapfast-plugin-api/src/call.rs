@@ -1345,6 +1345,11 @@ pub struct Line {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OpenDialog {
     pub tree: Value,
+    /// What the dialog is about, which each widget input from it names as
+    /// its `subject`: the message or person a menu row asked about, say.
+    /// The open conversation when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
 }
 
 /// `app.version` and `app.locale`'s answer.
