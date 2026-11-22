@@ -214,6 +214,11 @@ pub enum MenuAct {
     ActivityPrivacy,
     /// An order of the search's Sort menu, by its row's `key`.
     SearchSort,
+    /// A server of a folder's Servers list, by its row's `key`: it opens,
+    /// as its icon on the rail does.
+    GoServer,
+    /// Close every open folder on the rail, as Discord's folder menu does.
+    CloseFolders,
 }
 
 #[derive(Clone)]
@@ -685,6 +690,20 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             crate::browser::open(&row.key);
             focus
         }
+        MenuAct::GoServer => {
+            let server = row.key.clone();
+            app.client
+                .dispatch(yapfast_core::application::Action::Navigate(
+                    yapfast_core::application::Navigation::Server(server),
+                ));
+            Task::batch([focus, app.sync()])
+        }
+        MenuAct::CloseFolders => {
+            app.layout.open_folders.clear();
+            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
+            app.rail.items = crate::rail::rail(app.client.state(), &app.layout.open_folders);
+            Task::batch([focus, app.ask()])
+        }
         act => {
             let item = menu.item.clone().unwrap_or_default();
             self::act(app, act, item, menu.at, menu.place)
@@ -841,6 +860,8 @@ pub fn act(
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
+        | MenuAct::GoServer
+        | MenuAct::CloseFolders
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll

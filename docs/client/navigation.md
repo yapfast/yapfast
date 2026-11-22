@@ -41,8 +41,16 @@ A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons, and the speaker
 only for the call this account is in, as Discord's does.
 A right click on a server, a folder or an unread DM opens its menu, the
-one its row in the sidebar opens; a folder's marks its servers read, and
-it has none while they are.
+one its row in the sidebar opens. A folder's starts with Mark folder as
+read, greyed while none of its servers has anything to read, as Discord's;
+while Discord is connected and knows each server's settings, Mute folder
+(the server menu's times beside it, a click on the row itself muting until
+it's turned back on; Unmute folder once all are muted, with when the last
+mute ends) and Notification settings (a level checked when every server
+has it, the switches ticked when every server has them on) change all its
+servers in one request (`place_menus::folder_levels`). Servers lists them
+beside the menu, each saying how it notifies, and a click goes to one;
+Close all folders comes last while a folder is open.
 A middle click on a server or a folder marks it all read, as its menu's
 Mark as read does.
 

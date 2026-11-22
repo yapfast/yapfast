@@ -823,3 +823,88 @@ fn every_row_of_a_persons_and_a_places_menu_has_its_icon() {
         assert_eq!(iconless(&app), [""; 0], "{place}'s, {header}");
     }
 }
+
+#[test]
+fn a_folders_menu_changes_its_servers_together_and_lists_them() {
+    const FOLDER: &str = "discord-folder:7";
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    super::change(&mut app, |state| {
+        state.discord_online = true;
+        for server in &mut state.servers {
+            std::sync::Arc::make_mut(server).folder = Some(yapfast_core::chat::ServerFolder {
+                id: FOLDER.into(),
+                name: None,
+                color: None,
+            });
+        }
+    });
+    let open = |app: &mut App| {
+        let _ = crate::place_menus::open_place_menu(app, FOLDER, Point::new(100.0, 100.0), false);
+    };
+    open(&mut app);
+    assert_eq!(
+        labels(&app),
+        [
+            "Mark folder as read",
+            "Mute folder",
+            "Notification settings",
+            "Servers"
+        ]
+    );
+    assert!(
+        !app.win.menu.as_ref().unwrap().rows[0].disabled,
+        "#general mentions her"
+    );
+    assert_eq!(
+        submenu(&app, "Notification settings"),
+        [
+            ("All messages".into(), Check::None),
+            ("Only @mentions".into(), Check::Current),
+            ("Nothing".into(), Check::None),
+            ("Suppress @everyone and @here".into(), Check::Box(false)),
+            ("Suppress all role @mentions".into(), Check::Box(true)),
+        ]
+    );
+    let servers = &app.win.menu.as_ref().unwrap().rows[3].submenu;
+    assert_eq!(
+        (servers[0].label.as_ref(), servers[0].subtitle.as_deref()),
+        ("Test", Some("Only @mentions")),
+        "each server says how it notifies"
+    );
+    // Mute folder, clicked itself, mutes every server in one request.
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    let sent: Vec<_> = std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Discord(DiscordCommand::FolderNotifications { servers, change }) => {
+                Some((servers, change))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sent,
+        [(
+            vec![SERVER.to_owned()],
+            NotificationChange::Mute(Muting::Always)
+        )]
+    );
+    // A server of its list opens; with a folder open, Close all folders
+    // closes it.
+    app.layout.open_folders.insert(FOLDER.into());
+    open(&mut app);
+    assert_eq!(
+        labels(&app).last().map(String::as_str),
+        Some("Close all folders")
+    );
+    let last = labels(&app).len() - 1;
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(last)));
+    assert!(app.layout.open_folders.is_empty());
+    open(&mut app);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(3)));
+    let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(0)));
+    assert_eq!(
+        app.client.state().navigation,
+        Navigation::Server(SERVER.into())
+    );
+}

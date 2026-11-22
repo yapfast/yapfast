@@ -3059,6 +3059,14 @@ pub enum DiscordCommand {
         place: String,
         change: NotificationChange,
     },
+    /// Make the same change to the notification settings of several Discord
+    /// servers, by their server ids, in one request, as a rail folder's menu
+    /// does for its servers. Snapshots show it once Discord confirms it; a
+    /// failure comes back as [`Event::Error`].
+    FolderNotifications {
+        servers: Vec<String>,
+        change: NotificationChange,
+    },
     /// Mark a Discord channel, by its room id, unread after the message
     /// `last`, a snowflake, with `mentions` of the messages after it calling
     /// on this account, in Yapfast and with `sync` on Discord, as Mark
