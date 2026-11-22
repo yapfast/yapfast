@@ -137,10 +137,18 @@ pub(super) fn reactions<'a>(
         let chip = container(
             row![
                 face,
-                text(count_words)
-                    .size(14)
-                    .font(theme.font(count_font, BOLD))
-                    .color(count)
+                // iced's default size with no theme, as main's; a theme's
+                // chips at Slint's 14 px.
+                {
+                    let count = text(count_words)
+                        .font(theme.font(count_font, BOLD))
+                        .color(count);
+                    if theme.packaged() {
+                        count.size(14)
+                    } else {
+                        count
+                    }
+                }
             ]
             // Main's 4 px with no theme; a theme's chips as Slint drew them.
             .spacing(if theme.packaged() { 6 } else { 4 })
