@@ -767,6 +767,8 @@ The `ui` calls take a widget tree, the rows of cells
 | `ui.notice` | `{ "text": "…" }`, markdown | `{ "drawn": true }`; an empty line is an error |
 | `ui.toast` | `{ "text": "…" }`, plain text | `{ "drawn": true }` |
 | `ui.open_dialog` | `{ "tree": { … } }` | `{ "drawn": true }`; a second dialog from one plugin replaces the first |
+| `ui.redecorate` | `{}` | `true`: what this plugin drew under messages is forgotten and the rows on screen are asked again, for an answer that changed (a review that loaded, a setting of its own) |
+| `identity.refresh` | `{ person? }` | `true`: what plugins said about that person, or everyone, is forgotten, and a card showing them asks again |
 
 A drawing doesn't wait for the interface: the call is answered as soon as the
 tree is checked, and what reaches the screen is coalesced to a frame and capped

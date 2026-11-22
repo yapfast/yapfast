@@ -203,6 +203,28 @@ impl Session {
             }
             call::method::PLUGIN_PUBLISH => self.publish(shared, plugin, call),
             call::method::PLUGIN_SUBSCRIBE => self.subscribe(shared, plugin, call),
+            call::method::UI_REDECORATE => {
+                // What was kept of its answers goes, and the rows on screen
+                // ask again: a plugin whose answer changed (a review loaded,
+                // a setting of its own) has no other way to say so.
+                shared.decorated().forget(plugin);
+                shared.announce(Notice::Redecorate {
+                    plugin: plugin.clone(),
+                });
+                HostReturn::Ok(serde_json::Value::Bool(true))
+            }
+            call::method::IDENTITY_REFRESH => {
+                let person = call
+                    .payload
+                    .get("person")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned);
+                shared.announce(Notice::IdentityRefresh {
+                    plugin: plugin.clone(),
+                    person,
+                });
+                HostReturn::Ok(serde_json::Value::Bool(true))
+            }
             call::method::APP_NOW => HostReturn::Ok(serde_json::json!(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

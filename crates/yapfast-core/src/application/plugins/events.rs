@@ -99,6 +99,48 @@ impl Application {
                     plugin: format!("{name} ({plugin}), to sign in to {provider}"),
                 }]
             }
+            // A plugin said its decorations changed: the rows on screen are
+            // asked again.
+            News::Notice(Notice::Redecorate { .. }) => {
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.decorate_again();
+                }
+                if let Some(room) = self.state.selected.clone() {
+                    let items = self.visible_messages.clone();
+                    self.plugins_decorate_visible(&room, &items);
+                }
+                vec![]
+            }
+            // A plugin said how someone looks changed: what was kept goes, and
+            // a card that shows them asks again.
+            News::Notice(Notice::IdentityRefresh { person, .. }) => {
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    match &person {
+                        Some(person) => plugins.forget_identity(person),
+                        None => plugins.forget_identities(),
+                    };
+                }
+                let room = self.state.selected.clone().unwrap_or_default();
+                for panel in [false, true] {
+                    let shown = if panel {
+                        self.state.panel_profile.clone()
+                    } else {
+                        self.state.profile.clone()
+                    };
+                    let Some(view) = shown else {
+                        continue;
+                    };
+                    if person
+                        .as_ref()
+                        .is_some_and(|person| *person != view.profile.id)
+                    {
+                        continue;
+                    }
+                    let mut profile = view.profile.clone();
+                    self.plugins_identify(&room, &mut profile);
+                }
+                redraw_identity()
+            }
             News::Notice(Notice::UploadHeld { id, plugin, name }) => {
                 self.plugins_upload_held(id, &plugin, &name)
             }

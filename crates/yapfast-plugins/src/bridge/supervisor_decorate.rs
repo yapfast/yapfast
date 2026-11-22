@@ -83,6 +83,13 @@ impl Bridge {
         }
     }
 
+    /// Lets the rows on screen be asked again at once, for a plugin that said
+    /// its decorations changed: the once-a-second window can't be told apart
+    /// by plugin, so it all goes, as a settings change does.
+    pub fn decorate_again(&mut self) {
+        self.decorate_asked.clear();
+    }
+
     /// How many decorations the cache answered without asking a plugin, and
     /// how many it keeps: what the measurements read.
     pub fn decorate_cache_stats(&self) -> (u64, usize) {

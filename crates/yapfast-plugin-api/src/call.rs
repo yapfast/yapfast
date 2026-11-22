@@ -49,6 +49,11 @@ pub mod method {
     pub const UI_NOTICE: &str = "ui.notice";
     pub const UI_TOAST: &str = "ui.toast";
     pub const UI_OPEN_DIALOG: &str = "ui.open_dialog";
+    /// Ask again what it draws under messages: decorations are asked for and
+    /// kept, and a plugin whose answer changed says so with this.
+    pub const UI_REDECORATE: &str = "ui.redecorate";
+    /// Ask again how a person looks, or everyone: identities are kept too.
+    pub const IDENTITY_REFRESH: &str = "identity.refresh";
     pub const MEDIA_GET: &str = "media.get";
 
     // Named now, implemented with their capability.
@@ -153,7 +158,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 96] = [
+    pub const ALL: [&str; 98] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -182,6 +187,8 @@ pub mod method {
         UI_NOTICE,
         UI_TOAST,
         UI_OPEN_DIALOG,
+        UI_REDECORATE,
+        IDENTITY_REFRESH,
         MEDIA_GET,
         MESSAGES_SEND,
         MESSAGES_EDIT,

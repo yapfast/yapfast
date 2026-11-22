@@ -63,3 +63,51 @@ fn a_sign_in_needs_a_click_and_a_service_the_manifest_names() {
     );
     assert_eq!(logout, HostReturn::Ok(serde_json::Value::Bool(false)));
 }
+
+/// A plugin whose decorations or identities changed says so, with no
+/// capability of its own: the application is told to ask again.
+#[test]
+fn a_plugin_asks_for_its_decorations_and_identities_to_be_asked_again() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(
+        directory.path(),
+        r#"{"api":1,"id":"com.example.reviews","name":"Reviews","version":"1.0.0",
+            "wasm":"plugin.wasm","permissions":{"capabilities":[]}}"#,
+        b"not a real module",
+    );
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+    for (method, payload) in [
+        (call::method::UI_REDECORATE, serde_json::json!({})),
+        (
+            call::method::IDENTITY_REFRESH,
+            serde_json::json!({ "person": "42" }),
+        ),
+    ] {
+        let call = HostCall {
+            method: method.to_owned(),
+            payload,
+        };
+        runtime().block_on(async { session.on_call(&shared, 9, plugin.clone(), call) });
+        let answer = returned(
+            &written
+                .recv_timeout(Duration::from_secs(2))
+                .expect("an answer"),
+        )
+        .1;
+        assert_eq!(
+            answer,
+            HostReturn::Ok(serde_json::Value::Bool(true)),
+            "{method}"
+        );
+    }
+    let told: Vec<Notice> = notices.try_iter().collect();
+    assert!(told.contains(&Notice::Redecorate {
+        plugin: plugin.clone()
+    }));
+    assert!(told.contains(&Notice::IdentityRefresh {
+        plugin,
+        person: Some("42".to_owned()),
+    }));
+}

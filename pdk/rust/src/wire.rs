@@ -300,6 +300,8 @@ pub enum HostReturn {
 pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_NOW: &str = "app.now";
+    pub const UI_REDECORATE: &str = "ui.redecorate";
+    pub const IDENTITY_REFRESH: &str = "identity.refresh";
     pub const APP_LOCALE: &str = "app.locale";
     pub const APP_THEME_MODE: &str = "app.theme_mode";
     pub const ACCOUNT_ME: &str = "account.me";

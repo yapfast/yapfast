@@ -55,6 +55,14 @@ pub enum Notice {
         provider: String,
         url: String,
     },
+    /// A plugin's decorations should be asked again: what it keeps changed.
+    Redecorate { plugin: PluginId },
+    /// How a person looks, or everyone when `person` is none, should be asked
+    /// again.
+    IdentityRefresh {
+        plugin: PluginId,
+        person: Option<String>,
+    },
     /// A plugin's state changed, for the page that lists them.
     Status {
         plugin: PluginId,

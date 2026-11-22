@@ -561,6 +561,17 @@ impl PluginState {
         self.identities.forget()
     }
 
+    /// Forgets what plugins said about one person, so the next surface that
+    /// shows them asks again.
+    pub fn forget_identity(&mut self, person: &str) -> bool {
+        self.identities.forget_person(person)
+    }
+
+    /// Lets the rows on screen be asked for their decorations again now.
+    pub fn decorate_again(&mut self) {
+        self.bridge.decorate_again();
+    }
+
     /// The count of answers that changed how somebody looks, so a redraw
     /// happens on a change and not on every answer.
     pub fn identity_changes(&self) -> u64 {

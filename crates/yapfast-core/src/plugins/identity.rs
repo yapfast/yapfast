@@ -164,6 +164,17 @@ impl Identities {
         had
     }
 
+    /// Forgets every answer about one person, in every server.
+    pub fn forget_person(&mut self, person: &str) -> bool {
+        let before = self.kept.len();
+        self.kept.retain(|entry| entry.person != person);
+        let had = self.kept.len() != before;
+        if had {
+            self.changes += 1;
+        }
+        had
+    }
+
     fn position(&self, person: &str, server: Option<&str>) -> Option<usize> {
         let server = server.unwrap_or_default();
         self.kept
