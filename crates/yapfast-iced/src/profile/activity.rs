@@ -67,6 +67,26 @@ pub fn activity_card_view<'a>(
     inks: &Inks,
     menu: Option<bool>,
 ) -> Element<'a, Message> {
+    card_view(ctx, activity, inks, menu, false)
+}
+
+/// The account menu uses the same artwork and rich text as a profile,
+/// with a compact, green elapsed clock beside a game's controller.
+pub fn account_activity_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    activity: &'a ActivityLook,
+    inks: &Inks,
+) -> Element<'a, Message> {
+    card_view(ctx, activity, inks, None, true)
+}
+
+fn card_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    activity: &'a ActivityLook,
+    inks: &Inks,
+    menu: Option<bool>,
+    compact: bool,
+) -> Element<'a, Message> {
     let mut head = row![
         text(activity.heading.as_str())
             .size(12)
@@ -160,13 +180,30 @@ pub fn activity_card_view<'a>(
             );
         }
         (Some(start), _) => {
-            lines = lines.push(
-                crate::widgets::live_text(second, move || {
-                    format!("{} elapsed", clock(now_seconds().saturating_sub(start)))
-                })
-                .size(12)
-                .color(inks.ink3),
-            );
+            if compact {
+                let ink = ctx.look.theme.live;
+                let mut timer = row![].spacing(4).align_y(Alignment::Center);
+                if activity.game {
+                    timer = timer.push(ctx.look.glyph(crate::pictures::Icon::Gamepad, 14, ink));
+                }
+                lines = lines.push(
+                    timer.push(
+                        crate::widgets::live_text(second, move || {
+                            clock(now_seconds().saturating_sub(start))
+                        })
+                        .size(12)
+                        .color(ink),
+                    ),
+                );
+            } else {
+                lines = lines.push(
+                    crate::widgets::live_text(second, move || {
+                        format!("{} elapsed", clock(now_seconds().saturating_sub(start)))
+                    })
+                    .size(12)
+                    .color(inks.ink3),
+                );
+            }
         }
         (None, Some(end)) => {
             lines = lines.push(
