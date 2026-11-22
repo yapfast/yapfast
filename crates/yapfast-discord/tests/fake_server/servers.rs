@@ -601,6 +601,18 @@ async fn changes_server_settings_as_discords_client_does() {
         (saved.name.as_str(), saved.description.as_str(), saved.icon),
         ("Crew", "Where we talk", None)
     );
+    // The banner's colour and the traits come back as they were sent.
+    let saved = discord
+        .save_guild_profile(
+            guild,
+            &json!({"brand_color_primary": "#ff2f9d", "traits": [{"emoji_id": null,
+                "emoji_name": null, "emoji_animated": false, "label": "Chill", "position": 0}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.brand_color.as_deref(), Some("#ff2f9d"));
+    assert_eq!(saved.traits.len(), 1);
+    assert_eq!(saved.traits[0].label, "Chill");
     snapshot_where(discord, |snapshot| {
         snapshot
             .servers

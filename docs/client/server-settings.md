@@ -20,8 +20,11 @@ it red instead, as Discord's does. Escape closes an open dropdown, then a
 dialog over the page, then the settings.
 
 - Server Profile (`profile.rs`): the name, the icon with Change and
-  Remove (the file dialog, then the core reads it), and the description
-  with what's left of its 300 characters.
+  Remove (the file dialog, then the core reads it), the banner colour
+  (Discord's ten swatches, `BANNERS`, four across, under a card that
+  previews the one picked with the icon and name), five trait fields three
+  across, each by a steady id (`server-trait-N`) so the one typed in keeps
+  the keys, and the description with what's left of its 300 characters.
 - Engagement: the system messages' channel and its four switches, which
   wait for a channel; the default notifications; the inactive channel and
   its timeout, which waits for one.

@@ -151,6 +151,7 @@ fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
             name: "Test".into(),
             description: "Hi\nthere\nin\nfive\nlines".into(),
             icon: None,
+            ..Default::default()
         }),
     );
     assert!(!shows(&app, "Loading..."));
@@ -176,7 +177,8 @@ fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
         }
     });
     assert!(shows(&app, "Save Changes"));
-    assert!(shows(
+    // Under the name, on a page now longer than the test window.
+    assert!(super::present(
         &app,
         "The server name must be between 2 and 100 characters."
     ));
@@ -190,6 +192,51 @@ fn server_settings_open_from_the_menu_and_hold_their_changes_until_saved() {
     assert!(!shows(&app, "Save Changes"));
     escape(&mut app);
     assert!(app.client.state().server_settings.is_none());
+}
+
+#[test]
+fn server_profile_picks_a_banner_colour_and_keeps_a_traits_field_typed_in() {
+    let (mut app, _folder) = discord_server(permission::MANAGE_GUILD, |_, _| {});
+    open_settings(&mut app);
+    load(
+        &mut app,
+        SettingsSection::Profile,
+        ServerSettingsPage::Profile(ServerProfile {
+            name: "Test".into(),
+            ..Default::default()
+        }),
+    );
+    assert!(shows(&app, "BANNER"));
+    assert!(
+        super::present(&app, "Preview"),
+        "the colour picked shows on a card"
+    );
+    // Each letter typed lands in the same field: it keeps the keys as the
+    // page is built again. A tall window, so the traits are in view.
+    app.shell.frame = iced::Size::new(1280.0, 1200.0);
+    crate::window_bar::fit_window(&mut app);
+    interact(&mut app, |ui| {
+        ui.click(Id::new("server-trait-1"))
+            .expect("the second trait");
+        ui.typewrite("music");
+    });
+    match page(&app) {
+        SettingsPage::Profile(page) => assert_eq!(page.traits[1], "music"),
+        _ => panic!("not Server Profile"),
+    }
+    let _ = app.update(Message::ServerSettings(
+        crate::server_settings::Event::Write(
+            yapfast_core::application::SettingsText::BrandColor,
+            "#ff2f9d".into(),
+        ),
+    ));
+    match page(&app) {
+        SettingsPage::Profile(page) => {
+            assert_eq!(page.brand_color.as_deref(), Some("#ff2f9d"));
+        }
+        _ => panic!("not Server Profile"),
+    }
+    assert!(shows(&app, "Save Changes"));
 }
 
 #[test]

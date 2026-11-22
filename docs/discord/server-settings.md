@@ -13,7 +13,9 @@ has is open to this account. Each page shows only with its own
 permission:
 
 - Server Profile, with Manage Server: the server's name (2 to 100
-  characters), icon and description (up to 300).
+  characters), icon, banner colour, traits and description (up to 300). A
+  card above the banner colours, a Yapfast addition, previews the colour
+  picked with the server's icon and name before it's saved.
 - Engagement, with Manage Server: the channel system messages go to and
   which of them Discord sends, members' default notifications, and the
   inactive channel and its timeout.
@@ -63,7 +65,12 @@ brings, shows unless the draft changed the same field.
 
 Server Profile reads `GET /guilds/{id}/profile` and saves with `PATCH
 /guilds/{id}/profile`, as Discord's page does, with `name`,
-`description` and `icon`, a data URI or `null` to remove it; Discord
+`description`, `icon`, a data URI or `null` to remove it,
+`brand_color_primary`, one of Banner's ten swatches as a hex string, and
+`traits`, sent whole when one changes: up to five, each up to 24
+characters, `{emoji_id: null, emoji_name, emoji_animated: false, label,
+position}`, a trait keeping the Unicode emoji it had in its place (Yapfast
+has no picker for a new one); Discord
 answers with the profile and sends GUILD_UPDATE. Change Server Icon reads
 the picture off the UI thread as the [profile
 editor](people.md#editing-ones-server-profile) reads an avatar: the middle square,

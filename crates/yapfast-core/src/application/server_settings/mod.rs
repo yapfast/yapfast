@@ -46,7 +46,7 @@ pub use invites::{InviteInput, InvitesPage, PAUSE_HOURS, SecurityDraft};
 pub use members::{MEMBER_PAGE_SIZES, MEMBER_SORTS, MEMBERS_CHUNK, MemberInput, MembersPage};
 pub use ownership::{DeleteAsk, Ownership, OwnershipInput, TransferAsk};
 pub use permissions::{PermissionGroup, PermissionInfo, ROLE_PERMISSIONS};
-pub use profile::{DESCRIPTION_LIMIT, ProfilePage, SettingsText};
+pub use profile::{DESCRIPTION_LIMIT, ProfilePage, SettingsText, TRAIT_LIMIT, TRAITS};
 pub use role_input::RoleInput;
 pub use roles::{
     ADD_MEMBERS_LIMIT, AddMembers, DEFAULT_ROLE_COLOR, PermissionLock, ROLE_COLORS,

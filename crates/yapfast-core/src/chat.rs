@@ -4016,6 +4016,19 @@ pub struct ServerProfile {
     /// The address of its icon, when it has one; see
     /// [`DiscordCommand::Pictures`].
     pub icon: Option<String>,
+    /// Its accent colour, as Discord's hex string such as "#7cf895", which
+    /// Server Profile's Banner picks.
+    pub brand_color: Option<String>,
+    /// Its traits, up to five, in their order.
+    pub traits: Vec<ServerTrait>,
+}
+
+/// A trait of a Discord server's profile: a word or two about it, with a
+/// Unicode emoji.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServerTrait {
+    pub emoji: Option<String>,
+    pub label: String,
 }
 
 /// What saving a page of a Discord server's settings changes: each field
@@ -4027,6 +4040,9 @@ pub enum ServerSettingsChange {
         description: Option<String>,
         /// A new icon, or `None` to remove it.
         icon: Option<Option<PickedPicture>>,
+        brand_color: Option<String>,
+        /// The traits whole, when any changed.
+        traits: Option<Vec<ServerTrait>>,
     },
     /// Engagement's and Boost Perks', saved with `PATCH /guilds/{id}`.
     Guild {

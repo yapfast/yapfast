@@ -13,6 +13,19 @@ pub struct ServerProfile {
     pub description: String,
     /// The address of its icon, when it has one.
     pub icon: Option<String>,
+    /// Its accent colour, `brand_color_primary`, as Discord's hex string
+    /// such as "#7cf895", which Server Profile's Banner picks.
+    pub brand_color: Option<String>,
+    /// Its traits, up to five, in their order.
+    pub traits: Vec<ProfileTrait>,
+}
+
+/// A trait of a server's profile: a word or two about it, with a Unicode
+/// emoji.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileTrait {
+    pub emoji: Option<String>,
+    pub label: String,
 }
 
 /// A server's profile from `GET /guilds/{id}/profile`.
@@ -26,6 +39,27 @@ pub fn parse_profile(guild: &str, profile: &Value) -> ServerProfile {
         icon: profile["icon_hash"]
             .as_str()
             .map(|hash| ready::server_icon(guild, hash)),
+        brand_color: profile["brand_color_primary"]
+            .as_str()
+            .filter(|color| !color.is_empty())
+            .map(str::to_owned),
+        traits: {
+            let mut traits: Vec<(i64, ProfileTrait)> = profile["traits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|found| {
+                    let label = found["label"].as_str()?.to_owned();
+                    let emoji = found["emoji_name"].as_str().map(str::to_owned);
+                    Some((
+                        found["position"].as_i64().unwrap_or(0),
+                        ProfileTrait { emoji, label },
+                    ))
+                })
+                .collect();
+            traits.sort_by_key(|(position, _)| *position);
+            traits.into_iter().map(|(_, found)| found).take(5).collect()
+        },
     }
 }
 
@@ -561,6 +595,28 @@ mod tests {
         assert_eq!(profile.name, "Crew");
         assert_eq!(profile.description, "");
         assert!(profile.icon.unwrap().ends_with("/icons/1/abc.png?size=128"));
+        assert_eq!((profile.brand_color, profile.traits.len()), (None, 0));
+        let profile = parse_profile(
+            "1",
+            &json!({"id": "1", "name": "Crew", "brand_color_primary": "#ff73fa", "traits": [
+                {"label": "Chill", "emoji_name": null, "emoji_animated": false, "position": 1},
+                {"label": "Games", "emoji_name": "\u{1F3AE}", "emoji_animated": false, "position": 0},
+            ]}),
+        );
+        assert_eq!(profile.brand_color.as_deref(), Some("#ff73fa"));
+        assert_eq!(
+            profile.traits,
+            [
+                ProfileTrait {
+                    emoji: Some("\u{1F3AE}".into()),
+                    label: "Games".into()
+                },
+                ProfileTrait {
+                    emoji: None,
+                    label: "Chill".into()
+                },
+            ]
+        );
     }
 
     #[test]

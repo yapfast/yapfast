@@ -2538,7 +2538,8 @@ function guildChannels(): GuildChannel[] {
 // badge. PRIVATE_GUILD, a server Alice isn't in that shows its profile only
 // to its members, answers 403 Missing Access, as Discord does, and any other
 // server 404. PATCH changes its name, icon (a data URI, served back from the
-// CDN as it came, or null) and description, as
+// CDN as it came, or null), description, banner colour (brand_color_primary)
+// and traits (up to 5, kept as sent), as
 // Manage Server allows, answering with the profile and GUILD_UPDATE. POST
 // /_control/guild-reset puts "Server" back as it started.
 // Two-factor authentication: POST /_control/mfa, with an optional JSON body
@@ -2563,6 +2564,8 @@ const SERVER_SETTINGS = {
   name: "Server",
   icon: "server1" as string | null,
   description: null as string | null,
+  brand_color: null as string | null,
+  traits: [] as any[],
   system_channel_id: GENERAL as string | null,
   system_channel_flags: 0,
   default_message_notifications: 1,
@@ -2723,7 +2726,7 @@ function guildProfile() {
     description: serverSettings.description,
     member_count: Object.keys(users).length,
     online_count: 1,
-    brand_color_primary: null,
+    brand_color_primary: serverSettings.brand_color,
     banner_hash: null,
     game_application_ids: [],
     game_activity: {},
@@ -2733,7 +2736,7 @@ function guildProfile() {
     badge_color_primary: "#ff0000",
     badge_color_secondary: "#800000",
     badge_hash: "bobtag",
-    traits: [],
+    traits: serverSettings.traits,
     features: serverSettings.features,
     visibility: 1,
     premium_tier: serverSettings.premium_tier,
@@ -5827,6 +5830,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       if (typeof body.name === "string") serverSettings.name = body.name.trim();
       if ("description" in body) serverSettings.description = body.description || null;
       if (icon !== undefined) serverSettings.icon = icon;
+      if (typeof body.brand_color_primary === "string") serverSettings.brand_color = body.brand_color_primary;
+      if (Array.isArray(body.traits)) {
+        if (body.traits.length > 5) return invalid("traits", "BASE_TYPE_MAX_LENGTH", "Must be 5 or fewer in length.");
+        serverSettings.traits = body.traits;
+      }
       const { properties } = guild();
       dispatch("GUILD_UPDATE", { ...properties, roles: serverRoles, emojis: guild().emojis });
       return json(guildProfile());

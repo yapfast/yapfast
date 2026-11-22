@@ -109,7 +109,7 @@ pub use server_settings::{
     RoleLock, RoleRules, RoleTab, RolesPage, SETUP_TIPS, STICKER_DESCRIPTION_LIMIT,
     STICKER_NAME_LIMIT, SafetyChoice, SafetyPage, SecurityDraft, ServerSettings, SettingsChoice,
     SettingsText, SettingsToggle, StickerCard, StickerDraft, StickerInput, StickersPage,
-    TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
+    TRAIT_LIMIT, TRAITS, TransferAsk, WELCOME, WELCOME_STICKER, emoji_name,
 };
 pub use slash::{CommandDraft, CommandRow, OptionDraft};
 pub use stickers::{FREQUENT_STICKERS, ServerStickers, StickerPicker, StickerPicture, StickerUse};
