@@ -170,11 +170,12 @@ thread_local! {
 }
 
 /// Lets go of the pictures made for the theme that showed: its grain,
-/// tilings and grounds. The next theme makes its own.
+/// tilings, grounds and still overlays. The next theme makes its own.
 pub fn forget_pictures() {
     TILES.with_borrow_mut(Vec::clear);
     SOLIDS.with_borrow_mut(Vec::clear);
     TILED.with_borrow_mut(std::collections::HashMap::clear);
+    BAKED.with_borrow_mut(Vec::clear);
 }
 
 /// Grain pictures a cycle, and blocks (4 px each) a side of one.
@@ -1383,16 +1384,46 @@ impl<M> Widget<M, Theme, iced::Renderer> for Procedural<'_> {
 
         let bounds = layout.bounds();
         let elapsed = clock_seconds(tree);
+        let runs = |overlay: &Overlay| {
+            self.running
+                && !self.reduced_motion
+                && self.performance != Performance::Light
+                && (self.performance == Performance::Full || !overlay.heavy)
+        };
+        let drawn = || {
+            self.overlays
+                .iter()
+                .filter(|overlay| !(overlay.heavy && self.performance == Performance::Light))
+        };
+        // On the CPU, overlays that hold still are drawn once into a
+        // picture and copied in: they lie over the panes, so every frame a
+        // list scrolled under them drew them all again over it (Hurt's
+        // flare, 16 round quads up to 900 px across, and its vignette, 64
+        // strips, were three quarters of a core).
+        if !yapfast_iced_kit::renderer::gpu()
+            && drawn().all(|overlay| !(runs(overlay) && overlay_moves(overlay)))
+            && let Some(picture) = baked_overlays(drawn(), bounds.size())
+        {
+            renderer.with_layer(bounds, |renderer| {
+                use iced::advanced::image::Renderer as _;
+                renderer.draw_image(
+                    iced::advanced::image::Image {
+                        handle: picture,
+                        filter_method: iced::advanced::image::FilterMethod::Nearest,
+                        rotation: iced::Radians(0.0),
+                        border_radius: Default::default(),
+                        opacity: 1.0,
+                        snap: true,
+                    },
+                    bounds,
+                    bounds,
+                );
+            });
+            return;
+        }
         renderer.with_layer(bounds, |renderer| {
-            for overlay in self.overlays {
-                if overlay.heavy && self.performance == Performance::Light {
-                    continue;
-                }
-                let runs = self.running
-                    && !self.reduced_motion
-                    && self.performance != Performance::Light
-                    && (self.performance == Performance::Full || !overlay.heavy);
-                draw_overlay(renderer, overlay, bounds, elapsed, runs);
+            for overlay in drawn() {
+                draw_overlay(renderer, overlay, bounds, elapsed, runs(overlay));
             }
         });
     }
@@ -1402,6 +1433,163 @@ impl<'a, M: 'a> From<Procedural<'a>> for Element<'a, M> {
     fn from(overlays: Procedural<'a>) -> Self {
         Element::new(overlays)
     }
+}
+
+/// Overlays drawn into a picture, with the size they were drawn for (in the
+/// window's pixels), one for each set of overlays shown: the window's and
+/// the conversation's. A new size takes the old one's place.
+type BakedOverlays = Vec<(Vec<Overlay>, (u32, u32), iced::advanced::image::Handle)>;
+
+thread_local! {
+    static BAKED: std::cell::RefCell<BakedOverlays> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `overlays`, still, drawn by the CPU renderer once over a clear picture
+/// `size` (logical pixels) at the window's scale: the picture of what
+/// [`draw_overlay`] draws there, premultiplied BGRA as the renderer keeps
+/// its pictures. `None` for no size, or one past a picture's reach.
+fn baked_overlays<'o>(
+    overlays: impl Iterator<Item = &'o Overlay> + Clone,
+    size: Size,
+) -> Option<iced::advanced::image::Handle> {
+    let scale = crate::widgets::pixel_scale();
+    let pixels = (
+        (size.width * scale).round() as u32,
+        (size.height * scale).round() as u32,
+    );
+    if pixels.0 == 0 || pixels.1 == 0 || pixels.0 > 16_384 || pixels.1 > 16_384 {
+        return None;
+    }
+    BAKED.with_borrow_mut(|kept| {
+        let set = kept
+            .iter()
+            .position(|(drawn, _, _)| drawn.iter().eq(overlays.clone()));
+        if let Some(at) = set
+            && kept[at].1 == pixels
+        {
+            return Some(kept[at].2.clone());
+        }
+        let picture = bake(overlays.clone(), size, pixels, scale);
+        let entry = (overlays.cloned().collect(), pixels, picture.clone());
+        match set {
+            Some(at) => kept[at] = entry,
+            None => {
+                // Room for a window's and a conversation's set, and one
+                // more while a theme gives way to the next.
+                if kept.len() >= 3 {
+                    kept.remove(0);
+                }
+                kept.push(entry);
+            }
+        }
+        Some(picture)
+    })
+}
+
+/// `overlays`, still, over a clear picture `width` by `height` pixels
+/// standing for `size` at `scale`: their shapes worked out in floating
+/// point and rounded once, premultiplied BGRA as the CPU renderer keeps
+/// its pictures. Drawn by the renderer onto a clear picture, each of a
+/// flare's 16 faint rings (an alpha of 1/255 or less) lost its colour to
+/// 8-bit rounding and dimmed what lay under it instead of tinting it.
+fn bake<'o>(
+    overlays: impl Iterator<Item = &'o Overlay>,
+    size: Size,
+    (width, height): (u32, u32),
+    scale: f32,
+) -> iced::advanced::image::Handle {
+    let (w, h) = (width as usize, height as usize);
+    let mut frame = vec![[0.0_f32; 4]; w * h];
+    let bounds = Rectangle::with_size(size);
+    let over = |frame: &mut [[f32; 4]], at: usize, [r, g, b, a]: [f32; 4]| {
+        let under = &mut frame[at];
+        let keep = 1.0 - a;
+        *under = [
+            r + under[0] * keep,
+            g + under[1] * keep,
+            b + under[2] * keep,
+            a + under[3] * keep,
+        ];
+    };
+    for overlay in overlays {
+        overlay_shapes(overlay, bounds, 0.0, false, &mut |shape| match shape {
+            Shape::Quad(at, colour, radius) => {
+                // Coverage from each pixel's centre's distance to the
+                // rounded box, as an anti-aliased edge takes it.
+                let (x0, y0) = (at.x * scale, at.y * scale);
+                let (x1, y1) = (x0 + at.width * scale, y0 + at.height * scale);
+                let radius = (radius * scale).min((x1 - x0).min(y1 - y0) / 2.0).max(0.0);
+                let centre = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+                let half = ((x1 - x0) / 2.0 - radius, (y1 - y0) / 2.0 - radius);
+                let columns = (x0.floor().max(0.0) as usize)..(x1.ceil().max(0.0) as usize).min(w);
+                let rows = (y0.floor().max(0.0) as usize)..(y1.ceil().max(0.0) as usize).min(h);
+                for y in rows {
+                    let dy = (y as f32 + 0.5 - centre.1).abs() - half.1;
+                    for x in columns.clone() {
+                        let dx = (x as f32 + 0.5 - centre.0).abs() - half.0;
+                        let outside = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - radius;
+                        let cover = (0.5 - outside).clamp(0.0, 1.0);
+                        if cover > 0.0 {
+                            let a = colour.a * cover;
+                            over(
+                                &mut frame,
+                                y * w + x,
+                                [colour.r * a, colour.g * a, colour.b * a, a],
+                            );
+                        }
+                    }
+                }
+            }
+            Shape::Grain { phase, colour } => {
+                // The tile's own 8-bit pixels, laid as the renderer lays
+                // each tile: from its corner on the nearest pixel, its
+                // size rounded, each pixel the source pixel nearest.
+                let [r, g, b, _] = colour.into_rgba8();
+                let side = GRAIN_SIDE;
+                let span = (side as f32 * scale).round().max(1.0) as usize;
+                let step = (u64::from(side) << 16) / span as u64;
+                let source =
+                    |at: usize| (((step / 2 + at as u64 * step) >> 16) as u32).min(side - 1);
+                for tile_y in 0..h.div_ceil(span.max(1)) + 1 {
+                    let top = (tile_y as f32 * side as f32 * scale).round() as usize;
+                    for tile_x in 0..w.div_ceil(span.max(1)) + 1 {
+                        let left = (tile_x as f32 * side as f32 * scale).round() as usize;
+                        for y in top..(top + span).min(h) {
+                            let sy = source(y - top);
+                            for x in left..(left + span).min(w) {
+                                let amount = grain_hash(source(x - left), sy, 1 + phase);
+                                let alpha = (colour.a * amount * 255.0).round() as u8;
+                                if alpha == 0 {
+                                    continue;
+                                }
+                                let premultiplied = |c: u8| {
+                                    ((u16::from(c) * u16::from(alpha) + 127) / 255) as f32 / 255.0
+                                };
+                                over(
+                                    &mut frame,
+                                    y * w + x,
+                                    [
+                                        premultiplied(r),
+                                        premultiplied(g),
+                                        premultiplied(b),
+                                        f32::from(alpha) / 255.0,
+                                    ],
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    let byte = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let mut pixels = Vec::with_capacity(w * h * 4);
+    for [r, g, b, a] in frame {
+        let a = byte(a);
+        let channel = |c: f32| byte(c).min(a);
+        pixels.extend_from_slice(&[channel(b), channel(g), channel(r), a]);
+    }
+    iced::advanced::image::Handle::from_rgba(width, height, pixels)
 }
 
 fn overlay_colour(overlay: &Overlay) -> Color {
@@ -1425,6 +1613,14 @@ fn quad(renderer: &mut iced::Renderer, bounds: Rectangle, colour: Color, radius:
     );
 }
 
+/// What an overlay draws over `bounds`, in order: quads, round or square,
+/// and grain tiled over the whole of it. [`draw_overlay`] draws them;
+/// [`bake`] works them out into a picture.
+enum Shape {
+    Quad(Rectangle, Color, f32),
+    Grain { phase: u32, colour: Color },
+}
+
 fn draw_overlay(
     renderer: &mut iced::Renderer,
     overlay: &Overlay,
@@ -1432,69 +1628,13 @@ fn draw_overlay(
     elapsed: f32,
     runs: bool,
 ) {
-    let colour = overlay_colour(overlay);
-    match overlay.kind {
-        OverlayKind::Image => {}
-        OverlayKind::Scanlines => {
-            let spacing = overlay.size.max(2.0);
-            let mut y = bounds.y + spacing - 1.0;
-            while y < bounds.y + bounds.height {
-                quad(
-                    renderer,
-                    Rectangle::new(Point::new(bounds.x, y), Size::new(bounds.width, 1.0)),
-                    colour,
-                    0.0,
-                );
-                y += spacing;
-            }
-        }
-        OverlayKind::Lcd => {
-            let size = overlay.size.max(2.0);
-            let stripe = size * 3.0;
-            let tints = [
-                Color::from_rgb(1.0, 0.16, 0.16),
-                Color::from_rgb(0.16, 1.0, 0.16),
-                Color::from_rgb(0.16, 0.16, 1.0),
-            ];
-            let mut x = bounds.x;
-            let mut index = 0;
-            while x < bounds.x + bounds.width {
-                let mut tint = tints[index % 3];
-                tint.a = colour.a / 5.0;
-                quad(
-                    renderer,
-                    Rectangle::new(
-                        Point::new(x, bounds.y),
-                        Size::new((size - 1.0).max(1.0), bounds.height),
-                    ),
-                    tint,
-                    0.0,
-                );
-                x += size;
-                index += 1;
-            }
-            let mut y = bounds.y + size - 1.0;
-            while y < bounds.y + bounds.height {
-                quad(
-                    renderer,
-                    Rectangle::new(Point::new(bounds.x, y), Size::new(bounds.width, 1.0)),
-                    colour,
-                    0.0,
-                );
-                y += size;
-            }
-            let _ = stripe;
-        }
-        OverlayKind::Grain => {
-            let phase = if runs && overlay_moves(overlay) && overlay.period > 0.0 {
-                (elapsed * 1000.0 / overlay.period).floor() as u32
-            } else {
-                0
-            };
+    overlay_shapes(overlay, bounds, elapsed, runs, &mut |shape| match shape {
+        Shape::Quad(at, colour, radius) => quad(renderer, at, colour, radius),
+        Shape::Grain { phase, colour } => {
             // One noise picture a phase, tiled: a frame of grain is a few
             // pictures, not 1,600 scattered specks (each its own damaged
             // region, the whole window drawn again for each).
-            let tile = grain_tile(phase % GRAIN_PHASES, colour);
+            let tile = grain_tile(phase, colour);
             let side = GRAIN_SIDE as f32;
             let across = (bounds.width / side).ceil() as usize;
             let down = (bounds.height / side).ceil() as usize;
@@ -1522,6 +1662,75 @@ fn draw_overlay(
                 }
             });
         }
+    });
+}
+
+fn overlay_shapes(
+    overlay: &Overlay,
+    bounds: Rectangle,
+    elapsed: f32,
+    runs: bool,
+    out: &mut impl FnMut(Shape),
+) {
+    let colour = overlay_colour(overlay);
+    match overlay.kind {
+        OverlayKind::Image => {}
+        OverlayKind::Scanlines => {
+            let spacing = overlay.size.max(2.0);
+            let mut y = bounds.y + spacing - 1.0;
+            while y < bounds.y + bounds.height {
+                out(Shape::Quad(
+                    Rectangle::new(Point::new(bounds.x, y), Size::new(bounds.width, 1.0)),
+                    colour,
+                    0.0,
+                ));
+                y += spacing;
+            }
+        }
+        OverlayKind::Lcd => {
+            let size = overlay.size.max(2.0);
+            let tints = [
+                Color::from_rgb(1.0, 0.16, 0.16),
+                Color::from_rgb(0.16, 1.0, 0.16),
+                Color::from_rgb(0.16, 0.16, 1.0),
+            ];
+            let mut x = bounds.x;
+            let mut index = 0;
+            while x < bounds.x + bounds.width {
+                let mut tint = tints[index % 3];
+                tint.a = colour.a / 5.0;
+                out(Shape::Quad(
+                    Rectangle::new(
+                        Point::new(x, bounds.y),
+                        Size::new((size - 1.0).max(1.0), bounds.height),
+                    ),
+                    tint,
+                    0.0,
+                ));
+                x += size;
+                index += 1;
+            }
+            let mut y = bounds.y + size - 1.0;
+            while y < bounds.y + bounds.height {
+                out(Shape::Quad(
+                    Rectangle::new(Point::new(bounds.x, y), Size::new(bounds.width, 1.0)),
+                    colour,
+                    0.0,
+                ));
+                y += size;
+            }
+        }
+        OverlayKind::Grain => {
+            let phase = if runs && overlay_moves(overlay) && overlay.period > 0.0 {
+                (elapsed * 1000.0 / overlay.period).floor() as u32
+            } else {
+                0
+            };
+            out(Shape::Grain {
+                phase: phase % GRAIN_PHASES,
+                colour,
+            });
+        }
         OverlayKind::Vignette => {
             let reach = (bounds.width.min(bounds.height) * 0.22).max(1.0);
             for step in 0..16 {
@@ -1547,7 +1756,7 @@ fn draw_overlay(
                         Size::new(width, (bounds.height - inset * 2.0).max(0.0)),
                     ),
                 ] {
-                    quad(renderer, edge, colour.scale_alpha(alpha), 0.0);
+                    out(Shape::Quad(edge, colour.scale_alpha(alpha), 0.0));
                 }
             }
         }
@@ -1562,15 +1771,14 @@ fn draw_overlay(
             for step in 0..12 {
                 let band = height / 12.0 + 0.5;
                 let distance = ((step as f32 + 0.5) / 12.0 - 0.5).abs() * 2.0;
-                quad(
-                    renderer,
+                out(Shape::Quad(
                     Rectangle::new(
                         Point::new(bounds.x, top + step as f32 * height / 12.0),
                         Size::new(bounds.width, band),
                     ),
                     colour.scale_alpha(1.0 - distance),
                     0.0,
-                );
+                ));
             }
         }
         OverlayKind::Flare => {
@@ -1587,15 +1795,14 @@ fn draw_overlay(
             for step in (1..=16).rev() {
                 let scale = step as f32 / 16.0;
                 let side = diameter * scale;
-                quad(
-                    renderer,
+                out(Shape::Quad(
                     Rectangle::new(
                         Point::new(center.x - side / 2.0, center.y - side / 2.0),
                         Size::new(side, side),
                     ),
                     colour.scale_alpha((1.0 - scale) * 0.12 + 0.01),
                     side / 2.0,
-                );
+                ));
             }
         }
     }
@@ -3922,6 +4129,118 @@ fn overlay_layers<'a>(
 #[cfg(test)]
 mod motion_tests {
     use super::*;
+
+    fn overlay(kind: OverlayKind, colour: u32, opacity: f32, size: f32) -> Overlay {
+        Overlay {
+            kind,
+            layer: None,
+            colour,
+            opacity,
+            size,
+            at: (0.72, 0.78),
+            period: 0.0,
+            heavy: false,
+            chat: false,
+            ghost: false,
+        }
+    }
+
+    /// Still overlays over a ground: drawn each frame by the CPU renderer,
+    /// and baked once and laid over it as a picture, as screenshots.
+    fn drawn_and_baked(overlays: &[Overlay], size: Size, scale: f32) -> (Vec<u8>, Vec<u8>) {
+        use iced::advanced::{Renderer as _, image::Renderer as _, renderer::Headless as _};
+        let pixels = (
+            (size.width * scale).round() as u32,
+            (size.height * scale).round() as u32,
+        );
+        let ground = Color::from_rgb8(40, 30, 52);
+        let bounds = Rectangle::with_size(size);
+        let renderer = || {
+            iced::Renderer::Secondary(iced_tiny_skia::Renderer::new(
+                iced::Font::default(),
+                iced::Pixels(16.0),
+            ))
+        };
+        let mut each = renderer();
+        each.with_layer(bounds, |renderer| {
+            for overlay in overlays {
+                draw_overlay(renderer, overlay, bounds, 0.0, false);
+            }
+        });
+        let each = each.screenshot(iced::Size::new(pixels.0, pixels.1), scale, ground);
+        let picture = bake(overlays.iter(), size, pixels, scale);
+        let mut once = renderer();
+        once.with_layer(bounds, |renderer| {
+            renderer.draw_image(
+                iced::advanced::image::Image {
+                    handle: picture,
+                    filter_method: iced::advanced::image::FilterMethod::Nearest,
+                    rotation: iced::Radians(0.0),
+                    border_radius: Default::default(),
+                    opacity: 1.0,
+                    snap: true,
+                },
+                bounds,
+                bounds,
+            );
+        });
+        let once = once.screenshot(iced::Size::new(pixels.0, pixels.1), scale, ground);
+        (each, once)
+    }
+
+    // Hurt's deep red flare, at its place.
+    fn flare() -> Overlay {
+        overlay(OverlayKind::Flare, 0xff9e_263b, 0.1, 260.0)
+    }
+
+    #[test]
+    fn a_baked_flare_tints_as_its_rings_do_together() {
+        // At a pixel 57 px from the flare's middle, inside 9 of its 16
+        // rings, worked out exactly: the renderer's own 8-bit drawing of
+        // each faint ring comes to 47 there.
+        let size = Size::new(300.0, 200.0);
+        let (_, baked) = drawn_and_baked(&[flare()], size, 1.0);
+        let (x, y) = (208.5_f32, 99.5_f32);
+        let middle = (size.width * 0.72, size.height * 0.78);
+        let distance = (x - middle.0).hypot(y - middle.1);
+        let mut red = 40.0_f32;
+        for step in (1..=16).rev() {
+            let reach = 260.0 * step as f32 / 32.0;
+            let cover = (reach - distance + 0.5).clamp(0.0, 1.0);
+            let alpha = 0.1 * ((1.0 - step as f32 / 16.0) * 0.12 + 0.01) * cover;
+            red = red * (1.0 - alpha) + 158.0 * alpha;
+        }
+        let at = (99 * 300 + 208) * 4;
+        assert!(
+            (f32::from(baked[at]) - red).abs() <= 1.0,
+            "baked {}, exactly {red}",
+            baked[at]
+        );
+    }
+
+    #[test]
+    fn still_overlays_baked_once_look_as_drawn_each_frame() {
+        // Hurt's flare, vignette and grain, and Phosphor's scanlines. The
+        // renderer rounds each of a flare's faint rings to 8 bits as it
+        // lays it; the bake rounds once, so they part by a few levels there.
+        let overlays = [
+            flare(),
+            overlay(OverlayKind::Vignette, 0xff00_0000, 0.38, 0.0),
+            overlay(OverlayKind::Grain, 0xffff_ffff, 0.085, 0.0),
+            overlay(OverlayKind::Scanlines, 0xff00_0000, 0.035, 3.0),
+        ];
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            let (each, once) = drawn_and_baked(&overlays, Size::new(300.0, 200.0), scale);
+            assert_eq!(each.len(), once.len());
+            let most = each
+                .iter()
+                .zip(&once)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap_or(0);
+            assert!(most <= 6, "scale {scale}: {most}");
+        }
+    }
 
     #[test]
     fn a_theme_change_lets_go_of_the_pictures_made_for_it() {
