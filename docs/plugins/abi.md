@@ -212,6 +212,7 @@ one call with several events rather than one call each.
 | `member_join` | `{ "person": …, "name": … }` | The open room's member list, once per person who appeared in it since its last list; the first list of a conversation says nothing |
 | `member_leave` | `{ "person": … }` | The same list, once per person who left it |
 | `spotify_state` | `spotify.now`'s answer, or `{ "playing": false }` | The song the session shares for the linked Spotify, once per change |
+| `composer_change` | `{ "room": …, "text": … }` | `drafts.read`. A composer's text after each edit the person makes, as the draft Yapfast keeps for that conversation; a burst of keys is one call |
 
 `voice_state` isn't coalesced: it is sent when the call changes as a whole —
 joined, left, a phase, this account's mute or deafen, its screen or camera, the
@@ -220,7 +221,7 @@ camera — and carries the call as `voice.state` answers it, below. A call that
 ended is `{ "room": null, "people": [] }`. Who is speaking is `speaking`'s, so a
 busy call doesn't resend the whole call four times a second.
 
-Three more are sent as they happen:
+These are sent as they happen:
 
 | Event | Payload | Needs, and tapped where |
 | --- | --- | --- |
@@ -228,10 +229,16 @@ Three more are sent as they happen:
 | `relationship_add` | `{ "person": … }` | `relationships.read`. The friends list Yapfast keeps from Discord's `RELATIONSHIP_ADD`, `UPDATE` and `REMOVE` (`yapfast-discord/src/service/tracker.rs`), once per person who became a friend, an accepted request included |
 | `relationship_remove` | `{ "person": …, "was": "friend"\|"request" }` | The same lists, once per friend or request that went |
 | `relationship_request` | `{ "person": …, "incoming": true\|false }` | The same lists, once per friend request that arrived or was sent |
+| `server_join` | `{ "server": …, "name": … }` | `servers.read`. The server list Yapfast keeps from Discord (`GUILD_CREATE` for a server joined, docs.discord.food, gateway events), once per Discord server that appeared in it while Discord was online |
+| `server_remove` | `{ "server": …, "name": … }` | The same list, once per server that left it: left, kicked, banned or deleted (`GUILD_DELETE` without `unavailable`). An outage keeps the server listed as unavailable, so it says nothing, and neither does signing in or a reconnect |
+| `group_dm_remove` | `{ "room": …, "name": … }` | `servers.read`. The DM list, once per group DM that left it: left, removed or deleted |
+| `game_start` | `{ "name": …, "started_ms": … }` | `activity.read`. The game Yapfast sees this account playing (its own game detection and Discord's), once per game that started, `started_ms` when the game says; whether the game is shared on the profile doesn't matter |
+| `game_stop` | `{ "name": … }` | The same, once per game that stopped; one game changing to another is a stop and a start |
 
 The relationship events compare the friends list and the requests when the
 people lists change, and nothing while no plugin listens; the first read after a
-plugin starts listening says nothing, as the member list's does.
+plugin starts listening says nothing, as the member list's does. The server, group
+and game events work the same way on the server list, the DM list and the game.
 
 `member_join` and `member_leave` read the member list Yapfast holds for the
 conversation on screen: in a DM, a group or a small server that is everyone in

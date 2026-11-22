@@ -343,3 +343,120 @@ mod relationship_tests {
         );
     }
 }
+
+/// The Discord servers and group DMs the plugins were last told of, by id
+/// with their names, kept only while a plugin listens for them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Places {
+    /// The `list_changes` they were read at, so a sync that changed no list
+    /// compares nothing.
+    pub at: u64,
+    pub servers: BTreeMap<String, String>,
+    pub groups: BTreeMap<String, String>,
+}
+
+/// One change in where the account is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlaceChange {
+    ServerJoined { id: String, name: String },
+    ServerRemoved { id: String, name: String },
+    GroupRemoved { id: String, name: String },
+}
+
+impl Places {
+    /// The Discord servers and group DMs listed now. A server out of reach
+    /// in an outage stays listed, as unavailable, so it is neither removed
+    /// nor joined again when it comes back.
+    pub fn read(
+        at: u64,
+        servers: &[std::sync::Arc<crate::chat::ChatServer>],
+        rooms: &[std::sync::Arc<crate::chat::ChatRoom>],
+    ) -> Self {
+        Places {
+            at,
+            servers: servers
+                .iter()
+                .filter(|server| server.discord)
+                .map(|server| (server.id.clone(), server.name.clone()))
+                .collect(),
+            groups: rooms
+                .iter()
+                .filter(|room| {
+                    room.direct
+                        && room.person.is_none()
+                        && room.network == crate::network::Network::Discord
+                })
+                .map(|room| (room.id.clone(), room.name.clone()))
+                .collect(),
+        }
+    }
+
+    /// What changed from `self` to `now`. A group DM that appears is one the
+    /// person was added to or started, which says nothing a plugin would act
+    /// on that `rooms.list` doesn't, so only its going is told.
+    pub fn changes(&self, now: &Places) -> Vec<PlaceChange> {
+        let mut changes = Vec::new();
+        for (id, name) in &now.servers {
+            if !self.servers.contains_key(id) {
+                changes.push(PlaceChange::ServerJoined {
+                    id: id.clone(),
+                    name: name.clone(),
+                });
+            }
+        }
+        for (id, name) in &self.servers {
+            if !now.servers.contains_key(id) {
+                changes.push(PlaceChange::ServerRemoved {
+                    id: id.clone(),
+                    name: name.clone(),
+                });
+            }
+        }
+        for (id, name) in &self.groups {
+            if !now.groups.contains_key(id) {
+                changes.push(PlaceChange::GroupRemoved {
+                    id: id.clone(),
+                    name: name.clone(),
+                });
+            }
+        }
+        changes
+    }
+}
+
+#[cfg(test)]
+mod places_tests {
+    use super::*;
+
+    #[test]
+    fn a_server_that_comes_and_goes_and_a_group_that_goes_are_told() {
+        let before = Places {
+            at: 1,
+            servers: [("discord:1".to_owned(), "Old".to_owned())].into(),
+            groups: [("discord:@me:7".to_owned(), "Pals".to_owned())].into(),
+        };
+        let now = Places {
+            at: 2,
+            servers: [("discord:2".to_owned(), "New".to_owned())].into(),
+            groups: BTreeMap::new(),
+        };
+        assert_eq!(
+            before.changes(&now),
+            vec![
+                PlaceChange::ServerJoined {
+                    id: "discord:2".into(),
+                    name: "New".into()
+                },
+                PlaceChange::ServerRemoved {
+                    id: "discord:1".into(),
+                    name: "Old".into()
+                },
+                PlaceChange::GroupRemoved {
+                    id: "discord:@me:7".into(),
+                    name: "Pals".into()
+                },
+            ]
+        );
+        assert!(now.changes(&now).is_empty());
+    }
+}

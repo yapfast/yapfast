@@ -166,6 +166,9 @@ pub enum Capability {
     /// Show pictures from the HTTPS hosts the manifest lists in what it draws.
     #[serde(rename = "images.web")]
     ImagesWeb,
+    /// The game Yapfast sees this account playing, as it starts and stops.
+    #[serde(rename = "activity.read")]
+    ActivityRead,
 }
 
 impl Capability {
@@ -175,7 +178,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 47] = [
+    pub const ALL: [Capability; 48] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -223,6 +226,7 @@ impl Capability {
         Capability::AppTiming,
         Capability::RelationshipsRead,
         Capability::ImagesWeb,
+        Capability::ActivityRead,
     ];
 
     /// Whether anything in this build looks at this capability.
@@ -314,6 +318,7 @@ impl Capability {
             Capability::AppTiming => "app.timing",
             Capability::RelationshipsRead => "relationships.read",
             Capability::ImagesWeb => "images.web",
+            Capability::ActivityRead => "activity.read",
         }
     }
 
@@ -369,7 +374,9 @@ impl Capability {
             Capability::Keybinds => "Offers actions you can bind to keys",
             Capability::SoundsReplace => "Replaces Yapfast's sounds with its own",
             Capability::MessagesSearch => "Searches your messages",
-            Capability::DraftsRead => "Reads the drafts you haven't sent",
+            Capability::DraftsRead => {
+                "Reads what you type before you send it, and the drafts you left"
+            }
             Capability::AccountSessions => "Sees the devices signed in to your account",
             Capability::SpotifyControl => "Sees and controls what your Spotify plays",
             Capability::LinksOffer => "Offers to open links you click in other apps",
@@ -382,6 +389,7 @@ impl Capability {
                 "Sees friends being added and removed, friend requests, and who Discord ranks you closest to"
             }
             Capability::ImagesWeb => "Shows pictures from the sites it lists",
+            Capability::ActivityRead => "Sees which game you're playing, even when you hide it",
         }
     }
 

@@ -77,6 +77,8 @@ impl Application {
             return vec![];
         }
         self.state.drafts.insert(id.clone(), body.clone());
+        #[cfg(feature = "plugins")]
+        self.plugins_composer(&id, &body);
         if self.state.preview {
             vec![]
         } else {

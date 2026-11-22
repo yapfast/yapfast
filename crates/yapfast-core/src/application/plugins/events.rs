@@ -377,6 +377,11 @@ impl Application {
         let wants_presence = plugins.subscribes(EventKind::Presence);
         let wants_roster =
             plugins.subscribes(EventKind::MemberJoin) || plugins.subscribes(EventKind::MemberLeave);
+        let wants_places = plugins.subscribes(EventKind::ServerJoin)
+            || plugins.subscribes(EventKind::ServerRemove)
+            || plugins.subscribes(EventKind::GroupDmRemove);
+        let wants_game =
+            plugins.subscribes(EventKind::GameStart) || plugins.subscribes(EventKind::GameStop);
         let state = &self.state;
         world.publish_account(
             state.account.as_deref(),
@@ -415,6 +420,16 @@ impl Application {
             self.plugins_relationships();
         } else {
             self.plugin_relationships = None;
+        }
+        if wants_places {
+            self.plugins_places();
+        } else {
+            self.plugin_places = None;
+        }
+        if wants_game {
+            self.plugins_game();
+        } else {
+            self.plugin_game = None;
         }
         if !wants_presence && !wants_roster {
             // Nobody wants presence: nothing is compared, nothing is kept, and
@@ -483,6 +498,111 @@ impl Application {
             };
             self.plugins_observe(envelope(kind, network, None, Some(person), false, payload));
         }
+    }
+
+    /// Tells the plugins with `servers.read` which Discord servers the
+    /// account joined and which left its list, and which group DMs went: the
+    /// lists compared when they change, and only while Discord is online, so
+    /// signing in, a reconnect or an outage (which keeps a server listed as
+    /// unavailable) says nothing. The first read after a plugin starts
+    /// listening says nothing either.
+    fn plugins_places(&mut self) {
+        use crate::plugins::presence::{PlaceChange, Places};
+        if !self.state.discord_online {
+            self.plugin_places = None;
+            return;
+        }
+        let at = self.state.list_changes;
+        if self
+            .plugin_places
+            .as_ref()
+            .is_some_and(|kept| kept.at == at)
+        {
+            return;
+        }
+        let now = Places::read(at, &self.state.servers, &self.state.rooms);
+        let Some(before) = self.plugin_places.replace(now.clone()) else {
+            return;
+        };
+        let network = yapfast_plugin_api::event::Network::Discord;
+        for change in before.changes(&now) {
+            let (kind, room, payload) = match change {
+                PlaceChange::ServerJoined { id, name } => (
+                    EventKind::ServerJoin,
+                    None,
+                    serde_json::json!({ "server": id, "name": name }),
+                ),
+                PlaceChange::ServerRemoved { id, name } => (
+                    EventKind::ServerRemove,
+                    None,
+                    serde_json::json!({ "server": id, "name": name }),
+                ),
+                PlaceChange::GroupRemoved { id, name } => (
+                    EventKind::GroupDmRemove,
+                    Some(id.clone()),
+                    serde_json::json!({ "room": id, "name": name }),
+                ),
+            };
+            self.plugins_observe(envelope(kind, network, room, None, true, payload));
+        }
+    }
+
+    /// Tells the plugins with `activity.read` when the game Yapfast sees this
+    /// account playing starts and stops: one changing to another is a stop and
+    /// a start. The first read after a plugin starts listening says nothing.
+    fn plugins_game(&mut self) {
+        let playing = self.state.discord_playing.as_ref();
+        let now = playing.map(|playing| playing.name.clone());
+        let Some(before) = self.plugin_game.replace(now.clone()) else {
+            return;
+        };
+        if before == now {
+            return;
+        }
+        let network = yapfast_plugin_api::event::Network::Discord;
+        if let Some(name) = before {
+            self.plugins_observe(envelope(
+                EventKind::GameStop,
+                network,
+                None,
+                None,
+                true,
+                serde_json::json!({ "name": name }),
+            ));
+        }
+        if let Some(name) = now {
+            let started = self
+                .state
+                .discord_playing
+                .as_ref()
+                .and_then(|playing| playing.started_ms);
+            self.plugins_observe(envelope(
+                EventKind::GameStart,
+                network,
+                None,
+                None,
+                true,
+                serde_json::json!({ "name": name, "started_ms": started }),
+            ));
+        }
+    }
+
+    /// Tells the plugins with `drafts.read` that subscribed to
+    /// `composer_change` what a composer holds now, coalesced like typing:
+    /// nothing is built while none listens.
+    pub(in crate::application) fn plugins_composer(&mut self, room: &str, text: &str) {
+        if !self.plugins_want(EventKind::ComposerChange) {
+            return;
+        }
+        let network = plugin_network(Network::of(room));
+        self.plugins_observe(envelope(
+            EventKind::ComposerChange,
+            network,
+            Some(room.to_owned()),
+            None,
+            true,
+            serde_json::json!({ "room": room, "text": text }),
+        ));
     }
 
     /// Finds the messages plugins sent among the account's own in the open

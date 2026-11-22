@@ -2622,6 +2622,14 @@ pub struct Application {
     /// the lists is told as who was added and who went.
     #[cfg(feature = "plugins")]
     plugin_relationships: Option<crate::plugins::presence::Relationships>,
+    /// The servers and group DMs the plugins were last told of, so a change
+    /// in the lists is told as what was joined and what went.
+    #[cfg(feature = "plugins")]
+    plugin_places: Option<crate::plugins::presence::Places>,
+    /// The game the plugins were last told of: `None` until the first sync
+    /// after one listens, which says nothing.
+    #[cfg(feature = "plugins")]
+    plugin_game: Option<Option<String>>,
     feed_asks: activity_panel::FeedAsks,
     /// The lists from Matrix; `state` shows them with Discord's.
     matrix_rooms: Vec<Arc<ChatRoom>>,

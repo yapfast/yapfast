@@ -621,7 +621,10 @@ pub fn capability(name: &str) -> (String, Tone) {
             "Searches your messages through Discord's search, as the search box does",
             Tone::Strong,
         ),
-        "drafts.read" => ("Reads the drafts you haven't sent", Tone::Strong),
+        "drafts.read" => (
+            "Reads what you type before you send it, and the drafts you left",
+            Tone::Strong,
+        ),
         "account.sessions" => (
             "Sees the devices signed in to your account and where they are",
             Tone::Strong,
@@ -657,6 +660,10 @@ pub fn capability(name: &str) -> (String, Tone) {
             Tone::Normal,
         ),
         "images.web" => ("Shows pictures from the sites it lists", Tone::Normal),
+        "activity.read" => (
+            "Sees which game you're playing as you start and stop it, even when you hide it",
+            Tone::Normal,
+        ),
         _ => {
             if let Some(port) = name.strip_prefix("network.local:") {
                 return (

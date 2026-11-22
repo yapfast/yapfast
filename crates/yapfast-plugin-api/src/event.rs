@@ -20,7 +20,7 @@ pub enum Network {
 /// The kinds of event a plugin may subscribe to.
 ///
 /// The first group is sent as it happens. `typing`, `presence`, `speaking`,
-/// `member_join` and `member_leave` are opt-in and coalesced: a burst arrives as one call with several events,
+/// `member_join`, `member_leave` and `composer_change` are opt-in and coalesced: a burst arrives as one call with several events,
 /// at most every 250 ms.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,11 +54,25 @@ pub enum EventKind {
     RelationshipRemove,
     /// A friend request arrived or was sent: `relationships.read`.
     RelationshipRequest,
+    /// The account joined a server, or was added to one: `servers.read`.
+    ServerJoin,
+    /// A server left the account's list: it left, was kicked or banned, or the
+    /// server was deleted. Not an outage, which keeps it listed: `servers.read`.
+    ServerRemove,
+    /// A group DM left the account's list: it left or was removed, or the
+    /// group was deleted: `servers.read`.
+    GroupDmRemove,
+    /// The game Yapfast sees this account playing started: `activity.read`.
+    GameStart,
+    /// That game stopped: `activity.read`.
+    GameStop,
+    /// The text in a composer changed: `drafts.read`. Opt-in and coalesced.
+    ComposerChange,
 }
 
 impl EventKind {
     /// Every kind a manifest may name after `event:`.
-    pub const ALL: [EventKind; 19] = [
+    pub const ALL: [EventKind; 25] = [
         EventKind::MessageCreate,
         EventKind::MessageUpdate,
         EventKind::MessageDelete,
@@ -78,6 +92,12 @@ impl EventKind {
         EventKind::RelationshipAdd,
         EventKind::RelationshipRemove,
         EventKind::RelationshipRequest,
+        EventKind::ServerJoin,
+        EventKind::ServerRemove,
+        EventKind::GroupDmRemove,
+        EventKind::GameStart,
+        EventKind::GameStop,
+        EventKind::ComposerChange,
     ];
 
     /// The name written after `event:` in a manifest.
@@ -102,6 +122,12 @@ impl EventKind {
             EventKind::RelationshipAdd => "relationship_add",
             EventKind::RelationshipRemove => "relationship_remove",
             EventKind::RelationshipRequest => "relationship_request",
+            EventKind::ServerJoin => "server_join",
+            EventKind::ServerRemove => "server_remove",
+            EventKind::GroupDmRemove => "group_dm_remove",
+            EventKind::GameStart => "game_start",
+            EventKind::GameStop => "game_stop",
+            EventKind::ComposerChange => "composer_change",
         }
     }
 
@@ -114,6 +140,7 @@ impl EventKind {
                 | EventKind::Speaking
                 | EventKind::MemberJoin
                 | EventKind::MemberLeave
+                | EventKind::ComposerChange
         )
     }
 }

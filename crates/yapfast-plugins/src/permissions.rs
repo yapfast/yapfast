@@ -131,7 +131,12 @@ pub fn event_capability(kind: EventKind) -> Option<Capability> {
         | EventKind::ReactionAdd
         | EventKind::ReactionRemove
         | EventKind::Typing => Some(Capability::MessagesRead),
-        EventKind::RoomSelected => Some(Capability::ServersRead),
+        EventKind::RoomSelected
+        | EventKind::ServerJoin
+        | EventKind::ServerRemove
+        | EventKind::GroupDmRemove => Some(Capability::ServersRead),
+        EventKind::GameStart | EventKind::GameStop => Some(Capability::ActivityRead),
+        EventKind::ComposerChange => Some(Capability::DraftsRead),
         EventKind::VoiceState | EventKind::Speaking => Some(Capability::VoiceRead),
         EventKind::Presence | EventKind::MemberJoin | EventKind::MemberLeave => {
             Some(Capability::PeopleRead)
@@ -459,6 +464,12 @@ mod tests {
                 EventKind::RelationshipRequest,
                 Capability::RelationshipsRead,
             ),
+            (EventKind::ServerJoin, Capability::ServersRead),
+            (EventKind::ServerRemove, Capability::ServersRead),
+            (EventKind::GroupDmRemove, Capability::ServersRead),
+            (EventKind::GameStart, Capability::ActivityRead),
+            (EventKind::GameStop, Capability::ActivityRead),
+            (EventKind::ComposerChange, Capability::DraftsRead),
         ] {
             let denial = allows_event(&quiet, &filter, &event(kind, Some("room-1")))
                 .expect_err("nothing declared");

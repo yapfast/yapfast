@@ -56,7 +56,7 @@ audio capabilities, which share one line.
 | `keybinds` | Named actions the person binds to keys in Settings → Keybinds | Offers actions you can bind to keys; it never sees your keys |
 | `sounds.replace` | Its own sound assets in place of Yapfast's sound events | Replaces Yapfast's sounds with its own |
 | `messages.search` | Discord's search, as the search box asks it | Searches your messages through Discord's search, as the search box does |
-| `drafts.read` | The drafts the person left unsent | Reads the drafts you haven't sent |
+| `drafts.read` | The drafts the person left unsent, and `composer_change` as they type | Reads what you type before you send it, and the drafts you left |
 | `account.sessions` | The devices signed in to the account, read-only | Sees the devices signed in to your account and where they are |
 | `spotify.control` | The linked Spotify's playback: what plays, and its controls | Sees and controls what your Spotify plays |
 | `links.offer` | Be asked about a link the person clicks on one of the `link-hosts` it lists, and offer an app to open it in, through one of its `schemes` | Offers to open links you click in other apps |
@@ -65,6 +65,7 @@ audio capabilities, which share one line.
 | `app.timing` | `startup_timing`, once a session | Reads how long Yapfast took to start |
 | `relationships.read` | `relationship_add`, `relationship_remove`, `relationship_request` and `relationships.affinities` | Sees friends being added and removed, friend requests, and who Discord ranks you closest to |
 | `images.web` | Pictures from the HTTPS hosts in `network`, in what it draws | Shows pictures from the sites it lists |
+| `activity.read` | `game_start` and `game_stop`, the game Yapfast sees this account playing | Sees which game you're playing, even when you hide it |
 
 One of those sentences is shown in the dialog's danger tone:
 `messages.send.background`, the one that lets a plugin act as the person without
@@ -239,7 +240,9 @@ the hosts their `link-hosts` list; `switcher_rank` asks the first plugin with
 | Event | Needs |
 | --- | --- |
 | `message_create`, `message_update`, `message_delete`, `reaction_add`, `reaction_remove`, `typing` | `messages.read` |
-| `room_selected` | `servers.read` |
+| `room_selected`, `server_join`, `server_remove`, `group_dm_remove` | `servers.read` |
+| `game_start`, `game_stop` | `activity.read` |
+| `composer_change` | `drafts.read` |
 | `voice_state`, `speaking` | `voice.read` |
 | `presence`, `member_join`, `member_leave` | `people.read` |
 | `relationship_add`, `relationship_remove`, `relationship_request` | `relationships.read` |
