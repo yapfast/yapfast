@@ -118,14 +118,14 @@ fn message(event: Event) -> Message {
     Message::Arrange(event)
 }
 
-/// The rows' places: none on the DM home, or in a server that isn't
-/// Discord's.
-pub fn places(rows: &[SideRow], discord: bool) -> Places {
+/// The rows' places: none on the DM home, in a server that isn't
+/// Discord's, or while the list is filtered.
+pub fn places(rows: &[SideRow], discord: bool, filtered: bool) -> Places {
     let mut places = Places {
         ids: Vec::new(),
         of_row: vec![None; rows.len()],
     };
-    if !discord {
+    if !discord || filtered {
         return places;
     }
     // Pinned channels come first, before a line.
