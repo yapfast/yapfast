@@ -286,5 +286,14 @@ change spans several places):
     first unpaired layer is let go, as the layers it was drawn with are
     no longer those in its place. Tests in `layer.rs` and `lib.rs`.
 
+42. `raster.rs` `draw`, `Opaque`: a turned picture all of one colour is
+    filled as its turned rectangle in that colour, unsmoothed as
+    `draw_pixmap` fills it (smoothed when its corners are round), rather
+    than sampled through the bilinear pattern pixel by pixel. Whether a
+    picture is one colour is found once, as whether it's opaque is
+    (patch 19). Zine's leaning cards are 4 by 4 pictures of one colour
+    stretched to the card: a scrolled frame cost 45 ms. A test in
+    `raster.rs`.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.
