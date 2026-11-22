@@ -35,7 +35,9 @@ pub use package::{Mode, Package, Resolved};
 /// that turn text around, break lines or hide, and the fillers that draw as
 /// nothing (a "blank" name), which would let a label reorder or disguise
 /// what's beside it. The joiner emoji are made with (U+200D) and the emoji
-/// variation selectors (U+FE00 to U+FE0F) are allowed, and so is the Braille
+/// variation selectors (U+FE00 to U+FE0F) are allowed, and so are the marks
+/// writing needs (Mongolian's variation selectors and vowel separator, the
+/// ideographic variation selectors a name's kanji form takes) and the Braille
 /// blank (U+2800), which takes a space's room as a space does (Phosphor pads
 /// its prompt with one).
 pub fn refused_char(c: char) -> bool {
@@ -43,13 +45,11 @@ pub fn refused_char(c: char) -> bool {
         || matches!(
             c,
             '\u{00ad}'
-                | '\u{034f}'
                 | '\u{061c}'
                 | '\u{115f}'
                 | '\u{1160}'
                 | '\u{17b4}'
                 | '\u{17b5}'
-                | '\u{180b}'..='\u{180f}'
                 | '\u{200b}'
                 | '\u{200c}'
                 | '\u{200e}'
@@ -62,7 +62,6 @@ pub fn refused_char(c: char) -> bool {
                 | '\u{fff9}'..='\u{fffb}'
                 | '\u{1d173}'..='\u{1d17a}'
                 | '\u{e0000}'..='\u{e007f}'
-                | '\u{e0100}'..='\u{e01ef}'
         )
 }
 
@@ -72,12 +71,17 @@ pub fn refused_char(c: char) -> bool {
 /// push the rest off screen.
 pub fn shown(text: &str) -> String {
     const MOST: usize = 160;
+    match text.char_indices().nth(MOST) {
+        Some((cut, _)) => escaped(&text[..cut]) + "…",
+        None => escaped(text),
+    }
+}
+
+/// `text` with what [`refused_char`] names written out as `\u{…}`, however
+/// long: a sentence of Yapfast's that quotes a theme.
+pub fn escaped(text: &str) -> String {
     let mut out = String::new();
-    for (index, c) in text.chars().enumerate() {
-        if index == MOST {
-            out.push('…');
-            break;
-        }
+    for c in text.chars() {
         if refused_char(c) {
             let _ = std::fmt::Write::write_fmt(&mut out, format_args!("\\u{{{:x}}}", u32::from(c)));
         } else {
@@ -179,17 +183,20 @@ mod tests {
 
     #[test]
     fn blank_fillers_are_refused_and_emoji_joiners_kept() {
-        for blank in [
-            '\u{3164}',
-            '\u{115f}',
-            '\u{ffa0}',
-            '\u{00ad}',
-            '\u{180e}',
-            '\u{e0100}',
-        ] {
+        for blank in ['\u{3164}', '\u{115f}', '\u{ffa0}', '\u{00ad}', '\u{fff9}'] {
             assert!(refused_char(blank), "{:x}", u32::from(blank));
         }
-        for kept in ['\u{200d}', '\u{fe0f}', '\u{2800}', 'ก', 'ᠮ', '漢'] {
+        for kept in [
+            '\u{200d}',
+            '\u{fe0f}',
+            '\u{2800}',
+            '\u{180b}',
+            '\u{180e}',
+            '\u{e0100}',
+            'ก',
+            'ᠮ',
+            '漢',
+        ] {
             assert!(!refused_char(kept), "{:x}", u32::from(kept));
         }
     }

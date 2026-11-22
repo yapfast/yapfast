@@ -244,7 +244,8 @@ fn value(arguments: &mut Vec<String>, flag: &str) -> Result<Option<String>, Stop
         return Ok(None);
     };
     arguments.remove(at);
-    if at >= arguments.len() {
+    // An option after it is a forgotten value, not a value named `--…`.
+    if arguments.get(at).is_none_or(|next| next.starts_with("--")) {
         return Err(Stop::Usage(format!("{flag} needs a value")));
     }
     Ok(Some(arguments.remove(at)))
@@ -465,6 +466,10 @@ mod tests {
         ));
         assert!(matches!(
             new(strings(&["x", "--from"])),
+            Err(Stop::Usage(_))
+        ));
+        assert!(matches!(
+            export(strings(&["mine", "out", "--author", "--data-dir", "d"])),
             Err(Stop::Usage(_))
         ));
         // Not understood exits 2, as the usage says; failed exits 1.
