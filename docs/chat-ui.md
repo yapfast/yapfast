@@ -63,6 +63,12 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   what's typed. Escape in the box clears it and ends the search, keeping the
   focus there; in an empty box it lets go. A keyboard layout without Latin
   letters uses the key in F's place.
+- Split view, a Yapfast addition that Discord doesn't have: with "Split
+  view" on in Settings > Messages (`split_view`, off by default), a Discord
+  channel, thread or DM opens beside the open conversation, with its own
+  messages and composer, from Open in split view in its menu or a Ctrl+click
+  or middle click on its row, and stays while the conversation moves
+  elsewhere. See `docs/client/threads.md`.
 - Peek at a channel or DM without opening it, a Yapfast addition that
   Discord doesn't have. With "Peek at channels" on in Settings > Messages
   (`peek_channels` in `layout.json`, off by default), holding Alt alone over

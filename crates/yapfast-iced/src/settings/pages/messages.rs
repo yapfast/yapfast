@@ -157,6 +157,41 @@ impl<'a> Page<'a> {
                 self.cx.layout.dm_search_switcher,
                 Pref::DmSearchSwitcher,
             ),
+            self.split_switches(),
         ])
+    }
+
+    /// Split view's switch, once a Discord account is linked, and while
+    /// it's on, the switches of its parts under it.
+    fn split_switches(self) -> Element<'a, Message> {
+        if !self.linked() {
+            return iced::widget::Space::new().into();
+        }
+        let layout = self.cx.layout;
+        let mut shown = iced::widget::column![self.flip(
+            "Split view",
+            "Open a channel or DM beside the open one, with its own messages and composer, from its menu.",
+            layout.split_view,
+            Pref::SplitView,
+        )];
+        if layout.split_view {
+            let parts = iced::widget::column![
+                self.flip(
+                    "Ctrl+click and middle click to open",
+                    "On a channel or DM in the list. Off, Ctrl+click opens it as a click does.",
+                    layout.split_click.unwrap_or(true),
+                    Pref::SplitClick,
+                ),
+                self.flip(
+                    "Reopen the split on start",
+                    "The channel or DM beside comes back the next time Yapfast opens.",
+                    layout.split_restore.unwrap_or(true),
+                    Pref::SplitRestore,
+                ),
+            ];
+            shown =
+                shown.push(iced::widget::container(parts).padding(iced::Padding::ZERO.left(24)));
+        }
+        shown.into()
     }
 }

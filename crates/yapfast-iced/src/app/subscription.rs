@@ -160,6 +160,28 @@ impl App {
                 _ => None,
             }));
         }
+        // While split view shows a room, Ctrl+Tab moves typing to the other
+        // side and Ctrl+W closes it.
+        if crate::thread::splits(self) {
+            subscriptions.push(iced::event::listen_with(|event, _, _| match event {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    physical_key,
+                    modifiers,
+                    repeat: false,
+                    ..
+                }) if modifiers.control() && !modifiers.alt() && !modifiers.shift() => {
+                    if key == keyboard::Key::Named(key::Named::Tab) {
+                        Some(Message::Thread(crate::thread::Event::OtherSide))
+                    } else if is_letter(&key, physical_key, "w", key::Code::KeyW) {
+                        Some(Message::Thread(crate::thread::Event::CloseSplit))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }));
+        }
         // A dialog's field keeps Escape to itself, only letting go of the
         // keys: while a dialog with one is open, Escape closes the dialog.
         if self.field_keeps_escape() {

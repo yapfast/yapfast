@@ -43,6 +43,9 @@ pub enum Pref {
     CollapseLong(bool),
     PeekChannels(bool),
     DmSearchSwitcher(bool),
+    SplitView(bool),
+    SplitClick(bool),
+    SplitRestore(bool),
     BoostGems(bool),
     ShareTyping(bool),
     ReplyPing(bool),
@@ -159,6 +162,24 @@ impl Settings {
             Pref::DmSearchSwitcher(on) => {
                 cx.layout.dm_search_switcher = on;
                 cx.keep("dm_search_switcher", on);
+            }
+            Pref::SplitView(on) => {
+                cx.layout.split_view = on;
+                cx.keep("split_view", on);
+                cx.dispatch(Action::SplitView(on));
+            }
+            Pref::SplitClick(on) => {
+                cx.layout.split_click = Some(on);
+                cx.keep("split_click", on);
+            }
+            Pref::SplitRestore(on) => {
+                cx.layout.split_restore = Some(on);
+                cx.keep("split_restore", on);
+                // Off, the room isn't kept for the next start.
+                if !on {
+                    cx.layout.split_room = None;
+                    cx.keep("split_room", None::<String>);
+                }
             }
             Pref::BoostGems(on) => {
                 prefs.boost_gems = Some(on);

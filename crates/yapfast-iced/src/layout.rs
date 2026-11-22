@@ -94,6 +94,15 @@ pub struct Layout {
     /// button, which opens the quick switcher, instead of a filter; off
     /// unless turned on.
     pub dm_search_switcher: bool,
+    /// Split view, a Yapfast addition, off unless turned on: a channel or
+    /// DM beside the open one. Ctrl+click and a middle click on a row open
+    /// it there, and the room it shows comes back on the next start, each
+    /// unless turned off; its width as dragged, and the room it shows.
+    pub split_view: bool,
+    pub split_click: Option<bool>,
+    pub split_restore: Option<bool>,
+    pub split_width: Option<f32>,
+    pub split_room: Option<String>,
     /// DMs pinned to the top of the list, by room id, the first pinned
     /// first.
     pub pinned: Vec<String>,
@@ -422,7 +431,16 @@ impl Layout {
             Action::SetCosmetics(self.prefs.cosmetics()),
             Action::StripTracking(self.prefs.strip_tracking.unwrap_or(true)),
             Action::HideNameplates(!self.prefs.nameplates.unwrap_or(true)),
+            Action::SplitView(self.split_view),
         ]
+        .into_iter()
+        .chain(
+            self.split_room
+                .clone()
+                .filter(|_| self.split_view && self.split_restore.unwrap_or(true))
+                .map(Action::RestoreSplit),
+        )
+        .collect()
     }
 }
 

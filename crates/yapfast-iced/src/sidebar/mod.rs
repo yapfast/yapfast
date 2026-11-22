@@ -269,6 +269,8 @@ pub enum Event {
     Resized,
     ResetWidth,
     Select(String),
+    /// A middle click on a conversation's row: it opens in split view.
+    Split(String),
     /// A room in any place, such as a friend's voice channel from the DM
     /// home: goes to its place and shows it.
     Open(String),
@@ -350,10 +352,23 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             // pointed at; a peek follows the row.
             return Task::batch([app.ask(), crate::peek::follow(app)]);
         }
+        // With split view on, Ctrl+click opens a row beside the open room;
+        // one split view can't show opens as a click does.
+        Event::Select(id) if split_clicks(app) && app.modifiers.command() => {
+            app.client.dispatch(Action::OpenSplit(id));
+        }
         // A server tree lists other places' channels too, which go to
         // their place first.
         Event::Select(id) if !in_scope(app, &id) => app.client.dispatch(Action::Open(id)),
         Event::Select(id) => app.client.dispatch(Action::SelectRoom(id)),
+        Event::Split(id) => {
+            // A category's row has a menu too, but nothing to show.
+            let listed = app.client.state().rooms.iter().any(|room| room.id == id);
+            if !split_clicks(app) || !listed {
+                return Task::none();
+            }
+            app.client.dispatch(Action::OpenSplit(id));
+        }
         Event::Open(id) => app.client.dispatch(Action::Open(id)),
         // The core's `SelectRoom` joins a voice channel's call first, and
         // shows it once in it.
@@ -689,4 +704,9 @@ impl<'a> View<'a> {
             .style(move |_| rounded(ground, corners([corner, 0.0, 0.0, 0.0])))
             .into()
     }
+}
+
+/// Whether Ctrl+click and a middle click on a row open it in split view.
+fn split_clicks(app: &App) -> bool {
+    app.layout.split_view && app.layout.split_click.unwrap_or(true)
 }

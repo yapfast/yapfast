@@ -59,6 +59,10 @@ const REPORT_MARGIN: usize = 6;
 pub struct Aside {
     pub room: String,
     pub name: String,
+    /// A channel or DM in split view, which stays as the conversation goes
+    /// elsewhere, rather than a thread of the open channel; a DM's.
+    pub split: bool,
+    pub direct: bool,
     /// The open voice channel's own chat, beside its call.
     pub voice: bool,
     pub ready: bool,
@@ -85,6 +89,8 @@ impl Aside {
         Self {
             room,
             name: String::new(),
+            split: false,
+            direct: false,
             voice: false,
             ready: false,
             loading: false,
@@ -201,6 +207,11 @@ pub enum Event {
     Resize(f32),
     Resized,
     ResetWidth,
+    /// Split view's Swap sides, Ctrl+Tab between its two composers, and
+    /// Ctrl+W, which closes it.
+    Swap,
+    OtherSide,
+    CloseSplit,
 }
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -311,19 +322,59 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Resize(by) => {
             let from = *app.aside_drag.get_or_insert(aside_width(app));
-            app.layout.aside_width = Some(aside_room(app, from - by));
+            let width = Some(aside_room(app, from - by));
+            if splits(app) {
+                app.layout.split_width = width;
+            } else {
+                app.layout.aside_width = width;
+            }
             Task::none()
         }
         Event::Resized => {
             app.aside_drag = None;
-            crate::layout::store(app.client.root(), "aside_width", aside_width(app));
+            let key = if splits(app) {
+                "split_width"
+            } else {
+                "aside_width"
+            };
+            crate::layout::store(app.client.root(), key, aside_width(app));
             Task::none()
         }
+        // Split view goes back to half the room beside the sidebar, the
+        // thread to its own width.
         Event::ResetWidth => {
             app.aside_drag = None;
-            app.layout.aside_width = Some(WIDTH);
-            crate::layout::store(app.client.root(), "aside_width", WIDTH);
+            if splits(app) {
+                app.layout.split_width = None;
+                crate::layout::store(app.client.root(), "split_width", None::<f32>);
+            } else {
+                app.layout.aside_width = Some(WIDTH);
+                crate::layout::store(app.client.root(), "aside_width", WIDTH);
+            }
             Task::none()
+        }
+        Event::Swap => {
+            app.client.dispatch(Action::SwapSplit);
+            Task::batch([app.sync(), operation::focus(COMPOSER)])
+        }
+        Event::OtherSide => {
+            // Typing goes to the other side's composer.
+            if crate::composer::writing_aside(app) {
+                app.composer.writing_last = Writing::Draft;
+                operation::focus(crate::composer::COMPOSER)
+            } else if app.aside.is_some() {
+                app.composer.writing_last = Writing::Aside;
+                operation::focus(COMPOSER)
+            } else {
+                Task::none()
+            }
+        }
+        Event::CloseSplit => {
+            if !splits(app) {
+                return Task::none();
+            }
+            app.client.dispatch(Action::CloseAside);
+            Task::batch([app.sync(), crate::composer::refocus(app)])
         }
     }
 }
@@ -347,8 +398,14 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
     let Some(core) = state.aside.as_ref() else {
         // Once, as the thread closes: a new editor each sync takes the
         // font system's lock the renderer shapes with.
-        if app.aside.take().is_some() || !app.drafts.aside.is_empty() {
+        let closed = app.aside.take();
+        if closed.is_some() || !app.drafts.aside.is_empty() {
             app.drafts.aside.reset("");
+        }
+        // A split closed isn't reopened on the next start.
+        if closed.is_some_and(|aside| aside.split) && app.layout.split_room.is_some() {
+            app.layout.split_room = None;
+            crate::layout::store(app.client.root(), "split_room", None::<String>);
         }
         app.drafts.aside_known.clear();
         return new_thread_sync(app);
@@ -370,7 +427,17 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
         .aside_room()
         .map(|room| room.name.clone())
         .unwrap_or_default();
+    let direct = state.aside_room().is_some_and(|room| room.direct);
+    let split = core.split;
     let voice = core.voice;
+    // The room split view shows comes back on the next start.
+    if split
+        && app.layout.split_restore.unwrap_or(true)
+        && app.layout.split_room.as_deref() != Some(core.room.as_str())
+    {
+        app.layout.split_room = Some(core.room.clone());
+        crate::layout::store(app.client.root(), "split_room", &app.layout.split_room);
+    }
     let (ready, loading, start, failed) = (
         core.ready,
         core.loading_history,
@@ -392,6 +459,8 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
     let edge_changed =
         (aside.ready, aside.loading, aside.start, aside.failed) != (ready, loading, start, failed);
     aside.name = name;
+    aside.split = split;
+    aside.direct = direct;
     aside.voice = voice;
     aside.ready = ready;
     aside.loading = loading;
@@ -649,9 +718,23 @@ pub fn aside_shown(app: &App) -> bool {
         && !crate::search::search_shown(app)
 }
 
-/// The panel's width, as dragged and kept.
+/// The panel's width, as dragged and kept: split view's apart from the
+/// thread's, at first half the room beside the sidebar.
 pub fn aside_width(app: &App) -> f32 {
+    if splits(app) {
+        let half = (app.window.width - crate::conversation::chat_left(app)) / 2.0;
+        return aside_room(app, app.layout.split_width.unwrap_or(half));
+    }
     aside_room(app, app.layout.aside_width.unwrap_or(WIDTH))
+}
+
+/// The panel shows a channel or DM in split view.
+pub fn splits(app: &App) -> bool {
+    app.client
+        .state()
+        .aside
+        .as_ref()
+        .is_some_and(|aside| aside.split)
 }
 
 /// The dim under the question before leaving.
@@ -865,12 +948,21 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
     }
     let aside = ctx.lanes.aside?;
     let theme = ctx.look.theme;
+    // A thread opened in split view still looks like a thread.
+    let thread = ctx
+        .state
+        .aside_room()
+        .is_some_and(|room| room.parent.is_some());
     let icon = if aside.voice {
         Icon::MessageCircle
-    } else {
+    } else if !aside.split || thread {
         Icon::Thread
+    } else if aside.direct {
+        Icon::Dm
+    } else {
+        Icon::Hash
     };
-    let head = row![
+    let mut head = row![
         ctx.look.glyph(icon, 18, theme.muted),
         container(
             elide(theme.heading(aside.name.as_str()).into_owned())
@@ -880,6 +972,17 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         )
         .width(Length::Fill),
     ];
+    if aside.split && ctx.state.can_swap_split() {
+        head = head.push(
+            ctx.look
+                .icon_button(
+                    Icon::ArrowsUpDown,
+                    "Swap sides",
+                    Message::Thread(Event::Swap),
+                )
+                .below(),
+        );
+    }
     // A voice channel's chat, beside its call, has only its close, as
     // Discord's panel has.
     if aside.voice {
@@ -895,6 +998,11 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         ];
         return Some(panel(ctx, body.into()));
     }
+    let close = if aside.split {
+        "Close split view"
+    } else {
+        "Close thread"
+    };
     let head = head
         .push(
             ctx.look
@@ -912,7 +1020,7 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         )
         .push(
             ctx.look
-                .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
+                .icon_button(Icon::X, close, Message::Thread(Event::Close))
                 .below(),
         );
     let body = column![
@@ -972,6 +1080,13 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         }
         let words = text(if aside.voice {
             format!("Welcome to #{}! This is the start of its chat.", aside.name)
+        } else if aside.split && aside.direct {
+            format!(
+                "This is the beginning of your messages with {}.",
+                aside.name
+            )
+        } else if aside.split {
+            format!("This is the start of #{}.", aside.name)
         } else {
             format!("This is the start of the {} thread.", aside.name)
         })
@@ -1027,7 +1142,9 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
     let reply = crate::composer::reply_bar_info(state.aside_compose());
     let placeholder = if reply.is_some() {
         "Write a reply".to_owned()
-    } else if aside.voice {
+    } else if aside.split && aside.direct {
+        format!("Message @{}", aside.name)
+    } else if aside.split || aside.voice {
         format!("Message #{}", aside.name)
     } else {
         format!("Message {}", aside.name)

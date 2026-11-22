@@ -284,6 +284,7 @@ pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Me
         MenuChoice::MarkRead => Action::MarkRead(place),
         MenuChoice::JoinVoice => Action::RequestJoinVoice(place),
         MenuChoice::OpenChat => Action::OpenChat(place),
+        MenuChoice::OpenInSplit => Action::OpenSplit(place),
         MenuChoice::Profile => Action::ShowDmProfile(place),
         MenuChoice::Call => Action::RequestJoinVoice(place),
         MenuChoice::Pin | MenuChoice::Unpin => Action::Pin {
@@ -869,6 +870,8 @@ pub fn group_of(choice: MenuChoice) -> u8 {
         | MenuChoice::UnfollowCategory => 3,
         MenuChoice::ServerNickname | MenuChoice::Roles | MenuChoice::MoveTo => 4,
         MenuChoice::Apps => 10,
+        // A Yapfast addition, not one of Discord's items: a group of its own.
+        MenuChoice::OpenInSplit => 11,
         MenuChoice::LocalMute
         | MenuChoice::SoundboardMute
         | MenuChoice::SelfMute
@@ -899,6 +902,7 @@ pub fn icon(choice: MenuChoice) -> Icon {
         C::MarkRead => Icon::Check,
         C::JoinVoice | C::Call => Icon::Phone,
         C::OpenChat => Icon::ForumPost,
+        C::OpenInSplit => Icon::Square,
         C::Profile => Icon::User,
         C::Message => Icon::Dm,
         C::AddFriend | C::AcceptFriend | C::InviteToServer | C::Invite => Icon::UserPlus,
@@ -949,6 +953,7 @@ pub fn icon(choice: MenuChoice) -> Icon {
 pub fn label(choice: MenuChoice) -> &'static str {
     match choice {
         MenuChoice::MarkRead => "Mark as read",
+        MenuChoice::OpenInSplit => "Open in split view",
         MenuChoice::JoinVoice => "Join voice",
         MenuChoice::OpenChat => "Open chat",
         MenuChoice::Profile => "Profile",
