@@ -54,6 +54,7 @@ impl Bridge {
                 data_dir.join("plugins-attach").join("uploads"),
             )),
             bodies: Mutex::new(BTreeMap::new()),
+            overlay_waiting: Mutex::new(BTreeMap::new()),
             next_body: AtomicU64::new(0),
             wake,
         });

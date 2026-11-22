@@ -293,7 +293,11 @@ impl Client {
             Plugin::Status { .. } | Plugin::Page => self.plugin_outbox.page = true,
             // Drawn from `AppState::plugin_consent`, `plugin_slots` and the
             // profile and code-block tables, which the view reads each time.
-            Plugin::Consent(_) | Plugin::Slots | Plugin::Identity | Plugin::CodeBlocks => {}
+            Plugin::Consent(_)
+            | Plugin::Slots
+            | Plugin::Identity
+            | Plugin::CodeBlocks
+            | Plugin::Overlay => {}
             Plugin::SaveFile(ask) => self.plugin_outbox.save.push(ask),
         }
     }

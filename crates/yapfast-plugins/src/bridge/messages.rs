@@ -55,6 +55,11 @@ pub enum Notice {
         provider: String,
         url: String,
     },
+    /// What a plugin's overlay shows now, or none when it took it away.
+    Overlay {
+        plugin: PluginId,
+        layer: Option<yapfast_plugin_api::call::OverlaySet>,
+    },
     /// A plugin's decorations should be asked again: what it keeps changed.
     Redecorate { plugin: PluginId },
     /// How a person looks, or everyone when `person` is none, should be asked

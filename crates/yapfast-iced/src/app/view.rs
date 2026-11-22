@@ -300,6 +300,12 @@ impl App {
                 layers = layers.push(self.popup(L(Layer::PluginDialog), dialog));
             }
         }
+        // Plugins' overlays, over everything a plugin draws and under
+        // Yapfast's own questions; a click goes through them.
+        #[cfg(feature = "plugins")]
+        if let Some(overlay) = crate::plugin_overlay::layer(self) {
+            layers = layers.push(overlay);
+        }
         #[cfg(feature = "plugins")]
         if let Some(consent) = crate::dialogs::consent_view(self.ctx())
             .or_else(|| crate::dialogs::powerful_view(self.ctx()))

@@ -106,6 +106,10 @@ impl Bridge {
                     action: action.clone(),
                 },
             ),
+            crate::Input::OverlayClick { plugin, id } => (
+                plugin.clone(),
+                yapfast_plugin_api::message::InputEvent::OverlayClick { id: id.clone() },
+            ),
         };
         let Ok(plugin) = PluginId::parse(&plugin) else {
             // A slot drawn by something that isn't a plugin id can't be handed
@@ -318,5 +322,64 @@ impl Bridge {
     /// built from.
     pub(crate) fn shared(&self) -> &Shared {
         &self.shared
+    }
+}
+
+/// What paces a plugin's overlay: the window's frame clock hands it a frame,
+/// and it goes to the plugin as an input unless the one before is still
+/// unanswered, so a plugin slower than its pace is given frames at its own
+/// pace instead of a queue of them. Cheap to clone and to call from the
+/// window's thread: a send on a channel, and nothing waits.
+#[derive(Clone)]
+pub struct OverlayTicker {
+    commands: tokio::sync::mpsc::UnboundedSender<Request>,
+    shared: Arc<Shared>,
+}
+
+impl std::fmt::Debug for OverlayTicker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OverlayTicker")
+    }
+}
+
+/// How long a frame may go unanswered before the next is sent anyway.
+const FRAME_ANSWER: Duration = Duration::from_secs(1);
+
+impl OverlayTicker {
+    /// Hands `plugin` its next frame: `pointer` where the pointer is over the
+    /// window, and the window's size.
+    pub fn frame(&self, plugin: &str, at_ms: u64, pointer: Option<(i32, i32)>, size: (u32, u32)) {
+        let Ok(plugin) = PluginId::parse(plugin) else {
+            return;
+        };
+        {
+            let mut waiting = self.shared.overlay_waiting();
+            if waiting
+                .get(&plugin)
+                .is_some_and(|sent| sent.elapsed() < FRAME_ANSWER)
+            {
+                return;
+            }
+            waiting.insert(plugin.clone(), Instant::now());
+        }
+        let _ = self.commands.send(Request::Input {
+            plugin,
+            input: yapfast_plugin_api::message::InputEvent::OverlayFrame {
+                at_ms,
+                pointer,
+                width: size.0,
+                height: size.1,
+            },
+        });
+    }
+}
+
+impl Bridge {
+    /// The ticker the window paces plugins' overlays with, once the plugin
+    /// system runs.
+    pub fn overlay_ticker(&mut self) -> Option<OverlayTicker> {
+        let shared = Arc::clone(&self.shared);
+        let commands = self.supervisor()?.commands.clone();
+        Some(OverlayTicker { commands, shared })
     }
 }

@@ -226,6 +226,17 @@ pub enum InputEvent {
     /// The person pressed the keys they bound to one of the manifest's
     /// `keybinds`; which keys is never said.
     Keybind { action: String },
+    /// The overlay is due its next frame: the time, the pointer over the
+    /// window if it is, and the window's size.
+    OverlayFrame {
+        at_ms: u64,
+        #[serde(default)]
+        pointer: Option<(i32, i32)>,
+        width: u32,
+        height: u32,
+    },
+    /// A clickable sprite of the overlay was clicked.
+    OverlayClick { id: String },
 }
 
 /// What `yf_event` is given, in one call.
@@ -301,6 +312,8 @@ pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
+    pub const OVERLAY_SET: &str = "overlay.set";
+    pub const OVERLAY_CLEAR: &str = "overlay.clear";
     pub const HTTP_READ: &str = "http.read";
     pub const HTTP_RELEASE: &str = "http.release";
     pub const IDENTITY_REFRESH: &str = "identity.refresh";

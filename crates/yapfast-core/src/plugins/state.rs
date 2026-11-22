@@ -567,6 +567,11 @@ impl PluginState {
         self.identities.forget_person(person)
     }
 
+    /// What paces plugins' overlays, once the plugin system runs.
+    pub fn overlay_ticker(&mut self) -> Option<crate::plugins::bridge::OverlayTicker> {
+        self.bridge.overlay_ticker()
+    }
+
     /// Lets the rows on screen be asked for their decorations again now.
     pub fn decorate_again(&mut self) {
         self.bridge.decorate_again();

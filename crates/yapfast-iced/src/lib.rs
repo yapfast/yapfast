@@ -90,6 +90,8 @@ mod person_menu;
 mod picker;
 mod pictures;
 #[cfg(feature = "plugins")]
+mod plugin_overlay;
+#[cfg(feature = "plugins")]
 mod plugin_slots;
 #[cfg(feature = "plugins")]
 mod plugin_tree;

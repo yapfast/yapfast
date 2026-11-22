@@ -663,6 +663,10 @@ pub fn capability(name: &str) -> (String, Tone) {
             Tone::Normal,
         ),
         "images.web" => ("Shows pictures from the sites it lists", Tone::Normal),
+        "overlay" => (
+            "Draws moving pictures over Yapfast's window; clicks go through them",
+            Tone::Normal,
+        ),
         "oauth.login" => (
             "Asks you to sign in to another site in your browser, such as Spotify, and uses that account as you",
             Tone::Strong,

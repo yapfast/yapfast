@@ -1,0 +1,14 @@
+# A plugin is only ever run as WebAssembly, so that is what a plain `cargo
+# build` makes, and `$CARGO_TARGET_DIR` gains a `wasm32-unknown-unknown` level.
+[build]
+target = "wasm32-unknown-unknown"
+
+# Release is the profile a module is shipped from: it is compiled once, then
+# its pages count against the person's memory budget for as long as its
+# instance lives, so size is worth more than the last few percent of speed.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

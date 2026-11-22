@@ -108,6 +108,9 @@ pub(crate) struct Shared {
     /// Answers too large for one frame, kept on disk for `http.read`: by
     /// number, whose they are, where, how large, and since when.
     pub(super) bodies: Mutex<BTreeMap<u64, KeptBody>>,
+    /// The overlay frames sent and not yet answered with `overlay.set`, by
+    /// plugin, so a slow plugin is paced by its own answers.
+    pub(super) overlay_waiting: Mutex<BTreeMap<PluginId, Instant>>,
     pub(super) next_body: AtomicU64,
     pub(super) wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
@@ -314,6 +317,12 @@ impl Shared {
             }
         }
         (self.wake)(notice);
+    }
+
+    pub(super) fn overlay_waiting(&self) -> std::sync::MutexGuard<'_, BTreeMap<PluginId, Instant>> {
+        self.overlay_waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The held uploads.

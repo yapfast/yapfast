@@ -634,6 +634,15 @@ pub struct AppState {
     /// The activity a plugin shows on the account, and which plugin.
     #[cfg(feature = "plugins")]
     pub plugin_activity: Option<crate::application::plugins::ActivityShown>,
+    /// What each plugin's overlay shows over the window, by plugin id, and
+    /// whose name it is. Nothing while no plugin draws one.
+    #[cfg(feature = "plugins")]
+    pub plugin_overlays:
+        std::collections::BTreeMap<String, Arc<yapfast_plugin_api::call::OverlaySet>>,
+    /// What paces the overlays: the window hands it a frame for each plugin
+    /// that asked for them.
+    #[cfg(feature = "plugins")]
+    pub plugin_overlay_ticker: Option<crate::plugins::bridge::OverlayTicker>,
     /// The link the leaving dialog is about while plugins are asked, and what
     /// they offered to open it in.
     #[cfg(feature = "plugins")]

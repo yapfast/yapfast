@@ -286,6 +286,19 @@ pub enum InputEvent {
         /// The action, as the manifest's `keybinds` names it.
         action: String,
     },
+    /// The plugin's overlay is due its next frame, at the pace it asked for:
+    /// the time, where the pointer is over the window, and the window's size,
+    /// in the window's logical pixels.
+    OverlayFrame {
+        at_ms: u64,
+        /// None while the pointer is outside the window.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pointer: Option<(i32, i32)>,
+        width: u32,
+        height: u32,
+    },
+    /// A sprite of its overlay that it made `clickable` was clicked.
+    OverlayClick { id: String },
 }
 
 /// What `yf_decorate` may answer: what to draw under a message, a line beside

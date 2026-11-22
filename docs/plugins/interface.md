@@ -710,6 +710,47 @@ the call's channel for a voice panel or call button, or the open conversation. C
 `Input::Dismissed`, which takes it away at once and then reaches the plugin.
 Both go to `yf_input` the way a menu row's choice does, and neither comes back.
 
+## The overlay
+
+A plugin with `overlay` draws a free-floating layer of its own pictures over the
+whole window, as a cat that follows the pointer is drawn: `overlay.set` says
+what the layer shows, each sprite one of the package's picture assets at a place
+in the window's logical pixels, with a size, the part of a sheet of frames to
+show and an opacity if it wants, and how many frames a second it wants to be
+asked for, up to 60.
+
+```json
+{ "fps": 12, "sprites": [
+    { "id": "neko", "image": "cat", "x": 412, "y": 300, "crop": [64, 0, 32, 32],
+      "width": 32, "height": 32 } ] }
+```
+
+Each frame comes to `yf_input` as `{ "kind": "overlay_frame", "at_ms": …,
+"pointer": [x, y], "width": …, "height": … }`, the pointer left out while it is
+outside the window, and the plugin answers it with its next `overlay.set`. A
+frame isn't sent while the one before is unanswered (for a second at most), so
+a plugin slower than its pace gets frames at its own rather than a queue of
+them. It costs little by construction:
+
+- **Nothing is drawn while nothing shows.** With no plugin showing an overlay
+  there is no layer at all, and `overlay.clear`, or the plugin stopping, takes
+  one away.
+- **Nothing ticks while nothing moves.** `fps: 0`, the default, asks for no
+  frames: a layer that stands still costs no redraw and no call. A cat that
+  falls asleep sets it to 0 and back when the pointer moves.
+- **The pace is the window's.** An empty widget at the top of the layer hands
+  each plugin its frame when a redraw reaches it and asks for the next redraw
+  at the fastest pace asked; handing a frame publishes no message, so it
+  rebuilds nothing, and a window that isn't shown draws nothing and ticks
+  nothing. The pictures are read once each.
+- **Clicks go through.** The layer takes no event, so everything under it
+  works as if it weren't there, except a sprite the plugin made
+  `"clickable": true`, which comes back as `{ "kind": "overlay_click", "id": … }`.
+
+The layer is over everything plugins draw and under Yapfast's own questions:
+the leaving dialog, a plugin's site question and the MFA prompt are never
+covered. At most 64 sprites a layer.
+
 ### Named parts
 
 A tree is drawn as a part when its plugin's manifest names one for its slot

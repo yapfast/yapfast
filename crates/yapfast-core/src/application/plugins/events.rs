@@ -99,6 +99,28 @@ impl Application {
                     plugin: format!("{name} ({plugin}), to sign in to {provider}"),
                 }]
             }
+            // What a plugin's overlay shows: the window draws it over
+            // everything, and paces its frames with the ticker.
+            News::Notice(Notice::Overlay { plugin, layer }) => {
+                match layer {
+                    Some(layer) => {
+                        if self.state.plugin_overlay_ticker.is_none() {
+                            self.state.plugin_overlay_ticker = self
+                                .state
+                                .plugins
+                                .as_mut()
+                                .and_then(|plugins| plugins.overlay_ticker());
+                        }
+                        self.state
+                            .plugin_overlays
+                            .insert(plugin.to_string(), Arc::new(layer));
+                    }
+                    None => {
+                        self.state.plugin_overlays.remove(plugin.as_str());
+                    }
+                }
+                vec![AppEffect::Plugin(Effect::Overlay)]
+            }
             // A plugin said its decorations changed: the rows on screen are
             // asked again.
             News::Notice(Notice::Redecorate { .. }) => {
@@ -325,6 +347,8 @@ impl Application {
                 if let Some(plugins) = self.state.plugins.as_mut() {
                     plugins.web_pictures.forget(plugin.as_str());
                 }
+                // A plugin that stopped draws no overlay.
+                self.state.plugin_overlays.remove(plugin.as_str());
                 // A plugin that stopped adds nothing to the title any more.
                 if self
                     .state
@@ -354,6 +378,7 @@ impl Application {
             // screen, so all of it goes.
             News::Notice(Notice::SlotsReset) => {
                 self.state.plugin_title = None;
+                self.state.plugin_overlays.clear();
                 let gone = self
                     .state
                     .plugin_slots

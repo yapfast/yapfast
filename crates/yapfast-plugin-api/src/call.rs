@@ -138,6 +138,10 @@ pub mod method {
     pub const SPOTIFY_VOLUME: &str = "spotify.volume";
     pub const SPOTIFY_SHUFFLE: &str = "spotify.shuffle";
     pub const SPOTIFY_REPEAT: &str = "spotify.repeat";
+    // A free-floating layer over the window: `overlay`.
+    pub const OVERLAY_SET: &str = "overlay.set";
+    pub const OVERLAY_CLEAR: &str = "overlay.clear";
+
     // Who Discord ranks closest to the account, read-only: `relationships.read`.
     pub const RELATIONSHIPS_AFFINITIES: &str = "relationships.affinities";
 
@@ -161,7 +165,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 100] = [
+    pub const ALL: [&str; 102] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -256,6 +260,8 @@ pub mod method {
         SPOTIFY_SHUFFLE,
         SPOTIFY_REPEAT,
         RELATIONSHIPS_AFFINITIES,
+        OVERLAY_SET,
+        OVERLAY_CLEAR,
         UPLOADS_READ,
         UPLOADS_WRITE,
         UPLOADS_FINISH,
@@ -415,6 +421,58 @@ pub struct UploadForm {
     /// Text fields, in order, before the file.
     #[serde(default)]
     pub fields: Vec<(String, String)>,
+}
+
+/// `overlay.set`: what the plugin's layer over the window shows now, and how
+/// often it wants to be asked for the next frame.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlaySet {
+    #[serde(default)]
+    pub sprites: Vec<OverlaySprite>,
+    /// Frames a second it is asked for, 1 to [`OverlaySet::MAX_FPS`], as
+    /// `overlay_frame` inputs; 0, the default, asks for none, and a layer that
+    /// doesn't move costs nothing at all.
+    #[serde(default)]
+    pub fps: u8,
+}
+
+impl OverlaySet {
+    /// The display's own pace at most: a frame more often than the screen
+    /// shows one is never seen.
+    pub const MAX_FPS: u8 = 60;
+    /// The most sprites one layer draws.
+    pub const MAX_SPRITES: usize = 64;
+}
+
+/// One picture on the layer, from the plugin's own picture assets.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlaySprite {
+    /// The plugin's name for it, which a click names.
+    pub id: String,
+    /// A picture asset of its package, by name.
+    pub image: String,
+    /// Where its top left is, in the window's logical pixels.
+    pub x: f32,
+    pub y: f32,
+    /// Its size on screen; the picture's (or the crop's) own when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
+    /// The part of the picture to show, in its own pixels, for a sheet of
+    /// frames: `[x, y, width, height]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<[u32; 4]>,
+    /// 0 to 1; 1 when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f32>,
+    /// Whether a click on it reaches the plugin, as `overlay_click`, rather
+    /// than passing through to what is under it, as every other sprite's and
+    /// the rest of the layer's do.
+    #[serde(default)]
+    pub clickable: bool,
 }
 
 /// `uploads.read`: a piece of the held file, from `offset`.

@@ -106,6 +106,9 @@ pub enum Effect {
     /// How the person on the profile card looks changed, so the card is drawn
     /// again from what the application now holds.
     Identity,
+    /// What a plugin's overlay shows changed: the window draws the layer
+    /// again, and its pictures are read once each.
+    Overlay,
     /// A plugin coloured a code block, or stopped colouring it: a row that shows
     /// the block lays its text out again, and draws the block in the tones the
     /// application keeps for it.

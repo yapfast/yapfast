@@ -92,6 +92,8 @@ pub enum Input {
     /// Pressed the keys bound to the plugin's keybind `action` in Settings →
     /// Keybinds. The keys themselves never reach a plugin.
     Keybind { plugin: String, action: String },
+    /// Clicked a sprite of the plugin's overlay that it made clickable.
+    OverlayClick { plugin: String, id: String },
 }
 
 /// The parts of a plugin's manifest the interface reads. The file is strict

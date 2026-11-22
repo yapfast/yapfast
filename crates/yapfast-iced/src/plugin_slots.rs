@@ -283,6 +283,16 @@ pub fn follow(app: &mut App) {
             .map(iced::widget::image::Handle::from_bytes)
             .or_else(|| folders.get(id).and_then(|root| read_picture(root, name)))
     };
+    // The pictures overlays show, read once each from the plugin's assets.
+    for (plugin, layer) in &app.client.app.state.plugin_overlays {
+        for sprite in &layer.sprites {
+            let at = plugin_tree::image_key(plugin, &sprite.image);
+            app.plugin_kept
+                .images
+                .entry(at)
+                .or_insert_with(|| picture(plugin, &sprite.image));
+        }
+    }
     app.plugin_kept.follow(slots, picture);
     // Pictures from the web: asked for once each, through the plugin's gate,
     // and shown as they arrive; a cell shows its placeholder meanwhile.

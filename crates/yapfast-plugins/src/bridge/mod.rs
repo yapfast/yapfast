@@ -169,6 +169,7 @@ use supervisor_queries::*;
 use supervisor_run::*;
 #[allow(unused_imports)] // the prelude the files beside this one share
 use supervisor_start::*;
+pub use supervisor_state::OverlayTicker;
 #[allow(unused_imports)] // the prelude the files beside this one share
 use supervisor_state::*;
 #[allow(unused_imports)] // the prelude the files beside this one share

@@ -226,6 +226,33 @@ impl Session {
             }
             call::method::PLUGIN_PUBLISH => self.publish(shared, plugin, call),
             call::method::PLUGIN_SUBSCRIBE => self.subscribe(shared, plugin, call),
+            call::method::OVERLAY_SET | call::method::OVERLAY_CLEAR => {
+                if let Err(denial) = crate::permissions::check(permissions, Capability::Overlay) {
+                    return HostReturn::Denied {
+                        reason: denial.reason().to_owned(),
+                    };
+                }
+                // Its answer to a frame, or a change of its own: either way the
+                // next frame may go.
+                shared.overlay_waiting().remove(plugin);
+                let layer = if method == call::method::OVERLAY_CLEAR {
+                    None
+                } else {
+                    let layer: call::OverlaySet = match call.parse() {
+                        Ok(layer) => layer,
+                        Err(error) => return wrong_payload(method, error),
+                    };
+                    if let Err(message) = overlay_problems(&layer, &entry.manifest) {
+                        return HostReturn::Error { message };
+                    }
+                    Some(layer)
+                };
+                shared.announce(Notice::Overlay {
+                    plugin: plugin.clone(),
+                    layer,
+                });
+                HostReturn::Ok(serde_json::Value::Bool(true))
+            }
             call::method::UI_REDECORATE => {
                 // What was kept of its answers goes, and the rows on screen
                 // ask again: a plugin whose answer changed (a review loaded,
@@ -495,4 +522,48 @@ pub(super) fn upload_call(shared: &Shared, plugin: &PluginId, call: &HostCall) -
             }
         }
     }
+}
+
+/// Why an overlay can't be drawn as asked: too many sprites or frames, a
+/// picture that isn't one of the package's, or a size that isn't one.
+fn overlay_problems(
+    layer: &call::OverlaySet,
+    manifest: &yapfast_plugin_api::PluginManifest,
+) -> Result<(), String> {
+    if layer.sprites.len() > call::OverlaySet::MAX_SPRITES {
+        return Err(format!(
+            "an overlay draws at most {} sprites",
+            call::OverlaySet::MAX_SPRITES
+        ));
+    }
+    if layer.fps > call::OverlaySet::MAX_FPS {
+        return Err(format!(
+            "an overlay is asked for at most {} frames a second, the screen's pace",
+            call::OverlaySet::MAX_FPS
+        ));
+    }
+    for sprite in &layer.sprites {
+        if !manifest.assets.contains_key(&sprite.image) {
+            return Err(format!(
+                "`{}` isn't one of the manifest's `assets`",
+                sprite.image
+            ));
+        }
+        let finite = [sprite.x, sprite.y]
+            .into_iter()
+            .chain(sprite.width)
+            .chain(sprite.height)
+            .chain(sprite.opacity)
+            .all(f32::is_finite);
+        if !finite
+            || sprite.width.is_some_and(|w| w < 0.0)
+            || sprite.height.is_some_and(|h| h < 0.0)
+        {
+            return Err(format!(
+                "sprite `{}` has a place or size that isn't a number",
+                sprite.id
+            ));
+        }
+    }
+    Ok(())
 }

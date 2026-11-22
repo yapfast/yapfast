@@ -173,6 +173,9 @@ pub enum Capability {
     /// use the account: the manifest's `oauth`.
     #[serde(rename = "oauth.login")]
     OAuthLogin,
+    /// Draw a free-floating layer of its own pictures over the window.
+    #[serde(rename = "overlay")]
+    Overlay,
 }
 
 impl Capability {
@@ -182,7 +185,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 49] = [
+    pub const ALL: [Capability; 50] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -232,6 +235,7 @@ impl Capability {
         Capability::ImagesWeb,
         Capability::ActivityRead,
         Capability::OAuthLogin,
+        Capability::Overlay,
     ];
 
     /// Whether anything in this build looks at this capability.
@@ -325,6 +329,7 @@ impl Capability {
             Capability::ImagesWeb => "images.web",
             Capability::ActivityRead => "activity.read",
             Capability::OAuthLogin => "oauth.login",
+            Capability::Overlay => "overlay",
         }
     }
 
@@ -398,6 +403,7 @@ impl Capability {
             }
             Capability::ImagesWeb => "Shows pictures from the sites it lists",
             Capability::ActivityRead => "Sees which game you're playing, even when you hide it",
+            Capability::Overlay => "Draws moving pictures over Yapfast's window",
             Capability::OAuthLogin => {
                 "Asks you to sign in to another site in your browser, and uses that account"
             }
