@@ -10850,7 +10850,7 @@ dependencies = [
  "minisign-verify",
  "raw-window-handle",
  "reqwest 0.13.5",
- "resvg 0.49.0",
+ "resvg 0.50.0",
  "rustls",
  "serde",
  "serde_json",
