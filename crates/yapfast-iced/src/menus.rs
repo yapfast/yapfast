@@ -1080,9 +1080,9 @@ impl<'a> View<'a> {
             {
                 path.push(0);
             }
-            // The rows over the ground `theme_art::surface` lays.
-            if crate::theme_art::surface_wraps(self.cx) {
-                path.push(1);
+            // The rows over what `theme_art::surface` lays under them.
+            if let Some(index) = crate::theme_art::surface_content_index(self.cx, surface) {
+                path.push(index);
             }
             if self.cx.themes.art_reserve(&theme.id, surface).is_some() {
                 path.push(0);

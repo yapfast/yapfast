@@ -3483,11 +3483,79 @@ fn corner_radius(ctx: crate::ctx::Ctx<'_>, surface: ArtSurface) -> f32 {
     ctx.look.theme.surface_radius(surface.name(), stock)
 }
 
-/// Whether [`surface`] lays anything with `content`: only a package
-/// does. With none it's `content` alone, the widget tree of the stock
-/// look, so no pane, menu or code block draws in a layer of its own.
-pub fn surface_wraps(ctx: crate::ctx::Ctx<'_>) -> bool {
-    ctx.look.theme.packaged()
+/// What [`surface`] lays under its content, in its stack, from the top.
+struct Under {
+    /// The surface's art.
+    art: bool,
+    /// The pane's ground under the room a glass pane's art reserves at
+    /// its foot, that tall.
+    reserve: Option<f32>,
+    /// The surface's glass.
+    glass: bool,
+    /// The surface's own ground.
+    ground: bool,
+}
+
+impl Under {
+    /// What's laid under `surface`'s content, or `None` when nothing is:
+    /// only a package lays anything. With none [`surface`] gives the
+    /// content alone, the widget tree of the stock look, so no pane, menu
+    /// or code block draws in a layer of its own.
+    fn of(ctx: crate::ctx::Ctx<'_>, surface: ArtSurface) -> Option<Self> {
+        if !ctx.look.theme.packaged() {
+            return None;
+        }
+        let id = &ctx.look.theme.id;
+        let art = !ctx.themes.art(id, surface).is_empty();
+        let glass = ctx.themes.glass(id, surface).is_some();
+        // As in Slint, the bar over the conversation is the conversation's
+        // own ground and art (drawn once under the whole conversation)
+        // unless the theme gives the bar a ground, art or glass of its own.
+        let bare_header = surface == ArtSurface::Header
+            && !art
+            && !glass
+            && ctx.look.theme.package_paint("header").is_none();
+        // Likewise a heading's label is bare unless the theme dresses it.
+        // The composer's field draws its own ground; round it the
+        // conversation shows, as in Slint.
+        let bare_composer = surface == ArtSurface::Composer && (art || glass);
+        let bare_label = surface == ArtSurface::Label
+            && !art
+            && !glass
+            && ctx.look.theme.package_paint("label").is_none();
+        Some(Self {
+            // The composer lays its art over its own field (see
+            // `art_layers`), and its glass under its field alone (see
+            // `glass_under`).
+            art: art && surface != ArtSurface::Composer,
+            // The room a layer reserves at a glass pane's foot (Zine's
+            // "ISSUE Nº 07" stub) keeps the pane's ground under its art,
+            // as Slint's: the pane's content, which paints the rest, stops
+            // above it.
+            reserve: glass
+                .then(|| ctx.themes.art_reserve(id, surface))
+                .flatten()
+                .map(|reserve| reserve.bottom)
+                .filter(|bottom| *bottom > 0.0),
+            glass: glass && surface != ArtSurface::Composer,
+            // A glass pane's ground is the glass's own, laid over the art;
+            // a solid ground under it would hide the art at the rounded
+            // corners.
+            ground: !(glass || bare_header || bare_label || bare_composer),
+        })
+    }
+}
+
+/// Where [`surface`] puts `surface`'s content in the stack it lays it in,
+/// over what's under it; `None` when the content is given alone. Not for
+/// the conversation, whose particles and overlays wrap it again.
+pub fn surface_content_index(ctx: crate::ctx::Ctx<'_>, surface: ArtSurface) -> Option<usize> {
+    Under::of(ctx, surface).map(|under| {
+        usize::from(under.art)
+            + usize::from(under.reserve.is_some())
+            + usize::from(under.glass)
+            + usize::from(under.ground)
+    })
 }
 
 pub fn surface<'a>(
@@ -3495,9 +3563,9 @@ pub fn surface<'a>(
     ctx: crate::ctx::Ctx<'a>,
     surface: ArtSurface,
 ) -> Element<'a, Message> {
-    if !surface_wraps(ctx) {
+    let Some(under) = Under::of(ctx, surface) else {
         return content.into();
-    }
+    };
     let layers = ctx.themes.art(&ctx.look.theme.id, surface);
     let glass = ctx.themes.glass(&ctx.look.theme.id, surface);
     let (performance, reduced_motion) = ctx.themes.art_motion(&ctx.look.theme.id);
@@ -3536,8 +3604,7 @@ pub fn surface<'a>(
     // and code blocks retain their natural size instead of expanding to the
     // whole conversation.
     let mut decorated = iced::widget::Stack::with_children([content]);
-    // The composer lays its art over its own field (see `art_layers`).
-    if !layers.is_empty() && surface != ArtSurface::Composer {
+    if under.art {
         let rimmed = layers.iter().any(|layer| layer.rim);
         decorated = decorated.push_under(Art {
             rims: if rimmed { Rims::Without } else { Rims::With },
@@ -3565,37 +3632,14 @@ pub fn surface<'a>(
             });
         }
     }
-    // As in Slint, the bar over the conversation is the conversation's own
-    // ground and art (drawn once under the whole conversation) unless the
-    // theme gives the bar a ground, art or glass of its own.
-    let bare_header = surface == ArtSurface::Header
-        && layers.is_empty()
-        && glass.is_none()
-        && ctx.look.theme.package_paint("header").is_none();
-    // Likewise a heading's label is bare unless the theme dresses it.
-    // The composer's field draws its own ground; round it the
-    // conversation shows, as in Slint.
-    let bare_composer = surface == ArtSurface::Composer && (!layers.is_empty() || glass.is_some());
-    let bare_label = surface == ArtSurface::Label
-        && layers.is_empty()
-        && glass.is_none()
-        && ctx.look.theme.package_paint("label").is_none();
-    // The room a layer reserves at a glass pane's foot (Zine's "ISSUE Nº
-    // 07" stub) keeps the pane's ground under its art, as Slint's: the
-    // pane's content, which paints the rest, stops above it.
-    if glass.is_some()
-        && let Some(reserve) = ctx
-            .themes
-            .art_reserve(&ctx.look.theme.id, surface)
-            .filter(|reserve| reserve.bottom > 0.0)
-    {
+    if let Some(bottom) = under.reserve {
         let ground = ctx.look.theme.surface_paint(surface.ground());
         decorated = decorated.push_under(
             iced::widget::column![
                 iced::widget::Space::new().height(Length::Fill),
                 iced::widget::container(iced::widget::Space::new())
                     .width(Length::Fill)
-                    .height(reserve.bottom)
+                    .height(bottom)
                     .style(move |_| iced::widget::container::Style {
                         background: Some(ground),
                         ..Default::default()
@@ -3605,8 +3649,7 @@ pub fn surface<'a>(
             .height(Length::Fill),
         );
     }
-    // The composer's glass lies under its field alone (see `glass_under`).
-    if let Some(pane) = glass.filter(|_| surface != ArtSurface::Composer) {
+    if let Some(pane) = glass.filter(|_| under.glass) {
         decorated = decorated.push_under(Glass {
             pane,
             ground: ctx.look.theme.surface_paint(surface.ground()),
@@ -3614,14 +3657,11 @@ pub fn surface<'a>(
             radius: corner_radius(ctx, surface),
         });
     }
-    // A glass pane's ground is the glass's own, laid over the art; a
-    // solid ground under it would hide the art at the rounded corners.
-    let decorated: Element<'a, Message> =
-        if glass.is_some() || bare_header || bare_label || bare_composer {
-            decorated.into()
-        } else {
-            decorated.push_under(base).into()
-        };
+    let decorated: Element<'a, Message> = if under.ground {
+        decorated.push_under(base).into()
+    } else {
+        decorated.into()
+    };
     let decorated = under_particles(decorated, ctx, surface);
     if surface == ArtSurface::Chat {
         overlay_layers(decorated, ctx, true)
