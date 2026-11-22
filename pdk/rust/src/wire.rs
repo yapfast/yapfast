@@ -760,6 +760,9 @@ pub struct RoomView {
     pub server: Option<String>,
     #[serde(default)]
     pub dm: bool,
+    /// Age-restricted: Discord's NSFW channel.
+    #[serde(default)]
+    pub nsfw: bool,
 }
 
 /// Base64, standard alphabet with padding.

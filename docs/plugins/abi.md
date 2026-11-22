@@ -374,6 +374,7 @@ The answer may also keep the row or its pictures out of sight, which is what
 
 ```json
 { "hide_media": true }
+{ "blur_media": true }
 { "hide": true, "tree": { "rows": [ { "cells": [ { "kind": "muted", "text": "hidden" } ] } ] } }
 ```
 

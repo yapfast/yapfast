@@ -378,6 +378,7 @@ When a row comes on screen, the parent asks the plugin for that row with
 | `annotation` | One line under the text, such as a translation or a tag: `{ "text": "hello (French)", "tone": "muted" }`, at most 280 characters, in `normal`, `muted`, `accent`, `success` or `warning` | `messages.read` |
 | `marks` | Styles over words the text already says: `[{ "text": "bonjour", "style": "highlight" }]`, at most 16, each naming 1 to 200 characters, styled `bold`, `italic`, `strike` or `highlight` | `messages.read` |
 | `hide`, `hide_media` | Keep the row, or its pictures and files, out of view | `messages.filter` ([below](#keeping-a-deleted-row-and-hiding-one)) |
+| `blur_media` | Cover the row's pictures, blurred under the spoiler's cover, until the person clicks one, as BlurNSFW does; a room's `nsfw` (in `rooms.get`, `rooms.list` and `room_selected`) says the channel is age-restricted | `messages.filter` |
 
 A bare widget tree is still an answer, so a plugin that only draws a card says
 what it always said.

@@ -330,6 +330,9 @@ pub struct Decoration {
     pub hide: bool,
     /// Hide the row's pictures and files.
     pub hide_media: bool,
+    /// Cover the row's pictures, blurred, until the person clicks one, as a
+    /// spoiler is: what BlurNSFW does. Needs `messages.filter` too.
+    pub blur_media: bool,
     /// A line under the text, as the plugin wrote it: checked by the parent
     /// with [`Annotation::check`].
     pub annotation: Option<serde_json::Value>,
@@ -360,12 +363,14 @@ impl Decoration {
             tree: present("tree"),
             hide: flag("hide").unwrap_or(false),
             hide_media: flag("hide_media").unwrap_or(false),
+            blur_media: flag("blur_media").unwrap_or(false),
             annotation: present("annotation"),
             marks: present("marks"),
         };
         if decoration.tree.is_none()
             && !decoration.hide
             && !decoration.hide_media
+            && !decoration.blur_media
             && decoration.annotation.is_none()
             && decoration.marks.is_none()
         {
@@ -500,6 +505,8 @@ mod decoration_tests {
     fn hiding_media_or_a_row_is_an_answer_on_its_own() {
         let parsed = Decoration::parse(serde_json::json!({ "hide_media": true })).unwrap();
         assert!(parsed.hide_media);
+        let blurred = Decoration::parse(serde_json::json!({ "blur_media": true })).unwrap();
+        assert!(blurred.blur_media && !blurred.hide_media);
         assert_eq!(parsed.tree, None);
         assert!(
             !Decoration::parse(serde_json::json!({ "hide": true }))
@@ -718,6 +725,9 @@ pub enum FromHelper {
         hide: bool,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         hide_media: bool,
+        /// Cover its pictures until clicked: `messages.filter` too.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        blur_media: bool,
         /// A line under the text, unchecked: the parent checks it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         annotation: Option<serde_json::Value>,

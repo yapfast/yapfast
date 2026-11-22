@@ -153,6 +153,7 @@ fn a_read_is_answered_from_what_the_application_published() {
             network: Network::Discord,
             server: Some("1".to_owned()),
             dm: false,
+            nsfw: false,
         }],
     );
     world.publish_selected(Some("discord:1:2"));
@@ -229,6 +230,7 @@ fn a_read_is_answered_from_what_the_application_published() {
             "name": "general",
             "network": "discord",
             "server": "1",
+            "nsfw": false,
             "dm": false,
         }))
     );

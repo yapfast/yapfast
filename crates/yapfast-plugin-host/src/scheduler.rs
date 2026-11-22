@@ -1202,6 +1202,7 @@ impl<B: Backend + 'static> Shared<B> {
             tree: None,
             hide: false,
             hide_media: false,
+            blur_media: false,
             annotation: None,
             marks: None,
         };
@@ -1240,6 +1241,7 @@ impl<B: Backend + 'static> Shared<B> {
                 tree: decoration.tree,
                 hide: decoration.hide,
                 hide_media: decoration.hide_media,
+                blur_media: decoration.blur_media,
                 annotation: decoration.annotation,
                 marks: decoration.marks,
             },
@@ -1868,6 +1870,7 @@ impl<B: Backend + 'static> Shared<B> {
                         tree: None,
                         hide: false,
                         hide_media: false,
+                        blur_media: false,
                         annotation: None,
                         marks: None,
                     },

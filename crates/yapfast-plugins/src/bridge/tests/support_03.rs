@@ -24,6 +24,7 @@ pub(super) fn answer_decorated(
                         tree,
                         hide,
                         hide_media,
+                        blur_media: false,
                         annotation: None,
                         marks: None,
                     })

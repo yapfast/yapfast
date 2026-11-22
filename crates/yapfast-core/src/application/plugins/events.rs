@@ -1217,6 +1217,7 @@ impl Application {
             network,
             server,
             dm: listed.direct,
+            nsfw: listed.mark.age_restricted,
         };
         self.plugins_observe(envelope(
             EventKind::RoomSelected,

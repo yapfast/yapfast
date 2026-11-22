@@ -639,7 +639,12 @@ pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
             .map(|tree| std::sync::Arc::as_ptr(tree) as usize)
             .hash(&mut hasher);
         (std::sync::Arc::as_ptr(&decoration.inline) as usize).hash(&mut hasher);
-        (decoration.hide, decoration.hide_media).hash(&mut hasher);
+        (
+            decoration.hide,
+            decoration.hide_media,
+            decoration.blur_media,
+        )
+            .hash(&mut hasher);
         marks.extend(
             decoration
                 .inline

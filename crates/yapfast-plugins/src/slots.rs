@@ -276,6 +276,8 @@ pub struct Decoration {
     pub hide: bool,
     /// The row's pictures and files are hidden, and its text is not.
     pub hide_media: bool,
+    /// The row's pictures are covered until clicked.
+    pub blur_media: bool,
     /// The line it adds under the text, and the styles it lays over its words.
     pub inline: Arc<Inline>,
 }
@@ -302,12 +304,14 @@ impl Inline {
 pub struct Hidden {
     pub row: bool,
     pub media: bool,
+    /// Pictures covered, blurred, until the person clicks one.
+    pub blur: bool,
 }
 
 impl Hidden {
     /// Nothing hidden, or nothing left to hide.
     pub fn none(self) -> bool {
-        !self.row && !self.media
+        !self.row && !self.media && !self.blur
     }
 }
 
@@ -603,6 +607,7 @@ impl Slots {
             let unchanged = old.as_ref().is_some_and(|old| {
                 old.hide == hide.row
                     && old.hide_media == hide.media
+                    && old.blur_media == hide.blur
                     && old.tree == tree
                     && *old.inline == inline
             });
@@ -616,6 +621,7 @@ impl Slots {
                 tree,
                 hide: hide.row,
                 hide_media: hide.media,
+                blur_media: hide.blur,
                 inline,
             });
             if self.decorations.len() > DECORATIONS {
@@ -713,6 +719,7 @@ impl Slots {
         {
             hidden.row |= kept.hide;
             hidden.media |= kept.hide_media;
+            hidden.blur |= kept.blur_media;
         }
         let was = self.hidden.get(message).copied().unwrap_or_default();
         if hidden == was {
@@ -992,13 +999,15 @@ mod tests {
             Hidden {
                 row: false,
                 media: true,
+                blur: false,
             },
         );
         assert_eq!(
             slots.hidden("m1"),
             Hidden {
                 row: false,
-                media: true
+                media: true,
+                blur: false,
             }
         );
         assert!(!slots.hides_rows(), "the row stays and its media goes");
@@ -1014,13 +1023,15 @@ mod tests {
             Hidden {
                 row: true,
                 media: false,
+                blur: false,
             },
         );
         assert_eq!(
             slots.hidden("m1"),
             Hidden {
                 row: true,
-                media: true
+                media: true,
+                blur: false,
             },
             "one plugin's row and another's media"
         );
@@ -1032,7 +1043,8 @@ mod tests {
             slots.hidden("m1"),
             Hidden {
                 row: false,
-                media: true
+                media: true,
+                blur: false,
             },
             "the other plugin still filters its media"
         );
@@ -1081,6 +1093,7 @@ mod tests {
             Hidden {
                 row: true,
                 media: true,
+                blur: false,
             },
         );
         assert!(slots.hides_rows());
@@ -1098,6 +1111,7 @@ mod tests {
             Hidden {
                 row: true,
                 media: false,
+                blur: false,
             },
         );
         let badge = tree(r#"{ "rows": [{ "cells": [{ "kind": "badge", "text": "Link" }] }] }"#);

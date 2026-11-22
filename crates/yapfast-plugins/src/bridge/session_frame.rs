@@ -107,6 +107,7 @@ impl Session {
                 tree,
                 hide,
                 hide_media,
+                blur_media,
                 annotation,
                 marks,
             } => {
@@ -119,6 +120,7 @@ impl Session {
                     crate::slots::Hidden {
                         row: hide,
                         media: hide_media,
+                        blur: blur_media,
                     },
                     (annotation, marks),
                 );

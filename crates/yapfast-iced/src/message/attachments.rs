@@ -216,14 +216,29 @@ fn favorite_star<'a>(
         .into()
 }
 
-/// Whether a message's attachment `at` is a spoiler not yet uncovered.
+/// Whether a message's attachment `at` is a spoiler not yet uncovered, or a
+/// picture a plugin covers (`blur_media`) not yet clicked.
 pub fn covered(ctx: crate::ctx::Ctx<'_>, message: &ChatMessage, at: usize) -> bool {
-    message.attachments[at].spoiler
+    (message.attachments[at].spoiler || plugin_blurs(ctx, message))
         && !ctx
             .lanes
             .timeline
             .revealed
             .contains(&reveal_key(&message.item, at))
+}
+
+/// Whether a plugin covers this message's pictures until they are clicked.
+#[cfg(feature = "plugins")]
+fn plugin_blurs(ctx: crate::ctx::Ctx<'_>, message: &ChatMessage) -> bool {
+    ctx.state
+        .plugin_slots
+        .as_ref()
+        .is_some_and(|slots| slots.hidden(&message.item).blur)
+}
+
+#[cfg(not(feature = "plugins"))]
+fn plugin_blurs(_: crate::ctx::Ctx<'_>, _: &ChatMessage) -> bool {
+    false
 }
 
 /// A message's picture `at`, drawn as `shot`: while covered a click

@@ -577,6 +577,7 @@ pub fn room_view(room: &ChatRoom) -> RoomView {
         },
         server: room_server(&room.id),
         dm: room.direct,
+        nsfw: room.mark.age_restricted,
     }
 }
 
@@ -732,6 +733,7 @@ mod tests {
             },
             server: room_server(id),
             dm: false,
+            nsfw: false,
         }
     }
 

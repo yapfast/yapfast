@@ -348,6 +348,7 @@ fn decorated_with(capabilities: &[&str], annotation: serde_json::Value) -> Optio
                 tree: None,
                 hide: false,
                 hide_media: false,
+                blur_media: false,
                 annotation: Some(annotation),
                 marks: Some(serde_json::json!([{ "text": "hi", "style": "bold" }])),
             })

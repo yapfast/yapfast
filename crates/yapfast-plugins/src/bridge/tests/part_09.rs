@@ -58,6 +58,7 @@ fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
                         tree: Some(tree.clone()),
                         hide: false,
                         hide_media: false,
+                        blur_media: false,
                         annotation: None,
                         marks: None,
                     })
@@ -127,6 +128,7 @@ fn a_decoration_that_doesnt_check_out_draws_nothing() {
                         tree: Some(tree),
                         hide: false,
                         hide_media: false,
+                        blur_media: false,
                         annotation: None,
                         marks: None,
                     })
