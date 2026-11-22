@@ -4248,6 +4248,14 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// Someone's presence in the server their open profile is from, which
+    /// Discord answers apart from the profile.
+    ProfilePresence {
+        user: String,
+        presence: Presence,
+        activity: Option<String>,
+        activities: Activities,
+    },
     /// The layers of the frame of `user`'s profile, which the shop
     /// described after [`Event::Profile`] came.
     ProfileFrame {
