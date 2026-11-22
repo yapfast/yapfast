@@ -86,6 +86,9 @@ pub struct Call {
     /// The microphone's level while the input menu shows it, read as
     /// its meter is drawn.
     pub meter: Option<InputMeter>,
+    /// The stage's size as the window last laid it out, under whatever
+    /// banners sit over the call: what the cameras' frames are placed by.
+    pub stage_seen: Cell<Option<iced::Size>>,
     /// A call ringing this account, while it rings.
     pub ringer: Option<yapfast_core::ring::Ringer>,
     /// Since when the call has been connected, by its room, and the
