@@ -111,12 +111,17 @@ impl Kept {
                     }
                     Some(WebPictureState::Ready(picture)) => {
                         if !matches!(self.images.get(&at), Some(Some(_))) {
+                            // The decode is straight RGBA; an `Rgba` handle
+                            // is the renderer's format, as every other
+                            // picture's is: on the CPU premultiplied BGRA.
+                            let mut pixels = picture.rgba.clone();
+                            crate::paint::to_native(&mut pixels);
                             self.images.insert(
                                 at,
                                 Some(iced::widget::image::Handle::from_rgba(
                                     picture.width,
                                     picture.height,
-                                    picture.rgba.clone(),
+                                    pixels,
                                 )),
                             );
                         }
