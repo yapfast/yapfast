@@ -311,3 +311,41 @@ fn the_rows_of_another_open_place_ask_for_their_pictures() {
         );
     }
 }
+
+#[test]
+fn the_links_are_measured_as_tall_as_theyre_drawn_under_short_channel_rows() {
+    use crate::sidebar::{GAP, SideRow};
+    let (app, _folder) = super::themed(
+        serde_json::json!({
+            "spacing": { "channel_row_height": 28 },
+            "layout": { "rail": "tree" }
+        }),
+        &[],
+    );
+    let screens = SideRow::Screens {
+        friends: false,
+        requests: false,
+        badge: String::new(),
+    };
+    let browse = SideRow::Browse { open: false };
+    // Friends and Requests at 38 px, Browse Channels at 32, as drawn.
+    assert_eq!(
+        screens.height(&app.theme, GAP),
+        GAP + 9.0 + 38.0 + GAP + 38.0 + 6.0
+    );
+    assert_eq!(browse.height(&app.theme, GAP), GAP + 6.0 + 32.0 + 6.0);
+    // The tree measures them as the list does.
+    for side in [screens, browse] {
+        let row = TreeRow {
+            key: "link".into(),
+            parent: None,
+            guides: Vec::new(),
+            branch: None,
+            kind: TreeKind::Other(Box::new(side.clone())),
+        };
+        assert_eq!(
+            crate::sidebar::tree::height(&[], &row, &app.theme, GAP),
+            side.height(&app.theme, GAP)
+        );
+    }
+}

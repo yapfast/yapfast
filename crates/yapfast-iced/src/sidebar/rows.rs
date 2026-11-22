@@ -16,7 +16,7 @@ use yapfast_core::{
 
 use crate::{controls::count_badge, looks::Status, pictures::Icon};
 
-use super::{DM_ROW, GAP, HEADING, NAV_ROW, PERSON, ROW};
+use super::{DM_ROW, GAP, HEADING, PERSON, ROW, link_height};
 
 /// A conversation's row.
 #[derive(Clone, Debug, PartialEq)]
@@ -123,8 +123,6 @@ impl SideRow {
 
     /// The row's height, its gap after included.
     pub fn height(&self, theme: &crate::theme::Theme, gap: f32) -> f32 {
-        let row = theme.spacing().channel_row_height.unwrap_or(ROW);
-        let nav = theme.spacing().channel_row_height.unwrap_or(NAV_ROW);
         // As Slint, a heading sits 2 px over its first row whatever the
         // list's gap.
         let gap = if matches!(self, SideRow::Heading { .. }) {
@@ -133,9 +131,9 @@ impl SideRow {
             gap
         };
         gap + match self {
-            SideRow::Screens { .. } => 9.0 + nav + GAP + nav + 6.0,
+            SideRow::Screens { .. } => 9.0 + link_height(true) + GAP + link_height(true) + 6.0,
             SideRow::DmHeading => 40.0,
-            SideRow::Browse { .. } => 6.0 + row + 6.0,
+            SideRow::Browse { .. } => 6.0 + link_height(false) + 6.0,
             SideRow::Pinned => 36.0,
             SideRow::PinnedEnd => 9.0,
             SideRow::Heading { .. } => theme.spacing().channel_heading_height.unwrap_or(HEADING),

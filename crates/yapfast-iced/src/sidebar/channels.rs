@@ -687,7 +687,7 @@ impl<'a> super::View<'a> {
         if !badge.is_empty() {
             face = face.push(count_pill(theme, badge, ROW_COUNT, None));
         }
-        let height = if tall { super::NAV_ROW } else { ROW };
+        let height = super::link_height(tall);
         self.row_face(
             id.into(),
             face.into(),

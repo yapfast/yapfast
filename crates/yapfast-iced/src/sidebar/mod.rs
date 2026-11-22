@@ -210,6 +210,12 @@ pub const ROW: f32 = 32.0;
 const DM_ROW: f32 = 42.0;
 /// The Friends and Requests rows, taller than a channel's.
 const NAV_ROW: f32 = 38.0;
+
+/// A link row's height (Friends and Requests `tall`, Browse Channels not),
+/// as it's drawn and measured: Discord's whatever a theme's channels take.
+pub(crate) fn link_height(tall: bool) -> f32 {
+    if tall { NAV_ROW } else { ROW }
+}
 /// A row's corners.
 const ROW_RADIUS: f32 = 6.0;
 const HEADING: f32 = 38.0;

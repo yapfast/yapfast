@@ -517,13 +517,9 @@ pub fn height(rows: &[SideRow], row: &TreeRow, theme: &crate::theme::Theme, gap:
         },
         TreeKind::Other(row) => row.as_ref(),
     };
-    // The tree's rows are cut to their height: links keep the stock row
-    // whatever a theme's channels take.
-    match side {
-        SideRow::Screens { .. } => gap + 6.0 + super::ROW + GAP + super::ROW + 6.0,
-        SideRow::Browse { .. } => gap + 6.0 + super::ROW + 6.0,
-        side => side.height(theme, gap),
-    }
+    // Links keep the stock rows whatever a theme's channels take, as the
+    // list measures them.
+    side.height(theme, gap)
 }
 
 fn row_gap(app: &App) -> f32 {
