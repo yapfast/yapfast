@@ -141,7 +141,9 @@ fn badge_row<'a>(
             } else {
                 format!("{} \u{00b7} {}", level.name, level.milestone)
             };
-            let fill = theme.raised;
+            // Lighter than the window's raised ground and the clicked
+            // badge's row, so the levels show as pills.
+            let fill = crate::style::blend(theme.raised, theme.wash(0.10));
             levels = levels.push(
                 container(text(words).size(11).color(ink))
                     .padding([2, 6])
@@ -168,8 +170,10 @@ fn badge_row<'a>(
             lines = lines.push(text(badge.helper.as_str()).size(12).color(theme.muted));
         }
     }
+    // The window's ground is the raised one: the clicked badge's row is a
+    // shade lighter.
     let ground = if chosen {
-        theme.raised
+        crate::style::blend(theme.raised, theme.wash(0.04))
     } else {
         iced::Color::TRANSPARENT
     };
