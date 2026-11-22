@@ -313,6 +313,10 @@ pub mod method {
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
     pub const PEOPLE_BADGES: &str = "people.badges";
+    pub const OVERLAY_PICTURE: &str = "overlay.picture";
+    pub const SERVERS_DETAILS: &str = "servers.details";
+    pub const MESSAGES_RETAIN_STYLE: &str = "messages.retain_style";
+    pub const GIFS_FAVOURITES: &str = "gifs.favourites";
     // The calls the PDK has no wrapper for yet, named for `call::call`.
     pub const VOICE_STATE: &str = "voice.state";
     pub const FILES_SAVE: &str = "files.save";

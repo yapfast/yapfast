@@ -35,6 +35,14 @@ pub mod method {
     pub const PEOPLE_MEMBER: &str = "people.member";
     /// A person's Discord badges, as their profile shows them.
     pub const PEOPLE_BADGES: &str = "people.badges";
+    /// How kept deleted messages are drawn.
+    pub const MESSAGES_RETAIN_STYLE: &str = "messages.retain_style";
+    /// A server's roles, emoji and stickers.
+    pub const SERVERS_DETAILS: &str = "servers.details";
+    /// The account's favourite GIFs.
+    pub const GIFS_FAVOURITES: &str = "gifs.favourites";
+    /// A picture from bytes the plugin holds, for its overlay's sprites.
+    pub const OVERLAY_PICTURE: &str = "overlay.picture";
     pub const STORAGE_GET: &str = "storage.get";
     pub const STORAGE_SET: &str = "storage.set";
     pub const STORAGE_DELETE: &str = "storage.delete";
@@ -174,7 +182,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 107] = [
+    pub const ALL: [&str; 111] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -188,6 +196,10 @@ pub mod method {
         PEOPLE_GET,
         PEOPLE_MEMBER,
         PEOPLE_BADGES,
+        OVERLAY_PICTURE,
+        SERVERS_DETAILS,
+        MESSAGES_RETAIN_STYLE,
+        GIFS_FAVOURITES,
         STORAGE_GET,
         STORAGE_SET,
         STORAGE_DELETE,
@@ -498,6 +510,11 @@ pub struct OverlaySet {
     /// doesn't move costs nothing at all.
     #[serde(default)]
     pub fps: u8,
+    /// Whether a frame is also sent when the pointer moves over the window,
+    /// at any pace and at none: a cat that sits still until the pointer
+    /// moves costs nothing while it sits.
+    #[serde(default)]
+    pub pointer: bool,
 }
 
 impl OverlaySet {
@@ -508,13 +525,31 @@ impl OverlaySet {
     pub const MAX_SPRITES: usize = 64;
 }
 
-/// One picture on the layer, from the plugin's own picture assets.
+/// `overlay.picture`: a picture from bytes the plugin holds (a sheet the
+/// person chose, one it fetched or kept), answered `{ "image": "held:<n>" }`,
+/// the name a sprite's `image` then uses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OverlayPicture {
+    pub bytes_base64: String,
+}
+
+impl OverlayPicture {
+    /// The largest picture, decoded whole to draw.
+    pub const MAX_BYTES: usize = 8 << 20;
+    /// How many one plugin holds; a new one past it lets the oldest go.
+    pub const MAX_HELD: usize = 16;
+}
+
+/// One picture on the layer, from the plugin's own picture assets or one it
+/// handed over with `overlay.picture`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OverlaySprite {
     /// The plugin's name for it, which a click names.
     pub id: String,
-    /// A picture asset of its package, by name.
+    /// A picture asset of its package, by name, or a `held:<n>` name
+    /// `overlay.picture` answered.
     pub image: String,
     /// Where its top left is, in the window's logical pixels.
     pub x: f32,
@@ -1005,6 +1040,11 @@ pub struct DraftRequest {
     /// What the draft should say, for `composer.set_draft`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// For `composer.get_draft`: answer `{ body, caret, selection }` (byte
+    /// offsets, the selection `[start, end]` or null) instead of the body
+    /// alone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub detail: bool,
 }
 
 /// `composer.insert`: text to put after what the person has written.
@@ -1363,6 +1403,14 @@ pub struct AppInfo {
     pub locale: String,
     /// `light` or `dark`.
     pub theme_mode: String,
+    /// The system's time zone, as IANA names it (`Europe/London`), when the
+    /// system says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+    /// Minutes east of UTC now, daylight saving included: what a plugin adds
+    /// to UTC for the person's local time.
+    #[serde(default)]
+    pub utc_offset_minutes: i32,
 }
 
 /// `account.me`'s answer: the account this Yapfast is signed in as.
@@ -1430,6 +1478,78 @@ pub struct PeopleBadges {
     pub person: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+}
+
+/// `messages.retain_style`: how a kept deleted message is drawn, any of these
+/// together; one left out stays as it was.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetainStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub red_text: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub red_ground: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strike: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub faded: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<bool>,
+}
+
+/// `servers.details`: a server, by its id or `rooms.list`'s server id.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerDetails {
+    pub server: String,
+}
+
+/// `servers.details`' answer: what the server has, as the account sees it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerDetailsView {
+    pub roles: Vec<RoleView>,
+    pub emojis: Vec<ServerEmojiView>,
+    pub stickers: Vec<ServerStickerView>,
+}
+
+/// A server's role, highest first.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleView {
+    pub id: String,
+    pub name: String,
+    /// Its RGB colour, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<u32>,
+    /// The address of its icon, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    pub position: i64,
+    /// Its permissions, Discord's bit field as a decimal string.
+    pub permissions: String,
+    pub mentionable: bool,
+    /// A bot's or an integration's own role.
+    pub managed: bool,
+}
+
+/// A server's emoji.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerEmojiView {
+    pub id: String,
+    pub name: String,
+    pub animated: bool,
+    /// The address `media.get` reads it by.
+    pub url: String,
+    pub available: bool,
+}
+
+/// A server's sticker.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerStickerView {
+    pub id: String,
+    pub name: String,
+    /// Discord's `format_type`: 1 PNG, 2 APNG, 3 Lottie, 4 GIF.
+    pub format: u64,
+    pub url: String,
 }
 
 /// One of `people.badges`' answers: a badge as Discord's profile gives it.

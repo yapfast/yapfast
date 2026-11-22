@@ -70,6 +70,8 @@ impl super::World for StubWorld {
             version: "0.0.0".to_owned(),
             locale: "en-GB".to_owned(),
             theme_mode: "dark".to_owned(),
+            time_zone: None,
+            utc_offset_minutes: 0,
         }
     }
 

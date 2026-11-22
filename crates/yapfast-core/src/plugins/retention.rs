@@ -17,6 +17,30 @@ use std::sync::Arc;
 
 use crate::chat::ChatMessage;
 
+/// How a kept deleted row is drawn, as the retaining plugin chose with
+/// `messages.retain_style`: any of these together. Red text, a soft red
+/// ground and a "deleted" tag beside the time when no plugin said.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Look {
+    pub red_text: bool,
+    pub red_ground: bool,
+    pub strike: bool,
+    pub faded: bool,
+    pub tag: bool,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look {
+            red_text: true,
+            red_ground: true,
+            strike: false,
+            faded: false,
+            tag: true,
+        }
+    }
+}
+
 /// The most rows one arrival keeps as deleted.
 ///
 /// A moderator clearing a channel sends one list with a thousand rows missing,

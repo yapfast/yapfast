@@ -191,6 +191,19 @@ impl Draft {
         offset(&inner.editor, inner.editor.cursor().position)
     }
 
+    /// Where the selection starts and ends, as byte offsets in the text,
+    /// the earlier first; none when nothing is selected.
+    pub fn span(&self) -> Option<(usize, usize)> {
+        let inner = self.0.borrow();
+        let cursor = inner.editor.cursor();
+        let other = cursor.selection?;
+        let (a, b) = (
+            offset(&inner.editor, cursor.position),
+            offset(&inner.editor, other),
+        );
+        (a != b).then(|| (a.min(b), a.max(b)))
+    }
+
     /// The selected text.
     pub fn selection(&self) -> Option<String> {
         self.0.borrow().editor.copy()

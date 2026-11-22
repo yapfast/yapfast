@@ -42,6 +42,9 @@ pub(super) fn answered_later(request: &AppCall) -> bool {
             | AppCall::SendVoice { .. }
             | AppCall::Messages { .. }
             | AppCall::Badges { .. }
+            | AppCall::MediaFetch { .. }
+            | AppCall::ServerDetails { .. }
+            | AppCall::FavouriteGifs
     )
 }
 
@@ -94,6 +97,9 @@ impl Application {
             AppCall::Sessions => Some(PluginAsk::Sessions),
             AppCall::Affinities(request) => Some(PluginAsk::Affinities(request)),
             AppCall::Badges { person, server } => Some(PluginAsk::Badges { person, server }),
+            AppCall::MediaFetch { url } => Some(PluginAsk::Media { url }),
+            AppCall::ServerDetails { server } => Some(PluginAsk::ServerDetails { server }),
+            AppCall::FavouriteGifs => Some(PluginAsk::FavouriteGifs),
             AppCall::Messages {
                 room,
                 message,

@@ -496,7 +496,7 @@ so nothing waits on a person:
 | `messages.delete` | `{ room, message }` | Deletes one message |
 | `messages.react` | `{ room, message, emoji }` | Reacts with the emoji as Discord writes it |
 | `messages.jump_to` | `{ room, message }` | Shows that message in its room |
-| `composer.get_draft` | `{ room }` | The person's draft there, as a string |
+| `composer.get_draft` | `{ room, detail? }` | The person's draft there, as a string; with `detail`, `{ body, caret, selection }`, the caret and the selection `[start, end]` (or null) as byte offsets in the body, as the composer shows them in the open conversation (the end of the draft elsewhere) |
 | `composer.set_draft` | `{ room, body }` | Replaces it, which the composer shows at once |
 | `composer.insert` | `{ room, text }` | Writes after it, never over it |
 | `notify.send` | `{ text }` | One OS notification, titled with the plugin |
@@ -697,6 +697,9 @@ the services' own, and the sources).
 | `messages.search` | `{ place, query, offset? }` | `{ total, hits: [{ room, message, author, body, at }], indexing }` |
 | `drafts.list` | none | `[{ room, body }]` |
 | `account.sessions` | none | `[{ id_hash, last_used?, os?, platform?, location? }]` |
+| `messages.retain_style` | `{ red_text?, red_ground?, strike?, faded?, tag? }`, with `messages.retain` | `true`: how a kept deleted message is drawn, any of these together, each left out staying as it was; red text, a soft red ground and a `deleted` tag beside the time (its deletion time on hover) until a plugin says. A kept row's menu has Copy text, Copy Message ID and Hide this deleted message |
+| `servers.details` | `{ server }`, with `servers.read` | `{ roles: [{ id, name, colour?, icon?, position, permissions, mentionable, managed }], emojis: [{ id, name, animated, url, available }], stickers: [{ id, name, format, url }] }`, highest role first, from what Discord sent the account (a role's members aren't listed: Discord sends a server's members a list at a time) |
+| `gifs.favourites` | `{}`, with `media.read` | `[{ url, src, video, width, height }]`, the account's favourite GIFs in their order |
 | `people.badges` | `{ person, server? }`, with `people.read` | `[{ id, description, icon, link? }]`: the person's Discord badges, from their profile in that server or outside any, as Discord's profile gives them |
 | `relationships.affinities` | `{ of?: "users" \| "servers", detailed? }`, or none for the people | `{ users: [{ person, affinity, is_friend?, user_segment?, other_user_segment?, dm_probability?, dm_rank?, vc_probability?, vc_rank?, server_message_probability?, server_message_rank?, communication_probability?, communication_rank? }] }` or `{ servers: [{ server, affinity }] }`, highest first |
 | `spotify.now` | none | `{ playing, track?, artists, album?, album_art?, uri?, duration_ms?, position_ms?, shuffle?, repeat?, volume?, device? }`, or `null` |
@@ -787,7 +790,9 @@ restarted. A plugin that isn't running isn't woken for one: it reads its values
 with `settings.get` when it next starts.
 
 A read answers from what the application already knows, never by asking a
-network: `app.version`, `app.locale` and `app.theme_mode` give one object;
+network: `app.version`, `app.locale` and `app.theme_mode` give one object
+(`version`, `locale`, `theme_mode`, the system's `time_zone` by its IANA name
+when it says, and `utc_offset_minutes`, east of UTC now, for local times);
 `account.me` the account signed in; `rooms.selected`, `rooms.get` and
 `rooms.list` the sidebar's own list; `messages.get` and `messages.history` the
 conversation on screen from the timeline Yapfast keeps, and any other Discord
@@ -807,7 +812,8 @@ The `ui` calls take a widget tree, the rows of cells
 | `ui.notice` | `{ "text": "…" }`, markdown | `{ "drawn": true }`; an empty line is an error |
 | `ui.toast` | `{ "text": "…" }`, plain text | `{ "drawn": true }` |
 | `ui.open_dialog` | `{ "tree": { … }, "subject"? }`, `subject` what the dialog is about (a message or person a menu row asked about), which its widgets' inputs name; the open conversation when left out | `{ "drawn": true }`; a second dialog from one plugin replaces the first |
-| `overlay.set` | `{ sprites: [{ id, image, x, y, width?, height?, crop?, opacity?, clickable? }], fps? }`, with `overlay` | `true`; frames arrive at `yf_input` as `overlay_frame` ([the overlay](interface.md#the-overlay)) |
+| `overlay.set` | `{ sprites: [{ id, image, x, y, width?, height?, crop?, opacity?, clickable? }], fps?, pointer? }`, with `overlay` | `true`; frames arrive at `yf_input` as `overlay_frame` ([the overlay](interface.md#the-overlay)), and with `pointer` also each time the pointer moves, at any pace, 0 included |
+| `overlay.picture` | `{ bytes_base64 }`, with `overlay` | `{ image: "held:<n>" }`, the name a sprite's `image` uses: a PNG, JPEG, GIF or WebP the plugin holds (a sheet the person chose, one it fetched), at most 8 MiB, 16 held and the oldest let go past that |
 | `overlay.clear` | `{}` | `true` |
 | `ui.redecorate` | `{}` | `true`: what this plugin drew under messages is forgotten and the rows on screen are asked again, for an answer that changed (a review that loaded, a setting of its own) |
 | `identity.refresh` | `{ person? }` | `true`: what plugins said about that person, or everyone, is forgotten, and a card showing them asks again |
@@ -843,7 +849,7 @@ sentence saying its size and what one answer carries, rather than read back as
 | Method | Payload | Answer |
 | --- | --- | --- |
 | `timers.after` | `{ interval_ms, tag }` | `true`: wakes it once, after that long |
-| `timers.every` | `{ interval_ms, tag }` | `true`: wakes it every interval, which is at least 1000 ms |
+| `timers.every` | `{ interval_ms, tag }` | `true`: wakes it every interval, which is at least 50 ms |
 | `timers.cancel` | `{ tag }` | Whether a timer with that tag was there |
 
 A timer belongs to the helper and not to the instance, so it survives an eviction

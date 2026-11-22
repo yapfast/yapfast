@@ -242,7 +242,12 @@ impl Session {
                         Ok(layer) => layer,
                         Err(error) => return wrong_payload(method, error),
                     };
-                    if let Err(message) = overlay_problems(&layer, &entry.manifest) {
+                    let held = shared
+                        .overlay_pictures()
+                        .get(plugin)
+                        .cloned()
+                        .unwrap_or_default();
+                    if let Err(message) = overlay_problems(&layer, &entry.manifest, &held) {
                         return HostReturn::Error { message };
                     }
                     Some(layer)
@@ -252,6 +257,54 @@ impl Session {
                     layer,
                 });
                 HostReturn::Ok(serde_json::Value::Bool(true))
+            }
+            call::method::OVERLAY_PICTURE => {
+                if let Err(denial) = crate::permissions::check(permissions, Capability::Overlay) {
+                    return HostReturn::Denied {
+                        reason: denial.reason().to_owned(),
+                    };
+                }
+                let request: call::OverlayPicture = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(method, error),
+                };
+                let bytes = match call::base64::decode(&request.bytes_base64) {
+                    Some(bytes) => bytes,
+                    None => {
+                        return HostReturn::Error {
+                            message: "`bytes_base64` isn't base64".to_owned(),
+                        };
+                    }
+                };
+                if bytes.len() > call::OverlayPicture::MAX_BYTES {
+                    return HostReturn::Error {
+                        message: format!(
+                            "an overlay's picture is at most {} bytes",
+                            call::OverlayPicture::MAX_BYTES
+                        ),
+                    };
+                }
+                if !yapfast_plugin_api::assets::AssetKind::sniff(&bytes)
+                    .is_some_and(|kind| kind.is_picture())
+                {
+                    return HostReturn::Error {
+                        message: "those bytes aren't a PNG, JPEG, GIF or WebP picture".to_owned(),
+                    };
+                }
+                let mut held = shared.overlay_pictures();
+                let pictures = held.entry(plugin.clone()).or_default();
+                // A new name each time, so a window that read the last one
+                // under a name reads this one fresh.
+                let next = pictures
+                    .last()
+                    .and_then(|(name, _)| name.strip_prefix("held:")?.parse::<u64>().ok())
+                    .map_or(1, |last| last + 1);
+                let name = format!("held:{next}");
+                pictures.push((name.clone(), Arc::from(bytes)));
+                if pictures.len() > call::OverlayPicture::MAX_HELD {
+                    pictures.remove(0);
+                }
+                HostReturn::Ok(serde_json::json!({ "image": name }))
             }
             call::method::UI_REDECORATE => {
                 // What was kept of its answers goes, and the rows on screen
@@ -530,6 +583,7 @@ pub(super) fn upload_call(shared: &Shared, plugin: &PluginId, call: &HostCall) -
 fn overlay_problems(
     layer: &call::OverlaySet,
     manifest: &yapfast_plugin_api::PluginManifest,
+    held: &[(String, Arc<[u8]>)],
 ) -> Result<(), String> {
     if layer.sprites.len() > call::OverlaySet::MAX_SPRITES {
         return Err(format!(
@@ -544,7 +598,9 @@ fn overlay_problems(
         ));
     }
     for sprite in &layer.sprites {
-        if !manifest.assets.contains_key(&sprite.image) {
+        if !manifest.assets.contains_key(&sprite.image)
+            && !held.iter().any(|(name, _)| *name == sprite.image)
+        {
             return Err(format!(
                 "`{}` isn't one of the manifest's `assets`",
                 sprite.image

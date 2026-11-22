@@ -51,6 +51,9 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
+    /// The caret and selection the core was last told.
+    #[cfg(feature = "plugins")]
+    pub caret_known: Option<(usize, Option<(usize, usize)>)>,
     /// Whether the composer's field has the keys, which its outline shows.
     pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
@@ -177,7 +180,14 @@ pub fn composer_top(app: &App) -> f32 {
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
-        Event::Field(which, event) => field_event(app, which, event),
+        Event::Field(which, event) => {
+            let task = field_event(app, which, event);
+            #[cfg(feature = "plugins")]
+            if which == Writing::Draft {
+                report_caret(app);
+            }
+            task
+        }
         Event::Pasted(which, pasted) => {
             if pasted.is_some() {
                 let draft = writing(app.ctx(), which);
@@ -592,6 +602,23 @@ fn plus(app: &mut App) -> Task<Message> {
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
     operation::focus(NOBODY)
+}
+
+/// Tells the core where the draft's caret is and what it selects, when that
+/// changed, for a plugin's `composer.get_draft` with `detail`.
+#[cfg(feature = "plugins")]
+fn report_caret(app: &mut App) {
+    let now = (app.composer.draft.caret(), app.composer.draft.span());
+    if app.composer.caret_known == Some(now) {
+        return;
+    }
+    app.composer.caret_known = Some(now);
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::Caret {
+            caret: now.0,
+            selection: now.1,
+        },
+    ));
 }
 
 /// Enter: the draft sent. The core empties the draft once the message is

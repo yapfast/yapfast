@@ -31,6 +31,15 @@ use crate::plugins::state::{Notice, PreSend};
 pub enum Action {
     /// The person pressed Stop on the red bar of a plugin's recording.
     StopRecording,
+    /// Takes a kept deleted row off the timeline: the person's "Hide this
+    /// deleted message".
+    HideRetained(String),
+    /// Where the composer's caret is, and what it selects, as byte offsets in
+    /// the draft: what `composer.get_draft` with `detail` answers.
+    Caret {
+        caret: usize,
+        selection: Option<(usize, usize)>,
+    },
     /// Turns a plugin on, which reads its manifest, grants what it asks for
     /// and starts its instance, or off, which drops it; no restart either way.
     SetEnabled { plugin: PluginId, enabled: bool },
@@ -140,6 +149,10 @@ pub struct PowerfulAsk {
 }
 
 pub use account::{ActivityShown, RecordingShown};
+
+/// The open conversation's composer caret as the window last said it: the
+/// room, the caret and the selection, as byte offsets in the draft.
+pub type Caret = (String, usize, Option<(usize, usize)>);
 
 /// The timeline and the member list as Yapfast made them, and as plugins'
 /// identities dressed them, with the count of identity changes they were
@@ -491,6 +504,33 @@ impl Application {
             }
             Action::LinkClosed => {
                 self.state.plugin_link = None;
+                Vec::new()
+            }
+            Action::HideRetained(item) => {
+                if self
+                    .state
+                    .messages
+                    .iter()
+                    .any(|message| message.deleted && message.item == item)
+                {
+                    let kept: Vec<_> = self
+                        .state
+                        .messages
+                        .iter()
+                        .filter(|message| !(message.deleted && message.item == item))
+                        .cloned()
+                        .collect();
+                    self.state.messages = Arc::new(kept);
+                    self.state.retained_at.remove(&item);
+                }
+                Vec::new()
+            }
+            Action::Caret { caret, selection } => {
+                self.plugin_caret = self
+                    .state
+                    .selected
+                    .clone()
+                    .map(|room| (room, caret, selection));
                 Vec::new()
             }
             Action::WantPictures(wanted) => {
@@ -1208,7 +1248,10 @@ mod tests {
 
         let (_, answer) = app.plugins_call(
             &plugin,
-            crate::plugins::state::AppCall::GetDraft { room: "dm".into() },
+            crate::plugins::state::AppCall::GetDraft {
+                room: "dm".into(),
+                detail: false,
+            },
         );
         assert_eq!(
             answer,

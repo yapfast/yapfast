@@ -634,6 +634,12 @@ pub struct AppState {
     /// The activity a plugin shows on the account, and which plugin.
     #[cfg(feature = "plugins")]
     pub plugin_activity: Option<crate::application::plugins::ActivityShown>,
+    /// How kept deleted rows are drawn, as the retaining plugin chose.
+    #[cfg(feature = "plugins")]
+    pub retained_look: crate::plugins::retention::Look,
+    /// When each kept deleted row was seen to go, in Unix milliseconds.
+    #[cfg(feature = "plugins")]
+    pub retained_at: std::collections::HashMap<String, u64>,
     /// What each plugin's overlay shows over the window, by plugin id, and
     /// whose name it is. Nothing while no plugin draws one.
     #[cfg(feature = "plugins")]
@@ -2653,6 +2659,10 @@ pub struct Application {
     /// [`crate::plugins::dress`].
     #[cfg(feature = "plugins")]
     plugin_dress: Option<crate::application::plugins::Dressed>,
+    /// The open conversation's composer caret and selection, as the window
+    /// last said them.
+    #[cfg(feature = "plugins")]
+    plugin_caret: Option<crate::application::plugins::Caret>,
     #[cfg(feature = "plugins")]
     plugin_friend_presences: Option<(u64, std::collections::BTreeMap<String, &'static str>)>,
     feed_asks: activity_panel::FeedAsks,
@@ -4740,7 +4750,17 @@ impl Application {
                     #[cfg(feature = "plugins")]
                     let messages = match self.state.plugins.as_ref() {
                         Some(plugins) if plugins.retains() => {
-                            crate::plugins::retention::keep(messages, &self.state.messages)
+                            let kept =
+                                crate::plugins::retention::keep(messages, self.messages_made());
+                            // When each newly kept row went, for its tag.
+                            let now = crate::clock::now_ms();
+                            for message in kept.iter().filter(|message| message.deleted) {
+                                self.state
+                                    .retained_at
+                                    .entry(message.item.clone())
+                                    .or_insert(now);
+                            }
+                            kept
                         }
                         _ => messages,
                     };

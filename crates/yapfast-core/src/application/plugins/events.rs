@@ -692,6 +692,14 @@ impl Application {
         }
     }
 
+    /// The timeline as Yapfast made it, before plugins dressed anyone.
+    pub(in crate::application) fn messages_made(&self) -> &Arc<Vec<Arc<crate::chat::ChatMessage>>> {
+        self.plugin_dress
+            .as_ref()
+            .filter(|kept| Arc::ptr_eq(&kept.messages_shown, &self.state.messages))
+            .map_or(&self.state.messages, |kept| &kept.messages_made)
+    }
+
     /// The member list as Yapfast made it, before plugins dressed anyone.
     pub(in crate::application) fn members_made(
         &self,

@@ -100,6 +100,24 @@ impl Session {
                 }
             }
             call::method::MICROPHONE_STOP => Ok(AppCall::RecordStop),
+            call::method::SERVERS_DETAILS => {
+                request
+                    .parse::<call::ServerDetails>()
+                    .map(|asked| AppCall::ServerDetails {
+                        server: asked.server,
+                    })
+            }
+            call::method::GIFS_FAVOURITES => Ok(AppCall::FavouriteGifs),
+            call::method::MESSAGES_RETAIN_STYLE => request
+                .parse::<call::RetainStyle>()
+                .map(AppCall::RetainStyle),
+            // A picture the store doesn't have yet, from Discord's CDN: the
+            // application fetches it, through its own session, and answers
+            // later. Anything the store holds, or any other address, is
+            // answered here as before.
+            call::method::MEDIA_GET => Ok(AppCall::MediaFetch {
+                url: media_to_fetch(shared, request)?,
+            }),
             call::method::PEOPLE_BADGES => {
                 request
                     .parse::<call::PeopleBadges>()
@@ -166,9 +184,14 @@ impl Session {
                     message: jump.message,
                 })
             }
-            call::method::COMPOSER_GET_DRAFT => request
-                .parse::<DraftRequest>()
-                .map(|draft| AppCall::GetDraft { room: draft.room }),
+            call::method::COMPOSER_GET_DRAFT => {
+                request
+                    .parse::<DraftRequest>()
+                    .map(|draft| AppCall::GetDraft {
+                        room: draft.room,
+                        detail: draft.detail,
+                    })
+            }
             call::method::COMPOSER_SET_DRAFT => {
                 request
                     .parse::<DraftRequest>()
@@ -587,13 +610,16 @@ impl Session {
             self.connect(shared, call, plugin, request);
             return;
         }
+        // A `media.get` sent on to the application (see `forward_call`).
+        let fetched =
+            request.method == call::method::MEDIA_GET && media_to_fetch(shared, &request).is_some();
         // The calls only the application can answer go to it and are answered
         // later through `PluginState::answer_call`, so the interface thread is
         // never waited on and the guest is never left thinking nothing happened.
         if let Some(answer) = self.forward_call(shared, call, &plugin, &request) {
             self.reply(&plugin, call, answer);
         }
-        if is_app_call(request.method.as_str()) {
+        if is_app_call(request.method.as_str()) || fetched {
             return;
         }
         // Being told of a change is the one call whose answer only exists
@@ -745,4 +771,25 @@ fn elsewhere(shared: &Shared, request: &HostCall) -> Option<AppCall> {
         }
         _ => None,
     }
+}
+
+/// The address `media.get` asks for, when the store has nothing kept for it
+/// and it is on Discord's CDN, which the application can fetch: an attachment
+/// no conversation has shown yet, a text file, a sticker.
+fn media_to_fetch(shared: &Shared, request: &HostCall) -> Option<String> {
+    let asked: MediaGet = request.parse().ok()?;
+    let host = asked
+        .url
+        .strip_prefix("https://")?
+        .split(['/', '?', '#'])
+        .next()?;
+    if !matches!(host, "cdn.discordapp.com" | "media.discordapp.net") {
+        return None;
+    }
+    let pictures = shared
+        .pictures
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()?;
+    pictures.bytes(&asked.url).is_none().then_some(asked.url)
 }

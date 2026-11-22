@@ -400,6 +400,8 @@ impl World {
             version: held.version.clone(),
             locale: system_locale(),
             theme_mode: held.theme.unwrap_or("dark").to_owned(),
+            time_zone: system_time_zone(),
+            utc_offset_minutes: chrono::Local::now().offset().local_minus_utc() / 60,
         }
     }
 
@@ -646,6 +648,21 @@ pub fn chat_stickers(message: &ChatMessage) -> Vec<yapfast_plugin_api::event::St
             })
         })
         .collect()
+}
+
+/// The system's time zone by its IANA name: `TZ`, else what `/etc/localtime`
+/// links to, as every program on a Unix reads it.
+fn system_time_zone() -> Option<String> {
+    if let Ok(zone) = std::env::var("TZ") {
+        let zone = zone.trim_start_matches(':');
+        if !zone.is_empty() && !zone.starts_with('/') {
+            return Some(zone.to_owned());
+        }
+    }
+    let target = std::fs::read_link("/etc/localtime").ok()?;
+    let target = target.to_str()?;
+    let (_, zone) = target.split_once("zoneinfo/")?;
+    (!zone.is_empty()).then(|| zone.to_owned())
 }
 
 /// The person's language, from the environment: `LC_ALL` first, then `LANG`,

@@ -35,8 +35,22 @@ pub fn layer(app: &App) -> Option<Element<'_, Message>> {
         .filter(|(_, layer)| layer.fps > 0)
         .map(|(plugin, layer)| (plugin.clone(), layer.fps))
         .collect();
-    if let (false, Some(ticker)) = (paced.is_empty(), state.plugin_overlay_ticker.clone()) {
-        layers = layers.push(Pacer { paced, ticker });
+    // A layer at no pace that asked for the pointer is given a frame when it
+    // moves, and none while it stays.
+    let pointed: Vec<String> = overlays
+        .iter()
+        .filter(|(_, layer)| layer.pointer)
+        .map(|(plugin, _)| plugin.clone())
+        .collect();
+    if let (false, Some(ticker)) = (
+        paced.is_empty() && pointed.is_empty(),
+        state.plugin_overlay_ticker.clone(),
+    ) {
+        layers = layers.push(Pacer {
+            paced,
+            pointed,
+            ticker,
+        });
     }
     for (plugin, layer) in overlays {
         for sprite in &layer.sprites {
@@ -95,6 +109,8 @@ pub fn layer(app: &App) -> Option<Element<'_, Message>> {
 struct Pacer {
     /// Each plugin that asked for frames, and how many a second.
     paced: Vec<(String, u8)>,
+    /// Each plugin that asked for a frame when the pointer moves.
+    pointed: Vec<String>,
     ticker: yapfast_core::plugins::bridge::OverlayTicker,
 }
 
@@ -135,6 +151,15 @@ impl<M> Widget<M, Theme, Renderer> for Pacer {
         shell: &mut Shell<'_, M>,
         _viewport: &Rectangle,
     ) {
+        if let iced::Event::Mouse(mouse::Event::CursorMoved { .. }) = event {
+            // The ticker sends nothing while a frame is unanswered, so a fast
+            // pointer costs the plugin its own pace.
+            let (at_ms, pointer, size) = Self::now(layout.bounds(), cursor);
+            for plugin in &self.pointed {
+                self.ticker.frame(plugin, at_ms, pointer, size);
+            }
+            return;
+        }
         let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event else {
             return;
         };
@@ -158,6 +183,18 @@ impl<M> Widget<M, Theme, Renderer> for Pacer {
 }
 
 impl Pacer {
+    /// The time, where the pointer is over the window, and its size.
+    fn now(bounds: Rectangle, cursor: mouse::Cursor) -> (u64, Option<(i32, i32)>, (u32, u32)) {
+        let at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis() as u64);
+        let pointer = cursor
+            .position_in(bounds)
+            .map(|point| (point.x.round() as i32, point.y.round() as i32));
+        let size = (bounds.width.round() as u32, bounds.height.round() as u32);
+        (at_ms, pointer, size)
+    }
+
     /// Hands each plugin that is due its frame, and says when the next is.
     fn tick(
         &self,
@@ -166,13 +203,7 @@ impl Pacer {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<Instant> {
-        let at_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| since.as_millis() as u64);
-        let pointer = cursor
-            .position_in(bounds)
-            .map(|point| (point.x.round() as i32, point.y.round() as i32));
-        let size = (bounds.width.round() as u32, bounds.height.round() as u32);
+        let (at_ms, pointer, size) = Self::now(bounds, cursor);
         let mut next: Option<Instant> = None;
         due.0
             .retain(|plugin, _| self.paced.iter().any(|(paced, _)| paced == plugin));

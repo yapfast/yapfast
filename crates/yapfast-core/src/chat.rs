@@ -2835,6 +2835,12 @@ pub enum PluginAsk {
         before: Option<String>,
         limit: Option<usize>,
     },
+    /// `servers.details`.
+    ServerDetails { server: String },
+    /// `gifs.favourites`.
+    FavouriteGifs,
+    /// `media.get` for a file the picture store doesn't hold.
+    Media { url: String },
     /// `people.badges`.
     Badges {
         person: String,

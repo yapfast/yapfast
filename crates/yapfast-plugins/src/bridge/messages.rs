@@ -208,6 +208,8 @@ pub enum AppCall {
     },
     GetDraft {
         room: String,
+        /// The caret and selection too.
+        detail: bool,
     },
     SetDraft {
         room: String,
@@ -340,6 +342,18 @@ pub enum AppCall {
         message: Option<String>,
         before: Option<String>,
         limit: Option<usize>,
+    },
+    /// How kept deleted messages are drawn: `messages.retain_style`.
+    RetainStyle(yapfast_plugin_api::call::RetainStyle),
+    /// A server's roles, emoji and stickers: `servers.details`.
+    ServerDetails {
+        server: String,
+    },
+    /// The account's favourite GIFs: `gifs.favourites`.
+    FavouriteGifs,
+    /// A file from Discord's CDN the picture store doesn't hold: `media.get`.
+    MediaFetch {
+        url: String,
     },
     /// A person's Discord badges: `people.badges`.
     Badges {

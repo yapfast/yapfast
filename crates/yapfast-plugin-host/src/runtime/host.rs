@@ -299,6 +299,8 @@ fn waits_for_answer(name: &str) -> bool {
             | method::MICROPHONE_START
             | method::MESSAGES_VOICE
             | method::PEOPLE_BADGES
+            | method::SERVERS_DETAILS
+            | method::GIFS_FAVOURITES
     ) && !method::SPOTIFY.contains(&name)
 }
 
@@ -314,7 +316,7 @@ fn waits_for_answer(name: &str) -> bool {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 107] = [
+const FORWARDED: [&str; 111] = [
     method::APP_VERSION,
     method::APP_NOW,
     method::APP_LOCALE,
@@ -328,6 +330,10 @@ const FORWARDED: [&str; 107] = [
     method::PEOPLE_GET,
     method::PEOPLE_MEMBER,
     method::PEOPLE_BADGES,
+    method::OVERLAY_PICTURE,
+    method::SERVERS_DETAILS,
+    method::MESSAGES_RETAIN_STYLE,
+    method::GIFS_FAVOURITES,
     method::STORAGE_GET,
     method::STORAGE_SET,
     method::STORAGE_DELETE,

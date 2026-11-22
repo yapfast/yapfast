@@ -40,7 +40,9 @@ pub const MAX_STORAGE_BYTES: u64 = 16 << 20;
 
 /// Timers a plugin may hold, and the shortest interval one may ask for.
 pub const MAX_TIMERS: usize = 16;
-pub const MIN_TIMER_INTERVAL_MS: u64 = 1_000;
+/// 50 ms: twenty wakes a second at most, each a guest call; a plugin that
+/// wants smoother motion has `overlay.set`'s frames.
+pub const MIN_TIMER_INTERVAL_MS: u64 = 50;
 
 /// Topics one plugin may subscribe to, and how long a topic's name may be.
 ///

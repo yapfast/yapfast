@@ -111,12 +111,50 @@ impl Application {
                 }),
                 done,
             ),
-            AppCall::GetDraft { room } => (
-                Vec::new(),
-                yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::String(
-                    self.state.drafts.get(&room).cloned().unwrap_or_default(),
-                )),
-            ),
+            AppCall::RetainStyle(style) => {
+                let look = &mut self.state.retained_look;
+                for (field, asked) in [
+                    (&mut look.red_text, style.red_text),
+                    (&mut look.red_ground, style.red_ground),
+                    (&mut look.strike, style.strike),
+                    (&mut look.faded, style.faded),
+                    (&mut look.tag, style.tag),
+                ] {
+                    if let Some(asked) = asked {
+                        *field = asked;
+                    }
+                }
+                (Vec::new(), done)
+            }
+            AppCall::GetDraft { room, detail } => {
+                let body = self.state.drafts.get(&room).cloned().unwrap_or_default();
+                if !detail {
+                    return (
+                        Vec::new(),
+                        yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::String(body)),
+                    );
+                }
+                // The caret as the window said it, for this room and inside
+                // this text; the end of the draft otherwise.
+                let (caret, selection) = self
+                    .plugin_caret
+                    .as_ref()
+                    .filter(|(shown, caret, _)| *shown == room && *caret <= body.len())
+                    .map_or((body.len(), None), |(_, caret, selection)| {
+                        (
+                            *caret,
+                            selection.filter(|(start, end)| start < end && *end <= body.len()),
+                        )
+                    });
+                (
+                    Vec::new(),
+                    yapfast_plugin_api::call::HostReturn::Ok(serde_json::json!({
+                        "body": body,
+                        "caret": caret,
+                        "selection": selection.map(|(start, end)| [start, end]),
+                    })),
+                )
+            }
             AppCall::SetDraft { room, body } => (self.set_draft_in(room, body), done),
             AppCall::Insert { room, text } => {
                 // Insert is what a widget does to the composer: after whatever
@@ -315,6 +353,9 @@ impl Application {
             | AppCall::SendVoice { .. }
             | AppCall::Messages { .. }
             | AppCall::Badges { .. }
+            | AppCall::MediaFetch { .. }
+            | AppCall::ServerDetails { .. }
+            | AppCall::FavouriteGifs
             | AppCall::Spotify(_) => (
                 Vec::new(),
                 HostReturn::Error {

@@ -47,6 +47,16 @@ impl Bridge {
     /// picture's extension.
     pub fn picture(&self, plugin: &str, path: &str) -> Option<Vec<u8>> {
         let plugin = PluginId::parse(plugin).ok()?;
+        if path.starts_with("held:") {
+            // One its overlay was handed with `overlay.picture`.
+            return self
+                .shared
+                .overlay_pictures()
+                .get(&plugin)?
+                .iter()
+                .find(|(name, _)| name == path)
+                .map(|(_, bytes)| bytes.to_vec());
+        }
         let name = {
             let registry = self.shared.registry();
             let assets = &registry.entry(&plugin)?.manifest.assets;

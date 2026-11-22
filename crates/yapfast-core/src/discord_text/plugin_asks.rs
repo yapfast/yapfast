@@ -67,6 +67,51 @@ pub(super) fn command(
                 before,
                 limit,
             } => messages(&discord, &room, message, before, limit).await,
+            PluginAsk::ServerDetails { server } => {
+                let guild = discord::parse_server(&server).unwrap_or(&server).to_owned();
+                let snapshot = discord.snapshots().borrow().clone();
+                match snapshot.servers.iter().find(|held| held.id == guild) {
+                    Some(held) => listed(server_details(held)),
+                    None => HostReturn::Error {
+                        message: format!("the account isn't in a server `{server}`"),
+                    },
+                }
+            }
+            PluginAsk::FavouriteGifs => match discord.favorite_gifs().await {
+                Ok(mut favourites) => {
+                    favourites.sort_by_key(|favourite| favourite.order);
+                    listed(
+                        favourites
+                            .into_iter()
+                            .map(|favourite| {
+                                serde_json::json!({
+                                    "url": favourite.url,
+                                    "src": favourite.src,
+                                    "video": favourite.video,
+                                    "width": favourite.width,
+                                    "height": favourite.height,
+                                })
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                }
+                Err(error) => failed(&error),
+            },
+            PluginAsk::Media { url } => {
+                let limit = yapfast_plugins::media::MAX_BYTES as usize;
+                match discord.download_now(&url, limit + 1).await {
+                    Ok(bytes) if bytes.len() > limit => HostReturn::Denied {
+                        reason: format!(
+                            "`{url}` is over {limit} bytes, and one answer carries at most that"
+                        ),
+                    },
+                    Ok(bytes) => HostReturn::Ok(serde_json::json!({
+                        "bytes": bytes.len(),
+                        "bytes_base64": yapfast_plugin_api::call::base64::encode(&bytes),
+                    })),
+                    Err(error) => failed(&error),
+                }
+            }
             PluginAsk::Badges { person, server } => {
                 // A server id as `rooms.list` names it, or a bare one.
                 let guild = server
@@ -404,6 +449,72 @@ async fn search(
             ..SearchPage::default()
         }),
         Err(error) => failed(&error),
+    }
+}
+
+/// `servers.details`' answer for a server the account is in.
+fn server_details(
+    server: &yapfast_discord::ready::Server,
+) -> yapfast_plugin_api::call::ServerDetailsView {
+    use yapfast_plugin_api::call::{
+        RoleView, ServerDetailsView, ServerEmojiView, ServerStickerView,
+    };
+    let mut roles: Vec<RoleView> = server
+        .role_names
+        .iter()
+        .filter(|(id, _)| **id != server.id)
+        .map(|(id, name)| RoleView {
+            id: id.clone(),
+            name: name.clone(),
+            colour: server.role_colors.get(id).map(|(_, colour)| *colour),
+            icon: server.role_icons.get(id).map(|icon| icon.to_string()),
+            position: server.role_positions.get(id).copied().unwrap_or_default(),
+            permissions: server
+                .roles
+                .get(id)
+                .copied()
+                .unwrap_or_default()
+                .to_string(),
+            mentionable: server.mentionable_roles.contains(id),
+            managed: server.managed_roles.contains(id),
+        })
+        .collect();
+    roles.sort_by(|a, b| b.position.cmp(&a.position).then_with(|| a.id.cmp(&b.id)));
+    ServerDetailsView {
+        roles,
+        emojis: server
+            .emojis
+            .iter()
+            .map(|emoji| ServerEmojiView {
+                id: emoji.id.clone(),
+                name: emoji.name.clone(),
+                animated: emoji.animated,
+                url: format!(
+                    "https://cdn.discordapp.com/emojis/{}.{}",
+                    emoji.id,
+                    if emoji.animated { "gif" } else { "png" }
+                ),
+                available: emoji.available,
+            })
+            .collect(),
+        stickers: server
+            .stickers
+            .iter()
+            .map(|sticker| ServerStickerView {
+                id: sticker.id.clone(),
+                name: sticker.name.clone(),
+                format: sticker.format,
+                url: format!(
+                    "https://media.discordapp.net/stickers/{}.{}",
+                    sticker.id,
+                    match sticker.format {
+                        3 => "json",
+                        4 => "gif",
+                        _ => "png",
+                    }
+                ),
+            })
+            .collect(),
     }
 }
 

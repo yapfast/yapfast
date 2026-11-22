@@ -156,6 +156,9 @@ pub struct Context {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum MenuAct {
+    /// Takes a kept deleted row off the timeline.
+    #[cfg(feature = "plugins")]
+    HideDeleted,
     /// A row a plugin added, telling it what was chosen.
     #[cfg(feature = "plugins")]
     Plugin(yapfast_core::plugins::Input),
@@ -357,12 +360,55 @@ pub fn adds_reactions(app: &App, index: usize) -> bool {
 }
 
 /// A right click on a message: what one may do with it.
+/// A kept deleted row's menu: its text and id to copy, and the way to take it
+/// off the timeline. Nothing for a row deleted any other way.
+#[cfg_attr(
+    feature = "plugins",
+    allow(
+        clippy::needless_return,
+        reason = "each build's half ends in its own answer"
+    )
+)]
+fn deleted_menu(
+    app: &mut App,
+    message: &yapfast_core::chat::ChatMessage,
+    at: Point,
+) -> Task<Message> {
+    #[cfg(feature = "plugins")]
+    {
+        let row = MenuRow::new;
+        let mut rows = Vec::new();
+        if !message.body.is_empty() {
+            rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
+        }
+        rows.push(row(MenuAct::CopyId, "Copy Message ID", Icon::Id));
+        rows.push(MenuRow {
+            separated: true,
+            ..row(
+                MenuAct::HideDeleted,
+                "Hide this deleted message",
+                Icon::EyeOff,
+            )
+        });
+        app.win.menu = Some(Menu {
+            item: Some(message.item.clone()),
+            ..Menu::new(at, rows)
+        });
+        return iced::widget::operation::focus(crate::app::NOBODY);
+    }
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = (app, message, at);
+        Task::none()
+    }
+}
+
 pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let Some(message) = crate::timeline::row_message(app, index).cloned() else {
         return Task::none();
     };
     if message.deleted {
-        return Task::none();
+        return deleted_menu(app, &message, at);
     }
     let row = MenuRow::new;
     let mut rows = Vec::new();
@@ -782,6 +828,14 @@ pub fn act(
         MenuAct::Edit => crate::edit::begin_edit(app, item),
         MenuAct::Reply => {
             app.client.dispatch(Action::Reply(item));
+            Task::batch([app.sync(), focus])
+        }
+        #[cfg(feature = "plugins")]
+        MenuAct::HideDeleted => {
+            app.client
+                .dispatch(yapfast_core::application::Action::Plugin(
+                    yapfast_core::application::plugins::Action::HideRetained(item),
+                ));
             Task::batch([app.sync(), focus])
         }
         MenuAct::CopyText => {

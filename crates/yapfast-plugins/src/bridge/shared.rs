@@ -17,6 +17,10 @@ pub(crate) enum Answered {
 /// dialog: the tasks that asked are woken by the one answer it gives.
 pub(super) type Waiting = Vec<tokio::sync::oneshot::Sender<Answered>>;
 
+/// The pictures each plugin handed its overlay, each under its `held:<n>`
+/// name, oldest first.
+pub(super) type HeldPictures = BTreeMap<PluginId, Vec<(String, Arc<[u8]>)>>;
+
 /// What both threads of the plugin system read: the application's thread and
 /// the supervisor's.
 pub(crate) struct Shared {
@@ -115,6 +119,9 @@ pub(crate) struct Shared {
     /// The overlay frames sent and not yet answered with `overlay.set`, by
     /// plugin, so a slow plugin is paced by its own answers.
     pub(super) overlay_waiting: Mutex<BTreeMap<PluginId, Instant>>,
+    /// Pictures a plugin handed over with `overlay.picture`, by plugin, each
+    /// under the name its sprites use, oldest first.
+    pub(super) overlay_pictures: Mutex<HeldPictures>,
     pub(super) next_body: AtomicU64,
     pub(super) wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
@@ -372,6 +379,13 @@ impl Shared {
             }
         }
         (self.wake)(notice);
+    }
+
+    /// The pictures plugins handed their overlays.
+    pub(super) fn overlay_pictures(&self) -> std::sync::MutexGuard<'_, HeldPictures> {
+        self.overlay_pictures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     pub(super) fn overlay_waiting(&self) -> std::sync::MutexGuard<'_, BTreeMap<PluginId, Instant>> {

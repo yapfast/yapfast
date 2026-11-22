@@ -955,6 +955,23 @@ pub fn only_emoji(text: &str) -> bool {
 // ---------------------------------------------------------------------------
 // Drawn
 
+thread_local! {
+    /// Whether every run drawn now is struck through: a kept deleted row
+    /// whose plugin asked for it ([`struck`]).
+    static STRUCK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Draws `body` with every run struck through when `on`.
+pub fn struck<R>(on: bool, body: impl FnOnce() -> R) -> R {
+    if !on {
+        return body();
+    }
+    STRUCK.with(|struck| struck.set(true));
+    let drawn = body();
+    STRUCK.with(|struck| struck.set(false));
+    drawn
+}
+
 /// How a body shows: its text's size and line height, and its ink.
 #[derive(Clone, Copy, Debug)]
 pub struct Look {
@@ -983,7 +1000,9 @@ impl<'c> crate::ctx::Ctx<'c> {
                 ..if run.bold { BOLD } else { REGULAR }
             }
         };
-        let mut piece = span(run.text.as_str()).font(font).strikethrough(run.strike);
+        let mut piece = span(run.text.as_str())
+            .font(font)
+            .strikethrough(run.strike || STRUCK.with(std::cell::Cell::get));
         if let Some(link) = run.link.as_deref() {
             piece = piece.link(link);
         }

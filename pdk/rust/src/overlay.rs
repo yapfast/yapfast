@@ -45,6 +45,32 @@ pub fn set(sprites: &[Sprite], fps: u8) -> Result<()> {
     Ok(())
 }
 
+/// What the layer shows, its frames a second, and whether a frame also comes
+/// each time the pointer moves (at any pace, 0 included).
+pub fn set_with_pointer(sprites: &[Sprite], fps: u8, pointer: bool) -> Result<()> {
+    call::ok(
+        method::OVERLAY_SET,
+        serde_json::json!({ "sprites": sprites, "fps": fps, "pointer": pointer }),
+    )?;
+    Ok(())
+}
+
+/// A picture from bytes the plugin holds (a sheet the person chose, one it
+/// fetched or kept in storage): answers the name a [`Sprite::image`] uses,
+/// `held:<n>`. PNG, JPEG, GIF or WebP, at most 8 MiB; a plugin holds 16 and a
+/// new one past that lets the oldest go.
+pub fn picture(bytes: &[u8]) -> Result<String> {
+    let answer = call::ok(
+        method::OVERLAY_PICTURE,
+        serde_json::json!({ "bytes_base64": crate::wire::base64::encode(bytes) }),
+    )?;
+    answer
+        .get("image")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| crate::Error::msg("`overlay.picture` answered no name"))
+}
+
 /// Takes the layer away, and its frames stop.
 pub fn clear() -> Result<()> {
     call::ok(method::OVERLAY_CLEAR, serde_json::json!({}))?;

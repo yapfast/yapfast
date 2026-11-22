@@ -715,13 +715,14 @@ fn label(text: &str) -> Result<String, String> {
     Ok(text.to_owned())
 }
 
-/// An action's or widget's id: letters, digits, `-`, `_` and `.`, as it
-/// travels inside `plugin/<index>/<action>`.
+/// An action's or widget's id: letters, digits, `-`, `_`, `.` and `:`, as it
+/// travels inside `plugin/<index>/<action>`, so an id may name what it is
+/// about (`vote:d:123`).
 fn plain_id(id: &str) -> bool {
     (1..=LABEL_CHARS).contains(&id.len())
         && id
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
 }
 
 /// Checks a plugin's interface changes and menu rows against what Yapfast

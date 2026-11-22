@@ -181,6 +181,12 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         })
     } else if look.highlighted {
         Some(if pointed { MENTIONED_HOVER } else { MENTIONED })
+    } else if retained_ground(ctx, message) {
+        // A kept deleted row's soft red ground, as its plugin chose.
+        Some(Color {
+            a: if pointed { 0.14 } else { 0.08 },
+            ..ctx.look.theme.danger
+        })
     } else if pointed {
         Some(theme.row_hover)
     } else {
@@ -890,5 +896,16 @@ impl crate::widgets::Hooks<Message> for Noted<'_> {
         let node = child(limits);
         self.0.set(node.size().height);
         node
+    }
+}
+
+/// Whether a row is a kept deleted one whose plugin wants it on a red ground.
+fn retained_ground(ctx: crate::ctx::Ctx<'_>, message: &yapfast_core::chat::ChatMessage) -> bool {
+    #[cfg(feature = "plugins")]
+    return message.deleted && ctx.state.retained_look.red_ground;
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = (ctx, message);
+        false
     }
 }
