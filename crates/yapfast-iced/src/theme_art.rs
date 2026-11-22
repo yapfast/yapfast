@@ -3473,11 +3473,21 @@ fn corner_radius(ctx: crate::ctx::Ctx<'_>, surface: ArtSurface) -> f32 {
     ctx.look.theme.surface_radius(surface.name(), stock)
 }
 
+/// Whether [`surface`] lays anything with `content`: only a package
+/// does. With none it's `content` alone, the widget tree of the stock
+/// look, so no pane, menu or code block draws in a layer of its own.
+pub fn surface_wraps(ctx: crate::ctx::Ctx<'_>) -> bool {
+    ctx.look.theme.packaged()
+}
+
 pub fn surface<'a>(
     content: impl Into<Element<'a, Message>>,
     ctx: crate::ctx::Ctx<'a>,
     surface: ArtSurface,
 ) -> Element<'a, Message> {
+    if !surface_wraps(ctx) {
+        return content.into();
+    }
     let layers = ctx.themes.art(&ctx.look.theme.id, surface);
     let glass = ctx.themes.glass(&ctx.look.theme.id, surface);
     let (performance, reduced_motion) = ctx.themes.art_motion(&ctx.look.theme.id);
@@ -3509,11 +3519,7 @@ pub fn surface<'a>(
         layers,
         own: floats,
         background,
-        radius: if ctx.look.theme.packaged() || surface == ArtSurface::Settings {
-            corner_radius(ctx, surface)
-        } else {
-            ctx.look.theme.surface_radius(surface.ground(), 0.0)
-        },
+        radius: corner_radius(ctx, surface),
     };
     // Keep `content` as Stack's intrinsic base and insert decorations under
     // it. Main panes still fill because their content fills; cards, embeds
