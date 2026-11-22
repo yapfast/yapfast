@@ -729,8 +729,22 @@ impl Engine {
     ) {
         match image {
             #[cfg(feature = "image")]
-            Image::Raster { image, bounds, .. } => {
+            Image::Raster {
+                image,
+                bounds,
+                clip_bounds: own,
+            } => {
                 let physical_bounds = *bounds * _transformation;
+
+                // Yapfast port: a picture is kept to its own clip as well as
+                // the layer's, as the wgpu renderer keeps it: an image
+                // widget's crop and its `Cover` fit draw the whole picture
+                // and rely on the clip to show the part they mean. Stock, the
+                // picture's own clip was dropped here and the whole of it was
+                // drawn. The layer's mask still clips the slow path.
+                let Some(_clip_bounds) = _clip_bounds.intersection(&(*own * _transformation)) else {
+                    return;
+                };
 
                 if !_clip_bounds.intersects(&physical_bounds) {
                     return;
