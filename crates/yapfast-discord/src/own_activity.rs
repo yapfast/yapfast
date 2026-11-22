@@ -37,16 +37,16 @@ pub(crate) fn start(
     snapshots: watch::Receiver<Arc<Snapshot>>,
     mut shown: watch::Receiver<bool>,
 ) -> watch::Receiver<Activity> {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     let _ = snapshots;
     let (activity, receiver) = watch::channel(None);
     tokio::spawn(async move {
         loop {
             if *shown.borrow_and_update() {
                 let detected = crate::game_detection::start(api.clone());
-                #[cfg(target_os = "linux")]
+                #[cfg(any(target_os = "linux", windows))]
                 let rpc = crate::rpc::start(api.clone(), snapshots.clone());
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(any(target_os = "linux", windows)))]
                 let rpc = watch::channel(None).1;
                 tokio::select! {
                     () = combine(rpc, detected, activity.clone()) => return,

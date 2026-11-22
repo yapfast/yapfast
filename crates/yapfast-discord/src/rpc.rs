@@ -1,14 +1,11 @@
-//! Linux Discord RPC over IPC, for games and tools using discord-rpc/arRPC.
+//! Discord RPC over local IPC, for games and tools using discord-rpc/arRPC.
 //! Protocol: https://docs.discord.food/topics/rpc#ipc-transport.
 //! Only local Rich Presence is exposed; account/voice control needs OAuth2
 //! and is deliberately unsupported here.
 
 use std::{
     collections::{HashMap, HashSet},
-    fs::{File, Metadata},
-    io,
-    os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
@@ -16,8 +13,7 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{UnixListener, UnixStream},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, watch},
     task::JoinSet,
 };
@@ -26,6 +22,14 @@ use crate::{
     api::Api,
     service::{Snapshot, Status},
 };
+
+#[cfg(target_os = "linux")]
+#[path = "rpc/linux.rs"]
+mod transport;
+#[cfg(windows)]
+#[path = "rpc/windows.rs"]
+mod transport;
+use transport::{Socket, Stream, runtime_directory};
 
 const MAX_PACKET: usize = 64 * 1024;
 /// The most image addresses a client's images are kept for: a music player
@@ -63,112 +67,8 @@ pub(crate) fn start(
     receiver
 }
 
-fn runtime_directory() -> PathBuf {
-    ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .find(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-}
-
-/// The lock coordinates Yapfast processes; probing the socket also respects
-/// Discord and other RPC servers, which do not take our lock.
-struct Socket {
-    listener: UnixListener,
-    path: PathBuf,
-    identity: Metadata,
-    _lock: File,
-}
-
-impl Socket {
-    async fn bind(directory: &Path) -> Result<Self> {
-        let uid = std::fs::metadata("/proc/self")?.uid();
-        for slot in 0..10 {
-            let path = directory.join(format!("discord-ipc-{slot}"));
-            let lock_path = directory.join(format!("yapfast-discord-ipc-{slot}.lock"));
-            use std::os::unix::fs::OpenOptionsExt;
-            let lock = match File::options()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&lock_path)
-            {
-                Ok(lock) => lock,
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    // A replaced lock must neither follow a symlink nor
-                    // block opening a FIFO.
-                    let Ok(lock) = File::options()
-                        .write(true)
-                        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                        .open(&lock_path)
-                    else {
-                        continue;
-                    };
-                    let metadata = lock.metadata()?;
-                    let link = std::fs::symlink_metadata(&lock_path)?;
-                    if !link.is_file() || metadata.uid() != uid || !same_file(&metadata, &link) {
-                        continue;
-                    }
-                    lock
-                }
-                Err(_) => continue,
-            };
-            if lock.try_lock().is_err() {
-                continue;
-            }
-            if let Ok(metadata) = std::fs::symlink_metadata(&path) {
-                if !metadata.file_type().is_socket() || metadata.uid() != uid {
-                    continue;
-                }
-                // A live server with a full backlog must not block a Tokio
-                // worker while we look for a free slot.
-                match tokio::time::timeout(Duration::from_millis(100), UnixStream::connect(&path))
-                    .await
-                {
-                    Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
-                        if !std::fs::symlink_metadata(&path)
-                            .is_ok_and(|now| same_file(&metadata, &now))
-                        {
-                            continue;
-                        }
-                        std::fs::remove_file(&path)?;
-                    }
-                    _ => continue,
-                }
-            }
-            let Ok(listener) = UnixListener::bind(&path) else {
-                continue;
-            };
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-            let identity = std::fs::symlink_metadata(&path)?;
-            return Ok(Self {
-                listener,
-                path,
-                identity,
-                _lock: lock,
-            });
-        }
-        bail!("no free Discord IPC socket in {}", directory.display())
-    }
-}
-
-fn same_file(left: &Metadata, right: &Metadata) -> bool {
-    left.ino() == right.ino() && left.dev() == right.dev()
-}
-
-impl Drop for Socket {
-    fn drop(&mut self) {
-        if std::fs::symlink_metadata(&self.path).is_ok_and(|now| same_file(&self.identity, &now)) {
-            let _ = std::fs::remove_file(&self.path);
-        }
-        // Leave the lock inode in place: unlinking a locked file would let
-        // another process create a second independent lock for the same slot.
-    }
-}
-
 async fn serve(
-    socket: Socket,
+    mut socket: Socket,
     api: Arc<Api>,
     snapshots: watch::Receiver<Arc<Snapshot>>,
     activity: &watch::Sender<Option<Arc<Value>>>,
@@ -182,15 +82,12 @@ async fn serve(
         let removed = tokio::select! {
             biased;
             () = activity.closed() => break,
-            accepted = socket.listener.accept(), if clients.len() < MAX_CLIENTS => {
-                let Ok((stream, _)) = accepted else {
+            accepted = socket.accept(), if clients.len() < MAX_CLIENTS => {
+                let Ok(stream) = accepted else {
                     // Out of descriptors, say: wait rather than end RPC for good.
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     continue;
                 };
-                if !stream.peer_cred().is_ok_and(|peer| peer.uid() == socket.identity.uid()) {
-                    continue;
-                }
                 next += 1;
                 let id = next;
                 connected.insert(id);
@@ -233,10 +130,10 @@ async fn serve(
             }
         });
     }
-    // Dropping JoinSet aborts clients, and Socket removes only our own inode.
+    // Dropping JoinSet aborts clients; Socket releases the listener.
 }
 
-async fn read(stream: &mut UnixStream) -> Result<(u32, Vec<u8>)> {
+async fn read(stream: &mut (impl AsyncRead + Unpin)) -> Result<(u32, Vec<u8>)> {
     let opcode = stream.read_u32_le().await?;
     let size = stream.read_u32_le().await? as usize;
     ensure!(size <= MAX_PACKET, "RPC packet too large");
@@ -245,7 +142,7 @@ async fn read(stream: &mut UnixStream) -> Result<(u32, Vec<u8>)> {
     Ok((opcode, payload))
 }
 
-async fn write(stream: &mut UnixStream, opcode: u32, payload: &[u8]) -> Result<()> {
+async fn write(stream: &mut (impl AsyncWrite + Unpin), opcode: u32, payload: &[u8]) -> Result<()> {
     tokio::time::timeout(WAIT, async {
         stream.write_u32_le(opcode).await?;
         stream.write_u32_le(payload.len() as u32).await?;
@@ -255,12 +152,12 @@ async fn write(stream: &mut UnixStream, opcode: u32, payload: &[u8]) -> Result<(
     Ok(())
 }
 
-async fn send(stream: &mut UnixStream, value: Value) -> Result<()> {
+async fn send(stream: &mut (impl AsyncWrite + Unpin), value: Value) -> Result<()> {
     write(stream, 1, &serde_json::to_vec(&value)?).await
 }
 
 async fn connection(
-    mut stream: UnixStream,
+    mut stream: Stream,
     api: Arc<Api>,
     snapshots: watch::Receiver<Arc<Snapshot>>,
     updates: mpsc::Sender<(u64, Option<Arc<Value>>)>,
@@ -602,7 +499,12 @@ mod tests {
     use super::*;
     use crate::own_activity::merge;
 
+    #[cfg(target_os = "linux")]
+    use {std::os::unix::fs::PermissionsExt, tokio::net::UnixListener};
+
+    #[cfg(target_os = "linux")]
     struct Directory(PathBuf);
+    #[cfg(target_os = "linux")]
     impl Directory {
         fn new() -> Self {
             static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -615,6 +517,7 @@ mod tests {
             Self(path)
         }
     }
+    #[cfg(target_os = "linux")]
     impl Drop for Directory {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -669,6 +572,31 @@ mod tests {
     }
 
     #[test]
+    fn keeps_a_music_players_track_and_display_preference() {
+        // The wire fields used by Liner's @xhayper/discord-rpc client.
+        let shown = normalize(
+            &json!({
+                "name":"Artist", "type":2, "details":"Track", "state":"Artist",
+                "status_display_type":1,
+                "timestamps":{"start":1700000000_u64,"end":1700000180_u64},
+                "buttons":[{"label":"Listen on Liner","url":"https://link.tryliner.fun/track?id=1"}]
+            }),
+            "1561339119617974362",
+            "Liner",
+            None,
+            &Assets::new(),
+        )
+        .unwrap();
+        assert_eq!(shown["type"], 2);
+        assert_eq!(shown["name"], "Liner");
+        assert_eq!(shown["details"], "Track");
+        assert_eq!(shown["state"], "Artist");
+        assert_eq!(shown["status_display_type"], 1);
+        assert_eq!(shown["timestamps"]["end"], 1700000180000_u64);
+        assert_eq!(shown["buttons"][0], "Listen on Liner");
+    }
+
+    #[test]
     fn rejects_invalid_activity_without_losing_the_previous_one() {
         for value in [
             json!([]),
@@ -711,6 +639,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn leaves_live_sockets_alone_and_reclaims_stale_ones() {
         let directory = Directory::new();
@@ -730,6 +659,7 @@ mod tests {
         assert!(reclaimed.path.ends_with("discord-ipc-0"));
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn does_not_remove_a_replacement_or_follow_a_lock_symlink() {
         let directory = Directory::new();
@@ -749,7 +679,7 @@ mod tests {
 
     #[tokio::test]
     async fn framing_handles_partial_reads_and_rejects_oversize_before_allocating() {
-        let (mut client, mut server) = UnixStream::pair().unwrap();
+        let (mut client, mut server) = tokio::io::duplex(64);
         let writer = tokio::spawn(async move {
             for byte in [1, 0, 0, 0, 2, 0, 0, 0, b'{', b'}'] {
                 client.write_all(&[byte]).await.unwrap();
