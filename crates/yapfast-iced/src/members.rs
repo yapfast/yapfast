@@ -170,6 +170,8 @@ pub const PITCH: f32 = 44.0;
 pub const TOP: f32 = 8.0;
 /// A line's height.
 const ROW: f32 = 42.0;
+/// How far a member's presence dot sits past its avatar's corner.
+const DOT_OUT: f32 = 4.0;
 
 fn row_height(theme: &crate::theme::Theme) -> f32 {
     theme.spacing().member_row_height.unwrap_or(ROW)
@@ -207,6 +209,13 @@ pub(crate) fn lines_in_view(tops: &[f32], scroll: &crate::sync::Scroll) -> (usiz
         .partition_point(|start| *start < to)
         .max(first);
     (first, last)
+}
+
+/// Where a member's presence dot sits on a face `face` wide: `dot` wide
+/// (16 px stock), `out` past its corner (Discord's 4 px, at 20, 20).
+fn dot_at(face: f32, dot: Option<f32>, out: Option<f32>) -> Point {
+    let at = face - dot.unwrap_or(16.0) + out.unwrap_or(DOT_OUT);
+    Point::new(at, at)
 }
 
 /// A themed list's heading height, when it has its own.
@@ -1850,7 +1859,11 @@ impl<'a> View<'a> {
         let avatar_frame =
             themed.and_then(|rows| crate::theme_art::picked_tile(&rows.avatar.frame, &look.id));
         let dot_size = themed.and_then(|rows| rows.avatar.dot);
-        let dot_out = themed.and_then(|rows| rows.avatar.dot_out).unwrap_or(0.0);
+        let dot_at = dot_at(
+            face_size,
+            dot_size,
+            themed.and_then(|rows| rows.avatar.dot_out),
+        );
         let dot_ring = themed
             .and_then(|rows| rows.avatar.dot_ring)
             .unwrap_or_else(|| rgb(theme.sidebar));
@@ -1865,7 +1878,6 @@ impl<'a> View<'a> {
             .and_then(|rows| rows.avatar.ring.as_ref())
             .filter(|ring| ring.presences.iter().any(|shown| shown == presence_name))
             .map(|ring| (ring.colour, ring.width, ring.glow));
-        let shown_dot_size = dot_size.unwrap_or(16.0);
         let face = Face::new(look.avatar.as_deref(), &look.name, face_size)
             .opacity(if avatar_size == 0.0 {
                 0.0
@@ -1883,16 +1895,7 @@ impl<'a> View<'a> {
                     .then(|| {
                         look.presence
                             .filter(|presence| *presence != Presence::Offline)
-                            .map(|presence| {
-                                (
-                                    presence,
-                                    dot_ring,
-                                    Point::new(
-                                        face_size - shown_dot_size + dot_out,
-                                        face_size - shown_dot_size + dot_out,
-                                    ),
-                                )
-                            })
+                            .map(|presence| (presence, dot_ring, dot_at))
                     })
                     .flatten(),
             )
@@ -1920,7 +1923,7 @@ impl<'a> View<'a> {
             look.color.map_or_else(
                 || {
                     if selected {
-                        theme.token_colour("row-selected-text", theme.text)
+                        theme.token_colour("row-selected-text", theme.secondary)
                     } else {
                         theme.secondary
                     }
@@ -2548,7 +2551,19 @@ mod tests {
     use iced::Color;
     use yapfast_core::themes::content::Nameplates;
 
-    use super::{finished_ago, policy_palette, running_for, show_nameplate};
+    use super::{dot_at, finished_ago, policy_palette, running_for, show_nameplate};
+
+    #[test]
+    fn a_members_dot_sits_where_discords_does_unless_a_theme_moves_it() {
+        // Stock: 4 px past the 32 px face's corner, as in Friends and DMs.
+        assert_eq!(dot_at(32.0, None, None), iced::Point::new(20.0, 20.0));
+        // A theme's own dot and overhang.
+        assert_eq!(
+            dot_at(40.0, Some(12.0), Some(0.0)),
+            iced::Point::new(28.0, 28.0)
+        );
+        assert_eq!(dot_at(32.0, None, Some(-2.0)), iced::Point::new(14.0, 14.0));
+    }
 
     #[test]
     fn the_activity_panels_times_read_in_discords_steps() {
