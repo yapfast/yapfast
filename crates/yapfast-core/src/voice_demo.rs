@@ -62,7 +62,7 @@ pub async fn provision() -> Result<PathBuf> {
         }
         let room = accounts[0].client.create_room(request).await?;
         if voice {
-            matrix_rtc_livekit::open_slot(
+            matrix_rtc_call_sdk::open_slot(
                 &accounts[0].client,
                 room.room_id().as_str(),
                 "m.call#ROOM",

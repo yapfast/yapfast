@@ -1,6 +1,6 @@
 # Yapfast read buffer fix
 
-This is tungstenite 0.26.2 from crates.io under its original MIT or
+This is tungstenite 0.30.0 from crates.io under its original MIT or
 Apache-2.0 licence (LICENSE-MIT, LICENSE-APACHE). Yapfast's Discord gateway
 reads through it.
 

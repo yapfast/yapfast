@@ -7,7 +7,8 @@ use std::{
 };
 
 use http::{
-    response::Builder, HeaderMap, Request as HttpRequest, Response as HttpResponse, StatusCode,
+    header::HeaderValue, response::Builder, HeaderMap, Request as HttpRequest,
+    Response as HttpResponse, StatusCode,
 };
 use httparse::Status;
 use log::*;
@@ -20,6 +21,7 @@ use super::{
 };
 use crate::{
     error::{Error, ProtocolError, Result},
+    handshake::version_as_str,
     protocol::{Role, WebSocket, WebSocketConfig},
 };
 
@@ -70,6 +72,10 @@ fn create_parts<T>(request: &HttpRequest<T>) -> Result<Builder> {
         .get("Sec-WebSocket-Key")
         .ok_or(Error::Protocol(ProtocolError::MissingSecWebSocketKey))?;
 
+    if !is_valid_sec_websocket_key(key) {
+        return Err(Error::Protocol(ProtocolError::InvalidSecWebSocketKey));
+    }
+
     let builder = Response::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
         .version(request.version())
@@ -78,6 +84,18 @@ fn create_parts<T>(request: &HttpRequest<T>) -> Result<Builder> {
         .header("Sec-WebSocket-Accept", derive_accept_key(key.as_bytes()));
 
     Ok(builder)
+}
+
+fn is_valid_sec_websocket_key(key: &HeaderValue) -> bool {
+    if key.len() != 24 {
+        return false;
+    }
+
+    let Ok(decoded) = data_encoding::BASE64.decode(key.as_bytes()) else {
+        return false;
+    };
+
+    decoded.len() == 16
 }
 
 /// Create a response for the request.
@@ -97,8 +115,8 @@ pub fn create_response_with_body<T1, T2>(
 pub fn write_response<T>(mut w: impl io::Write, response: &HttpResponse<T>) -> Result<()> {
     writeln!(
         w,
-        "{version:?} {status}\r",
-        version = response.version(),
+        "{version} {status}\r",
+        version = version_as_str(response.version())?,
         status = response.status()
     )?;
 
@@ -280,7 +298,7 @@ impl<S: Read + Write, C: Callback> HandshakeRole for ServerHandshake<S, C> {
 
                     let (parts, body) = err.into_parts();
                     let body = body.map(|b| b.as_bytes().to_vec());
-                    return Err(Error::Http(http::Response::from_parts(parts, body)));
+                    return Err(Error::Http(http::Response::from_parts(parts, body).into()));
                 } else {
                     debug!("Server handshake done.");
                     let websocket = WebSocket::from_raw_socket(stream, Role::Server, self.config);
@@ -294,6 +312,29 @@ impl<S: Read + Write, C: Callback> HandshakeRole for ServerHandshake<S, C> {
 #[cfg(test)]
 mod tests {
     use super::{super::machine::TryParse, create_response, Request};
+    use crate::error::{Error, ProtocolError};
+
+    fn request_with_key(key: &str) -> Request {
+        let data = format!(
+            "\
+            GET /script.ws HTTP/1.1\r\n\
+            Host: foo.com\r\n\
+            Connection: upgrade\r\n\
+            Upgrade: websocket\r\n\
+            Sec-WebSocket-Version: 13\r\n\
+            Sec-WebSocket-Key: {key}\r\n\
+            \r\n"
+        );
+
+        let (_, req) = Request::try_parse(data.as_bytes()).unwrap().unwrap();
+        req
+    }
+
+    fn assert_invalid_sec_websocket_key(key: &str) {
+        let req = request_with_key(key);
+        let err = create_response(&req).unwrap_err();
+        assert!(matches!(err, Error::Protocol(ProtocolError::InvalidSecWebSocketKey)));
+    }
 
     #[test]
     fn request_parsing() {
@@ -320,5 +361,31 @@ mod tests {
             response.headers().get("Sec-WebSocket-Accept").unwrap(),
             b"s3pPLMBiTxaQ9kYGzzhZRbK+xOo=".as_ref()
         );
+    }
+
+    #[test]
+    fn test_invalid_websocket_key_empty() {
+        assert_invalid_sec_websocket_key("");
+    }
+
+    #[test]
+    fn test_invalid_websocket_key_too_long() {
+        assert_invalid_sec_websocket_key("dGhlIHNhbXBsZSBub25jZQ==AAAAAAAAAA");
+    }
+
+    #[test]
+    fn test_invalid_websocket_key_base64_symbol() {
+        assert_invalid_sec_websocket_key("dGhlIHNhbXBsZSBub25jZQ!!");
+    }
+
+    #[test]
+    fn test_invalid_websocket_key_decoded_length() {
+        assert_invalid_sec_websocket_key("AAAAAAAAAAAAAAAAAAAAAAAA");
+    }
+
+    #[test]
+    fn test_valid_websocket_key() {
+        let req = request_with_key("dGhlIHNhbXBsZSBub25jZQ==");
+        assert!(create_response(&req).is_ok());
     }
 }

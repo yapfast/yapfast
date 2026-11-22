@@ -19,6 +19,7 @@ use super::{
 };
 use crate::{
     error::{Error, ProtocolError, Result, SubProtocolError, UrlError},
+    handshake::version_as_str,
     protocol::{Role, WebSocket, WebSocketConfig},
 };
 
@@ -112,9 +113,9 @@ pub fn generate_request(mut request: Request) -> Result<(Vec<u8>, String)> {
     let mut req = Vec::new();
     write!(
         req,
-        "GET {path} {version:?}\r\n",
+        "GET {path} {version}\r\n",
         path = request.uri().path_and_query().ok_or(Error::Url(UrlError::NoPathOrQuery))?.as_str(),
-        version = request.version()
+        version = version_as_str(request.version())?,
     )
     .unwrap();
 
@@ -129,7 +130,7 @@ pub fn generate_request(mut request: Request) -> Result<(Vec<u8>, String)> {
         .get(KEY_HEADERNAME)
         .ok_or_else(|| {
             Error::Protocol(ProtocolError::InvalidHeader(
-                HeaderName::from_bytes(KEY_HEADERNAME.as_bytes()).unwrap(),
+                HeaderName::from_bytes(KEY_HEADERNAME.as_bytes()).unwrap().into(),
             ))
         })?
         .to_str()?
@@ -146,24 +147,32 @@ pub fn generate_request(mut request: Request) -> Result<(Vec<u8>, String)> {
     for &header in &WEBSOCKET_HEADERS {
         let value = headers.remove(header).ok_or_else(|| {
             Error::Protocol(ProtocolError::InvalidHeader(
-                HeaderName::from_bytes(header.as_bytes()).unwrap(),
+                HeaderName::from_bytes(header.as_bytes()).unwrap().into(),
             ))
         })?;
-        write!(req, "{header}: {value}\r\n", header = header, value = value.to_str()?).unwrap();
+        write!(
+            req,
+            "{header}: {value}\r\n",
+            header = header,
+            value = value.to_str().map_err(|err| {
+                Error::Utf8(format!("{err} for header name '{header}' with value: {value:?}"))
+            })?
+        )
+        .unwrap();
     }
 
     // Now we must ensure that the headers that we've written once are not anymore present in the map.
     // If they do, then the request is invalid (some headers are duplicated there for some reason).
-    let insensitive: Vec<String> =
-        WEBSOCKET_HEADERS.iter().map(|h| h.to_ascii_lowercase()).collect();
+    let websocket_headers_contains =
+        |name| WEBSOCKET_HEADERS.iter().any(|h| h.eq_ignore_ascii_case(name));
+
     for (k, v) in headers {
         let mut name = k.as_str();
 
         // We have already written the necessary headers once (above) and removed them from the map.
         // If we encounter them again, then the request is considered invalid and error is returned.
-        // Note that we can't use `.contains()`, since `&str` does not coerce to `&String` in Rust.
-        if insensitive.iter().any(|x| x == name) {
-            return Err(Error::Protocol(ProtocolError::InvalidHeader(k.clone())));
+        if websocket_headers_contains(name) {
+            return Err(Error::Protocol(ProtocolError::InvalidHeader(k.clone().into())));
         }
 
         // Relates to the issue of some servers treating headers in a case-sensitive way, please see:
@@ -176,10 +185,15 @@ pub fn generate_request(mut request: Request) -> Result<(Vec<u8>, String)> {
             name = "Origin";
         }
 
-        writeln!(req, "{}: {}\r", name, v.to_str()?).unwrap();
+        // Write header as raw bytes to support non-ASCII values.
+        // HTTP headers are defined as octets (RFC 7230), not UTF-8 strings.
+        req.extend_from_slice(name.as_bytes());
+        req.extend_from_slice(b": ");
+        req.extend_from_slice(v.as_bytes());
+        req.extend_from_slice(b"\r\n");
     }
 
-    writeln!(req, "\r").unwrap();
+    req.extend_from_slice(b"\r\n");
     trace!("Request: {:?}", String::from_utf8_lossy(&req));
     Ok((req, key))
 }
@@ -207,7 +221,7 @@ impl VerifyData {
         // 1. If the status code received from the server is not 101, the
         // client handles the response per HTTP [RFC2616] procedures. (RFC 6455)
         if response.status() != StatusCode::SWITCHING_PROTOCOLS {
-            return Err(Error::Http(response));
+            return Err(Error::Http(response.into()));
         }
 
         let headers = response.headers();
@@ -390,5 +404,54 @@ mod tests {
     fn invalid_custom_request() {
         let request = http::Request::builder().method("GET").body(()).unwrap();
         assert!(generate_request(request).is_err());
+    }
+
+    #[test]
+    fn request_with_non_ascii_header() {
+        use http::header::HeaderValue;
+
+        let mut request = "ws://localhost/path".into_client_request().unwrap();
+
+        // Add a header with non-ASCII value (UTF-8 encoded "Montréal")
+        let non_ascii_value = HeaderValue::from_bytes(b"Montr\xc3\xa9al").unwrap();
+        request.headers_mut().insert("X-City", non_ascii_value);
+
+        // This should succeed, not fail with UTF-8 error
+        let result = generate_request(request);
+        assert!(result.is_ok(), "generate_request should accept non-ASCII header values");
+
+        let (req_bytes, _key) = result.unwrap();
+
+        // Verify the complete header with non-ASCII value is preserved in the output
+        let expected_header = b"x-city: Montr\xc3\xa9al\r\n";
+        assert!(
+            req_bytes.windows(expected_header.len()).any(|window| window == expected_header),
+            "Request should contain the complete non-ASCII header value"
+        );
+    }
+
+    #[test]
+    fn request_with_latin1_header() {
+        use http::header::HeaderValue;
+
+        let mut request = "ws://localhost/path".into_client_request().unwrap();
+
+        // Add a header with ISO-8859-1 (Latin-1) encoded value
+        // This is NOT valid UTF-8 but is valid for HTTP headers
+        let latin1_value = HeaderValue::from_bytes(b"caf\xe9").unwrap(); // "café" in Latin-1
+        request.headers_mut().insert("X-Test", latin1_value);
+
+        // This should succeed
+        let result = generate_request(request);
+        assert!(result.is_ok(), "generate_request should accept Latin-1 header values");
+
+        let (req_bytes, _key) = result.unwrap();
+
+        // Verify the raw bytes are preserved in the output
+        let expected_header = b"x-test: caf\xe9\r\n";
+        assert!(
+            req_bytes.windows(expected_header.len()).any(|window| window == expected_header),
+            "Request should preserve the raw Latin-1 bytes"
+        );
     }
 }

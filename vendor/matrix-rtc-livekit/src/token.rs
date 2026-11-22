@@ -3,50 +3,29 @@
 // SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
 // Please see LICENSE in the repository root for full details.
 
-//! LiveKit SFU authorisation service token exchange ([MSC4195]) — the IO half.
+//! The legacy LiveKit JWT service's token exchange (`/sfu/get`) — the IO half.
 //!
 //! The endpoint URLs, request bodies, and response decoding live in
-//! [`matrix_rtc_livekit_proto::token`], where the web binding shares them; this
-//! module only POSTs what that one builds. Obtaining the OpenID token itself is
-//! a Client-Server API concern and belongs to [`matrix_rtc_bridge`]: the host
+//! [`matrix_rtc_transport::livekit::token`], where the web binding shares them; this
+//! module only POSTs what that one builds. The homeserver's MSC4195
+//! `get_token` is the host's call (`MatrixBackend::livekit_token`), not ours. Obtaining the OpenID token itself is
+//! a Client-Server API concern and belongs to the backend: the host
 //! supplies one through
-//! [`OpenIdTokenSource`](matrix_rtc_bridge::OpenIdTokenSource), so nothing here
+//! [`MatrixBackend`](matrix_rtc_core::MatrixBackend), so nothing here
 //! is wired to a particular Matrix SDK.
 //!
-//! [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
 
-use matrix_rtc_bridge::OpenIdToken;
-pub use matrix_rtc_livekit_proto::token::{MemberClaims, SfuToken};
-use matrix_rtc_livekit_proto::token::{get_token_request, legacy_token_request, parse_sfu_token};
+use matrix_rtc_core::OpenIdToken;
+pub use matrix_rtc_transport::livekit::token::SfuToken;
+use matrix_rtc_transport::livekit::token::{legacy_token_request, parse_sfu_token};
 
 use crate::Error;
 
-/// Exchange an OpenID token for a LiveKit SFU JWT via the authorisation
-/// service's `/get_token` endpoint.
+/// Exchange an OpenID token for a LiveKit SFU JWT via the legacy JWT service's
+/// `/sfu/get` endpoint, for every transport naming a `livekit_service_url`.
 ///
-/// `livekit_service_url` is the `livekit_service_url` advertised by the
-/// transport (e.g. `https://matrix-rtc.example.com/livekit/jwt`); the
-/// `/get_token` path is appended to it.
-pub async fn get_token(
-    http: &reqwest::Client,
-    livekit_service_url: &str,
-    room_id: &str,
-    slot_id: &str,
-    member: &MemberClaims,
-    openid_token: &OpenIdToken,
-) -> Result<SfuToken, Error> {
-    let (endpoint, body) =
-        get_token_request(livekit_service_url, room_id, slot_id, member, openid_token);
-    post_for_token(http, &endpoint, &body, &format!("{room_id}/{slot_id}")).await
-}
-
-/// Exchange an OpenID token for a LiveKit SFU JWT via the **pre-MSC4195**
-/// `/sfu/get` endpoint.
-///
-/// For interoperating with Element Call builds older than MSC4354. There is
-/// deliberately no fallback from `/get_token` to this on a 404 — see
-/// [`matrix_rtc_livekit_proto::token::legacy_token_request`]. Temporary; see
-/// [`crate::compat`].
+/// There is deliberately no fallback to the homeserver's `get_token` on a 404 —
+/// see [`matrix_rtc_transport::livekit::token::legacy_token_request`].
 pub async fn get_legacy_token(
     http: &reqwest::Client,
     livekit_service_url: &str,
@@ -74,7 +53,7 @@ async fn post_for_token(
         .json(body)
         .send()
         .await
-        .inspect_err(|error| log::warn!("SFU token request to {endpoint} failed: {error}"))?;
+        .inspect_err(|error| log::warn!("SFU token request to {endpoint} failed: {error:?}"))?;
 
     let status = response.status().as_u16();
     let body = response.text().await?;

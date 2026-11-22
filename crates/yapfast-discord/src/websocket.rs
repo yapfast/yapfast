@@ -16,7 +16,7 @@ use tokio_tungstenite::{
 pub(crate) async fn connect(
     request: impl IntoClientRequest + Unpin,
 ) -> tungstenite::Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response)> {
-    let connector = Connector::Rustls(config().map_err(TlsError::Rustls)?);
+    let connector = Connector::Rustls(config().map_err(|error| TlsError::Rustls(Box::new(error)))?);
     connect_async_tls_with_config(request, None, false, Some(connector)).await
 }
 

@@ -104,6 +104,7 @@ where
 pub(super) struct FrameCodec {
     /// Buffer to read data from the stream.
     in_buffer: BytesMut,
+    in_buf_max_read: usize,
     /// Buffer to send packets to the network.
     out_buffer: Vec<u8>,
     /// Capacity limit for `out_buffer`.
@@ -116,9 +117,6 @@ pub(super) struct FrameCodec {
     out_buffer_write_len: usize,
     /// Header and remaining size of the incoming packet being processed.
     header: Option<(FrameHeader, u64)>,
-    /// Yapfast: the capacity `in_buffer` starts with, which it goes back to after
-    /// a larger frame.
-    in_buf_len: usize,
 }
 
 impl FrameCodec {
@@ -126,11 +124,11 @@ impl FrameCodec {
     pub(super) fn new(in_buf_len: usize) -> Self {
         Self {
             in_buffer: BytesMut::with_capacity(in_buf_len),
+            in_buf_max_read: in_buf_len.max(FrameHeader::MAX_SIZE),
             out_buffer: <_>::default(),
             max_out_buffer_len: usize::MAX,
             out_buffer_write_len: 0,
             header: None,
-            in_buf_len,
         }
     }
 
@@ -140,11 +138,11 @@ impl FrameCodec {
         in_buffer.reserve(min_in_buf_len.saturating_sub(in_buffer.len()));
         Self {
             in_buffer,
+            in_buf_max_read: min_in_buf_len.max(FrameHeader::MAX_SIZE),
             out_buffer: <_>::default(),
             max_out_buffer_len: usize::MAX,
             out_buffer_write_len: 0,
             header: None,
-            in_buf_len: min_in_buf_len,
         }
     }
 
@@ -167,50 +165,50 @@ impl FrameCodec {
         unmask: bool,
         accept_unmasked: bool,
     ) -> Result<Option<Frame>> {
-        let max_size = max_size.unwrap_or_else(usize::max_value);
+        let max_size = max_size.unwrap_or(usize::MAX);
 
         let mut payload = loop {
-            {
-                if self.header.is_none() {
-                    let mut cursor = Cursor::new(&mut self.in_buffer);
-                    self.header = FrameHeader::parse(&mut cursor)?;
-                    let advanced = cursor.position();
-                    bytes::Buf::advance(&mut self.in_buffer, advanced as _);
-                }
+            if self.header.is_none() {
+                let mut cursor = Cursor::new(&mut self.in_buffer);
+                self.header = FrameHeader::parse(&mut cursor)?;
+                let advanced = cursor.position();
+                bytes::Buf::advance(&mut self.in_buffer, advanced as _);
 
                 if let Some((_, len)) = &self.header {
-                    let len = *len as usize;
-
-                    // Enforce frame size limit early and make sure `length`
-                    // is not too big (fits into `usize`).
-                    if len > max_size {
+                    // Enforce frame size limit early. Compare in u64 before
+                    // narrowing so a length above usize::MAX can't wrap on
+                    // 32-bit/wasm32 targets and slip past the check.
+                    if *len > max_size as u64 {
                         return Err(Error::Capacity(CapacityError::MessageTooLong {
-                            size: len,
+                            size: *len as usize,
                             max_size,
                         }));
                     }
+                    let len = *len as usize;
 
-                    if len <= self.in_buffer.len() {
-                        let payload = self.in_buffer.split_to(len);
-                        // Yapfast: a frame larger than the buffer, such as Discord's
-                        // READY, grew it to the frame's size, and the buffer kept
-                        // that capacity for the rest of the connection, zeroing
-                        // it on every read. What follows the frame moves to a
-                        // buffer of the usual size, so the large one goes with
-                        // the payload.
-                        if len > self.in_buf_len {
-                            let rest = std::mem::take(&mut self.in_buffer);
-                            self.in_buffer =
-                                BytesMut::with_capacity(self.in_buf_len.max(rest.len()));
-                            self.in_buffer.extend_from_slice(&rest);
-                        }
-                        break payload;
+                    // Reserve full message length only once, even for multiple
+                    // loops or if WouldBlock errors cause multiple fn calls.
+                    self.in_buffer.reserve(len);
+                } else {
+                    self.in_buffer.reserve(FrameHeader::MAX_SIZE);
+                }
+            }
+
+            if let Some((_, len)) = &self.header {
+                let len = *len as usize;
+                if len <= self.in_buffer.len() {
+                    let payload = self.in_buffer.split_to(len);
+                    // Yapfast: release the large allocation with its frame payload.
+                    if len > self.in_buf_max_read {
+                        let rest = std::mem::take(&mut self.in_buffer);
+                        self.in_buffer = BytesMut::with_capacity(self.in_buf_max_read.max(rest.len()));
+                        self.in_buffer.extend_from_slice(&rest);
                     }
+                    break payload;
                 }
             }
 
             // Not enough data in buffer.
-            self.in_buffer.reserve(self.header.as_ref().map(|(_, l)| *l as usize).unwrap_or(6));
             if self.read_in(stream)? == 0 {
                 trace!("no frame received");
                 return Ok(None);
@@ -243,7 +241,7 @@ impl FrameCodec {
     fn read_in(&mut self, stream: &mut impl Read) -> io::Result<usize> {
         let len = self.in_buffer.len();
         debug_assert!(self.in_buffer.capacity() > len);
-        self.in_buffer.resize(self.in_buffer.capacity(), 0);
+        self.in_buffer.resize(self.in_buffer.capacity().min(len + self.in_buf_max_read), 0);
         let size = stream.read(&mut self.in_buffer[len..]);
         self.in_buffer.truncate(len + size.as_ref().copied().unwrap_or(0));
         size
@@ -261,7 +259,7 @@ impl FrameCodec {
         Stream: Write,
     {
         if frame.len() + self.out_buffer.len() > self.max_out_buffer_len {
-            return Err(Error::WriteBufferFull(Message::Frame(frame)));
+            return Err(Error::WriteBufferFull(Message::Frame(frame).into()));
         }
 
         trace!("writing frame {frame}");
@@ -389,6 +387,19 @@ mod tests {
         assert!(matches!(
             sock.read(Some(5)),
             Err(Error::Capacity(CapacityError::MessageTooLong { size: 7, max_size: 5 }))
+        ));
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "32")]
+    fn length_above_usize_max_rejected() {
+        // 64-bit payload length 0x1_0000_0005 does not fit a 32-bit usize; it
+        // must be rejected rather than wrapping to 5 when narrowed.
+        let raw = Cursor::new(vec![0x82, 0x7f, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05]);
+        let mut sock = FrameSocket::new(raw);
+        assert!(matches!(
+            sock.read(None),
+            Err(Error::Capacity(CapacityError::MessageTooLong { size: 5, max_size: usize::MAX }))
         ));
     }
 }

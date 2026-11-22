@@ -36,12 +36,12 @@ fn main() {
             Ok(stream) => {
                 if let Err(err) = handle_client(stream) {
                     match err {
-                        Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
-                        e => error!("test: {}", e),
+                        Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8(_) => (),
+                        e => error!("test: {e}"),
                     }
                 }
             }
-            Err(e) => error!("Error accepting stream: {}", e),
+            Err(e) => error!("Error accepting stream: {e}"),
         });
     }
 }

@@ -1,3 +1,24 @@
+# 0.30.0
+
+* Reject non-compliant clients (incorrect `Sec-WebSocket-Key` length/format) on the server side.
+* Update `rand` and `sha` dependencies and raise MSRV to 1.85.
+
+# 0.29.0
+
+* Update MSRV to `1.71` due to `syn` (the dependency of `thiserror`) requiring it.
+* Allow users to send headers with non-visible ASCII values (as long as they constitute a correct `HeaderValue`).
+
+# 0.28.0
+* Reduce `Error` size 136 -> **32** by boxing internals of `Error::Http`, `Error::WriteBufferFull`,
+  `ProtocolError::InvalidHeader`, `TlsError::Native`, `TlsError::Rustls`.
+* Dependency update (`socket` to `0.6.0`).
+* Add `into_inner()` to the `WebSocket`, so that the user can extract the underlying stream.
+* Address the edge-case for the WebSocket request generation when `tungstenite` is built with `-Zfmt-debug=none`.
+
+# 0.27.0
+- Fix large message read performance by enforcing max `read_buffer_size` read chunks.
+- Make `Hash` implementation consistent for `Utf8Bytes` payloads.
+
 # 0.26.2
 - Add `WebSocketConfig::read_buffer_size` docs explaining performance/memory tradeoff.
 - Implement traits and add helper methods for the UTF8 payloads making them comparable and more ergonomic.

@@ -1,32 +1,57 @@
-# From element-hq/matrix-rust-rtc@5831af899f1e1744c21332613cdc9578a98c604f.
-# Workspace/path dependencies are expanded to their original pinned sources.
+# Copyright 2026 Element Creations Ltd.
+#
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+# Please see LICENSE in the repository root for full details.
+
 [package]
 name = "matrix-rtc-livekit"
-version = "0.4.0-rc.1"
+version = "0.5.0"
 edition = "2024"
 license = "AGPL-3.0-only OR LicenseRef-Element-Commercial"
 publish = false
+description = "MSC4195 LiveKit transport for MatrixRTC: SFU token exchange, media session, and E2EE key bridging."
+
+[lib]
+crate-type = ["rlib"]
+
+# Used by the matrix-sdk feature to forward unstable-msc4354 to SDK UI.
+[package.metadata.cargo-machete]
+ignored = ["matrix-sdk-ui"]
 
 [dependencies]
-matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
-matrix-rtc-bridge = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
-matrix-rtc-livekit-proto = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
-matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "2.0"
+matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+# The transport contract this crate implements (`transport_impl`), and the pure
+# MSC4195 control plane (`livekit`: identity derivations, token shapes, dialect
+# choices) shared with the web binding. This crate re-exports the latter and
+# adds the IO: reqwest for the token POST, livekit for the SFU itself.
+matrix-rtc-transport = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+serde_json = "1"
+thiserror = "2"
 async-trait = "0.1"
 log = "0.4"
-tokio = { version = "1", features = ["rt", "sync", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-livekit = { version = "0.7", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+# `media` uses tokio timers (interval / timeout_at) on top of the workspace rt+sync.
+tokio = { version = "1", features = ["time"] }
+# The token POST. Version and TLS backend are the workspace's.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
+# The LiveKit client; see the workspace manifest for its version and features
+# (both rustls root stores, and why). Pulls in libwebrtc (native C++) via
+# webrtc-sys, so building this crate needs a C++ toolchain — CI jobs that lack
+# one must not build this crate.
+livekit = { version = "=0.9.7", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+# Only to name `SignalError`, whose HTTP status tells a rejected token or a
+# refusal from a transient failure (034 R24); livekit's own version and
+# features.
+livekit-signaling = { version = "=0.1.7", default-features = false }
+# Stream combinators for draining the LiveKit audio stream in the media helpers.
 futures-util = "0.3"
-matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", optional = true, features = ["experimental-send-custom-to-device"] }
-matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", optional = true }
-
 [target.'cfg(target_os = "android")'.dependencies]
+# For the `android::initialize_android` re-export's signature; unifies with
+# the jni version libwebrtc itself uses.
 jni = "0.21"
 
 [features]
-matrix-sdk = ["matrix-rtc-bridge/matrix-sdk", "dep:matrix-sdk", "dep:matrix-sdk-ui", "matrix-sdk-ui/unstable-msc4354"]
-testing = ["matrix-sdk?/testing"]
+# Exposes the test-only parts of the `media` module (tone generator, Goertzel
+# frequency detector) for `matrix-rtc-call-sdk`'s examples and integration
+# tests; recording/WAV helpers in that module are shipped API and need no
+# feature. Otherwise the test-only parts compile only under `cfg(test)`.
+testing = []

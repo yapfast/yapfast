@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.85"
 name = "tungstenite"
-version = "0.26.2"
+version = "0.30.0"
 authors = [
     "Alexey Galakhov",
     "Daniel Abramov",
@@ -34,7 +34,7 @@ autotests = false
 autobenches = false
 description = "Lightweight stream-based WebSocket implementation"
 homepage = "https://github.com/snapview/tungstenite-rs"
-documentation = "https://docs.rs/tungstenite/0.26.2"
+documentation = "https://docs.rs/tungstenite/0.30.0"
 readme = "README.md"
 keywords = [
     "websocket",
@@ -51,8 +51,32 @@ repository = "https://github.com/snapview/tungstenite-rs"
 [package.metadata.docs.rs]
 all-features = true
 
-[profile.bench]
-lto = "thin"
+[features]
+__rustls-tls = [
+    "rustls",
+    "rustls-pki-types",
+]
+default = ["handshake"]
+handshake = [
+    "data-encoding",
+    "http",
+    "httparse",
+    "sha1",
+]
+native-tls = ["native-tls-crate"]
+native-tls-vendored = [
+    "native-tls",
+    "native-tls-crate/vendored",
+]
+rustls-tls-native-roots = [
+    "__rustls-tls",
+    "rustls-native-certs",
+]
+rustls-tls-webpki-roots = [
+    "__rustls-tls",
+    "webpki-roots",
+]
+url = ["dep:url"]
 
 [lib]
 name = "tungstenite"
@@ -94,6 +118,12 @@ path = "benches/buffer.rs"
 harness = false
 
 [[bench]]
+name = "e2e"
+path = "benches/e2e.rs"
+harness = false
+required-features = ["handshake"]
+
+[[bench]]
 name = "read"
 path = "benches/read.rs"
 harness = false
@@ -127,7 +157,7 @@ optional = true
 package = "native-tls"
 
 [dependencies.rand]
-version = "0.9.0"
+version = "0.10.2"
 
 [dependencies.rustls]
 version = "0.23.0"
@@ -144,7 +174,7 @@ version = "1.0"
 optional = true
 
 [dependencies.sha1]
-version = "0.10"
+version = "0.11.0"
 optional = true
 
 [dependencies.thiserror]
@@ -154,15 +184,12 @@ version = "2.0.7"
 version = "2.1.0"
 optional = true
 
-[dependencies.utf-8]
-version = "0.7.5"
-
 [dependencies.webpki-roots]
 version = "0.26"
 optional = true
 
 [dev-dependencies.criterion]
-version = "0.5.0"
+version = "0.6"
 
 [dev-dependencies.env_logger]
 version = "0.11"
@@ -171,34 +198,10 @@ version = "0.11"
 version = "0.5.0"
 
 [dev-dependencies.rand]
-version = "0.9.0"
+version = "0.10.2"
 
 [dev-dependencies.socket2]
-version = "0.5.5"
+version = "0.6.0"
 
-[features]
-__rustls-tls = [
-    "rustls",
-    "rustls-pki-types",
-]
-default = ["handshake"]
-handshake = [
-    "data-encoding",
-    "http",
-    "httparse",
-    "sha1",
-]
-native-tls = ["native-tls-crate"]
-native-tls-vendored = [
-    "native-tls",
-    "native-tls-crate/vendored",
-]
-rustls-tls-native-roots = [
-    "__rustls-tls",
-    "rustls-native-certs",
-]
-rustls-tls-webpki-roots = [
-    "__rustls-tls",
-    "webpki-roots",
-]
-url = ["dep:url"]
+[profile.bench]
+lto = "thin"

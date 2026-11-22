@@ -45,3 +45,7 @@ Several hops per network call, marked `Yapfast:` too:
 
 Update by copying a newer commit's `libDF` over these and porting the changes
 again.
+
+Dependency cleanup: the `rust-ini` dependency is named `ini`, matching its Rust
+imports. Unused direct `rustfft`, `ctrlc` and `console_error_panic_hook`
+dependencies are removed; `getrandom` is retained for the wasm entropy backend.

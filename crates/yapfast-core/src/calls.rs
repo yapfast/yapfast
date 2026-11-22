@@ -6,14 +6,14 @@ use futures_util::StreamExt;
 use livekit::{
     RoomEvent,
     options::TrackPublishOptions,
-    prelude::{LocalAudioTrack, LocalTrack, RemoteTrack, RtcAudioSource, TrackSource},
+    prelude::{LocalAudioTrack, RemoteTrack, RtcAudioSource, TrackSource},
     webrtc::{
         audio_source::{AudioSourceOptions, native::NativeAudioSource},
         audio_stream::native::NativeAudioStream,
         prelude::AudioFrame,
     },
 };
-use matrix_rtc_livekit::{Call, CallOptions};
+use matrix_rtc_call_sdk::{LiveKitCall, LiveKitCallOptions};
 use matrix_sdk::Room;
 use serde::Serialize;
 use std::{borrow::Cow, collections::BTreeMap, time::Duration};
@@ -76,7 +76,7 @@ async fn experiment(
     for room in &rooms {
         require_trusted_encrypted_room(room).await?;
     }
-    matrix_rtc_livekit::open_slot(
+    matrix_rtc_call_sdk::open_slot(
         &rooms[0].client(),
         rooms[0].room_id().as_str(),
         "m.call#ROOM",
@@ -125,21 +125,33 @@ pub(crate) async fn require_trusted_encrypted_room(room: &Room) -> Result<()> {
     Ok(())
 }
 
-fn local_options() -> CallOptions {
-    CallOptions {
-        livekit_service_url_fallback: Some("http://localhost:16080".into()),
+fn local_options() -> LiveKitCallOptions {
+    LiveKitCallOptions {
+        slot_id: "m.call#ROOM".into(),
+        livekit_transport: Some(matrix_rtc_core::LiveKitTransport::service(
+            "http://localhost:16080",
+        )),
         ..Default::default()
     }
 }
 
-async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<ExperimentReport> {
-    calls.push(Call::join(&rooms[0], local_options()).await.map_err(|_| {
-        anyhow::anyhow!("first RTC join failed; check sticky events, slot state and authorization")
-    })?);
+async fn experiment_audio(
+    rooms: &[Room],
+    calls: &mut Vec<LiveKitCall>,
+) -> Result<ExperimentReport> {
+    calls.push(
+        LiveKitCall::join(&rooms[0], local_options())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "first RTC join failed; check sticky events, slot state and authorization"
+                )
+            })?,
+    );
     println!("Call experiment: first participant waiting alone.");
     tokio::time::sleep(Duration::from_secs(3)).await;
     calls.push(
-        Call::join(&rooms[1], local_options())
+        LiveKitCall::join(&rooms[1], local_options())
             .await
             .map_err(|_| anyhow::anyhow!("second RTC join failed"))?,
     );
@@ -166,7 +178,8 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
 
     // Negative control: replace Bob's Alice key, leaving the media path running.
     let alice_identity = calls[0].local_identity().to_owned().into();
-    let manager = calls[1].session().room().e2ee_manager();
+    let bob_session = calls[1].session();
+    let manager = bob_session.room().e2ee_manager();
     let provider = manager
         .key_provider()
         .context("no frame encryption key provider")?;
@@ -205,7 +218,7 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
     println!("PASS: an incorrect receiver key blocks decoding; restoring the key restores audio.");
 
     calls.push(
-        Call::join(&rooms[2], local_options())
+        LiveKitCall::join(&rooms[2], local_options())
             .await
             .map_err(|_| anyhow::anyhow!("third RTC join failed"))?,
     );
@@ -288,7 +301,7 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
     })
 }
 
-async fn wait_for_keys(first: &Call, second: &Call) -> Result<()> {
+async fn wait_for_keys(first: &LiveKitCall, second: &LiveKitCall) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(25), async {
         loop {
             if first.imported_key_for(second.local_identity())
@@ -305,7 +318,9 @@ async fn wait_for_keys(first: &Call, second: &Call) -> Result<()> {
     )
 }
 
-fn sender_cryptor(call: &Call) -> Result<livekit::webrtc::native::frame_cryptor::FrameCryptor> {
+fn sender_cryptor(
+    call: &LiveKitCall,
+) -> Result<livekit::webrtc::native::frame_cryptor::FrameCryptor> {
     call.session()
         .room()
         .e2ee_manager()
@@ -315,7 +330,7 @@ fn sender_cryptor(call: &Call) -> Result<livekit::webrtc::native::frame_cryptor:
         .context("the publisher has no frame cryptor")
 }
 
-async fn wait_for_members(calls: &[Call], count: usize) -> Result<()> {
+async fn wait_for_members(calls: &[LiveKitCall], count: usize) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let mut matches = true;
@@ -339,14 +354,14 @@ impl Drop for Tone {
     }
 }
 
-pub(crate) async fn publish_tone(call: &Call, frequency: f64) -> Result<Tone> {
+pub(crate) async fn publish_tone(call: &LiveKitCall, frequency: f64) -> Result<Tone> {
     publish_tone_while(call, frequency, true, || true).await
 }
 
 /// Publishes the tone only while `speaking()` holds and digital silence otherwise,
 /// like a voice-activation gate. `dtx` is LiveKit's Opus silence-suppression request.
 pub(crate) async fn publish_tone_while(
-    call: &Call,
+    call: &LiveKitCall,
     frequency: f64,
     dtx: bool,
     speaking: impl Fn() -> bool + Send + 'static,
@@ -356,18 +371,15 @@ pub(crate) async fn publish_tone_while(
         "Yapfast synthetic test",
         RtcAudioSource::Native(source.clone()),
     );
-    call.session()
-        .room()
-        .local_participant()
-        .publish_track(
-            LocalTrack::Audio(track),
-            TrackPublishOptions {
-                source: TrackSource::Microphone,
-                dtx,
-                ..Default::default()
-            },
-        )
-        .await?;
+    call.publish_audio_track(
+        track,
+        TrackPublishOptions {
+            source: TrackSource::Microphone,
+            dtx,
+            ..Default::default()
+        },
+    )
+    .await?;
     Ok(Tone(tokio::spawn(async move {
         let mut phase: f64 = 0.0;
         let step = std::f64::consts::TAU * frequency / 48_000.0;
@@ -402,7 +414,7 @@ pub(crate) async fn publish_tone_while(
     })))
 }
 
-async fn subscribed_audio(call: &mut Call) -> Result<NativeAudioStream> {
+async fn subscribed_audio(call: &mut LiveKitCall) -> Result<NativeAudioStream> {
     tokio::time::timeout(Duration::from_secs(15), async {
         while let Some(event) = call.events().recv().await {
             if let RoomEvent::TrackSubscribed {
@@ -451,7 +463,7 @@ async fn tone_energy(stream: &mut NativeAudioStream, frequency: f64) -> Result<f
 
 pub fn check_native_build() {
     // Exercise both crates' public APIs so the native stack is linked in the smoke test.
-    let _ = matrix_rtc_livekit::CallOptions::default();
+    let _ = matrix_rtc_call_sdk::LiveKitCallOptions::default();
     let _ = livekit::RoomOptions::default();
     // Allocate a synthetic source to verify the C++ bindings without microphone access.
     let _ = livekit::webrtc::audio_source::native::NativeAudioSource::new(

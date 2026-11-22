@@ -29,8 +29,10 @@ rustPlatform.buildRustPackage {
     # One crate per Git repository and commit; update a hash with the commit.
     outputHashes = {
       "const_panic-0.2.15" = "sha256-zEmo8lKncnNhn2LL5aRT95AZD/LqjmNcRg2qTKXLcic=";
-      "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
-      "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";
+      "matrix-rtc-call-0.5.0" = "sha256-wXxwQ1xIpdvchec9+Scr3lNQwD5mRsjj50OFF2MU9rA=";
+      "matrix-sdk-0.19.1" = "sha256-5mBDl913e49ZPY/zcK3NqjuatH+6yyq8qA7yO7/9F/c=";
+      "openmls-0.9.0" = "sha256-fNC5L4IV/7qmcNjcJiO1P8TYGLhokLzVdZbT6D9Nox4=";
+      "ruma-0.17.0" = "sha256-bs/aoJb9PW5vrGhbduc38dnRv3KLGxPX+jD0r3sJheo=";
     };
   };
   buildNoDefaultFeatures = true;

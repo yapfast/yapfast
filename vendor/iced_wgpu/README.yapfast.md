@@ -24,3 +24,5 @@ Changes, marked `Yapfast port` in the source:
   on. The client's build has both renderers, and iced's choice between
   them reads only `ICED_BACKEND`; off by default, a CPU start and the
   tests never start a GPU.
+
+The unused direct dependencies `bitflags`, `futures` and `glam` are removed.

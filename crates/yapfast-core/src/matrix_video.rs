@@ -16,8 +16,8 @@ use livekit::{
         video_stream::native::NativeVideoStream,
     },
 };
-use matrix_rtc_livekit::Call;
-use matrix_rtc_media::{Dimensions, MediaConstraints, MediaStreamKind, VideoDetail};
+use matrix_rtc_call_sdk::LiveKitCall;
+use matrix_rtc_transport::{Dimensions, MediaConstraints, MediaStreamKind, VideoDetail};
 use tokio::{sync::Notify, task::JoinHandle};
 
 use crate::{
@@ -91,7 +91,7 @@ impl Filming {
 
     /// Keeps the camera [`Self::open`] opened, and sends the track: published
     /// the first time, and unmuted after.
-    pub async fn opened(&mut self, call: &Call, camera: Camera) -> Result<()> {
+    pub async fn opened(&mut self, call: &LiveKitCall, camera: Camera) -> Result<()> {
         self.camera = Some(camera);
         if self.published {
             self.track.unmute();
@@ -209,7 +209,7 @@ impl Watching {
 
     /// Asks the server for each camera at the size its tile shows, and
     /// pauses those out of sight. `members` maps identities to member ids.
-    pub fn constrain_all(&self, call: &Call, members: &HashMap<String, String>) {
+    pub fn constrain_all(&self, call: &LiveKitCall, members: &HashMap<String, String>) {
         for (identity, (feed, _)) in &self.cameras {
             if let Some(member) = members.get(identity) {
                 constrain(call, member, feed);
@@ -226,7 +226,7 @@ impl Drop for Watching {
     }
 }
 
-fn constrain(call: &Call, member: &str, feed: &Feed) {
+fn constrain(call: &LiveKitCall, member: &str, feed: &Feed) {
     let shown = feed.shown_at();
     call.set_constraints(
         member,

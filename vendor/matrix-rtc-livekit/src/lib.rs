@@ -10,28 +10,29 @@
 //! deliberately a **native-only** crate (the LiveKit client pulls in
 //! `libwebrtc`) and is responsible for:
 //!
-//! - exchanging a Matrix OpenID token for a LiveKit JWT via the authorisation
-//!   service ([`token`]);
-//! - deriving the MSC4195 `livekit_alias` and pseudonymous participant identity
+//! - obtaining a LiveKit JWT through the flow the transport selects: the
+//!   legacy JWT service's `/sfu/get` ([`token`]) or the homeserver's MSC4195
+//!   `get_token`, through the host's backend;
+//! - deriving the MSC4195 `livekit_alias` and participant identities
 //!   ([`identity`]);
 //! - connecting to the SFU with per-participant GCM frame E2EE ([`session`],
 //!   [`connect_e2ee`]);
 //! - bridging `matrix-rtc-core`'s media keys into LiveKit frame encryption
 //!   ([`keys`]).
 //!
-//! Everything Matrix-side — feeding the core from a `matrix_sdk::Client`, and
-//! translating the pre-2026 Element Call wire dialects — belongs to
-//! [`matrix_rtc_bridge`] instead, which knows nothing about LiveKit. With the
-//! `matrix-sdk` feature, [`call::Call`] composes that bridge with this
-//! transport into a join/leave facade — start there.
+//! It implements `matrix-rtc-transport`'s contract
+//! ([`LiveKitMediaTransport`]) and knows no call: the call's roster, attaching
+//! this transport to a joined call, and the `LiveKitCall` join/leave facade
+//! are `matrix-rtc-call-sdk`'s, behind its `livekit` and `matrix-sdk`
+//! features — start there.
 //!
 //! [`matrix-rtc-core`]: matrix_rtc_core
 
 // The pure control plane — hash derivations, token shapes, dialect choices —
-// lives in `matrix-rtc-livekit-proto`, which the web binding shares; this crate
+// lives in `matrix_rtc_transport::livekit`, which the web binding shares; this crate
 // re-exports it under the paths it always had.
-pub use matrix_rtc_livekit_proto::identity;
-pub use matrix_rtc_livekit_proto::{LiveKitTransportConfig, TokenEndpoint, identity_mapper};
+pub use matrix_rtc_transport::livekit::identity;
+pub use matrix_rtc_transport::livekit::{LiveKitTarget, LiveKitTransportConfig, identity_mapper};
 
 pub mod keys;
 // Audio helpers. Recording a subscribed track and writing WAVs is shipped API
@@ -41,30 +42,23 @@ pub mod media;
 pub mod session;
 pub mod token;
 pub mod transport_impl;
-
-#[cfg(feature = "matrix-sdk")]
-pub mod call;
-
-// Interop with MatrixRTC implementations that predate the 2026 MSC4143 rewrite.
-// Scaffolding with a delete-by date; nothing else should depend on it. Lives in
-// `matrix-rtc-bridge` (it is pure Matrix wire translation, with no LiveKit in
-// it), and is re-exported because `CallOptions::element_call_compat` names
-// `ElementCallCompat` in this crate's own public API.
-pub use matrix_rtc_bridge::compat;
+pub mod video_encoding;
 
 pub use keys::{
-    KeyDiscardListener, KeyImportListener, LocalKeyIndexHook, MediaKeyBridge, NATIVE_KEY_RING_MAX,
-    ParticipantKey, SwitchCompleteListener, msc4195_key_provider, msc4195_key_provider_options,
+    ConnectionKeyProvider, KeyDiscardListener, KeyImportListener, LocalKeyIndexHook,
+    MediaKeyBridge, Msc4195KeyProviders, NATIVE_KEY_RING_MAX, ParticipantKey,
+    SwitchCompleteListener, msc4195_key_provider, msc4195_key_provider_options,
     msc4195_media_key_bridge,
 };
 pub use session::{LiveKitConnection, LiveKitSession};
-pub use token::{MemberClaims, SfuToken};
+pub use token::SfuToken;
 // The OpenID token is a Client-Server API concern, so it belongs to the bridge.
 // Re-exported because `LiveKitTransportConfig` and `connect`/`connect_e2ee` name
 // these in this crate's own signatures — a host implementing the token source
 // should not need a second dependency to do it.
-pub use matrix_rtc_bridge::{OpenIdToken, OpenIdTokenError, OpenIdTokenSource};
+pub use matrix_rtc_core::{LiveKitTokenRequest, MatrixBackend, OpenIdToken};
 pub use transport_impl::{LiveKitMediaTransport, LiveKitTransportConnection};
+pub use video_encoding::supported_video_codecs;
 
 /// Android initialisation, re-exported so consumers (e.g. the FFI crate)
 /// don't need a direct `livekit`/`libwebrtc` dependency for it.
@@ -77,63 +71,79 @@ pub mod android {
     }
 }
 
-#[cfg(feature = "matrix-sdk")]
-pub use call::{Call, CallError, CallOptions, discover_livekit_transport, open_slot};
-// The SDK-backed bridge itself lives in `matrix-rtc-bridge`; re-exported so a
-// host driving a call keeps one dependency.
-#[cfg(feature = "matrix-sdk")]
-pub use matrix_rtc_bridge::{SdkCommandSender, run_membership_bridge};
-
-/// Obtain a fresh OpenID token and exchange it for an SFU JWT.
+/// Obtain an SFU token through the flow the target's transport selects: an
+/// OpenID token exchanged at the legacy JWT service's `/sfu/get`, or the
+/// homeserver's MSC4195 `get_token` through the host.
 ///
-/// The one place the token dialect is chosen, so the two `connect` entry points
-/// cannot drift apart.
-async fn acquire_token(
+/// The one place the flow is acted on, so the two `connect` entry points
+/// cannot drift apart. There is no fallback between the flows: each mints a
+/// different participant identity, and peers map us by the one our published
+/// transport implies.
+pub(crate) async fn acquire_token(
     http: &reqwest::Client,
     config: &LiveKitTransportConfig,
-    token_source: &dyn OpenIdTokenSource,
+    backend: &dyn MatrixBackend,
 ) -> Result<SfuToken, Error> {
-    let openid_token = token_source.open_id_token().await?;
-    match config.token_endpoint {
-        TokenEndpoint::Msc4195 => {
-            token::get_token(
+    match &config.target {
+        // `room` is the room id, because that is the `livekit_alias` this
+        // generation announces on a focus; the two must agree or the clients
+        // land in different LiveKit rooms. See
+        // `compat::room_state::RoomStateDialect::member_content`.
+        LiveKitTarget::SfuGet { service_url } => {
+            let openid_token = backend.openid_token().await?;
+            token::get_legacy_token(
                 http,
-                &config.livekit_service_url,
+                service_url,
                 &config.room_id,
-                &config.slot_id,
-                &config.member,
+                &config.device_id,
                 &openid_token,
             )
             .await
         }
-        // `room` is the room id, because that is the `livekit_alias` this
-        // generation announces on a focus; the two must agree or the clients land
-        // in different LiveKit rooms. See
-        // `compat::element_call_state::ElementCallStateDialect::member_content`.
-        TokenEndpoint::LegacyElementCall => {
-            token::get_legacy_token(
-                http,
-                &config.livekit_service_url,
-                &config.room_id,
-                &config.member.claimed_device_id,
-                &openid_token,
-            )
-            .await
+        LiveKitTarget::CsApi { url, server_name } => {
+            let request = LiveKitTokenRequest {
+                server_name: Some(server_name.clone()),
+                url: url.clone(),
+                room_id: config.room_id.clone(),
+                slot_id: config.slot_id.clone(),
+                member_id: config.member_id.clone(),
+            };
+            log::debug!(
+                "[{}/{}] requesting an SFU token for {url} from the homeserver ({server_name})",
+                config.room_id,
+                config.slot_id
+            );
+            let jwt = backend
+                .livekit_token(&request)
+                .await
+                .inspect_err(|error| {
+                    log::warn!("homeserver SFU token request for {url} failed: {error}");
+                })
+                .map_err(|error| {
+                    if error.is_unrecognized_endpoint() {
+                        Error::TokenEndpointUnsupported(error)
+                    } else {
+                        Error::Backend(error)
+                    }
+                })?;
+            Ok(SfuToken {
+                jwt,
+                url: url.clone(),
+            })
         }
     }
 }
 
 /// Connect to the LiveKit SFU for a MatrixRTC slot.
 ///
-/// Performs the full MSC4195 flow: obtain a Matrix OpenID token from the host
-/// (`token_source`), exchange it for an SFU JWT at the authorisation service,
-/// and connect to the returned SFU URL. The connection is subscribe-only.
+/// Obtains an SFU token through the target's flow (see [`acquire_token`]'s
+/// callers) and connects to the SFU. The connection is subscribe-only.
 pub async fn connect(
     http: &reqwest::Client,
     config: &LiveKitTransportConfig,
-    token_source: &dyn OpenIdTokenSource,
+    backend: &dyn MatrixBackend,
 ) -> Result<LiveKitConnection, Error> {
-    let sfu_token = acquire_token(http, config, token_source).await?;
+    let sfu_token = acquire_token(http, config, backend).await?;
     LiveKitSession::connect(&sfu_token).await
 }
 
@@ -151,18 +161,31 @@ pub async fn connect(
 pub async fn connect_e2ee(
     http: &reqwest::Client,
     config: &LiveKitTransportConfig,
-    token_source: &dyn OpenIdTokenSource,
+    backend: &dyn MatrixBackend,
     key_provider: livekit::e2ee::key_provider::KeyProvider,
     auto_subscribe: bool,
 ) -> Result<LiveKitConnection, Error> {
+    let sfu_token = acquire_token(http, config, backend).await?;
+    LiveKitSession::connect_with_options(
+        &sfu_token,
+        room_options(Some(key_provider), auto_subscribe),
+    )
+    .await
+}
+
+/// The room options of a connection: GCM frame encryption through
+/// `key_provider` when there is one (none in a room whose encryption is off,
+/// spec 038 R11), dynacast, and `auto_subscribe` as given.
+pub(crate) fn room_options(
+    key_provider: Option<livekit::e2ee::key_provider::KeyProvider>,
+    auto_subscribe: bool,
+) -> livekit::RoomOptions {
     use livekit::RoomOptions;
     use livekit::e2ee::{E2eeOptions, EncryptionType};
 
-    let sfu_token = acquire_token(http, config, token_source).await?;
-
     // RoomOptions is #[non_exhaustive]; mutate a default instance.
     let mut options = RoomOptions::default();
-    options.encryption = Some(E2eeOptions {
+    options.encryption = key_provider.map(|key_provider| E2eeOptions {
         encryption_type: EncryptionType::Gcm,
         key_provider,
     });
@@ -170,11 +193,11 @@ pub async fn connect_e2ee(
     // are actually subscribed and unneeded ones stop being encoded.
     options.dynacast = true;
     options.auto_subscribe = auto_subscribe;
-    // Yapfast: one peer connection for publishing and subscribing. With two, the
-    // subscriber connection took about a second longer to connect on every join.
-    // The SDK falls back to two connections on servers without support.
-    options.single_peer_connection = true;
-    LiveKitSession::connect_with_options(&sfu_token, options).await
+    // Two peer connections per SFU, as before livekit 0.7.51 made one the
+    // default: in single-PC mode, remote video arriving on the connection we
+    // also publish on decodes but never reaches its track's sink (black tiles).
+    options.single_peer_connection = false;
+    options
 }
 
 /// Errors produced by the LiveKit transport.
@@ -187,11 +210,16 @@ pub enum Error {
     /// The authorisation service rejected the request or answered with a body
     /// that does not decode.
     #[error(transparent)]
-    Service(#[from] matrix_rtc_livekit_proto::TokenServiceError),
+    Service(#[from] matrix_rtc_transport::livekit::TokenServiceError),
 
-    /// Obtaining the Matrix OpenID token from the host failed.
+    /// The host failed to obtain the OpenID token, or the homeserver's SFU
+    /// token.
     #[error(transparent)]
-    OpenIdToken(#[from] OpenIdTokenError),
+    Backend(#[from] matrix_rtc_core::BackendError),
+
+    /// Our homeserver lacks MSC4195's `get_token` (spec 038 R44).
+    #[error("the homeserver does not support MSC4195 get_token: {0}")]
+    TokenEndpointUnsupported(matrix_rtc_core::BackendError),
 
     /// Connecting to or operating the LiveKit SFU room failed.
     #[error("LiveKit room error: {0}")]

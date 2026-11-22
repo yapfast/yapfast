@@ -18,7 +18,7 @@ fn update_reports() -> Result<()> {
 }
 
 fn run_test(case: u32) -> Result<()> {
-    info!("Running test case {}", case);
+    info!("Running test case {case}");
     let case_url = format!("ws://localhost:9001/runCase?case={case}&agent={AGENT}");
     let (mut socket, _) = connect(case_url)?;
     loop {
@@ -39,8 +39,8 @@ fn main() {
     for case in 1..=total {
         if let Err(e) = run_test(case) {
             match e {
-                Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8 => (),
-                err => error!("test: {}", err),
+                Error::ConnectionClosed | Error::Protocol(_) | Error::Utf8(_) => (),
+                err => error!("test: {err}"),
             }
         }
     }

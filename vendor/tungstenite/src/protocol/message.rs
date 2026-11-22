@@ -6,14 +6,14 @@ use crate::{
 use std::{fmt, result::Result as StdResult, str};
 
 mod string_collect {
-    use utf8::DecodeError;
+    use crate::utf8::DecodeError;
 
     use crate::error::{Error, Result};
 
     #[derive(Debug)]
     pub struct StringCollector {
         data: String,
-        incomplete: Option<utf8::Incomplete>,
+        incomplete: Option<crate::utf8::Incomplete>,
     }
 
     impl StringCollector {
@@ -31,12 +31,13 @@ mod string_collect {
             let mut input: &[u8] = tail.as_ref();
 
             if let Some(mut incomplete) = self.incomplete.take() {
-                if let Some((result, rest)) = incomplete.try_complete(input) {
-                    input = rest;
-                    if let Ok(text) = result {
-                        self.data.push_str(text);
-                    } else {
-                        return Err(Error::Utf8);
+                if let Some(completed) = incomplete.try_complete(input) {
+                    input = completed.remaining_input;
+                    match completed.result {
+                        Ok(text) => self.data.push_str(text),
+                        Err(result_bytes) => {
+                            return Err(Error::Utf8(String::from_utf8_lossy(result_bytes).into()))
+                        }
                     }
                 } else {
                     input = &[];
@@ -45,7 +46,7 @@ mod string_collect {
             }
 
             if !input.is_empty() {
-                match utf8::decode(input) {
+                match crate::utf8::decode(input) {
                     Ok(text) => {
                         self.data.push_str(text);
                         Ok(())
@@ -55,9 +56,9 @@ mod string_collect {
                         self.incomplete = Some(incomplete_suffix);
                         Ok(())
                     }
-                    Err(DecodeError::Invalid { valid_prefix, .. }) => {
+                    Err(DecodeError::Invalid { valid_prefix, invalid_sequence, .. }) => {
                         self.data.push_str(valid_prefix);
-                        Err(Error::Utf8)
+                        Err(Error::Utf8(String::from_utf8_lossy(invalid_sequence).into()))
                     }
                 }
             } else {
@@ -66,8 +67,8 @@ mod string_collect {
         }
 
         pub fn into_string(self) -> Result<String> {
-            if self.incomplete.is_some() {
-                Err(Error::Utf8)
+            if let Some(incomplete) = self.incomplete {
+                Err(Error::Utf8(format!("incomplete string: {incomplete:?}")))
             } else {
                 Ok(self.data)
             }
@@ -92,13 +93,11 @@ enum IncompleteMessageCollector {
 
 impl IncompleteMessage {
     /// Create new.
-    pub fn new(message_type: IncompleteMessageType) -> Self {
+    pub fn new(message_type: MessageType) -> Self {
         IncompleteMessage {
             collector: match message_type {
-                IncompleteMessageType::Binary => IncompleteMessageCollector::Binary(Vec::new()),
-                IncompleteMessageType::Text => {
-                    IncompleteMessageCollector::Text(StringCollector::new())
-                }
+                MessageType::Binary => IncompleteMessageCollector::Binary(Vec::new()),
+                MessageType::Text => IncompleteMessageCollector::Text(StringCollector::new()),
             },
         }
     }
@@ -115,7 +114,7 @@ impl IncompleteMessage {
     pub fn extend<T: AsRef<[u8]>>(&mut self, tail: T, size_limit: Option<usize>) -> Result<()> {
         // Always have a max size. This ensures an error in case of concatenating two buffers
         // of more than `usize::max_value()` bytes in total.
-        let max_size = size_limit.unwrap_or_else(usize::max_value);
+        let max_size = size_limit.unwrap_or(usize::MAX);
         let my_size = self.len();
         let portion_size = tail.as_ref().len();
         // Be careful about integer overflows here.
@@ -148,7 +147,7 @@ impl IncompleteMessage {
 }
 
 /// The type of incomplete message.
-pub enum IncompleteMessageType {
+pub enum MessageType {
     Text,
     Binary,
 }
@@ -234,7 +233,7 @@ impl Message {
         self.len() == 0
     }
 
-    /// Consume the WebSocket and return it as binary data.
+    /// Consume the WebSocket message and return it as binary data.
     pub fn into_data(self) -> Bytes {
         match self {
             Message::Text(utf8) => utf8.into(),
@@ -294,6 +293,12 @@ impl<'b> From<&'b [u8]> for Message {
     }
 }
 
+impl From<Bytes> for Message {
+    fn from(data: Bytes) -> Self {
+        Message::binary(data)
+    }
+}
+
 impl From<Vec<u8>> for Message {
     #[inline]
     fn from(data: Vec<u8>) -> Self {
@@ -335,6 +340,14 @@ mod tests {
     fn binary_convert() {
         let bin = [6u8, 7, 8, 9, 10, 241];
         let msg = Message::from(&bin[..]);
+        assert!(msg.is_binary());
+        assert!(msg.into_text().is_err());
+    }
+
+    #[test]
+    fn binary_convert_bytes() {
+        let bin = Bytes::from_iter([6u8, 7, 8, 9, 10, 241]);
+        let msg = Message::from(bin);
         assert!(msg.is_binary());
         assert!(msg.into_text().is_err());
     }

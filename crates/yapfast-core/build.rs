@@ -20,6 +20,12 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
+    println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    // This build script can run before webrtc-sys has downloaded its headers.
+    // Use the helper's shared download lock rather than depending on build order.
+    if webrtc_sys_build::custom_dir().is_none() {
+        webrtc_sys_build::download_webrtc().expect("could not prepare WebRTC headers");
+    }
     let include = webrtc_sys_build::webrtc_dir().join("include");
     let third_party = include.join("third_party");
     let mut picture = cc::Build::new();

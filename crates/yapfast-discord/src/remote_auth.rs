@@ -18,7 +18,8 @@ use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use futures_util::{SinkExt, StreamExt};
-use rsa::{Oaep, RsaPrivateKey, pkcs8::EncodePublicKey, rand_core::OsRng};
+use rand::rngs::SysRng;
+use rsa::{Oaep, PrivateKey, pkcs8::EncodePublicKey};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio_tungstenite::tungstenite::{
@@ -78,7 +79,7 @@ impl std::error::Error for Stopped {}
 /// when the code expired or the person said no.
 pub async fn link(mut step: impl FnMut(Step)) -> Result<String> {
     Api::anonymous()?.learn_build_number().await;
-    let key = tokio::task::spawn_blocking(|| RsaPrivateKey::new(&mut OsRng, KEY_BITS))
+    let key = tokio::task::spawn_blocking(|| PrivateKey::new(&mut SysRng, KEY_BITS))
         .await?
         .context("could not make a key to link with")?;
     let public = key
@@ -224,7 +225,7 @@ fn text(value: Value) -> Message {
 }
 
 /// Something Discord encrypted to the key, from base64.
-fn decrypt(key: &RsaPrivateKey, encrypted: &Value) -> Result<Vec<u8>> {
+fn decrypt(key: &PrivateKey, encrypted: &Value) -> Result<Vec<u8>> {
     let encrypted = STANDARD
         .decode(
             encrypted
@@ -232,11 +233,11 @@ fn decrypt(key: &RsaPrivateKey, encrypted: &Value) -> Result<Vec<u8>> {
                 .context("Discord's login service sent nothing to read")?,
         )
         .context("could not read Discord's login service")?;
-    key.decrypt(Oaep::new::<Sha256>(), &encrypted)
+    key.decrypt(Oaep::<Sha256>::new(), &encrypted)
         .map_err(|_| anyhow!("could not read what Discord's login service sent"))
 }
 
-fn login(key: &RsaPrivateKey, encrypted: &Value) -> Result<String> {
+fn login(key: &PrivateKey, encrypted: &Value) -> Result<String> {
     let token = String::from_utf8(decrypt(key, encrypted)?)
         .context("Discord's login service sent a login Yapfast can't read")?;
     if token.is_empty() || token.contains(char::is_whitespace) {
@@ -279,10 +280,10 @@ mod tests {
 
     #[test]
     fn decrypts_what_discord_encrypted_to_the_key() {
-        let key = RsaPrivateKey::new(&mut OsRng, 1024).unwrap();
+        let key = PrivateKey::new(&mut SysRng, 1024).unwrap();
         let sealed = key
             .to_public_key()
-            .encrypt(&mut OsRng, Oaep::new::<Sha256>(), b"yapfast-token")
+            .encrypt(&mut SysRng, Oaep::<Sha256>::new(), b"yapfast-token")
             .unwrap();
         let sealed = Value::String(STANDARD.encode(sealed));
         assert_eq!(login(&key, &sealed).unwrap(), "yapfast-token");

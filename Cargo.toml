@@ -2,14 +2,14 @@
 name = "yapfast"
 version = "0.4.1"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.100"
 publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
 members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit", "testing/hosts"]
 default-members = ["."]
-exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
+exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src", "vendor/matrix-rtc-call-sdk"]
 resolver = "3"
 
 # Lints beyond Clippy's defaults, for every crate in the workspace. scripts/check
@@ -79,7 +79,7 @@ tracing.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"], optional = true }
 rustls = { workspace = true, optional = true }
 # Checks a downloaded release against the SHA256SUMS.txt it was published with.
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.11", optional = true }
 # Checks the minisign signature on those sums, with the keys in packaging/keys.
 minisign-verify = { version = "0.3", optional = true }
 # The window's handles, which bringing it forward, following a drag over it
@@ -132,14 +132,17 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 directories = "6"
 futures-util = "0.3"
 keyring = "=4.2.0"
-livekit = { version = "=0.7.48", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+livekit = { version = "=0.9.7", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
 # Keep this SDK source and revision identical to matrix-rust-rtc's workspace pin.
-matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = ["bundled-sqlite", "markdown"] }
-matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = ["unstable-msc4354"] }
-matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd" }
-matrix-rtc-livekit = { path = "vendor/matrix-rtc-livekit", features = ["matrix-sdk"] }
-matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
-matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
+matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d", features = ["bundled-sqlite", "markdown"] }
+matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d", features = ["unstable-msc4354"] }
+matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d" }
+
+matrix-rtc-call = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+matrix-rtc-call-sdk = { path = "vendor/matrix-rtc-call-sdk", features = ["matrix-sdk"] }
+matrix-rtc-transport = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

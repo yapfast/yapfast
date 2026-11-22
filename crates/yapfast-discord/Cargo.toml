@@ -2,7 +2,7 @@
 name = "yapfast-discord"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.100"
 publish = false
 license = "GPL-3.0-or-later"
 
@@ -21,13 +21,13 @@ chrono.workspace = true
 aes-gcm = "0.10.3"
 chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
 davey = "0.1.4"
-rand = "0.9"
+rand = "0.10"
 # Linking by QR code: Discord's remote login encrypts what it sends with the
 # client's RSA key, OAEP with SHA-256.
-rsa = { version = "0.9", features = ["getrandom"] }
-sha2 = "0.10"
+rsa = { version = "0.10", features = ["getrandom"] }
+sha2 = "0.11"
 anyhow.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 # The gateway's zlib-stream compression, as the web client asks for it.
 flate2 = "1"
 futures-util.workspace = true
@@ -42,18 +42,18 @@ rustls.workspace = true
 rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
-sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 tempfile.workspace = true
 # The voice gateway's messages, DAVE's among them.
 serenity-voice-model = "0.3"
-tokio = { workspace = true, features = ["macros", "signal", "io-util", "fs"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "signal"] }
 # The voice gateway.
-tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "__rustls-tls"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["__rustls-tls", "connect"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 # Links Yapfast's libwebrtc archive, whose libopus calls use.
-webrtc-sys = "=0.3.35"
+webrtc-sys = "=0.3.54"
 
 # The Rich Presence socket's lock opens with O_NOFOLLOW, whose value differs
 # from one processor to another.
@@ -62,6 +62,6 @@ libc = "0.2.189"
 
 [dev-dependencies]
 # Building DAVE handshake messages in tests, at the versions davey uses.
-openmls = "0.8.1"
-openmls_basic_credential = "0.5.0"
-openmls_rust_crypto = "0.5.1"
+openmls = { git = "https://github.com/openmls/openmls", rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2" }
+openmls_basic_credential = { git = "https://github.com/openmls/openmls", rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2" }
+openmls_rust_crypto = { git = "https://github.com/openmls/openmls", rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2" }

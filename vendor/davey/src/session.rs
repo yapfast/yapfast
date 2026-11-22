@@ -2,7 +2,7 @@
 use napi_derive::napi;
 use num_derive::FromPrimitive;
 use openmls::{
-  group::{ProcessMessageError, *},
+  group::*,
   prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *},
   schedule::EpochAuthenticator,
 };
@@ -642,13 +642,12 @@ impl DaveSession {
         ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
           group.merge_staged_commit(&self.provider, *staged_commit)?;
         }
+        // Yapfast: OpenMLS 0.9 authenticates the echoed commit against the pending one.
+        ProcessedMessageContent::OwnPendingCommit => {
+          group.merge_pending_commit(&self.provider)?;
+        }
         _ => return Err(ProcessCommitError::ProcessedMessageNotStagedCommit),
       },
-      Err(ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit)) => {
-        // This is our own commit, lets merge pending instead
-        debug!("Found own commit, merging pending commit instead.");
-        group.merge_pending_commit(&self.provider)?;
-      }
       Err(error) => return Err(ProcessCommitError::ProcessingMessageFailed(error)),
     }
 
@@ -811,8 +810,8 @@ impl DaveSession {
       )
       .map_err(UpdateRatchetsError::ExportingSecretFailed)?;
 
-    trace!("Got base secret for user {:?}: {:?}", user_id, base_secret);
-    Ok(HashRatchet::new(base_secret))
+    trace!("Got base secret for user {:?}", user_id);
+    Ok(HashRatchet::new(base_secret.as_slice().to_vec()))
   }
 
   /// End-to-end encrypt a packet.

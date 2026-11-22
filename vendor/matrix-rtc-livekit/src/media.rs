@@ -7,7 +7,7 @@
 //!
 //! [`record_track`] (drain a subscribed remote track into PCM) and
 //! [`write_wav`] are shipped API — they are what a recording bot needs after
-//! [`Call::join`](crate::call::Call::join) hands it a subscribed track.
+//! `matrix_rtc_call_sdk::LiveKitCall::join` hands it a subscribed track.
 //!
 //! The rest is test-only, gated behind `cfg(any(test, feature = "testing"))`:
 //! [`publish_tone`] pushes a generated sine wave into a LiveKit track (via the

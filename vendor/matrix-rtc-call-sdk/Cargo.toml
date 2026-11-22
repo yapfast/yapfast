@@ -1,0 +1,80 @@
+# Copyright 2026 Element Creations Ltd.
+#
+# SPDX-License-Identifier: AGPL-3.0-only OR LicenseRef-Element-Commercial
+# Please see LICENSE in the repository root for full details.
+
+[package]
+name = "matrix-rtc-call-sdk"
+version = "0.5.0"
+edition = "2024"
+license = "AGPL-3.0-only OR LicenseRef-Element-Commercial"
+publish = false
+description = "The call SDK hosts use: the call's media over any transport (participants, tiles, the unified event stream, the call engine), attaching it to a joined call, and the native LiveKit facade."
+
+[dependencies]
+matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+# The transport contract the engine drives, and the key handler `attach` installs.
+matrix-rtc-transport = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+# The joined `RtcCall` media attaches to, and the call types the engine merges
+# onto its roster (raised hands, reactions).
+matrix-rtc-call = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57" }
+# The engine's actor loop multiplexes channels with `tokio::select!`
+# (`macros`). Tasks and timers go through `matrix_rtc_core::executor`.
+tokio = { version = "1", features = ["macros"] }
+# `join_all`, so a batched stats read awaits every track at once (`alloc`).
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+async-trait = "0.1"
+log = "0.4"
+thiserror = "2"
+
+# --- `livekit` feature: native LiveKit media (pulls libwebrtc) ---------------
+matrix-rtc-livekit = { path = "../matrix-rtc-livekit", optional = true }
+# The types `matrix-rtc-livekit`'s API names that the facade and examples use
+# too (`RoomEvent`, the token exchange's `reqwest::Client`); the workspace's
+# specs, so they are the same crates.
+livekit = { version = "=0.9.7", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"], optional = true }
+
+# --- `matrix-sdk` feature: the `LiveKitCall` facade over matrix-rust-sdk -----
+# `SdkMatrixBackend`, the matrix-rust-sdk `MatrixBackend` the facade drives.
+# Nothing in it knows about LiveKit.
+matrix-rtc-matrix-sdk = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "52af3d1f4dc6af5c92ce5f8c64418fd97a8c4f57", optional = true }
+# The facade takes a `matrix_sdk::Room`. Everything else Matrix-side is
+# `matrix-rtc-matrix-sdk`'s, and the rationale for the feature set (why room-key
+# forwarding stays on, what `experimental-send-custom-to-device` is for) lives
+# there, next to the code that depends on it. The rev is the workspace's, so the
+# two crates cannot drift onto two copies of matrix-sdk.
+matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d", optional = true, features = ["experimental-send-custom-to-device"] }
+# Drives sliding sync plus the encryption sync in the examples and the e2e test.
+# Its `unstable-msc4354` (enabled by our `matrix-sdk` feature) turns on the
+# sliding-sync sticky-events extension, so sticky events actually flow;
+# encryption support rides along via matrix-sdk's default features.
+matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d", optional = true }
+
+[features]
+# Native LiveKit media: `attach_livekit`. Off by default — it pulls the LiveKit
+# client and libwebrtc; the web binding brings its own transport and uses none.
+livekit = ["dep:matrix-rtc-livekit", "dep:livekit", "dep:reqwest"]
+# The `LiveKitCall` join/leave facade over a `matrix_sdk::Client`, its examples
+# and `e2e_call`. Off by default to keep the crate buildable without the git
+# SDK. `matrix-sdk-ui/unstable-msc4354` is what makes `SyncService` request
+# sticky events over sliding sync.
+matrix-sdk = [
+    "livekit",
+    "dep:matrix-rtc-matrix-sdk",
+    "dep:matrix-sdk",
+    "dep:matrix-sdk-ui",
+    "matrix-sdk-ui/unstable-msc4354",
+]
+# The LiveKit tone generator and frequency detector, for the examples and
+# integration tests. Also turns on matrix-sdk's `testing`, whose only use here
+# is `Client::olm_machine_for_testing` — the one public route to the
+# `OlmMachine`, and so the only way to reach `set_room_key_forwarding_enabled`.
+# It costs `wiremock` and friends in the graph, which is what a testing feature
+# is for.
+testing = ["matrix-rtc-livekit?/testing", "matrix-sdk?/testing"]
+
+
+# Enables sticky-event sync for all consumers; no Rust import is needed.
+[package.metadata.cargo-machete]
+ignored = ["matrix-sdk-ui"]

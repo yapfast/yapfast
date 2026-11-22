@@ -50,7 +50,7 @@ says.
 LiveKit's Rust crates must stay on the mutually compatible versions in
 Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
 MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
-supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
+supplies libwebrtc `webrtc-a545de4`, matching webrtc-sys-build 0.3.21. Updating
 that crate requires updating the archive URL and checksum in `nix/native.nix`
 (Linux) and `nix/flake.nix` (Windows) too.
 
@@ -95,9 +95,10 @@ test` compiles those crates once more, apart from these.
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
 dependency in Cargo.toml:
 
-- `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
-  audio tracks and cancellable joins.
-- `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,
+- `matrix-rtc-call-sdk` and `matrix-rtc-livekit`: Element's matrix-rust-rtc at
+  `52af3d1`, with native audio tracks, cancellable joins and participant identities
+  mapped using each transport's token flow.
+- `webrtc-sys`: webrtc-sys 0.3.54 with a Windows link fix, capture leveling,
   remote track volume and camera capture from pooled buffers.
 - `davey`: davey 0.1.4, keeping its key packages when a Go Live stream's group
   id changes, and reading a frame's overlong nonce without panicking.
