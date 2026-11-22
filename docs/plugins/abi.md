@@ -154,7 +154,7 @@ a log.
 | `yf_hook` | `HookRequest { hook, subject }` | `HookOutcome` |
 | `yf_command` | `CommandInvocation { name, options, room }`, `room` the conversation it was typed in | `CommandOutcome` |
 | `yf_decorate` | `DecorateRequest { room, message, author, body, own }` | A widget tree, an object with `tree`, `annotation`, `marks`, `hide` and `hide_media`, or `null` for none |
-| `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles }` | `MemberBadge { text, tone }`, or `null` for none |
+| `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles, role_names, owner, permissions }`: `role_names` in `roles`' order, `owner` whether they own the server, `permissions` their server-wide bits from @everyone and their roles as Discord writes them | `MemberBadge { text, tone }`, or `null` for none |
 | `yf_identity` | `IdentityRequest { person, server, name, username, own }` | An `Identity`, or `null` for none |
 | `yf_code_block` | `CodeBlockRequest { block, language, text }` | A list of spans, or `null` for none |
 | `yf_input` | `InputEvent`, one of `menu`, `widget`, `dismissed` or `keybind` | Nothing |

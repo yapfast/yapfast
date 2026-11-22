@@ -620,6 +620,16 @@ pub struct DecorateMemberRequest {
     /// The ids of the roles they have here; empty where unknown.
     #[serde(default)]
     pub roles: Vec<String>,
+    /// Those roles' names, in the same order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub role_names: Vec<String>,
+    /// Whether they own the server.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner: bool,
+    /// Their server-wide permission bits, from @everyone and their roles, as
+    /// Discord writes them: a decimal string. Empty where unknown.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub permissions: String,
 }
 
 /// What a plugin badges a person in the member list with: a few characters and

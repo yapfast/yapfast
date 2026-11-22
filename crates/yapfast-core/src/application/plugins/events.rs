@@ -1111,6 +1111,16 @@ impl Application {
         if !self.plugins_on() {
             return;
         }
+        // The server's owner, role names and role permissions, which a badge
+        // that marks owners, admins or a role reads.
+        let guild = self.discord_place(room).map(|(server, _, _)| {
+            (
+                server.owner_id.clone(),
+                Arc::clone(&server.role_names),
+                Arc::clone(&server.roles),
+                server.id.clone(),
+            )
+        });
         let Some(members) = self
             .state
             .members
@@ -1158,6 +1168,31 @@ impl Application {
                             own: self.state.discord_user.as_deref() == Some(member.id.as_str()),
                             bot: member.bot,
                             roles: member.roles.to_vec(),
+                            role_names: guild
+                                .as_ref()
+                                .map(|(_, names, _, _)| {
+                                    member
+                                        .roles
+                                        .iter()
+                                        .map(|role| names.get(role).cloned().unwrap_or_default())
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            owner: guild.as_ref().is_some_and(|(owner, _, _, _)| {
+                                owner.as_deref() == Some(member.id.as_str())
+                            }),
+                            permissions: guild
+                                .as_ref()
+                                .map(|(_, _, bits, everyone)| {
+                                    let everyone = bits.get(everyone).copied().unwrap_or(0);
+                                    member
+                                        .roles
+                                        .iter()
+                                        .filter_map(|role| bits.get(role))
+                                        .fold(everyone, |all, bits| all | bits)
+                                        .to_string()
+                                })
+                                .unwrap_or_default(),
                         },
                     )
             })
