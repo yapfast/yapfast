@@ -1634,8 +1634,9 @@ impl OpenChannel {
                 },
                 reply: pending.reply.as_ref().and_then(|id| {
                     let original = self.message(id.parse().unwrap_or_default())?;
-                    let (body, emoji) =
-                        reply_snippet(discord, server.map(|server| &**server), &original.content);
+                    let server = server.map(|server| &**server);
+                    let (body, emoji) = reply_snippet(discord, server, &original.content);
+                    let mentions = quoted_mentions(discord, server, &original.content, &body);
                     Some(Reply {
                         author: name(&original.author_id, &original.author),
                         avatar: Some(discord.avatar(Some(&self.guild), &original.author_id)),
@@ -1643,6 +1644,7 @@ impl OpenChannel {
                         emoji,
                         item: Some(format!("d:{id}")),
                         color: server.and_then(|server| discord.color(server, &original.author_id)),
+                        mentions,
                         tag: discord::server_tag(discord.server_tag(&original.author_id)),
                     })
                 }),
@@ -1773,6 +1775,7 @@ impl OpenChannel {
                 content,
             } => {
                 let (body, emoji) = reply_snippet(discord, server, content);
+                let mentions = quoted_mentions(discord, server, content, &body);
                 Reply {
                     author: name(author_id, author),
                     avatar: Some(discord.avatar(Some(&self.guild), author_id)),
@@ -1780,6 +1783,7 @@ impl OpenChannel {
                     emoji,
                     item: Some(format!("d:{id}")),
                     color: server.and_then(|server| discord.color(server, author_id)),
+                    mentions,
                     tag: discord::server_tag(discord.server_tag(author_id)),
                 }
             }
@@ -1790,6 +1794,7 @@ impl OpenChannel {
                 emoji: Vec::new(),
                 item: None,
                 color: None,
+                mentions: Vec::new(),
                 tag: None,
             },
             DiscordReply::Unknown { id } => Reply {
@@ -1804,6 +1809,7 @@ impl OpenChannel {
                 emoji: Vec::new(),
                 item: (!id.is_empty()).then(|| format!("d:{id}")),
                 color: None,
+                mentions: Vec::new(),
                 tag: None,
             },
         });
@@ -2013,6 +2019,27 @@ impl Rendering {
 
 /// The name a file goes to Discord under. Discord marks a spoiler by its name
 /// starting `SPOILER_`, as its own client sends one.
+/// The mentions a reply's quote shows coloured: those of the original's
+/// text that its one-line `body` still holds, each once, with its colour.
+fn quoted_mentions(
+    discord: &Discord,
+    server: Option<&yapfast_discord::ready::Server>,
+    content: &str,
+    body: &str,
+) -> Vec<(String, Option<u32>)> {
+    if !content.contains('<') && !content.contains('@') {
+        return Vec::new();
+    }
+    let (_, mentions) = rendered(discord, server, content);
+    let mut shown: Vec<(String, Option<u32>)> = Vec::new();
+    for mention in mentions {
+        if body.contains(&mention.text) && !shown.iter().any(|(text, _)| *text == mention.text) {
+            shown.push((mention.text, mention.color));
+        }
+    }
+    shown
+}
+
 pub(super) fn upload_name(name: &str, spoiler: bool) -> String {
     if spoiler && !name.starts_with(SPOILER) {
         format!("{SPOILER}{name}")

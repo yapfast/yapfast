@@ -242,16 +242,22 @@ pub fn body_of(
         markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
         body
     };
-    let laid = |markdown: &str| markdown::parse(markdown, &[], mention, &message.item, |_| true);
+    // An embed's text colours its mentions and draws its custom emoji, as
+    // a webhook's or a bot's pings show in Discord's client.
+    let laid = |markdown: &str, mentions: &[yapfast_core::mention::Mentioned]| {
+        let mut body = markdown::parse(markdown, mentions, mention, &message.item, |_| true);
+        markdown::with_emoji(&mut body, &message.emoji);
+        body
+    };
     let embeds = message
         .embeds
         .iter()
         .map(|embed| EmbedText {
-            description: laid(&embed.description),
+            description: laid(&embed.description, &embed.mentions),
             fields: embed
                 .fields
                 .iter()
-                .map(|field| (laid(&field.name), laid(&field.value)))
+                .map(|field| (laid(&field.name, &[]), laid(&field.value, &field.mentions)))
                 .collect(),
         })
         .collect();

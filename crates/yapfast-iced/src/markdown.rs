@@ -997,12 +997,18 @@ impl<'c> crate::ctx::Ctx<'c> {
 
     /// Single-line plain text with inline custom emoji pictures (animating
     /// when `plays` is true), falling back cleanly to `:name:` until each
-    /// emoji's picture arrives; prefixed by `prefix` spans if any.
+    /// emoji's picture arrives; prefixed by `prefix` spans if any. Each of
+    /// `mentions`' texts shows in its colour, or the mentions' own.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a line's text, its emoji and mentions, and how it shows"
+    )]
     pub fn inline_emoji_line(
         self,
         prefix: &[&'c str],
         text: &'c str,
         emoji: &'c [yapfast_core::chat::CustomEmoji],
+        mentions: &'c [(String, Option<u32>)],
         look: Look,
         emoji_side: u32,
         plays: bool,
@@ -1015,9 +1021,28 @@ impl<'c> crate::ctx::Ctx<'c> {
                 spans.push(span(part).color(look.ink));
             }
         }
+        let mention_ink = self.look.theme.mention;
         for part in split_emoji(text, emoji) {
             match part {
-                InlinePart::Text(text) => spans.push(span(text).color(look.ink)),
+                InlinePart::Text(mut text) => {
+                    // The earliest mention left in the text, each in turn.
+                    while let Some((at, (said, color))) = mentions
+                        .iter()
+                        .filter(|(said, _)| !said.is_empty())
+                        .filter_map(|mention| text.find(mention.0.as_str()).map(|at| (at, mention)))
+                        .min_by_key(|(at, _)| *at)
+                    {
+                        if at > 0 {
+                            spans.push(span(&text[..at]).color(look.ink));
+                        }
+                        let ink = color.map_or(mention_ink, crate::style::hex);
+                        spans.push(span(&text[at..at + said.len()]).color(ink));
+                        text = &text[at + said.len()..];
+                    }
+                    if !text.is_empty() {
+                        spans.push(span(text).color(look.ink));
+                    }
+                }
                 InlinePart::Emoji(custom) => {
                     let index = spans.len();
                     let playing = plays

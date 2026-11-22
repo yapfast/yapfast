@@ -255,7 +255,9 @@ Yapfast is back, rather than showing an error.
   message: Discord's servers read the linked page's Open Graph tags, often a
   moment after sending, and the preview arrives in a message update. A card
   shows the site, author, title, description, fields and footer behind a bar
-  of its colour, with its picture large for articles and videos and small
+  of its colour, the description's and fields' mentions coloured and custom
+  emoji drawn as in a message's text, as a webhook's or bot's pings show,
+  with its picture large for articles and videos and small
   beside the text otherwise. In the iced client the card on a dark theme is a
   darker ground (#242429) with a 1px line (#313137) round it that its 4px bar
   covers at the left, the bar #3a3a40 when the embed gives no colour; the
@@ -506,7 +508,9 @@ Yapfast is back, rather than showing an error.
   The quote reads "@Name" in the author's role colour
   (`Reply.color`, from the member's roles when the original is known), in
   regular weight, before 13px text in the secondary colour, with any custom emoji
-  in its first line shown inline at 16px (falling back to `:name:` until loaded).
+  in its first line shown inline at 16px (falling back to `:name:` until loaded),
+  and its mentions coloured as its message colours them (`Reply.mentions`: those
+  the one line still holds, each in its role's colour or the mentions').
 - A picture in a message sits straight on the message background: a
   transparent PNG or GIF shows no backdrop, as in Discord. Only the
   loading skeleton draws a fill.

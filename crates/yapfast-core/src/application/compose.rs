@@ -380,6 +380,7 @@ impl Application {
                             .state
                             .message(&item)
                             .and_then(|original| original.color),
+                        mentions: Vec::new(),
                         tag: self
                             .state
                             .message(&item)

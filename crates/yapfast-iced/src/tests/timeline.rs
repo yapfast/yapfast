@@ -1939,6 +1939,7 @@ fn a_replys_quote_offers_its_whole_original() {
         emoji: Vec::new(),
         item: item.map(str::to_owned),
         color: None,
+        mentions: Vec::new(),
         tag: None,
     };
     let state = app.client.state();

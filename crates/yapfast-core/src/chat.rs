@@ -1234,6 +1234,10 @@ pub struct Reply {
     pub color: Option<u32>,
     /// The author's server tag, which Discord's quote shows after the name.
     pub tag: Option<ServerTag>,
+    /// The mentions in `body`, by their text, each in its colour, or the
+    /// mentions' own without one: the quote colours them as its message
+    /// does.
+    pub mentions: Vec<(String, Option<u32>)>,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -1897,17 +1901,22 @@ pub struct Embed {
     pub url: String,
     /// Markdown.
     pub description: String,
+    /// Who and what `description` mentions, coloured as a message's body's
+    /// mentions are: a webhook or a bot pings in its embeds too.
+    pub mentions: Vec<crate::mention::Mentioned>,
     pub fields: Vec<EmbedField>,
     pub footer: String,
     /// Its large picture is a video's poster, which opens `url`.
     pub video: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EmbedField {
     pub name: String,
     /// Markdown.
     pub value: String,
+    /// Who and what `value` mentions.
+    pub mentions: Vec<crate::mention::Mentioned>,
     /// Shares a row with the inline fields beside it.
     pub inline: bool,
 }

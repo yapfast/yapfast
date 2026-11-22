@@ -1103,6 +1103,7 @@ fn reply_line<'a>(
             &[],
             &look.body.reply,
             &reply.emoji,
+            &reply.mentions,
             Look {
                 size: theme.type_size("small", 13.0),
                 line_height: 18.0,
