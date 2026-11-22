@@ -31,22 +31,53 @@ pub struct Preview {
 /// A fetched theme's previews, in manifest order.
 pub type Previews = Vec<Preview>;
 
-/// The same bounded HTTPS client used by the old desktop port: no cookies,
-/// HTTPS only, a short connection timeout, a stalled-read timeout and a
-/// limit on the whole request.
+/// The hosts a theme's bytes come from. A redirect elsewhere is refused, so
+/// what the address checks allowed is what's read.
+const GITHUB_HOSTS: [&str; 3] = [
+    "api.github.com",
+    "codeload.github.com",
+    "raw.githubusercontent.com",
+];
+
+/// Previews fetched and decoded at once; the rest wait their turn, so a long
+/// catalog doesn't open a connection and decode a picture for every card
+/// together.
+static PREVIEWS_AT_ONCE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+
+/// One bounded HTTPS client for every theme fetch, made on first use: no
+/// cookies, HTTPS only, redirects only between GitHub's hosts, a short
+/// connection timeout, a stalled-read timeout and a limit on the whole
+/// request.
 fn client() -> Result<reqwest::Client, String> {
-    rustls::crypto::aws_lc_rs::default_provider()
-        .install_default()
-        .ok();
-    reqwest::Client::builder()
-        .user_agent(concat!("Yapfast/", env!("CARGO_PKG_VERSION")))
-        .https_only(true)
-        .connect_timeout(std::time::Duration::from_secs(20))
-        .read_timeout(std::time::Duration::from_secs(60))
-        // A whole request, however slowly it drips, ends.
-        .timeout(std::time::Duration::from_secs(180))
-        .build()
-        .map_err(|error| error.to_string())
+    static CLIENT: std::sync::OnceLock<Result<reqwest::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            rustls::crypto::aws_lc_rs::default_provider()
+                .install_default()
+                .ok();
+            reqwest::Client::builder()
+                .user_agent(concat!("Yapfast/", env!("CARGO_PKG_VERSION")))
+                .https_only(true)
+                .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                    let github = attempt
+                        .url()
+                        .host_str()
+                        .is_some_and(|host| GITHUB_HOSTS.contains(&host));
+                    if attempt.previous().len() >= 5 || !github {
+                        attempt.stop()
+                    } else {
+                        attempt.follow()
+                    }
+                }))
+                .connect_timeout(std::time::Duration::from_secs(20))
+                .read_timeout(std::time::Duration::from_secs(60))
+                // A whole request, however slowly it drips, ends.
+                .timeout(std::time::Duration::from_secs(180))
+                .build()
+                .map_err(|error| error.to_string())
+        })
+        .clone()
 }
 
 /// Asks for `url`, and reads its answer whole if it is at most `limit`
@@ -195,9 +226,10 @@ pub async fn catalog(runtime: Arc<BackgroundRuntime>) -> Result<Catalog, String>
         .map_err(|_| "Loading the marketplace stopped partway; try again.".to_owned())?
 }
 
-/// Downloads and decodes one marketplace card preview. A missing, invalid or
-/// oversized picture is deliberately just no preview, matching the old UI.
+/// Downloads and decodes one marketplace card preview, a few at a time. A
+/// missing, invalid or oversized picture is just no preview.
 pub async fn preview(runtime: Arc<BackgroundRuntime>, url: String) -> Option<Preview> {
+    let _turn = PREVIEWS_AT_ONCE.acquire().await.ok()?;
     let bytes = runtime
         .spawn(async move {
             let client = client().ok()?;
