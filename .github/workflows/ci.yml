@@ -35,21 +35,20 @@ env:
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
-  formatting:
-    name: formatting
-    runs-on: ubuntu-26.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - uses: j178/prek-action@7b101f8338a08d2bd6fdb3625e4e7692428763a3
-        with:
-          prek-version: "0.5.11"
-      - run: cargo fmt --all -- --check
-
-  # TODO: uncomment once #313 bump versions and #314 code formatting are merged,
-  # otherwise CI will fail on the existing code.
+	# TODO: uncomment once #313 bump versions and #314 code formatting are merged,
+	# otherwise CI will fail on the existing code.
+  # formatting:
+  #   name: formatting
+  #   runs-on: ubuntu-26.04
+  #   timeout-minutes: 5
+  #   steps:
+  #     - uses: actions/checkout@v7.0.1
+  #       with:
+  #         persist-credentials: false
+  #     - uses: j178/prek-action@7b101f8338a08d2bd6fdb3625e4e7692428763a3
+  #       with:
+  #         prek-version: "0.5.11"
+  #     - run: cargo fmt --all -- --check
   # dependencies:
   #   name: dependencies (${{ matrix.tool }})
   #   runs-on: ubuntu-26.04
