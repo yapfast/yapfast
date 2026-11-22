@@ -1427,3 +1427,43 @@ fn a_theme_cuts_peoples_names_only_once_let() {
     app.layout.theme_content.insert(id);
     assert!(crate::theme_chrome::cuts_names(app.ctx()));
 }
+
+#[test]
+fn a_composer_key_is_kept_no_bigger_than_its_drawn_at() {
+    use yapfast_core::themes::package::art::KeySlot;
+    let mut png = Vec::new();
+    image::RgbaImage::new(1024, 1024)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("a key picture");
+    let (app, _folder) = super::themed(
+        serde_json::json!({
+            "art": { "keys": {
+                "gif": { "image": "key.png" },
+                "emoji": { "image": "key.png", "pressed": "key.png", "size": [40, 30] }
+            } }
+        }),
+        &[("key.png", &png)],
+    );
+    let kept = |handle: &iced::advanced::image::Handle| match handle {
+        iced::advanced::image::Handle::Rgba { width, height, .. } => (*width, *height),
+        _ => panic!("decoded"),
+    };
+    let gif = app
+        .themes
+        .composer_key(&app.theme.id, KeySlot::Gif)
+        .expect("the GIF key");
+    // No size: half its picture, at most the largest key, kept at 2x.
+    assert_eq!((gif.size.width, gif.size.height), (96.0, 96.0));
+    assert_eq!(kept(&gif.up), (192, 192));
+    let emoji = app
+        .themes
+        .composer_key(&app.theme.id, KeySlot::Emoji)
+        .expect("the emoji key");
+    assert!(kept(&emoji.up).0 <= 80 && kept(&emoji.up).1 <= 60);
+    assert!(kept(emoji.down.as_ref().expect("pressed")).1 <= 60);
+    assert!(
+        app.themes
+            .composer_key(&app.theme.id, KeySlot::Sticker)
+            .is_none()
+    );
+}

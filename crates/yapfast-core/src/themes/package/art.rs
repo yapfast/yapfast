@@ -437,6 +437,18 @@ closed! {
 /// The most logical pixels a key moves down while pressed.
 pub const MAX_KEY_TRAVEL: f32 = 6.0;
 
+/// The most logical pixels a key is drawn across or down; one with no
+/// `size` takes half its picture's, at most this. Its pictures are kept
+/// at twice its size, for a 2x screen.
+pub const MAX_KEY_SIZE: f32 = 96.0;
+
+/// The pixels a key's pictures are kept at, at most, for its size (none
+/// set: the largest a key is).
+pub fn key_picture(size: Option<(f32, f32)>) -> (u32, u32) {
+    let (width, height) = size.unwrap_or((MAX_KEY_SIZE, MAX_KEY_SIZE));
+    ((width * 2.0).ceil() as u32, (height * 2.0).ceil() as u32)
+}
+
 /// A picture under one of the composer's buttons that goes down with it:
 /// a key with travel rather than art painted on the composer.
 #[derive(Clone, Debug, PartialEq)]
@@ -729,7 +741,7 @@ fn read_keys(
         let pressed = file("pressed")?;
         let size = fields
             .get("size")
-            .map(|value| pair(value, &format!("{at}.size"), (8.0, 96.0)))
+            .map(|value| pair(value, &format!("{at}.size"), (8.0, MAX_KEY_SIZE)))
             .transpose()?;
         let travel = fields.get("travel").map_or(Ok(2.0), |value| {
             number(value, &format!("{at}.travel"), (0.0, MAX_KEY_TRAVEL))
@@ -1311,6 +1323,13 @@ mod tests {
             &mut notes,
         )?;
         Ok(art)
+    }
+
+    #[test]
+    fn a_keys_pictures_are_kept_at_twice_its_size_and_no_bigger_than_the_largest_key() {
+        assert_eq!(key_picture(Some((38.0, 40.5))), (76, 81));
+        assert_eq!(key_picture(None), (192, 192));
+        assert!(art(r#"{ "keys": { "gif": { "image": "a.png", "size": [97, 40] } } }"#).is_err());
     }
 
     #[test]

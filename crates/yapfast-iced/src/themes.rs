@@ -2054,28 +2054,14 @@ impl Themes {
             .map_or(&[], Vec::as_slice)
     }
 
-    /// Whether an installed theme places art or glass on this surface.
-    /// Callers use this only to make their stock opaque fill transparent so
-    /// the shared surface renderer can actually be seen underneath.
-    /// Whether the composer draws keys under its buttons (Bubblegum's
-    /// candy keys): keys of their own, or a composer layer that sits at the
-    /// right.
-    pub fn composer_keys(&self, id: &str) -> bool {
-        self.package(id).is_some_and(|installed| {
-            !installed.art.keys.is_empty()
-                || installed
-                    .art
-                    .surfaces
-                    .get(&ArtSurface::Composer)
-                    .is_some_and(|layers| layers.iter().any(|layer| layer.layer.position.0 >= 1.0))
-        })
-    }
-
     /// The key a theme draws under one of the composer's buttons.
     pub fn composer_key(&self, id: &str, slot: art::KeySlot) -> Option<&ComposerKey> {
         self.package(id)?.art.keys.get(&slot)
     }
 
+    /// Whether an installed theme places art or glass on this surface.
+    /// Callers use this only to make their stock opaque fill transparent so
+    /// the shared surface renderer can actually be seen underneath.
     pub fn decorates(&self, id: &str, surface: ArtSurface) -> bool {
         self.package(id).is_some_and(|installed| {
             installed
@@ -2806,8 +2792,10 @@ fn tile_art_handles(
 /// A composer key's pictures, decoded; none when its resting picture
 /// can't be, and no pressed one when that can't be.
 fn composer_key(folder: &Path, key: &art::Key) -> Option<ComposerKey> {
+    // Kept at twice the size it's drawn at, as the check counts it.
+    let (width, height) = art::key_picture(key.size);
     let decode = |file: &Path| {
-        let picture = yapfast_core::chat::decode_picture_at(&folder.join(file), 1024, 1024)
+        let picture = yapfast_core::chat::decode_picture_at(&folder.join(file), width, height)
             .or_else(|| {
                 tracing::warn!(art = %file.display(), "a theme's composer key could not be decoded");
                 None

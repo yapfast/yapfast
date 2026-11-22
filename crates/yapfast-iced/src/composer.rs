@@ -938,9 +938,12 @@ impl crate::widgets::Hooks<Message> for KeyCap {
     type State = KeyState;
 
     fn draw_viewport(&self, child: iced::Rectangle, viewport: iced::Rectangle) -> iced::Rectangle {
-        // The glyph moves a few pixels either way.
+        // The key, centred on the button and as big as it's drawn, and
+        // the few pixels it and the glyph move either way.
+        let size = self.key.size;
+        let over = ((size.width.max(size.height) - child.width.min(child.height)) / 2.0).max(0.0);
         child
-            .expand(MAX_KEY_TRAVEL + 2.0)
+            .expand(over + MAX_KEY_TRAVEL + 2.0)
             .intersection(&viewport)
             .unwrap_or(viewport)
     }
@@ -1104,11 +1107,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
-    // A theme's composer art can draw a key under each button (Bubblegum's
-    // candy keys); the preview, which has no GIFs or stickers, still shows
-    // their buttons, greyed, so no key is left without its glyph.
-    let keys = state.preview && ctx.themes.composer_keys(&theme.id);
-    if state.can_pick_gifs() || keys {
+    // A theme can draw a key under each button (Bubblegum's candy keys);
+    // the preview, which has no GIFs or stickers, still shows a button
+    // with a key of its own, greyed, so no key is left without its glyph.
+    let keyed = |slot: KeySlot| state.preview && ctx.themes.composer_key(&theme.id, slot).is_some();
+    if state.can_pick_gifs() || keyed(KeySlot::Gif) {
         buttons = buttons.push(lift(keyed_button(
             ctx,
             KeySlot::Gif,
@@ -1119,7 +1122,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             opens(Tab::Gifs).filter(|_| state.can_pick_gifs()),
         )));
     }
-    if state.can_pick_stickers() || keys {
+    if state.can_pick_stickers() || keyed(KeySlot::Sticker) {
         buttons = buttons.push(lift(keyed_button(
             ctx,
             KeySlot::Sticker,

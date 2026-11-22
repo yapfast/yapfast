@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use super::{Files, READABLE, base_colour, contrast, follows};
 use crate::themes::package::Resolved;
-use crate::themes::package::art::{ArtSurface, Blend, Layer, Source};
+use crate::themes::package::art::{ArtSurface, Blend, Layer, Source, key_picture};
 
 /// The largest a surface's picture is decoded: about a large window. A
 /// picture is never decoded larger than it is.
@@ -455,10 +455,11 @@ pub fn memory(variant: &Resolved, files: &Files) -> u64 {
             .iter()
             .map(|layer| (layer, Some("raised"))),
     );
-    // Composer keys are small fixed pictures, each decoded once.
+    // Composer keys are small fixed pictures, each decoded once at twice
+    // its size, as the app keeps them.
     for key in art.keys.values() {
         for path in std::iter::once(&key.image).chain(&key.pressed) {
-            total += size(path, (192, 192));
+            total += size(path, key_picture(key.size));
         }
     }
     let mut seen = Vec::new();
