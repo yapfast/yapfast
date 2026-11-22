@@ -54,16 +54,27 @@ const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].
 /// Makes `family` (a theme's body face, loaded) the face of all text that
 /// asks for the app's own DM Sans, as Slint's `default-font-family`
 /// follows a theme's body face; `None` gives DM Sans back. Text already
-/// shaped keeps its glyphs until it's shaped again.
+/// shown is shaped again in the new face.
 pub fn set_default_family(family: Option<&'static str>) {
-    cosmic_text::set_family_alias(
-        family
-            .filter(|family| *family != "DM Sans")
-            .map(|family| ("DM Sans", family)),
-    );
+    static ALIAS: Mutex<Option<&'static str>> = Mutex::new(None);
+    let family = family.filter(|family| *family != "DM Sans");
+    {
+        let mut alias = ALIAS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *alias == family {
+            return;
+        }
+        *alias = family;
+    }
+    cosmic_text::set_family_alias(family.map(|family| ("DM Sans", family)));
+    let mut fonts = font_system().write().expect("font system");
     // The fallback's matches are cached by what text asks for, which
     // doesn't change.
-    let _ = font_system().write().expect("font system").raw().db_mut();
+    let _ = fonts.raw().db_mut();
+    // Text shaped already is shaped again only when the version moves, as
+    // in `load_wanted`.
+    fonts.load_font(Cow::Owned(vec![0]));
 }
 
 /// Makes the window's font system: DM Sans and its italic, `twemoji` (the
