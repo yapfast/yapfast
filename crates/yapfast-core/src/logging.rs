@@ -103,6 +103,8 @@ mod tests {
 
     #[test]
     fn debug_for_only_the_targets_named() {
+        // Off unless asked for: the default writes none of them.
+        assert!(!targets("").would_enable("yapfast_discord::voice_presence", &Level::DEBUG));
         let voice = targets("yapfast_discord::voice_presence");
         assert!(voice.would_enable("yapfast_discord::voice_presence", &Level::DEBUG));
         assert!(!voice.would_enable("yapfast_discord::gateway", &Level::DEBUG));
