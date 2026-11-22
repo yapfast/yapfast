@@ -91,10 +91,10 @@ Without arguments, do reads one command per line from standard input.
 Logs: .local/ui-session/{yapfast,fake,session,build,record}.log. Yapfast's PID is in
 .local/ui-session/yapfast.pid. Nothing reaches the desktop or a real account.
 """
+
 import argparse
 import json
 import os
-from pathlib import Path
 import shlex
 import shutil
 import signal
@@ -102,11 +102,12 @@ import subprocess
 import sys
 import time
 import uuid
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STATE = ROOT / '.local/ui-session'
-SESSION_PID = STATE / 'session.pid'
-SETTINGS = STATE / 'settings.json'
+STATE = ROOT / ".local/ui-session"
+SESSION_PID = STATE / "session.pid"
+SETTINGS = STATE / "settings.json"
 
 
 def running():
@@ -114,36 +115,53 @@ def running():
         pid = int(SESSION_PID.read_text())
         os.kill(pid, 0)
         return pid
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
 
 def tail(path, lines=20):
     if path.exists():
-        print(f'--- {path.relative_to(ROOT)}', file=sys.stderr)
-        print('\n'.join(path.read_text(errors='replace').splitlines()[-lines:]), file=sys.stderr)
+        print(f"--- {path.relative_to(ROOT)}", file=sys.stderr)
+        print("\n".join(path.read_text(errors="replace").splitlines()[-lines:]), file=sys.stderr)
 
 
 def build(profile, yapfast=True, tray=False, record=False):
     # The hosts are a package of their own (testing/hosts), so this builds
     # the same yapfast as a plain cargo build and scripts/check do.
-    hosts = [*(['--bin', 'tray_host'] if tray else []), *(['--bin', 'record_host'] if record else [])]
-    targets = [*(['-p', 'yapfast', '--bin', 'yapfast'] if yapfast else []),
-               *(['-p', 'yapfast-test-hosts', *hosts] if hosts else [])]
-    command = ['nix', 'develop', 'path:./nix', '--command', 'cargo', 'build', '--locked', '--profile', profile,
-               *targets]
-    print('Building:', shlex.join(command[4:]), flush=True)
-    log = STATE / 'build.log'
-    result = subprocess.run(command, cwd=ROOT, stdout=log.open('wb'), stderr=subprocess.STDOUT)
+    hosts = [
+        *(["--bin", "tray_host"] if tray else []),
+        *(["--bin", "record_host"] if record else []),
+    ]
+    targets = [
+        *(["-p", "yapfast", "--bin", "yapfast"] if yapfast else []),
+        *(["-p", "yapfast-test-hosts", *hosts] if hosts else []),
+    ]
+    command = [
+        "nix",
+        "develop",
+        "path:./nix",
+        "--command",
+        "cargo",
+        "build",
+        "--locked",
+        "--profile",
+        profile,
+        *targets,
+    ]
+    print("Building:", shlex.join(command[4:]), flush=True)
+    log = STATE / "build.log"
+    result = subprocess.run(
+        command, check=False, cwd=ROOT, stdout=log.open("wb"), stderr=subprocess.STDOUT
+    )
     if result.returncode != 0:
         tail(log, 40)
-        raise SystemExit(f'The build failed; see {log.relative_to(ROOT)}')
+        raise SystemExit(f"The build failed; see {log.relative_to(ROOT)}")
     # Replace, never overwrite, so a running copy keeps its file.
-    built = [('yapfast', f'target/{profile}/yapfast')] if yapfast else []
-    built += [('tray-host', f'target/{profile}/tray_host')] if tray else []
-    built += [('record-host', f'target/{profile}/record_host')] if record else []
+    built = [("yapfast", f"target/{profile}/yapfast")] if yapfast else []
+    built += [("tray-host", f"target/{profile}/tray_host")] if tray else []
+    built += [("record-host", f"target/{profile}/record_host")] if record else []
     for name, path in built:
-        copy = STATE / f'{name}.new'
+        copy = STATE / f"{name}.new"
         shutil.copy2(ROOT / path, copy)
         os.replace(copy, STATE / name)
 
@@ -151,39 +169,51 @@ def build(profile, yapfast=True, tray=False, record=False):
 def send(commands, timeout=60):
     """Sends commands one at a time and prints their output; stops at the first error."""
     if not running():
-        raise SystemExit('No UI session is running; start one with scripts/ui-session start.')
-    results = STATE / 'results'
+        raise SystemExit("No UI session is running; start one with scripts/ui-session start.")
+    results = STATE / "results"
     for command in commands:
         identifier = uuid.uuid4().hex[:8]
-        with (STATE / 'commands').open('a') as pending:
-            pending.write(f'{identifier}\t{command}\n')
-        wait = timeout + (float(command.split()[1]) if command.startswith('sleep ') else 0)
+        with (STATE / "commands").open("a") as pending:
+            pending.write(f"{identifier}\t{command}\n")
+        wait = timeout + (float(command.split()[1]) if command.startswith("sleep ") else 0)
         deadline = time.monotonic() + wait
         while True:
-            answer = next((line.split('\t', 2) for line in
-                           (results.read_text().splitlines() if results.exists() else [])
-                           if line.startswith(identifier + '\t')), None)
+            answer = next(
+                (
+                    line.split("\t", 2)
+                    for line in (results.read_text().splitlines() if results.exists() else [])
+                    if line.startswith(identifier + "\t")
+                ),
+                None,
+            )
             if answer:
                 break
             if not running():
-                tail(STATE / 'session.log')
-                raise SystemExit('The UI session ended.')
+                tail(STATE / "session.log")
+                raise SystemExit("The UI session ended.")
             if time.monotonic() > deadline:
-                raise SystemExit(f'No answer to {command!r} within {wait:.0f} s; see .local/ui-session/session.log')
-            time.sleep(.05)
+                raise SystemExit(
+                    f"No answer to {command!r} within {wait:.0f} s; see "
+                    f".local/ui-session/session.log"
+                )
+            time.sleep(0.05)
         _, status, output = answer
         output = json.loads(output)
-        if status != 'ok':
-            raise SystemExit(f'{command}: {output}')
-        print(f'{command}: {output}' if output else command)
+        if status != "ok":
+            raise SystemExit(f"{command}: {output}")
+        print(f"{command}: {output}" if output else command)
 
 
 def zoom_level(text):
-    """One of Yapfast's zoom levels, as crates/yapfast-core/src/zoom.rs lists them; Yapfast ignores others."""
+    """One of Yapfast's zoom levels, as crates/yapfast-core/src/zoom.rs lists them;
+    Yapfast ignores others."""
     percent = round(float(text) * 100)
-    if abs(float(text) * 100 - percent) > .01 or not (
-            50 <= percent <= 150 and percent % 5 == 0 or 150 < percent <= 200 and percent % 10 == 0):
-        raise argparse.ArgumentTypeError('Yapfast zooms from 0.5 to 1.5 in steps of 0.05, then to 2 in 0.1')
+    if abs(float(text) * 100 - percent) > 0.01 or not (
+        50 <= percent <= 150 and percent % 5 == 0 or 150 < percent <= 200 and percent % 10 == 0
+    ):
+        raise argparse.ArgumentTypeError(
+            "Yapfast zooms from 0.5 to 1.5 in steps of 0.05, then to 2 in 0.1"
+        )
     return percent / 100
 
 
@@ -196,89 +226,126 @@ def repaint_window(refresh):
 def refresh_rate(text):
     hertz = float(text)
     if not 1 <= hertz <= 1000:
-        raise argparse.ArgumentTypeError('a refresh rate from 1 to 1000 Hz')
+        raise argparse.ArgumentTypeError("a refresh rate from 1 to 1000 Hz")
     return hertz
 
 
 def start(args):
     if running():
-        raise SystemExit('A UI session is already running; stop it first.')
-    width, height = map(int, args.size.split('x'))
+        raise SystemExit("A UI session is already running; stop it first.")
+    width, height = map(int, args.size.split("x"))
     if args.desktop:
         # Room around the window for Weston's panel and for moving it.
         width, height = width + 240, height + 160
     if STATE.exists():
         for entry in STATE.iterdir():
-            if entry.name not in ('yapfast', 'tray-host', 'record-host', 'build.log', 'videos'):
+            if entry.name not in ("yapfast", "tray-host", "record-host", "build.log", "videos"):
                 shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
     STATE.mkdir(parents=True, exist_ok=True)
     if args.zoom is not None:
         # Yapfast reads the level from its layout at start (crates/yapfast-iced/src/layout.rs).
-        (STATE / 'data').mkdir()
-        (STATE / 'data/layout.json').write_text(json.dumps({'zoom': args.zoom}))
+        (STATE / "data").mkdir()
+        (STATE / "data/layout.json").write_text(json.dumps({"zoom": args.zoom}))
     if args.bin:
-        shutil.copy2(args.bin, STATE / 'yapfast')
+        shutil.copy2(args.bin, STATE / "yapfast")
     if not (args.bin or args.no_build):
         build(args.profile, tray=args.tray, record=True)
     else:
-        tray = args.tray and not (args.no_build and (STATE / 'tray-host').exists())
-        record = not (args.no_build and (STATE / 'record-host').exists())
+        tray = args.tray and not (args.no_build and (STATE / "tray-host").exists())
+        record = not (args.no_build and (STATE / "record-host").exists())
         if tray or record:
             build(args.profile, yapfast=False, tray=tray, record=record)
-    if not (STATE / 'yapfast').exists():
-        raise SystemExit('No Yapfast binary yet; start without --no-build.')
-    yapfast_args = args.yapfast_args[1:] if args.yapfast_args[:1] == ['--'] else args.yapfast_args
-    if not args.discord and '--preview' not in yapfast_args:
-        yapfast_args = ['--preview', *yapfast_args]
-    SETTINGS.write_text(json.dumps({'discord': args.discord, 'profile': args.profile,
-                                    'build': not (args.bin or args.no_build)}))
-    driver = ['python3', 'testing/ui_session.py', '--state', str(STATE), '--bin', str(STATE / 'yapfast'),
-              '--size', args.size, '--renderer', args.renderer,
-              *(['--discord', '--fake-args', args.fake_args] if args.discord else []),
-              *(['--tray', str(STATE / 'tray-host')] if args.tray else []),
-              '--record', str(STATE / 'record-host'),
-              *(['--cursor', str(args.cursor)] if args.cursor else []), '--', *yapfast_args]
-    display = (f'scripts/run-framework-isolated --audio --alsa-plugins "$YAPFAST_FRAMEWORK_ALSA_PLUGINS" '
-               f'--no-services {"" if args.desktop else "--kiosk "}--width {width} --height {height} '
-               f'--refresh-rate {round(args.refresh * 1000)} --repaint-window {repaint_window(args.refresh)} '
-               f'--compositor-log {shlex.quote(str(STATE / "weston.log"))} -- {shlex.join(driver)}')
-    session = subprocess.Popen(['nix-shell', '--impure', 'testing/display/shell.nix', '--run', display],
-                               cwd=ROOT, stdin=subprocess.DEVNULL, stdout=(STATE / 'session.log').open('wb'),
-                               stderr=subprocess.STDOUT, start_new_session=True)
-    SESSION_PID.write_text(f'{session.pid}\n')
+    if not (STATE / "yapfast").exists():
+        raise SystemExit("No Yapfast binary yet; start without --no-build.")
+    yapfast_args = args.yapfast_args[1:] if args.yapfast_args[:1] == ["--"] else args.yapfast_args
+    if not args.discord and "--preview" not in yapfast_args:
+        yapfast_args = ["--preview", *yapfast_args]
+    SETTINGS.write_text(
+        json.dumps(
+            {
+                "discord": args.discord,
+                "profile": args.profile,
+                "build": not (args.bin or args.no_build),
+            }
+        )
+    )
+    driver = [
+        "python3",
+        "testing/ui_session.py",
+        "--state",
+        str(STATE),
+        "--bin",
+        str(STATE / "yapfast"),
+        "--size",
+        args.size,
+        "--renderer",
+        args.renderer,
+        *(["--discord", "--fake-args", args.fake_args] if args.discord else []),
+        *(["--tray", str(STATE / "tray-host")] if args.tray else []),
+        "--record",
+        str(STATE / "record-host"),
+        *(["--cursor", str(args.cursor)] if args.cursor else []),
+        "--",
+        *yapfast_args,
+    ]
+    display = (
+        f"scripts/run-framework-isolated --audio --alsa-plugins "
+        f'"$YAPFAST_FRAMEWORK_ALSA_PLUGINS" '
+        f"--no-services {'' if args.desktop else '--kiosk '}--width "
+        f"{width} --height {height} "
+        f"--refresh-rate {round(args.refresh * 1000)} "
+        f"--repaint-window {repaint_window(args.refresh)} "
+        f"--compositor-log {shlex.quote(str(STATE / 'weston.log'))} "
+        f"-- {shlex.join(driver)}"
+    )
+    session = subprocess.Popen(
+        ["nix-shell", "--impure", "testing/display/shell.nix", "--run", display],
+        cwd=ROOT,
+        stdin=subprocess.DEVNULL,
+        stdout=(STATE / "session.log").open("wb"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    SESSION_PID.write_text(f"{session.pid}\n")
     deadline = time.monotonic() + 180
-    while not (STATE / 'ready').exists():
+    while not (STATE / "ready").exists():
         if session.poll() is not None or time.monotonic() > deadline:
-            tail(STATE / 'session.log')
-            tail(STATE / 'yapfast.log')
-            tail(STATE / 'fake.log')
+            tail(STATE / "session.log")
+            tail(STATE / "yapfast.log")
+            tail(STATE / "fake.log")
             stop()
-            raise SystemExit('The UI session did not start.')
-        time.sleep(.2)
-    print(f'Yapfast is running on a private {width}x{height} display, PID {(STATE / "yapfast.pid").read_text().strip()}.')
-    print('Drive it with scripts/ui-session do; shots go to .local/ui-session/shots/, videos to videos/.')
+            raise SystemExit("The UI session did not start.")
+        time.sleep(0.2)
+    print(
+        f"Yapfast is running on a private {width}x{height} display, "
+        f"PID {(STATE / 'yapfast.pid').read_text().strip()}."
+    )
+    print(
+        "Drive it with scripts/ui-session do; shots go to "
+        ".local/ui-session/shots/, videos to videos/."
+    )
 
 
 def relaunch():
     if not running():
-        raise SystemExit('No UI session is running.')
+        raise SystemExit("No UI session is running.")
     settings = json.loads(SETTINGS.read_text())
-    if settings['build']:
-        build(settings.get('profile', 'fast'))
-    extra = args.yapfast_args[1:] if args.yapfast_args[:1] == ['--'] else args.yapfast_args
-    send([' '.join(['relaunch', *extra])])
+    if settings["build"]:
+        build(settings.get("profile", "fast"))
+    extra = args.yapfast_args[1:] if args.yapfast_args[:1] == ["--"] else args.yapfast_args
+    send([" ".join(["relaunch", *extra])])
 
 
 def stop():
     pid = running()
     if pid:
         try:
-            send(['quit'], timeout=10)
+            send(["quit"], timeout=10)
         except SystemExit:
             pass
         deadline = time.monotonic() + 15
         while running() and time.monotonic() < deadline:
-            time.sleep(.2)
+            time.sleep(0.2)
         if running():
             os.killpg(pid, signal.SIGTERM)
             time.sleep(5)
@@ -287,42 +354,76 @@ def stop():
     SESSION_PID.unlink(missing_ok=True)
 
 
-parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-actions = parser.add_subparsers(dest='action', required=True)
-starting = actions.add_parser('start')
-starting.add_argument('--discord', action='store_true', help='run against the fake Discord, not the preview')
-starting.add_argument('--fake-args', default='', help="arguments for testing/fake_discord.ts, such as '--dms 50'")
-starting.add_argument('--size', default='1120x760')
-starting.add_argument('--renderer', choices=['software', 'gpu'], default='software')
-starting.add_argument('--profile', choices=['fast', 'measure'], default='fast',
-                      help='Cargo profile to build with; measure is the one measurements use')
-starting.add_argument('--tray', action='store_true', help='run a stand-in tray on the private bus')
-starting.add_argument('--desktop', action='store_true', help="Weston's desktop shell rather than kiosk: the window isn't full screen")
-starting.add_argument('--refresh', type=refresh_rate, default=60.0, metavar='HZ',
-                      help="the display's refresh rate, 60 unless given; see above")
-starting.add_argument('--zoom', type=zoom_level, help="open Yapfast zoomed to this level, such as 1.2")
-starting.add_argument('--cursor', type=int, nargs='?', const=24, metavar='SIZE',
-                      help='show the pointer, this many pixels tall (24)')
+parser = argparse.ArgumentParser(
+    description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+)
+actions = parser.add_subparsers(dest="action", required=True)
+starting = actions.add_parser("start")
+starting.add_argument(
+    "--discord", action="store_true", help="run against the fake Discord, not the preview"
+)
+starting.add_argument(
+    "--fake-args", default="", help="arguments for testing/fake_discord.ts, such as '--dms 50'"
+)
+starting.add_argument("--size", default="1120x760")
+starting.add_argument("--renderer", choices=["software", "gpu"], default="software")
+starting.add_argument(
+    "--profile",
+    choices=["fast", "measure"],
+    default="fast",
+    help="Cargo profile to build with; measure is the one measurements use",
+)
+starting.add_argument("--tray", action="store_true", help="run a stand-in tray on the private bus")
+starting.add_argument(
+    "--desktop",
+    action="store_true",
+    help="Weston's desktop shell rather than kiosk: the window isn't full screen",
+)
+starting.add_argument(
+    "--refresh",
+    type=refresh_rate,
+    default=60.0,
+    metavar="HZ",
+    help="the display's refresh rate, 60 unless given; see above",
+)
+starting.add_argument(
+    "--zoom", type=zoom_level, help="open Yapfast zoomed to this level, such as 1.2"
+)
+starting.add_argument(
+    "--cursor",
+    type=int,
+    nargs="?",
+    const=24,
+    metavar="SIZE",
+    help="show the pointer, this many pixels tall (24)",
+)
 binary = starting.add_mutually_exclusive_group()
-binary.add_argument('--bin', type=Path, help='run this Yapfast binary instead of building')
-binary.add_argument('--no-build', action='store_true', help='run the copy from the last start')
-starting.add_argument('yapfast_args', nargs=argparse.REMAINDER, help='after --, arguments for Yapfast')
-doing = actions.add_parser('do')
-doing.add_argument('commands', nargs='*')
-actions.add_parser('relaunch').add_argument('yapfast_args', nargs=argparse.REMAINDER,
-                                            help='after --, arguments for Yapfast this once')
-actions.add_parser('status')
-actions.add_parser('stop')
+binary.add_argument("--bin", type=Path, help="run this Yapfast binary instead of building")
+binary.add_argument("--no-build", action="store_true", help="run the copy from the last start")
+starting.add_argument(
+    "yapfast_args", nargs=argparse.REMAINDER, help="after --, arguments for Yapfast"
+)
+doing = actions.add_parser("do")
+doing.add_argument("commands", nargs="*")
+actions.add_parser("relaunch").add_argument(
+    "yapfast_args", nargs=argparse.REMAINDER, help="after --, arguments for Yapfast this once"
+)
+actions.add_parser("status")
+actions.add_parser("stop")
 args = parser.parse_args()
 
-if args.action == 'start':
+if args.action == "start":
     start(args)
-elif args.action == 'do':
+elif args.action == "do":
     send(args.commands or [line.strip() for line in sys.stdin if line.strip()])
-elif args.action == 'relaunch':
+elif args.action == "relaunch":
     relaunch()
-elif args.action == 'status':
+elif args.action == "status":
     pid = running()
-    print(f'Running; Yapfast PID {(STATE / "yapfast.pid").read_text().strip()}.' if pid else 'Not running.')
+    print(
+        f"Running; Yapfast PID {(STATE / 'yapfast.pid').read_text().strip()}."
+        if pid
+        else "Not running."
+    )
 else:
     stop()

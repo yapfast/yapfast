@@ -2,12 +2,12 @@
 
 ## Vesktop 1.6.7 and Yapfast
 
-| | Vesktop memory | Yapfast memory | Vesktop CPU | Yapfast CPU |
-| --- | --- | --- | --- | --- |
-| Idle | 724 MB | 30 MB (−96%) | 0.11% | 0.015% (−86%) |
-| Image-heavy channel | 706 MB | 41 MB (−94%) | 0.17% | 0.008% (−95%) |
-| In a call | 888 MB | 44 MB (−95%) | 0.46% | 0.33% (−28%) |
-| Sharing your screen¹ | 1,013 MB | 113 MB (−89%) | 2.15% | 1.1% (−48%) |
+|                      | Vesktop memory | Yapfast memory | Vesktop CPU | Yapfast CPU   |
+| -------------------- | -------------- | -------------- | ----------- | ------------- |
+| Idle                 | 724 MB         | 30 MB (−96%)   | 0.11%       | 0.015% (−86%) |
+| Image-heavy channel  | 706 MB         | 41 MB (−94%)   | 0.17%       | 0.008% (−95%) |
+| In a call            | 888 MB         | 44 MB (−95%)   | 0.46%       | 0.33% (−28%)  |
+| Sharing your screen¹ | 1,013 MB       | 113 MB (−89%)  | 2.15%       | 1.1% (−48%)   |
 
 Vesktop is basically Discord's own app: the same Discord web app, in the same
 Electron, with Vencord on top. So its numbers stand in for Discord's.
@@ -69,11 +69,11 @@ sampled each app's whole process tree once a second.
 
 ## Targets
 
-| Scenario | Ceiling |
-| --- | --- |
+| Scenario                          | Ceiling                                |
+| --------------------------------- | -------------------------------------- |
 | Settled idle after the first sync | Under 250 MiB and under 1% of one core |
-| Ten-person audio call | Under 400 MiB |
-| Inactive window | No continuous rendering |
+| Ten-person audio call             | Under 400 MiB                          |
+| Inactive window                   | No continuous rendering                |
 
 These are ceilings; aim lower where the numbers allow. Check them on a
 machine of about four cores with 8 GB of RAM and integrated graphics, and on
@@ -116,4 +116,3 @@ Alternate the builds over several runs and give the spread between runs of
 one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
 private `records.md` beside this file.
-

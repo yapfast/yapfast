@@ -50,18 +50,18 @@ whose id isn't of that form or repeats another's. The editor's fields exist
 only while it's open; otherwise a custom theme costs its parsed colours and a
 card.
 
-| Theme | Id | Dark | Accent | From |
-| --- | --- | --- | --- | --- |
-| Yap | `yap` | yes | marigold | Yapfast's own |
-| Bonfire | `bonfire` | yes | blurple | Discord's Dark theme, the default |
-| Catppuccin Mocha | `catppuccin-mocha` | yes | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
-| Dracula | `dracula` | yes | purple | [Dracula](https://draculatheme.com/contribute) |
-| Nord | `nord` | yes | frost nord8 | [Nord](https://www.nordtheme.com/docs/colors-and-palettes) |
-| Gruvbox Dark | `gruvbox-dark` | yes | orange | [Gruvbox](https://github.com/morhetz/gruvbox) |
-| Tokyo Night | `tokyo-night` | yes | blue | [Tokyo Night](https://github.com/tokyo-night/tokyo-night-vscode-theme), Night style |
-| Catppuccin Latte | `catppuccin-latte` | no | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
-| Rosé Pine Dawn | `rose-pine-dawn` | no | rose | [Rosé Pine](https://rosepinetheme.com/palette/) |
-| Sakura | `sakura` | no | blossom pink | Yapfast's own |
+| Theme            | Id                 | Dark | Accent       | From                                                                                |
+| ---------------- | ------------------ | ---- | ------------ | ----------------------------------------------------------------------------------- |
+| Yap              | `yap`              | yes  | marigold     | Yapfast's own                                                                       |
+| Bonfire          | `bonfire`          | yes  | blurple      | Discord's Dark theme, the default                                                   |
+| Catppuccin Mocha | `catppuccin-mocha` | yes  | mauve        | [Catppuccin](https://github.com/catppuccin/catppuccin)                              |
+| Dracula          | `dracula`          | yes  | purple       | [Dracula](https://draculatheme.com/contribute)                                      |
+| Nord             | `nord`             | yes  | frost nord8  | [Nord](https://www.nordtheme.com/docs/colors-and-palettes)                          |
+| Gruvbox Dark     | `gruvbox-dark`     | yes  | orange       | [Gruvbox](https://github.com/morhetz/gruvbox)                                       |
+| Tokyo Night      | `tokyo-night`      | yes  | blue         | [Tokyo Night](https://github.com/tokyo-night/tokyo-night-vscode-theme), Night style |
+| Catppuccin Latte | `catppuccin-latte` | no   | mauve        | [Catppuccin](https://github.com/catppuccin/catppuccin)                              |
+| Rosé Pine Dawn   | `rose-pine-dawn`   | no   | rose         | [Rosé Pine](https://rosepinetheme.com/palette/)                                     |
+| Sakura           | `sakura`           | no   | blossom pink | Yapfast's own                                                                       |
 
 The palettes of Catppuccin, Dracula, Nord, Gruvbox, Tokyo Night and Rosé Pine
 are published under the MIT licence; thanks to their authors. For Tokyo

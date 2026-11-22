@@ -316,7 +316,7 @@ for:
   naming it): Wine's DirectShow, built without libv4l2, reads only a V4L2
   device that supports `read()` and BGR24, such as a v4l2loopback device fed
   by `ffmpeg -re -f lavfi -i testsrc2=size=1280x720:rate=30 -pix_fmt bgr24 -f
-  v4l2 /dev/videoN`. It lists a USB webcam too, which then fails to open.
+v4l2 /dev/videoN`. It lists a USB webcam too, which then fails to open.
 
 `audio_io::tests::hears_other_applications` can only show the fallback under
 Wine: Wine has no `VAD\Process_Loopback` device, so the capture fails with
@@ -354,7 +354,7 @@ There are two ways to show the window, and each misses something:
   starts `Xwayland :58 -geometry 1120x760` (the session's size; not
   `-fullscreen`, which gives 640×480 stretched), then, with `DISPLAY=:58`
   and `WAYLAND_DISPLAY` unset, runs `wine explorer
-  /desktop=yapfast,1120x760 yapfast.exe "$@"`. GDI then captures the real
+/desktop=yapfast,1120x760 yapfast.exe "$@"`. GDI then captures the real
   screen, and the window can be moved, resized and maximized. Stop the extra
   Xwayland by its PID after `scripts/ui-session stop`.
 

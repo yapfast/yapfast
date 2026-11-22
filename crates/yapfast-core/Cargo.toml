@@ -17,9 +17,29 @@ doctest = false
 [features]
 default = ["discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
-matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
+matrix = [
+  "dep:keyring",
+  "dep:matrix-sdk",
+  "dep:matrix-sdk-ui",
+  "dep:matrix-sdk-crypto",
+  "dep:matrix-rtc-livekit",
+  "dep:matrix-rtc-core",
+  "dep:matrix-rtc-media",
+  "dep:mime",
+  "dep:url",
+]
 # Discord through the account linked on this device; see docs/discord/README.md.
-discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
+discord = [
+  "dep:yapfast-discord",
+  "dep:rand",
+  "dep:base64",
+  "dep:nnnoiseless",
+  "dep:deep_filter",
+  "dep:ndarray",
+  "dep:x264-src",
+  "dep:ffmpeg-src",
+  "dep:thorvg-sys",
+]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check; and meters that open no microphone, so the
 # window's tests never read the one of whoever runs them.
@@ -34,7 +54,10 @@ base64 = { version = "0.22", optional = true }
 # voice's noise suppression. The repository's last commit, ported to tract
 # 0.23; see vendor/deep_filter/README.yapfast.md. `default-model` builds the
 # model's weights (MIT/Apache-2.0, 8 MB) into Yapfast.
-deep_filter = { path = "../../vendor/deep_filter", default-features = false, features = ["tract", "default-model"], optional = true }
+deep_filter = { path = "../../vendor/deep_filter", default-features = false, features = [
+  "tract",
+  "default-model",
+], optional = true }
 directories.workspace = true
 # Unicode's emoji, their names and shortcodes: what `:name` finds and the
 # names Discord's settings keep emoji by (`emoji.rs`).
@@ -81,7 +104,11 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # CPU rendering of Discord's Lottie stickers, without file access or expressions.
-thorvg-sys = { version = "0.4", default-features = false, features = ["vendored", "lottie", "threads"], optional = true }
+thorvg-sys = { version = "0.4", default-features = false, features = [
+  "vendored",
+  "lottie",
+  "threads",
+], optional = true }
 uuid.workspace = true
 url = { workspace = true, optional = true }
 # Levels the voice in LiveKit's calls, and sends the camera from pooled
@@ -108,17 +135,17 @@ libpulse-simple-binding = { version = "2", default-features = false }
 # Yapfast's own sound goes through WASAPI. sysinfo already builds this
 # version of the crate for Windows.
 windows = { version = "0.62", features = [
-    "Win32_Foundation",
-    "Win32_Media_Audio",
-    "Win32_Media_KernelStreaming",
-    "Win32_Media_Multimedia",
-    "Win32_Security",
-    "Win32_System_Com",
-    "Win32_System_Com_StructuredStorage",
-    "Win32_System_Console",
-    "Win32_System_Diagnostics_ToolHelp",
-    "Win32_System_Threading",
-    "Win32_System_Variant",
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Media_KernelStreaming",
+  "Win32_Media_Multimedia",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
 ] }
 # What `#[implement]` expands to names it.
 windows-core = "0.62"
