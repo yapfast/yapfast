@@ -84,6 +84,7 @@ mod menus;
 mod message;
 mod mfa;
 mod paint;
+mod peek;
 mod people;
 mod person_menu;
 mod picker;

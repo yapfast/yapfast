@@ -342,8 +342,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             }
             crate::app::point(&mut app.pointed.side, id, entered);
             // A DM's nameplate and moving decoration come as it's
-            // pointed at.
-            return app.ask();
+            // pointed at; a peek follows the row.
+            return Task::batch([app.ask(), crate::peek::follow(app)]);
         }
         // A server tree lists other places' channels too, which go to
         // their place first.

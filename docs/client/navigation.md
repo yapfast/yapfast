@@ -46,6 +46,13 @@ it has none while they are.
 A middle click on a server or a folder marks it all read, as its menu's
 Mark as read does.
 
+With Peek at channels on (Settings → Messages, `peek_channels`), holding Alt
+alone over a channel or DM row shows its newest messages beside the
+sidebar (`peek.rs`), as found cards, newest at the bottom; the row is asked
+for once the pointer stays on it 120 ms, and letting go of Alt, leaving the
+row or the window losing the focus closes it. The pointer's place is
+followed only while Alt is held with the switch on.
+
 The sidebar's right edge and the member list's left are each a kit
 `Splitter` laid over the panel's edge (`app/view.rs`, `members.rs`): a drag
 sets `sidebar_width` or `members_width` in the layout, within the panel's

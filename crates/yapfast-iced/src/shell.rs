@@ -192,6 +192,11 @@ impl App {
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
+                if !focused {
+                    // Alt may be let go elsewhere.
+                    self.modifiers = iced::keyboard::Modifiers::default();
+                    return crate::peek::follow(self);
+                }
                 if focused {
                     return window::request_user_attention(id, None);
                 }
