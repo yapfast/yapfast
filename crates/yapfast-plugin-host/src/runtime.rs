@@ -27,6 +27,7 @@
 //! around.
 
 mod host;
+pub(crate) mod kept;
 mod module;
 
 use std::collections::HashMap;

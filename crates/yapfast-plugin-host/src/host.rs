@@ -293,7 +293,18 @@ fn dispatch(
             scheduler.send(Message::Input { id, plugin, input });
             After::Continue
         }
+        ToHelper::Kept {
+            plugin,
+            settings,
+            storage,
+        } => {
+            // Kept here and not by the scheduler: a guest's read takes it at
+            // once, from whichever thread runs the guest.
+            crate::runtime::kept::keep(plugin, settings, storage);
+            After::Continue
+        }
         ToHelper::Unload { plugin } => {
+            crate::runtime::kept::forget(&plugin);
             scheduler.send(Message::Unload { plugin });
             After::Continue
         }

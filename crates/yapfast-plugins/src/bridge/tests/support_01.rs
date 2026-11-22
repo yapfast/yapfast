@@ -67,6 +67,24 @@ pub(super) fn session_stub() -> (
 
 /// Reads one frame the session wrote, which must be there.
 pub(super) fn next_frame(written: &std::sync::mpsc::Receiver<Frame>) -> Frame {
+    loop {
+        let frame = written
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the session should have written a frame");
+        // A plugin's settings and storage, handed over before its module: a
+        // test about something else reads past them (`kept_frame` reads them).
+        if matches!(
+            serde_json::from_slice::<ToHelper>(&frame.payload),
+            Ok(ToHelper::Kept { .. })
+        ) {
+            continue;
+        }
+        return frame;
+    }
+}
+
+/// The next frame, `Kept` ones included.
+pub(super) fn kept_frame(written: &std::sync::mpsc::Receiver<Frame>) -> Frame {
     written
         .recv_timeout(Duration::from_secs(2))
         .expect("the session should have written a frame")

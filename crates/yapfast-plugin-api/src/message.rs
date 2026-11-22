@@ -129,6 +129,18 @@ pub enum ToHelper {
     },
     /// Drop an instance, keeping nothing.
     Unload { plugin: PluginId },
+    /// A plugin's settings, and its storage when the helper answers its reads:
+    /// sent before a module is handed over and again on each change of a
+    /// setting, so `settings.get`, `storage.get` and `storage.list` are
+    /// answered in the helper at once instead of after a round trip.
+    Kept {
+        plugin: PluginId,
+        settings: serde_json::Map<String, serde_json::Value>,
+        /// None when the plugin may not keep anything, or keeps more than
+        /// one frame carries.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        storage: Option<std::collections::BTreeMap<String, serde_json::Value>>,
+    },
     /// Load this plugin's module if the helper hasn't been given it, then call
     /// `yf_activate`: one request for the whole phase.
     ///

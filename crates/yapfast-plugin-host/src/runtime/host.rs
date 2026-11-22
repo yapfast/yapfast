@@ -480,8 +480,21 @@ fn yf_call(
     let channel = channel(&user_data)?;
     channel.admit()?;
     let call = read_call(plugin, inputs, "yf_call")?;
-    let answer = if forwards(&call.method) {
-        channel.request(call)?
+    let answer = if let Some(answer) = super::kept::read(&channel.plugin, &call) {
+        // A settings or storage read this process holds the answer to.
+        answer
+    } else if forwards(&call.method) {
+        let method = call.method.clone();
+        let write = matches!(
+            method.as_str(),
+            method::STORAGE_SET | method::STORAGE_DELETE | method::STORAGE_CLEAR
+        )
+        .then(|| call.clone());
+        let answer = channel.request(call)?;
+        if let Some(write) = write {
+            super::kept::wrote(&channel.plugin, &write, &answer);
+        }
+        answer
     } else {
         HostReturn::Unsupported
     };

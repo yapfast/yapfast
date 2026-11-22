@@ -52,6 +52,11 @@ impl Session {
                 None
             }
             Request::SettingsNews { plugin, news } => {
+                // The helper's copy first, so a read the news prompts sees
+                // the new value.
+                if self.loaded.contains(&plugin) {
+                    self.send_kept(shared, &plugin);
+                }
                 self.news(&plugin, news);
                 None
             }

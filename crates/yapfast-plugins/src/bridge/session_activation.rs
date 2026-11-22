@@ -43,6 +43,11 @@ impl Session {
                 hooks: in_a_hook_chain(shared, plugin),
             })
         };
+        if load.is_some() {
+            // Its settings and storage go first, so its first read is answered
+            // in the helper.
+            self.send_kept(shared, plugin);
+        }
         let message = ToHelper::Activate {
             plugin: plugin.clone(),
             load,
@@ -57,6 +62,42 @@ impl Session {
             },
         );
         Started::Asked(id)
+    }
+
+    /// Hands the helper a plugin's settings and, when it may keep things and
+    /// they fit in one frame, its storage: the helper answers `settings.get`,
+    /// `storage.get` and `storage.list` from them at once, so a read never
+    /// waits on this process and never comes back `pending`.
+    pub(super) fn send_kept(&mut self, shared: &Shared, plugin: &PluginId) {
+        let Some(manifest) = shared
+            .registry()
+            .entry(plugin)
+            .map(|entry| entry.manifest.clone())
+        else {
+            return;
+        };
+        let settings = match shared.store().settings(plugin, &manifest) {
+            serde_json::Value::Object(settings) => settings,
+            _ => serde_json::Map::new(),
+        };
+        let storage = if crate::permissions::check(
+            &manifest.permissions,
+            yapfast_plugin_api::capability::Capability::Storage,
+        )
+        .is_ok()
+        {
+            let (values, bytes) = shared.store().storage_all(plugin);
+            // Half a frame, so the settings and the frame's own words fit.
+            (bytes < (yapfast_plugin_api::frame::MAX_FRAME / 2) as u64).then_some(values)
+        } else {
+            None
+        };
+        let message = ToHelper::Kept {
+            plugin: plugin.clone(),
+            settings,
+            storage,
+        };
+        self.send_message(&message, FrameKind::Request);
     }
 
     /// The module to hand the helper, if it still checks out.

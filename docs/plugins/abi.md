@@ -850,17 +850,25 @@ never dropped to make room in a full lane. The PDK calls `timer` with each tag.
 `app.now` answers the time in Unix milliseconds, since a plugin has no clock of
 its own.
 
-Every host call is a request the parent answers, because the parent holds the
-token, the network gate and the consent dialogs. Most of those answers take the
-parent well under a millisecond — a setting, a stored value, the open room, a
-slot drawn — so the guest's `yf_call` waits for the answer and returns it in the
-same call: a PDK's `settings::get` or `storage::get` returns its value, inside a
+**Settings and storage are read in the helper.** The parent hands the helper a
+plugin's settings, and its storage when it declares `storage` and keeps less
+than half a frame, before its module and again on every change of a setting.
+`settings.get`, `storage.get` and `storage.list` are answered from that copy in
+the same call, with no round trip, so they never come back `pending`, however
+busy Yapfast is. A plugin's own `storage.set`, `storage.delete` and
+`storage.clear` still go to the parent, which owns the file and the quota, and
+the copy follows each one the parent took or will take (`pending`); a refusal
+leaves it as it was.
+
+Every other host call is a request the parent answers, because the parent holds
+the token, the network gate and the consent dialogs. Most of those answers take
+the parent well under a millisecond — the open room, a slot drawn — so the
+guest's `yf_call` waits for the answer and returns it in the same call, inside a
 hook as anywhere else. The wait is at most 250 ms and never past the deadline of
 the export it is in, less 3 ms for the guest to use the answer (a
 `message_pre_send` hook has 25 ms), and an answer that hasn't come by then makes
-the call `pending` after all, finished the way below. A plugin reading a
-setting should still handle `pending`, which means Yapfast was busy, not that
-the setting is missing.
+the call `pending` after all, finished the way below. A plugin should still handle
+`pending` from such a call, which means Yapfast was busy.
 
 The calls that wait on the network, a person or another plugin, or that answer
 more than once, are `pending` at once and never hold the guest's thread:

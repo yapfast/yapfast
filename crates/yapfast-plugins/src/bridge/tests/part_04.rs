@@ -261,3 +261,38 @@ fn a_slot_is_drawn_once_a_frame_and_a_slot_that_isnt_there_is_refused() {
     session.paint(&shared, now + PAINT_PERIOD);
     assert!(notices.try_recv().is_err(), "a refused tree draws nothing");
 }
+
+#[test]
+fn a_plugins_settings_go_to_the_helper_before_its_module() {
+    let directory = tempfile::tempdir().expect("a temp dir");
+    let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+    let event = SharedEvent::new(event(EventKind::MessageCreate, "hi")).expect("it serializes");
+    runtime().block_on(session.on_command(
+        &shared,
+        Request::Event {
+            plugin: plugin.clone(),
+            event,
+        },
+    ));
+    let ToHelper::Kept {
+        plugin: kept,
+        storage,
+        ..
+    } = message(&kept_frame(&written))
+    else {
+        panic!("the settings go first");
+    };
+    assert_eq!(kept, plugin);
+    assert_eq!(
+        storage,
+        Some(Default::default()),
+        "a plugin with `storage` is handed what it keeps, here nothing"
+    );
+    assert!(matches!(
+        message(&kept_frame(&written)),
+        ToHelper::Activate { load: Some(_), .. }
+    ));
+}

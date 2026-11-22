@@ -591,6 +591,13 @@ impl Store {
         self.stored(plugin).values.get(key).cloned()
     }
 
+    /// Everything a plugin keeps, and the bytes it takes as JSON: what the
+    /// helper is handed to answer the plugin's reads itself.
+    pub fn storage_all(&mut self, plugin: &PluginId) -> (BTreeMap<String, Value>, u64) {
+        let stored = self.stored(plugin);
+        (stored.values.clone(), stored.bytes)
+    }
+
     /// Stores one key, refusing a write that would take the plugin past its
     /// manifest's storage limit.
     pub fn storage_set(
