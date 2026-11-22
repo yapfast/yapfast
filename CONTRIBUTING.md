@@ -16,8 +16,13 @@ then run the hooks from the repository root:
 prek run --all-files
 ```
 
-The same command runs in CI. Formatters apply changes; inspect them and rerun
-until all hooks pass. For automatic checks of staged files, run
+Formatters apply changes; inspect them and rerun until all hooks pass.
+Repository-wide formatting is being introduced separately, so this command may
+report existing violations and modify files outside your change. For focused
+checks, use `prek run --files path/to/file.py`. The CI formatting job is temporarily
+disabled until the dependency-update and formatting-baseline PRs are merged.
+
+For automatic checks of staged files, run
 `prek install`. If you previously installed hooks with pre-commit, replace them
 with `prek install -f`. If you use `core.hooksPath=.githooks`, the existing hook
 calls prek directly instead; no installation is needed.
@@ -26,8 +31,8 @@ Tools are pinned in `prek.toml`; prek installs their isolated environments on
 the first run, including Node.js for Prettier. No project Python environment
 or npm install is needed.
 
-Formatting and lint rules are defined in `prek.toml`, `ruff.toml`,
-`.clang-format` and `.editorconfig`.
+See [Code style](docs/code-style.md) for formatting rules, exclusions and commands.
+The configuration files linked there define the rules.
 
 ### Build checks
 
@@ -125,11 +130,16 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 ## Pull requests
 
 Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
-toolchain in `rust-toolchain.toml`. Jobs run the prek hooks, Rust formatting,
-`cargo audit` (with the SQLite advisory excluded), `cargo machete`, strict Clippy
-and workspace tests. Clippy and tests run in parallel, each with its own cache.
-CI also runs on pushes to `main` and can be started manually. Run the Matrix and
-fake Discord checks above locally when your change needs them.
+toolchain in `rust-toolchain.toml`. Strict Clippy and workspace tests run in
+parallel, each with its own cache. The formatting job (prek hooks and rustfmt)
+and dependency job (cargo-audit and cargo-machete) are temporarily commented out
+until the dependency-update and formatting-baseline PRs are merged. The disabled
+audit command excludes the SQLite advisory `RUSTSEC-2026-0459`.
+
+CI also runs on pushes to `main` and can be started manually; documentation-only
+and listed media-only changes do not trigger automatic runs. Documentation links
+are checked locally by `scripts/check-doc-links`, not by the current workflow.
+Run the Matrix and fake Discord checks above locally when your change needs them.
 
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.

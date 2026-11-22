@@ -35,8 +35,8 @@ env:
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
-	# TODO: uncomment once #313 bump versions and #314 code formatting are merged,
-	# otherwise CI will fail on the existing code.
+  # TODO: uncomment once #313 bump versions and #314 code formatting are merged,
+  # otherwise CI will fail on the existing code.
   # formatting:
   #   name: formatting
   #   runs-on: ubuntu-26.04
@@ -73,7 +73,6 @@ jobs:
 
   linux:
     name: ${{ matrix.name }}
-    needs: formatting # fail fast on cheap checks before the expensive build
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     strategy:
