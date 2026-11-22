@@ -93,6 +93,8 @@ pub enum Event {
     /// The full profile, on a tab or the first: from the card, or from the
     /// DM's panel.
     Enlarge(Option<Tab>, bool),
+    /// The full profile's Mutual Friends search changed.
+    FriendSearch(String),
     Close,
     Befriend(String),
     /// What a one-to-one DM's opening does about its person, by their id.
@@ -198,6 +200,8 @@ pub struct Profiles {
     pub field: String,
     pub note: String,
     note_of: String,
+    /// What the full profile's Mutual Friends tab is searched for.
+    pub friend_search: String,
     pub pointed: bool,
     pub panel_pointed: bool,
     pub bubble: bool,
@@ -292,6 +296,7 @@ impl Profiles {
             Event::Enlarge(tab, panel) => {
                 self.save_note(cx);
                 self.tab = tab;
+                self.friend_search.clear();
                 if panel {
                     let Some(room) = cx.state().selected.clone() else {
                         return Task::none();
@@ -397,6 +402,10 @@ impl Profiles {
                 return self.point_effect(true, pointed, cx.state());
             }
             Event::EffectTick(generation) => return self.effect_tick(generation, cx.state()),
+            Event::FriendSearch(words) => {
+                self.friend_search = words;
+                return Task::none();
+            }
             Event::Bubble(pointed) => {
                 self.bubble = pointed;
                 return Task::none();

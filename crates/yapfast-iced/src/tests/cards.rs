@@ -551,3 +551,47 @@ fn the_activity_tab_shows_the_call_theyre_in_with_join() {
     assert!(shows(&app, "in Co-op crew"));
     assert!(shows(&app, "Join"));
 }
+
+/// A full profile with many mutual friends can be searched by name.
+#[test]
+fn a_long_list_of_mutual_friends_is_searched_by_name() {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::ProfileView,
+        chat::{Profile, ProfileFriend},
+    };
+    let (mut app, _folder) = preview();
+    let friends: Vec<ProfileFriend> = [
+        "Ann", "Bob", "Cat", "Dan", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(at, name)| ProfileFriend {
+        id: format!("10{at}"),
+        name: (*name).into(),
+        avatar: None,
+    })
+    .collect();
+    super::change(&mut app, |state| {
+        state.profile = Some(Arc::new(ProfileView {
+            profile: Profile {
+                id: "123456789".into(),
+                name: "Zed".into(),
+                handle: "zed".into(),
+                friends,
+                ..Default::default()
+            },
+            large: true,
+            kept: true,
+            ..Default::default()
+        }));
+    });
+    app.profiles.tab = Some(crate::profile::look::Tab::Friends);
+    let _ = app.sync();
+    assert!(shows(&app, "Ann") && shows(&app, "Jo"));
+    let _ = app.update(Message::Profile(crate::profile::Event::FriendSearch(
+        "iv".into(),
+    )));
+    assert!(shows(&app, "Ivy"));
+    assert!(!shows(&app, "Ann"), "the others are left out");
+}

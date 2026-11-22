@@ -247,8 +247,31 @@ pub(super) fn tab_page<'a>(
         Tab::Board => board_tab(ctx, shown, inks),
         Tab::Wishlist => wishlist_tab(ctx, shown, inks),
         Tab::Friends => {
+            // Yapfast's own: a search over a long list of mutual friends,
+            // by name; a right click opens someone's menu, as anywhere.
+            let search = ctx.profiles.friend_search.trim().to_lowercase();
             let mut list = column![];
+            if profile.friends.len() > 8 {
+                list = list.push(
+                    container(
+                        iced::widget::text_input(
+                            "Search mutual friends",
+                            &ctx.profiles.friend_search,
+                        )
+                        .on_input(|words| Message::Profile(Event::FriendSearch(words)))
+                        .size(14)
+                        .padding([6, 10]),
+                    )
+                    .padding(Padding {
+                        bottom: 8.0,
+                        ..Padding::ZERO
+                    }),
+                );
+            }
             for (index, friend) in profile.friends.iter().enumerate() {
+                if !search.is_empty() && !friend.name.to_lowercase().contains(&search) {
+                    continue;
+                }
                 let presence = look.presences.get(index).copied();
                 let face = list_face(
                     ctx,
@@ -258,12 +281,16 @@ pub(super) fn tab_page<'a>(
                     presence,
                     inks,
                 );
-                list = list.push(list_row(
-                    face,
-                    &friend.name,
-                    None,
-                    inks,
-                    Message::Profile(Event::Friend(friend.id.clone())),
+                let id = friend.id.clone();
+                list = list.push(crate::widgets::RightPress::new(
+                    list_row(
+                        face,
+                        &friend.name,
+                        None,
+                        inks,
+                        Message::Profile(Event::Friend(friend.id.clone())),
+                    ),
+                    move |at| Message::PersonMenu(id.clone(), at),
                 ));
             }
             list.into()
