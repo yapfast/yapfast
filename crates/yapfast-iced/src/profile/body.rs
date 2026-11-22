@@ -739,7 +739,7 @@ fn styled_name<'a>(
     let state = ctx.state;
     let profile = shown.look.profile();
     let style = state.cosmetics.style(profile.style.as_deref());
-    let dark = ctx.look.theme.dark;
+    let dark = name_on_dark(ctx.look.theme, profile.theme);
     let style = looks::name_look(style, &profile.name, false, dark)?;
     let key = (
         profile
@@ -762,6 +762,16 @@ fn styled_name<'a>(
         });
     }
     Some(cached.as_ref().expect("made above").picture.view())
+}
+
+/// Whether a styled name lies on a dark ground: a profile's own theme
+/// decides that, as its card is drawn in it, and the app's theme only
+/// without one. Taking the app's on a light profile theme drew a white
+/// name's style for a dark ground, white on the white card: the owner's
+/// own card showed no name.
+pub(crate) fn name_on_dark(theme: &crate::theme::Theme, colors: Option<[u32; 2]>) -> bool {
+    let inks = Inks::new(theme, colors, theme.sidebar);
+    if inks.themed { !inks.light } else { theme.dark }
 }
 
 /// Text on a profile that selects, to copy, as its plain name and its
