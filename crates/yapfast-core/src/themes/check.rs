@@ -167,9 +167,12 @@ impl Report {
         self.errors.is_empty()
     }
 
-    /// The first reason it can't be used, as one sentence.
-    pub fn reason(&self) -> Option<&str> {
-        self.errors.first().map(String::as_str)
+    /// The first reason it can't be used, as one sentence, written as
+    /// [`super::shown`] writes a theme's text: an error can quote the
+    /// theme's own words, which must not reach a screen as more lines or
+    /// turned around.
+    pub fn reason(&self) -> Option<String> {
+        self.errors.first().map(|error| super::shown(error))
     }
 
     /// What `yapfast theme check` prints.
@@ -1557,6 +1560,19 @@ mod tests {
 
     const PLUM: &str = r##"{ "theme_api": 1, "id": "com.example.plum", "name": "Plum", "version": "1.0.0",
         "variants": { "dark": { "base": "yap", "colours": { "chat": "#2a1a3a" } } } }"##;
+
+    #[test]
+    fn a_reason_quoting_the_theme_stays_one_line() {
+        let spoof = PLUM.replace("com.example.plum", "x\\n\\n\u{202e}Verified by Yapfast");
+        let reason = check(&files(&spoof), Strictness::Install)
+            .reason()
+            .expect("a bad id fails");
+        assert!(
+            !reason.contains('\n') && !reason.contains('\u{202e}'),
+            "{reason}"
+        );
+        assert!(reason.contains("\\u{a}"), "{reason}");
+    }
 
     /// PLUM with `options` (and anything else) added at its top level.
     fn with_options(extra: &str) -> String {

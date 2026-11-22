@@ -1074,7 +1074,7 @@ impl Themes {
                     }
                     let report = check::check(&files, Strictness::Install);
                     if let Some(reason) = report.reason() {
-                        return Err(reason.to_owned());
+                        return Err(reason);
                     }
                     let package = report.package.expect("a passed check has its package");
                     resolve_package(
@@ -1353,7 +1353,7 @@ impl Themes {
         let files = check::Files::read(folder)?;
         let report = check::check(&files, Strictness::Install);
         if let Some(reason) = report.reason() {
-            return Err(reason.to_owned());
+            return Err(reason);
         }
         let package = report.package.expect("a passed check has its package");
         let resolved = resolve_package(

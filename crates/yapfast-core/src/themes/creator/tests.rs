@@ -43,7 +43,7 @@ fn refused(spec: &Spec, picture: Option<&[u8]>) -> Option<String> {
     write_folder(folder.path(), spec, "Test", "custom:1", &derived, font).expect("written");
     let files = Files::read(folder.path()).expect("read back");
     let report = check(&files, Strictness::Install);
-    report.reason().map(str::to_owned)
+    report.reason()
 }
 
 fn solid(width: u32, height: u32, pick: impl Fn(u32, u32) -> [u8; 3]) -> image::DynamicImage {

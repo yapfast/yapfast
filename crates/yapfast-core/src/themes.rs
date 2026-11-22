@@ -31,23 +31,37 @@ pub mod scaffold;
 
 pub use package::{Mode, Package, Resolved};
 
-/// A character a theme's text may not hold: control characters, and the
-/// marks that turn text around, break lines or hide, which would let a label
-/// reorder or disguise what's beside it. The joiner emoji are made with
-/// (U+200D) is allowed.
+/// A character a theme's text may not hold: control characters, the marks
+/// that turn text around, break lines or hide, and the fillers that draw as
+/// nothing (a "blank" name), which would let a label reorder or disguise
+/// what's beside it. The joiner emoji are made with (U+200D) and the emoji
+/// variation selectors (U+FE00 to U+FE0F) are allowed.
 pub fn refused_char(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
-            '\u{061c}'
+            '\u{00ad}'
+                | '\u{034f}'
+                | '\u{061c}'
+                | '\u{115f}'
+                | '\u{1160}'
+                | '\u{17b4}'
+                | '\u{17b5}'
+                | '\u{180b}'..='\u{180f}'
                 | '\u{200b}'
                 | '\u{200c}'
                 | '\u{200e}'
                 | '\u{200f}'
                 | '\u{2028}'..='\u{202e}'
                 | '\u{2060}'..='\u{2069}'
+                | '\u{2800}'
+                | '\u{3164}'
                 | '\u{feff}'
+                | '\u{ffa0}'
+                | '\u{fff9}'..='\u{fffb}'
+                | '\u{1d173}'..='\u{1d17a}'
                 | '\u{e0000}'..='\u{e007f}'
+                | '\u{e0100}'..='\u{e01ef}'
         )
 }
 
