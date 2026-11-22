@@ -5,6 +5,7 @@
 /.impeccable/review/
 __pycache__/
 .direnv/
+.DS_Store
 node_modules/
 .venv/
 .ruff_cache/
