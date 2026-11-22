@@ -357,9 +357,8 @@ step compiles it again; Clippy alone takes about 4 minutes. Run Clippy on the
 changed crate first, `cargo clippy --profile fast -p <crate> --all-targets --
 -D warnings`, to catch lints in seconds before `scripts/check`.
 
-`git config core.hooksPath .githooks` turns on the Git pre-commit hook, which
-runs lint and formatting through `prek` on staged files. See
-[Lint and formatting](../CONTRIBUTING.md#lint-and-formatting) for setup.
+`git config core.hooksPath .githooks` turns on the pre-commit hook, which
+checks formatting only, so commits stay quick.
 
 ## Seeing the app
 

@@ -14,7 +14,7 @@ fi
 sum() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 # NAME KEY TAG TEXT: TEXT signed with KEY for TAG's release, as NAME.minisig.
 sign() {
-  printf '%s' "$4" >"$1"
+  printf '%s' "$4" > "$1"
   minisign -S -s "$2.key" -m "$1" -x "$1.minisig" -t "yapfast $3 SHA256SUMS.txt" -c "signature from the $2 test key"
   rm "$1"
 }
@@ -27,7 +27,7 @@ sign appimage-works stable v0.4.1 "$(sum $'#!/bin/sh\nexit 0\n')  $appimage"$'\n
 sign appimage-fails stable v0.4.1 "$(sum $'#!/bin/sh\nexit 3\n')  $appimage"$'\n'
 # What signature.rs's tests check.
 sums="$(sum 'release')  $appimage"$'\n'
-printf '%s' "$sums" >sums.txt
+printf '%s' "$sums" > sums.txt
 sign stable stable v0.4.1 "$sums"
 sign nightly nightly v0.5.0-nightly.20261114.3 "$sums"
 sign nightly-as-stable nightly v0.4.1 "$sums"

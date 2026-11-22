@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <!-- What software centers and AppImage catalogs show for Yapfast. -->
 <component type="desktop-application">
   <id>io.github.yapfast.Yapfast</id>
@@ -39,10 +39,10 @@
     <content_attribute id="social-contacts">intense</content_attribute>
   </content_rating>
   <releases>
-    <release version="0.4.1" date="2026-11-15" />
-    <release version="0.4.0" date="2026-11-15" />
-    <release version="0.3.0" date="2026-11-05" />
-    <release version="0.2.0" date="2026-10-24" />
-    <release version="0.1.0" date="2026-10-16" />
+    <release version="0.4.1" date="2026-11-15"/>
+    <release version="0.4.0" date="2026-11-15"/>
+    <release version="0.3.0" date="2026-11-05"/>
+    <release version="0.2.0" date="2026-10-24"/>
+    <release version="0.1.0" date="2026-10-16"/>
   </releases>
 </component>

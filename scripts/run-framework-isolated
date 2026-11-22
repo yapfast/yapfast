@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Run a trial on a private Weston headless GPU display, never the user's desktop."""
-
 import argparse
 import os
+from pathlib import Path
 import shutil
 import signal
 import subprocess
 import tempfile
 import time
 import uuid
-from pathlib import Path
 
 
 def interrupted(signum, _frame):
@@ -21,191 +20,97 @@ for signum in (signal.SIGTERM, signal.SIGINT):
 
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--weston", default=shutil.which("weston"))
-parser.add_argument("--compositor-log", required=True, type=Path)
-parser.add_argument(
-    "--seat-plugin",
-    type=Path,
-    default=Path(__file__).resolve().parent.parent / ".local/framework-weston-seat.so",
-)
-parser.add_argument(
-    "--gtk-dpi-module",
-    type=Path,
-    default=Path(__file__).resolve().parent.parent / ".local/framework-gtk-dpi.so",
-)
-parser.add_argument(
-    "--audio", action="store_true", help="Private PulseAudio with virtual devices only"
-)
-parser.add_argument(
-    "--no-services",
-    action="store_true",
-    help="Private D-Bus without activation services, for disposable session tests",
-)
-parser.add_argument(
-    "--alsa-plugins", type=Path, help="Directory containing the ALSA PulseAudio plugin"
-)
-parser.add_argument(
-    "--width",
-    type=int,
-    default=1600,
-    help="output width in logical pixels; Weston multiplies it by --scale",
-)
-parser.add_argument("--height", type=int, default=1000, help="output height in logical pixels")
-parser.add_argument(
-    "--scale", type=int, default=1, help="output scale, such as 2 for a high-DPI display"
-)
-parser.add_argument(
-    "--kiosk", action="store_true", help="kiosk shell: one window filling the output, with no panel"
-)
-parser.add_argument(
-    "--repaint-window",
-    type=int,
-    metavar="MS",
-    help="Weston's repaint window. With the default, 7, the headless backend repaints "
-    "a busy display about 39 times a second, its frame timer and the window adding up; "
-    "17, a whole frame or more, repaints every 60 Hz frame",
-)
-parser.add_argument("command", nargs=argparse.REMAINDER)
+parser.add_argument('--weston', default=shutil.which('weston'))
+parser.add_argument('--compositor-log', required=True, type=Path)
+parser.add_argument('--seat-plugin', type=Path, default=Path(__file__).resolve().parent.parent / '.local/framework-weston-seat.so')
+parser.add_argument('--gtk-dpi-module', type=Path, default=Path(__file__).resolve().parent.parent / '.local/framework-gtk-dpi.so')
+parser.add_argument('--audio', action='store_true', help='Private PulseAudio with virtual devices only')
+parser.add_argument('--no-services', action='store_true', help='Private D-Bus without activation services, for disposable session tests')
+parser.add_argument('--alsa-plugins', type=Path, help='Directory containing the ALSA PulseAudio plugin')
+parser.add_argument('--width', type=int, default=1600, help='output width in logical pixels; Weston multiplies it by --scale')
+parser.add_argument('--height', type=int, default=1000, help='output height in logical pixels')
+parser.add_argument('--scale', type=int, default=1, help='output scale, such as 2 for a high-DPI display')
+parser.add_argument('--kiosk', action='store_true', help='kiosk shell: one window filling the output, with no panel')
+parser.add_argument('--repaint-window', type=int, metavar='MS',
+                    help="Weston's repaint window. With the default, 7, the headless backend repaints "
+                         "a busy display about 39 times a second, its frame timer and the window adding up; "
+                         "17, a whole frame or more, repaints every 60 Hz frame")
+parser.add_argument('command', nargs=argparse.REMAINDER)
 args = parser.parse_args()
-command = args.command[1:] if args.command and args.command[0] == "--" else args.command
+command = args.command[1:] if args.command and args.command[0] == '--' else args.command
 if not args.weston or not command:
-    parser.error("Weston and an executable command are required.")
+    parser.error('Weston and an executable command are required.')
 args.compositor_log.parent.mkdir(parents=True, exist_ok=True)
 args.compositor_log = args.compositor_log.resolve()
 if not args.seat_plugin.exists():
-    subprocess.run(
-        [str(Path(__file__).with_name("build-framework-seat")), str(args.seat_plugin)],
-        check=True,
-        timeout=35,
-    )
+    subprocess.run([str(Path(__file__).with_name('build-framework-seat')), str(args.seat_plugin)], check=True, timeout=35)
 if not args.gtk_dpi_module.exists():
-    subprocess.run(
-        [str(Path(__file__).with_name("build-framework-gtk-dpi")), str(args.gtk_dpi_module)],
-        check=True,
-        timeout=35,
-    )
-with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as temporary:
+    subprocess.run([str(Path(__file__).with_name('build-framework-gtk-dpi')), str(args.gtk_dpi_module)], check=True, timeout=35)
+with tempfile.TemporaryDirectory(prefix='yapfast-framework-display-') as temporary:
     runtime = Path(temporary)
     runtime.chmod(0o700)
-    configuration = runtime / "config"
-    (configuration / "gtk-3.0").mkdir(parents=True)
-    (configuration / "gtk-3.0/settings.ini").write_text(
-        "[Settings]\ngtk-xft-dpi=98304\ngtk-application-prefer-dark-theme=1\n"
-    )
+    configuration = runtime / 'config'
+    (configuration / 'gtk-3.0').mkdir(parents=True)
+    (configuration / 'gtk-3.0/settings.ini').write_text('[Settings]\ngtk-xft-dpi=98304\ngtk-application-prefer-dark-theme=1\n')
     run_token = uuid.uuid4().hex
-    weston_config = ["--no-config"]
+    weston_config = ['--no-config']
     if args.repaint_window is not None:
-        (runtime / "weston.ini").write_text(f"[core]\nrepaint-window={args.repaint_window}\n")
-        weston_config = [f"--config={runtime / 'weston.ini'!s}"]
-    environment = dict(
-        os.environ,
-        XDG_RUNTIME_DIR=str(runtime),
-        WAYLAND_DISPLAY="wayland-yapfast-frameworks",
-        XDG_SESSION_TYPE="wayland",
-        XDG_CURRENT_DESKTOP="Weston",
-        GDK_BACKEND="wayland",
-        XDG_CONFIG_HOME=str(configuration),
-        XDG_CACHE_HOME=str(runtime / "cache"),
-        XDG_DATA_HOME=str(runtime / "data"),
-        GDK_SCALE="1",
-        GDK_DPI_SCALE="1",
+        (runtime / 'weston.ini').write_text(f'[core]\nrepaint-window={args.repaint_window}\n')
+        weston_config = ['--config=' + str(runtime / 'weston.ini')]
+    environment = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), WAYLAND_DISPLAY='wayland-yapfast-frameworks',
+        XDG_SESSION_TYPE='wayland', XDG_CURRENT_DESKTOP='Weston', GDK_BACKEND='wayland',
+        XDG_CONFIG_HOME=str(configuration), XDG_CACHE_HOME=str(runtime / 'cache'), XDG_DATA_HOME=str(runtime / 'data'),
+        GDK_SCALE='1', GDK_DPI_SCALE='1',
         GTK_MODULES=str(args.gtk_dpi_module.resolve()),
-        WINIT_UNIX_BACKEND="wayland",
-        YAPFAST_FRAMEWORK_ISOLATED_DISPLAY="1",
-        YAPFAST_FRAMEWORK_COMPOSITOR_LOG=str(args.compositor_log),
-        YAPFAST_FRAMEWORK_DISPLAY_RUN_ID=run_token,
-    )
+        WINIT_UNIX_BACKEND='wayland', YAPFAST_FRAMEWORK_ISOLATED_DISPLAY='1',
+        YAPFAST_FRAMEWORK_COMPOSITOR_LOG=str(args.compositor_log), YAPFAST_FRAMEWORK_DISPLAY_RUN_ID=run_token)
     # Remove all inherited access to the desktop, including its private bus.
-    for variable in (
-        "DISPLAY",
-        "DBUS_SESSION_BUS_ADDRESS",
-        "HYPRLAND_INSTANCE_SIGNATURE",
-        "SWAYSOCK",
-    ):
+    for variable in ('DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'HYPRLAND_INSTANCE_SIGNATURE', 'SWAYSOCK'):
         environment.pop(variable, None)
-    compositor = subprocess.Popen(
-        [
-            args.weston,
-            "--backend=headless",
-            "--renderer=gl",
-            f"--width={args.width}",
-            f"--height={args.height}",
-            f"--scale={args.scale}",
-            "--refresh-rate=60000",
-            "--socket=wayland-yapfast-frameworks",
-            *(["--shell=kiosk"] if args.kiosk else []),
-            *weston_config,
-            "--idle-time=0",
-            "--debug",
-            f"--modules={args.seat_plugin.resolve()!s}",
-            f"--log={args.compositor_log!s}",
-        ],
-        env=environment,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    compositor = subprocess.Popen([args.weston, '--backend=headless', '--renderer=gl',
+        f'--width={args.width}', f'--height={args.height}', f'--scale={args.scale}', '--refresh-rate=60000', '--socket=wayland-yapfast-frameworks',
+        *(['--shell=kiosk'] if args.kiosk else []),
+        *weston_config, '--idle-time=0', '--debug', '--modules=' + str(args.seat_plugin.resolve()), '--log=' + str(args.compositor_log)],
+        env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     audio = None
     session = None
     try:
         deadline = time.monotonic() + 15
-        while not (runtime / "wayland-yapfast-frameworks").exists():
+        while not (runtime / 'wayland-yapfast-frameworks').exists():
             if compositor.poll() is not None or time.monotonic() > deadline:
-                raise SystemExit(f"Private compositor failed; see {args.compositor_log!s}")
-            time.sleep(0.1)
-        time.sleep(0.3)
+                raise SystemExit('Private compositor failed; see ' + str(args.compositor_log))
+            time.sleep(.1)
+        time.sleep(.3)
         if args.audio:
-            if (
-                not args.alsa_plugins
-                or not (args.alsa_plugins / "libasound_module_pcm_pulse.so").exists()
-            ):
-                raise SystemExit("--audio requires --alsa-plugins with the PulseAudio PCM plugin")
-            audio_socket = runtime / "audio.sock"
-            environment.update(
-                PULSE_SERVER=f"unix:{audio_socket!s}",
-                PULSE_SINK="yapfast_frameworks",
-                PULSE_SOURCE="yapfast_frameworks.monitor",
-                ALSA_PLUGIN_DIR=str(args.alsa_plugins),
-            )
-            alsa = runtime / "alsa.conf"
-            alsa.write_text(f'pcm.!default {{ type pulse server "unix:{audio_socket!s}" }}\n')
-            environment["ALSA_CONFIG_PATH"] = str(alsa)
-            audio_log = args.compositor_log.with_suffix(".audio.log")
-            audio = subprocess.Popen(
-                [
-                    "pulseaudio",
-                    "-n",
-                    "--daemonize=no",
-                    "--use-pid-file=no",
-                    "--exit-idle-time=-1",
-                    "--disable-shm=yes",
-                    f"--log-target=file:{audio_log!s}",
-                    f"--load=module-native-protocol-unix socket={audio_socket!s} auth-anonymous=1",
-                    "--load=module-null-sink sink_name=yapfast_frameworks rate=48000",
-                ],
-                env=environment,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
+            if not args.alsa_plugins or not (args.alsa_plugins / 'libasound_module_pcm_pulse.so').exists():
+                raise SystemExit('--audio requires --alsa-plugins with the PulseAudio PCM plugin')
+            audio_socket = runtime / 'audio.sock'
+            environment.update(PULSE_SERVER='unix:' + str(audio_socket), PULSE_SINK='yapfast_frameworks',
+                PULSE_SOURCE='yapfast_frameworks.monitor', ALSA_PLUGIN_DIR=str(args.alsa_plugins))
+            alsa = runtime / 'alsa.conf'
+            alsa.write_text('pcm.!default { type pulse server "unix:' + str(audio_socket) + '" }\n')
+            environment['ALSA_CONFIG_PATH'] = str(alsa)
+            audio_log = args.compositor_log.with_suffix('.audio.log')
+            audio = subprocess.Popen(['pulseaudio', '-n', '--daemonize=no', '--use-pid-file=no',
+                '--exit-idle-time=-1', '--disable-shm=yes', '--log-target=file:' + str(audio_log),
+                '--load=module-native-protocol-unix socket=' + str(audio_socket) + ' auth-anonymous=1',
+                '--load=module-null-sink sink_name=yapfast_frameworks rate=48000'], env=environment,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             deadline = time.monotonic() + 5
             while not audio_socket.exists():
                 if audio.poll() is not None or time.monotonic() > deadline:
-                    raise SystemExit(f"Private audio failed; see {audio_log!s}")
-                time.sleep(0.1)
+                    raise SystemExit('Private audio failed; see ' + str(audio_log))
+                time.sleep(.1)
         # Toolkits can require D-Bus. Give them a private session bus too.
-        bus_command = ["dbus-run-session"]
+        bus_command = ['dbus-run-session']
         if args.no_services:
-            bus_config = runtime / "bus.conf"
-            bus_config.write_text("""<busconfig>
+            bus_config = runtime / 'bus.conf'
+            bus_config.write_text('''<busconfig>
 <type>session</type><listen>unix:tmpdir=/tmp</listen><auth>EXTERNAL</auth>
-<policy context="default"><allow own="*"/>\
-<allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/></policy>
-</busconfig>""")
-            bus_command.extend(["--config-file", str(bus_config)])
-        session = subprocess.Popen(
-            [*bus_command, "--", *command], env=environment, start_new_session=True
-        )
+<policy context="default"><allow own="*"/><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/></policy>
+</busconfig>''')
+            bus_command.extend(['--config-file', str(bus_config)])
+        session = subprocess.Popen([*bus_command, '--', *command], env=environment, start_new_session=True)
         raise SystemExit(session.wait())
     finally:
         for signum in (signal.SIGTERM, signal.SIGINT):
@@ -226,11 +131,11 @@ with tempfile.TemporaryDirectory(prefix="yapfast-framework-display-") as tempora
                     service.wait(timeout=5)
         # Catch reparented helpers or an app whose collector was killed. Every
         # owned child inherits this display's unique marker; no host app does.
-        marker = b"YAPFAST_FRAMEWORK_DISPLAY_RUN_ID=" + run_token.encode() + b"\0"
-        for directory in Path("/proc").iterdir():
+        marker = b'YAPFAST_FRAMEWORK_DISPLAY_RUN_ID=' + run_token.encode() + b'\0'
+        for directory in Path('/proc').iterdir():
             if directory.name.isdecimal():
                 try:
-                    if marker in (directory / "environ").read_bytes():
+                    if marker in (directory / 'environ').read_bytes():
                         os.kill(int(directory.name), signal.SIGKILL)
-                except OSError, ProcessLookupError:
+                except (OSError, ProcessLookupError):
                     pass

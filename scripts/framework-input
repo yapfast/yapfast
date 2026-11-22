@@ -1,115 +1,70 @@
 #!/usr/bin/env python3
 """Send events only to Yapfast's private virtual test seat."""
-
 import argparse
 import os
+from pathlib import Path
 import socket
 import time
-from pathlib import Path
 
 
 def require_private_display():
-    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", "/missing"))
-    if (
-        os.environ.get("YAPFAST_FRAMEWORK_ISOLATED_DISPLAY") != "1"
-        or os.environ.get("WAYLAND_DISPLAY") != "wayland-yapfast-frameworks"
-        or not runtime.name.startswith("yapfast-framework-display-")
-        or not (runtime / "yapfast-input.sock").is_socket()
-    ):
-        raise SystemExit("Only the isolated framework display supports this input tool.")
+    runtime = Path(os.environ.get('XDG_RUNTIME_DIR', '/missing'))
+    if (os.environ.get('YAPFAST_FRAMEWORK_ISOLATED_DISPLAY') != '1'
+            or os.environ.get('WAYLAND_DISPLAY') != 'wayland-yapfast-frameworks'
+            or not runtime.name.startswith('yapfast-framework-display-')
+            or not (runtime / 'yapfast-input.sock').is_socket()):
+        raise SystemExit('Only the isolated framework display supports this input tool.')
     return runtime
 
 
-def send(command, pause=0.03):
+def send(command, pause=.03):
     """Sends one event, then waits `pause` seconds for the compositor and app."""
     with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
-        client.sendto(command.encode(), str(require_private_display() / "yapfast-input.sock"))
+        client.sendto(command.encode(), str(require_private_display() / 'yapfast-input.sock'))
     time.sleep(pause)
 
 
 def click(x, y):
-    send(f"move {x} {y}")
-    send("button 272 1")
-    send("button 272 0")
+    send(f'move {x} {y}')
+    send('button 272 1')
+    send('button 272 0')
 
 
 def scroll(pixels):
     """Scroll vertically by surface pixels, as a touchpad does; negative scrolls up."""
-    send(f"scroll {pixels}")
+    send(f'scroll {pixels}')
 
 
 def key(code):
-    send(f"key {code} 1")
-    send(f"key {code} 0")
+    send(f'key {code} 1')
+    send(f'key {code} 0')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "action", choices=["move", "click", "scroll", "key", "keydown", "keyup", "type"]
-    )
-    parser.add_argument("values", nargs="*")
+    parser.add_argument('action', choices=['move', 'click', 'scroll', 'key', 'keydown', 'keyup', 'type'])
+    parser.add_argument('values', nargs='*')
     args = parser.parse_args()
     require_private_display()
-    if args.action == "type":
+    if args.action == 'type':
         # Deliberately small ASCII fixture vocabulary. Unicode is a separate
         # clipboard/IME check, not a claimed keyboard layout implementation.
-        keys = dict(
-            zip(
-                "abcdefghijklmnopqrstuvwxyz",
-                [
-                    30,
-                    48,
-                    46,
-                    32,
-                    18,
-                    33,
-                    34,
-                    35,
-                    23,
-                    36,
-                    37,
-                    38,
-                    50,
-                    49,
-                    24,
-                    25,
-                    16,
-                    19,
-                    31,
-                    20,
-                    22,
-                    47,
-                    17,
-                    45,
-                    21,
-                    44,
-                ],
-                strict=True,
-            )
-        )
-        keys.update(dict(zip("1234567890", range(2, 12), strict=True)))
-        keys.update({" ": 57, "-": 12, ".": 52})
-        for character in " ".join(args.values):
+        keys = dict(zip('abcdefghijklmnopqrstuvwxyz', [30,48,46,32,18,33,34,35,23,36,37,38,50,49,24,25,16,19,31,20,22,47,17,45,21,44]))
+        keys.update(dict(zip('1234567890', range(2,12))))
+        keys.update({' ':57, '-':12, '.':52})
+        for character in ' '.join(args.values):
             if character not in keys:
-                raise SystemExit("Type supports lowercase ASCII fixture text only.")
+                raise SystemExit('Type supports lowercase ASCII fixture text only.')
             key(keys[character])
-    elif args.action == "scroll":
-        if len(args.values) != 1:
-            parser.error("Expected a pixel distance.")
+    elif args.action == 'scroll':
+        if len(args.values) != 1: parser.error('Expected a pixel distance.')
         scroll(float(args.values[0]))
-    elif args.action in ("click", "move"):
-        if len(args.values) != 2:
-            parser.error("Expected x and y.")
-        if args.action == "click":
-            click(*map(float, args.values))
-        else:
-            send(f"move {' '.join(args.values)}")
+    elif args.action in ('click', 'move'):
+        if len(args.values) != 2: parser.error('Expected x and y.')
+        if args.action == 'click': click(*map(float, args.values))
+        else: send('move ' + ' '.join(args.values))
     else:
-        if len(args.values) != 1:
-            parser.error("Expected Linux evdev key code.")
+        if len(args.values) != 1: parser.error('Expected Linux evdev key code.')
         code = int(args.values[0])
-        if args.action == "key":
-            key(code)
-        else:
-            send(f"key {code} {1 if args.action == 'keydown' else 0}")
+        if args.action == 'key': key(code)
+        else: send(f'key {code} {1 if args.action == "keydown" else 0}')

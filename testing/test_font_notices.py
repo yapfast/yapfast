@@ -1,5 +1,4 @@
 """Binary packages must carry notices for embedded UI fonts."""
-
 import importlib.util
 import tarfile
 import tempfile
@@ -7,9 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location(
-    "release_package", Path(__file__).resolve().parents[1] / "scripts/release_package.py"
-)
+spec = importlib.util.spec_from_file_location("release_package", Path(__file__).resolve().parents[1] / "scripts/release_package.py")
 if spec is None or spec.loader is None:
     raise SystemExit("could not load scripts/release_package.py")
 release_package = importlib.util.module_from_spec(spec)
@@ -22,26 +19,10 @@ class FontNoticesTest(unittest.TestCase):
             root = Path(temporary)
             fonts = root / "ui/fonts"
             fonts.mkdir(parents=True)
-            notices = {
-                "LICENSE-OFL.txt": "original font license",
-                "LICENSE-OFL-DMSans.txt": "DMSans license",
-                "README.md": "font provenance",
-            }
+            notices = {"LICENSE-OFL.txt": "original font license", "LICENSE-OFL-DMSans.txt": "DMSans license", "README.md": "font provenance"}
             for name, text in notices.items():
                 (fonts / name).write_text(text)
             (fonts / "DMSans-Regular.ttf").write_bytes(b"font embedded in binary")
-            (root / "src").mkdir()
-            (root / "src/LICENSE-emojibase.txt").write_text("emojibase license")
-            twemoji = root / "vendor/twemoji"
-            twemoji.mkdir(parents=True)
-            for name in (
-                "LICENSE-GRAPHICS",
-                "LICENSE",
-                "README.md",
-                "README.yapfast.md",
-                "REVISION",
-            ):
-                (twemoji / name).write_text("twemoji attribution")
             package = root / "package"
             package.mkdir()
             skia = root / "skia"
@@ -51,9 +32,7 @@ class FontNoticesTest(unittest.TestCase):
             with tarfile.open(archive, "w"):
                 pass
             with patch.object(release_package, "ROOT", root):
-                release_package.dependency_notices(
-                    {"packages": []}, package, package / "licenses", archive, skia, root
-                )
+                release_package.dependency_notices({"packages": []}, package, package / "licenses", archive, skia, root)
             copied = package / "licenses/fonts"
             self.assertEqual({p.name: p.read_text() for p in copied.iterdir()}, notices)
 

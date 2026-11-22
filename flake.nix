@@ -4,7 +4,7 @@
   # Development happens in nix/flake.nix's shells; this flake only builds the
   # app, so `nix profile add github:yapfast/yapfast` needs no checkout.
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";

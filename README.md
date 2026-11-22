@@ -448,16 +448,16 @@ Without that, libwebrtc and Skia both define `jpeg_natural_order`, so
 `build.rs` links such a build with `--allow-multiple-definition`; the two
 tables are the same.
 
-| Read this                                   | For                                                                         |
-| ------------------------------------------- | --------------------------------------------------------------------------- |
-| [Contributing](CONTRIBUTING.md)             | What a pull request needs: checks, memory numbers, commit style             |
-| [Development](docs/development.md)          | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
-| [Architecture](docs/architecture.md)        | How `yapfast-core` and the Slint client fit together                        |
-| [Building](docs/building.md)                | Toolchain, Cargo features, checks, releases                                 |
-| [Discord](docs/discord/README.md)           | What's done, what's next, and the fake server the tests use                 |
-| [Voice](docs/voice.md)                      | Calls, devices and audio processing                                         |
-| [Windows](docs/windows-beta.md)             | Packaging, the installer and Windows checks                                 |
-| [Measurements](docs/measurements/README.md) | How memory and CPU are measured                                             |
+| Read this | For |
+| --- | --- |
+| [Contributing](CONTRIBUTING.md) | What a pull request needs: checks, memory numbers, commit style |
+| [Development](docs/development.md) | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
+| [Architecture](docs/architecture.md) | How `yapfast-core` and the Slint client fit together |
+| [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |
+| [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
+| [Voice](docs/voice.md) | Calls, devices and audio processing |
+| [Windows](docs/windows-beta.md) | Packaging, the installer and Windows checks |
+| [Measurements](docs/measurements/README.md) | How memory and CPU are measured |
 
 ## License
 

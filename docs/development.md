@@ -120,11 +120,11 @@ Matrix OpenID to LiveKit authorization exchange, including rejection of an
 invalid token. It does not prove audio encryption or room-membership
 authorization.
 
-| Service                 | Local address            |
-| ----------------------- | ------------------------ |
-| Matrix homeserver       | `http://localhost:18008` |
+| Service | Local address |
+| --- | --- |
+| Matrix homeserver | `http://localhost:18008` |
 | MatrixRTC authorization | `http://localhost:16080` |
-| LiveKit                 | `ws://localhost:17880`   |
+| LiveKit | `ws://localhost:17880` |
 
 ## Sessions and the native call experiment
 

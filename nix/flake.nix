@@ -1,7 +1,7 @@
 {
   description = "Yapfast native desktop development environment";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
   outputs = { nixpkgs, ... }:
     let
@@ -28,10 +28,10 @@
         };
       });
       windowsWebrtcArchive = pkgs.fetchurl {
-        url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-a545de4/webrtc-win-x64-release.zip";
-        hash = "sha256-hiQD/LJIx9iANIfkwiuIIcYTDokQDLnGm+le9F/0YUY=";
+        url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-win-x64-release.zip";
+        hash = "sha256-ClalyRs7e0IiCCuKCTiNFqgCzeItZylb6yTFVwB1WzA=";
       };
-      windowsWebrtc = pkgs.runCommand "talk-libwebrtc-windows-a545de4" {
+      windowsWebrtc = pkgs.runCommand "talk-libwebrtc-windows-51ef663" {
         nativeBuildInputs = [ pkgs.unzip ];
       } ''
         unzip -q ${windowsWebrtcArchive} -d unpacked
@@ -85,8 +85,8 @@
       devShells.${system} = {
         default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-          	rustup pkg-config cmake ninja llvmPackages_23.clang llvmPackages_23.libclang
-           	protobuf curl jq docker-compose python315 llvmPackages_23.llvm
+            rustup pkg-config cmake ninja llvmPackages_21.clang llvmPackages_21.libclang
+            protobuf curl jq docker-compose python3 llvmPackages_21.llvm
             # pasta, nftables and iproute2 isolate one voice test participant's network.
             passt nftables iproute2
             # Runs testing/fake_discord.ts, and its tests side by side.
@@ -100,7 +100,7 @@
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";
-          LIBCLANG_PATH = "${pkgs.llvmPackages_23.libclang.lib}/lib";
+          LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
           PROTOC = "${pkgs.protobuf}/bin/protoc";
           # webrtc-sys must not download binaries from inside a Nix build sandbox.
           LK_CUSTOM_WEBRTC = "${webrtc}";
@@ -113,11 +113,11 @@
         };
         windows = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-            rustup cargoXwin cmake ninja gn protobuf python315 curl jq zip wineWowPackages.stable
+            rustup cargoXwin cmake ninja gn protobuf python3 curl jq zip wineWowPackages.stable
             # Inno Setup's own installer opens windows even when silent.
             xvfb-run
-            llvmPackages_23.clang llvmPackages_23.lld llvmPackages_23.llvm
-            llvmPackages_23.libclang
+            llvmPackages_21.clang llvmPackages_21.lld llvmPackages_21.llvm
+            llvmPackages_21.libclang
             # Assembles x264's x86-64 code (vendor/x264-src).
             nasm
           ];
@@ -126,11 +126,10 @@
           PROTOC = "${pkgs.protobuf}/bin/protoc";
           LK_CUSTOM_WEBRTC = "${windowsWebrtc}";
           YAPFAST_SKIA_WINDOWS_SOURCE = "${windowsSkiaSource}";
-          YAPFAST_SKIA_CLANG = "${pkgs.llvmPackages_23.clang-unwrapped}/bin/clang-cl";
-          YAPFAST_SKIA_CLANG_VERSION = pkgs.lib.getVersion pkgs.llvmPackages_23.clang-unwrapped;
-          YAPFAST_SKIA_LLD = "${pkgs.llvmPackages_23.lld}/bin/lld-link";
-          YAPFAST_SKIA_CLANG_HEADERS = "${pkgs.llvmPackages_23.clang}/resource-root/include";
-          LIBCLANG_PATH = "${pkgs.llvmPackages_23.libclang.lib}/lib";
+          YAPFAST_SKIA_CLANG = "${pkgs.llvmPackages_21.clang-unwrapped}/bin/clang-cl";
+          YAPFAST_SKIA_LLD = "${pkgs.llvmPackages_21.lld}/bin/lld-link";
+          YAPFAST_SKIA_CLANG_HEADERS = "${pkgs.llvmPackages_21.clang}/resource-root/include";
+          LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
         };
       };
     };

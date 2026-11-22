@@ -64,6 +64,6 @@ touch "$hashes"
 {
   grep -v "  $package\$" "$hashes" || true
   (cd "$output" && sha256sum "$package")
-} >"$work/SHA256SUMS.txt"
+} > "$work/SHA256SUMS.txt"
 mv "$work/SHA256SUMS.txt" "$hashes"
 echo "Packaged $output/$package ($(du -m "$output/$package" | cut -f1) MiB)"

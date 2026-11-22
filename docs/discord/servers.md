@@ -41,7 +41,7 @@ copying them.
 - Mention puts `@Name ` in the composer, which sending turns into `<@id>`,
   when the channel can be written in.
 - Message opens the DM with them, or starts one with any member through `POST
-/users/@me/channels`. Call opens the DM and starts its call; with a friend
+  /users/@me/channels`. Call opens the DM and starts its call; with a friend
   Yapfast has no DM with, it starts the DM first and calls once it opens.
 - Add note works for any member, and the friend nickname for friends, without
   a DM.
@@ -55,12 +55,12 @@ copying them.
   first, ticked where they hold it. A role at or above this account's highest,
   or one an integration manages, shows only while they hold it, greyed, as in
   Discord's. Ticking one is `PUT` or `DELETE
-/guilds/{id}/members/{user}/roles/{role}`; the box changes at once and the
+  /guilds/{id}/members/{user}/roles/{role}`; the box changes at once and the
   menu stays open.
 - Time out needs Moderate Members and outranking them, and isn't offered for
   administrators, whom Discord doesn't let anyone time out. Its dialog offers
   Discord's lengths, 60 seconds to a week, and a reason, then `PATCH
-/guilds/{id}/members/{user}` with `communication_disabled_until`. Someone
+  /guilds/{id}/members/{user}` with `communication_disabled_until`. Someone
   timed out is offered Remove timeout instead, which sends null, and the
   member list marks them with a red clock beside their name.
 - Kick needs Kick Members and outranking them: a confirmation with a reason,
@@ -90,7 +90,7 @@ of the server, with what Discord's client adds there, in its order:
   Members in their channel and in the other, which it or they may join. Its
   own lists those it may join, and choosing one joins it there, as Discord's
   client does. Choosing one for someone else is `PATCH
-/guilds/{id}/members/{user}` with `{"channel_id": ...}`.
+  /guilds/{id}/members/{user}` with `{"channel_id": ...}`.
 - In red, before Time out: Server mute and Server deafen, boxes ticked from
   their voice state's `mute` and `deaf`, which need Mute Members and Deafen
   Members, and send `{"mute": ...}` or `{"deaf": ...}`; then Disconnect,

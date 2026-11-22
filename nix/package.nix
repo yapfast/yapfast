@@ -8,24 +8,9 @@ let
   inherit (pkgs) lib;
   native = import ./native.nix { inherit pkgs; };
   toolchain = pkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
-  clangStdenv = pkgs.llvmPackages_23.stdenv;
-  # Cargo hooks inject target-specific CC/CXX from rust.envVars.
-  # Override that helper as well as the package's stdenv.
-  clangRust = pkgs.rust.override {
-    stdenv = clangStdenv;
-    # cc-rs uses HOST_CC/HOST_CXX before the unqualified CC/CXX.
-    pkgsBuildHost = pkgs.buildPackages // { stdenv = clangStdenv; };
-  };
-  rustPlatform = (pkgs.makeRustPlatform {
-    cargo = toolchain;
-    rustc = toolchain;
-    stdenv = clangStdenv;
-  }).overrideScope (final: prev: {
-    cargoBuildHook = prev.cargoBuildHook.override { rust = clangRust; };
-    cargoCheckHook = prev.cargoCheckHook.override { rust = clangRust; };
-  });
+  rustPlatform = pkgs.makeRustPlatform { cargo = toolchain; rustc = toolchain; };
   id = "io.github.yapfast.Yapfast";
-  deepFilterHash = "sha256-1xe1HSLnaUoPkFvi6R+/G4I74XP8YK1QJmTmIoBgkCc=";
+  deepFilterHash = "sha256-JxvK5/PX29o23Pq9cNpTSyuAB7j9HszzDGHC2fOw74Y=";
   # deep_filter embeds a model from its repository's models/ folder, outside
   # the crate, which vendoring leaves out; this is the commit Cargo.lock pins.
   deepFilter =
@@ -53,19 +38,17 @@ rustPlatform.buildRustPackage {
     lockFile = ../Cargo.lock;
     # One crate per Git repository and commit; update a hash with the commit.
     outputHashes = {
-    	"deep_filter-0.5.7-pre" = deepFilterHash;
-     	"openmls-0.9.0" = "sha256-fNC5L4IV/7qmcNjcJiO1P8TYGLhokLzVdZbT6D9Nox4=";
       "const_panic-0.2.15" = "sha256-zEmo8lKncnNhn2LL5aRT95AZD/LqjmNcRg2qTKXLcic=";
-      "matrix-rtc-core-0.5.0" = "sha256-wXxwQ1xIpdvchec9+Scr3lNQwD5mRsjj50OFF2MU9rA=";
-      "matrix-sdk-0.19.1" = "sha256-5mBDl913e49ZPY/zcK3NqjuatH+6yyq8qA7yO7/9F/c=";
-      "ruma-0.17.0" = "sha256-bs/aoJb9PW5vrGhbduc38dnRv3KLGxPX+jD0r3sJheo=";
+      "deep_filter-0.5.7-pre" = deepFilterHash;
+      "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
+      "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";
       "slint-1.19.0" = "sha256-gAu/zH5z6UrlEolvzpmcjsFZlJG2PWV96nNRgrdKyFs=";
     };
   };
   buildNoDefaultFeatures = true;
   buildFeatures = [ "desktop" "discord" ];
   nativeBuildInputs = with pkgs; [
-    pkg-config cmake llvmPackages_23.clang llvmPackages_23.llvm protobuf
+    pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).
     nasm
     # Skia's build script fetches its archive with curl, even from a file:// URL.

@@ -6,12 +6,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # --no-installer.
 flavour=${1:-discord}
 case $flavour in
-  discord) features=(--no-default-features --features 'desktop,discord') ;;
+  discord) features=(--no-default-features --features desktop,discord) ;;
   full) features=(--features matrix) ;;
-  *)
-    echo "usage: scripts/build-windows [discord|full] [package-windows.py options]" >&2
-    exit 2
-    ;;
+  *) echo "usage: scripts/build-windows [discord|full] [package-windows.py options]" >&2; exit 2 ;;
 esac
 shift $(($# > 0 ? 1 : 0))
 rustup target add x86_64-pc-windows-msvc
