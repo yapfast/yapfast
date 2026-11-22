@@ -311,7 +311,7 @@ fn waits_for_answer(name: &str) -> bool {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 98] = [
+const FORWARDED: [&str; 100] = [
     method::APP_VERSION,
     method::APP_NOW,
     method::APP_LOCALE,
@@ -332,6 +332,8 @@ const FORWARDED: [&str; 98] = [
     method::SETTINGS_GET,
     method::SETTINGS_ON_CHANGE,
     method::HTTP_FETCH,
+    method::HTTP_READ,
+    method::HTTP_RELEASE,
     method::TIMERS_AFTER,
     method::TIMERS_EVERY,
     method::TIMERS_CANCEL,

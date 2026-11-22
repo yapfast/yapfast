@@ -41,6 +41,9 @@ pub mod method {
     pub const SETTINGS_GET: &str = "settings.get";
     pub const SETTINGS_ON_CHANGE: &str = "settings.on_change";
     pub const HTTP_FETCH: &str = "http.fetch";
+    /// A piece of a large answer's body, and letting it go.
+    pub const HTTP_READ: &str = "http.read";
+    pub const HTTP_RELEASE: &str = "http.release";
     pub const TIMERS_AFTER: &str = "timers.after";
     pub const TIMERS_EVERY: &str = "timers.every";
     pub const TIMERS_CANCEL: &str = "timers.cancel";
@@ -158,7 +161,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 98] = [
+    pub const ALL: [&str; 100] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -179,6 +182,8 @@ pub mod method {
         SETTINGS_GET,
         SETTINGS_ON_CHANGE,
         HTTP_FETCH,
+        HTTP_READ,
+        HTTP_RELEASE,
         TIMERS_AFTER,
         TIMERS_EVERY,
         TIMERS_CANCEL,
@@ -512,6 +517,23 @@ pub struct HttpResponse {
     /// The body, base64, when it fit in one answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_base64: Option<String>,
+    /// A body too large for one answer is kept on disk under this number,
+    /// and read a piece at a time with `http.read`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_id: Option<u64>,
+}
+
+/// `http.read`: a piece of a large answer's body, from `offset`. Its answer is
+/// an [`UploadPiece`]'s shape.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BodyRead {
+    pub body: u64,
+    #[serde(default)]
+    pub offset: u64,
+    /// At most [`UploadRead::MAX_PIECE`], which is also the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u32>,
 }
 
 /// `timers.after` and `timers.every`.

@@ -184,3 +184,34 @@ fn a_plugin_without_uploads_intercept_reads_no_upload() {
     };
     assert!(reason.contains("uploads.intercept"), "{reason}");
 }
+
+/// An answer too large for one frame is kept for its plugin to read in
+/// pieces, and for nobody else.
+#[test]
+fn a_large_answer_is_read_in_pieces_by_its_plugin() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(directory.path(), UPLOAD_MANIFEST, b"not a real module");
+    let (wake, _notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let path = directory.path().join("big.body");
+    std::fs::write(&path, b"0123456789").expect("a body");
+    let id = shared.keep_body(&plugin, path.clone(), 10);
+    let read = |offset, length| call::BodyRead {
+        body: id,
+        offset,
+        length,
+    };
+    assert_eq!(
+        shared.read_body(&plugin, &read(3, Some(4))),
+        Ok((b"3456".to_vec(), 10, false))
+    );
+    assert_eq!(
+        shared.read_body(&plugin, &read(8, None)),
+        Ok((b"89".to_vec(), 10, true))
+    );
+    let other = PluginId::parse("com.example.other").unwrap();
+    assert!(shared.read_body(&other, &read(0, None)).is_err());
+    assert!(!shared.release_body(&other, id));
+    assert!(shared.release_body(&plugin, id));
+    assert!(!path.exists(), "its file goes");
+}

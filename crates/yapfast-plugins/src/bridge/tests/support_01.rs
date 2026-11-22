@@ -192,6 +192,8 @@ pub(super) fn shared_with_world(
         uploads: Mutex::new(crate::uploads::Uploads::new(
             directory.join("plugins-attach").join("uploads"),
         )),
+        bodies: Mutex::new(BTreeMap::new()),
+        next_body: AtomicU64::new(0),
         wake,
     })
 }

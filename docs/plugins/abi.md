@@ -848,7 +848,13 @@ person.
    parent sent them, so a guest reads every entry of `results`, not the first.
 
 That is why an event function has to handle the replies of the calls that
-answer later. A call
+answer later.
+
+An `http.fetch` answer whose body is larger than one frame carries, in place of
+`body_base64`, a `body_id` with `bytes`, its size: the body is kept on disk,
+and `http.read` `{ body, offset?, length? }` answers it 512 KiB at a time as
+`{ data_base64, offset, bytes, eof }` (the PDK's `http::body` reads it whole).
+`http.release` `{ body }` lets it go; one left unread goes after ten minutes. A call
 answered later still counts as work: an instance with one in flight is not idle,
 and is not evicted under it.
 

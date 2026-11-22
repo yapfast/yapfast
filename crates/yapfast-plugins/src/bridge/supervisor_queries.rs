@@ -53,6 +53,8 @@ impl Bridge {
             uploads: Mutex::new(crate::uploads::Uploads::new(
                 data_dir.join("plugins-attach").join("uploads"),
             )),
+            bodies: Mutex::new(BTreeMap::new()),
+            next_body: AtomicU64::new(0),
             wake,
         });
         shared.publish();

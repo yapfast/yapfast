@@ -105,10 +105,94 @@ pub(crate) struct Shared {
     /// The files `attachment_pre_upload` holds while plugins read or replace
     /// their bytes.
     pub(super) uploads: Mutex<crate::uploads::Uploads>,
+    /// Answers too large for one frame, kept on disk for `http.read`: by
+    /// number, whose they are, where, how large, and since when.
+    pub(super) bodies: Mutex<BTreeMap<u64, KeptBody>>,
+    pub(super) next_body: AtomicU64,
     pub(super) wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
 
+/// One large answer's body, kept for its plugin to read.
+pub(crate) struct KeptBody {
+    pub(super) plugin: PluginId,
+    pub(super) path: std::path::PathBuf,
+    pub(super) bytes: u64,
+    pub(super) at: Instant,
+}
+
+/// How long a large answer's body is kept unread.
+const KEEP_BODY: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 impl Shared {
+    /// Keeps a large answer's body for `http.read`, and lets go of any kept
+    /// longer than ten minutes.
+    pub(super) fn keep_body(&self, plugin: &PluginId, path: std::path::PathBuf, bytes: u64) -> u64 {
+        let id = self.next_body.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);
+        bodies.retain(|_, kept| {
+            let fresh = kept.at.elapsed() < KEEP_BODY;
+            if !fresh {
+                let _ = std::fs::remove_file(&kept.path);
+            }
+            fresh
+        });
+        bodies.insert(
+            id,
+            KeptBody {
+                plugin: plugin.clone(),
+                path,
+                bytes,
+                at: Instant::now(),
+            },
+        );
+        id
+    }
+
+    /// A piece of a kept body, for the plugin it is.
+    pub(super) fn read_body(
+        &self,
+        plugin: &PluginId,
+        request: &yapfast_plugin_api::call::BodyRead,
+    ) -> Result<(Vec<u8>, u64, bool), String> {
+        use std::io::{Read, Seek, SeekFrom};
+        let (path, bytes) = {
+            let bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);
+            let kept = bodies
+                .get(&request.body)
+                .filter(|kept| kept.plugin == *plugin)
+                .ok_or_else(|| format!("no answer is kept as body {}", request.body))?;
+            (kept.path.clone(), kept.bytes)
+        };
+        if request.offset > bytes {
+            return Err(format!("the body is {bytes} bytes, not {}", request.offset));
+        }
+        let length = request
+            .length
+            .unwrap_or(yapfast_plugin_api::call::UploadRead::MAX_PIECE)
+            .min(yapfast_plugin_api::call::UploadRead::MAX_PIECE);
+        let mut file = std::fs::File::open(&path).map_err(|error| error.to_string())?;
+        file.seek(SeekFrom::Start(request.offset))
+            .map_err(|error| error.to_string())?;
+        let mut piece = Vec::new();
+        file.take(u64::from(length))
+            .read_to_end(&mut piece)
+            .map_err(|error| error.to_string())?;
+        let eof = request.offset + piece.len() as u64 >= bytes;
+        Ok((piece, bytes, eof))
+    }
+
+    /// Lets a kept body go: its file is removed.
+    pub(super) fn release_body(&self, plugin: &PluginId, body: u64) -> bool {
+        let mut bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);
+        if bodies.get(&body).is_some_and(|kept| kept.plugin == *plugin) {
+            if let Some(kept) = bodies.remove(&body) {
+                let _ = std::fs::remove_file(kept.path);
+            }
+            return true;
+        }
+        false
+    }
+
     /// Copies the registry's summary into the flags the hot paths read.
     pub(super) fn publish(&self) {
         let summary = self.registry().summary();

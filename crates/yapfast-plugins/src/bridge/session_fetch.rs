@@ -131,7 +131,13 @@ impl Session {
                     )
                     .await;
                 match decided {
-                    Ok(crate::network::Outcome::Done(answer)) => {
+                    Ok(crate::network::Outcome::Done(mut answer)) => {
+                        // A body too large for one answer is kept for the
+                        // plugin to read in pieces with `http.read`.
+                        if let Some(path) = answer.body.take() {
+                            answer.response.body_id =
+                                Some(shared.keep_body(&plugin, path, answer.response.bytes));
+                        }
                         break match serde_json::to_value(&answer.response) {
                             Ok(value) => HostReturn::Ok(value),
                             Err(error) => HostReturn::Error {

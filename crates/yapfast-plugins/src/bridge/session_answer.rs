@@ -21,6 +21,29 @@ impl Session {
             call::method::UPLOADS_READ
             | call::method::UPLOADS_WRITE
             | call::method::UPLOADS_FINISH => return upload_call(shared, plugin, &call),
+            call::method::HTTP_READ => {
+                let request: call::BodyRead = match call.parse() {
+                    Ok(request) => request,
+                    Err(error) => return wrong_payload(&call.method, error),
+                };
+                return match shared.read_body(plugin, &request) {
+                    Ok((piece, bytes, eof)) => answered(&call::UploadPiece {
+                        data_base64: call::base64::encode(&piece),
+                        offset: request.offset,
+                        bytes,
+                        eof,
+                    }),
+                    Err(message) => HostReturn::Error { message },
+                };
+            }
+            call::method::HTTP_RELEASE => {
+                let body = call
+                    .payload
+                    .get("body")
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or_default();
+                return HostReturn::Ok(serde_json::Value::Bool(shared.release_body(plugin, body)));
+            }
             call::method::OAUTH_LOGOUT => {
                 return super::session_oauth::oauth_logout(shared, plugin, &call);
             }

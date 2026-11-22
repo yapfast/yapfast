@@ -301,6 +301,8 @@ pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
+    pub const HTTP_READ: &str = "http.read";
+    pub const HTTP_RELEASE: &str = "http.release";
     pub const IDENTITY_REFRESH: &str = "identity.refresh";
     pub const APP_LOCALE: &str = "app.locale";
     pub const APP_THEME_MODE: &str = "app.theme_mode";
@@ -521,6 +523,9 @@ pub struct HttpResponse {
     /// The body, base64, when it fit in one answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_base64: Option<String>,
+    /// A larger body's number, for `http.read`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_id: Option<u64>,
 }
 
 /// A command a person typed in the composer, with its options.

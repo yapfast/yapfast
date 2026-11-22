@@ -1082,6 +1082,7 @@ impl NetworkGate {
             body_base64: body_file
                 .is_none()
                 .then(|| base64::encode(inline.as_slice())),
+            body_id: None,
         };
         Ok(Answer {
             response,

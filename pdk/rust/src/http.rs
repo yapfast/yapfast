@@ -150,3 +150,38 @@ pub fn ready(fetched: Fetched) -> Result<HttpResponse> {
         ))),
     }
 }
+
+/// A piece of a body too large for one answer, from `offset`: the bytes, the
+/// whole body's size, and whether this piece is its end.
+pub fn read(body: u64, offset: u64) -> Result<(Vec<u8>, u64, bool)> {
+    let value = call::ok(
+        method::HTTP_READ,
+        serde_json::json!({ "body": body, "offset": offset }),
+    )?;
+    let piece: wire::UploadPiece = call::parse(method::HTTP_READ, value)?;
+    let bytes = wire::base64::decode(&piece.data_base64)
+        .ok_or_else(|| crate::Error::msg("`http.read` answered bytes that aren't base64"))?;
+    Ok((bytes, piece.bytes, piece.eof))
+}
+
+/// The whole body of an answer, read a piece at a time when it was too large
+/// for one, and let go of afterwards.
+pub fn body(response: &HttpResponse) -> Result<Vec<u8>> {
+    if let Some(encoded) = &response.body_base64 {
+        return wire::base64::decode(encoded)
+            .ok_or_else(|| crate::Error::msg("the answer's body isn't base64"));
+    }
+    let Some(id) = response.body_id else {
+        return Ok(Vec::new());
+    };
+    let mut all = Vec::with_capacity(response.bytes as usize);
+    loop {
+        let (piece, _, eof) = read(id, all.len() as u64)?;
+        all.extend_from_slice(&piece);
+        if eof || piece.is_empty() {
+            break;
+        }
+    }
+    let _ = call::ok(method::HTTP_RELEASE, serde_json::json!({ "body": id }));
+    Ok(all)
+}
