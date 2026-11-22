@@ -93,7 +93,7 @@ impl Plugin for Extras {
                             { "cells": [{ "kind": "heading", "text": "Welcome in" }] },
                             { "cells": [{
                                 "kind": "image",
-                                "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png",
+                                "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/330px-PNG_transparency_demonstration_1.png",
                                 "text": "Dice, from Wikimedia Commons"
                             }] },
                             { "cells": [{ "kind": "text", "text": "This welcome is the Extras plugin's, in place of Yapfast's." }] }
