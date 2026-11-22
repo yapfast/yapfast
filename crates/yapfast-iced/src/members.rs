@@ -186,6 +186,25 @@ fn grid_line_in_view(at: f32, height: f32, scroll: &crate::sync::Scroll) -> bool
 const STRIP_PITCH: f32 = 46.0;
 const STRIP_TOP: f32 = 8.0;
 
+/// The strip's height with `count` faces: 40 px each, 6 px apart, 8 px
+/// over and under them.
+fn strip_total(count: usize) -> f32 {
+    (STRIP_TOP + count as f32 * STRIP_PITCH + STRIP_TOP - 6.0).max(0.0)
+}
+
+/// The strip's faces in view of `scroll`, and [`MARGIN`] beyond. Its
+/// offset is held to the faces there are, as the scrollable holds it: a
+/// strip that fits never reports, so one left far down another server's
+/// would show none.
+fn strip_range(scroll: &Scroll, count: usize) -> (usize, usize) {
+    let most = (strip_total(count) - scroll.height).max(0.0);
+    Scroll {
+        offset: scroll.offset.min(most),
+        height: scroll.height,
+    }
+    .range(count, STRIP_PITCH, STRIP_TOP)
+}
+
 /// The member lines whose pictures show: those the list, the grid or the
 /// collapsed strip builds, as each lays them out.
 pub fn lines_shown(app: &App) -> Vec<&MemberLine> {
@@ -199,10 +218,7 @@ pub fn lines_shown(app: &App) -> Vec<&MemberLine> {
             .iter()
             .filter(|line| matches!(line, MemberLine::Member(_)))
             .collect();
-        let (first, last) = app
-            .roster
-            .strip
-            .range(members.len(), STRIP_PITCH, STRIP_TOP);
+        let (first, last) = strip_range(&app.roster.strip, members.len());
         return members[first..last].to_vec();
     }
     if let Some(package) = package.filter(|layout| {
@@ -532,6 +548,9 @@ pub enum Event {
     Scrolled(Viewport),
     /// A collapsed theme strip's viewport.
     StripScrolled(Viewport),
+    /// The strip's size as laid out, which a strip whose faces all fit
+    /// never says by scrolling.
+    StripSized(iced::Size),
     /// The pointer came onto or left a member's row, by their id.
     Point(String, bool),
     /// A member's line was clicked, by their id.
@@ -596,6 +615,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::StripScrolled(viewport) => {
             app.roster.strip = Scroll::of(viewport);
+            app.ask()
+        }
+        Event::StripSized(size) => {
+            app.roster.strip.height = size.height;
             app.ask()
         }
         Event::Point(id, entered) => {
@@ -1306,9 +1329,8 @@ impl<'a> View<'a> {
                 MemberLine::Heading { .. } => None,
             })
             .collect();
-        let (first, last) = self.s.strip.range(members.len(), STRIP_PITCH, STRIP_TOP);
-        let total = STRIP_TOP + members.len() as f32 * STRIP_PITCH + STRIP_TOP - 6.0;
-        let mut faces = Rows::new(total.max(0.0));
+        let (first, last) = strip_range(&self.s.strip, members.len());
+        let mut faces = Rows::new(strip_total(members.len()));
         for (index, look) in members.into_iter().enumerate().take(last).skip(first) {
             let id = look.id.clone();
             let menu_id = look.id.clone();
@@ -1342,10 +1364,19 @@ impl<'a> View<'a> {
                 .padding([0, 8]),
             );
         }
-        let list = scroll_view(faces)
-            .on_scroll(|viewport| Message::Members(Event::StripScrolled(viewport)))
-            .height(Length::Fill)
-            .style(scrollbar(theme));
+        let list = crate::widgets::Settle::new(
+            scroll_view(faces)
+                .on_scroll(|viewport| Message::Members(Event::StripScrolled(viewport)))
+                .height(Length::Fill)
+                .style(scrollbar(theme)),
+            |message| match message {
+                Message::Members(Event::StripScrolled(viewport)) => Some(viewport),
+                _ => None,
+            },
+        );
+        // Its size, for the faces in view while they all fit.
+        let list =
+            iced::widget::sensor(list).on_resize(|size| Message::Members(Event::StripSized(size)));
         let panel = container(list)
             .width(56)
             .height(Length::Fill)
@@ -1545,11 +1576,17 @@ impl<'a> View<'a> {
             );
         }
 
-        scroll_view(rows)
-            .on_scroll(|viewport| Message::Members(Event::Scrolled(viewport)))
-            .height(Length::Fill)
-            .style(scrollbar(theme))
-            .into()
+        crate::widgets::Settle::new(
+            scroll_view(rows)
+                .on_scroll(|viewport| Message::Members(Event::Scrolled(viewport)))
+                .height(Length::Fill)
+                .style(scrollbar(theme)),
+            |message| match message {
+                Message::Members(Event::Scrolled(viewport)) => Some(viewport),
+                _ => None,
+            },
+        )
+        .into()
     }
 
     /// A package's optional line above the member list, such as `$ who`.

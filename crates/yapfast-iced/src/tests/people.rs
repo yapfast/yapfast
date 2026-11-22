@@ -1358,6 +1358,48 @@ fn a_collapsed_strip_builds_and_asks_for_only_the_faces_near_its_view() {
     assert!(shown.len() < 40, "a screen's worth, not every member");
 }
 
+/// Keeps the open server's first `count` members.
+fn keep_members(app: &mut App, count: usize) {
+    change(app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            Arc::make_mut(members).truncate(count);
+        }
+    });
+    app.show_roster(false);
+}
+
+#[test]
+fn a_collapsed_strip_that_fits_shows_every_face_however_it_was_left() {
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({ "layout": { "members": "collapsed" } }),
+        &[],
+    );
+    // Left far down a big server's strip, then a server whose faces fit:
+    // a strip that fits never reports where it is.
+    crowd(&mut app, 120);
+    app.roster.strip = crate::sync::Scroll {
+        offset: 2000.0,
+        height: 600.0,
+    };
+    keep_members(&mut app, 8);
+    assert_eq!(names_shown(&app).len(), 8, "every face, from the top");
+    // Started 600 px tall, then made taller with 25 faces that fit.
+    app.roster.strip = crate::sync::Scroll {
+        offset: 0.0,
+        height: 600.0,
+    };
+    crowd(&mut app, 17);
+    assert!(names_shown(&app).len() < 25);
+    let _ = app.update(Message::Members(crate::members::Event::StripSized(
+        iced::Size::new(56.0, 1400.0),
+    )));
+    assert_eq!(
+        names_shown(&app).len(),
+        25,
+        "the strip's laid-out height counts"
+    );
+}
+
 #[test]
 fn a_theme_cuts_peoples_names_only_once_let() {
     let face = |name: &str| {
