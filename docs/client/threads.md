@@ -105,6 +105,12 @@ shows is kept as `split_room` and opens there again on the next start once
 listed (`Action::RestoreSplit`), unless Reopen the split on start is off
 (`split_restore`). Turning split view off closes it.
 
+While typing is on the other side, a message from someone else in the
+split puts a dot by its name, which goes as typing moves to it (a press in
+its composer or Ctrl+Tab), unless Unread dot is off (`split_dot`;
+`thread::Aside::dot`, worked out as the core's messages come in
+`thread_sync`).
+
 A message's desktop notification offers Open in split view beside Open
 for a room split view can show (`shell::notify_split`), unless
 Notification button is off (`split_notify`). The notification service

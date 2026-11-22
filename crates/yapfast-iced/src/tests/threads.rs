@@ -616,6 +616,44 @@ fn ctrl_tab_moves_typing_between_the_split_and_the_conversation() {
 }
 
 #[test]
+fn a_dot_marks_the_split_when_someone_writes_there_while_typing_is_elsewhere() {
+    let (mut app, _folder) = split_beside();
+    let post = |app: &mut crate::app::App, item: &str, own: bool| {
+        change(app, |state| {
+            let aside = state.aside.as_mut().expect("the split");
+            let mut messages = (*aside.messages).clone();
+            messages.push(Arc::new(ChatMessage {
+                item: item.into(),
+                author: "Sam".into(),
+                body: "more news".into(),
+                timestamp: 2,
+                own,
+                ..Default::default()
+            }));
+            aside.messages = Arc::new(messages);
+        });
+    };
+    let dot = |app: &crate::app::App| app.aside.as_ref().is_some_and(|aside| aside.dot);
+    // Typing in the split, a new message there makes no dot.
+    post(&mut app, "n1", false);
+    assert!(!dot(&app));
+    // Typing in the conversation, it does, but not for one's own.
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    post(&mut app, "n2", true);
+    assert!(!dot(&app), "one's own");
+    post(&mut app, "n3", false);
+    assert!(dot(&app));
+    // Typing moving there takes it away.
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    assert!(!dot(&app));
+    // Off, there's none.
+    app.layout.split_dot = Some(false);
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    post(&mut app, "n4", false);
+    assert!(!dot(&app));
+}
+
+#[test]
 fn split_views_switches_reach_the_core_as_the_window_opens() {
     let (mut app, _folder) = preview();
     assert!(!app.layout.split_view, "off by default");

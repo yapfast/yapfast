@@ -104,6 +104,9 @@ pub struct Layout {
     /// A message's notification offers Open in split view, unless turned
     /// off.
     pub split_notify: Option<bool>,
+    /// A dot by the split's name when someone writes there while typing is
+    /// on the other side, unless turned off.
+    pub split_dot: Option<bool>,
     pub split_width: Option<f32>,
     pub split_room: Option<String>,
     /// DMs pinned to the top of the list, by room id, the first pinned

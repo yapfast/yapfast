@@ -379,6 +379,11 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
     // or the channel's.
     if matches!(which, Writing::Draft | Writing::Aside) {
         app.composer.writing_last = which;
+        if which == Writing::Aside
+            && let Some(aside) = &mut app.aside
+        {
+            aside.dot = false;
+        }
     }
     match event {
         field::Event::Edited(text, caret) => {

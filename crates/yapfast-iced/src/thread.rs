@@ -62,6 +62,9 @@ pub struct Aside {
     /// A channel or DM in split view, which stays as the conversation goes
     /// elsewhere, rather than a thread of the open channel; a DM's.
     pub split: bool,
+    /// Someone wrote in the split while typing was on the other side; it
+    /// goes as typing moves to it.
+    pub dot: bool,
     pub direct: bool,
     /// The open voice channel's own chat, beside its call.
     pub voice: bool,
@@ -90,6 +93,7 @@ impl Aside {
             room,
             name: String::new(),
             split: false,
+            dot: false,
             direct: false,
             voice: false,
             ready: false,
@@ -362,7 +366,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             if crate::composer::writing_aside(app) {
                 app.composer.writing_last = Writing::Draft;
                 operation::focus(crate::composer::COMPOSER)
-            } else if app.aside.is_some() {
+            } else if let Some(aside) = &mut app.aside {
+                aside.dot = false;
                 app.composer.writing_last = Writing::Aside;
                 operation::focus(COMPOSER)
             } else {
@@ -453,9 +458,22 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
         }
         app.drafts.aside_known = draft;
     }
+    // The split's unread dot, for a message from someone else that comes
+    // while typing is on the other side.
+    let dots = split && app.layout.split_view && app.layout.split_dot.unwrap_or(true);
+    let typing_here = crate::composer::writing_aside(app);
     let Some(aside) = &mut app.aside else {
         return Task::none();
     };
+    if dots && !typing_here && !aside.messages.is_empty() {
+        let before = aside.messages.last().map(|message| &message.item);
+        aside.dot |= messages
+            .last()
+            .is_some_and(|newest| !newest.own && Some(&newest.item) != before);
+    }
+    if typing_here || !dots {
+        aside.dot = false;
+    }
     let edge_changed =
         (aside.ready, aside.loading, aside.start, aside.failed) != (ready, loading, start, failed);
     aside.name = name;
@@ -962,15 +980,31 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
     } else {
         Icon::Hash
     };
+    let name = container(
+        elide(theme.heading(aside.name.as_str()).into_owned())
+            .size(theme.header_size(15.0))
+            .font(theme.header_font(BOLD))
+            .color(theme.text),
+    );
+    // New there while typing is on the other side: a dot by its name.
+    let name: Element<'a, Message> = if aside.split && aside.dot {
+        let ink = theme.text;
+        row![
+            name,
+            container(Space::new())
+                .width(8)
+                .height(8)
+                .style(move |_| crate::style::rounded(ink, 4)),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center)
+        .into()
+    } else {
+        name.into()
+    };
     let mut head = row![
         ctx.look.glyph(icon, 18, theme.muted),
-        container(
-            elide(theme.heading(aside.name.as_str()).into_owned())
-                .size(theme.header_size(15.0))
-                .font(theme.header_font(BOLD))
-                .color(theme.text),
-        )
-        .width(Length::Fill),
+        container(name).width(Length::Fill),
     ];
     if aside.split && ctx.state.can_swap_split() {
         head = head.push(

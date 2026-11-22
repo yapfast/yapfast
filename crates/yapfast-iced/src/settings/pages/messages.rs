@@ -194,6 +194,12 @@ impl<'a> Page<'a> {
                     layout.split_notify.unwrap_or(true),
                     Pref::SplitNotify,
                 ),
+                self.flip(
+                    "Unread dot",
+                    "A dot by the split's name when someone writes there while you type on the other side.",
+                    layout.split_dot.unwrap_or(true),
+                    Pref::SplitDot,
+                ),
             ];
             shown =
                 shown.push(iced::widget::container(parts).padding(iced::Padding::ZERO.left(24)));

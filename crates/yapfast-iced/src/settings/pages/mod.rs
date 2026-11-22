@@ -47,6 +47,7 @@ pub enum Pref {
     SplitClick(bool),
     SplitRestore(bool),
     SplitNotify(bool),
+    SplitDot(bool),
     BoostGems(bool),
     ShareTyping(bool),
     ReplyPing(bool),
@@ -185,6 +186,10 @@ impl Settings {
             Pref::SplitNotify(on) => {
                 cx.layout.split_notify = Some(on);
                 cx.keep("split_notify", on);
+            }
+            Pref::SplitDot(on) => {
+                cx.layout.split_dot = Some(on);
+                cx.keep("split_dot", on);
             }
             Pref::BoostGems(on) => {
                 prefs.boost_gems = Some(on);
