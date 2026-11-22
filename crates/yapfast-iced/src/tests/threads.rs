@@ -935,3 +935,65 @@ fn a_middle_click_on_a_thread_or_a_dm_row_opens_it_in_split_view() {
     press_row(&mut app, "Quinn Harlow", iced::mouse::Button::Middle);
     assert!(split(&app, "discord:900"), "the DM beside");
 }
+
+#[test]
+fn a_row_dragged_onto_the_conversations_right_half_opens_in_split_view() {
+    use crate::{app::Message, split_drag::Event};
+    let general = "discord:10:11";
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    change(&mut app, |state| {
+        state.selected = None;
+        state.split_view = true;
+    });
+    app.layout.split_view = true;
+    let right = iced::Point::new(
+        crate::conversation::chat_right(&app) - 20.0,
+        app.shell.frame.height - 100.0,
+    );
+    let left = iced::Point::new(crate::conversation::chat_left(&app) + 20.0, right.y);
+    let press = |app: &mut crate::app::App| {
+        let _ = app.update(Message::SplitDrag(Event::Press(
+            general.into(),
+            Box::new(Message::Nothing),
+        )));
+    };
+    let split = |app: &crate::app::App| {
+        app.client
+            .state()
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.split && aside.room == general)
+    };
+    // Escape mid-drag opens nothing; nor does letting go on the left half.
+    press(&mut app);
+    let _ = app.update(Message::SplitDrag(Event::At(right)));
+    assert!(crate::split_drag::view(&app).is_some(), "the drop zone");
+    let _ = app.update(Message::SplitDrag(Event::Cancel));
+    assert!(app.split_drag.is_none() && !split(&app));
+    press(&mut app);
+    let _ = app.update(Message::SplitDrag(Event::At(left)));
+    let _ = app.update(Message::SplitDrag(Event::Drop));
+    assert!(!split(&app), "the left half");
+    // Let go on the right half, it opens beside.
+    press(&mut app);
+    let _ = app.update(Message::SplitDrag(Event::At(right)));
+    let _ = app.update(Message::SplitDrag(Event::Drop));
+    assert!(split(&app));
+    // With its switch off, a press arms nothing.
+    let _ = app.update(Message::Thread(crate::thread::Event::CloseSplit));
+    app.layout.split_drag = Some(false);
+    press(&mut app);
+    assert!(app.split_drag.is_none());
+}
+
+#[test]
+fn a_thread_or_a_dm_row_pressed_arms_a_drag_toward_split_view() {
+    let armed = |app: &crate::app::App| app.split_drag.as_ref().map(|drag| drag.room.clone());
+    let (mut app, _folder) = server_with_threads();
+    press_row(&mut app, "Plans", iced::mouse::Button::Left);
+    assert_eq!(armed(&app).as_deref(), Some("discord:10:41"), "the thread");
+
+    let (mut app, _folder) = dms_with_quinn();
+    press_row(&mut app, "Quinn Harlow", iced::mouse::Button::Left);
+    assert_eq!(armed(&app).as_deref(), Some("discord:900"), "the DM");
+}

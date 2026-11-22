@@ -105,6 +105,17 @@ shows is kept as `split_room` and opens there again on the next start once
 listed (`Action::RestoreSplit`), unless Reopen the split on start is off
 (`split_restore`). Turning split view off closes it.
 
+A channel's or DM's row dragged out of the list onto the conversation's
+right half opens there too (`split_drag.rs`), unless Drag rows to open is
+off (`split_drag`). A row whose press opens it arms the drag as it's
+pressed; past 8 px with the button still down, a faint copy of the row
+follows the pointer and the right half shows a drop zone, lit while the
+pointer is over it. Let go there, the room opens beside the open one (the
+open room moves there); anywhere else, or Escape, nothing opens. A channel
+that drags to rearrange the list (`arrange.rs`) shows the same zone once
+the pointer leaves the list, and let go on it, opens in split view instead
+of moving. The window follows the pointer only while a drag is armed.
+
 While typing is on the other side, a message from someone else in the
 split puts a dot by its name, which goes as typing moves to it (a press in
 its composer or Ctrl+Tab), unless Unread dot is off (`split_dot`;

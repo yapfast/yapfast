@@ -158,6 +158,8 @@ pub enum Message {
     ModView(crate::mod_view::Event),
     /// Peeking at a row of the sidebar while Alt is held (`peek.rs`).
     Peek(crate::peek::Event),
+    /// A row dragged toward split view (`split_drag.rs`).
+    SplitDrag(crate::split_drag::Event),
     Modal(crate::bot_modal::Event),
     Forum(crate::forum::Event),
     BrowseChannels(crate::browse_channels::Event),

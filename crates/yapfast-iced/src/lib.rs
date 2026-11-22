@@ -50,6 +50,7 @@ mod conversation;
 mod ctx;
 mod desktop;
 mod slot;
+mod split_drag;
 use yapfast_iced_kit::dialog;
 mod dialogs;
 mod downloads;

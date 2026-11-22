@@ -177,6 +177,12 @@ impl<'a> Page<'a> {
         if layout.split_view {
             let parts = iced::widget::column![
                 self.flip(
+                    "Drag rows to open",
+                    "Drag a channel or DM out of the list onto the right half of the conversation.",
+                    layout.split_drag.unwrap_or(true),
+                    Pref::SplitDrag,
+                ),
+                self.flip(
                     "Ctrl+click and middle click to open",
                     "On a channel or DM in the list. Off, Ctrl+click opens it as a click does.",
                     layout.split_click.unwrap_or(true),

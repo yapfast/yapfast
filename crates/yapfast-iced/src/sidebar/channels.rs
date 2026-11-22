@@ -1466,18 +1466,26 @@ pub(crate) fn listed_row_face<'a>(
     row_area(cx, area, message, menu)
 }
 
-/// What a row takes, every kind alike: its press, a middle click that
-/// opens a conversation's row in split view, and a right click for its
-/// menu, `menu` naming the conversation.
+/// What a row takes, every kind alike: its press (which, on a
+/// conversation's row, also arms dragging it toward split view), a middle
+/// click that opens a conversation's row in split view, and a right click
+/// for its menu, `menu` naming the conversation.
 fn row_area<'a>(
     cx: crate::ctx::Ctx<'a>,
     area: iced::widget::MouseArea<'a, Message>,
     message: Option<Message>,
     menu: Option<String>,
 ) -> Element<'a, Message> {
-    let area = match message {
-        Some(message) => area.on_press(message),
-        None => area,
+    // A conversation's press also arms dragging it toward split view.
+    let area = match (message, &menu) {
+        (Some(message), Some(room)) if crate::split_drag::drags(cx.layout) => {
+            area.on_press(Message::SplitDrag(crate::split_drag::Event::Press(
+                room.clone(),
+                Box::new(message),
+            )))
+        }
+        (Some(message), _) => area.on_press(message),
+        (None, _) => area,
     };
     // A conversation's row opens in split view on a middle click.
     let area = match &menu {
