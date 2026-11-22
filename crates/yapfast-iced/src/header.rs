@@ -71,6 +71,9 @@ pub struct Header {
     pub befriend: Option<(String, bool)>,
     /// A voice channel with a chat: whether the chat shows.
     pub voice_chat: Option<bool>,
+    /// A Discord voice channel's chat opens beside its call, as Discord's
+    /// does, rather than in its place.
+    pub chat_beside: bool,
     pub can_threads: bool,
     pub can_notify: bool,
     pub muted: bool,
@@ -140,7 +143,14 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         can_call: dm_call && !voice_here,
         call_going: !room.people.is_empty(),
         can_join: state.can_join_voice(&room.id),
-        voice_chat: (!room.direct && room.voice_chat()).then_some(state.voice_chat),
+        voice_chat: (!room.direct && room.voice_chat()).then_some(
+            state.voice_chat
+                || state
+                    .aside
+                    .as_ref()
+                    .is_some_and(|aside| aside.voice && aside.room == room.id),
+        ),
+        chat_beside: room.network == yapfast_core::network::Network::Discord && !state.preview,
         befriend: room
             .person
             .as_deref()
@@ -488,10 +498,11 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     let mut buttons: Vec<Element<'a, Message>> = Vec::new();
     // A voice channel's chat, or its call again.
     if let Some(chat) = header.voice_chat {
-        let (icon, label) = if chat {
-            (Icon::Volume, "Show voice channel")
-        } else {
-            (Icon::Forum, "Open chat")
+        let (icon, label) = match (chat, header.chat_beside) {
+            (true, true) => (Icon::Forum, "Hide chat"),
+            (false, true) => (Icon::Forum, "Show chat"),
+            (true, false) => (Icon::Volume, "Show voice channel"),
+            (false, false) => (Icon::Forum, "Open chat"),
         };
         buttons.push(
             ctx.look

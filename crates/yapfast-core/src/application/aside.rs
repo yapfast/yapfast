@@ -21,6 +21,9 @@ pub struct Aside {
     /// selected room's: the last read when it showed, or the newest its
     /// first messages had.
     pub seen: Option<String>,
+    /// It's the open voice channel's own chat, beside its call, as Discord
+    /// shows a voice channel's chat.
+    pub voice: bool,
 }
 
 impl AppState {
@@ -171,6 +174,35 @@ impl Application {
         });
         self.aside_visible.clear();
         vec![Effect::Backend(Command::Aside(Some(room)))]
+    }
+
+    /// Whether a voice channel's chat shows beside its call, as Discord's
+    /// does: a Discord one with a chat, outside the preview.
+    pub(super) fn chat_beside_call(&self, room: &str) -> bool {
+        !self.state.preview
+            && self.state.rooms.iter().any(|listed| {
+                listed.id == room && listed.network == Network::Discord && listed.voice_chat()
+            })
+    }
+
+    /// Shows the open voice channel's chat beside its call, or closes it.
+    pub(super) fn show_chat_beside(&mut self, room: String, shown: bool) -> Vec<Effect> {
+        let showing = self
+            .state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.voice && aside.room == room);
+        if !shown {
+            return if showing { self.close_aside() } else { vec![] };
+        }
+        if showing || self.state.selected.as_ref() != Some(&room) {
+            return vec![];
+        }
+        let effects = self.show_aside(room);
+        if let Some(aside) = &mut self.state.aside {
+            aside.voice = true;
+        }
+        effects
     }
 
     pub(super) fn close_aside(&mut self) -> Vec<Effect> {

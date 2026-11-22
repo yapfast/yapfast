@@ -59,6 +59,8 @@ const REPORT_MARGIN: usize = 6;
 pub struct Aside {
     pub room: String,
     pub name: String,
+    /// The open voice channel's own chat, beside its call.
+    pub voice: bool,
     pub ready: bool,
     pub loading: bool,
     pub start: bool,
@@ -83,6 +85,7 @@ impl Aside {
         Self {
             room,
             name: String::new(),
+            voice: false,
             ready: false,
             loading: false,
             start: false,
@@ -367,6 +370,7 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
         .aside_room()
         .map(|room| room.name.clone())
         .unwrap_or_default();
+    let voice = core.voice;
     let (ready, loading, start, failed) = (
         core.ready,
         core.loading_history,
@@ -388,6 +392,7 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
     let edge_changed =
         (aside.ready, aside.loading, aside.start, aside.failed) != (ready, loading, start, failed);
     aside.name = name;
+    aside.voice = voice;
     aside.ready = ready;
     aside.loading = loading;
     aside.start = start;
@@ -860,8 +865,13 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
     }
     let aside = ctx.lanes.aside?;
     let theme = ctx.look.theme;
+    let icon = if aside.voice {
+        Icon::MessageCircle
+    } else {
+        Icon::Thread
+    };
     let head = row![
-        ctx.look.glyph(Icon::Thread, 18, theme.muted),
+        ctx.look.glyph(icon, 18, theme.muted),
         container(
             elide(theme.heading(aside.name.as_str()).into_owned())
                 .size(theme.header_size(15.0))
@@ -869,20 +879,42 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
                 .color(theme.text),
         )
         .width(Length::Fill),
-        ctx.look
-            .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
-            .below(),
-        ctx.look
-            .icon_button(
-                Icon::Maximize,
-                "Open in full view",
-                Message::Thread(Event::Expand)
-            )
-            .below(),
-        ctx.look
-            .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
-            .below(),
     ];
+    // A voice channel's chat, beside its call, has only its close, as
+    // Discord's panel has.
+    if aside.voice {
+        let head = head.push(
+            ctx.look
+                .icon_button(Icon::X, "Hide chat", Message::Thread(Event::Close))
+                .below(),
+        );
+        let body = column![
+            panel_head(ctx, head),
+            aside_list(ctx, aside),
+            aside_composer(ctx, aside),
+        ];
+        return Some(panel(ctx, body.into()));
+    }
+    let head = head
+        .push(
+            ctx.look
+                .icon_button(Icon::Ellipsis, "More", Message::Thread(Event::More))
+                .below(),
+        )
+        .push(
+            ctx.look
+                .icon_button(
+                    Icon::Maximize,
+                    "Open in full view",
+                    Message::Thread(Event::Expand),
+                )
+                .below(),
+        )
+        .push(
+            ctx.look
+                .icon_button(Icon::X, "Close thread", Message::Thread(Event::Close))
+                .below(),
+        );
     let body = column![
         panel_head(ctx, head),
         aside_list(ctx, aside),
@@ -938,10 +970,14 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         if !aside.ready {
             return crate::timeline::view::messages_skeleton(ctx);
         }
-        let words = text(format!("This is the start of the {} thread.", aside.name))
-            .size(14)
-            .color(theme.muted)
-            .center();
+        let words = text(if aside.voice {
+            format!("Welcome to #{}! This is the start of its chat.", aside.name)
+        } else {
+            format!("This is the start of the {} thread.", aside.name)
+        })
+        .size(14)
+        .color(theme.muted)
+        .center();
         return container(words)
             .padding([0, 16])
             .center(Length::Fill)
@@ -991,6 +1027,8 @@ fn aside_composer<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a,
     let reply = crate::composer::reply_bar_info(state.aside_compose());
     let placeholder = if reply.is_some() {
         "Write a reply".to_owned()
+    } else if aside.voice {
+        format!("Message #{}", aside.name)
     } else {
         format!("Message {}", aside.name)
     };

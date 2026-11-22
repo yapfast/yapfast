@@ -685,3 +685,31 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
         }
     }
 }
+
+#[test]
+fn a_voice_channels_chat_shows_beside_its_call() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.selected = Some("lounge".into());
+        state.voice_chat = false;
+        state.aside = Some(Default::default());
+        let aside = state.aside.as_mut().expect("the chat beside");
+        aside.room = "lounge".into();
+        aside.voice = true;
+        aside.ready = true;
+        aside.history_start = true;
+        aside.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "v0".into(),
+            author: "Sam".into(),
+            body: "Can you hear me?".into(),
+            timestamp: 1,
+            ..Default::default()
+        })]);
+    });
+    assert!(
+        crate::call::stage::voice_panel(&app),
+        "the call stays in the middle"
+    );
+    assert!(app.aside.as_ref().is_some_and(|aside| aside.voice));
+    assert!(shows(&app, "Can you hear me?"), "its chat beside it");
+}

@@ -558,6 +558,12 @@ impl Application {
 
     /// Switches the selected voice channel between its chat and its call.
     pub(super) fn show_voice_chat(&mut self, chat: bool) -> Vec<Effect> {
+        // A Discord voice channel's chat shows beside its call.
+        if let Some(id) = self.state.selected.clone()
+            && self.chat_beside_call(&id)
+        {
+            return self.show_chat_beside(id, chat);
+        }
         match self.state.selected.clone() {
             Some(id) if self.state.voice_chat != chat => self.show_room(id, chat),
             _ => vec![],
@@ -930,7 +936,12 @@ impl Application {
             // the channel.
             self.state.interaction_failed = None;
         }
-        effects.extend(self.show_room(id, chat));
+        // A Discord voice channel shows its call, with its chat beside it.
+        let beside = chat && self.chat_beside_call(&id);
+        effects.extend(self.show_room(id.clone(), chat && !beside));
+        if beside {
+            effects.extend(self.show_chat_beside(id, true));
+        }
         effects.extend(self.ask_activity());
         effects
     }

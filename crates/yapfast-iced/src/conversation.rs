@@ -202,7 +202,32 @@ fn status_line(app: &App) -> Option<(Element<'_, Message>, bool)> {
 pub fn conversation(app: &App) -> Element<'_, Message> {
     if crate::call::stage::voice_panel(app) {
         // The stage alone takes the `call` surface (see `call_view`).
-        return crate::call::stage::call_view(app);
+        let call = crate::call::stage::call_view(app);
+        // A voice channel's chat beside its call, as the theme draws a
+        // pane beside the chat.
+        return match crate::thread::aside_view(app.ctx()) {
+            Some(aside) => {
+                let aside = crate::theme_art::surface(
+                    aside,
+                    app.ctx(),
+                    yapfast_core::themes::package::art::ArtSurface::Aside,
+                );
+                let aside = crate::theme_art::outlined(
+                    aside,
+                    app.ctx(),
+                    yapfast_core::themes::layout::BorderPlace::Panes,
+                    "panel",
+                    0.0,
+                    1.0,
+                    app.theme.outline,
+                );
+                row![call, aside]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+            }
+            None => call,
+        };
     }
     let outline = app.theme.outline_chat;
     let line = bar(outline, Length::Fill, 1);
