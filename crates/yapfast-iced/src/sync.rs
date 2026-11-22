@@ -147,13 +147,7 @@ impl App {
             Navigation::DirectMessages => Vec::new(),
         };
         let state = self.client.state();
-        let side = sidebar(
-            state,
-            &categories,
-            &self.layout.collapsed,
-            &self.sidebar.filter,
-            self.theme.dark,
-        );
+        let side = sidebar(state, &categories, &self.layout.collapsed, self.theme.dark);
         if self.sidebar.rows != side {
             self.sidebar.rows = side;
         }
@@ -164,8 +158,7 @@ impl App {
                 .any(|known| known.discord && &known.id == server),
             Navigation::DirectMessages => false,
         };
-        let places =
-            crate::arrange::places(&self.sidebar.rows, discord, !self.sidebar.filter.is_empty());
+        let places = crate::arrange::places(&self.sidebar.rows, discord);
         if self.sidebar.places != places {
             self.sidebar.places = places;
             // What's dragged may have gone, or moved to another place.
@@ -209,15 +202,6 @@ impl App {
     /// follows (a scroll, pictures to ask for, rows to report).
     pub fn sync(&mut self) -> Task<Message> {
         let state = self.client.state();
-        // The DM search's filter is the DM home's: it goes as the rail
-        // goes to a server, or back home.
-        if self.sidebar.filtered_in.as_ref() != Some(&state.navigation) {
-            self.sidebar.filtered_in = Some(state.navigation.clone());
-            if !self.sidebar.filter.is_empty() {
-                self.sidebar.filter.clear();
-                self.lists_shown = None;
-            }
-        }
         // The lists and the header change with the rooms and servers, not
         // with each message or presence: they're made again only then.
         let key = lists_key(state, &self.theme.id);

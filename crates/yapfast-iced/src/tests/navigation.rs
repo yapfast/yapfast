@@ -1,5 +1,6 @@
 //! The rail and the sidebar: servers, folders and DMs opening, their
-//! unread marks, categories folding and the DMs' search.
+//! unread marks, categories folding and the DMs' Find or start a
+//! conversation.
 
 use std::sync::Arc;
 
@@ -257,19 +258,16 @@ fn opening_an_unread_channel_clears_its_mark() {
 }
 
 #[test]
-fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
+fn the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
-    assert!(shows(&app, "Sam") && shows(&app, "Friday crew"));
-    let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
-    assert!(shows(&app, "Friday crew"));
-    assert!(!shows(&app, "Riley"));
-    // It's the DM home's: a server shows all its channels, and home again
-    // shows every DM.
-    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
-    assert!(shows(&app, "looking-for-group"), "the server's channels");
-    let _ = app.update(Message::Rail(crate::rail::Event::Home));
-    assert!(shows(&app, "Riley"), "every DM again");
+    assert!(shows(&app, "Find or start a conversation"));
+    interact(&mut app, |ui| {
+        ui.click("Find or start a conversation")
+            .expect("the button");
+    });
+    assert!(app.client.state().switcher.is_some(), "the quick switcher");
+    assert!(shows(&app, "Where would you like to go?"));
 }
 
 #[test]
