@@ -441,8 +441,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   reads the conversation and takes the banner away, leaving the divider. A
   Discord channel places it by message order; when every loaded message is
   unread, it opens on a window of the messages around the last read one,
-  where the bar counts those loaded with a plus ("50+ new messages"). A
-  Matrix room places it after the event its read receipt is on, once that
+  where the bar counts those loaded with a plus ("50+ new messages").
+  Replying from that window shows the newest messages, which can leave the
+  divider above everything loaded; the banner then stays, counting with a
+  plus, until the conversation is left, and clicking it brings the divider
+  back. A Matrix room places it after the event its read receipt is on, once that
   event is in the loaded timeline.
 - Highlight messages that call on the user with a faint gold tint and a gold
   edge on the left, as Discord does: a mention of them, of a Discord role
