@@ -46,12 +46,21 @@ and the app uses them with its one `Message`, so nothing is mapped:
   choices, lit under the pointer or, in a context menu, where
   the keys put the light (`menu_item_sized` at a height of its own); `controls::menu_panel` and `separator` are the
   menu's ground and the line between its groups.
-- Submenus (`menus.rs`): a `MenuRow` with a `submenu` shows a chevron and
-  opens it beside itself, its first row level with the row, under the
-  pointer, on a click or with Right; on the left when the right has no
-  room, and kept in the window. Left or Escape closes it, the pointer onto
-  another row too. A row's `click` is what a click on the row itself does
-  instead (a mute's "until I turn it back on"); a row's `key` carries what
+- Submenus (`menus.rs`): a `MenuRow` with a `submenu` shows a chevron. By
+  default its list folds down under it, inside the menu and stood in 12 px,
+  on a click, Enter, Space or Right, one list at a time: the chevron turns
+  down and the list slides open over 120 ms (`Check::Folds`, frames only
+  while it moves), or snaps with Appearance's "Slide submenus open" off.
+  The keys go through the rows and the open list as one; Left or Escape
+  folds it, and the menu widens with a list that needs more room as it
+  slides open, and narrows back as it folds. A level chosen in a list applies and the menu stays, ticked in
+  place and said on its row. With Appearance's Submenus set to "Open
+  beside" (`submenus_beside`), it opens beside itself instead, its first
+  row level with the row, under the pointer, on a click or with Right; on
+  the left when the right has no room, and kept in the window. Left or
+  Escape closes it, the pointer onto another row too. There, a row's
+  `click` is what a click on the row itself does instead (a mute's "until
+  I turn it back on"); a row's `key` carries what
   it's about (a role, a server, a command, a channel) for `sub_act`. A
   `Check::Box` row ticks in place and keeps the menu open, in the menu or
   a submenu; a `Check::Current` row's tick makes every row of its menu

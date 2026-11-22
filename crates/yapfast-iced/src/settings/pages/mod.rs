@@ -69,6 +69,9 @@ pub enum Pref {
     StartOnSignIn(bool),
     DiscordLinks(bool),
     SystemTitleBar(bool),
+    /// Appearance's Submenus.
+    SubmenusBeside(bool),
+    SubmenusSlide(bool),
 }
 
 /// My account's and the Discord page's buttons.
@@ -297,6 +300,14 @@ impl Settings {
                 cx.layout.system_title_bar = Some(on);
                 cx.keep("system_title_bar", on);
                 cx.request(Request::TitleBar(on));
+            }
+            Pref::SubmenusBeside(on) => {
+                cx.layout.submenus_beside = Some(on);
+                cx.keep("submenus_beside", on);
+            }
+            Pref::SubmenusSlide(on) => {
+                cx.layout.submenus_slide = Some(on);
+                cx.keep("submenus_slide", on);
             }
         }
         cx.touch();

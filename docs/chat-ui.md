@@ -639,7 +639,7 @@ The window follows Discord's arrangement:
   channels leaves them out, but for the open one and those that mention you.
   Removing a friend and blocking ask first. Matrix links go through
   matrix.to. Arrow keys, Home and End move through the menu, Tab steps
-  down and Shift+Tab up, Right opens a submenu and Left leaves it, Enter
+  down and Shift+Tab up, Right opens a submenu and Left leaves or folds it, Enter
   chooses, and Escape closes it.
 - Inviting opens a dialog with a link Discord made at once, lasting 7 days
   and working any number of times, a button that copies it, and a line on
@@ -658,7 +658,9 @@ The window follows Discord's arrangement:
   `channel_settings.rs` beside it.
 - Menus (`crates/yapfast-iced/src/menus.rs`) are as wide as their rows'
   text needs, 224px at least, and each row may open a submenu of its own,
-  beside the menu, or on its left near the window's right edge. A row can
+  folded down under it inside the menu, one at a time (the default), or,
+  with Settings > Appearance > Submenus on "Open beside", beside the menu,
+  or on its left near the window's right edge. A row can
   carry a second line under its text, such as the level a notification
   submenu has chosen, a check in place of its icon for the current choice,
   or a box to tick. Ticking leaves the menu open. A row can show greyed, as a

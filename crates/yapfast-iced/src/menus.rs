@@ -1,10 +1,15 @@
 //! Context menus (a message's, the composer's, a place's, someone's). While
 //! one is open it has the keys: the window's focus goes to [`NOBODY`]. A
-//! row may open a submenu beside it (mute times, notification levels,
-//! roles, servers to invite to, apps, channels to move to), under the
-//! pointer, on a click, or with Right; Left or Escape closes it. A row
-//! whose submenu is a choice of how (a mute's times) does its own thing
+//! row may have a submenu (mute times, notification levels, roles, servers
+//! to invite to, apps, channels to move to). By default it folds down under
+//! its row, inside the menu, on a click, Enter, Space or Right, one at a
+//! time, its chevron turning down and the menu sliding taller; another
+//! click, Left or Escape folds it. Chosen in Appearance, it opens beside
+//! the menu instead, under the pointer, on a click, or with Right; there a
+//! row whose submenu is a choice of how (a mute's times) does its own thing
 //! when clicked itself.
+
+use std::time::{Duration, Instant};
 
 use crate::widgets::scroll_view;
 use iced::{
@@ -66,6 +71,10 @@ pub struct Menu {
     /// The row whose submenu shows, and the submenu's row the keys light.
     pub sub: Option<usize>,
     pub sub_lit: Option<usize>,
+    /// Folding down: the row whose list is folding up as another opens or
+    /// it's closed, and when the last one began to move.
+    pub closing: Option<usize>,
+    pub moved: Option<Instant>,
     /// A submenu's row right-clicked, and its own choices beside the
     /// submenu (a folder's server's), with the row the keys light.
     pub side: Option<(usize, Vec<MenuRow>)>,
@@ -97,6 +106,8 @@ impl Menu {
             volumes: None,
             sub: None,
             sub_lit: None,
+            closing: None,
+            moved: None,
             side: None,
             side_lit: None,
             scrolled: 0.0,
@@ -108,6 +119,53 @@ impl Menu {
     /// others when a row has one.
     fn slot(&self) -> bool {
         self.place.is_none() || ticks(&self.rows) || self.rows.iter().any(|row| row.icon.is_some())
+    }
+
+    /// How wide the menu shows when its submenus fold down inside it: its
+    /// own width, widening with a list as it slides open if the list needs
+    /// more room, and narrowing back as it folds.
+    fn fit_folding(&self, open: f32) -> f32 {
+        let own = self.fit(None);
+        let fits = self.fits.get().map(Vec::as_slice).unwrap_or_default();
+        let list = |row: Option<usize>| {
+            row.and_then(|row| fits.get(row + 1))
+                .filter(|fit| **fit > 0.0)
+                .map_or(own, |fit| (fit + LIST_INDENT).max(own))
+        };
+        let (opening, closing) = (list(self.sub), list(self.closing));
+        (closing + (opening - closing) * open).ceil()
+    }
+
+    /// How far the moving list has gone, 0 to 1, eased.
+    fn openness(&self, now: Instant, slides: bool) -> f32 {
+        match self.moved {
+            Some(moved) if slides => {
+                let t = (now.saturating_duration_since(moved).as_secs_f32()
+                    / FOLD_TIME.as_secs_f32())
+                .clamp(0.0, 1.0);
+                // ease-in-out, as Slint's menus did
+                t * t * (3.0 - 2.0 * t)
+            }
+            _ => 1.0,
+        }
+    }
+
+    /// Opens row `index`'s list under it, folding up the one open, or
+    /// folds it up if it's the one open.
+    fn toggle(&mut self, index: usize) {
+        let now = Instant::now();
+        if self.sub == Some(index) {
+            self.closing = Some(index);
+            self.sub = None;
+        } else {
+            self.closing = self.sub;
+            self.sub = Some(index);
+        }
+        self.moved = Some(now);
+        self.sub_lit = None;
+        self.side = None;
+        self.side_lit = None;
+        self.lit = Some(index);
     }
 
     /// How wide the menu (`None`) or row `sub`'s submenu shows.
@@ -300,12 +358,43 @@ const SUB_GAP: f32 = 4.0;
 /// A menu's padding, which lifts a submenu so its first row is level with
 /// the row that opened it.
 const PAD: f32 = 9.0;
+/// How far a list folded down under its row stands in, and how long it
+/// takes to slide open or shut, as the Slint menus' lists.
+const LIST_INDENT: f32 = 12.0;
+const FOLD_TIME: Duration = Duration::from_millis(120);
+
+/// Whether a submenu opens beside its menu, rather than folding down under
+/// its row, for anyone who hasn't chosen. The one place the default lives.
+pub const SUBMENUS_BESIDE: bool = false;
+
+/// Whether submenus fold down inside the menu, as they do unless the person
+/// chose them to open beside it.
+pub fn folds(layout: &crate::layout::Layout) -> bool {
+    !layout.submenus_beside.unwrap_or(SUBMENUS_BESIDE)
+}
+
+/// Whether a folding list slides, or snaps.
+fn slides(layout: &crate::layout::Layout) -> bool {
+    layout.submenus_slide.unwrap_or(true)
+}
+
+/// Frames while a list folding down is moving, and only then.
+pub fn subscription(app: &App) -> Option<iced::Subscription<Message>> {
+    let menu = app.win.menu.as_ref()?;
+    let moving = slides(&app.layout)
+        && menu
+            .moved
+            .is_some_and(|moved| moved.elapsed() < FOLD_TIME + Duration::from_millis(20));
+    moving.then(|| iced::window::frames().map(|_| Message::Menu(Event::Frame)))
+}
 
 /// What's done in the open menu, its submenu and a message's hover bar.
 #[derive(Clone, Debug)]
 pub enum Event {
     /// The menu's row under the pointer or the keys, by its place.
     Light(usize),
+    /// A frame while a list folding down moves.
+    Frame,
     Choose(usize),
     /// A menu taller than the window was scrolled this far down.
     Scrolled(f32),
@@ -329,9 +418,22 @@ pub enum Event {
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Light(index) => menu_light(app, index),
+        Event::Frame => {
+            if let Some(menu) = &mut app.win.menu
+                && menu.moved.is_some_and(|moved| moved.elapsed() >= FOLD_TIME)
+            {
+                menu.moved = None;
+                menu.closing = None;
+            }
+            Task::none()
+        }
         Event::SubLight(index) => {
+            let folding = folds(&app.layout);
             if let Some(menu) = &mut app.win.menu {
                 menu.sub_lit = Some(index);
+                if folding {
+                    menu.lit = None;
+                }
             }
             Task::none()
         }
@@ -566,8 +668,14 @@ pub fn menu_apps_sync(app: &mut App) -> Task<Message> {
 /// The pointer came onto a row: it's lit, and its submenu opens, or
 /// another's closes.
 pub fn menu_light(app: &mut App, index: usize) -> Task<Message> {
+    let folding = folds(&app.layout);
     if let Some(menu) = &mut app.win.menu {
         menu.lit = Some(index);
+        // Folding down, a list opens on a click, not under the pointer.
+        if folding {
+            menu.sub_lit = None;
+            return Task::none();
+        }
         let opens = menu
             .rows
             .get(index)
@@ -595,6 +703,14 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
     else {
         return Task::none();
     };
+    // Folding down, one with a submenu opens its list under it, or folds
+    // it up again.
+    if !row.submenu.is_empty() && folds(&app.layout) {
+        if let Some(menu) = &mut app.win.menu {
+            menu.toggle(index);
+        }
+        return Task::none();
+    }
     // One with a submenu opens it, unless clicking it does its own thing.
     if !row.submenu.is_empty() {
         match row.click {
@@ -642,6 +758,34 @@ pub fn choose_sub(app: &mut App, index: usize) -> Task<Message> {
             row.check = crate::controls::Check::Box(!ticked);
         }
         return carry_out(app, &row, Some(!ticked), true);
+    }
+    // Folded down, a choice among ticked ones (a level) applies and the
+    // menu stays, its tick moved to it and its row saying it.
+    if folds(&app.layout)
+        && let Some(menu) = &mut app.win.menu
+        && let Some(sub) = menu.sub
+        && ticks(&menu.rows[sub].submenu)
+        && matches!(
+            row.check,
+            crate::controls::Check::Current | crate::controls::Check::None
+        )
+    {
+        for (at, shown) in menu.rows[sub].submenu.iter_mut().enumerate() {
+            if matches!(
+                shown.check,
+                crate::controls::Check::Current | crate::controls::Check::None
+            ) {
+                shown.check = if at == index {
+                    crate::controls::Check::Current
+                } else {
+                    crate::controls::Check::None
+                };
+            }
+        }
+        if menu.rows[sub].subtitle.is_some() {
+            menu.rows[sub].subtitle = Some(row.label.clone());
+        }
+        return carry_out(app, &row, None, true);
     }
     carry_out(app, &row, None, false)
 }
@@ -1015,6 +1159,9 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
         }
         return Task::none();
     }
+    if folds(&app.layout) {
+        return fold_key(app, named);
+    }
     // In a submenu the keys move through its rows.
     if let Some(sub) = menu.sub {
         let rows = &menu.rows[sub].submenu;
@@ -1081,7 +1228,111 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
     Task::none()
 }
 
-/// The menu open, at its place, with its submenu beside its row.
+/// The keys while submenus fold down: Up and Down go through the rows and
+/// the open list under its row as one, Enter, Space or Right opens a row's
+/// list (Enter and Space fold it up again), Left or Escape in a list folds
+/// it up and lights its row, and Escape then closes the menu.
+fn fold_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
+    let Some(menu) = &mut app.win.menu else {
+        return Task::none();
+    };
+    let count = menu.rows.len();
+    if count == 0 {
+        return Task::none();
+    }
+    // In the open list.
+    if let (Some(sub), Some(lit)) = (menu.sub, menu.sub_lit) {
+        let rows = &menu.rows[sub].submenu;
+        let last = rows.len().saturating_sub(1);
+        match named {
+            Some(key::Named::ArrowDown | key::Named::Tab) => {
+                match (lit + 1..rows.len()).find(|&at| !rows[at].disabled) {
+                    Some(next) => menu.sub_lit = Some(next),
+                    None => {
+                        menu.sub_lit = None;
+                        menu.lit = step(&menu.rows, (sub + 1) % count, 1);
+                    }
+                }
+            }
+            Some(key::Named::ArrowUp) => match (0..lit).rev().find(|&at| !rows[at].disabled) {
+                Some(before) => menu.sub_lit = Some(before),
+                None => {
+                    menu.sub_lit = None;
+                    menu.lit = Some(sub);
+                }
+            },
+            Some(key::Named::Home) => menu.sub_lit = step(rows, 0, 1),
+            Some(key::Named::End) => menu.sub_lit = step(rows, last, last.max(1)),
+            Some(key::Named::Enter | key::Named::Space) => return choose_sub(app, lit),
+            Some(key::Named::ArrowLeft | key::Named::Escape) => menu.toggle(sub),
+            _ => {}
+        }
+        return Task::none();
+    }
+    let lit = menu.lit;
+    match named {
+        Some(key::Named::ArrowDown | key::Named::Tab) => {
+            // From an open list's row into its list.
+            if let Some(sub) = menu.sub
+                && lit == Some(sub)
+                && let Some(first) = step(&menu.rows[sub].submenu, 0, 1)
+            {
+                menu.sub_lit = Some(first);
+                menu.lit = None;
+            } else {
+                menu.lit = step(&menu.rows, lit.map_or(0, |lit| lit + 1), 1).or(lit);
+            }
+        }
+        Some(key::Named::ArrowUp) => {
+            let from = lit.map_or(count - 1, |lit| lit + count - 1);
+            let before = step(&menu.rows, from, count - 1).or(lit);
+            // Up into the open list above, from the row after it.
+            match menu.sub {
+                Some(sub) if before == Some(sub) && lit != Some(sub) => {
+                    let rows = &menu.rows[sub].submenu;
+                    menu.sub_lit = (0..rows.len()).rev().find(|&at| !rows[at].disabled);
+                    menu.lit = menu.sub_lit.is_none().then_some(sub);
+                }
+                _ => menu.lit = before,
+            }
+        }
+        Some(key::Named::Home) => menu.lit = step(&menu.rows, 0, 1),
+        Some(key::Named::End) => menu.lit = step(&menu.rows, count - 1, count - 1),
+        Some(key::Named::ArrowRight) => {
+            if let Some(lit) = lit
+                && !menu.rows[lit].submenu.is_empty()
+                && !menu.rows[lit].disabled
+                && menu.sub != Some(lit)
+            {
+                menu.toggle(lit);
+            }
+        }
+        Some(key::Named::ArrowLeft) => {
+            if let Some(sub) = menu.sub
+                && lit == Some(sub)
+            {
+                menu.toggle(sub);
+            }
+        }
+        Some(key::Named::Enter | key::Named::Space) => {
+            if let Some(lit) = lit {
+                return choose(app, lit);
+            }
+        }
+        Some(key::Named::Escape) => {
+            if let Some(sub) = menu.sub {
+                menu.toggle(sub);
+                return Task::none();
+            }
+            return app.escape();
+        }
+        _ => {}
+    }
+    Task::none()
+}
+
+/// The menu open, at its place, with its submenu beside its row or folded
+/// down under it.
 pub fn view<'a>(menu: &'a Menu, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     View { s: menu, cx }.view()
 }
@@ -1129,8 +1380,15 @@ impl<'a> View<'a> {
             rows = rows.push(quick);
         }
         // Rows line up past a tick's room when one row has a tick, and the
-        // menu widens to its widest row.
+        // menu widens to its widest row, or list folding down under one.
+        let folding = folds(self.cx.layout);
         let (slot, width) = (menu.slot(), menu.fit(None));
+        let open = menu.openness(Instant::now(), slides(self.cx.layout));
+        let width = if folding {
+            menu.fit_folding(open)
+        } else {
+            width
+        };
         // The child of the rows' column the open submenu lines up with.
         let mut children = usize::from(!menu.reactions.is_empty() && menu.item.is_some());
         let mut sub_child = None;
@@ -1139,21 +1397,44 @@ impl<'a> View<'a> {
                 rows = rows.push(crate::controls::menu_separator(theme));
                 children += 1;
             }
-            let lit =
-                (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
+            let lit = (menu.lit == Some(index) && menu.sub_lit.is_none())
+                || (!folding && menu.sub == Some(index));
             let light = Light::Lit(lit && !entry.disabled);
+            let mut item = self.menu_entry(entry, slot);
+            if folding && !entry.submenu.is_empty() {
+                // Its chevron turns down as its list opens.
+                let turned = if menu.sub == Some(index) {
+                    open
+                } else if menu.closing == Some(index) {
+                    1.0 - open
+                } else {
+                    0.0
+                };
+                item.check = crate::controls::Check::Folds((turned * 100.0).round() as u8);
+            }
             rows = rows.push(
                 mouse_area(self.cx.look.context_item(
-                    self.menu_entry(entry, slot),
+                    item,
                     light,
                     Message::Menu(Event::Choose(index)),
                 ))
                 .on_enter(Message::Menu(Event::Light(index))),
             );
-            if menu.sub == Some(index) {
-                sub_child = Some(children);
-            }
             children += 1;
+            if folding && (menu.sub == Some(index) || menu.closing == Some(index)) {
+                let shown = if menu.sub == Some(index) {
+                    open
+                } else {
+                    1.0 - open
+                };
+                if menu.sub == Some(index) {
+                    sub_child = Some(children);
+                }
+                rows = rows.push(self.folded_list(menu, index, shown, menu.sub == Some(index)));
+                children += 1;
+            } else if !folding && menu.sub == Some(index) {
+                sub_child = Some(children - 1);
+            }
         }
         let panel: Element<'a, Message> = if menu.rows.is_empty() {
             Space::new().into()
@@ -1200,6 +1481,31 @@ impl<'a> View<'a> {
             ..Default::default()
         });
         let mut place = Place::new(opaque(panel), menu.at, MENU_MARGIN).anchor(menu.anchor);
+        if folding {
+            // A list's row's own choices, beside the menu level with it.
+            if let (Some(sub), Some(child), Some((at, side))) = (menu.sub, sub_child, &menu.side) {
+                let mut path = if menu.volumes.is_some() {
+                    vec![0, 0, 1, 0]
+                } else {
+                    vec![0, 0, 0]
+                };
+                let entries = &menu.rows[sub].submenu;
+                let lines = entries
+                    .iter()
+                    .take(*at + 1)
+                    .enumerate()
+                    .filter(|(index, entry)| entry.separated && *index > 0)
+                    .count();
+                path.extend([child, 0, *at + lines]);
+                place = place.beside(
+                    self.side_panel(menu, side),
+                    path,
+                    PAD + menu.scrolled,
+                    SUB_GAP,
+                );
+            }
+            return Some(place.into());
+        }
         if let (Some(sub), Some(child)) = (menu.sub, sub_child) {
             // Through the frame and the scrollable to the rows.
             let mut path = vec![0, 0];
@@ -1324,6 +1630,18 @@ impl<'a> View<'a> {
             } else {
                 0.0
             };
+        row![
+            panel,
+            column![Space::new().height(above), self.side_panel(menu, side)]
+        ]
+        .spacing(SUB_GAP)
+        .into()
+    }
+
+    /// A list row's own choices (a folder's server's), in a panel of their
+    /// own.
+    fn side_panel(self, menu: &'a Menu, side: &'a [MenuRow]) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
         let side_slot = ticks(side);
         let mut choices = column![].padding(PAD);
         for (index, entry) in side.iter().enumerate() {
@@ -1341,20 +1659,70 @@ impl<'a> View<'a> {
             );
         }
         let width = fit(side, side_slot).max(SUB_WIDTH);
-        row![
-            panel,
-            column![
-                Space::new().height(above),
-                self.menu_surface(
-                    container(choices)
-                        .width(width)
-                        .style(menu_panel_over(theme, decorated))
-                        .into(),
-                ),
-            ]
-        ]
-        .spacing(SUB_GAP)
-        .into()
+        let decorated = self.cx.themes.decorates(
+            &theme.id,
+            yapfast_core::themes::package::art::ArtSurface::Menu,
+        );
+        self.menu_surface(
+            container(choices)
+                .width(width)
+                .style(menu_panel_over(theme, decorated))
+                .into(),
+        )
+    }
+
+    /// Row `sub`'s list folded down under it, stood in from the menu's
+    /// edge, `shown` of its height showing as it slides; `live` while it's
+    /// the open one, and not while it folds up.
+    fn folded_list(
+        self,
+        menu: &'a Menu,
+        sub: usize,
+        shown: f32,
+        live: bool,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let entries = &menu.rows[sub].submenu;
+        let slot = ticks(entries);
+        let mut rows = column![];
+        let mut full = 0.0;
+        for (index, entry) in entries.iter().enumerate() {
+            if entry.separated && index > 0 {
+                rows = rows.push(crate::controls::menu_separator(theme));
+                full += SEPARATOR;
+            }
+            full += row_height(entry);
+            let light = Light::Lit(live && menu.sub_lit == Some(index) && !entry.disabled);
+            let press = if live {
+                Message::Menu(Event::SubChoose(index))
+            } else {
+                Message::Nothing
+            };
+            let mut item = mouse_area(self.cx.look.context_item(
+                self.menu_entry(entry, slot),
+                light,
+                press,
+            ));
+            if live {
+                item = item.on_enter(Message::Menu(Event::SubLight(index)));
+            }
+            let item: Element<'a, Message> = item.into();
+            // A row with choices of its own opens them on a right click.
+            rows = rows.push(if live && !entry.side.is_empty() {
+                RightPress::new(item, move |_| Message::Menu(Event::SideOpen(index))).into()
+            } else {
+                item
+            });
+        }
+        let list = container(rows)
+            .padding(Padding::ZERO.left(LIST_INDENT))
+            .width(Length::Fill)
+            .clip(true);
+        if shown >= 1.0 {
+            list.into()
+        } else {
+            list.height((full * shown).max(0.0).floor()).into()
+        }
     }
 }
 

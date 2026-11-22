@@ -119,6 +119,8 @@ fn a_right_click_on_a_servers_tile_opens_its_menu() {
 #[test]
 fn a_servers_menu_shows_and_changes_its_notifications() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
+    // Chosen in Appearance: submenus open beside the menu.
+    app.layout.submenus_beside = Some(true);
     let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     assert_eq!(
         labels(&app),
@@ -258,6 +260,8 @@ fn the_bell_and_a_channels_menu_offer_the_same_notification_choices() {
 #[test]
 fn a_submenu_opens_beside_its_row_in_a_menu_with_art() {
     let (mut app, folder) = discord_server(0, |_, _| {});
+    // Beside, as this checks: submenus fold down by default.
+    app.layout.submenus_beside = Some(true);
     let fetched = yapfast_core::themes::install::Fetched::new(
         "https://github.com/ada/papery".into(),
         String::new(),
@@ -298,6 +302,8 @@ fn a_submenu_opens_beside_its_row_in_a_menu_with_art() {
 #[test]
 fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
+    // Chosen in Appearance: submenus open beside the menu.
+    app.layout.submenus_beside = Some(true);
     let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
     let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
     let row = bounds(&app, "Notification settings");
@@ -360,6 +366,89 @@ fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let menu = app.win.menu.as_ref().expect("open");
     assert_eq!((menu.sub, menu.lit), (None, Some(1)));
     key(&mut app, key::Named::ArrowRight);
+    key(&mut app, key::Named::Enter);
+    assert!(app.win.menu.is_none());
+    assert_eq!(
+        changes(&mut app),
+        [(SERVER.into(), NotificationChange::Mute(Muting::Minutes(15)))]
+    );
+}
+
+#[test]
+fn a_submenu_folds_down_under_its_row_by_default() {
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    // Snapping, so its rows are in place at once.
+    app.layout.submenus_slide = Some(false);
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    // The pointer alone opens nothing; a click opens the list under its
+    // row, inside the menu, stood in from its edge.
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), None);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), Some(2));
+    let row = bounds(&app, "Notification settings");
+    let first = bounds(&app, "All messages");
+    assert!(
+        first.y > row.y + row.height / 2.0,
+        "under it: {first:?} {row:?}"
+    );
+    assert!(
+        first.x > row.x && first.x < row.x + row.width,
+        "inside: {first:?} {row:?}"
+    );
+    // The rows after it move down to make room.
+    let after = bounds(&app, "Hide muted channels");
+    assert!(after.y > bounds(&app, "Suppress all role @mentions").y);
+    // Mute server's, clicked, opens in its place: one at a time, and the
+    // click no longer mutes.
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    let menu = app.win.menu.as_ref().expect("open");
+    assert_eq!((menu.sub, menu.closing), (Some(1), Some(2)));
+    assert!(changes(&mut app).is_empty());
+    // Clicked again, it folds up.
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), None);
+
+    // A level applies and the menu stays, ticked in place and said on its
+    // row.
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
+    let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(2)));
+    assert!(app.win.menu.is_some());
+    assert_eq!(submenu(&app, "Notification settings")[2].1, Check::Current);
+    assert_eq!(submenu(&app, "Notification settings")[1].1, Check::None);
+    assert_eq!(rows(&app)[2].1, "Nothing");
+    assert_eq!(
+        changes(&mut app),
+        [(
+            SERVER.into(),
+            NotificationChange::Level(Some(NotifyLevel::Nothing))
+        )]
+    );
+
+    // The keys: Right opens the lit row's list, Down goes into it and on
+    // past its end, Up comes back up into it, Left folds it.
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    key(&mut app, key::Named::ArrowDown);
+    key(&mut app, key::Named::ArrowDown);
+    key(&mut app, key::Named::ArrowRight);
+    let menu = app.win.menu.as_ref().expect("open");
+    assert_eq!((menu.sub, menu.lit, menu.sub_lit), (Some(1), Some(1), None));
+    key(&mut app, key::Named::ArrowDown);
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub_lit), Some(0));
+    key(&mut app, key::Named::ArrowUp);
+    let menu = app.win.menu.as_ref().expect("open");
+    assert_eq!((menu.lit, menu.sub_lit), (Some(1), None));
+    key(&mut app, key::Named::ArrowLeft);
+    assert_eq!(app.win.menu.as_ref().and_then(|menu| menu.sub), None);
+    // Escape folds an open list first, then closes the menu.
+    key(&mut app, key::Named::Enter);
+    key(&mut app, key::Named::ArrowDown);
+    key(&mut app, key::Named::Escape);
+    let menu = app.win.menu.as_ref().expect("still open");
+    assert_eq!(menu.sub, None);
+    // Enter on a time mutes for it and closes the menu.
+    key(&mut app, key::Named::Enter);
+    key(&mut app, key::Named::ArrowDown);
     key(&mut app, key::Named::Enter);
     assert!(app.win.menu.is_none());
     assert_eq!(
@@ -511,6 +600,8 @@ fn a_messages_menu_takes_its_apps_in_place_once_they_come() {
     use std::sync::Arc;
     use yapfast_core::chat::{ChatMessage, CommandIndex, Event};
     let (mut app, _folder) = discord_server(0, |_, _| {});
+    // Chosen in Appearance: submenus open beside the menu.
+    app.layout.submenus_beside = Some(true);
     app.client
         .dispatch(Action::Navigate(Navigation::Server(SERVER.into())));
     app.client.dispatch(Action::SelectRoom(GENERAL.into()));
@@ -828,6 +919,8 @@ fn every_row_of_a_persons_and_a_places_menu_has_its_icon() {
 fn a_folders_menu_changes_its_servers_together_and_lists_them() {
     const FOLDER: &str = "discord-folder:7";
     let (mut app, _folder) = discord_server(0, |_, _| {});
+    // Chosen in Appearance: submenus open beside the menu.
+    app.layout.submenus_beside = Some(true);
     super::change(&mut app, |state| {
         state.discord_online = true;
         for server in &mut state.servers {
