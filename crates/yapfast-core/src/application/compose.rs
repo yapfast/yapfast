@@ -527,29 +527,28 @@ impl Application {
         else {
             return;
         };
+        // [`stage_files`] can't ask about a file, its answer living on the
+        // application, so this room's files go in the same way here, a plugin
+        // seeing each one first.
         let mut files = Vec::new();
         let mut problem = None;
-        let mut taken = 0;
+        let mut taken = self.state.staged.get(&id).map_or(0, Vec::len);
         for path in paths {
-            if self.state.staged.get(&id).map_or(0, Vec::len) + taken >= chat::MAX_FILES {
-                problem = Some(format!(
-                    "A message carries up to {} files.",
-                    chat::MAX_FILES
-                ));
+            if taken >= chat::MAX_FILES {
+                problem = problem.or(Some(too_many_files()));
                 break;
             }
             match chat::Staged::read(path, limit) {
                 Ok(file) => {
+                    taken += 1;
                     // `attachment.pre_upload` sees the file before the composer
                     // takes it: a plugin may rename it or withhold it, and the
                     // answer stages it, so nothing here waits on a plugin.
                     #[cfg(feature = "plugins")]
                     if self.plugins_upload(&id, &file) {
-                        taken += 1;
                         continue;
                     }
                     files.push(file);
-                    taken += 1;
                 }
                 Err(error) => problem = problem.or(Some(error)),
             }
@@ -570,6 +569,11 @@ pub(super) fn has_markdown(body: &str) -> bool {
     body.contains(['*', '_', '`', '~', '['])
 }
 
+/// Why a message can't take another file.
+pub(super) fn too_many_files() -> String {
+    format!("A message carries up to {} files.", chat::MAX_FILES)
+}
+
 /// Adds files to a message's, up to as many and as large as it takes:
 /// why any couldn't go, if any couldn't.
 pub(super) fn stage_files(
@@ -580,10 +584,7 @@ pub(super) fn stage_files(
     let mut problem = None;
     for path in paths {
         if staged.len() >= chat::MAX_FILES {
-            problem = Some(format!(
-                "A message carries up to {} files.",
-                chat::MAX_FILES
-            ));
+            problem = Some(too_many_files());
             break;
         }
         match chat::Staged::read(path, limit) {
