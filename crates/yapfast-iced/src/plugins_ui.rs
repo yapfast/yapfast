@@ -36,6 +36,48 @@ pub fn overrides(manifests: &[yapfast_core::plugins::Manifest]) -> Option<Arc<Ui
     overrides
 }
 
+/// The rows plugins add to a menu about `id` in the open conversation, for a
+/// target whose subject is only where it is: a composer, an attach menu, a
+/// picture, a sticker, an emoji, a role, a profile.
+pub fn rows_here(app: &crate::app::App, target: Target, id: &str) -> Vec<MenuRow> {
+    let Some(overrides) = app.plugin_ui.clone() else {
+        return Vec::new();
+    };
+    let state = app.client.state();
+    let room = state.selected_room();
+    let subject = Subject {
+        network: match room.map(|room| room.network) {
+            Some(yapfast_core::network::Network::Discord) => ui::NetworkName::Discord,
+            _ => ui::NetworkName::Matrix,
+        },
+        own: false,
+        dm: room.is_some_and(|room| room.direct),
+        has_attachment: false,
+        is_bot: false,
+        roles: &[],
+    };
+    rows(&overrides, target, &subject, id)
+}
+
+/// Opens a menu of the rows plugins add about `id`, for a target Yapfast has
+/// no menu of its own for (an emoji, a role); nothing when no plugin adds one.
+pub fn open_rows_menu(
+    app: &mut crate::app::App,
+    target: Target,
+    id: &str,
+) -> iced::Task<crate::app::Message> {
+    let mut rows = rows_here(app, target, id);
+    if rows.is_empty() {
+        return iced::Task::none();
+    }
+    if let Some(first) = rows.first_mut() {
+        first.separated = false;
+    }
+    let at = app.pressed.get();
+    app.win.menu = Some(crate::menus::Menu::new(at, rows));
+    iced::widget::operation::focus(crate::app::NOBODY)
+}
+
 /// The rows `target`'s menu gains, under a line, after its own.
 pub fn rows(
     overrides: &UiOverrides,

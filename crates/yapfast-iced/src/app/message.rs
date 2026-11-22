@@ -96,6 +96,10 @@ pub enum Message {
     Menu(crate::menus::Event),
     /// Someone's menu, at the pointer, by their id; the person dialog.
     PersonMenu(String, Point),
+    /// A menu of only the rows plugins add, about an emoji or a role, which
+    /// Yapfast has no menu of its own for.
+    #[cfg(feature = "plugins")]
+    PluginRows(yapfast_core::plugins::ui::Target, String),
     Person(crate::person_menu::Event),
     /// The delete confirmation's answers, and the masked link question's
     /// (`dialogs.rs`).

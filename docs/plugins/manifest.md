@@ -231,7 +231,24 @@ label and `when` are all the interface needs. `target` is one of `message`,
 `user`, `user_profile`, `channel`, `thread`, `group_dm`, `server`,
 `server_header`, `role`, `emoji`, `sticker`, `image`, `stream`, `game`,
 `forum_tag`, `composer` and `attach`, and Yapfast draws the rows of the menus it
-has. `action` names what the plugin receives when the row is chosen. `icon` is a
+has. `action` names what the plugin receives when the row is chosen, with the
+menu's subject as its `target`:
+
+| Target | Where | Its subject |
+| --- | --- | --- |
+| `message` | A message's menu | The message, `d:<id>` |
+| `user` | A person's menu, anywhere | Their id |
+| `user_profile` | A profile's ⋯ menu, after the `user` rows | Their id |
+| `channel`, `thread`, `group_dm` | A conversation's menu in the sidebar | The room |
+| `server`, `server_header` | A server's icon, its header's dropdown | The server |
+| `image` | A picture's menu in a message | Its attachment, `<message>:<index>` |
+| `sticker` | A sticker's menu in a message | The sticker's id |
+| `emoji` | A reaction's right-click | The reaction's key, as `messages.react` takes it |
+| `role` | A role's right-click on a profile | The role's id |
+| `composer` | The composer's menu | The room |
+| `attach` | The composer's + menu | The room |
+
+`stream`, `game` and `forum_tag` are checked, and no menu draws them yet. `icon` is a
 path in the plugin's directory, which no row draws yet.
 
 `when` is a closed set of conditions, not an expression language:

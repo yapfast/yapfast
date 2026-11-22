@@ -143,6 +143,15 @@ pub fn open_person_menu(
             &subject,
             user,
         ));
+        // A profile's own menu also has the rows plugins add to profiles.
+        if location == PROFILE_OVERFLOW {
+            rows.extend(crate::plugins_ui::rows(
+                &overrides,
+                Target::UserProfile,
+                &subject,
+                user,
+            ));
+        }
     }
     // The rows a running plugin draws for a person's menu.
     #[cfg(feature = "plugins")]

@@ -317,6 +317,11 @@ pub(super) fn stickers<'a>(
         ));
         let pressable = iced::widget::mouse_area(shown)
             .on_press(open)
+            .on_right_press(Message::Image(crate::image_viewer::Event::Menu(
+                message.item.clone(),
+                index,
+                false,
+            )))
             .interaction(iced::mouse::Interaction::Pointer);
         stickers = stickers.push(crate::widgets::Spot::new(pressable, ctx.link_spot).by_press());
     }

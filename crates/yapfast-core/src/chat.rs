@@ -1109,6 +1109,9 @@ pub struct ProfileFriend {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProfileRole {
+    /// Its id, which a plugin's role menu row names; the name where roles
+    /// have no ids.
+    pub id: String,
     pub name: String,
     /// Its RGB colour, for a coloured Discord role.
     pub color: Option<u32>,

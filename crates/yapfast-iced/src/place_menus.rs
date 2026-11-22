@@ -190,6 +190,8 @@ fn place_menu(
             }
         } else if room.is_some_and(|room| room.direct) {
             Target::GroupDm
+        } else if room.is_some_and(|room| room.parent.is_some()) {
+            Target::Thread
         } else {
             Target::Channel
         };

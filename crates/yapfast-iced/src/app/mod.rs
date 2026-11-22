@@ -595,6 +595,8 @@ impl App {
                 Task::none()
             }
             Message::Menu(event) => crate::menus::update(self, event),
+            #[cfg(feature = "plugins")]
+            Message::PluginRows(target, id) => crate::plugins_ui::open_rows_menu(self, target, &id),
             Message::PersonMenu(user, at) => crate::person_menu::open_person_menu(
                 self,
                 &user,

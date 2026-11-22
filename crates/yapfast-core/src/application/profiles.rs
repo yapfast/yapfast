@@ -45,6 +45,7 @@ impl Application {
             roles: role
                 .filter(|_| !discord)
                 .map(|name| ProfileRole {
+                    id: name.to_owned(),
                     name: name.into(),
                     color: None,
                 })

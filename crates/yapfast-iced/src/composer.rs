@@ -471,6 +471,17 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
                 "Select All",
                 Icon::TextSelect,
             ));
+            // What plugins add to the composer's menu.
+            #[cfg(feature = "plugins")]
+            if which == Writing::Draft
+                && let Some(room) = app.client.state().selected.clone()
+            {
+                rows.extend(crate::plugins_ui::rows_here(
+                    app,
+                    yapfast_core::plugins::ui::Target::Composer,
+                    &room,
+                ));
+            }
             app.win.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
             operation::focus(NOBODY)
         }
@@ -565,6 +576,15 @@ fn plus(app: &mut App) -> Task<Message> {
             check: crate::controls::Check::None,
             ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
         });
+    }
+    // What plugins add to the attach menu.
+    #[cfg(feature = "plugins")]
+    if let Some(room) = app.client.state().selected.clone() {
+        rows.extend(crate::plugins_ui::rows_here(
+            app,
+            yapfast_core::plugins::ui::Target::Attach,
+            &room,
+        ));
     }
     let at = iced::Point::new(
         crate::conversation::chat_left(app) + GUTTER + INSET,

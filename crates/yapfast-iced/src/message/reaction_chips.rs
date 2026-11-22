@@ -129,6 +129,13 @@ pub(super) fn reactions<'a>(
                 )))
                 .interaction(iced::mouse::Interaction::Pointer);
         }
+        // What plugins add about the emoji, by its key (`<:name:id>` or the
+        // character).
+        #[cfg(feature = "plugins")]
+        let chip = chip.on_right_press(Message::PluginRows(
+            yapfast_core::plugins::ui::Target::Emoji,
+            reaction.key.clone(),
+        ));
         let chip = chip
             .on_enter(Message::Timeline(crate::timeline::Event::PointReaction(
                 message.item.clone(),
