@@ -77,6 +77,9 @@ pub struct Laid {
     pub cards: Vec<Vec<Body>>,
     /// The reply quote's single-line snippet, whitespace collapsed.
     pub reply: String,
+    /// The codes of the Discord invites its text links, whose cards show
+    /// under it; found once, as it's laid out.
+    pub invites: Vec<String>,
 }
 
 impl std::ops::Deref for Laid {
@@ -277,11 +280,20 @@ pub fn body_of(
         .as_ref()
         .map(|reply| reply.body.split_whitespace().collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
+    let invites = if message.deleted || message.blocked {
+        Vec::new()
+    } else {
+        yapfast_core::chat::invite_codes(&message.body)
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    };
     Laid {
         body,
         embeds,
         cards,
         reply,
+        invites,
     }
 }
 

@@ -102,7 +102,7 @@ fn join_a_server_shows_the_invite_and_joins_on_the_click() {
     let effects = app.dispatch(Action::JoinServer);
     assert!(matches!(
         effects.as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::JoinServer { preview, from_link: false }))]
+        [Effect::Backend(Command::Discord(DiscordCommand::JoinServer { preview, from: chat::JoinFrom::Dialog }))]
             if preview.code == "abc"
     ));
     assert!(
@@ -178,7 +178,7 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
         effects.as_slice(),
         [Effect::Backend(Command::Discord(
             DiscordCommand::JoinServer {
-                from_link: true,
+                from: chat::JoinFrom::Link,
                 ..
             }
         ))]
@@ -700,4 +700,102 @@ fn an_authorization_never_opens_an_address_that_isnt_a_web_page() {
         assert!(shown.done, "{next}");
         assert_eq!(shown.next.as_deref(), Some(next), "shown to copy");
     }
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn invite_links_on_screen_are_looked_up_once_and_join_from_their_card() {
+    let mut app = connected();
+    app.state.discord_online = true;
+    app.state.servers.push(Arc::new(chat::ChatServer {
+        id: "discord:20".into(),
+        ..Default::default()
+    }));
+    let linking = |item: &str, body: &str| ChatMessage {
+        body: body.into(),
+        ..message(item, false)
+    };
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![
+            linking("e:0", "old https://discord.gg/far"),
+            linking("e:1", "https://discord.gg/in and https://discord.gg/new"),
+            linking(
+                "e:2",
+                "again https://discord.gg/in, and https://discord.gg/gone",
+            ),
+        ]),
+    });
+    let looked_up = |effects: &[Effect]| -> Vec<String> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::LookUpInviteCard { code })) => {
+                    Some(code.clone())
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let effects = app.dispatch(Action::VisibleMessages {
+        room: "dm".into(),
+        items: vec!["e:1".into(), "e:2".into()],
+        at_end: true,
+    });
+    assert_eq!(
+        looked_up(&effects),
+        ["in", "new", "gone"],
+        "each once, only on screen"
+    );
+    app.apply(Event::InviteCard {
+        code: "in".into(),
+        card: Some(chat::InviteCard::Server(Box::new(invite_to(
+            "in", "20", "21",
+        )))),
+    });
+    app.apply(Event::InviteCard {
+        code: "new".into(),
+        card: Some(chat::InviteCard::Server(Box::new(invite_to(
+            "new", "30", "31",
+        )))),
+    });
+    app.apply(Event::InviteCard {
+        code: "gone".into(),
+        card: Some(chat::InviteCard::Invalid),
+    });
+    assert_eq!(app.state.invite_card_changes, 3);
+    let effects = app.dispatch(Action::VisibleMessages {
+        room: "dm".into(),
+        items: vec!["e:0".into(), "e:1".into(), "e:2".into()],
+        at_end: true,
+    });
+    assert_eq!(
+        looked_up(&effects),
+        ["far"],
+        "the cards are kept for the session"
+    );
+    // One Discord couldn't be asked about is asked again when it next shows.
+    app.apply(Event::InviteCard {
+        code: "far".into(),
+        card: None,
+    });
+    assert!(!app.state.invite_cards.contains_key("far"));
+
+    // Join joins from the card, in the dialog a link opens.
+    let effects = app.dispatch(Action::JoinInviteCard("new".into()));
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::JoinServer { preview, from: chat::JoinFrom::Card }))]
+            if preview.code == "new"
+    ));
+    let join = app.state.join.clone().unwrap();
+    assert!(join.joining && join.from_link && join.from_card);
+    // Joined opens the server this account is in.
+    app.state.join = None;
+    app.dispatch(Action::JoinInviteCard("in".into()));
+    assert!(app.state.join.is_none());
+    assert!(
+        app.dispatch(Action::JoinInviteCard("gone".into()))
+            .is_empty()
+    );
 }

@@ -11,9 +11,9 @@ use super::{
     *,
 };
 use crate::chat::{
-    EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
-    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange, SearchSort,
-    Searched,
+    EventPreview, GiftPreview, InviteCard, InvitePreview, JoinFrom, JoinedServer, MemberChange,
+    Muting, NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
+    SearchSort, Searched,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -1065,7 +1065,37 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::JoinServer { preview, from_link }) = command {
+    if let Command::Discord(DiscordCommand::LookUpInviteCard { code }) = command {
+        let Ok(discord) = discord else {
+            let _ = events.send(Event::InviteCard { code, card: None });
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let card = match discord.invite_card(&code).await {
+                Ok(Some(preview)) => Some(InviteCard::Server(Box::new(invite_preview(&preview)))),
+                Ok(None) => Some(InviteCard::Other),
+                Err(error)
+                    if matches!(
+                        yapfast_discord::api::code(&error),
+                        Some(UNKNOWN_INVITE | INVALID_INVITE)
+                    ) =>
+                {
+                    Some(InviteCard::Invalid)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not look up an invite's card"
+                    );
+                    None
+                }
+            };
+            let _ = events.send(Event::InviteCard { code, card });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::JoinServer { preview, from }) = command {
         let code = preview.code.clone();
         let invite = discord::parse_room(&preview.room).map(|(guild, channel)| {
             yapfast_discord::invite::Preview {
@@ -1084,11 +1114,11 @@ pub(super) fn command(
             (Ok(discord), Some(invite)) => {
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
-                    use yapfast_discord::invite::JoinFrom;
-                    let from = if from_link {
-                        JoinFrom::Link
-                    } else {
-                        JoinFrom::Dialog
+                    use yapfast_discord::invite::JoinFrom as From;
+                    let from = match from {
+                        JoinFrom::Dialog => From::Dialog,
+                        JoinFrom::Link => From::Link,
+                        JoinFrom::Card => From::Card,
                     };
                     let captchas = events.clone();
                     let result = discord
@@ -1923,6 +1953,11 @@ pub(super) fn emojis(emojis: yapfast_discord::frecency::Emojis) -> crate::chat::
 }
 
 /// What an invite shows, as the application keeps it.
+/// Discord's codes for an invite it doesn't know, or that can't be used:
+/// expired, revoked, or used up.
+const UNKNOWN_INVITE: u64 = 10006;
+const INVALID_INVITE: u64 = 50020;
+
 fn invite_preview(preview: &yapfast_discord::invite::Preview) -> InvitePreview {
     InvitePreview {
         code: preview.code.clone(),

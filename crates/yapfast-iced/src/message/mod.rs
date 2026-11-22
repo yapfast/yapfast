@@ -32,6 +32,7 @@ pub mod attachments;
 mod beside;
 mod embed;
 pub mod hover_bar;
+mod invite;
 mod reaction_chips;
 
 pub use attachments::files;
@@ -280,6 +281,11 @@ pub fn message_content<'a>(
                 .size(text_size(ctx))
                 .color(ctx.look.theme.muted),
         );
+    }
+    for code in &look.body.invites {
+        if let Some(card) = invite::invite_card(ctx, message, code) {
+            content = content.push(card);
+        }
     }
     for (place, card) in message.cards.iter().enumerate() {
         if let Some(bodies) = look.body.cards.get(place) {

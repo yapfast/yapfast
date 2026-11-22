@@ -69,7 +69,8 @@ waits for its retry.
 A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
 a file's card (its name, a link to the file in the link colour, and its
-size), link previews and bots' cards (a bar of
+size), the cards of the Discord invites it links (`message/invite.rs`), link
+previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
 thumbnail and footer), stickers, a poll, a voice message, an app's
 components, and reactions. The author line has the name (in its role

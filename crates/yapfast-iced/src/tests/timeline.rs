@@ -1957,3 +1957,53 @@ fn a_replys_quote_offers_its_whole_original() {
     let whole = crate::message::whole_reply(state, &reply(None, &long)).expect("cut short");
     assert_eq!(whole.chars().count(), 601, "600 characters and an ellipsis");
 }
+
+#[test]
+fn an_invite_link_shows_discords_card_under_its_message() {
+    use yapfast_core::chat::{InviteCard, InvitePreview};
+    let (mut app, _folder) = preview();
+    let preview_of = |code: &str, server: &str| InvitePreview {
+        code: code.into(),
+        server: server.into(),
+        name: "Bike Club".into(),
+        icon: None,
+        room: format!("{server}:1"),
+        channel: "welcome".into(),
+        channel_type: 0,
+        voice: false,
+        members: Some(1234),
+        online: Some(87),
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![Arc::new(yapfast_core::chat::ChatMessage {
+            item: "d:1".into(),
+            id: "1".into(),
+            author: "Bob".into(),
+            body: "come ride https://discord.gg/bikes and https://discord.gg/old".into(),
+            formatted: true,
+            timestamp: 1,
+            ..Default::default()
+        })]);
+        state.invite_cards.insert(
+            "bikes".into(),
+            InviteCard::Server(Box::new(preview_of("bikes", "discord:980"))),
+        );
+        state.invite_cards.insert("old".into(), InviteCard::Invalid);
+    });
+    assert!(shows(&app, "You've been invited to join a server"));
+    assert!(shows(&app, "Bike Club"));
+    assert!(shows(&app, "87 Online"));
+    assert!(shows(&app, "1,234 Members"));
+    assert!(shows(&app, "Join"));
+    assert!(shows(&app, "Invalid Invite"));
+    assert!(shows(&app, "Ask Bob for a new invite"));
+    // In the server already, it offers to open it.
+    change(&mut app, |state| {
+        state.servers.push(Arc::new(yapfast_core::chat::ChatServer {
+            id: "discord:980".into(),
+            name: "Bike Club".into(),
+            ..Default::default()
+        }));
+    });
+    assert!(shows(&app, "Joined"));
+}

@@ -3165,6 +3165,14 @@ impl Discord {
         invite::Preview::of(&invite).context("This invite isn't to a server.")
     }
 
+    /// What an invite link's card in a message shows, as [`Self::invite`]
+    /// looks it up: none for an invite that isn't to a server. An invalid
+    /// or expired invite is refused with [`api::code`] 10006 or 50020.
+    pub async fn invite_card(&self, code: &str) -> Result<Option<invite::Preview>> {
+        let invite = self.api.resolve_invite(code, None).await?;
+        Ok(invite::Preview::of(&invite))
+    }
+
     /// Joins a server by the invite `preview` shows, as Discord's client
     /// does from `from`, showing each captcha Discord asks for first:
     /// `captcha` hears its page's address. The server's GUILD_CREATE

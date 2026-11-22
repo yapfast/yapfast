@@ -526,6 +526,14 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// The cards of the invite links in messages, by code, for this
+    /// session: each invite is looked up once, when a message with it is on
+    /// or near the screen. One that couldn't be looked up isn't kept, so
+    /// it's asked again when it next shows.
+    pub invite_cards: HashMap<String, chat::InviteCard>,
+    /// Counts the cards arriving, so a client can tell when the rows that
+    /// show them are out of date.
+    pub invite_card_changes: u64,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -2225,6 +2233,9 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// The button of an invite link's card in a message, by its code:
+    /// Join joins the server, as the card shows it; Joined opens it.
+    JoinInviteCard(String),
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -3187,8 +3198,26 @@ impl Application {
     /// thousands of messages, and the rooms in scope, which can be thousands
     /// of channels, are gone through only when they changed: this runs on
     /// every event.
-    fn request_pictures(&mut self) -> Option<Effect> {
+    /// Also looks up the invites linked in those messages, by the same
+    /// test.
+    fn request_pictures(&mut self) -> Vec<Effect> {
         self.let_go_of_effect_pictures();
+        let mut effects = Vec::new();
+        if !Arc::ptr_eq(&self.pictured_timeline, &self.state.messages) {
+            let messages = self.state.messages.clone();
+            if let Some(range) = visible_range(&messages, &self.visible_messages) {
+                effects.extend(self.look_up_invite_cards(&messages[range]));
+            }
+        }
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .filter(|aside| !Arc::ptr_eq(&self.pictured_aside, &aside.messages))
+            .map(|aside| aside.messages.clone());
+        if let Some(messages) = aside {
+            effects.extend(self.look_up_invite_cards(&messages));
+        }
         let state = &self.state;
         let rooms_changed =
             !self
@@ -3236,9 +3265,12 @@ impl Application {
             }
             self.pictured_aside = aside.messages.clone();
         }
-        (!wanted.is_empty()).then_some(Effect::Backend(Command::Discord(DiscordCommand::Pictures(
-            wanted,
-        ))))
+        if !wanted.is_empty() {
+            effects.push(Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+                wanted,
+            ))));
+        }
+        effects
     }
 
     /// Lets go of the custom emoji pictures in memory, but those the messages
@@ -3909,6 +3941,7 @@ impl Application {
             Action::FindInvite(typed) => self.find_invite(typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
+            Action::JoinInviteCard(code) => self.join_invite_card(code),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
             Action::OpenJoinForm => self.open_join_form(),
             Action::CloseJoin => {
@@ -4652,6 +4685,7 @@ impl Application {
             }
             Event::InviteSent { result, .. } => self.invite_sent(result),
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
+            Event::InviteCard { code, card } => self.invite_card(code, card),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),

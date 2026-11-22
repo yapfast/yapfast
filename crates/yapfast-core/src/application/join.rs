@@ -2,9 +2,11 @@
 //! foot of the server rail, takes a pasted link or code, and a clicked
 //! invite link opens the same dialog with it. Either looks the invite up
 //! and shows its server before anyone joins; joining waits for the click.
+//! An invite link in a message shows its card under it, whose Join button
+//! joins as the dialog does, showing the dialog while it joins.
 
 use super::*;
-use crate::chat::{InvitePreview, JoinedServer};
+use crate::chat::{InviteCard, InvitePreview, JoinFrom, JoinedServer};
 
 /// The Join a Server dialog, while it's open.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -17,6 +19,8 @@ pub struct JoinDialog {
     pub member: bool,
     /// A clicked invite link opened the dialog, which then has no field.
     pub from_link: bool,
+    /// An invite card's Join button opened it, with `from_link`.
+    pub from_card: bool,
     pub resolving: bool,
     pub joining: bool,
     /// The page with the captcha Discord asked for before joining.
@@ -135,12 +139,84 @@ impl Application {
         }
         join.joining = true;
         join.error = None;
+        let from = if join.from_card {
+            JoinFrom::Card
+        } else if join.from_link {
+            JoinFrom::Link
+        } else {
+            JoinFrom::Dialog
+        };
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::JoinServer {
                 preview: Box::new(preview),
-                from_link: join.from_link,
+                from,
             },
         ))]
+    }
+
+    /// An invite card's button: opens the server for a member, as Joined
+    /// does, or joins by the invite the card shows, in the dialog a clicked
+    /// link opens, which shows the joining, a captcha or why it failed.
+    pub(super) fn join_invite_card(&mut self, code: String) -> Vec<Effect> {
+        let Some(InviteCard::Server(preview)) = self.state.invite_cards.get(&code) else {
+            return vec![];
+        };
+        let preview = (**preview).clone();
+        if self
+            .state
+            .servers
+            .iter()
+            .any(|server| server.id == preview.server)
+        {
+            return self.open_joined(&preview.server, preview.room);
+        }
+        if self.state.join.as_ref().is_some_and(|join| join.joining) {
+            return vec![];
+        }
+        self.state.join = Some(JoinDialog {
+            code: Some(code),
+            preview: Some(preview),
+            from_link: true,
+            from_card: true,
+            ..JoinDialog::default()
+        });
+        self.join_server()
+    }
+
+    /// Looks up the invites linked in `messages` that have no card yet.
+    pub(super) fn look_up_invite_cards(&mut self, messages: &[Arc<ChatMessage>]) -> Vec<Effect> {
+        if !self.state.discord_online {
+            return vec![];
+        }
+        let mut effects = Vec::new();
+        for message in messages {
+            if message.deleted || message.blocked {
+                continue;
+            }
+            for code in chat::invite_codes(&message.body) {
+                if !self.state.invite_cards.contains_key(code) {
+                    self.state
+                        .invite_cards
+                        .insert(code.to_owned(), InviteCard::Looking);
+                    effects.push(Effect::Backend(Command::Discord(
+                        DiscordCommand::LookUpInviteCard {
+                            code: code.to_owned(),
+                        },
+                    )));
+                }
+            }
+        }
+        effects
+    }
+
+    /// Keeps an invite's card, or forgets that it was asked for, to ask
+    /// again when it next shows.
+    pub(super) fn invite_card(&mut self, code: String, card: Option<InviteCard>) {
+        match card {
+            Some(card) => self.state.invite_cards.insert(code, card),
+            None => self.state.invite_cards.remove(&code),
+        };
+        self.state.invite_card_changes += 1;
     }
 
     pub(super) fn join_captcha(&mut self, code: String, page: String) -> Vec<Effect> {

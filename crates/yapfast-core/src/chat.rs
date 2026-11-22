@@ -2592,6 +2592,20 @@ impl FavoriteGif {
     }
 }
 
+/// The codes of the Discord invite links in a message's body, each once,
+/// whose cards show under it.
+pub fn invite_codes(body: &str) -> Vec<&str> {
+    #[cfg(feature = "discord")]
+    {
+        yapfast_discord::invite::message_codes(body)
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = body;
+        Vec::new()
+    }
+}
+
 /// What an invite to a Discord server shows before joining by it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvitePreview {
@@ -2610,6 +2624,32 @@ pub struct InvitePreview {
     /// Discord counts them.
     pub members: Option<u64>,
     pub online: Option<u64>,
+}
+
+/// Where someone joined a Discord server by an invite, which joining tells
+/// Discord.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinFrom {
+    /// Join a Server, with a typed or pasted invite.
+    Dialog,
+    /// The dialog a clicked invite link opens.
+    Link,
+    /// The Join button of an invite link's card in a message.
+    Card,
+}
+
+/// The card an invite link in a message shows, as Discord's client shows
+/// one under the message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InviteCard {
+    /// Being looked up.
+    Looking,
+    /// An invite to a server: its icon, name, counts and channel.
+    Server(Box<InvitePreview>),
+    /// Discord knows no such invite: it expired, was revoked or never was.
+    Invalid,
+    /// An invite to a group DM or to be friends, which shows no card.
+    Other,
 }
 
 /// What the card of a Discord server's emoji shows of it beyond the name and
@@ -3153,14 +3193,18 @@ pub enum DiscordCommand {
         code: String,
         typed: Option<String>,
     },
-    /// Join a Discord server by the invite `preview` shows, from Join a
-    /// Server, or from a clicked invite link with `from_link`.
-    /// [`Event::JoinCaptcha`] follows for each captcha Discord asks for
-    /// first, and then [`Event::ServerJoined`].
+    /// Look up an invite to show its card under a message that links it.
+    /// [`Event::InviteCard`] follows.
+    LookUpInviteCard {
+        code: String,
+    },
+    /// Join a Discord server by the invite `preview` shows, from where
+    /// `from` says. [`Event::JoinCaptcha`] follows for each captcha Discord
+    /// asks for first, and then [`Event::ServerJoined`].
     JoinServer {
         // Boxed: it's the largest command by far.
         preview: Box<InvitePreview>,
-        from_link: bool,
+        from: JoinFrom,
     },
     /// Look up a Discord server's scheduled event by its server and
     /// event ids, with whether this account is interested in it.
@@ -4675,6 +4719,13 @@ pub enum Event {
     InviteResolved {
         code: String,
         result: Result<InvitePreview, String>,
+    },
+    /// What the card of the invite [`DiscordCommand::LookUpInviteCard`]
+    /// looked up shows; none when Discord couldn't be asked, to ask again
+    /// when the card next shows.
+    InviteCard {
+        code: String,
+        card: Option<InviteCard>,
     },
     /// The address of the page with a captcha Discord asked for before
     /// joining by the invite with this code.

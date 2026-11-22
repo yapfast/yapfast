@@ -167,6 +167,7 @@ fn timeline_copy(timeline: &Timeline) -> Timeline {
         selection: None,
         selecting: false,
         clocks: Default::default(),
+        copied_invite: timeline.copied_invite.clone(),
     }
 }
 
