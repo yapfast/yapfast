@@ -911,18 +911,7 @@ impl App {
                 want(decoration.map(looks::animated_url).as_deref());
             }
         }
-        let member_gap = self
-            .themes
-            .member_rows(&self.theme.id)
-            .and_then(|rows| rows.gap);
-        let member_pitch = crate::members::pitch(&self.theme, member_gap);
-        let member_tops = crate::members::line_tops(
-            &self.roster.lines,
-            member_pitch,
-            crate::members::heading_height(self.themes.member_rows(&self.theme.id)),
-        );
-        let (first, last) = crate::members::lines_in_view(&member_tops, &self.roster.scroll);
-        for line in &self.roster.lines[first..last] {
+        for line in crate::members::lines_shown(self) {
             match line {
                 MemberLine::Heading { icon, .. } => want(icon.as_deref()),
                 MemberLine::Member(look) => {

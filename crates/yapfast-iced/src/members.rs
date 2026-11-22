@@ -66,6 +66,11 @@ pub struct Roster {
     /// The grid tile last pressed, from the press (`App::pressed_spot`):
     /// its card opens level with it, as Slint's from the tile's own place.
     pub tile_spot: std::cell::Cell<iced::Rectangle>,
+    /// The room a theme's grid was last laid out in, which its pictures
+    /// are asked for by.
+    pub grid_room: std::cell::Cell<f32>,
+    /// A collapsed theme strip's viewport.
+    pub strip: crate::sync::Scroll,
 }
 
 /// The member list beside the conversation, while it shows.
@@ -83,6 +88,153 @@ struct View<'a> {
 enum GridLine<'a> {
     Heading(&'a str, Option<&'a str>),
     Members(Vec<&'a MemberLook>),
+}
+
+/// A grid's measures at `room` wide: as many columns as whole tiles, their
+/// frames and their shadows fit, up to the theme's; the tiles' and
+/// headings' heights and the gap after each; the margins; and how far the
+/// tiles' shadows reach right and down.
+struct Grid {
+    columns: usize,
+    tile_height: f32,
+    gap: f32,
+    heading_height: f32,
+    left: f32,
+    right: f32,
+    reach_x: f32,
+    reach_y: f32,
+}
+
+impl Grid {
+    fn at(
+        theme: &crate::theme::Theme,
+        package: &yapfast_core::themes::layout::Layout,
+        room: f32,
+    ) -> Self {
+        let themed = package.member_rows.as_ref();
+        let gap = themed.and_then(|rows| rows.gap).unwrap_or(4.0);
+        let (left, right) = themed.and_then(|rows| rows.margin).unwrap_or((8.0, 8.0));
+        // What a tile's shadow reaches past its frame, on the right and
+        // below, kept inside the list.
+        let outlined = themed.is_some_and(|rows| rows.tile_outline);
+        let shadow = if outlined {
+            theme.surface_shadow("tile", iced::Shadow::default())
+        } else {
+            iced::Shadow::default()
+        };
+        let reach_x = (shadow.offset.x.max(0.0) + shadow.blur_radius).ceil();
+        let reach_y = (shadow.offset.y.max(0.0) + shadow.blur_radius).ceil();
+        let border = if outlined {
+            theme
+                .surface_border("tile", 8.0, 0.0, Color::TRANSPARENT)
+                .width
+        } else {
+            0.0
+        };
+        // A tile needs its face and a little room each side of it.
+        let least = package.grid.size + 16.0 + 2.0 * border;
+        let inner = (room - left - right - reach_x).max(0.0);
+        let fits = ((inner + gap) / (least + gap)).floor().max(1.0) as usize;
+        Self {
+            columns: fits.min(package.grid.columns.max(1) as usize),
+            tile_height: themed
+                .and_then(|rows| rows.height)
+                .unwrap_or(package.grid.size + 34.0),
+            gap,
+            heading_height: themed.and_then(|rows| rows.headers.height).unwrap_or(42.0),
+            left,
+            right,
+            reach_x,
+            reach_y,
+        }
+    }
+}
+
+/// The grid's lines: each heading, and its members `columns` to a row.
+fn grid_lines(lines: &[MemberLine], columns: usize) -> Vec<GridLine<'_>> {
+    let mut visual = Vec::new();
+    let mut pending = Vec::with_capacity(columns);
+    for line in lines {
+        match line {
+            MemberLine::Heading { text, icon } => {
+                if !pending.is_empty() {
+                    visual.push(GridLine::Members(std::mem::take(&mut pending)));
+                }
+                visual.push(GridLine::Heading(text, icon.as_deref()));
+            }
+            MemberLine::Member(look) => {
+                pending.push(look.as_ref());
+                if pending.len() == columns {
+                    visual.push(GridLine::Members(std::mem::take(&mut pending)));
+                }
+            }
+        }
+    }
+    if !pending.is_empty() {
+        visual.push(GridLine::Members(pending));
+    }
+    visual
+}
+
+/// Whether a grid line at `at`, `height` tall, is built: in view of
+/// `scroll` or [`MARGIN`] beyond.
+fn grid_line_in_view(at: f32, height: f32, scroll: &crate::sync::Scroll) -> bool {
+    at + height >= scroll.offset - MARGIN && at <= scroll.offset + scroll.height + MARGIN
+}
+
+/// The strip's face pitch and the room over its first face.
+const STRIP_PITCH: f32 = 46.0;
+const STRIP_TOP: f32 = 8.0;
+
+/// The member lines whose pictures show: those the list, the grid or the
+/// collapsed strip builds, as each lays them out.
+pub fn lines_shown(app: &App) -> Vec<&MemberLine> {
+    let lines = &app.roster.lines;
+    let package = app.themes.package_layout(&app.theme.id);
+    if package.and_then(|layout| layout.members)
+        == Some(yapfast_core::themes::layout::MembersSide::Collapsed)
+        && !app.roster.collapsed_open
+    {
+        let members: Vec<&MemberLine> = lines
+            .iter()
+            .filter(|line| matches!(line, MemberLine::Member(_)))
+            .collect();
+        let (first, last) = app
+            .roster
+            .strip
+            .range(members.len(), STRIP_PITCH, STRIP_TOP);
+        return members[first..last].to_vec();
+    }
+    if let Some(package) = package.filter(|layout| {
+        layout.members_style == Some(yapfast_core::themes::layout::MembersStyle::Grid)
+    }) {
+        // The room the grid was last laid out in, else the list's less
+        // its outline.
+        let room = Some(app.roster.grid_room.get())
+            .filter(|room| *room > 0.0)
+            .unwrap_or_else(|| width(&app.layout, &app.theme) - 1.0);
+        let grid = Grid::at(&app.theme, package, room);
+        // Each grid line's first member line, to give back the lines it
+        // holds.
+        let mut shown = Vec::new();
+        let mut top = TOP;
+        let mut at = 0;
+        for line in grid_lines(lines, grid.columns) {
+            let (height, count) = match &line {
+                GridLine::Heading(..) => (grid.heading_height, 1),
+                GridLine::Members(members) => (grid.tile_height, members.len()),
+            };
+            if grid_line_in_view(top, height, &app.roster.scroll) {
+                shown.extend(&lines[at..at + count]);
+            }
+            top += height + grid.gap;
+            at += count;
+        }
+        return shown;
+    }
+    let tops = Tops::of(&app.theme, app.themes.member_rows(&app.theme.id), lines);
+    let (first, last) = tops.in_view(&app.roster.scroll);
+    lines[first..last].iter().collect()
 }
 
 impl Roster {
@@ -123,6 +275,8 @@ impl Roster {
             collapsed_open: false,
             drag: None,
             tile_spot: Default::default(),
+            grid_room: Default::default(),
+            strip: crate::sync::Scroll::new(height),
         }
     }
 }
@@ -181,11 +335,116 @@ pub(crate) fn pitch(theme: &crate::theme::Theme, gap: Option<f32>) -> f32 {
     row_height(theme) + gap.unwrap_or(PITCH - ROW)
 }
 
+/// Where the list's lines start. Every line one pitch after the last
+/// (stock, and a theme whose headings keep the rows' pitch) is worked out
+/// for the lines in view alone, as a big server's list has thousands; each
+/// line's own top is kept only when a theme's headings take a height of
+/// their own.
+pub(crate) enum Tops {
+    Even { pitch: f32, count: usize },
+    Each(Vec<f32>),
+}
+
+impl Tops {
+    pub(crate) fn new(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Self {
+        match heading.filter(|height| height + 2.0 != pitch) {
+            None => Self::Even {
+                pitch,
+                count: lines.len(),
+            },
+            Some(_) => Self::Each(line_tops(lines, pitch, heading)),
+        }
+    }
+
+    /// The list's tops under the theme's member rows.
+    pub(crate) fn of(
+        theme: &crate::theme::Theme,
+        rows: Option<&yapfast_core::themes::lists::MemberRows>,
+        lines: &[MemberLine],
+    ) -> Self {
+        Self::new(
+            lines,
+            pitch(theme, rows.and_then(|rows| rows.gap)),
+            heading_height(rows),
+        )
+    }
+
+    /// Where line `index` starts; the list's end at its count.
+    pub(crate) fn top(&self, index: usize) -> f32 {
+        match self {
+            Self::Even { pitch, .. } => TOP + index as f32 * pitch,
+            Self::Each(tops) => tops[index],
+        }
+    }
+
+    /// Where the last line ends.
+    pub(crate) fn end(&self) -> f32 {
+        match self {
+            Self::Even { count, .. } => self.top(*count),
+            Self::Each(tops) => tops.last().copied().unwrap_or(TOP),
+        }
+    }
+
+    /// The lines in view of `scroll`, and [`MARGIN`] beyond.
+    pub(crate) fn in_view(&self, scroll: &crate::sync::Scroll) -> (usize, usize) {
+        match self {
+            Self::Even { pitch, count } => scroll.range(*count, *pitch, TOP),
+            Self::Each(tops) => lines_in_view(tops, scroll),
+        }
+    }
+}
+
+/// What a member's row takes from the lines over it, as a theme draws it:
+/// how many groups have begun, the last one's heading, the member's place
+/// in it from 0, and their place among those online from 1 (0 while
+/// offline). Walked down the lines once, not again for each row.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Walk<'l> {
+    groups: usize,
+    heading: &'l str,
+    place: usize,
+    online: usize,
+}
+
+impl<'l> Walk<'l> {
+    /// The walk after `lines`.
+    fn to(lines: &'l [MemberLine]) -> Self {
+        let mut walk = Self::default();
+        for line in lines {
+            walk.step(line);
+        }
+        walk
+    }
+
+    /// Takes `line` in, and gives what it takes from those over it.
+    fn step(&mut self, line: &'l MemberLine) -> Self {
+        match line {
+            MemberLine::Heading { text, .. } => {
+                self.groups += 1;
+                self.heading = text;
+                self.place = 0;
+                *self
+            }
+            MemberLine::Member(look) => {
+                let mut at = *self;
+                if look.offline() {
+                    at.online = 0;
+                } else {
+                    self.online += 1;
+                    at.online = self.online;
+                }
+                self.place += 1;
+                at
+            }
+        }
+    }
+}
+
 /// Where each of the list's lines starts, and its end: a row takes the
 /// pitch, a heading its theme's own height (Zine's 42 px over 56 px rows,
 /// as Slint lays them) and the 2 px Slint keeps between it and the first
 /// member under it, else the pitch.
-pub(crate) fn line_tops(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Vec<f32> {
+fn line_tops(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Vec<f32> {
     let mut tops = Vec::with_capacity(lines.len() + 1);
     let mut top = TOP;
     tops.push(top);
@@ -200,7 +459,7 @@ pub(crate) fn line_tops(lines: &[MemberLine], pitch: f32, heading: Option<f32>) 
 }
 
 /// The lines in view of `scroll`, from [`line_tops`].
-pub(crate) fn lines_in_view(tops: &[f32], scroll: &crate::sync::Scroll) -> (usize, usize) {
+fn lines_in_view(tops: &[f32], scroll: &crate::sync::Scroll) -> (usize, usize) {
     let count = tops.len().saturating_sub(1);
     let from = scroll.offset - crate::sync::MARGIN;
     let to = scroll.offset + scroll.height + crate::sync::MARGIN;
@@ -271,6 +530,8 @@ const FIRST_CARDS: usize = 3;
 pub enum Event {
     /// The list's viewport, as its scrollable reports it.
     Scrolled(Viewport),
+    /// A collapsed theme strip's viewport.
+    StripScrolled(Viewport),
     /// The pointer came onto or left a member's row, by their id.
     Point(String, bool),
     /// A member's line was clicked, by their id.
@@ -331,6 +592,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
             app.roster.scroll = Scroll::of(viewport);
+            app.ask()
+        }
+        Event::StripScrolled(viewport) => {
+            app.roster.strip = Scroll::of(viewport);
             app.ask()
         }
         Event::Point(id, entered) => {
@@ -442,15 +707,10 @@ pub fn open_member(app: &mut App, id: &str) -> Task<Message> {
     else {
         return Task::none();
     };
-    let gap = app
-        .themes
-        .member_rows(&app.theme.id)
-        .and_then(|rows| rows.gap);
-    let rows = app.themes.member_rows(&app.theme.id);
-    let tops = line_tops(
+    let tops = Tops::of(
+        &app.theme,
+        app.themes.member_rows(&app.theme.id),
         &app.roster.lines,
-        pitch(&app.theme, gap),
-        heading_height(rows),
     );
     let package = app.themes.package_layout(&app.theme.id);
     let grid = package.and_then(|layout| layout.members_style)
@@ -460,7 +720,7 @@ pub fn open_member(app: &mut App, id: &str) -> Task<Message> {
         // A grid's tiles sit in rows of their own: the tile pressed.
         app.pressed_spot(tile).y
     } else {
-        header::HEIGHT + 1.0 + activity_height(app) + tops[index] - app.roster.scroll.offset
+        header::HEIGHT + 1.0 + activity_height(app) + tops.top(index) - app.roster.scroll.offset
     };
     // Beside the list where it's laid out, as Slint's: a theme's right
     // rail and its panes' gap move it too.
@@ -755,13 +1015,10 @@ impl<'a> View<'a> {
             return self.grid_view(collapsed);
         }
         let themed_rows = self.cx.themes.member_rows(&self.cx.look.theme.id);
-        let pitch = pitch(self.cx.look.theme, themed_rows.and_then(|rows| rows.gap));
         let row_height = row_height(self.cx.look.theme);
-        let tops = line_tops(&self.s.lines, pitch, heading_height(themed_rows));
-        let (first, last) = lines_in_view(&tops, &self.s.scroll);
-        let total = tops.last().copied().unwrap_or(TOP)
-            + 10.0
-            + themed_rows.map_or(0.0, |rows| rows.reserve);
+        let tops = Tops::of(self.cx.look.theme, themed_rows, &self.s.lines);
+        let (first, last) = tops.in_view(&self.s.scroll);
+        let total = tops.end() + 10.0 + themed_rows.map_or(0.0, |rows| rows.reserve);
         // As Slint: a theme's art after the last row, its own height and
         // 8 px more, scrolling with the list.
         let foot_height = themed_rows
@@ -782,15 +1039,22 @@ impl<'a> View<'a> {
             .chrome(&self.cx.look.theme.id)
             .map(|chrome| chrome.member_by_role.as_slice())
             .filter(|marks| !marks.is_empty());
-        let group_of = |index: usize| {
-            self.s.lines[..index]
-                .iter()
-                .filter(|line| matches!(line, MemberLine::Heading { .. }))
-                .count()
-                .saturating_sub(1)
+        let status = self
+            .cx
+            .themes
+            .chrome(&self.cx.look.theme.id)
+            .map(|chrome| &chrome.status)
+            .filter(|status| !status.is_empty());
+        // What a theme's rows take from the lines over them, walked from
+        // the first line drawn; a stock list takes none of it.
+        let mut walk = if themed_rows.is_some() || by_role.is_some() || status.is_some() {
+            Walk::to(&self.s.lines[..first])
+        } else {
+            Walk::default()
         };
         for (index, line) in self.s.lines.iter().enumerate().take(last).skip(first) {
-            let top = tops[index];
+            let top = tops.top(index);
+            let at = walk.step(line);
             let line_height = match line {
                 MemberLine::Heading { .. } => heading_height(themed_rows).unwrap_or(row_height),
                 MemberLine::Member(_) => row_height,
@@ -800,30 +1064,16 @@ impl<'a> View<'a> {
                     (text.as_str(), self.heading_row(text, icon.as_deref()))
                 }
                 MemberLine::Member(look) => {
-                    let mark =
-                        by_role.map(|marks| marks[group_of(index).min(marks.len() - 1)].as_str());
+                    let mark = by_role.map(|marks| {
+                        marks[at.groups.saturating_sub(1).min(marks.len() - 1)].as_str()
+                    });
                     // The member's group, as Slint's `group-name`: the
                     // heading above it, without its count.
-                    let group = self.s.lines[..index]
-                        .iter()
-                        .rev()
-                        .find_map(|line| match line {
-                            MemberLine::Heading { text, .. } => {
-                                Some(yapfast_core::themes::chrome::split_group(text).0)
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or("");
-                    let row = self.member_row(look, mark, &group_name(group));
+                    let group = yapfast_core::themes::chrome::split_group(at.heading).0;
+                    let row = self.member_row(look, mark, &group_name(group), at.online);
                     // A theme's status column, by presence; `{n}` the row's
                     // place in its group, from 0.
-                    let row = match self
-                        .cx
-                        .themes
-                        .chrome(&self.cx.look.theme.id)
-                        .map(|chrome| &chrome.status)
-                        .filter(|status| !status.is_empty())
-                    {
+                    let row = match status {
                         Some(status) => {
                             use yapfast_core::themes::chrome::Presence as Column;
                             let column = match look.presence {
@@ -833,12 +1083,7 @@ impl<'a> View<'a> {
                                 | Some(yapfast_core::chat::Presence::Mobile) => Column::Online,
                                 _ => Column::Offline,
                             };
-                            let place = self.s.lines[..index]
-                                .iter()
-                                .rev()
-                                .take_while(|line| matches!(line, MemberLine::Member(_)))
-                                .count()
-                                .to_string();
+                            let place = at.place.to_string();
                             let words = status.get(&column).map_or_else(String::new, |words| {
                                 yapfast_core::themes::chrome::fill(words, &[("n", place.as_str())])
                             });
@@ -1051,11 +1296,20 @@ impl<'a> View<'a> {
     /// opens the ordinary pane over its share; leaving closes it again.
     fn collapsed_view(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let mut faces = column![].spacing(6).padding([8, 8]);
-        for line in &self.s.lines {
-            let MemberLine::Member(look) = line else {
-                continue;
-            };
+        // Only the faces in view and near it, as the list's rows.
+        let members: Vec<&MemberLook> = self
+            .s
+            .lines
+            .iter()
+            .filter_map(|line| match line {
+                MemberLine::Member(look) => Some(look.as_ref()),
+                MemberLine::Heading { .. } => None,
+            })
+            .collect();
+        let (first, last) = self.s.strip.range(members.len(), STRIP_PITCH, STRIP_TOP);
+        let total = STRIP_TOP + members.len() as f32 * STRIP_PITCH + STRIP_TOP - 6.0;
+        let mut faces = Rows::new(total.max(0.0));
+        for (index, look) in members.into_iter().enumerate().take(last).skip(first) {
             let id = look.id.clone();
             let menu_id = look.id.clone();
             let origin = self.member_list_origin();
@@ -1073,16 +1327,23 @@ impl<'a> View<'a> {
             let area = RightPress::new(area, move |at| {
                 Message::PersonMenu(menu_id.clone(), at + origin)
             });
-            faces = faces.push(
-                tooltip(
-                    area,
-                    controls::tip(theme, look.name.clone()),
-                    tooltip::Position::Left,
+            faces.push(
+                key(&look.id),
+                STRIP_TOP + index as f32 * STRIP_PITCH,
+                40.0,
+                container(
+                    tooltip(
+                        area,
+                        controls::tip(theme, look.name.clone()),
+                        tooltip::Position::Left,
+                    )
+                    .gap(6),
                 )
-                .gap(6),
+                .padding([0, 8]),
             );
         }
         let list = scroll_view(faces)
+            .on_scroll(|viewport| Message::Members(Event::StripScrolled(viewport)))
             .height(Length::Fill)
             .style(scrollbar(theme));
         let panel = container(list)
@@ -1175,58 +1436,19 @@ impl<'a> View<'a> {
         let Some(package) = self.cx.themes.package_layout(&theme.id) else {
             return Space::new().into();
         };
+        self.s.grid_room.set(room);
         let themed = package.member_rows.as_ref();
-        let gap = themed.and_then(|rows| rows.gap).unwrap_or(4.0);
-        let (left, right) = themed.and_then(|rows| rows.margin).unwrap_or((8.0, 8.0));
-        // What a tile's shadow reaches past its frame, on the right and
-        // below, kept inside the list.
-        let outlined = themed.is_some_and(|rows| rows.tile_outline);
-        let shadow = if outlined {
-            theme.surface_shadow("tile", iced::Shadow::default())
-        } else {
-            iced::Shadow::default()
-        };
-        let reach_x = (shadow.offset.x.max(0.0) + shadow.blur_radius).ceil();
-        let reach_y = (shadow.offset.y.max(0.0) + shadow.blur_radius).ceil();
-        let border = if outlined {
-            theme
-                .surface_border("tile", 8.0, 0.0, Color::TRANSPARENT)
-                .width
-        } else {
-            0.0
-        };
-        // A tile needs its face and a little room each side of it.
-        let least = package.grid.size + 16.0 + 2.0 * border;
-        let inner = (room - left - right - reach_x).max(0.0);
-        let fits = ((inner + gap) / (least + gap)).floor().max(1.0) as usize;
-        let columns = fits.min(package.grid.columns.max(1) as usize);
-        let tile_height = themed
-            .and_then(|rows| rows.height)
-            .unwrap_or(package.grid.size + 34.0);
-        let gap = themed.and_then(|rows| rows.gap).unwrap_or(4.0);
-        let heading_height = themed.and_then(|rows| rows.headers.height).unwrap_or(42.0);
-
-        let mut visual = Vec::new();
-        let mut pending = Vec::with_capacity(columns);
-        for line in &self.s.lines {
-            match line {
-                MemberLine::Heading { text, icon } => {
-                    if !pending.is_empty() {
-                        visual.push(GridLine::Members(std::mem::take(&mut pending)));
-                    }
-                    visual.push(GridLine::Heading(text, icon.as_deref()));
-                }
-                MemberLine::Member(look) => {
-                    pending.push(look.as_ref());
-                    if pending.len() == columns {
-                        visual.push(GridLine::Members(std::mem::take(&mut pending)));
-                    }
-                }
-            }
-        }
-        if !pending.is_empty() {
-            visual.push(GridLine::Members(pending));
-        }
+        let Grid {
+            columns,
+            tile_height,
+            gap,
+            heading_height,
+            left,
+            right,
+            reach_x,
+            reach_y,
+        } = Grid::at(theme, package, room);
+        let visual = grid_lines(&self.s.lines, columns);
 
         let reserve = themed.map_or(0.0, |rows| rows.reserve);
         let total = TOP
@@ -1258,9 +1480,7 @@ impl<'a> View<'a> {
             };
             let at = top;
             top += height + gap;
-            if at + height < viewport.offset - MARGIN
-                || at > viewport.offset + viewport.height + MARGIN
-            {
+            if !grid_line_in_view(at, height, &viewport) {
                 continue;
             }
             match line {
@@ -1859,6 +2079,7 @@ impl<'a> View<'a> {
         look: &'a MemberLook,
         mark: Option<&str>,
         group: &str,
+        online: usize,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let themed = self.cx.themes.member_rows(&theme.id);
@@ -2207,17 +2428,7 @@ impl<'a> View<'a> {
             if let Some(badge) = &rows.badge
                 && (!badge.online_only || !offline)
             {
-                let online = self
-                    .s
-                    .lines
-                    .iter()
-                    .filter_map(|line| match line {
-                        MemberLine::Member(member) if !member.offline() => Some(member),
-                        _ => None,
-                    })
-                    .position(|member| member.id == look.id)
-                    .map_or(0, |place| place + 1)
-                    .to_string();
+                let online = online.to_string();
                 let words =
                     yapfast_core::themes::chrome::fill(&badge.text, &[("online", online.as_str())]);
                 let ground = crate::themes::argb(badge.ground);
@@ -2594,6 +2805,54 @@ mod tests {
         assert!(takes_name_ink(true, true));
         assert!(!keeps_decoration(false, true));
         assert!(keeps_decoration(true, true));
+    }
+
+    #[test]
+    fn an_even_list_finds_its_lines_in_view_as_the_stock_list_did() {
+        use super::{MemberLine, PITCH, TOP, Tops, line_tops, lines_in_view};
+        let lines: Vec<MemberLine> = (0..5000)
+            .map(|at| MemberLine::Heading {
+                text: format!("Group {at}"),
+                icon: None,
+            })
+            .collect();
+        let scroll = crate::sync::Scroll {
+            offset: 44_000.0,
+            height: 700.0,
+        };
+        // Stock, and a theme whose headings keep the pitch: no tops kept.
+        for heading in [None, Some(PITCH - 2.0)] {
+            let tops = Tops::new(&lines, PITCH, heading);
+            assert!(matches!(tops, Tops::Even { .. }));
+            assert_eq!(tops.in_view(&scroll), scroll.range(lines.len(), PITCH, TOP));
+            assert_eq!(tops.top(1000), TOP + 1000.0 * PITCH);
+            assert_eq!(tops.end(), TOP + 5000.0 * PITCH);
+        }
+        // Headings of their own height: each line's top.
+        let tops = Tops::new(&lines, PITCH, Some(30.0));
+        let each = line_tops(&lines, PITCH, Some(30.0));
+        assert!(matches!(tops, Tops::Each(_)));
+        assert_eq!(tops.in_view(&scroll), lines_in_view(&each, &scroll));
+        assert_eq!(tops.top(10), TOP + 10.0 * 32.0);
+    }
+
+    #[test]
+    fn a_walk_down_the_list_gives_each_member_its_group_and_places() {
+        use super::{MemberLine, Walk};
+        let lines = [
+            MemberLine::Heading {
+                text: "ADMINS — 1".into(),
+                icon: None,
+            },
+            MemberLine::Heading {
+                text: "ONLINE — 2".into(),
+                icon: None,
+            },
+        ];
+        let mut walk = Walk::to(&lines[..1]);
+        assert_eq!(walk.groups, 1);
+        let at = walk.step(&lines[1]);
+        assert_eq!((at.groups, at.heading, at.place), (2, "ONLINE — 2", 0));
     }
 
     #[test]

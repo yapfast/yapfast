@@ -1278,6 +1278,86 @@ fn a_full_profiles_plain_name_selects_and_a_styled_one_doesnt() {
     assert_eq!(status, iced::event::Status::Ignored);
 }
 
+/// Gives the open server `count` more members online, "Member 0" on.
+fn crowd(app: &mut App, count: usize) {
+    change(app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            let members = Arc::make_mut(members);
+            let first = members[0].clone();
+            for at in 0..count {
+                let mut member = first.clone();
+                member.id = format!("crowd-{at}");
+                member.name = format!("Member {at}");
+                members.push(member);
+            }
+        }
+    });
+    app.show_roster(false);
+}
+
+/// The names of the member lines whose pictures are asked for.
+fn names_shown(app: &App) -> Vec<String> {
+    crate::members::lines_shown(app)
+        .into_iter()
+        .filter_map(|line| match line {
+            crate::looks::MemberLine::Member(look) => Some(look.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_member_grid_asks_for_the_pictures_of_the_tiles_it_builds() {
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({
+            "layout": { "members_style": "grid", "grid": { "columns": 3, "size": 50 } }
+        }),
+        &[],
+    );
+    crowd(&mut app, 150);
+    app.roster.scroll = crate::sync::Scroll {
+        offset: 1500.0,
+        height: 600.0,
+    };
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut built = Vec::new();
+    let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+        if let iced_test::selector::Candidate::Text { content, .. } = candidate
+            && content.starts_with("Member ")
+        {
+            built.push(content.to_owned());
+        }
+        None::<()>
+    });
+    drop(ui);
+    // Asked for at the room the grid was laid out in.
+    let shown = names_shown(&app);
+    assert!(!built.is_empty(), "the grid builds tiles down the list");
+    for name in &built {
+        assert!(
+            shown.contains(name),
+            "{name}'s tile is built, so their picture is asked for ({shown:?})"
+        );
+    }
+}
+
+#[test]
+fn a_collapsed_strip_builds_and_asks_for_only_the_faces_near_its_view() {
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({ "layout": { "members": "collapsed" } }),
+        &[],
+    );
+    crowd(&mut app, 120);
+    app.roster.strip = crate::sync::Scroll {
+        offset: 1200.0,
+        height: 600.0,
+    };
+    let shown = names_shown(&app);
+    assert!(shown.iter().any(|name| name == "Member 30"), "{shown:?}");
+    assert!(!shown.iter().any(|name| name == "Member 0"), "{shown:?}");
+    assert!(shown.len() < 40, "a screen's worth, not every member");
+}
+
 #[test]
 fn a_theme_cuts_peoples_names_only_once_let() {
     let face = |name: &str| {
