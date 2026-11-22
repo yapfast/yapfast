@@ -43,6 +43,8 @@ only for the call this account is in, as Discord's does.
 A right click on a server, a folder or an unread DM opens its menu, the
 one its row in the sidebar opens; a folder's marks its servers read, and
 it has none while they are.
+A middle click on a server or a folder marks it all read, as its menu's
+Mark as read does.
 
 The sidebar's right edge and the member list's left are each a kit
 `Splitter` laid over the panel's edge (`app/view.rs`, `members.rs`): a drag

@@ -173,6 +173,23 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
 }
 
 #[test]
+fn a_middle_click_on_a_server_marks_it_read() {
+    // A Discord server whose #general mentions her.
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    let _ = app.update(Message::Rail(crate::rail::Event::MarkRead(
+        "discord:10".into(),
+    )));
+    let marked: Vec<String> = std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            yapfast_core::chat::Command::MarkRead { room, .. } => Some(room),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(marked, ["discord:10:11"], "its unread channel is read");
+}
+
+#[test]
 fn a_server_on_the_rail_opens_its_channels() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
