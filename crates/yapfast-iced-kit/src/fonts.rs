@@ -58,15 +58,14 @@ const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].
 pub fn set_default_family(family: Option<&'static str>) {
     static ALIAS: Mutex<Option<&'static str>> = Mutex::new(None);
     let family = family.filter(|family| *family != "DM Sans");
-    {
-        let mut alias = ALIAS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if *alias == family {
-            return;
-        }
-        *alias = family;
+    // Held while the alias is set, so the two never fall out of step.
+    let mut alias = ALIAS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *alias == family {
+        return;
     }
+    *alias = family;
     cosmic_text::set_family_alias(family.map(|family| ("DM Sans", family)));
     let mut fonts = font_system().write().expect("font system");
     // The fallback's matches are cached by what text asks for, which
