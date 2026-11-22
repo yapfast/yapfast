@@ -145,6 +145,12 @@ impl<'a> Page<'a> {
                 prefs.strip_tracking.unwrap_or(true),
                 Pref::StripTracking,
             ),
+            self.flip(
+                "Peek at channels",
+                "Hold Alt over a channel or DM in the list to see its newest messages without opening it or marking it read.",
+                self.cx.layout.peek_channels,
+                Pref::PeekChannels,
+            ),
         ])
     }
 }

@@ -968,3 +968,42 @@ fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
         );
     }
 }
+
+#[test]
+fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
+    use crate::{peek, sidebar};
+    let (mut app, _folder) = preview();
+    let open = app.client.state().selected.clone();
+    assert_ne!(open.as_deref(), Some("games"));
+    let hold = |app: &mut App, alt: bool| {
+        let modifiers = if alt {
+            iced::keyboard::Modifiers::ALT
+        } else {
+            iced::keyboard::Modifiers::default()
+        };
+        let _ = app.update(Message::Modifiers(modifiers));
+    };
+    let _ = app.update(Message::Side(sidebar::Event::Point("games".into(), true)));
+    hold(&mut app, true);
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none(), "off, Alt does nothing");
+    hold(&mut app, false);
+
+    app.layout.peek_channels = true;
+    hold(&mut app, true);
+    assert!(app.peek.wanted.is_some(), "the row under the pointer");
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_some());
+    assert!(!app.peek.found.is_empty(), "its messages' cards");
+    assert!(shows(&app, "#games"), "beside the list");
+    assert_eq!(app.client.state().selected, open, "the open channel stays");
+    // Ctrl and Alt together don't peek; letting go closes it.
+    let _ = app.update(Message::Modifiers(
+        iced::keyboard::Modifiers::ALT | iced::keyboard::Modifiers::CTRL,
+    ));
+    assert!(app.client.state().peek.is_none());
+    assert!(app.peek.found.is_empty(), "its cards go with it");
+    // A late timer for a row left asks for nothing.
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none());
+}

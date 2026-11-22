@@ -193,6 +193,7 @@ impl App {
             subscriptions.extend(crate::typing::subscription(self));
         }
         subscriptions.push(crate::away::away_subscription(self));
+        subscriptions.extend(crate::peek::subscription(self));
         subscriptions.push(crate::keybinds::window_talk_keys());
         if self.call.grab.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
