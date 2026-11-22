@@ -192,6 +192,8 @@ mod tests {
             author: "person-1".into(),
             body: body.into(),
             own: false,
+            pinned: false,
+            stickers: Vec::new(),
         }
     }
 

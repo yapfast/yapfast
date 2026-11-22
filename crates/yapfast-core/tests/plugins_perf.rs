@@ -417,6 +417,8 @@ fn a_row(at: usize) -> DecorateRequest {
         author: "2".to_owned(),
         body: "a message of an ordinary length, with a link https://example.com/a/b".to_owned(),
         own: false,
+        pinned: false,
+        stickers: Vec::new(),
     }
 }
 

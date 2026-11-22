@@ -408,6 +408,8 @@ fn a_row(id: u64) -> DecorateRequest {
         author: "345678901234567890".into(),
         body: "a message of an ordinary length, with a link https://example.com/a/b".into(),
         own: false,
+        pinned: false,
+        stickers: Vec::new(),
     }
 }
 

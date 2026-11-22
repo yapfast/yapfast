@@ -204,6 +204,8 @@ fn a_decorator_is_asked_and_drawing_nothing_leaves_the_row_plain() {
         author: "person-1".to_owned(),
         body: "hi".to_owned(),
         own: false,
+        pinned: false,
+        stickers: Vec::new(),
     }]);
 
     // The ask starts the instance, which is the proof the request reached the

@@ -256,6 +256,8 @@ pub(super) fn decorate_ask(
                 author: "person-1".to_owned(),
                 body: "hi".to_owned(),
                 own: false,
+                pinned: false,
+                stickers: Vec::new(),
             },
         },
     ));

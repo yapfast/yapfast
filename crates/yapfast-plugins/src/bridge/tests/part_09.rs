@@ -16,6 +16,8 @@ fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
         author: "person-1".to_owned(),
         body: "hi".to_owned(),
         own: false,
+        pinned: false,
+        stickers: Vec::new(),
     };
     runtime().block_on(session.on_command(
         &shared,
@@ -105,6 +107,8 @@ fn a_decoration_that_doesnt_check_out_draws_nothing() {
                 author: "person-1".to_owned(),
                 body: "hi".to_owned(),
                 own: false,
+                pinned: false,
+                stickers: Vec::new(),
             },
         },
     ));

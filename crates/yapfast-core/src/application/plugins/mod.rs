@@ -822,6 +822,25 @@ pub(crate) fn envelope(
     }
 }
 
+/// The stickers a Discord message carries.
+#[cfg(feature = "discord")]
+fn discord_stickers(
+    message: &yapfast_discord::message::Message,
+) -> Vec<yapfast_plugin_api::event::StickerView> {
+    message
+        .attachments
+        .iter()
+        .filter(|file| file.shown == yapfast_discord::message::Shown::Sticker)
+        .filter_map(|file| {
+            let id = yapfast_plugin_api::event::StickerView::id_of(&file.url)?;
+            Some(yapfast_plugin_api::event::StickerView {
+                id: id.to_owned(),
+                name: file.name.clone(),
+            })
+        })
+        .collect()
+}
+
 /// A Discord message as a plugin sees it, and whether the account wrote it.
 #[cfg(feature = "discord")]
 pub(crate) fn message_view(
@@ -881,6 +900,8 @@ pub(crate) fn message_view(
             _ => None,
         },
         mentions_me: message.mentions_me(&me, server.map(|server| &*server.marks)),
+        pinned: message.pinned,
+        stickers: discord_stickers(message),
     };
     (view, own)
 }

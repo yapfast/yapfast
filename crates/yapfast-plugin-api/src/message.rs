@@ -684,6 +684,12 @@ pub struct DecorateRequest {
     pub body: String,
     /// Whether this account wrote it.
     pub own: bool,
+    /// Among its conversation's pinned messages.
+    #[serde(default)]
+    pub pinned: bool,
+    /// The ids of the stickers it carries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stickers: Vec<String>,
 }
 
 /// What `yf_member_decorate` is given: someone in the open room's member list,

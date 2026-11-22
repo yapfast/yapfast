@@ -1192,6 +1192,11 @@ impl Application {
                     author: message.author.clone(),
                     body: message.body.clone(),
                     own: message.own,
+                    pinned: message.pinned,
+                    stickers: crate::plugins::world::chat_stickers(message)
+                        .into_iter()
+                        .map(|sticker| sticker.id)
+                        .collect(),
                 })
             })
             .collect();
@@ -1448,13 +1453,31 @@ impl Application {
     /// Hands one event to the plugins that subscribed to it. The bridge
     /// applies each subscription's filter and writes the payload once, so a
     /// tap only has to say what happened.
-    pub(in crate::application) fn plugins_observe(&mut self, envelope: EventEnvelope) {
+    pub(in crate::application) fn plugins_observe(&mut self, mut envelope: EventEnvelope) {
         if self.state.plugins.is_none() {
             return;
         }
-        if let Some(plugins) = self.state.plugins.as_mut()
-            && plugins.subscribes(envelope.kind)
+        if !self
+            .state
+            .plugins
+            .as_ref()
+            .is_some_and(|plugins| plugins.subscribes(envelope.kind))
         {
+            return;
+        }
+        // The room's name as the sidebar shows it, so a plugin that logs or
+        // notifies needs no `rooms.get` for it.
+        if let (Some(room), serde_json::Value::Object(payload)) =
+            (envelope.room.as_deref(), &mut envelope.payload)
+            && !payload.contains_key("room_name")
+            && let Some(listed) = self.state.rooms.iter().find(|listed| listed.id == room)
+        {
+            payload.insert(
+                "room_name".to_owned(),
+                serde_json::Value::String(listed.name.clone()),
+            );
+        }
+        if let Some(plugins) = self.state.plugins.as_mut() {
             plugins.observe(envelope);
         }
     }

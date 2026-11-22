@@ -176,6 +176,8 @@ fn a_read_is_answered_from_what_the_application_published() {
             attachments: Vec::new(),
             reply_to: None,
             mentions_me: false,
+            pinned: false,
+            stickers: Vec::new(),
         }],
     );
 

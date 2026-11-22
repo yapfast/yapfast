@@ -267,6 +267,8 @@ mod tests {
             author: "2".to_owned(),
             body: body.to_owned(),
             own: false,
+            pinned: false,
+            stickers: Vec::new(),
         }
     }
 

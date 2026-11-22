@@ -626,7 +626,26 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
             .collect(),
         reply_to: message.reply.as_ref().and_then(|reply| reply.item.clone()),
         mentions_me: message.mentions_me,
+        pinned: message.pinned,
+        stickers: chat_stickers(message),
     }
+}
+
+/// The stickers a message of the timeline carries, by the id their picture's
+/// address names.
+pub fn chat_stickers(message: &ChatMessage) -> Vec<yapfast_plugin_api::event::StickerView> {
+    message
+        .attachments
+        .iter()
+        .filter(|file| file.placement == crate::chat::Placement::Sticker)
+        .filter_map(|file| {
+            let id = yapfast_plugin_api::event::StickerView::id_of(file.url.as_deref()?)?;
+            Some(yapfast_plugin_api::event::StickerView {
+                id: id.to_owned(),
+                name: file.name.clone(),
+            })
+        })
+        .collect()
 }
 
 /// The person's language, from the environment: `LC_ALL` first, then `LANG`,

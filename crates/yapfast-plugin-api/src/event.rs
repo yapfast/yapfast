@@ -291,6 +291,30 @@ pub struct MessageView {
     /// Whether this message mentions the account.
     #[serde(default)]
     pub mentions_me: bool,
+    /// Among its conversation's pinned messages.
+    #[serde(default)]
+    pub pinned: bool,
+    /// The stickers it carries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stickers: Vec<StickerView>,
+}
+
+/// A sticker a message carries: its Discord id, which a sticker read or a
+/// menu row names, and its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StickerView {
+    pub id: String,
+    pub name: String,
+}
+
+impl StickerView {
+    /// A sticker's id, read from its picture's address
+    /// (`…/stickers/<id>.png`).
+    pub fn id_of(url: &str) -> Option<&str> {
+        let tail = url.split("/stickers/").nth(1)?;
+        let id = tail.split(['.', '?', '/']).next()?;
+        (!id.is_empty() && id.bytes().all(|byte| byte.is_ascii_digit())).then_some(id)
+    }
 }
 
 /// A person, as every call and event names them.
@@ -385,5 +409,23 @@ mod tests {
             let json = serde_json::to_string(&kind).unwrap();
             assert_eq!(json, format!("\"{}\"", kind.as_str()));
         }
+    }
+}
+
+#[cfg(test)]
+mod sticker_tests {
+    use super::StickerView;
+
+    #[test]
+    fn a_stickers_id_is_read_from_its_address() {
+        assert_eq!(
+            StickerView::id_of("https://media.discordapp.net/stickers/8.gif?size=160"),
+            Some("8")
+        );
+        assert_eq!(
+            StickerView::id_of("https://cdn.discordapp.com/stickers/9.json"),
+            Some("9")
+        );
+        assert_eq!(StickerView::id_of("https://example.com/cat.png"), None);
     }
 }

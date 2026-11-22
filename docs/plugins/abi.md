@@ -202,6 +202,11 @@ reads. `message_delete`'s is `{ "id": … }`, with `"message"` too, the message 
 it was, when a conversation Yapfast holds had it loaded, which is what a logger
 keeps.
 
+An event with a `room` whose payload is an object also carries `room_name`, the
+conversation's name as the sidebar shows it, unless the payload has its own. A
+message's payload says `pinned`, and `stickers`, `[{ id, name }]`, when it has
+any.
+
 `topics` is there only when something was published to a topic the plugin
 subscribed to; a batch with none has no field at all. Each entry is one
 `plugin.publish`, and a subscriber handles them after the batch's events.

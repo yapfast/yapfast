@@ -457,6 +457,8 @@ fn the_showcase_decorates_and_its_new_calls_reach_the_parent() {
                 author: "person-1".into(),
                 body: "the Showcase plugin".into(),
                 own: false,
+                pinned: false,
+                stickers: Vec::new(),
             },
         },
     );

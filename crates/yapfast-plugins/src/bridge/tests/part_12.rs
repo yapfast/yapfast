@@ -330,6 +330,8 @@ fn decorated_with(capabilities: &[&str], annotation: serde_json::Value) -> Optio
         author: "person-1".to_owned(),
         body: "hi".to_owned(),
         own: false,
+        pinned: false,
+        stickers: Vec::new(),
     };
     let version = decorate_cache::version_key("1.0.0", None);
     assert_eq!(
