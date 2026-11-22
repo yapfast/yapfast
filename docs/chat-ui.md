@@ -576,7 +576,7 @@ The window follows Discord's arrangement:
   Discord, who is in every other voice channel shows too, with a LIVE tag for a
   screen share and a camera icon; in the channel of your call, so does anyone its
   voice server says is connected whom the gateway hasn't reported (see
-  [Who is in voice](discord/voice.md#who-is-in-voice)). You, in a channel on another client such as
+  [Who is in voice](discord/voice.md#who-is-in-voice-and-where-they-went-missing)). You, in a channel on another client such as
   your phone, show dimmed until hovered, without icons, and the tooltip says
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;
