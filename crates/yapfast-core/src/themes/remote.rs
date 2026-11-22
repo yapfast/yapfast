@@ -23,11 +23,10 @@ use super::MANIFEST;
 use super::check::{self, Files, LICENCE_FILES, MAX_FONT_BYTES, MAX_IMAGE_BYTES, MAX_THEME_BYTES};
 use super::install::digest;
 
-/// Where the marketplace's catalog is read from: one JSON file in a
-/// repository of its own, which a theme's author asks to be listed in with a
-/// pull request (docs/themes.md).
-pub const CATALOG_URL: &str =
-    "https://raw.githubusercontent.com/6gah/yapfast-themes-catalog/main/catalog.json";
+/// Where the marketplace's catalog is read from: `catalog.json` in the
+/// project's yapfast/themes repository, which a theme's author asks to be
+/// listed in with a pull request (its README says how).
+pub const CATALOG_URL: &str = "https://raw.githubusercontent.com/yapfast/themes/main/catalog.json";
 
 /// The catalog version this Yapfast reads. A later one is refused whole, as
 /// its entries may mean something this build doesn't know.
