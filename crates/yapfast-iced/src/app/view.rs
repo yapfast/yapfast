@@ -647,7 +647,10 @@ impl App {
         if let Some(edges) = crate::window_bar::resize_edges(self) {
             layers = layers.push(edges);
         }
-        crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset).into()
+        yapfast_iced_kit::inspect::inspector(
+            crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset),
+            Message::InspectCopy,
+        )
     }
 
     /// The zoom level, a moment after it changes.

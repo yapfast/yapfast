@@ -133,6 +133,22 @@ impl App {
                     physical_key,
                 ))
             }
+            // The theme inspector's key, wherever the keys are; it does
+            // nothing outside `--theme-dev`.
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                physical_key,
+                modifiers,
+                repeat: false,
+                ..
+            }) if status == iced::event::Status::Captured
+                && modifiers.control()
+                && modifiers.shift()
+                && !modifiers.alt()
+                && is_letter(&key, physical_key, "i", key::Code::KeyI) =>
+            {
+                Some(Message::Inspect)
+            }
             _ => None,
         }));
         // Ctrl+K opens the quick switcher wherever the keys are, and Ctrl+F

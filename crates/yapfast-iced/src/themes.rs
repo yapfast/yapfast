@@ -1489,6 +1489,13 @@ impl Themes {
     }
 
     /// `--theme-dev`'s folder while it's watched.
+    /// `--theme-dev FOLDER` as a test gives it.
+    #[cfg(test)]
+    pub(crate) fn develop_for_test(&mut self, folder: PathBuf) {
+        self.dev_folder = Some(folder);
+        self.dev_off = false;
+    }
+
     pub fn dev_folder(&self) -> Option<&Path> {
         self.dev_folder.as_deref().filter(|_| !self.dev_off)
     }

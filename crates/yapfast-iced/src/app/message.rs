@@ -38,6 +38,10 @@ pub enum Message {
     Mfa(mfa::Event),
     /// A command from the test display's control file.
     Control(String),
+    /// `--theme-dev`'s inspector: Ctrl+Shift+I where a field has the keys
+    /// (turns it on or off), and a click on a part (copies its name).
+    Inspect,
+    InspectCopy(&'static str),
     /// The timeline: its scrolling, its rows and what's done on them
     /// (`timeline/`).
     Timeline(crate::timeline::Event),

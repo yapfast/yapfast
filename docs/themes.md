@@ -280,7 +280,13 @@ on one with no window (`crates/yapfast-iced/src/theme_cli.rs`):
   a second, two folders deep, off the window's thread). What fails the checks
   is logged and the look before stays, and the folder isn't checked again
   until the next save. Ctrl+Shift+T turns the dev theme off for the rest of
-  the run.
+  the run. Ctrl+Shift+I turns the parts inspector on and off: the named part
+  under the pointer is outlined, with a label giving its name, the states
+  it's in and the `parts` rules that styled it (or that none did), and a
+  click copies its name instead of reaching the part. Outside theme dev mode
+  the key does nothing, and while the inspector is off the window draws as
+  it does without it. Turning it on or off builds the window's view anew, so
+  a list may scroll back to where it starts.
 - `yapfast theme check FOLDER [--marketplace]` prints the checks an install
   runs, and with `--marketplace` those for a listing, and on a pass the
   `sha256` a catalog entry pins. A theme gets into the marketplace with a pull
@@ -388,7 +394,8 @@ refusal: it's the theme maker's call. The window ignores unknown names
 instead, so a theme written for a later Yapfast still opens. Parts are
 resolved once, when the theme loads, into a table of every state each part
 takes, and their pictures are decoded then too; the window only looks one
-up while it draws. `yapfast theme parts` prints this list, and `--json`
+up while it draws. `yapfast --theme-dev`'s inspector (Ctrl+Shift+I) names
+the part under the pointer. `yapfast theme parts` prints this list, and `--json`
 prints it with each part's stock colour tokens and each property's range,
 for tools such as a theme maker. The list is
 `yapfast_core::themes::parts::REGISTRY`; a test keeps this table to it, and

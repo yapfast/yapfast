@@ -400,6 +400,8 @@ pub struct Dress {
     /// Its look under the pointer, for a part whose hover is the pointer's
     /// (a button), as the inspector labels it.
     pub pointed: Option<PartLook>,
+    /// Its hover comes from the pointer over it.
+    by_pointer: bool,
     picture: Option<(Picture, Fit)>,
 }
 
@@ -412,7 +414,10 @@ impl Dress {
     /// [`Dress::new`] for a part whose hover comes from the pointer.
     pub fn pointed(theme: &crate::theme::Theme, name: &'static str, states: States) -> Self {
         let pointed = theme.part(name, states | HOVER);
-        Self::looked(theme, name, states, theme.part(name, states), pointed)
+        Self {
+            by_pointer: true,
+            ..Self::looked(theme, name, states, theme.part(name, states), pointed)
+        }
     }
 
     /// With the looks already looked up.
@@ -431,6 +436,7 @@ impl Dress {
             name,
             states,
             look,
+            by_pointer: pointed.is_some(),
             pointed,
             picture,
         }
@@ -439,23 +445,31 @@ impl Dress {
     /// `content` as the theme shows the part: nothing at all while it's
     /// hidden; with its picture under it and its uneven sides over it.
     pub fn wrap<'a, M: 'a>(self, content: impl Into<iced::Element<'a, M>>) -> iced::Element<'a, M> {
-        let Some(look) = self.look else {
-            return content.into();
+        let shown: iced::Element<'a, M> = match self.look {
+            Some(look) if look.hidden => {
+                return iced::widget::Space::new().width(0).height(0).into();
+            }
+            Some(look) if self.picture.is_some() || look.sides().is_some() => {
+                crate::widgets::Wrap::new(
+                    content,
+                    Decor {
+                        look,
+                        picture: self.picture.clone(),
+                    },
+                )
+                .into()
+            }
+            _ => content.into(),
         };
-        if look.hidden {
-            return iced::widget::Space::new().width(0).height(0).into();
+        // `--theme-dev`'s inspector finds it; off, it's left as it is.
+        if !crate::inspect::on() {
+            return shown;
         }
-        if self.picture.is_none() && look.sides().is_none() {
-            return content.into();
+        if self.by_pointer {
+            crate::inspect::tag_looked(self.name, self.states, self.pointed, shown)
+        } else {
+            crate::inspect::tag_with(self.name, self.states, self.look, shown)
         }
-        crate::widgets::Wrap::new(
-            content,
-            Decor {
-                look,
-                picture: self.picture,
-            },
-        )
-        .into()
     }
 }
 

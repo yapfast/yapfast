@@ -14,6 +14,7 @@ pub mod fonts;
 pub mod form;
 pub mod frames;
 pub mod icons;
+pub mod inspect;
 pub mod look;
 pub mod parts;
 pub mod piece;

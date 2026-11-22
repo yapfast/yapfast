@@ -534,6 +534,11 @@ impl App {
             }
             Message::Dialog(event) => crate::dialogs::update(self, event),
             Message::Key(key, modifiers) => self.key(key, modifiers),
+            Message::Inspect => self.toggle_inspector(),
+            Message::InspectCopy(name) => {
+                tracing::info!(part = name, "--theme-dev: copied the part's name");
+                iced::clipboard::write(name.to_owned())
+            }
             Message::Pressed(key, modifiers, physical) => {
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
                 // A shortcut's letter, where the layout has no Latin ones
