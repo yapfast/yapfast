@@ -1402,6 +1402,8 @@ pub struct Slider<'a, M> {
     step: u32,
     shown: Option<String>,
     mark: bool,
+    /// The label's size: 13 px unless set.
+    label_size: f32,
 }
 
 /// A [`Slider`] for `value` out of `maximum`.
@@ -1420,6 +1422,7 @@ pub fn slider<'a, M: Clone + 'a>(
         step: 5,
         shown: None,
         mark: maximum > 100,
+        label_size: 13.0,
     }
 }
 
@@ -1442,6 +1445,13 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
         self
     }
 
+    /// The label's size, for a sign that draws small at 13 px (a user
+    /// limit's infinity).
+    pub fn label_size(mut self, size: f32) -> Self {
+        self.label_size = size;
+        self
+    }
+
     /// Whether 100% is marked and snapped to; past 100% unless set.
     pub fn mark(mut self, mark: bool) -> Self {
         self.mark = mark;
@@ -1458,10 +1468,11 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
             step,
             shown,
             mark,
+            label_size,
         } = self;
         let head = row![
             text(label)
-                .size(13)
+                .size(label_size)
                 .font(MEDIUM)
                 .color(theme.secondary)
                 .width(Length::Fill),
@@ -1469,7 +1480,8 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
                 .size(13)
                 .font(MEDIUM)
                 .color(theme.text),
-        ];
+        ]
+        .align_y(Alignment::Center);
         let (field, accent, knob) = (theme.field, theme.accent, theme.text);
         let track = iced::widget::slider(0..=maximum, value, move |value| {
             let value = if mark && value.abs_diff(100) <= 4 {

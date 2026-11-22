@@ -525,6 +525,7 @@ impl<'a> View<'a> {
         )
         .step(1)
         .mark(false)
+        .label_size(20.0)
         .shown(users)
         .view(theme);
         parts.push(form::group([
