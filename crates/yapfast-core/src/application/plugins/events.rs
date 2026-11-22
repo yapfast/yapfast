@@ -692,6 +692,28 @@ impl Application {
         }
     }
 
+    /// The member list as Yapfast made it, before plugins dressed anyone.
+    pub(in crate::application) fn members_made(
+        &self,
+    ) -> Option<&Arc<Vec<crate::chat::ChatMember>>> {
+        let now = self
+            .state
+            .members
+            .as_ref()
+            .and_then(|members| members.as_ref().ok())?;
+        Some(
+            self.plugin_dress
+                .as_ref()
+                .filter(|kept| {
+                    kept.members_shown
+                        .as_ref()
+                        .is_some_and(|shown| Arc::ptr_eq(shown, now))
+                })
+                .and_then(|kept| kept.members_made.as_ref())
+                .unwrap_or(now),
+        )
+    }
+
     /// Puts how plugins say people look on every surface that shows a person:
     /// the timeline's authors and mentions, the member list, the voice list
     /// and the typing strip. The people on screen are asked about first (a
@@ -1154,7 +1176,12 @@ impl Application {
         }
         // The timeline is the open room's, which is the room these rows are in:
         // `Action::VisibleMessages` only reports the selected conversation.
-        let timeline = &self.state.messages;
+        // As Yapfast made it, not as a plugin's identity dressed it.
+        let timeline = self
+            .plugin_dress
+            .as_ref()
+            .filter(|kept| Arc::ptr_eq(&kept.messages_shown, &self.state.messages))
+            .map_or(&self.state.messages, |kept| &kept.messages_made);
         let rows: Vec<yapfast_plugin_api::message::DecorateRequest> = items
             .iter()
             .filter_map(|item| {
@@ -1326,12 +1353,9 @@ impl Application {
                 server.id.clone(),
             )
         });
-        let Some(members) = self
-            .state
-            .members
-            .as_ref()
-            .and_then(|members| members.as_ref().ok())
-        else {
+        // The people as Yapfast made them, not as a plugin's identity dressed
+        // them.
+        let Some(members) = self.members_made().cloned() else {
             return;
         };
         let Some(slots) = self.state.plugin_slots.as_deref_mut() else {

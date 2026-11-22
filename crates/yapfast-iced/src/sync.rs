@@ -569,6 +569,7 @@ impl App {
         self.roster.members = members;
         self.roster.shown = Some(Instant::now());
         crate::members::make_activity_cards(self);
+        crate::members::report_shown(self);
     }
 
     /// Works out the rows' looks and heights for the current messages,

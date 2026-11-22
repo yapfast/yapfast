@@ -669,6 +669,53 @@ pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
     (hasher.finish() | 1, marks)
 }
 
+/// A plugin's small badge: a few words in a tone on a faint fill of it, with
+/// whose it is on hover.
+fn badge_chip<'a>(
+    theme: &'a Theme,
+    words: String,
+    ink: iced::Color,
+    tip: String,
+) -> Element<'a, Message> {
+    tooltip(
+        container(text(words).size(10).font(BOLD).color(ink))
+            .padding([0, 4])
+            .height(16)
+            .align_y(Alignment::Center)
+            .style(move |_| {
+                iced::widget::container::Style::default()
+                    .background(iced::Color { a: 0.18, ..ink })
+                    .border(iced::Border {
+                        radius: 4.0.into(),
+                        ..iced::Border::default()
+                    })
+            }),
+        controls::tip(theme, tip),
+        tooltip::Position::Top,
+    )
+    .into()
+}
+
+/// What plugins badge a person with in the member list (`member.decorate`),
+/// each naming its plugin on hover.
+pub fn member_badges<'a>(ctx: Ctx<'a>, member: &'a str) -> Vec<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let Some(slots) = ctx.state.plugin_slots.as_deref() else {
+        return Vec::new();
+    };
+    slots
+        .badges(member)
+        .map(|(plugin, badge)| {
+            badge_chip(
+                theme,
+                badge.text.clone(),
+                plugin_tree::tone_colour(theme, badge.tone),
+                credit_line(&plugin.name),
+            )
+        })
+        .collect()
+}
+
 /// The badges plugins put on a message's author line, after the name: those
 /// a decoration answered for this message (each saying whose on hover), and
 /// those a plugin's identity of the author names.
@@ -678,25 +725,7 @@ pub fn author_badges<'a>(
 ) -> Vec<Element<'a, Message>> {
     let theme = ctx.look.theme;
     let mut chips: Vec<Element<'a, Message>> = Vec::new();
-    let chip = |words: String, ink: iced::Color, tip: String| -> Element<'a, Message> {
-        tooltip(
-            container(text(words).size(10).font(BOLD).color(ink))
-                .padding([0, 4])
-                .height(16)
-                .align_y(Alignment::Center)
-                .style(move |_| {
-                    iced::widget::container::Style::default()
-                        .background(iced::Color { a: 0.18, ..ink })
-                        .border(iced::Border {
-                            radius: 4.0.into(),
-                            ..iced::Border::default()
-                        })
-                }),
-            controls::tip(theme, tip),
-            tooltip::Position::Top,
-        )
-        .into()
-    };
+    let chip = |words: String, ink: iced::Color, tip: String| badge_chip(theme, words, ink, tip);
     if let Some(slots) = ctx.state.plugin_slots.as_deref() {
         for decoration in slots.decorations(&message.item) {
             let Some(plugin) = slots.names().get(decoration.plugin) else {
