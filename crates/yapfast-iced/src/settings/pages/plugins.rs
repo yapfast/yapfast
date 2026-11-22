@@ -2630,12 +2630,22 @@ fn labelled<'a>(theme: &Theme, label: &'a str, what: &'a str) -> Element<'a, Mes
 }
 
 /// Where a plugin came from, as a short line beside its version: the host of
-/// the URL it was installed from, the marketplace, or a folder.
+/// the URL it was installed from, the marketplace, or a folder. A `file://`
+/// source is a folder on this computer, whether Load folder or the URL field
+/// named it: it has no host to show.
 #[cfg(feature = "plugins")]
 fn installed_from(plugin: &Installed) -> String {
     match plugin.origin {
         Origin::Marketplace => "From the marketplace".to_owned(),
         Origin::Folder => "Loaded from a folder".to_owned(),
+        Origin::Url
+            if plugin
+                .source
+                .get(..7)
+                .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file://")) =>
+        {
+            "Loaded from a folder".to_owned()
+        }
         Origin::Url => {
             let host = plugin
                 .source
@@ -2745,5 +2755,36 @@ mod tests {
         );
         assert!(ui.find("Restart").is_err(), "only after a suspension");
         assert!(ui.find("Settings").is_err(), "only with a page");
+    }
+
+    /// A plugin's page says where it came from: a folder on this computer
+    /// (Load folder, or a `file://` address) is a folder, not a URL.
+    #[test]
+    fn a_folder_plugin_says_it_was_loaded_from_a_folder() {
+        let from = |origin, source: &str| {
+            installed_from(&Installed {
+                origin,
+                source: source.to_owned(),
+                ..Installed::default()
+            })
+        };
+        assert_eq!(
+            from(Origin::Url, "file:///home/someone/extras"),
+            "Loaded from a folder"
+        );
+        assert_eq!(
+            from(Origin::Url, "FILE:///C:/plugins/extras"),
+            "Loaded from a folder"
+        );
+        assert_eq!(
+            from(Origin::Folder, "/home/someone/extras"),
+            "Loaded from a folder"
+        );
+        assert_eq!(
+            from(Origin::Url, "https://github.com/someone/extras"),
+            "Installed from github.com"
+        );
+        assert_eq!(from(Origin::Url, ""), "Installed from a URL");
+        assert_eq!(from(Origin::Marketplace, ""), "From the marketplace");
     }
 }
