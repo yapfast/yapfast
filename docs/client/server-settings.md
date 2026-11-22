@@ -116,7 +116,10 @@ Delete as they were while Discord was last online (the core names no page
 while it's away, and the sidebar stays as it was), takes the keys from the
 composer as it opens and gives them back when it closes. The form kit's
 `Unsaved` bar saves the page's draft, and leaving the page or the
-settings with changes shakes it. Escape closes Add, then the question,
+settings with changes shakes it; it says in red, in place of its warning,
+why the draft can't be saved or why Discord refused it
+(`Unsaved::view_saying`), which shows under the page only while there is
+no bar. Escape closes Add, then the question,
 then the settings.
 
 - Overview: the name, for a text or announcement channel the topic, for

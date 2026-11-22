@@ -479,7 +479,10 @@ category has only its name. A channel's are read with `GET
 Discord's Spoiler Channel, and the Invites and Integrations pages, aren't
 there yet.
 Names are 1 to 100 characters, a text channel's lower case with dashes
-for spaces, and topics up to 1024, checked before asking.
+for spaces, and topics up to 1024, checked before asking. What's wrong, or
+why Discord refused a save, shows in red in the unsaved changes bar; a
+bitrate Discord refuses (50035, as when the server lost the boosts it was
+set with) says how far its voice channels go, in kbps.
 
 Permissions is Discord's Channel Permissions page:
 

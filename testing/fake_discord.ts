@@ -7423,9 +7423,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       // A voice channel's slowmode, age restriction and call settings, as
       // Discord bounds them: 8 to 96 kbps unboosted, up to 99 people.
       if (before.type === 2) {
-        if ((body.bitrate != null && !(body.bitrate >= 8000 && body.bitrate <= 96000)) ||
-          (body.user_limit != null && !(body.user_limit >= 0 && body.user_limit <= 99))) {
-          return json({ message: "Invalid Form Body", code: 50035 }, 400);
+        // Discord names the field and its bound in the errors.
+        const outOfRange = (field: string, code: string, message: string) =>
+          json({ message: "Invalid Form Body", code: 50035, errors: { [field]: { _errors: [{ code, message }] } } }, 400);
+        if (body.bitrate != null && body.bitrate < 8000) {
+          return outOfRange("bitrate", "NUMBER_TYPE_MIN", "int value should be greater than or equal to 8000.");
+        }
+        if (body.bitrate != null && body.bitrate > 96000) {
+          return outOfRange("bitrate", "NUMBER_TYPE_MAX", "int value should be less than or equal to 96000.");
+        }
+        if (body.user_limit != null && !(body.user_limit >= 0 && body.user_limit <= 99)) {
+          return outOfRange("user_limit", "NUMBER_TYPE_MAX", "int value should be less than or equal to 99.");
         }
         for (const key of ["nsfw", "rate_limit_per_user", "bitrate", "user_limit", "rtc_region", "video_quality_mode"] as const) {
           if (key in body) (edit as any)[key] = body[key];

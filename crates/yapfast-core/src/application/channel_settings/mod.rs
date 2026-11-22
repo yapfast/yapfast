@@ -46,6 +46,34 @@ pub const VOICE_REGIONS: [(&str, &str); 14] = [
     ("us-west", "US West"),
 ];
 
+/// Why Discord refused Overview's save, in words: its form errors name the
+/// field, as "Bitrate: int value should be less than or equal to 96000.",
+/// which says the bound in bits a second; the slider counts in kbps.
+fn save_error(error: &str) -> String {
+    let field = |name: &str| error.strip_prefix(name).map(str::trim);
+    let kbps = |rest: &str| {
+        rest.split(|c: char| !c.is_ascii_digit())
+            .filter_map(|number| number.parse::<u32>().ok())
+            .next_back()
+            .map(|bits| bits / 1000)
+    };
+    if let Some(rest) = field("Bitrate:") {
+        return match (kbps(rest), rest.contains("less than")) {
+            (Some(most), true) => format!(
+                "Discord didn't save the bitrate: this server's voice channels go up to {most} kbps."
+            ),
+            (Some(least), false) => {
+                format!("Discord didn't save the bitrate: it can't be under {least} kbps.")
+            }
+            (None, _) => format!("Discord didn't save the bitrate: {rest}"),
+        };
+    }
+    if let Some(rest) = field("User limit:") {
+        return format!("Discord didn't save the user limit: {rest}");
+    }
+    format!("Discord didn't save the changes: {error}")
+}
+
 /// The most bitrate a voice channel may have at a server's boost level:
 /// 96 kbps, then 128, 256 and 384 kbps.
 pub fn bitrate_max(premium_tier: u8) -> u32 {
@@ -872,7 +900,7 @@ impl Application {
                     *original = saved;
                 }
             }
-            Err(error) => screen.error = Some(error.clone()),
+            Err(error) => screen.error = Some(save_error(error)),
         }
         true
     }
@@ -973,5 +1001,26 @@ impl Application {
         vec![Effect::Backend(Command::Discord(
             DiscordCommand::OverwriteNames { room, members },
         ))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::save_error;
+
+    #[test]
+    fn a_refused_save_says_what_discord_refused() {
+        assert_eq!(
+            save_error("Bitrate: int value should be less than or equal to 96000."),
+            "Discord didn't save the bitrate: this server's voice channels go up to 96 kbps."
+        );
+        assert_eq!(
+            save_error("Bitrate: int value should be greater than or equal to 8000."),
+            "Discord didn't save the bitrate: it can't be under 8 kbps."
+        );
+        assert_eq!(
+            save_error("Discord said no."),
+            "Discord didn't save the changes: Discord said no."
+        );
     }
 }

@@ -308,13 +308,14 @@ impl<'a> View<'a> {
         } else {
             page = page.push(self.channel_overview(core));
         }
-        if let Some(problem) = core.problem() {
-            page = page.push(form::error(theme, problem));
+        // Why the changes can't go, or why Discord refused them, in the bar
+        // while it shows, where it's seen; under the page otherwise.
+        let unsaved = core.changed() || core.saving;
+        let said = core.error.clone().or_else(|| core.problem());
+        if !unsaved && let Some(said) = &said {
+            page = page.push(form::error(theme, said.clone()));
         }
-        if let Some(error) = &core.error {
-            page = page.push(form::error(theme, error.as_str()));
-        }
-        let bar = (core.changed() || core.saving).then(|| {
+        let bar = unsaved.then(|| {
             form::Unsaved {
                 pad: 12.0,
                 radius: crate::sheet::BAR_RADIUS,
@@ -325,7 +326,7 @@ impl<'a> View<'a> {
                 undo: input(ChannelInput::Undo),
                 save: input(ChannelInput::Save),
             }
-            .view(theme)
+            .view_saying(theme, said)
         });
         let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
             .bar(bar)

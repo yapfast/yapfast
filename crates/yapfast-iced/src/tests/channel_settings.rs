@@ -147,7 +147,7 @@ fn channel_settings_keep_their_sidebar_while_discord_is_away() {
 }
 
 #[test]
-fn a_voice_channels_overview_sets_its_call() {
+fn a_voice_channels_overview_sets_its_call_and_says_why_a_save_was_refused() {
     let (mut app, _folder) = discord_server(permission::MANAGE_CHANNELS, |_, _| {});
     let lounge = "discord:10:14";
     app.client
@@ -192,4 +192,14 @@ fn a_voice_channels_overview_sets_its_call() {
         assert!(super::present(&app, words), "{words}");
     }
     assert!(shows(&app, "Save Changes"));
+    // Discord refuses it: the bar says why, where it's seen.
+    input(&mut app, ChannelInput::Save);
+    app.client.apply(Event::ChannelSaved(Err(
+        "Bitrate: int value should be less than or equal to 96000.".into(),
+    )));
+    let _ = app.sync();
+    assert!(shows(
+        &app,
+        "Discord didn't save the bitrate: this server's voice channels go up to 96 kbps."
+    ));
 }
