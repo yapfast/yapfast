@@ -431,6 +431,10 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
             CopyId
         ]
     );
+    // Its row offers Edit Channel while pointed at, as its menu does; a
+    // category's heading offers neither.
+    assert_eq!(app.channel_row_actions("discord:10:11"), (false, true));
+    assert_eq!(app.channel_row_actions("discord:10:4"), (false, false));
     assert_eq!(
         app.menu_choices("discord:10:4"),
         [

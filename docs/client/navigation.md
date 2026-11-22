@@ -100,7 +100,14 @@ Its 2 px stem starts one pixel below the parent row and spans the gaps
 between threads. The arms are 2 px thick and curve into the stem. The
 last arm ends the stem with a taller outer bend. A channel's row under
 the pointer or while selected offers Create invite, to that
-channel, for those who may invite; a busy voice channel lists who is in it (the call this
+channel, for those who may invite, and Edit channel's cog where its menu
+offers it (`Application::channel_row_actions`); past a category's first
+three empty voice channels the rest fold behind Show All at its end
+(`rows::fold_voice`; one with people in it, the open one, an unread one and
+the call this account is in always show), which under the pointer names
+those it would show and turns into Hide Voice Channels, each server's
+choice kept in `layout.json` as `voice_shown`, and the category's rows don't
+drag while folded so; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
 its tooltip "Connected on another client") and how long the

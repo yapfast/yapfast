@@ -331,6 +331,19 @@ impl Application {
         }
     }
 
+    /// What a Discord server channel's row offers while pointed at, as
+    /// Discord's: Create Invite and Edit Channel, where its menu offers them.
+    pub fn channel_row_actions(&self, room: &str) -> (bool, bool) {
+        if !self.discord_channel(room) || self.state.is_category(room) {
+            return (false, false);
+        }
+        let choices = self.menu_choices(room);
+        (
+            choices.contains(&MenuChoice::Invite),
+            choices.contains(&MenuChoice::EditChannel),
+        )
+    }
+
     /// Whether this account may create a channel in a category, for the "+" on
     /// its heading.
     pub fn may_create_channel(&self, category: &str) -> bool {

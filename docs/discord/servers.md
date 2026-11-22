@@ -381,6 +381,16 @@ Channel, or for a voice or stage channel, @everyone may not connect
 mean the account can't read it; a channel it can't read shows a plain lock,
 greyed, as before.
 
+A channel's row, pointed at or selected, offers Create Invite and Edit
+Channel (a cog) where the channel's menu does, beside a voice channel's chat
+button, as Discord's does. Discord's channel list shows a category's first
+three empty voice channels and folds the rest behind Show All at its end,
+which turns into Hide Voice Channels once they show; a voice channel with
+people in it, the selected one, an unread one and the call this account is
+in always show. Yapfast does the same. Pointing at Show All lists the names
+of the channels it shows, and Yapfast remembers each server's choice across
+restarts (`voice_shown` in `layout.json`), both Yapfast additions.
+
 ## The server header, events and private channels
 
 In Discord mode the sidebar header shows the server's banner (`guild.banner`,

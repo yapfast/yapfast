@@ -309,6 +309,10 @@ pub enum Event {
     /// category's line), and the rest of a place's line.
     TreeToggle(String),
     TreeActivate(String),
+    /// A channel row's Edit Channel cog, by its room id.
+    EditChannel(String),
+    /// A category's Show All, or Hide Voice Channels, by what it folds by.
+    VoiceMore(String),
 }
 
 /// What's done in the sidebar.
@@ -473,6 +477,24 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::VoiceChat(chat) => app.client.dispatch(Action::ShowVoiceChat(chat)),
         Event::CreateIn(category) => {
             return crate::place_menus::choose_place(app, category, MenuChoice::CreateChannel);
+        }
+        Event::EditChannel(room) => {
+            return crate::place_menus::choose_place(app, room, MenuChoice::EditChannel);
+        }
+        // Kept by server in the layout, as its folded categories are.
+        Event::VoiceMore(fold) => {
+            app.lists_shown = None;
+            let Navigation::Server(server) = app.client.state().navigation.clone() else {
+                return Task::none();
+            };
+            let shown = app.layout.voice_shown.entry(server.clone()).or_default();
+            if !shown.remove(&fold) {
+                shown.insert(fold);
+            }
+            if shown.is_empty() {
+                app.layout.voice_shown.remove(&server);
+            }
+            crate::layout::store(app.client.root(), "voice_shown", &app.layout.voice_shown);
         }
     }
     app.sync()

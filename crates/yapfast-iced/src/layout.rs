@@ -74,6 +74,9 @@ pub struct Layout {
     /// default (the open place open, the rest closed), by server id, or
     /// [`crate::sidebar::tree::DMS`] for the direct messages.
     pub tree_open: BTreeMap<String, bool>,
+    /// Each server's categories whose quiet voice channels Show All
+    /// unfolded, by server id, as `collapsed` keeps its categories.
+    pub voice_shown: HashMap<String, BTreeSet<String>>,
     pub members_hidden: bool,
     /// Copy ID shows in menus, as Discord's Developer Mode.
     pub developer_mode: bool,

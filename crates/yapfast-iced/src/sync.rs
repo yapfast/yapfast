@@ -152,6 +152,7 @@ impl App {
             &categories,
             &self.layout.collapsed,
             &self.sidebar.filter,
+            &self.layout.voice_shown,
             self.theme.dark,
         );
         if self.sidebar.rows != side {
