@@ -85,12 +85,17 @@ impl Plugin for Extras {
                 toast(format!("{person} sent you a friend request"))?;
             }
             "room_selected" => {
+                // The welcome names the channel, as Yapfast's own does.
+                let heading = match envelope.payload["name"].as_str() {
+                    Some(name) if !name.is_empty() => format!("Welcome to #{name}"),
+                    _ => "Welcome".to_owned(),
+                };
                 call::post(
                     "ui.set_slot",
                     json!({
                         "slot": "timeline.intro",
                         "tree": { "rows": [
-                            { "cells": [{ "kind": "heading", "text": "Welcome in" }] },
+                            { "cells": [{ "kind": "heading", "text": heading }] },
                             { "cells": [{
                                 "kind": "image",
                                 "src": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/330px-PNG_transparency_demonstration_1.png",
