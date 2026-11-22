@@ -119,6 +119,33 @@ pub enum Capability {
     /// Serve on this computer's loopback, behind a token. Powerful.
     #[serde(rename = "net.listen")]
     NetListen,
+    /// Show an activity of its own on the account's presence: a name, two
+    /// lines, timestamps, pictures and buttons, as Rich Presence does.
+    #[serde(rename = "activity.set")]
+    ActivitySet,
+    /// Change the account's bio, pronouns and custom status, after the person
+    /// says yes the first time.
+    #[serde(rename = "profile.write")]
+    ProfileWrite,
+    /// Name actions the person can bind to keys in Settings → Keybinds. The
+    /// plugin hears that its action ran, never which key, nor any other key.
+    #[serde(rename = "keybinds")]
+    Keybinds,
+    /// Play its own sounds in place of Yapfast's for the events it names.
+    #[serde(rename = "sounds.replace")]
+    SoundsReplace,
+    /// Search messages through Discord's search, as the search box does.
+    #[serde(rename = "messages.search")]
+    MessagesSearch,
+    /// Read the drafts the person left unsent in the composer.
+    #[serde(rename = "drafts.read")]
+    DraftsRead,
+    /// List the devices signed in to the account, read-only.
+    #[serde(rename = "account.sessions")]
+    AccountSessions,
+    /// Read and control the linked Spotify account's playback.
+    #[serde(rename = "spotify.control")]
+    SpotifyControl,
 }
 
 impl Capability {
@@ -128,7 +155,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 33] = [
+    pub const ALL: [Capability; 41] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -162,6 +189,14 @@ impl Capability {
         Capability::NetAny,
         Capability::NetSocket,
         Capability::NetListen,
+        Capability::ActivitySet,
+        Capability::ProfileWrite,
+        Capability::Keybinds,
+        Capability::SoundsReplace,
+        Capability::MessagesSearch,
+        Capability::DraftsRead,
+        Capability::AccountSessions,
+        Capability::SpotifyControl,
     ];
 
     /// Whether anything in this build looks at this capability.
@@ -193,6 +228,14 @@ impl Capability {
                 | Capability::NetSocket
                 | Capability::NetListen
         )
+    }
+
+    /// Whether the person is asked, the first time a plugin uses it, before
+    /// it does anything: the powerful tier, and `profile.write`, which changes
+    /// what everyone sees on the account. Only the powerful tier also waits
+    /// for the switch in Advanced.
+    pub fn asks_first(self) -> bool {
+        self.is_powerful() || matches!(self, Capability::ProfileWrite)
     }
 
     /// The name written in a manifest.
@@ -231,6 +274,14 @@ impl Capability {
             Capability::NetAny => "net.any",
             Capability::NetSocket => "net.socket",
             Capability::NetListen => "net.listen",
+            Capability::ActivitySet => "activity.set",
+            Capability::ProfileWrite => "profile.write",
+            Capability::Keybinds => "keybinds",
+            Capability::SoundsReplace => "sounds.replace",
+            Capability::MessagesSearch => "messages.search",
+            Capability::DraftsRead => "drafts.read",
+            Capability::AccountSessions => "account.sessions",
+            Capability::SpotifyControl => "spotify.control",
         }
     }
 
@@ -269,7 +320,7 @@ impl Capability {
             Capability::Network => "Connects to the sites it lists",
             Capability::NetworkLocal => "Connects to an app on this computer",
             Capability::OpenApp => "Opens other applications",
-            Capability::MessagesAttach => "Sends files from its folder with messages",
+            Capability::MessagesAttach => "Sends files it makes with the messages it sends",
             Capability::MessagesSendAgent => {
                 "Sends messages as you without you pressing a key, as an agent. Automated \
                  sending can get your Discord account banned."
@@ -279,6 +330,16 @@ impl Capability {
             Capability::NetAny => "Can send your data to any website",
             Capability::NetSocket => "Can open raw connections to any server",
             Capability::NetListen => "Lets apps on this computer connect to it",
+            Capability::ActivitySet => "Shows an activity of its own on your profile",
+            Capability::ProfileWrite => {
+                "Can change your bio, pronouns and custom status, once you say yes"
+            }
+            Capability::Keybinds => "Offers actions you can bind to keys",
+            Capability::SoundsReplace => "Replaces Yapfast's sounds with its own",
+            Capability::MessagesSearch => "Searches your messages",
+            Capability::DraftsRead => "Reads the drafts you haven't sent",
+            Capability::AccountSessions => "Sees the devices signed in to your account",
+            Capability::SpotifyControl => "Sees and controls what your Spotify plays",
         }
     }
 
@@ -535,6 +596,11 @@ impl Permissions {
                  minute. Automated sending can get your Discord account banned.",
                 self.agent_per_minute()
             ),
+            Capability::ProfileWrite => {
+                "This plugin can change your bio, your pronouns and your custom status, which \
+                 everyone who opens your profile sees"
+                    .into()
+            }
             other => other.summary().to_owned(),
         }
     }

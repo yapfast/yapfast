@@ -228,7 +228,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     // the call's channel; each says whose it is (`voice.panel`).
     #[cfg(feature = "plugins")]
     if active
-        && let Some(plugins) = crate::plugin_slots::buttons(
+        && let Some(plugins) = crate::plugin_slots::dock_buttons(
             ctx,
             yapfast_core::plugins::slots::Slot::VoicePanel,
             voice.room.as_deref().unwrap_or_default(),

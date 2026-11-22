@@ -90,6 +90,7 @@ mod session_timers;
 mod shared;
 mod shared_events;
 mod shared_held;
+pub mod supervisor_account;
 mod supervisor_decorate;
 mod supervisor_dev;
 mod supervisor_hooks;

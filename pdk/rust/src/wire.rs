@@ -223,6 +223,9 @@ pub enum InputEvent {
     },
     /// A notice or toast the plugin drew was closed.
     Dismissed { slot: String },
+    /// The person pressed the keys they bound to one of the manifest's
+    /// `keybinds`; which keys is never said.
+    Keybind { action: String },
 }
 
 /// What `yf_event` is given, in one call.
@@ -362,6 +365,25 @@ pub mod method {
     pub const DISCORD_ADD_STICKER: &str = "discord.add_sticker";
     pub const AUDIO_PLAY: &str = "audio.play";
     pub const AUDIO_SPEAK: &str = "audio.speak";
+    // A plugin's own files, the account's activity and profile, the reads of
+    // search, drafts and sessions, and the linked Spotify.
+    pub const ASSETS_GET: &str = "assets.get";
+    pub const MESSAGES_ATTACH: &str = "messages.attach";
+    pub const ACTIVITY_SET: &str = "activity.set";
+    pub const ACTIVITY_CLEAR: &str = "activity.clear";
+    pub const PROFILE_SET: &str = "profile.set";
+    pub const MESSAGES_SEARCH: &str = "messages.search";
+    pub const DRAFTS_LIST: &str = "drafts.list";
+    pub const ACCOUNT_SESSIONS: &str = "account.sessions";
+    pub const SPOTIFY_NOW: &str = "spotify.now";
+    pub const SPOTIFY_PLAY: &str = "spotify.play";
+    pub const SPOTIFY_PAUSE: &str = "spotify.pause";
+    pub const SPOTIFY_NEXT: &str = "spotify.next";
+    pub const SPOTIFY_PREVIOUS: &str = "spotify.previous";
+    pub const SPOTIFY_SEEK: &str = "spotify.seek";
+    pub const SPOTIFY_VOLUME: &str = "spotify.volume";
+    pub const SPOTIFY_SHUFFLE: &str = "spotify.shuffle";
+    pub const SPOTIFY_REPEAT: &str = "spotify.repeat";
 }
 
 /// `storage.set`: the value is the plugin's own JSON.

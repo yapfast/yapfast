@@ -679,3 +679,92 @@ fn a_plugins_settings_page_draws_and_saves() {
         "saved"
     );
 }
+
+/// A plugin's keybind action is offered on the Keybinds page as
+/// "<plugin>: <label>", a binding to it is watched by its own id, and keys
+/// Yapfast already uses are refused for it with a note.
+#[test]
+fn a_plugins_keybind_action_is_offered_and_refuses_taken_keys() {
+    use crate::settings::{Event, Section, keybinds};
+    use yapfast_core::keybinds::{Action, Key, Shortcut};
+    let (mut app, _data) = preview();
+    let source = folder_plugin_with(
+        r#""permissions": { "capabilities": ["keybinds"] },
+        "keybinds": [{ "action": "next", "label": "Next song" }],"#,
+    );
+    load(&mut app, source.path());
+    let _ = app.update(crate::app::Message::Settings(Event::Open(
+        Section::Keybinds,
+    )));
+    let _ = app.update(crate::app::Message::Settings(Event::Keybind(
+        keybinds::Event::Add,
+    )));
+    let row = app.layout.keybinds.len() - 1;
+    let _ = app.update(crate::app::Message::Settings(Event::Keybind(
+        keybinds::Event::Action(row, Action::OFFERED.len()),
+    )));
+    let binding = app.layout.keybinds[row].clone();
+    assert_eq!(binding.action, Action::Plugin);
+    let plugin = binding.plugin.clone().expect("the plugin's action");
+    assert_eq!(plugin.plugin, PLUGIN);
+    assert_eq!(plugin.action, "next");
+    let _ = app.sync();
+    assert!(
+        shows(&app, "Window Test: Next song"),
+        "named by plugin and label"
+    );
+
+    // Push to talk's key is Yapfast's: a plugin's action can't have it.
+    let v = Key {
+        scancode: 47,
+        name: "V".into(),
+        trigger: Some("v".into()),
+    };
+    app.layout.voice.push_to_talk_key = Shortcut::new(vec![v.clone()]);
+    let record = |app: &mut App, key: &Key| {
+        let _ = app.update(crate::app::Message::Settings(Event::Record(
+            keybinds::Target::Row(row),
+            true,
+        )));
+        for pressed in [true, false] {
+            let _ = app.update(crate::app::Message::Settings(Event::Heard(
+                keybinds::Heard::Key {
+                    key: key.clone(),
+                    pressed,
+                    escape: false,
+                },
+            )));
+        }
+        let _ = app.sync();
+    };
+    record(&mut app, &v);
+    assert!(app.layout.keybinds[row].keys.is_none(), "refused");
+    assert!(
+        shows(
+            &app,
+            "Yapfast already uses those keys, so a plugin can't have them. Record others."
+        ),
+        "and said so"
+    );
+    let n = Key {
+        scancode: 49,
+        name: "N".into(),
+        trigger: Some("n".into()),
+    };
+    record(&mut app, &n);
+    assert_eq!(
+        app.layout.keybinds[row]
+            .keys
+            .as_ref()
+            .map(Shortcut::name)
+            .as_deref(),
+        Some("N")
+    );
+    let watched = crate::keybinds::watched(&app.layout);
+    assert!(
+        watched
+            .iter()
+            .any(|watched| watched.action == Action::PluginBinding(binding.id)),
+        "watched by its binding's id, so a press finds its action"
+    );
+}

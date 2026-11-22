@@ -2793,9 +2793,39 @@ pub struct CommandRun {
     pub files: Vec<PathBuf>,
 }
 
+/// What a plugin asks of the linked Discord account that is answered later,
+/// once Discord or Spotify has: [`Event::PluginAnswered`] carries the answer
+/// back under the plugin's own call.
+#[cfg(feature = "plugins")]
+#[derive(Clone, Debug)]
+pub enum PluginAsk {
+    /// `activity.set` and `activity.clear`.
+    Activity(Option<Box<yapfast_plugin_api::account::ActivitySet>>),
+    /// `profile.set`'s bio and pronouns; the custom status goes the way a
+    /// person's does.
+    Profile {
+        bio: Option<String>,
+        pronouns: Option<String>,
+    },
+    /// `messages.search`.
+    Search(yapfast_plugin_api::account::SearchRequest),
+    /// `account.sessions`.
+    Sessions,
+    /// The `spotify.*` calls.
+    Spotify(yapfast_plugin_api::account::SpotifyAction),
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Something a plugin asked that Discord or Spotify answers; see
+    /// [`PluginAsk`].
+    #[cfg(feature = "plugins")]
+    PluginAsk {
+        plugin: String,
+        call: u64,
+        ask: PluginAsk,
+    },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.
     ActivityFeed,
@@ -4273,6 +4303,17 @@ pub enum Event {
     /// completes without anything polling for it.
     #[cfg(feature = "plugins")]
     Plugin(crate::application::plugins::News),
+    /// The answer to a [`DiscordCommand::PluginAsk`], for the plugin's call.
+    #[cfg(feature = "plugins")]
+    PluginAnswered {
+        plugin: String,
+        call: u64,
+        answer: yapfast_plugin_api::call::HostReturn,
+    },
+    /// What the linked Spotify plays, from the song the session shares, for a
+    /// plugin's `spotify_state`.
+    #[cfg(feature = "plugins")]
+    SpotifyShared(serde_json::Value),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
     /// The voice message [`Command::PlayVoiceMessage`] plays, as it

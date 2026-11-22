@@ -238,6 +238,30 @@ pub fn draw_inline<'a, M: Clone + 'a>(
     cells.into()
 }
 
+/// The kit's icon for a button's `icon`, one of [`yapfast_core::plugins::ui::ICONS`].
+pub fn kit_icon(name: &str) -> Option<crate::icons::Icon> {
+    use crate::icons::Icon;
+    Some(match name {
+        "previous" => Icon::SkipBack,
+        "play" => Icon::Play,
+        "pause" => Icon::Pause,
+        "next" => Icon::SkipForward,
+        "stop" => Icon::CircleStop,
+        "volume" => Icon::Volume,
+        "volume-off" => Icon::VolumeOff,
+        "music" => Icon::Music,
+        "star" => Icon::Star,
+        "bell" => Icon::Bell,
+        "pin" => Icon::Pin,
+        "link" => Icon::Link,
+        "download" => Icon::Download,
+        "refresh" => Icon::Refresh,
+        "search" => Icon::Search,
+        "settings" => Icon::Settings,
+        _ => return None,
+    })
+}
+
 /// One cell, with its tooltip when it has one.
 fn cell_view<'a, M: Clone + 'a>(
     paint: Paint<'a>,
@@ -296,13 +320,25 @@ fn cell_body<'a, M: Clone + 'a>(
         }
         Kind::Badge => badge(theme, &cell.text, ink),
         Kind::Icon | Kind::Image => picture(paint, cell),
-        Kind::Button => controls::action(
-            theme,
-            cell.text.clone(),
-            ActionKind::Plain,
-            cell.enabled.then(|| set(cell.id.clone())),
-        )
-        .into(),
+        // A button that names one of Yapfast's icons draws it, its words the
+        // tooltip, so it looks like the icon buttons beside it.
+        Kind::Button => match kit_icon(&cell.icon) {
+            Some(icon) => paint
+                .look
+                .icon_button(
+                    icon,
+                    cell.text.clone(),
+                    cell.enabled.then(|| set(cell.id.clone())),
+                )
+                .into(),
+            None => controls::action(
+                theme,
+                cell.text.clone(),
+                ActionKind::Plain,
+                cell.enabled.then(|| set(cell.id.clone())),
+            )
+            .into(),
+        },
         Kind::Link => {
             let accent = theme.accent;
             let lit = theme.text;

@@ -814,6 +814,14 @@ pub struct PluginManifest {
     /// Named behaviours this plugin switches.
     #[serde(default)]
     pub tweaks: BTreeMap<String, Value>,
+    /// Actions the person may bind to keys in Settings → Keybinds:
+    /// `keybinds`. The plugin hears the action, never the key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keybinds: Vec<crate::account::KeybindDecl>,
+    /// Yapfast's sound events it plays its own sound for, each naming one of
+    /// its sound `assets`: `sounds.replace`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub sounds: BTreeMap<String, String>,
 }
 
 impl PluginManifest {
@@ -876,6 +884,7 @@ impl PluginManifest {
             && self.ui.as_ref().is_none_or(UiDecl::is_empty)
             && self.tweaks.is_empty()
             && self.settings.is_empty()
+            && self.sounds.is_empty()
         {
             return Err(ManifestError::DoesNothing);
         }
@@ -897,6 +906,7 @@ impl PluginManifest {
             return Err(ManifestError::PortWithoutCapability);
         }
         self.check_powerful()?;
+        self.check_account()?;
         // Stopping a send by failing is a use of the capability that stops one
         // on purpose: a manifest may not claim it with nothing to ask the
         // person for.
@@ -920,6 +930,56 @@ impl PluginManifest {
         }
         if self.dependencies.contains_key(&self.id) {
             return Err(ManifestError::DependsOnItself);
+        }
+        Ok(())
+    }
+
+    /// The keybind actions and the sounds a manifest names: each needs its
+    /// capability, an action is a plain name with a label the Keybinds page
+    /// can show, and a sound replaces one of Yapfast's events with one of the
+    /// package's own sound assets.
+    fn check_account(&self) -> Result<(), ManifestError> {
+        let unpaired = |field: &'static str, capability: &'static str| ManifestError::Unpaired {
+            field,
+            capability,
+        };
+        if !self.keybinds.is_empty() && !self.permissions.allows(Capability::Keybinds) {
+            return Err(unpaired("keybinds", "keybinds"));
+        }
+        let mut actions: Vec<&str> = Vec::new();
+        for keybind in &self.keybinds {
+            if !plain_id(&keybind.action) || actions.contains(&keybind.action.as_str()) {
+                return Err(ManifestError::Name {
+                    field: "a keybind's action",
+                });
+            }
+            actions.push(&keybind.action);
+            let label = keybind.label.trim();
+            if label.is_empty() || crate::text::check(label).is_err() {
+                return Err(ManifestError::Label {
+                    field: "a keybind's label",
+                });
+            }
+        }
+        if !self.sounds.is_empty() && !self.permissions.allows(Capability::SoundsReplace) {
+            return Err(unpaired("sounds", "sounds.replace"));
+        }
+        for (event, asset) in &self.sounds {
+            if !crate::account::SOUND_EVENTS.contains(&event.as_str()) {
+                return Err(ManifestError::Text {
+                    field: "sounds",
+                    why: format!(
+                        "`{event}` isn't a sound Yapfast plays; it plays {}",
+                        crate::account::SOUND_EVENTS.join(", ")
+                    ),
+                });
+            }
+            if !self.assets.contains_key(asset) {
+                return Err(ManifestError::Text {
+                    field: "sounds",
+                    why: format!("`{asset}` isn't one of the manifest's `assets`"),
+                });
+            }
         }
         Ok(())
     }
@@ -1107,11 +1167,13 @@ impl PluginManifest {
                 });
             }
         }
+        // Attaching is part of sending: the files go with a message the
+        // plugin sends, under the same gesture and the same five in ten
+        // seconds, so a plugin that may not send may not attach.
         if permissions.allows(Capability::MessagesAttach)
-            && !permissions.allows(Capability::FsFolder)
-            && !permissions.allows(Capability::FsFull)
+            && !permissions.allows(Capability::MessagesSend)
         {
-            return Err(unpaired("messages.attach", "fs.folder` or `fs.full"));
+            return Err(unpaired("messages.attach", "messages.send"));
         }
         Ok(())
     }
@@ -1730,6 +1792,61 @@ mod tests {
             "*".parse::<VersionReq>()
                 .unwrap()
                 .matches(Version::new(9, 9, 9))
+        );
+    }
+
+    #[test]
+    fn keybinds_and_sounds_need_their_capability_and_their_names() {
+        let with = |permissions: &str, rest: &str| {
+            PluginManifest::parse(&format!(
+                r#"{{"api":1,"id":"com.example.k","name":"K","version":"1.0.0","wasm":"k.wasm",
+                    "assets":{{"ding":"ding.wav"}},"permissions":{permissions},{rest}}}"#
+            ))
+        };
+        let keybinds = r#""keybinds":[{"action":"next","label":"Next song"}]"#;
+        assert!(matches!(
+            with(r#"{"capabilities":[]}"#, keybinds),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        let fine = with(r#"{"capabilities":["keybinds"]}"#, keybinds).expect("a keybind");
+        assert_eq!(fine.keybinds[0].action, "next");
+        assert!(
+            with(
+                r#"{"capabilities":["keybinds"]}"#,
+                r#""keybinds":[{"action":"a","label":"A"},{"action":"a","label":"B"}]"#
+            )
+            .is_err(),
+            "two actions with one name"
+        );
+        let sounds = r#""sounds":{"message":"ding"}"#;
+        assert!(matches!(
+            with(r#"{"capabilities":[]}"#, sounds),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        assert!(with(r#"{"capabilities":["sounds.replace"]}"#, sounds).is_ok());
+        assert!(
+            with(
+                r#"{"capabilities":["sounds.replace"]}"#,
+                r#""sounds":{"message":"missing"}"#
+            )
+            .is_err(),
+            "a sound that isn't an asset"
+        );
+        assert!(
+            with(
+                r#"{"capabilities":["sounds.replace"]}"#,
+                r#""sounds":{"login":"ding"}"#
+            )
+            .is_err(),
+            "an event Yapfast has no sound for"
+        );
+        assert!(
+            with(
+                r#"{"capabilities":["messages.attach","messages.send"]}"#,
+                r#""tweaks":{}"#
+            )
+            .is_ok(),
+            "attaching needs sending, and no folder"
         );
     }
 }

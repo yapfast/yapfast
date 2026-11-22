@@ -236,7 +236,7 @@ impl Application {
                 let (Ok(id), Ok(capability)) = (PluginId::parse(plugin), capability) else {
                     return Vec::new();
                 };
-                if !capability.is_powerful() {
+                if !capability.asks_first() {
                     tracing::debug!(
                         %plugin,
                         "a capability is declared by the manifest, so there is nothing to take back"

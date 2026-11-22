@@ -50,12 +50,22 @@ audio capabilities, which share one line.
 | `network` | HTTPS to the hosts the manifest lists, and to no other | Uses network |
 | `network.local` | One exact loopback port, which the manifest names | Connects to an app on this computer |
 | `open.app` | Open other applications through listed URI schemes | Opens other apps |
+| `messages.attach` | Send files it made, or its own assets, with the messages it sends | Sends files it makes with the messages it sends, as you |
+| `activity.set` | An activity of its own on the account's presence | Shows an activity of its own on your profile, which everyone who sees you on Discord sees |
+| `profile.write` | The bio, the pronouns and the custom status, asked about the first time | Can change your bio, pronouns and custom status; you're asked the first time |
+| `keybinds` | Named actions the person binds to keys in Settings → Keybinds | Offers actions you can bind to keys; it never sees your keys |
+| `sounds.replace` | Its own sound assets in place of Yapfast's sound events | Replaces Yapfast's sounds with its own |
+| `messages.search` | Discord's search, as the search box asks it | Searches your messages through Discord's search, as the search box does |
+| `drafts.read` | The drafts the person left unsent | Reads the drafts you haven't sent |
+| `account.sessions` | The devices signed in to the account, read-only | Sees the devices signed in to your account and where they are |
+| `spotify.control` | The linked Spotify's playback: what plays, and its controls | Sees and controls what your Spotify plays |
 
 One of those sentences is shown in the dialog's danger tone:
 `messages.send.background`, the one that lets a plugin act as the person without
 them. The lines that reach something people care about are a step below it, in
 bold: `messages.read`, `messages.intercept`, `messages.send`, `messages.retain`,
-`servers.manage`, `uploads.intercept` and `ui.modify`.
+`servers.manage`, `uploads.intercept`, `ui.modify`, `messages.attach`,
+`profile.write`, `messages.search`, `drafts.read` and `account.sessions`.
 
 `messages.send` covers a send a person asked for. `messages.send.background`
 covers everything else, and it is a deliberate exception to the rule the rest of
@@ -105,9 +115,11 @@ and nothing powerful is allowed. The marketplace lists no powerful plugin as
 | `messages.send.agent` | Sending without a keystroke, at `agent-per-minute` (1 to 20, six unsaid) | Sends messages as you without you pressing a key |
 | `net.socket` | Raw TCP or WebSocket out | Not shown: designed below, not built |
 
-`messages.attach`, sending a file from the plugin's folder with a message, is
-not itself powerful, but it needs `fs.folder` or `fs.full` to have a folder to
-send from, so it is reached only through the tier.
+`messages.attach` is not powerful: it sends files the plugin made, or its own
+assets, with a message, on the rails every send takes
+([the account's own calls](#the-accounts-own-calls)). Sending a file from a
+folder by its path (`files`) needs `fs.folder` or `fs.full` as well, which is
+the tier.
 
 ### Files
 
@@ -262,12 +274,104 @@ using another plugin's button, is no gesture for this one.
 | `audio.play` | `audio.play`, whether the sound is carried in the call or is one of the package's assets |
 | `audio.speak` | `audio.speak` |
 | `files.save` | `files.save`, and a recent user gesture; one dialog per plugin at a time, titled with the plugin's name |
+| `messages.attach`, and `messages.send` with `attachments` | `messages.send` and `messages.attach`, and the send's own gesture and five in ten seconds |
+| `activity.set`, `activity.clear` | `activity.set` |
+| `profile.set` | `profile.write`, and the person's yes the first time |
+| `messages.search` | `messages.search` |
+| `drafts.list` | `drafts.read` |
+| `account.sessions` | `account.sessions` |
+| `spotify.now`, `play`, `pause`, `next`, `previous`, `seek`, `volume`, `shuffle`, `repeat` | `spotify.control` |
+| The `spotify_state` event | `spotify.control` |
+| A keybind action in the manifest, and the input it sends | `keybinds` |
+| A sound the manifest's `sounds` names | `sounds.replace` |
 | `discord.open_room`, `start_reply`, `start_edit` | none, and a recent user gesture: without one they answer `denied` |
 
 A curated action wraps something Yapfast already does, so the capability is the
 first of two gates and the person's own permissions are the second: a plugin may
 ask a server to pause its invites, and it happens only if this account has Manage
 Server there. Yapfast never acts with anything a plugin didn't declare.
+
+## The account's own calls
+
+These calls change or read the account itself, so each has a capability the
+review shows in words a person reads, and nothing past it: the only limits are
+the ones Discord and Spotify keep themselves, and the ones that keep Yapfast
+running. A plugin meets what the service would refuse anyway, and nothing
+Yapfast made up; the review line is the warning. Each source below was read
+when this was written (November 2026).
+
+**Files with a message.** `messages.attach` sends the plugin's own bytes, or
+its assets by name, with a message, as a person's attached files go: the send
+needs a click of the person's behind it or `messages.send.background`, it
+shares the five sends in ten seconds, and the message says *Sent by* the
+plugin under it, drawn by Yapfast. A message carries ten files, as Discord
+takes them, and each up to Discord's 10 MiB for an account without Nitro.
+Bytes arrive inside the call's frame, so one call carries at most 1 MiB of
+them; an asset is read from the store and isn't in the frame. A file's name is
+a name and no path, checked as `files.save`'s is. The parent writes the bytes
+under `<data>/plugins-attach/<plugin>/` for the upload to read, and removes a
+send's files once they are ten minutes old.
+
+**An activity.** `activity.set` adds the plugin's own activity to the
+presence, after the custom status, the game and the song, in the shape of
+Discord's Activity Object ([docs.discord.food, presence](https://docs.discord.food/resources/presence#activity-object)):
+a name of 1 to 128 characters, `details` and `state` of at most 128, `playing`,
+`listening`, `watching` or `competing` (types 0, 2, 3 and 5), timestamps in
+milliseconds, at most two buttons sent as their labels with the addresses in
+`metadata.button_urls`, the convention Discord's own clients use (the page
+says it is not enforced). A picture goes through a Discord application named
+in `application_id`: a web address becomes an `mp:` key through
+`POST /applications/{id}/external-assets`, Discord's media proxy, as the Rich
+Presence bridge does it for a game, and any other name is looked up in that
+application's assets. How often it changes is Discord's: the gateway takes
+five presence updates in twenty seconds and Yapfast's gateway already holds
+the rest back to the latest (`yapfast-discord/src/gateway.rs`). While the
+account is invisible no plugin activity is sent, as no song is. One plugin's
+activity shows at a time, the last one set; turning the plugin off takes it
+away, and its row in Settings → Plugins says what it shows. Unverified: whether
+Discord shows buttons on an activity with no `application_id`.
+
+**The profile.** `profile.set` changes the bio (at most 190 characters) and the
+pronouns (at most 40) with `PATCH /users/@me/profile`
+([docs.discord.food, user](https://docs.discord.food/resources/user#modify-user-profile)),
+the request Yapfast's own profile editor makes, and the custom status the way
+the status menu sets it. It is asked about the first time each plugin uses it,
+in the dialog the powerful tier's first use opens, without waiting for that
+tier's switch; the plugin's page has Revoke for it.
+
+**Search, drafts, devices.** `messages.search` is the search box's own search
+of a conversation or a server (Discord's page of 25), and Discord's search rate
+limit is the account's. `drafts.list` answers the drafts held in the composer.
+`account.sessions` lists the devices signed in, from `GET /auth/sessions`
+([docs.discord.food, authentication](https://docs.discord.food/authentication#auth-session-object)),
+up to 50, and never signs any out. Relationship affinities
+(`GET /users/@me/affinities/users` on the same site) are not available:
+Yapfast never asks for them and holds nothing to answer from, so there is no
+call.
+
+**Spotify.** Discord lends the account's linked Spotify an access token
+(`GET /users/@me/connections/spotify/{id}/access-token`), which is how Yapfast
+already shows "Listening to Spotify" (`yapfast-discord/src/spotify.rs`) and how
+Vencord's SpotifyControls controls playback. Yapfast makes the requests to
+`api.spotify.com/v1/me/player` itself, and the token never leaves
+`yapfast-discord`: a plugin names what it wants. Spotify's reference says of
+every control, "This API only works for users who have Spotify Premium"
+([developer.spotify.com](https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback));
+a free account's call is answered with an error saying Premium is needed
+(`PREMIUM_REQUIRED`, the reason Spotify's forum shows in its 403; the
+reason's name is not on the current reference pages, so a 403 that says
+Premium is read the same way). No device playing is an error of its own, and
+Spotify's own 429 is passed back with its wait. `spotify_state` follows the
+song the session already shares, so it needs no request and is quiet while
+"Display Spotify as your status" is off.
+
+**Keybinds and sounds.** A manifest names its keybind actions; the person binds
+keys to them in Settings → Keybinds, where each shows as *Plugin: action*.
+Keys another keybind or push to talk already use are refused for a plugin's
+action, and the plugin is told only that its action ran. A sound the manifest
+names replaces Yapfast's for that event, at the volume and on the speakers
+Yapfast's own would play; themes have no sound packs in this build, so this is
+the one path a sound is replaced by.
 
 ## The network gate
 

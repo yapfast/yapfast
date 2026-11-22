@@ -87,6 +87,16 @@ manifest and its assets, because an install reads all of them; the helper's
 end-to-end test loads it, and Settings → Plugins → *Load from a folder* installs
 it for a look at it running.
 
+`controls/` is the account's own calls the same way, as a SpotifyControls-style
+plugin: Back, Pause or Play, and Next in the voice panel (`spotify.previous`,
+`spotify.pause` or `spotify.play`, `spotify.next`), the middle label following
+`spotify_state`; the same three as keybind actions, which Settings → Keybinds
+offers as *Controls: …*; a composer button that sends its own `logo` asset
+with `messages.attach`; its `beep` in place of Yapfast's message sound; and
+`/controls-activity`, `/controls-clear` and `/controls-now` for `activity.set`,
+`activity.clear` and `spotify.now`. Its record is `controls/plugin.wasm.sha256`,
+and the helper's end-to-end test drives its buttons, keys and event.
+
 ## Writing one
 
 A guest export takes no arguments and answers a status code: 0 means the call

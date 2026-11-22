@@ -53,6 +53,8 @@ mod overwrites;
 mod own_profile;
 mod ownership;
 mod people;
+#[cfg(feature = "plugins")]
+mod plugin_asks;
 mod render;
 mod roles;
 mod server_settings;
@@ -154,6 +156,8 @@ pub(crate) enum Wake {
     Save,
     Video(crate::playback::Wake),
     VoiceMessage(Option<crate::voice_message::Report>),
+    /// The song the session shares changed, for a plugin's `spotify_state`.
+    Music(Option<Option<Arc<serde_json::Value>>>),
 }
 
 /// The linked Discord account in the chat actor: its connection and the open
@@ -162,6 +166,9 @@ pub(crate) struct Chat {
     discord: Discord,
     // Each becomes None once the connection is gone.
     states: Option<watch::Receiver<Arc<Snapshot>>>,
+    /// The song the session shares, which a plugin's `spotify_state` follows;
+    /// none in a build without plugins, which has nobody to tell.
+    music: Option<watch::Receiver<Option<Arc<serde_json::Value>>>>,
     live: Option<broadcast::Receiver<Live>>,
     online: bool,
     channels: Channels,
@@ -208,6 +215,7 @@ impl Chat {
         let (done, finished) = tokio::sync::mpsc::unbounded_channel();
         Ok(Some(Self {
             states: Some(discord.snapshots()),
+            music: cfg!(feature = "plugins").then(|| discord.shared_music()),
             live: Some(discord.live()),
             discord,
             online: false,
@@ -475,6 +483,7 @@ impl Chat {
             _ = self.saving.tick() => Wake::Save,
             wake = next_video(&mut self.video) => Wake::Video(wake),
             report = next_voice_message(&mut self.voice_message) => Wake::VoiceMessage(report),
+            song = next_song(&mut self.music) => Wake::Music(song),
         }
     }
 
@@ -546,6 +555,17 @@ impl Chat {
                     }
                 }
             }
+            #[cfg(feature = "plugins")]
+            Wake::Music(Some(song)) => {
+                let now = yapfast_discord::spotify::now_of_activity(
+                    song.as_deref(),
+                    crate::clock::now_ms(),
+                );
+                let _ = events.send(Event::SpotifyShared(now));
+            }
+            #[cfg(not(feature = "plugins"))]
+            Wake::Music(Some(_)) => {}
+            Wake::Music(None) => {}
             Wake::Snapshot(None) | Wake::Live(None) => {}
         }
     }
@@ -567,6 +587,20 @@ async fn next_voice_message(
         Some(player) => player.wait().await,
         None => std::future::pending().await,
     }
+}
+
+/// The next song the session shares, or never after it is gone.
+async fn next_song(
+    music: &mut Option<watch::Receiver<Option<Arc<serde_json::Value>>>>,
+) -> Option<Option<Arc<serde_json::Value>>> {
+    let Some(receiver) = music else {
+        return std::future::pending().await;
+    };
+    if receiver.changed().await.is_err() {
+        *music = None;
+        return None;
+    }
+    Some(receiver.borrow_and_update().clone())
 }
 
 /// The next snapshot, or never after the connection is gone.

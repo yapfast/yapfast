@@ -54,6 +54,12 @@ impl Application {
                 call,
                 request: crate::plugins::state::AppCall::SaveFile { name, bytes },
             }) => self.plugins_save_file(plugin, call, name, bytes),
+            // Discord or Spotify answers these, later, under the same call.
+            News::Notice(Notice::Call {
+                plugin,
+                call,
+                request,
+            }) if account::answered_later(&request) => self.plugins_ask(plugin, call, request),
             News::Notice(Notice::Call {
                 plugin,
                 call,
@@ -182,6 +188,8 @@ impl Application {
                     .is_some_and(|plugins| plugins.forget_identities());
                 let mut effects = redraw_if(gone || identities);
                 effects.extend(self.plugins_interface_moved());
+                // A plugin that stopped shows no activity on the account.
+                effects.extend(self.plugins_activity_gone(&plugin));
                 effects
             }
             // The store changed under the instances that drew what's on

@@ -157,7 +157,7 @@ a log.
 | `yf_member_decorate` | `DecorateMemberRequest { server, room, member, name, own, bot, roles }` | `MemberBadge { text, tone }`, or `null` for none |
 | `yf_identity` | `IdentityRequest { person, server, name, username, own }` | An `Identity`, or `null` for none |
 | `yf_code_block` | `CodeBlockRequest { block, language, text }` | A list of spans, or `null` for none |
-| `yf_input` | `InputEvent`, one of `menu`, `widget` or `dismissed` | Nothing |
+| `yf_input` | `InputEvent`, one of `menu`, `widget`, `dismissed` or `keybind` | Nothing |
 | `yf_call` | `HostCall { method, payload }` | `HostReturn` |
 | `yf_post` | `HostCall` | Nothing |
 
@@ -211,6 +211,7 @@ one call with several events rather than one call each.
 | `speaking` | `{ "person": …, "speaking": true\|false }` | The call's own voice state, once per person whose voice started or stopped, which is what `discord_audio` hears in its frames |
 | `member_join` | `{ "person": …, "name": … }` | The open room's member list, once per person who appeared in it since its last list; the first list of a conversation says nothing |
 | `member_leave` | `{ "person": … }` | The same list, once per person who left it |
+| `spotify_state` | `spotify.now`'s answer, or `{ "playing": false }` | The song the session shares for the linked Spotify, once per change |
 
 `voice_state` isn't coalesced: it is sent when the call changes as a whole —
 joined, left, a phase, this account's mute or deafen, its screen or camera, the
@@ -332,7 +333,8 @@ field that isn't is dropped, and the rest of the answer still applies.
 
 `yf_input` is the click, not the question: the interface has already changed — a
 toggle took its value, a notice left the screen — so there is nothing to answer.
-`menu` carries the row's `action` and what the menu was about, `widget` the slot,
+`menu` carries the row's `action` and what the menu was about, `keybind` the
+keybind action the person's keys ran, `widget` the slot,
 the widget's id, its new value and what it was drawn on, and `dismissed` the slot
 the notice was in. A plugin that wants the person to see something says it with
 `ui.notice` or by drawing again.
@@ -406,7 +408,7 @@ reaches REST.
 | --- | --- | --- | --- |
 | `discord.set_status` | `{ status }` | `true` | Sets `online`, `idle`, `dnd` or `invisible`, as the status menu does |
 | `discord.set_custom_status` | `{ text, emoji?, clear_after? }` | `true` | Sets the line under the name; `clear_after` is seconds. Empty text and no emoji clears it |
-| `discord.set_activity` | `{ enabled }` | `true` | Shows or hides the game Discord sees you play, which is the only activity Yapfast has |
+| `discord.set_activity` | `{ enabled }` | `true` | Shows or hides the game Discord sees you play; a plugin's own activity is `activity.set`, below |
 | `discord.clear_activity` | none | `true` | The same as `{ enabled: false }` |
 | `discord.mark_read` | `{ room }` | `true` | Marks a conversation, server, category or folder read, as its menu does |
 | `discord.set_mute` | `{ room, muting }` | `true` | Mutes a conversation, channel or server; `muting` is `"off"`, `"always"` or `{ "minutes": n }` |
@@ -500,6 +502,42 @@ call is `denied` saying the person is being asked.
 | `net.listen` | none | `{ listening, port, url }`, then one more answer per request: `{ request, method, path, headers, body_base64 }` |
 | `net.respond` | `{ request, status?, headers?, text \| body_base64 }` | `true`, or an `error` for a request no longer waiting |
 
+### The account's own calls
+
+Each has its capability, and each is answered later: `pending`, then the
+answer in a later batch, because Discord or Spotify answers it
+([permissions](permissions.md#the-accounts-own-calls) has the limits, which are
+the services' own, and the sources).
+
+| Call | Payload | Answer |
+| --- | --- | --- |
+| `messages.attach` | `{ room, body, attachments }`, the same as `messages.send` | `true` |
+| `activity.set` | `{ name, kind?, details?, state?, start_ms?, end_ms?, application_id?, large_image?, large_text?, small_image?, small_text?, buttons? }` | `true` once Discord took its pictures |
+| `activity.clear` | none | `true` |
+| `profile.set` | `{ bio?, pronouns?, custom_status?: { text, emoji? } }` | `true`; `denied` the first time, while the person is asked |
+| `messages.search` | `{ place, query, offset? }` | `{ total, hits: [{ room, message, author, body, at }], indexing }` |
+| `drafts.list` | none | `[{ room, body }]` |
+| `account.sessions` | none | `[{ id_hash, last_used?, os?, platform?, location? }]` |
+| `spotify.now` | none | `{ playing, track?, artists, album?, uri?, duration_ms?, position_ms?, shuffle?, repeat?, volume?, device? }`, or `null` |
+| `spotify.play`, `pause`, `next`, `previous` | none | `true` |
+| `spotify.seek` | `{ position_ms }` | `true` |
+| `spotify.volume` | `{ percent }`, 0 to 100 | `true` |
+| `spotify.shuffle` | `{ on }` | `true` |
+| `spotify.repeat` | `{ mode }`: `off`, `track` or `context` | `true` |
+
+An attachment is `{ name, bytes_base64 }` or `{ name, asset }`, never both, and
+`spoiler: true` covers it until clicked. `messages.send` takes `attachments` as
+well, with `messages.attach` declared. `place` is a room's id or a server's, and
+`query` takes the search box's filters. A Spotify call that fails says why: no
+Spotify linked, Premium needed, nothing playing on any device, or Spotify's own
+wait.
+
+`spotify_state` is an event, with `spotify.control`: what the session shares
+for the linked Spotify changed, and the payload is `spotify.now`'s shape, or
+`{ "playing": false }` when nothing plays. A keybind arrives at `yf_input` as
+`{ "kind": "keybind", "action": "next" }`, the action as the manifest's
+`keybinds` names it; it is a person's gesture, as a menu row is.
+
 A path is inside the folder the plugin was given, with `/` between its parts.
 `messages.send` takes `files`, paths in that folder, with `messages.attach`: at
 most ten, each at most 10 MiB, sent as a person's attached files are and never
@@ -515,8 +553,8 @@ the ABI lists has a typed payload in the contract crate: `storage`, `settings`,
 the `ui` calls, `media.get`, the application's own actions (`messages.send`,
 `edit`, `delete`, `react` and `jump_to`, the `composer` calls, `notify.send`,
 `clipboard.write` and `open.url`), the `discord` ones, the `audio` ones,
-`voice.state`, `files.save`, `assets.list` and `assets.get`, and the `plugin`
-group. A name this build doesn't have answers `unsupported` rather than
+`voice.state`, `files.save`, `assets.list` and `assets.get`, the account's own
+calls (`crate::account`), and the `plugin` group. A name this build doesn't have answers `unsupported` rather than
 failing to link, which is how a plugin feature-detects what the Yapfast in front
 of it can do.
 

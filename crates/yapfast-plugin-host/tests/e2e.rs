@@ -463,6 +463,121 @@ fn the_showcase_decorates_and_its_new_calls_reach_the_parent() {
     }
 }
 
+/// The Controls sample, through the real helper: it draws its buttons when it
+/// starts, a keybind or a button becomes the Spotify call it names, Share
+/// sends its own asset in the conversation the button was under, and
+/// `spotify_state` turns Pause into Play.
+#[test]
+fn the_controls_sample_turns_keys_and_buttons_into_its_calls() {
+    let mut helper = Helper::start("controls");
+    let controls = plugin("controls");
+    let module = fixtures().join("controls").join("plugin.wasm");
+    helper.activate_module(&controls, &module, PAGES);
+    let mut drawn = Vec::new();
+    for _ in 0..2 {
+        let FromHelper::Call { request, .. } = helper.wait_for(BUDGET, "ui.set_slot", |message| {
+            matches!(message, FromHelper::Call { .. })
+        }) else {
+            unreachable!("waited for a call");
+        };
+        assert_eq!(request.method, "ui.set_slot");
+        drawn.push(
+            request.payload["slot"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        );
+    }
+    drawn.sort();
+    assert_eq!(drawn, ["composer", "voice.panel"]);
+
+    let mut ask = |input: yapfast_plugin_api::message::InputEvent| {
+        let id = helper.next_id();
+        helper.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Input {
+                plugin: controls.clone(),
+                input,
+            },
+        );
+        let FromHelper::Call { request, .. } = helper.wait_for(BUDGET, "a call", |message| {
+            matches!(message, FromHelper::Call { .. })
+        }) else {
+            unreachable!("waited for a call");
+        };
+        request
+    };
+    let keybind = |action: &str| yapfast_plugin_api::message::InputEvent::Keybind {
+        action: action.into(),
+    };
+    assert_eq!(ask(keybind("next")).method, "spotify.next");
+    assert_eq!(ask(keybind("back")).method, "spotify.previous");
+    assert_eq!(ask(keybind("toggle")).method, "spotify.pause");
+    // Paused, the middle button reads Play.
+    let FromHelper::Call { request, .. } = helper.wait_for(BUDGET, "the panel again", |message| {
+        matches!(message, FromHelper::Call { .. })
+    }) else {
+        unreachable!("waited for a call");
+    };
+    assert_eq!(request.method, "ui.set_slot");
+    assert!(
+        request.payload.to_string().contains("\"Play\""),
+        "{}",
+        request.payload
+    );
+    let mut ask = |input: yapfast_plugin_api::message::InputEvent| {
+        let id = helper.next_id();
+        helper.send(
+            FrameKind::Request,
+            id,
+            &ToHelper::Input {
+                plugin: controls.clone(),
+                input,
+            },
+        );
+        let FromHelper::Call { request, .. } = helper.wait_for(BUDGET, "a call", |message| {
+            matches!(message, FromHelper::Call { .. })
+        }) else {
+            unreachable!("waited for a call");
+        };
+        request
+    };
+    let shared = ask(yapfast_plugin_api::message::InputEvent::Widget {
+        slot: "composer".into(),
+        id: "share".into(),
+        value: String::new(),
+        subject: "room-7".into(),
+    });
+    assert_eq!(shared.method, "messages.attach");
+    assert_eq!(shared.payload["room"], "room-7");
+    assert_eq!(shared.payload["attachments"][0]["asset"], "logo");
+
+    // Spotify says it plays again: the middle button reads Pause.
+    helper.event(
+        &controls,
+        EventEnvelope {
+            kind: yapfast_plugin_api::event::EventKind::SpotifyState,
+            network: yapfast_plugin_api::event::Network::Discord,
+            at: 0,
+            room: None,
+            author: None,
+            own: true,
+            payload: serde_json::json!({ "playing": true, "track": "Song" }),
+        },
+    );
+    let FromHelper::Call { request, .. } = helper.wait_for(BUDGET, "the panel again", |message| {
+        matches!(message, FromHelper::Call { .. })
+    }) else {
+        unreachable!("waited for a call");
+    };
+    assert!(
+        request.payload.to_string().contains("\"Pause\""),
+        "{}",
+        request.payload
+    );
+}
+
 #[test]
 fn a_hook_that_answers_nonsense_fails_open() {
     let mut helper = Helper::start("bad-answer");

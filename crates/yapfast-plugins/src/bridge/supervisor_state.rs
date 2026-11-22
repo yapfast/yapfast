@@ -100,6 +100,12 @@ impl Bridge {
                     slot: slot.id().to_owned(),
                 },
             ),
+            crate::Input::Keybind { plugin, action } => (
+                plugin.clone(),
+                yapfast_plugin_api::message::InputEvent::Keybind {
+                    action: action.clone(),
+                },
+            ),
         };
         let Ok(plugin) = PluginId::parse(&plugin) else {
             // A slot drawn by something that isn't a plugin id can't be handed
@@ -107,8 +113,16 @@ impl Bridge {
             // so this is a manifest that changed under a click.
             return;
         };
-        // A row chosen or a widget used is the person asking this plugin for
-        // something; a notice closed is not.
+        // A keybind reaches only a plugin that declared it and the action:
+        // a layout that kept a binding after the plugin changed is let go.
+        if let crate::Input::Keybind { action, .. } = input
+            && !self.shared.declares_keybind(&plugin, action)
+        {
+            tracing::debug!(%plugin, %action, "a keybind for an action the plugin doesn't declare");
+            return;
+        }
+        // A row chosen, a widget used or a keybind pressed is the person
+        // asking this plugin for something; a notice closed is not.
         if !matches!(input, crate::Input::Dismissed { .. }) {
             self.shared.gesture(&plugin);
         }

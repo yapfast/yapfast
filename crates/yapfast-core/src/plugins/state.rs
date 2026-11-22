@@ -23,13 +23,16 @@ use yapfast_plugin_api::manifest::CommandDecl;
 use yapfast_plugin_api::message::PluginStatus;
 
 use crate::plugins::bridge;
-pub use crate::plugins::bridge::messages::{AppCall, Notice, PreSend};
+pub use crate::plugins::bridge::messages::{AppCall, MadeFile, Notice, PreSend};
 use crate::plugins::settings;
 
 /// Everything the application knows about plugins.
 pub struct PluginState {
     /// The bridge's half: the registry, the helper and its mailboxes.
     bridge: bridge::Bridge,
+    /// Where the files a plugin made wait for the upload that sends them:
+    /// `<data>/plugins-attach`.
+    attach_dir: std::path::PathBuf,
     /// The application's state as the wire carries it, which the bridge answers
     /// a guest's reads from. Held here rather than asked of the bridge, because
     /// publishing is the application's side of it.
@@ -106,6 +109,7 @@ impl PluginState {
         bridge.install_pictures(Arc::new(crate::plugins::world::Disk));
         Ok(PluginState {
             bridge,
+            attach_dir: data_dir.join("plugins-attach"),
             world,
             grants,
             settings: settings::Store::new(data_dir.join("plugins")),
@@ -121,6 +125,23 @@ impl PluginState {
     /// lists, the open room's messages and members. The bridge answers a
     /// guest's reads from the same value, which is why it is cheap to publish
     /// into: an `Arc` clone per change, and nothing at all when nothing moved.
+    /// Where the files a plugin made are written for the upload that sends
+    /// them.
+    pub fn attach_dir(&self) -> &Path {
+        &self.attach_dir
+    }
+
+    /// The keybind actions the enabled plugins offer, for Settings → Keybinds.
+    pub fn keybind_actions(&self) -> Vec<bridge::supervisor_account::KeybindAction> {
+        self.bridge.keybind_actions()
+    }
+
+    /// The sound a plugin plays for one of Yapfast's sound events, and which
+    /// plugin, when one replaces it.
+    pub fn sound_for(&self, event: &str) -> Option<(PluginId, Vec<u8>)> {
+        self.bridge.sound_for(event)
+    }
+
     pub fn world(&self) -> &Arc<crate::plugins::world::World> {
         &self.world
     }

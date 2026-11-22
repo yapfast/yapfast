@@ -168,6 +168,9 @@ pub enum Icon {
     PlayMark,
     Play,
     Pause,
+    /// To the previous and the next song: a plugin's media buttons.
+    SkipBack,
+    SkipForward,
     Volume,
     VolumeOff,
     Link,
@@ -252,6 +255,8 @@ impl Icon {
             }
             Icon::Play => icon!("play.svg"),
             Icon::Pause => icon!("pause.svg"),
+            Icon::SkipBack => icon!("skip-back.svg"),
+            Icon::SkipForward => icon!("skip-forward.svg"),
             Icon::Volume => icon!("volume-2.svg"),
             Icon::VolumeOff => icon!("volume-x.svg"),
             Icon::Link => icon!("external-link.svg"),

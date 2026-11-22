@@ -93,6 +93,10 @@ pub fn command(
     let Some(command) = own_profile::command(command, discord, events) else {
         return;
     };
+    #[cfg(feature = "plugins")]
+    let Some(command) = super::plugin_asks::command(command, discord, events) else {
+        return;
+    };
     let Some(command) = gifs::command(command, discord, events) else {
         return;
     };

@@ -1,0 +1,8 @@
+# The committed modules here, each with the files it was compiled from, so that a
+# stale one fails. Written by scripts/check-plugin-fixtures --update; see the
+# README beside this file, and `sha256sum -c` reads it as it stands.
+588ce125054248576adb94530daa659f50cc23637e334362cebdeab9af0cee37  beep.wav
+c8de8507fc1a90d693ab348f802e48066b2659eb473daa0f842e1262b0ce246a  logo.png
+70b4bd9ba40ad133f3c76b9eb8913fd8b5c27f1e94450f12f4dbe300a9894412  plugin.wasm
+abc270f4639b77868a30148a0fd2ecd3499ac5b58ededed4ef7d3b80d71603c9  plugin.wat
+d307e3ac797404b32dfa4dd3e83afb32c65cbd9531ab5d62f4f6883769e0c60c  yapfast-plugin.json

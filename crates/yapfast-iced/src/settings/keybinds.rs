@@ -10,7 +10,7 @@ use iced::{
     keyboard::{self, Key as Pressed, Location, key},
     widget::{column, container, row},
 };
-use yapfast_core::keybinds::{Action, Binding, Key, Recorder, Shortcut};
+use yapfast_core::keybinds::{Action, Binding, Key, PluginAction, Recorder, Shortcut};
 
 use super::{Drop, Event as SettingsEvent, Page, Settings};
 use crate::{
@@ -57,8 +57,43 @@ pub enum Heard {
 pub enum Event {
     Add,
     Remove(usize),
-    /// A row's action chosen, by its place in [`Action::OFFERED`].
+    /// A row's action chosen, by its place in [`Action::OFFERED`] and then in
+    /// the plugins' actions ([`plugin_actions`]).
     Action(usize, usize),
+}
+
+/// The keybind actions the enabled plugins offer, each with the words the
+/// Keybinds page shows for it: "<plugin>: <action>".
+pub(super) fn plugin_actions(
+    state: &yapfast_core::application::AppState,
+) -> Vec<(PluginAction, String)> {
+    #[cfg(feature = "plugins")]
+    {
+        state
+            .plugins
+            .as_ref()
+            .map(|plugins| {
+                plugins
+                    .keybind_actions()
+                    .into_iter()
+                    .map(|offered| {
+                        (
+                            PluginAction {
+                                plugin: offered.plugin.to_string(),
+                                action: offered.action,
+                            },
+                            format!("{}: {}", offered.name, offered.label),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = state;
+        Vec::new()
+    }
 }
 
 fn keybind_message(event: Event) -> Message {
@@ -117,6 +152,30 @@ impl Settings {
                 cx.layout.voice.push_to_talk_key = Some(keys);
             }
             Target::Row(row) => {
+                // A plugin's action never takes keys Yapfast already uses:
+                // another keybind's, or push to talk's.
+                let plugin_row = cx
+                    .layout
+                    .keybinds
+                    .get(row)
+                    .is_some_and(|binding| binding.action == Action::Plugin);
+                if plugin_row {
+                    let others = cx
+                        .layout
+                        .keybinds
+                        .iter()
+                        .enumerate()
+                        .filter(|(other, _)| *other != row)
+                        .filter_map(|(_, binding)| binding.keys.as_ref())
+                        .chain(cx.layout.voice.push_to_talk_key.as_ref());
+                    if yapfast_core::keybinds::taken(&keys, others) {
+                        tracing::info!(keys = keys.name(), "a plugin keybind's keys are taken");
+                        self.keybind_taken = Some(row);
+                        cx.request(Request::Changed(Shown::Keybinds));
+                        return;
+                    }
+                }
+                self.keybind_taken = None;
                 let Some(binding) = cx.layout.keybinds.get_mut(row) else {
                     return;
                 };
@@ -129,6 +188,7 @@ impl Settings {
     }
 
     pub(super) fn keybind_event(&mut self, event: Event, cx: &mut Cx<'_>) {
+        let offered_plugins = plugin_actions(cx.state());
         let keybinds = &mut cx.layout.keybinds;
         match event {
             Event::Add => {
@@ -137,7 +197,9 @@ impl Settings {
                     id,
                     action: Action::Unassigned,
                     keys: None,
+                    plugin: None,
                 });
+                self.keybind_taken = None;
             }
             Event::Remove(row) => {
                 if row >= keybinds.len() {
@@ -149,15 +211,24 @@ impl Settings {
             }
             Event::Action(row, index) => {
                 self.open = None;
-                let (Some(binding), Some(&action)) =
-                    (keybinds.get_mut(row), Action::OFFERED.get(index))
-                else {
+                let Some(binding) = keybinds.get_mut(row) else {
                     return;
                 };
-                if binding.action == action {
+                let (action, plugin) = match Action::OFFERED.get(index) {
+                    Some(&action) => (action, None),
+                    None => match offered_plugins.get(index - Action::OFFERED.len()) {
+                        Some((plugin, _)) => (Action::Plugin, Some(plugin.clone())),
+                        None => return,
+                    },
+                };
+                if binding.action == action && binding.plugin == plugin {
                     return;
                 }
                 binding.action = action;
+                binding.plugin = plugin;
+                if self.keybind_taken == Some(row) {
+                    self.keybind_taken = None;
+                }
             }
         }
         cx.keep("keybinds", &cx.layout.keybinds);
@@ -168,8 +239,13 @@ impl Settings {
 impl<'a> Page<'a> {
     pub(super) fn keybinds_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let plugins = !plugin_actions(self.cx.state).is_empty();
         let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            if plugins {
+                "Keybinds mute, deafen, talk or run a plugin's action from any app. Add one, choose what it does, and record its keys.".to_owned()
+            } else {
+                "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            }
         });
         let mut parts = vec![
             form::beside(
@@ -195,13 +271,19 @@ impl<'a> Page<'a> {
     fn keybind_row(self, row: usize, binding: &'a Binding) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let settings = self.s;
-        let names = Action::OFFERED
+        let offered_plugins = plugin_actions(self.cx.state);
+        let names: Vec<String> = Action::OFFERED
             .iter()
             .map(|action| action.label().to_owned())
+            .chain(offered_plugins.iter().map(|(_, label)| label.clone()))
             .collect();
-        let chosen = Action::OFFERED
-            .iter()
-            .position(|&action| action == binding.action);
+        let chosen = match (&binding.action, &binding.plugin) {
+            (Action::Plugin, Some(plugin)) => offered_plugins
+                .iter()
+                .position(|(offered, _)| offered == plugin)
+                .map(|index| Action::OFFERED.len() + index),
+            (action, _) => Action::OFFERED.iter().position(|offered| offered == action),
+        };
         let actions = column![
             form::heading(theme, "ACTION"),
             form::dropdown(
@@ -249,6 +331,18 @@ impl<'a> Page<'a> {
             form::note(theme, binding.action.description()),
         ]
         .spacing(12);
+        if binding.action == Action::Plugin && chosen.is_none() {
+            body = body.push(form::note(
+                theme,
+                "The plugin this keybind ran is off or gone, so it does nothing.",
+            ));
+        }
+        if settings.keybind_taken == Some(row) {
+            body = body.push(form::note(
+                theme,
+                "Yapfast already uses those keys, so a plugin can't have them. Record others.",
+            ));
+        }
         if let Some(given) = self.cx.keybinds.given_note(&binding.shortcut_id()) {
             body = body.push(form::note(theme, given));
         }

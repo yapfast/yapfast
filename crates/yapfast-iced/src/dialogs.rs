@@ -170,11 +170,15 @@ pub fn powerful_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     } else {
         "Allow"
     };
+    // `profile.write` is asked about the same way, and isn't the powerful
+    // tier: the title says which this is.
+    let title = if ask.capability.is_powerful() {
+        "Allow a powerful permission?"
+    } else {
+        "Allow this permission?"
+    };
     let body = column![
-        text("Allow a powerful permission?")
-            .size(18)
-            .font(BOLD)
-            .color(danger),
+        text(title).size(18).font(BOLD).color(danger),
         text(format!(
             "{} ({}) wants to use {} for the first time.",
             ask.name, ask.plugin, ask.capability

@@ -600,7 +600,33 @@ pub fn capability(name: &str) -> (String, Tone) {
         "clipboard.write" => ("Writes to your clipboard", Tone::Normal),
         "ui.modify" => ("Can change Yapfast's interface", Tone::Strong),
         "open.app" => ("Opens other apps", Tone::Normal),
-        "messages.attach" => ("Sends files from its folder with messages", Tone::Strong),
+        "messages.attach" => (
+            "Sends files it makes with the messages it sends, as you",
+            Tone::Strong,
+        ),
+        "activity.set" => (
+            "Shows an activity of its own on your profile, which everyone who sees you on Discord sees",
+            Tone::Normal,
+        ),
+        "profile.write" => (
+            "Can change your bio, pronouns and custom status; you're asked the first time",
+            Tone::Strong,
+        ),
+        "keybinds" => (
+            "Offers actions you can bind to keys; it never sees your keys",
+            Tone::Normal,
+        ),
+        "sounds.replace" => ("Replaces Yapfast's sounds with its own", Tone::Normal),
+        "messages.search" => (
+            "Searches your messages through Discord's search, as the search box does",
+            Tone::Strong,
+        ),
+        "drafts.read" => ("Reads the drafts you haven't sent", Tone::Strong),
+        "account.sessions" => (
+            "Sees the devices signed in to your account and where they are",
+            Tone::Strong,
+        ),
+        "spotify.control" => ("Sees and controls what your Spotify plays", Tone::Normal),
         // The powerful tier, in the danger tone wherever it is listed.
         "messages.send.agent" => (
             "Sends messages as you without you pressing a key, as an agent",
@@ -737,6 +763,11 @@ impl Installed {
 }
 
 /// A line per capability; `audio.play` and `audio.speak` share one.
+///
+/// Only a capability the person answered for has something to take back:
+/// the powerful tier and `profile.write`, whose next use asks again. The
+/// rest are the manifest's own, which only an uninstall takes away, so their
+/// lines carry no Revoke.
 fn capability_lines(capabilities: &[String]) -> Vec<Line> {
     let mut lines: Vec<Line> = Vec::new();
     for name in capabilities {
@@ -744,10 +775,14 @@ fn capability_lines(capabilities: &[String]) -> Vec<Line> {
         if lines.iter().any(|line| line.text == text) {
             continue;
         }
+        let revocable = serde_json::from_value::<yapfast_plugin_api::capability::Capability>(
+            serde_json::Value::String(name.clone()),
+        )
+        .is_ok_and(yapfast_plugin_api::capability::Capability::asks_first);
         lines.push(Line {
             text,
             tone,
-            permission: Some(Permission::Capability(name.clone())),
+            permission: revocable.then(|| Permission::Capability(name.clone())),
         });
     }
     lines
@@ -1362,6 +1397,15 @@ mod tests {
         assert_eq!(lines[0].tone, Tone::Strong);
         assert_eq!(lines[4].tone, Tone::Warning);
         assert_eq!(lines[4].permission, None);
+        assert_eq!(
+            lines[0].permission, None,
+            "a manifest's own capability has nothing to take back"
+        );
+        let asked = permission_lines(&["profile.write".into(), "fs.folder".into()], &[]);
+        assert!(
+            asked.iter().all(|line| line.permission.is_some()),
+            "an answered one has Revoke"
+        );
         // Without a host, reading messages is one line, and nothing more.
         assert_eq!(
             texts(&permission_lines(&["messages.read".into()], &[])),

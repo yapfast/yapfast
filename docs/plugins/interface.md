@@ -248,7 +248,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `code` | Monospaced text on the sunken ground | `text` |
 | `badge` | A small mark in its tone | `text`, `tone` |
 | `icon`, `image` | A picture, 16 px square or up to 240 × 135 | `src`, `text` while it isn't there |
-| `button`, `link` | A button in the kit's plain style, or a link's words | `id`, `text`, `enabled` |
+| `button`, `link` | A button in the kit's plain style, or a link's words | `id`, `text`, `enabled`, and a button's `icon` |
 | `toggle` | The kit's switch, its label before it | `id`, `text`, `checked` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
 | `dropdown` | The kit's drop-down, its label over it | `id`, `text`, `options`, `value` |
@@ -265,6 +265,14 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `tabs` | Its tabs' labels, and the chosen tab's rows | `id`, `tabs`: `{ "label", "rows" }` |
 | `section` | A heading that folds its rows open and shut | `id`, `text`, `rows`, `collapsed` |
 | `divider`, `spacer` | A line, or a gap | |
+
+A button may name one of Yapfast's own icons in `icon` — `previous`, `play`,
+`pause`, `next`, `stop`, `volume`, `volume-off`, `music`, `star`, `bell`,
+`pin`, `link`, `download`, `refresh`, `search` or `settings` — and is drawn as
+an icon button with its `text` as what the tooltip and a screen reader say, so
+it looks like the buttons beside it; a name this build doesn't have draws the
+text. In the voice panel each button is a tile of the panel's own row, its
+tooltip naming the plugin (*Next song · Controls plugin*).
 
 Any cell takes a `tooltip`, plain text shown when the pointer rests on it. A
 cell's `tone` is `normal`, `muted`, `accent`, `success`, `warning` or `danger`,
