@@ -124,6 +124,7 @@ impl App {
             );
         }
         subscriptions.extend(crate::arrange::arrange_subscription(self));
+        subscriptions.extend(crate::rail::drag_subscription(self));
         subscriptions.extend(crate::uploads::follow_subscription(self));
         if shown {
             subscriptions.extend(crate::typing::subscription(self));

@@ -73,6 +73,9 @@ impl App {
         // come and go: the card, the suggestions, the picker, a menu, the
         // modal, each over the last.
         let mut layers = stack![base];
+        if let Some(face) = crate::rail::drag_face(&self.rail, self.ctx()) {
+            layers = layers.push(face);
+        }
         // A role's card, under the card of someone on it.
         if let Some(role) = crate::info_cards::role_layers(&self.cards, &self.profiles, self.ctx())
         {

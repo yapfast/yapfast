@@ -154,8 +154,7 @@ pub(super) struct Tracker {
     /// When its friendships began, in Unix milliseconds, by user id.
     friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
-    order: Vec<String>,
-    folders: Vec<settings::Folder>,
+    server_list: Arc<settings::ServerList>,
     /// This account's status and custom status, from its settings.
     pub(super) status: String,
     pub(super) custom_status: Option<CustomStatus>,
@@ -246,8 +245,7 @@ impl Tracker {
             ignored: Vec::new(),
             nicknames: HashMap::new(),
             friends_since: HashMap::new(),
-            order: Vec::new(),
-            folders: Vec::new(),
+            server_list: Arc::default(),
             status: "online".into(),
             custom_status: None,
             afk_timeout: settings::AFK_TIMEOUT,
@@ -1372,11 +1370,56 @@ impl Tracker {
         if let Some(join_sounds) = soundboard.join_sounds {
             self.join_sounds = join_sounds.into();
         }
-        if let Some(list) = settings::server_list(encoded) {
-            self.order = list.order;
-            self.folders = list.folders;
-            self.sort_servers();
+        if let Some(list) = settings::server_list(encoded)
+            && *self.server_list != list
+        {
+            self.set_server_list(Arc::new(list));
         }
+    }
+
+    pub(super) fn file_server(
+        &mut self,
+        server: &str,
+        source_folder: bool,
+        target: &str,
+        folder: bool,
+        before: Option<bool>,
+    ) -> Option<super::ServerListWrite> {
+        let joined = self.servers.iter().map(|server| server.id.as_str());
+        let patch = settings::file_server(
+            &self.server_list,
+            joined,
+            server,
+            source_folder,
+            target,
+            folder,
+            before,
+        )?;
+        let shown = settings::server_list(&patch)?;
+        if *self.server_list == shown {
+            return None;
+        }
+        let shown = Arc::new(shown);
+        let previous = self.server_list.clone();
+        self.set_server_list(shown.clone());
+        Some(super::ServerListWrite {
+            patch,
+            previous,
+            shown,
+        })
+    }
+
+    pub(super) fn restore_server_list(&mut self, change: super::ServerListWrite) -> bool {
+        if !Arc::ptr_eq(&self.server_list, &change.shown) {
+            return false;
+        }
+        self.set_server_list(change.previous);
+        true
+    }
+
+    fn set_server_list(&mut self, list: Arc<settings::ServerList>) {
+        self.server_list = list;
+        self.sort_servers();
     }
 
     /// A server to change, copied first if a snapshot shares it.
@@ -1392,6 +1435,7 @@ impl Tracker {
     /// shows a server just joined.
     fn sort_servers(&mut self) {
         let place: HashMap<&str, usize> = self
+            .server_list
             .order
             .iter()
             .enumerate()
@@ -2022,7 +2066,7 @@ impl Tracker {
                 nsfw_commands_in_dms: self.nsfw_commands_in_dms,
             }),
             servers,
-            folders: self.folders.clone(),
+            folders: self.server_list.folders.clone(),
             conversations: people.conversations,
             friends: people.friends,
             friend_list: people.friend_list,
@@ -2589,6 +2633,34 @@ mod tests {
             ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]
         );
         assert_eq!(tracker.snapshot().folders, [games]);
+
+        // Releasing a server updates the snapshot before the save completes.
+        let change = tracker.file_server("50", false, "7", true, None).unwrap();
+        assert_eq!(
+            order(&tracker),
+            ["Bravo", "Delta", "Alpha", "Echo", "Charlie"]
+        );
+        assert_eq!(tracker.snapshot().folders[0].servers, ["40", "10", "50"]);
+
+        assert!(tracker.restore_server_list(change));
+        assert_eq!(
+            order(&tracker),
+            ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]
+        );
+        assert_eq!(tracker.snapshot().folders[0].servers, ["40", "10"]);
+
+        // A newer server update takes precedence over a failed save.
+        let change = tracker.file_server("50", false, "7", true, None).unwrap();
+        tracker.apply(
+            &Event::UserSettingsProtoUpdate,
+            &json!({"settings": {"type": 1, "proto":
+                settings::write_server_order(&[&[10], &[20], &[30], &[40], &[50]])}}),
+        );
+        assert!(!tracker.restore_server_list(change));
+        assert_eq!(
+            order(&tracker),
+            ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
+        );
     }
 
     #[test]

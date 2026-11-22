@@ -33,7 +33,7 @@ use crate::{
     style::{corners, hex, rounded, scrollbar},
     sync::MARGIN,
     sync::Scroll,
-    widgets::{Pic, RightPress, Rows},
+    widgets::{Drags, Pic, RightPress, Rows},
 };
 
 /// The server rail: its DM home, its rows and its viewport.
@@ -41,6 +41,19 @@ pub struct Rail {
     pub home: Home,
     pub items: Vec<RailItem>,
     pub scroll: crate::sync::Scroll,
+    dragging: Option<Drag>,
+}
+
+struct Drag {
+    server: String,
+    at: iced::Point,
+    grab: iced::Point,
+}
+
+struct Destination<'a> {
+    item: &'a RailItem,
+    target: &'a str,
+    before: Option<bool>,
 }
 
 /// The rail, down the window's left edge.
@@ -61,6 +74,7 @@ impl Rail {
             home: Home::default(),
             items: Vec::new(),
             scroll: crate::sync::Scroll::new(height),
+            dragging: None,
         }
     }
 }
@@ -77,10 +91,13 @@ const ADD: &str = "+";
 const ADD_DISC: f32 = 18.0;
 const ADD_PLUS: u32 = 14;
 const FOLDER_RADIUS: f32 = 16.0;
-/// Room left above each tile for the call speaker, which stands 3 px above
-/// it, and below it for the badge, 4 px past it.
-const ABOVE: f32 = 3.0;
+/// Room above each tile for the insertion line in the middle of the gap.
+const INSERTION_LINE: f32 = 2.0;
+const ABOVE: f32 = (GAP + INSERTION_LINE) / 2.0;
+/// Room below the tile for its badge.
 const BELOW: f32 = 4.0;
+const LIST_TOP: f32 = TILE + 2.0 * GAP + 1.0;
+const DROP_EDGE: f32 = 6.0;
 /// Discord's colour for a folder that wasn't given one.
 const FOLDER_COLOR: u32 = 0x5865f2;
 /// The pill at the rail's edge: open, pointed at, unread.
@@ -102,6 +119,10 @@ pub enum Event {
     Point(String, bool),
     Home,
     Server(String),
+    Drag(String, iced::Point, iced::Point),
+    DragAt(iced::Point),
+    Drop,
+    CancelDrag,
     Folder(String),
     /// An unread DM on the rail opens.
     Dm(String),
@@ -523,6 +544,116 @@ struct Marks<'a> {
     open_folder: bool,
     /// A right click on it opens its menu.
     menu: bool,
+    draggable: bool,
+}
+
+impl Rail {
+    fn destination(&self, above: f32) -> Option<Destination<'_>> {
+        let drag = self.dragging.as_ref()?;
+        let y = drag.at.y - above - LIST_TOP;
+        if !(0.0..WIDTH).contains(&drag.at.x) || !(0.0..self.scroll.height).contains(&y) {
+            return None;
+        }
+        let y = y + self.scroll.offset;
+        let moving_folder = discord::parse_folder(&drag.server).is_some();
+        let mut open_folder = None;
+        let mut top = 0.0;
+        for (index, item) in self.items.iter().enumerate() {
+            if matches!(item.kind, Kind::Folder { open: true, .. }) {
+                open_folder = Some(item.id.as_str());
+            }
+            let height = item.height(index);
+            let local = y - top;
+            top += height;
+            if !(-GAP / 2.0..height - GAP / 2.0).contains(&local) {
+                continue;
+            }
+            if moving_folder {
+                let (target, before) = match item.kind {
+                    Kind::Folder { open, .. } => (item.id.as_str(), open || local < FOLDER / 2.0),
+                    Kind::Server if discord::parse_server(&item.id).is_some() => {
+                        (item.id.as_str(), local < TILE / 2.0)
+                    }
+                    Kind::Nested { last: true, .. } if local >= TILE - DROP_EDGE => {
+                        (open_folder?, false)
+                    }
+                    _ => return None,
+                };
+                return (target != drag.server).then_some(Destination {
+                    item,
+                    target,
+                    before: Some(before),
+                });
+            }
+            let side = match item.kind {
+                Kind::Folder { .. } => FOLDER,
+                Kind::Server | Kind::Nested { .. } if discord::parse_server(&item.id).is_some() => {
+                    TILE
+                }
+                _ => return None,
+            };
+            if item.id == drag.server {
+                return None;
+            }
+            let before = if local < DROP_EDGE {
+                Some(true)
+            } else if local >= side - DROP_EDGE
+                && !matches!(item.kind, Kind::Folder { open: true, .. })
+            {
+                Some(false)
+            } else {
+                None
+            };
+            return Some(Destination {
+                item,
+                target: &item.id,
+                before,
+            });
+        }
+        None
+    }
+}
+
+/// The dragged tile's face, above the rest of the window.
+pub fn drag_face<'a>(rail: &'a Rail, cx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    let drag = rail.dragging.as_ref()?;
+    let item = rail.items.iter().find(|item| item.id == drag.server)?;
+    let view = View { s: rail, cx };
+    let face = match &item.kind {
+        Kind::Folder {
+            open,
+            tint,
+            preview,
+        } => view.folder_face(*open, *tint, preview, true),
+        _ => view.server_face(item, true),
+    };
+    Some(controls::placed(
+        face,
+        (drag.at.x - drag.grab.x).max(0.0),
+        (drag.at.y - cx.above - drag.grab.y).max(0.0),
+    ))
+}
+
+pub fn drag_subscription(app: &App) -> Option<iced::Subscription<Message>> {
+    app.rail.dragging.as_ref()?;
+    Some(iced::event::listen_with(|event, _, _| {
+        let event = match event {
+            iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                Event::DragAt(position)
+            }
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                Event::Drop
+            }
+            iced::Event::Mouse(iced::mouse::Event::CursorLeft)
+            | iced::Event::Window(iced::window::Event::Unfocused)
+            | iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                ..
+            }) => Event::CancelDrag,
+            _ => return None,
+        };
+        Some(Message::Rail(event))
+    }))
 }
 
 /// What's done on the rail.
@@ -535,6 +666,35 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Point(id, entered) => {
             crate::app::point(&mut app.pointed.rail, id, entered);
             return Task::none();
+        }
+        Event::Drag(server, at, grab) => {
+            app.rail.dragging = Some(Drag { server, at, grab });
+            return Task::none();
+        }
+        Event::DragAt(at) => {
+            if let Some(drag) = &mut app.rail.dragging {
+                drag.at = at;
+            }
+            return Task::none();
+        }
+        Event::CancelDrag => {
+            app.rail.dragging = None;
+            return Task::none();
+        }
+        Event::Drop => {
+            let above = app.shell.frame.height - app.window.height;
+            let destination = app
+                .rail
+                .destination(above)
+                .map(|drop| (drop.target.to_owned(), drop.before));
+            if let (Some(drag), Some((target, before))) = (app.rail.dragging.take(), destination) {
+                app.client.dispatch(Action::FileServer {
+                    server: drag.server,
+                    target,
+                    before,
+                });
+            }
+            return app.sync();
         }
         Event::Home => app
             .client
@@ -565,6 +725,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let viewport = self.s.scroll;
         let mut top = 0.0;
+        let destination = self.s.destination(self.cx.above);
         let mut rows = Rows::new(
             self.s
                 .items
@@ -587,7 +748,12 @@ impl<'a> View<'a> {
                 key(&item.id),
                 at - ABOVE,
                 height + ABOVE,
-                self.rail_row(index, item, height),
+                self.rail_row(
+                    index,
+                    item,
+                    height,
+                    destination.as_ref().filter(|drop| drop.item.id == item.id),
+                ),
             );
         }
         let list = scroll_view(rows)
@@ -764,7 +930,13 @@ impl<'a> View<'a> {
             .into()
     }
 
-    fn rail_row(self, index: usize, item: &'a RailItem, height: f32) -> Element<'a, Message> {
+    fn rail_row(
+        self,
+        index: usize,
+        item: &'a RailItem,
+        height: f32,
+        destination: Option<&Destination<'_>>,
+    ) -> Element<'a, Message> {
         let pointed = self.cx.pointed.rail.as_deref() == Some(item.id.as_str());
         if item.kind == Kind::Divider {
             return if index == 0 {
@@ -812,6 +984,11 @@ impl<'a> View<'a> {
             pointed,
             open_folder,
             menu: item.kind != Kind::Add,
+            draggable: !self.cx.state.preview
+                && self.cx.state.discord_user.is_some()
+                && (matches!(item.kind, Kind::Folder { .. })
+                    || (matches!(item.kind, Kind::Server | Kind::Nested { .. })
+                        && discord::parse_server(&item.id).is_some())),
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.
@@ -854,7 +1031,41 @@ impl<'a> View<'a> {
                 ABOVE,
             ));
         }
-        layers.push(cell).width(WIDTH).height(height + ABOVE).into()
+        let picked_up = self
+            .s
+            .dragging
+            .as_ref()
+            .is_some_and(|drag| drag.server == item.id);
+        if !picked_up {
+            layers = layers.push(cell);
+        }
+        if let Some(destination) = destination {
+            let live = self.cx.look.theme.live;
+            let cue = match destination.before {
+                Some(before) => controls::placed(
+                    bar(live, TILE, INSERTION_LINE),
+                    (WIDTH - TILE) / 2.0,
+                    if before { 0.0 } else { height },
+                ),
+                None => controls::placed(
+                    container(Space::new())
+                        .width(side + 4.0)
+                        .height(side + 4.0)
+                        .style(move |_| iced::widget::container::Style {
+                            border: iced::Border {
+                                color: live,
+                                width: 2.0,
+                                radius: (RADIUS + 2.0).into(),
+                            },
+                            ..Default::default()
+                        }),
+                    (WIDTH - side) / 2.0 - 2.0,
+                    ABOVE - 2.0,
+                ),
+            };
+            layers = layers.push(cue);
+        }
+        layers.width(WIDTH).height(height + ABOVE).into()
     }
 
     /// A tile of `side` in its cell across the rail, `above` px under the
@@ -894,11 +1105,20 @@ impl<'a> View<'a> {
                 above + (side - pill) / 2.0,
             ));
         }
-        let tile = mouse_area(face)
+        let hover = mouse_area(face)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Rail(Event::Point(id.clone(), true)))
-            .on_exit(Message::Rail(Event::Point(id.clone(), false)))
-            .on_press(message);
+            .on_exit(Message::Rail(Event::Point(id.clone(), false)));
+        let tile: Element<'a, Message> = if marks.draggable {
+            let server = id.clone();
+            Drags::new(hover)
+                .click(message)
+                .drag_at(move |at, grab| Message::Rail(Event::Drag(server.clone(), at, grab)))
+                .tracking(self.s.dragging.is_some(), |_| Message::Nothing)
+                .into()
+        } else {
+            hover.on_press(message).into()
+        };
         // Where in the window it was pressed: the rail scrolls.
         let tile: Element<'a, Message> = if marks.menu {
             let spot = self.cx.pressed;
@@ -907,11 +1127,16 @@ impl<'a> View<'a> {
             })
             .into()
         } else {
-            tile.into()
+            tile
         };
-        let tile = tooltip(tile, tip, tooltip::Position::Right)
-            .gap(8)
-            .snap_within_viewport(true);
+        let tile = if self.s.dragging.is_some() {
+            tile
+        } else {
+            tooltip(tile, tip, tooltip::Position::Right)
+                .gap(8)
+                .snap_within_viewport(true)
+                .into()
+        };
         layers = layers.push(controls::placed(tile, left, above));
         if let Some((media, joined)) = marks.speaker {
             layers = layers.push(controls::placed(

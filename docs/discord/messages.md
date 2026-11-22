@@ -200,8 +200,12 @@ Yapfast is back, rather than showing an error.
   open folders on this device, in `layout.json`, as Discord's client keeps
   them per device. Settings entries with an id are folders, read with their
   name and colour (`GuildFolder` fields 2 to 4, each in a wrapper); one
-  without is a server on its own. Folders can't be made or changed in Yapfast
-  yet.
+  without is a server on its own. Dropping a server on another server or
+  folder, or moving a server or a whole folder between tiles, saves the new
+  arrangement through `PATCH /users/@me/settings-proto/1`.
+  The rail applies the move immediately from the last known server list.
+  The update replaces the `guild_folders` field. A failed save restores the
+  previous arrangement unless Discord has since sent a newer one.
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`
