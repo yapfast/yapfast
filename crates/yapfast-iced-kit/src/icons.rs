@@ -179,6 +179,8 @@ pub enum Icon {
     Star,
     StarFilled,
     Clock,
+    /// Discord's stopwatch, by a slowmode's note.
+    Timer,
     MessageCircle,
     PinOff,
     CircleStop,
@@ -263,6 +265,7 @@ impl Icon {
             Icon::Star => icon!("star.svg"),
             Icon::StarFilled => icon!("star-filled.svg"),
             Icon::Clock => icon!("clock.svg"),
+            Icon::Timer => icon!("timer.svg"),
             Icon::MessageCircle => icon!("message-circle.svg"),
             Icon::PinOff => icon!("pin-off.svg"),
             Icon::CircleStop => icon!("circle-stop.svg"),

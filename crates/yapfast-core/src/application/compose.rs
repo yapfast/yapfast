@@ -291,6 +291,33 @@ impl Application {
         vec![]
     }
 
+    /// Whether `room`'s slowmode still holds this account's next message,
+    /// as Discord's client checks before sending: the message isn't sent,
+    /// the draft stays, and the strip's countdown flashes.
+    pub(super) fn slowmode_holds(&mut self, room: &str) -> bool {
+        let held = self.state.slowmode_wait(room, crate::clock::now_ms()) > 0;
+        if held {
+            self.state.slowmode_held += 1;
+        }
+        held
+    }
+
+    /// A message of this account's went in `room`: where it waits out a
+    /// slowmode, the wait starts, as Discord's client starts it.
+    pub(super) fn slowmode_starts(&mut self, room: &str) {
+        let slowmode = self
+            .state
+            .rooms
+            .iter()
+            .find(|listed| listed.id == room && listed.slowed)
+            .map_or(0, |listed| listed.slowmode);
+        if slowmode > 0 {
+            let until =
+                crate::clock::now_ms() + u64::from(slowmode) * 1000 + super::SLOWMODE_MARGIN_MS;
+            self.state.slowmode_until.insert(room.to_owned(), until);
+        }
+    }
+
     pub(super) fn send(&mut self) -> Vec<Effect> {
         match self.state.selected.clone() {
             Some(id) if self.state.command_draft().is_some() => self.run_written_command(&id),
@@ -329,7 +356,7 @@ impl Application {
     /// Sends what the composer of a room on screen holds: the selected
     /// room's, or the thread's beside it.
     pub(super) fn send_in(&mut self, id: String) -> Vec<Effect> {
-        if !self.state.can_send_in(&id) {
+        if !self.state.can_send_in(&id) || self.slowmode_holds(&id) {
             return vec![];
         }
         #[cfg(feature = "plugins")]
@@ -500,29 +527,28 @@ impl Application {
         else {
             return;
         };
+        // [`stage_files`] can't ask about a file, its answer living on the
+        // application, so this room's files go in the same way here, a plugin
+        // seeing each one first.
         let mut files = Vec::new();
         let mut problem = None;
-        let mut taken = 0;
+        let mut taken = self.state.staged.get(&id).map_or(0, Vec::len);
         for path in paths {
-            if self.state.staged.get(&id).map_or(0, Vec::len) + taken >= chat::MAX_FILES {
-                problem = Some(format!(
-                    "A message carries up to {} files.",
-                    chat::MAX_FILES
-                ));
+            if taken >= chat::MAX_FILES {
+                problem = problem.or(Some(too_many_files()));
                 break;
             }
             match chat::Staged::read(path, limit) {
                 Ok(file) => {
+                    taken += 1;
                     // `attachment.pre_upload` sees the file before the composer
                     // takes it: a plugin may rename it or withhold it, and the
                     // answer stages it, so nothing here waits on a plugin.
                     #[cfg(feature = "plugins")]
                     if self.plugins_upload(&id, &file) {
-                        taken += 1;
                         continue;
                     }
                     files.push(file);
-                    taken += 1;
                 }
                 Err(error) => problem = problem.or(Some(error)),
             }
@@ -541,4 +567,30 @@ impl Application {
 /// Preview messages render as Markdown when they contain its punctuation.
 pub(super) fn has_markdown(body: &str) -> bool {
     body.contains(['*', '_', '`', '~', '['])
+}
+
+/// Why a message can't take another file.
+pub(super) fn too_many_files() -> String {
+    format!("A message carries up to {} files.", chat::MAX_FILES)
+}
+
+/// Adds files to a message's, up to as many and as large as it takes:
+/// why any couldn't go, if any couldn't.
+pub(super) fn stage_files(
+    staged: &mut Vec<chat::Staged>,
+    paths: Vec<PathBuf>,
+    limit: u64,
+) -> Option<String> {
+    let mut problem = None;
+    for path in paths {
+        if staged.len() >= chat::MAX_FILES {
+            problem = Some(too_many_files());
+            break;
+        }
+        match chat::Staged::read(path, limit) {
+            Ok(file) => staged.push(file),
+            Err(error) => problem = problem.or(Some(error)),
+        }
+    }
+    problem
 }

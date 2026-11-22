@@ -18,7 +18,7 @@ use crate::{
 use super::{
     AUTHOR_GAP, AUTHOR_LINE, AVATAR, CHAR, CONTENT_PAD, Clock, DIVIDED_GAP, DIVIDER, EDGE, EMBED,
     EMBED_ROOM, END_PAD, FILE_CARD, GUTTER, INTRO_CHANNEL, INTRO_DIRECT, INTRO_SERVER, LINE_HEIGHT,
-    ROW_GAP, TAIL, THREAD_CHIP, group_gap,
+    ROW_GAP, TAIL, THREAD_CARD, group_gap,
 };
 
 /// Whether `message` continues the group of the one `before` it, as
@@ -453,7 +453,7 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
         content += 34.0;
     }
     if message.thread.is_some() {
-        content += THREAD_CHIP;
+        content += THREAD_CARD;
     }
     if look.first && message.notice.is_none() {
         content = content.max(if header { 64.0 } else { AVATAR });
