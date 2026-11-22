@@ -1010,7 +1010,7 @@ pub fn aside_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
         head = head.push(
             ctx.look
                 .icon_button(
-                    Icon::ArrowsUpDown,
+                    Icon::ArrowsLeftRight,
                     "Swap sides",
                     Message::Thread(Event::Swap),
                 )

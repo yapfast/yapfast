@@ -228,6 +228,8 @@ pub enum Icon {
     Search,
     /// Up and down arrows: a Sort menu.
     ArrowsUpDown,
+    /// Left and right arrows: split view's Swap sides.
+    ArrowsLeftRight,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -396,6 +398,7 @@ impl Icon {
             Icon::ChartBar => icon!("chart-bar.svg"),
             Icon::Search => icon!("search.svg"),
             Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
+            Icon::ArrowsLeftRight => icon!("arrows-left-right.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),
