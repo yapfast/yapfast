@@ -1032,10 +1032,6 @@ impl Marketplace {
     }
 }
 
-/// What a theme costs to run, in plain words with a dot (`Light on
-/// resources`, `Moderate: animated, ~23 MB memory`), and Details, which
-/// opens the whole of it sorted under what it is, with what this Yapfast
-/// leaves out of the theme.
 /// Keeps the theme on trial, from the banner or Settings: a reviewed one is
 /// installed with the sound and content choices made in its review, then
 /// it's chosen. Its id, or `None` with no trial.
@@ -1082,6 +1078,10 @@ pub(crate) fn revert_trial(themes: &mut Themes, layout: &mut Layout) -> bool {
     true
 }
 
+/// What a theme costs to run, in plain words with a dot (`Light on
+/// resources`, `Moderate: animated, ~23 MB memory`), and Details, which
+/// opens the whole of it sorted under what it is, with what this Yapfast
+/// leaves out of the theme.
 pub(super) fn cost_line<'a, M: Clone + 'a>(
     look: Look<'_>,
     cost: &str,

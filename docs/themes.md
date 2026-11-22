@@ -46,8 +46,9 @@ if Keep is chosen. The applied row offers **Turn off theme**, which keeps
 the next start. Each actual change also keeps the replaced id as
 `previous_theme`; Settings → Themes offers **Back to _name_** while that
 theme still exists. Re-choosing the current theme leaves the existing Back
-target intact, and restoring a theme after Turn off consumes that target, as
-in the Slint build. `Ctrl+Shift+T` is the emergency turn-off shortcut and is
+target intact, and restoring a theme after Turn off consumes that target.
+`Ctrl+Shift+T` is the emergency turn-off shortcut for a theme package (a
+colour-only theme stays as it is), held keys counting once, and is
 handled above settings and other overlays, and while a field such as the
 composer has the keys, so a problematic package cannot trap the person
 behind themed UI. Sign-in, a link's confirmation (leaving Yapfast, an app's
@@ -83,7 +84,7 @@ The page also keeps `theme_performance` (`full`, `balanced`, or `light`) and
 `reduce_motion` in `layout.json`. Balanced is the default. These settings are
 shared by installed themes; Light still permits colours, fonts, shapes and
 spacing, while package animation is disabled. Reduce motion independently
-turns off package flourish; both choices keep Wired's short stock transitions
+turns off package flourish; both choices keep the stock look's short transitions
 so menus and dialogs do not lose their ordinary opening and closing feedback.
 
 Resolved package metrics are registered beside the kit `Theme` under the same
@@ -94,7 +95,7 @@ cards, code blocks, embeds, message/list rows, rail icons, call tiles, pickers,
 popouts, toasts and scrollbars. Header and list-label grounds, text and case,
 profile-section frames and title bars, card top insets, and message-row inset
 and stripe settings use the same path. Values a package does not provide keep
-Wired's exact stock style.
+the exact stock style.
 
 Spacing controls timeline message and group gaps, avatar size, chat padding,
 channel and member row heights, and the sidebar and member-pane widths. A pane
@@ -111,8 +112,8 @@ hide the server rail, centre the message lane at
 non-rotated part of cards are drawn by the existing virtual timeline. Bubble
 grounds (including linear gradients), own-message ink, radius, padding and
 maximum share are honoured; IRC time/name columns and separator are honoured;
-cards use their ground, padding and shadow. Missing layout fields retain
-Wired's stock renderer. A top rail scrolls the same themed server tiles across
+cards use their ground, padding and shadow. Missing layout fields keep
+the stock renderer. A top rail scrolls the same themed server tiles across
 the window. Tree mode (`sidebar/tree.rs`) lays the sidebar out as one virtual
 file tree: the root, `dm/`, then each folder and server, every place opening
 and closing on its own. A place's mark (`▸`/`▾`, drawn as pixel triangles when
@@ -133,14 +134,14 @@ out to the parent, Enter/Space act as a click, Home/End go to the first and
 last row, and Escape returns the keys to the composer; the row is outlined in
 the accent once a key moves it. Opening is instant. Grid
 members use the package's column count, tile size and member row styling. A
-collapsed member pane uses the Slint build's 56 px avatar strip and expands to the
+collapsed member pane is a 56 px avatar strip and expands to the
 full list while pointed at.
 
 Layout borders can replace the ordinary solid edge with solid, dashed or
 dotted strokes at ten declared places: composer, card, menu, message, embed,
 code, tile, divider, actions and pane edges, and dialogs and tooltips. Their
-dash/gap, optional width and colour come from the resolved theme theme;
-otherwise the surface's shape border and Wired colour remain the fallback.
+dash/gap, optional width and colour come from the resolved theme;
+otherwise the surface's shape border and stock colour remain the fallback.
 
 The non-rotating list subset also covers rail width, tile size/radius/gap/pad,
 inside or below labels, lift hover, pill mode, divider size,
@@ -163,19 +164,18 @@ glyph calls. Package app/ring sounds replace the corresponding core samples;
 menu, popup, toggle, send, reaction and theme-applied cues use the interface
 sound slots. Settings → Themes separately lets each applied package replace
 notification sounds, enable its interface sounds and set their interface
-volume. Slint defaults (notifications on, interface sounds off, 50% interface
+volume. The defaults (notifications on, interface sounds off, 50% interface
 volume) need no `theme_sounds` entry; only differences are kept. The package's
 built-in `theme-sounds` option still participates in its own resolved sound
-levels. `theme_transitions` keeps the Slint build's separate Transitions between
-channels permission. When enabled in Full performance without Reduce motion,
+levels. `theme_transitions` keeps a separate Transitions between channels
+permission. When enabled in Full performance without Reduce motion,
 the resolved theme fade or dissolve transition is drawn over the retained
 previous chat surface. Iced 0.14 has no public live-window snapshot API, so
-the transition covers the conversation rather than Slint's whole compositor
-image. Theme art layers are decoded once, with their blur, blend and dim baked
+the transition covers the conversation rather than the whole window. Theme art layers are decoded once, with their blur, blend and dim baked
 over the surface ground, and can cover, contain, stretch or tile the window, rail,
 sidebar, account, chat, header, members, aside, profile pane, call, Settings,
 menu, actions, embed, code, label, picker, toast, selected rows, cards,
-dialogs, popouts and the lightbox. As in the Slint build, the chat's
+dialogs, popouts and the lightbox. The chat's
 ground, art and glass lie under the whole conversation (its bar and member
 list included), and the bar is bare unless the theme gives it a ground, art
 or glass of its own. Card-over layers stay above an unthemed
@@ -198,22 +198,21 @@ theme-applied, sent-message and reaction particles draw at their declared
 depth; Light, Reduce motion and heavy-effect rules keep them still or omit
 them. Glass surfaces use one reduced, preblurred copy of the resolved window
 art and the package's ground, rim, highlight, gap and radius settings. This is
-the Slint build's fake-glass treatment, not live backdrop blur. Each pane draws only
+fake glass, not live backdrop blur. Each pane draws only
 the piece of the blurred art under it, cut once and kept while the pane stays
 put, rounded like the pane, with its ground, inset and highlight gradients and
 rim above it. A glass `gap` floats the navigation and the conversation that far
 apart and from the window's edge over the window's art; each is one rounded
-pane whose surfaces round only the corners they share with it, as Slint clips
-them, and a glass account card floats `gap` inside the navigation's foot. The
+pane whose surfaces round only the corners they share with it, and a glass account card floats `gap` inside the navigation's foot. The
 art is rebaked after the window resizes so panes stay aligned to the current
 window pixels.
 Text-role shadow, glow, outline and emboss are extra glyph passes behind
 message bodies, author/time text, headings, header text and member labels, so
-links and cross-message selection remain Wired's. Channel rows and cards draw
+links and cross-message selection keep the stock look. Channel rows and cards draw
 declared click ripples, hover gloss and selected highlighters. Foil bands
 cross profile cards and member-grid tiles; they follow the pointer or sweep
-on the art clock, and rest halfway across in Light or Reduce motion. Slint's
-tiny highlighter/foil rotations stay omitted with the other rotation styles.
+on the art clock, and rest halfway across in Light or Reduce motion. Tiny highlighter and foil
+rotations are left out with the other rotation styles.
 Sidebar, member, chat and composer art reserve insets keep ordinary content
 clear of decorations at pane edges.
 `art.keys` puts a key under the composer's `plus`, `gif`, `sticker` and
@@ -243,15 +242,15 @@ Members take marks by their group (`@`, `+`) and a status column by presence;
 `hide` leaves out member avatars, the account's avatar, or the bar's buttons
 (shown while the pointer is on the bar). The status line runs under or over the
 composer, looking at the clock every ten seconds, and the composer shows the
-theme's prompt. Message cards hold a whole group, as Slint draws them: the
+theme's prompt. Message cards hold a whole group: the
 `message` shape's corners and border on the card's outer edges, its shadow,
 and its pictures (a torn edge, a tab) straddling its top or bottom edge; the
 group's rows run on with no gap and the theme's `cards.gap` lies between cards.
 It leans by its group's seed within `cards.tilt`, its rows turning about one
 point so they line up as one scrap, its ground, shadow and pictures turned and
 its words straight; hover, highlighter and mention marks lie on the card. Seeds
-are read as Slint's lists read them (FNV-1a held in a 32-bit float), so frames,
-tapes and leans pick as Slint's do. Tape painted on a card's top-edge picture
+are FNV-1a held in a 32-bit float, so frames, tapes and leans pick the same
+way on every start. Tape painted on a card's top-edge picture
 is cut out as it loads and lies across the torn edge, half on the board; a
 surface's `tape…` picture at its top (card, popout, dialog) lies across its top
 edge the same way, outside its clip. Ransom-note names cut authors, members,
@@ -259,7 +258,7 @@ profile cards and ransom-style category headings into letters on scraps, from
 the theme's faces on its papers, each letter and its scrap turned by its seed;
 a small i, l or o never takes a face that draws small letters as capitals.
 Balanced and Light draw a name as one straight scrap in the heading face. A
-role a theme doesn't dress takes its body face, as Slint's window default.
+role a theme doesn't dress takes its body face.
 Bubbles hug their words up to the theme's share of the lane. Theme content is opt-in per
 package in Themes and currently controls avatar shape/ring/decorations and
 theme or palette name colours. Media recolouring and dithering apply to still
@@ -284,7 +283,9 @@ on one with no window (`crates/yapfast-iced/src/theme_cli.rs`):
   the run.
 - `yapfast theme check FOLDER [--marketplace]` prints the checks an install
   runs, and with `--marketplace` those for a listing, and on a pass the
-  `sha256` a catalog entry pins.
+  `sha256` a catalog entry pins. A theme gets into the marketplace with a pull
+  request adding its entry to `catalog.json` in
+  [yapfast/themes](https://github.com/yapfast/themes), whose README says how.
 - `yapfast theme install FOLDER [--data-dir PATH]` installs a checked local
   folder into the store, as Add from URL does a repository's.
 - `yapfast theme export CUSTOM-THEME FOLDER [--author NAME] [--data-dir PATH]`
@@ -304,7 +305,7 @@ files aren't copied, named or counted in the cost line.
 
 ## Custom themes
 
-Create theme opens the Slint build's guided creator on a copy of the theme shown. It
+Create theme opens the guided creator on a copy of the theme shown. It
 fills the settings frame: a bar with the name, Undo, Start over, Cancel and
 Save; the steps; the controls scrolling beside a live preview of the window
 (above them where the frame is narrow); Export and Delete.
