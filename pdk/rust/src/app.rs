@@ -20,3 +20,9 @@ pub fn version() -> Result<AppInfo> {
 pub fn version_string() -> Result<String> {
     Ok(version()?.version)
 }
+
+/// The time now, in Unix milliseconds. A plugin has no clock of its own, and
+/// the call is answered while it runs.
+pub fn now_ms() -> Result<u64> {
+    call::call(method::APP_NOW, ())
+}

@@ -29,6 +29,9 @@ pub struct Events {
     events: Box<RawValue>,
     /// Left out when nothing was published, as the batch leaves it out.
     topics: Option<Box<RawValue>>,
+    /// The timers that fired, by tag, for a tick: left out of the batch when
+    /// none did.
+    timers: Vec<String>,
 }
 
 impl Events {
@@ -39,6 +42,7 @@ impl Events {
             topics: topics
                 .filter(|topics| !empty(topics))
                 .map(RawValue::to_owned),
+            timers: Vec::new(),
         }
     }
 
@@ -51,13 +55,20 @@ impl Events {
             events: serde_json::value::to_raw_value(events).unwrap_or_else(|_| none()),
             topics: (!topics.is_empty())
                 .then(|| serde_json::value::to_raw_value(topics).unwrap_or_else(|_| none())),
+            timers: Vec::new(),
         }
+    }
+
+    /// The same batch, saying which timers fired.
+    pub fn with_timers(mut self, timers: Vec<String>) -> Self {
+        self.timers = timers;
+        self
     }
 
     /// Nothing in it at all: a timer's tick, which the parent sends as an empty
     /// batch.
     pub fn is_empty(&self) -> bool {
-        empty(&self.events) && self.topics.is_none()
+        empty(&self.events) && self.topics.is_none() && self.timers.is_empty()
     }
 
     /// The events, decoded: for a test that wants to see what was delivered.
@@ -81,6 +92,12 @@ impl Events {
         if let Some(topics) = topics {
             out.extend_from_slice(br#","topics":"#);
             out.extend_from_slice(topics.as_bytes());
+        }
+        if !self.timers.is_empty()
+            && let Ok(timers) = serde_json::to_vec(&self.timers)
+        {
+            out.extend_from_slice(br#","timers":"#);
+            out.extend_from_slice(&timers);
         }
         out.push(b'}');
         out
@@ -369,5 +386,26 @@ pub mod answers {
             }
             None => Some(answer),
         }
+    }
+}
+
+#[cfg(test)]
+mod timer_tests {
+    use super::*;
+
+    /// A tick names its timers in the batch, and a batch with none says
+    /// nothing of them.
+    #[test]
+    fn a_tick_names_the_timers_that_fired() {
+        let tick = Events::new(&[], &[]).with_timers(vec!["refresh".into(), "save".into()]);
+        assert!(!tick.is_empty());
+        let batch: yapfast_plugin_api::guest::EventBatch =
+            serde_json::from_slice(&tick.batch()).expect("a batch");
+        assert_eq!(batch.timers, vec!["refresh", "save"]);
+        assert!(
+            !String::from_utf8(Events::new(&[], &[]).batch())
+                .unwrap()
+                .contains("timers")
+        );
     }
 }

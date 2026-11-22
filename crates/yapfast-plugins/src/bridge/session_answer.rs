@@ -203,6 +203,11 @@ impl Session {
             }
             call::method::PLUGIN_PUBLISH => self.publish(shared, plugin, call),
             call::method::PLUGIN_SUBSCRIBE => self.subscribe(shared, plugin, call),
+            call::method::APP_NOW => HostReturn::Ok(serde_json::json!(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |since| since.as_millis() as u64)
+            )),
             call::method::APP_VERSION | call::method::APP_LOCALE | call::method::APP_THEME_MODE => {
                 answered(shared.world.app())
             }

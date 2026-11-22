@@ -313,8 +313,8 @@ fn dispatch(
             scheduler.send(Message::Deactivate { id, plugin });
             After::Continue
         }
-        ToHelper::Kick { plugin } => {
-            scheduler.send(Message::Kick { plugin });
+        ToHelper::Kick { plugin, timer } => {
+            scheduler.send(Message::Kick { plugin, timer });
             After::Continue
         }
         ToHelper::Event {

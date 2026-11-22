@@ -109,6 +109,13 @@ pub trait Plugin: Default + 'static {
     /// at least one answer. Read them with [`Context::answer`].
     fn answered(&mut self, _ctx: &Context<'_>) {}
 
+    /// A timer this plugin set fired, by the tag it was set with. Each that
+    /// fired since the last call is named once; [`crate::app::now_ms`] says
+    /// what time it is.
+    fn timer(&mut self, _ctx: &Context<'_>, _tag: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// One event of a batch.
     ///
     /// Events are coalesced, so a burst of typing is several calls to this one
@@ -275,6 +282,7 @@ pub mod __private {
             events,
             results,
             topics,
+            timers,
         } = json::from_str(input)?;
         let context = Context::for_call(Call::Event, &results);
         if !results.is_empty() {
@@ -292,6 +300,11 @@ pub mod __private {
             let name = topic.topic.clone();
             if let Err(error) = plugin.topic(&context, topic) {
                 crate::log::error(format!("handling topic `{name}` failed: {error}"));
+            }
+        }
+        for timer in timers {
+            if let Err(error) = plugin.timer(&context, &timer) {
+                crate::log::error(format!("handling timer `{timer}` failed: {error}"));
             }
         }
         Ok("null".to_owned())

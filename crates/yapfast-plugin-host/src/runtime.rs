@@ -826,6 +826,7 @@ mod tests {
                 events: events.clone(),
                 results: Vec::new(),
                 topics: topics.clone(),
+                timers: Vec::new(),
             })
             .unwrap();
             assert_eq!(
@@ -868,6 +869,7 @@ mod tests {
             events: vec![event],
             results: vec![result],
             topics: Vec::new(),
+            timers: Vec::new(),
         })
         .unwrap();
         assert_eq!(borrowed, owned);

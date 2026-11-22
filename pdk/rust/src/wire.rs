@@ -241,6 +241,9 @@ pub struct EventBatch {
     /// What other plugins published to topics this one subscribed to.
     #[serde(default)]
     pub topics: Vec<TopicEvent>,
+    /// The timers that fired, by the tag each was set with.
+    #[serde(default)]
+    pub timers: Vec<String>,
 }
 
 /// One `plugin.publish`, as a plugin that subscribed to its topic receives it.
@@ -296,6 +299,7 @@ pub enum HostReturn {
 /// anything the app might answer.
 pub mod method {
     pub const APP_VERSION: &str = "app.version";
+    pub const APP_NOW: &str = "app.now";
     pub const APP_LOCALE: &str = "app.locale";
     pub const APP_THEME_MODE: &str = "app.theme_mode";
     pub const ACCOUNT_ME: &str = "account.me";

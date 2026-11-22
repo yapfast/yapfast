@@ -146,7 +146,13 @@ pub enum ToHelper {
     /// Call `yf_deactivate`, which may hand state to the next activation.
     Deactivate { plugin: PluginId },
     /// Run an instance again with nothing new: an eviction clock's trigger.
-    Kick { plugin: PluginId },
+    Kick {
+        plugin: PluginId,
+        /// The timer that fired, by the tag the plugin gave it, which the
+        /// batch names under `timers`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timer: Option<String>,
+    },
     /// A batch of events, already filtered and serialized.
     Event {
         plugin: PluginId,

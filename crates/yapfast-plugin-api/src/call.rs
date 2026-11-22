@@ -23,6 +23,8 @@ pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_LOCALE: &str = "app.locale";
     pub const APP_THEME_MODE: &str = "app.theme_mode";
+    /// The time now, in Unix milliseconds: a guest has no clock of its own.
+    pub const APP_NOW: &str = "app.now";
     pub const ACCOUNT_ME: &str = "account.me";
     pub const ROOMS_SELECTED: &str = "rooms.selected";
     pub const ROOMS_GET: &str = "rooms.get";
@@ -151,10 +153,11 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 95] = [
+    pub const ALL: [&str; 96] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
+        APP_NOW,
         ACCOUNT_ME,
         ROOMS_SELECTED,
         ROOMS_GET,

@@ -800,10 +800,12 @@ sentence saying its size and what one answer carries, rather than read back as
 
 A timer belongs to the helper and not to the instance, so it survives an eviction
 and an instance with one pending isn't evicted under it. A plugin may hold 16.
-What arrives when one fires is an `yf_event` call with nothing in it — no event,
-no result, and no field naming which timer fired — so a plugin holding two
-timers learns that one of them did and nothing more; the `tag` is what
-`timers.cancel` names.
+What arrives when one fires is an `yf_event` call whose `timers` names it by
+its `tag`, `{ "events": [], "results": [], "timers": ["refresh"] }`; timers that
+fire while the plugin is busy ride in one call, each named once, and a tick is
+never dropped to make room in a full lane. The PDK calls `timer` with each tag.
+`app.now` answers the time in Unix milliseconds, since a plugin has no clock of
+its own.
 
 Every host call is a request the parent answers, because the parent holds the
 token, the network gate and the consent dialogs. Most of those answers take the

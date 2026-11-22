@@ -2119,7 +2119,10 @@ fn a_plugin_that_didnt_write_yf_input_is_not_called_for_one() {
 
     // Something that is always called sorts before the assertion, so this is a
     // wait on the scheduler having run the input's job rather than a sleep.
-    harness.send(Message::Kick { plugin: a.clone() });
+    harness.send(Message::Kick {
+        plugin: a.clone(),
+        timer: None,
+    });
     harness.wait_log("activate:com.example.a");
     assert!(
         !harness.saw_log("invoke:com.example.a:yf_input"),

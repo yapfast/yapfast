@@ -53,6 +53,10 @@ pub struct EventBatch {
     /// order they were published.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub topics: Vec<TopicEvent>,
+    /// The timers that fired since the last call, by the tag each was set
+    /// with.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timers: Vec<String>,
 }
 
 /// The answer to one host call the guest left pending.
@@ -70,12 +74,16 @@ impl EventBatch {
             events: vec![event],
             results: Vec::new(),
             topics: Vec::new(),
+            timers: Vec::new(),
         }
     }
 
     /// Whether there is anything to call the guest for.
     pub fn is_empty(&self) -> bool {
-        self.events.is_empty() && self.results.is_empty() && self.topics.is_empty()
+        self.events.is_empty()
+            && self.results.is_empty()
+            && self.topics.is_empty()
+            && self.timers.is_empty()
     }
 }
 
@@ -116,6 +124,7 @@ mod tests {
                 answer: HostReturn::Unsupported,
             }],
             topics: Vec::new(),
+            timers: Vec::new(),
         };
         let text = serde_json::to_string(&batch).unwrap();
         assert_eq!(serde_json::from_str::<EventBatch>(&text).unwrap(), batch);

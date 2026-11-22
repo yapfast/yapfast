@@ -204,6 +204,7 @@ fn perf_helper() {
                 events,
                 results: Vec::new(),
                 topics: Vec::new(),
+                timers: Vec::new(),
             };
             std::hint::black_box(serde_json::to_vec(&batch).expect("encodes"));
         }

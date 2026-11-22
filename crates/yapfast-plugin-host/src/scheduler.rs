@@ -182,7 +182,11 @@ pub enum Message {
     Deactivate { id: u64, plugin: PluginId },
     /// Run the instance again with nothing new: a repeat timer's trigger.
     /// Nothing answers it, because the clock that sent it isn't waiting.
-    Kick { plugin: PluginId },
+    Kick {
+        plugin: PluginId,
+        /// The timer that fired, by its tag.
+        timer: Option<String>,
+    },
     /// One batch of events; answered with [`FromHelper::EventDone`]. What
     /// other plugins published to this one's topics travels in it, because a
     /// subscriber handles both in one call.
@@ -569,16 +573,32 @@ impl<B: Backend + 'static> Shared<B> {
                 let slot = state.slot_for(&plugin);
                 state.push(slot, Lane::Interactive, id, Job::Deactivate);
             }
-            Message::Kick { plugin } => {
+            Message::Kick { plugin, timer } => {
                 let slot = state.slot_for(&plugin);
-                // A kick says "look at your timers"; a second one queued behind
-                // the first says nothing more.
-                let queued = state.slots[slot]
+                // A kick queued behind another joins it: one call says every
+                // timer that fired since, each named once.
+                let joined = state.slots[slot]
                     .background
-                    .iter()
-                    .any(|task| matches!(task.job, Job::Kick));
-                if !queued {
-                    state.push(slot, Lane::Background, 0, Job::Kick);
+                    .iter_mut()
+                    .filter_map(Arc::get_mut)
+                    .find_map(|task| match &mut task.job {
+                        Job::Kick(timers) => Some(timers),
+                        _ => None,
+                    });
+                match joined {
+                    Some(timers) => {
+                        if let Some(timer) = timer
+                            && !timers.contains(&timer)
+                        {
+                            timers.push(timer);
+                        }
+                    }
+                    None => state.push(
+                        slot,
+                        Lane::Background,
+                        0,
+                        Job::Kick(timer.into_iter().collect()),
+                    ),
                 }
             }
             Message::Event { id, plugin, events } => {
@@ -815,7 +835,7 @@ impl<B: Backend + 'static> Shared<B> {
             Job::EvictIfIdle => self.evict_for_limits(task.owner()),
             Job::Activate => self.activate(task.owner(), task.id),
             Job::Deactivate => self.deactivate(task.owner(), task.id),
-            Job::Kick => self.kick(task.owner()),
+            Job::Kick(timers) => self.kick(task.owner(), timers),
             Job::Event(events) => self.event(task, events),
             Job::Hook(request) => self.hook(task, request),
             Job::Command(command) => self.command(task, command),
@@ -985,13 +1005,14 @@ impl<B: Backend + 'static> Shared<B> {
 
     /// Runs an instance again with nothing new, which resets its idle clock and
     /// lets a repeat timer's tick reach the guest as an empty batch.
-    fn kick(&self, slot: usize) {
+    fn kick(&self, slot: usize, timers: &[String]) {
         if self.ensure_active(slot).is_none() {
             return;
         }
         let plugin = self.id(slot);
+        let batch = Events::new(&[], &[]).with_timers(timers.to_vec());
         let (result, late) = self.call(&[slot], EVENT_BUDGET, |backend| {
-            backend.event(&plugin, &Events::new(&[], &[]))
+            backend.event(&plugin, &batch)
         });
         if late {
             self.discard(slot, deadline_fault("a timer tick"), None);
@@ -1894,7 +1915,7 @@ impl<B: Backend + 'static> Shared<B> {
             | Job::Unload
             | Job::Evict
             | Job::EvictIfIdle
-            | Job::Kick
+            | Job::Kick(_)
             | Job::Input { .. }
             | Job::Return { .. } => {}
         }
@@ -2206,7 +2227,7 @@ enum Job {
     EvictIfIdle,
     Activate,
     Deactivate,
-    Kick,
+    Kick(Vec<String>),
     Event(Events),
     Hook(HookRequest),
     Command(CommandInvocation),
@@ -2248,8 +2269,7 @@ impl Job {
     fn droppable(&self) -> bool {
         matches!(
             self,
-            Job::Kick
-                | Job::Event(..)
+            Job::Event(..)
                 | Job::Decorate { .. }
                 | Job::DecorateMember { .. }
                 | Job::Identity { .. }

@@ -184,6 +184,7 @@ the generated five.
 | `activate` | The instance is new, or was evicted and came back | The activation failed: a fault, and the plugin is retried on its next trigger |
 | `deactivate` | The instance is going away | The hand-off is dropped; the instance goes anyway |
 | `answered` | A batch carries answers to calls the plugin left pending | Nothing; it returns nothing |
+| `timer` | A timer it set fired, with the tag it was set with; `app::now_ms` says the time | Nothing; an error is logged |
 | `event` | Once per event in a batch, after `answered` | Logged, and the rest of the batch still runs |
 | `topic` | Once per publish to a topic it subscribed to, after the batch's events | Logged, and the rest of the batch still runs |
 | `hook` | Before an outgoing message, edit, typing indicator, upload or activity is published | The message goes as it was: hooks fail open |

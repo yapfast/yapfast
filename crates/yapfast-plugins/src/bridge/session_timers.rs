@@ -5,9 +5,8 @@ impl Session {
     ///
     /// The answer is the registration rather than a `Pending` one, because the
     /// parent has no frame that carries a late answer back to a guest: the timer
-    /// fires as a `Kick`, which the guest cannot tell apart from any other
-    /// arrival. A plugin that needs to know which timer went off has to keep its
-    /// own count.
+    /// fires as a `Kick` naming its tag, which reaches the guest as a batch
+    /// whose `timers` holds it.
     pub(super) fn set_timer(
         &mut self,
         plugin: &PluginId,
@@ -70,6 +69,7 @@ impl Session {
         }
         let message = ToHelper::Kick {
             plugin: key.plugin.clone(),
+            timer: Some(key.tag.clone()),
         };
         // Nothing answers a tick: the clock that asked isn't waiting for one, so
         // it goes with no id and leaves nothing to expire. A deadline here
