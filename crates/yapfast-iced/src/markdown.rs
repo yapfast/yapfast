@@ -60,7 +60,29 @@ fn pilled(link: &str) -> bool {
     link.starts_with("yapfast:user/")
         || link.starts_with("yapfast:role/")
         || link == "yapfast:everyone"
+        || links::attachment_name(link).is_some()
 }
+
+/// A bare link to a file sent on Discord shows as Discord's client shows
+/// it: a paperclip and the file's name on a pill of the mention colour. A
+/// masked one keeps its words.
+fn file_pills(runs: &mut [Run], color: u32) {
+    for run in runs {
+        let Some(link) = run.link.as_deref() else {
+            continue;
+        };
+        if run.text != link || run.color.is_some() {
+            continue;
+        }
+        if let Some(name) = links::attachment_name(link) {
+            run.text = format!("{FILE_CLIP}{name}");
+            run.color = Some(color);
+        }
+    }
+}
+
+/// The paperclip a file link's pill starts with, and the gap after it.
+const FILE_CLIP: &str = "\u{1f4ce}\u{2009}";
 
 /// What a search's found words are marked with in its results. The
 /// client's colour is in a stylesheet Yapfast hasn't read, so this is a
@@ -278,7 +300,9 @@ pub fn parse(
             let linked = mention::linked(&typed, &here, link_color);
             let marked = spoiler::mark(&linked, item, spoilers, &revealed);
             spoilers += spoiler::count(&linked);
-            inline(&links::mark_masked(&links::linkify(&marked)))
+            let mut runs = inline(&links::mark_masked(&links::linkify(&marked)));
+            file_pills(&mut runs, link_color);
+            runs
         };
         let (margin, padding) = spacing(&split, index);
         parts.push(Part {
@@ -1090,6 +1114,23 @@ mod tests {
             .parts
             .remove(0)
             .runs
+    }
+
+    #[test]
+    fn a_bare_link_to_a_discord_file_is_its_name_on_a_pill() {
+        let url = "https://cdn.discordapp.com/attachments/1/2/notes.txt?ex=1";
+        let shown = runs(&format!("see {url} now"));
+        let pill = shown
+            .iter()
+            .find(|run| run.link.as_deref() == Some(url))
+            .expect("the link");
+        assert_eq!(pill.text, format!("{FILE_CLIP}notes.txt"));
+        assert_eq!(pill.color, Some(0x00a8fc));
+        assert!(pilled(url));
+        // A masked one keeps its words, uncoloured.
+        let masked = runs(&format!("[the notes]({url})"));
+        assert!(masked.iter().all(|run| run.color.is_none()));
+        assert!(masked.iter().any(|run| run.text == "the notes"));
     }
 
     #[test]

@@ -281,6 +281,11 @@ Yapfast is back, rather than showing an error.
   frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
+- A bare link to a file sent on Discord (`cdn.discordapp.com` or
+  `media.discordapp.net` under `/attachments/{channel}/{id}/{name}`) shows
+  as a paperclip and its file name on a pill of the mention colour, as
+  Discord's client shows it (`links::attachment_name`); a masked one keeps
+  its words.
 - Discord's own links to a server, channel, message or person open that
   place in Yapfast, DM links included; an invite opens Join a Server first,
   an event link shows the scheduled event with its Interested button
