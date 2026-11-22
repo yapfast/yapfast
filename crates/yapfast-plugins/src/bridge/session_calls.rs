@@ -100,6 +100,14 @@ impl Session {
                 }
             }
             call::method::MICROPHONE_STOP => Ok(AppCall::RecordStop),
+            call::method::PEOPLE_BADGES => {
+                request
+                    .parse::<call::PeopleBadges>()
+                    .map(|asked| AppCall::Badges {
+                        person: asked.person,
+                        server: asked.server,
+                    })
+            }
             call::method::MESSAGES_VOICE => {
                 match request.parse::<yapfast_plugin_api::call::VoiceSend>() {
                     Err(error) => return Some(wrong_payload(method, error)),

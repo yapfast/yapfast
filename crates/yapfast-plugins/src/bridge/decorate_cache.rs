@@ -57,7 +57,7 @@ pub(crate) enum Look {
     /// The plugin was asked and hasn't answered: nothing to do.
     Waiting,
     /// The answer is kept: hand it to the interface again.
-    Answered(Option<slots::Output>),
+    Answered(Option<Box<slots::Output>>),
 }
 
 #[derive(Debug, Default)]
@@ -105,7 +105,7 @@ impl DecorateCache {
                     None => Look::Waiting,
                     Some(answer) => {
                         self.hits += 1;
-                        Look::Answered(answer.clone())
+                        Look::Answered(answer.clone().map(Box::new))
                     }
                 }
             }

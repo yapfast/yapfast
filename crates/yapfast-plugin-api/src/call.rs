@@ -33,6 +33,8 @@ pub mod method {
     pub const MESSAGES_HISTORY: &str = "messages.history";
     pub const PEOPLE_GET: &str = "people.get";
     pub const PEOPLE_MEMBER: &str = "people.member";
+    /// A person's Discord badges, as their profile shows them.
+    pub const PEOPLE_BADGES: &str = "people.badges";
     pub const STORAGE_GET: &str = "storage.get";
     pub const STORAGE_SET: &str = "storage.set";
     pub const STORAGE_DELETE: &str = "storage.delete";
@@ -172,7 +174,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 106] = [
+    pub const ALL: [&str; 107] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -185,6 +187,7 @@ pub mod method {
         MESSAGES_HISTORY,
         PEOPLE_GET,
         PEOPLE_MEMBER,
+        PEOPLE_BADGES,
         STORAGE_GET,
         STORAGE_SET,
         STORAGE_DELETE,
@@ -1417,6 +1420,28 @@ pub struct MessageHistory {
     pub before: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+}
+
+/// `people.badges`: a person's Discord badges, in a server's profile or
+/// none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeopleBadges {
+    pub person: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+}
+
+/// One of `people.badges`' answers: a badge as Discord's profile gives it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BadgeView {
+    pub id: String,
+    /// What it says on hover.
+    pub description: String,
+    /// The address of its picture.
+    pub icon: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 /// `people.get`: one person the application knows of.

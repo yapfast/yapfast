@@ -110,6 +110,7 @@ impl Session {
                 blur_media,
                 annotation,
                 marks,
+                author,
             } => {
                 self.pending.remove(&frame.id);
                 self.on_decorated(
@@ -122,7 +123,7 @@ impl Session {
                         media: hide_media,
                         blur: blur_media,
                     },
-                    (annotation, marks),
+                    (annotation, marks, author),
                 );
                 None
             }

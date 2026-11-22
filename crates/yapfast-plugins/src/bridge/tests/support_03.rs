@@ -27,6 +27,7 @@ pub(super) fn answer_decorated(
                         blur_media: false,
                         annotation: None,
                         marks: None,
+                        author: None,
                     })
                     .expect("it serializes"),
                 ),

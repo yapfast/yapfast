@@ -341,6 +341,11 @@ pub enum AppCall {
         before: Option<String>,
         limit: Option<usize>,
     },
+    /// A person's Discord badges: `people.badges`.
+    Badges {
+        person: String,
+        server: Option<String>,
+    },
     /// Stop the plugin's recording: `microphone.stop`.
     RecordStop,
     /// Send a recording as a voice message: `messages.voice`, under the

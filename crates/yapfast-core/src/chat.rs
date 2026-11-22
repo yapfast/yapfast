@@ -2832,6 +2832,11 @@ pub enum PluginAsk {
         before: Option<String>,
         limit: Option<usize>,
     },
+    /// `people.badges`.
+    Badges {
+        person: String,
+        server: Option<String>,
+    },
     /// `messages.voice`: a recording sent as a voice message.
     Voice {
         room: String,

@@ -41,6 +41,7 @@ pub(super) fn answered_later(request: &AppCall) -> bool {
             | AppCall::Spotify(_)
             | AppCall::SendVoice { .. }
             | AppCall::Messages { .. }
+            | AppCall::Badges { .. }
     )
 }
 
@@ -92,6 +93,7 @@ impl Application {
             AppCall::Search(request) => Some(PluginAsk::Search(request)),
             AppCall::Sessions => Some(PluginAsk::Sessions),
             AppCall::Affinities(request) => Some(PluginAsk::Affinities(request)),
+            AppCall::Badges { person, server } => Some(PluginAsk::Badges { person, server }),
             AppCall::Messages {
                 room,
                 message,

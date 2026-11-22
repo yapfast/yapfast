@@ -75,7 +75,7 @@ impl Bridge {
                     }
                     decorate_cache::Look::Waiting => {}
                     decorate_cache::Look::Answered(Some(output)) => {
-                        self.shared.announce(Notice::Slot(output));
+                        self.shared.announce(Notice::Slot(*output));
                     }
                     decorate_cache::Look::Answered(None) => {}
                 }

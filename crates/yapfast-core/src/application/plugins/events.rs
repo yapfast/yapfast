@@ -527,8 +527,22 @@ impl Application {
             world.publish_voice(crate::plugins::world::voice_view(&state.voice));
         }
         if let Some(room) = state.selected.as_deref() {
-            world.publish_timeline(room, &state.messages);
+            // A plugin reads people as Yapfast made them, not as plugins
+            // dressed them.
+            let made = self.plugin_dress.as_ref();
+            let messages = made
+                .filter(|kept| Arc::ptr_eq(&kept.messages_shown, &state.messages))
+                .map_or(&state.messages, |kept| &kept.messages_made);
+            world.publish_timeline(room, messages);
             if let Some(Ok(members)) = &state.members {
+                let members = made
+                    .filter(|kept| {
+                        kept.members_shown
+                            .as_ref()
+                            .is_some_and(|shown| Arc::ptr_eq(shown, members))
+                    })
+                    .and_then(|kept| kept.members_made.as_ref())
+                    .unwrap_or(members);
                 world.publish_members(room, members);
             }
         }
@@ -555,6 +569,7 @@ impl Application {
         } else {
             self.plugin_friend_presences = None;
         }
+        self.plugins_dress();
         if !wants_presence && !wants_roster {
             // Nobody wants presence: nothing is compared, nothing is kept, and
             // the room, the member list and the account stay where they are
@@ -675,6 +690,196 @@ impl Application {
             };
             self.plugins_observe(envelope(kind, network, room, None, true, payload));
         }
+    }
+
+    /// Puts how plugins say people look on every surface that shows a person:
+    /// the timeline's authors and mentions, the member list, the voice list
+    /// and the typing strip. The people on screen are asked about first (a
+    /// fresh answer costs nothing), and only rows a plugin changed are
+    /// copied. What Yapfast made is kept beside, so an answer that goes puts
+    /// Yapfast's own back.
+    fn plugins_dress(&mut self) {
+        let identifies = self
+            .state
+            .plugins
+            .as_ref()
+            .is_some_and(|plugins| plugins.identifies());
+        let members_now = self
+            .state
+            .members
+            .as_ref()
+            .and_then(|members| members.as_ref().ok())
+            .cloned();
+        if !identifies {
+            // Nothing dresses anyone: what is shown dressed goes back.
+            if let Some(kept) = self.plugin_dress.take() {
+                if Arc::ptr_eq(&self.state.messages, &kept.messages_shown) {
+                    self.state.messages = kept.messages_made;
+                }
+                if let (Some(shown), Some(now), Some(made)) =
+                    (&kept.members_shown, &members_now, kept.members_made)
+                    && Arc::ptr_eq(shown, now)
+                {
+                    self.state.members = Some(Ok(made));
+                }
+            }
+            return;
+        }
+        let changes = self
+            .state
+            .plugins
+            .as_ref()
+            .map_or(0, |plugins| plugins.identity_changes());
+        let kept = self.plugin_dress.take().unwrap_or_default();
+        let messages_new = !Arc::ptr_eq(&self.state.messages, &kept.messages_shown);
+        let members_new = match (&members_now, &kept.members_shown) {
+            (Some(now), Some(shown)) => !Arc::ptr_eq(now, shown),
+            (None, None) => false,
+            _ => true,
+        };
+        let messages_made = if messages_new {
+            Arc::clone(&self.state.messages)
+        } else {
+            kept.messages_made
+        };
+        let members_made = if members_new {
+            members_now.clone()
+        } else {
+            kept.members_made
+        };
+        let server = self.state.selected.as_deref().and_then(plugin_server);
+        // The people on screen are asked about: a person with a fresh answer
+        // costs a lookup.
+        if messages_new || members_new {
+            let me = self.state.discord_user.clone();
+            let mut asked: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut requests = Vec::new();
+            for message in messages_made.iter().rev().take(60) {
+                let Some(person) = crate::discord::sender_user(&message.sender) else {
+                    continue;
+                };
+                if person.is_empty() || !asked.insert(person.to_owned()) {
+                    continue;
+                }
+                requests.push(yapfast_plugin_api::identity::IdentityRequest {
+                    person: person.to_owned(),
+                    server: server.clone(),
+                    name: message.author.clone(),
+                    username: None,
+                    own: me.as_deref() == Some(person),
+                });
+            }
+            for member in members_made
+                .iter()
+                .flat_map(|members| members.iter())
+                .take(200)
+            {
+                if !asked.insert(member.id.clone()) {
+                    continue;
+                }
+                requests.push(yapfast_plugin_api::identity::IdentityRequest {
+                    person: member.id.clone(),
+                    server: server.clone(),
+                    name: member.name.clone(),
+                    username: member.username.clone(),
+                    own: me.as_deref() == Some(member.id.as_str()),
+                });
+            }
+            if let Some(plugins) = self.state.plugins.as_mut() {
+                for request in requests {
+                    plugins.ask_identity(request);
+                }
+            }
+        }
+        let Some(plugins) = self.state.plugins.as_ref() else {
+            return;
+        };
+        let look = |person: &str| plugins.identity_of(person, server.as_deref());
+        let redress = messages_new || members_new || changes != kept.changes;
+        let messages_shown = if redress {
+            let mut changed = false;
+            let dressed: Vec<Arc<crate::chat::ChatMessage>> = messages_made
+                .iter()
+                .map(
+                    |message| match crate::plugins::dress::message(message, &look) {
+                        Some(dressed) => {
+                            changed = true;
+                            Arc::new(dressed)
+                        }
+                        None => Arc::clone(message),
+                    },
+                )
+                .collect();
+            if changed {
+                Arc::new(dressed)
+            } else {
+                Arc::clone(&messages_made)
+            }
+        } else {
+            kept.messages_shown
+        };
+        let members_shown = if redress {
+            members_made.as_ref().map(|members| {
+                let mut changed = false;
+                let dressed: Vec<crate::chat::ChatMember> = members
+                    .iter()
+                    .map(
+                        |member| match crate::plugins::dress::member(member, &look) {
+                            Some(dressed) => {
+                                changed = true;
+                                dressed
+                            }
+                            None => member.clone(),
+                        },
+                    )
+                    .collect();
+                if changed {
+                    Arc::new(dressed)
+                } else {
+                    Arc::clone(members)
+                }
+            })
+        } else {
+            kept.members_shown
+        };
+        // The voice list and the typing strip are made again by every change
+        // Yapfast hears, so they are dressed where they stand.
+        for person in &mut self.state.voice.participants {
+            if let Some(name) =
+                look(&person.person).and_then(|identity| identity.display_name.clone())
+            {
+                person.user = name;
+            }
+        }
+        if let (Some(room), Some(members)) = (self.state.selected.clone(), members_made.as_ref())
+            && let Some(typing) = self.state.typing.get_mut(&room)
+        {
+            for name in typing.iter_mut() {
+                let renamed = members
+                    .iter()
+                    .find(|member| member.name == *name)
+                    .and_then(|member| look(&member.id))
+                    .and_then(|identity| identity.display_name.clone());
+                if let Some(renamed) = renamed {
+                    *name = renamed;
+                }
+            }
+        }
+        if !Arc::ptr_eq(&self.state.messages, &messages_shown) {
+            self.state.messages = Arc::clone(&messages_shown);
+        }
+        if let (Some(shown), Some(now)) = (&members_shown, &members_now)
+            && !Arc::ptr_eq(shown, now)
+        {
+            self.state.members = Some(Ok(Arc::clone(shown)));
+        }
+        self.plugin_dress = Some(super::Dressed {
+            changes,
+            messages_made,
+            messages_shown,
+            members_made,
+            members_shown,
+        });
     }
 
     /// Tells the plugins with `people.read` that subscribed to `presence` when a

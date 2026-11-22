@@ -741,6 +741,11 @@ fn author_line<'a>(
     if message.new_member {
         line = line.push(ctx.look.glyph(Icon::StarFilled, 14, theme.live));
     }
+    // What plugins badge the author with, after Yapfast's own tags.
+    #[cfg(feature = "plugins")]
+    for chip in crate::plugin_slots::author_badges(ctx, message) {
+        line = line.push(chip);
+    }
     // OP gives way to the APP tag, as in Discord's client.
     if message.bot {
         line = line.push(ctx.bot_tag(1.0));

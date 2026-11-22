@@ -123,7 +123,11 @@ impl Session {
         message: &str,
         tree: Option<serde_json::Value>,
         mut hide: crate::slots::Hidden,
-        (annotation, marks): (Option<serde_json::Value>, Option<serde_json::Value>),
+        (annotation, marks, author): (
+            Option<serde_json::Value>,
+            Option<serde_json::Value>,
+            Option<serde_json::Value>,
+        ),
     ) {
         let tree = match tree {
             Some(value) => match serde_json::to_string(&value)
@@ -202,6 +206,17 @@ impl Session {
                 );
             }
         }
+        // Badges on the author's line say something about the author, not the
+        // text, so they need no capability: each says whose it is on hover.
+        inline.author = author
+            .and_then(|value| {
+                yapfast_plugin_api::message::AuthorBadge::check_all(&value)
+                    .inspect_err(|refusal| {
+                        tracing::warn!(%plugin, %refusal, "a plugin's author badges were refused");
+                    })
+                    .ok()
+            })
+            .unwrap_or_default();
         let output = (tree.is_some() || !hide.none() || !inline.is_empty()).then(|| {
             crate::slots::Output::Decorate {
                 plugin: plugin.to_string(),

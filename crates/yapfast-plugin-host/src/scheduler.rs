@@ -1205,6 +1205,7 @@ impl<B: Backend + 'static> Shared<B> {
             blur_media: false,
             annotation: None,
             marks: None,
+            author: None,
         };
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(task.id, &nothing());
@@ -1244,6 +1245,7 @@ impl<B: Backend + 'static> Shared<B> {
                 blur_media: decoration.blur_media,
                 annotation: decoration.annotation,
                 marks: decoration.marks,
+                author: decoration.author,
             },
         );
         match result {
@@ -1873,6 +1875,7 @@ impl<B: Backend + 'static> Shared<B> {
                         blur_media: false,
                         annotation: None,
                         marks: None,
+                        author: None,
                     },
                 );
             }

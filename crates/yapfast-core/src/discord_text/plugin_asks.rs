@@ -67,6 +67,32 @@ pub(super) fn command(
                 before,
                 limit,
             } => messages(&discord, &room, message, before, limit).await,
+            PluginAsk::Badges { person, server } => {
+                // A server id as `rooms.list` names it, or a bare one.
+                let guild = server
+                    .as_deref()
+                    .map(|server| discord::parse_server(server).unwrap_or(server).to_owned())
+                    .unwrap_or_else(|| yapfast_discord::ready::PRIVATE.to_owned());
+                let person = person
+                    .strip_prefix("discord:")
+                    .unwrap_or(&person)
+                    .to_owned();
+                match discord.profile(&guild, &person, |_| {}).await {
+                    Ok(profile) => listed(
+                        profile
+                            .badges
+                            .iter()
+                            .map(|badge| yapfast_plugin_api::call::BadgeView {
+                                id: badge.id.clone(),
+                                description: badge.description.clone(),
+                                icon: badge.icon.clone(),
+                                link: badge.link.clone(),
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    Err(error) => failed(&error),
+                }
+            }
             PluginAsk::Voice {
                 room,
                 path,

@@ -61,6 +61,7 @@ fn a_decorator_is_asked_about_the_rows_on_screen_and_answers_with_a_tree() {
                         blur_media: false,
                         annotation: None,
                         marks: None,
+                        author: None,
                     })
                     .expect("it serializes"),
                 ),
@@ -131,6 +132,7 @@ fn a_decoration_that_doesnt_check_out_draws_nothing() {
                         blur_media: false,
                         annotation: None,
                         marks: None,
+                        author: None,
                     })
                     .expect("it serializes"),
                 ),

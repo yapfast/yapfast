@@ -28,6 +28,7 @@
 //! ```
 
 pub mod audio;
+pub mod dress;
 pub mod identity;
 pub mod presence;
 pub mod recorder;

@@ -464,20 +464,34 @@ from it:
 - **Turning a plugin off takes the answers with it**, so what a plugin that no
   longer runs said about somebody doesn't stay on screen.
 
-**Which surfaces use it.** Today, one: the profile card, opened from a message,
-from the member list, from a DM or from the friends list. The card is drawn from
-the answer at once if one is kept, and again when one arrives; its person's name,
-name colour, avatar, banner, avatar decoration and pronouns change, and nothing
-about the card's roles, badges, notes or tabs does.
+**Which surfaces use it.** Every one that shows a person:
 
-**Which don't, yet.** The message row's author line and avatar, the member list
-row's name and avatar, the DM header, the thread's rows, reply previews, mention
-chips and search results draw Yapfast's own view of a person and no plugin's.
-The answer is kept for them like any other, so wiring one of them is a lookup and
-not a new call. The `badges` field of an answer is kept too and drawn nowhere:
-the card's badges are Discord's own, with pictures, and a plugin's name-only
-badge has no surface of its own yet. A member list's plugin badges come from
-`member.decorate` instead, below.
+- **The profile card**, opened from a message, the member list, a DM or the
+  friends list: name, name colour, avatar, banner, avatar decoration and
+  pronouns.
+- **The timeline**: each message's author line and avatar (name, colour, avatar,
+  decoration) and the people it mentions (a mention says `@` and the plugin's
+  name in the plugin's colour), from
+  [`plugins/dress.rs`](../../crates/yapfast-core/src/plugins/dress.rs), which
+  copies only the rows a plugin changed.
+- **The member list's rows**, the **voice list** and the **typing strip**: the
+  same name, colour, avatar and decoration.
+- **The `badges` field** is drawn on the author line, after the name, as small
+  chips.
+
+The people on screen are asked about as they come: the last sixty authors of the
+open conversation and the first two hundred of its member list, each a lookup
+when a fresh answer is kept. What Yapfast made is kept beside what is shown, so
+a plugin turned off puts Yapfast's own back, and a plugin reading `messages.get`,
+`people.get` or the events sees people as Yapfast made them, never as another
+plugin dressed them.
+
+**The author line.** A decoration may also answer `author`, up to three small
+badges after the author's name: `[{ "text": "MOD", "tone": "accent", "tooltip":
+"Moderator" }]`, each 1 to 24 characters in one of the annotation tones, saying
+whose it is on hover. It needs no capability: it says something about the
+author, not the text. `people.badges` reads a person's own Discord badges
+([the ABI](abi.md)) for a plugin that draws them there.
 
 ## Badging people in the member list
 

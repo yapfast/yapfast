@@ -314,6 +314,7 @@ impl Application {
             | AppCall::Affinities(_)
             | AppCall::SendVoice { .. }
             | AppCall::Messages { .. }
+            | AppCall::Badges { .. }
             | AppCall::Spotify(_) => (
                 Vec::new(),
                 HostReturn::Error {

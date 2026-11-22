@@ -141,6 +141,18 @@ pub struct PowerfulAsk {
 
 pub use account::{ActivityShown, RecordingShown};
 
+/// The timeline and the member list as Yapfast made them, and as plugins'
+/// identities dressed them, with the count of identity changes they were
+/// dressed at: a sync that changed none of the three dresses nothing.
+#[derive(Default)]
+pub struct Dressed {
+    changes: u64,
+    messages_made: Arc<Vec<Arc<crate::chat::ChatMessage>>>,
+    messages_shown: Arc<Vec<Arc<crate::chat::ChatMessage>>>,
+    members_made: Option<Arc<Vec<crate::chat::ChatMember>>>,
+    members_shown: Option<Arc<Vec<crate::chat::ChatMember>>>,
+}
+
 /// A plugin sending as an agent, for the indicator the window shows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AgentShown {

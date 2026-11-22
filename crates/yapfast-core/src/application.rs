@@ -2648,6 +2648,11 @@ pub struct Application {
     /// The recording under way, which its plugin or the person stops.
     #[cfg(feature = "plugins")]
     plugin_recorder: Option<crate::plugins::recorder::Recording>,
+    /// What the timeline and the member list were before plugins dressed the
+    /// people in them, and what they were dressed as: see
+    /// [`crate::plugins::dress`].
+    #[cfg(feature = "plugins")]
+    plugin_dress: Option<crate::application::plugins::Dressed>,
     #[cfg(feature = "plugins")]
     plugin_friend_presences: Option<(u64, std::collections::BTreeMap<String, &'static str>)>,
     feed_asks: activity_panel::FeedAsks,

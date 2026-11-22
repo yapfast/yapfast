@@ -295,12 +295,14 @@ pub struct Decoration {
 pub struct Inline {
     pub annotation: Option<yapfast_plugin_api::message::Annotation>,
     pub marks: Vec<yapfast_plugin_api::message::Mark>,
+    /// Badges on the author's line.
+    pub author: Vec<yapfast_plugin_api::message::AuthorBadge>,
 }
 
 impl Inline {
     /// Nothing added to the text.
     pub fn is_empty(&self) -> bool {
-        self.annotation.is_none() && self.marks.is_empty()
+        self.annotation.is_none() && self.marks.is_empty() && self.author.is_empty()
     }
 }
 

@@ -164,6 +164,16 @@ impl Identities {
         had
     }
 
+    /// How this person looks, without moving them up the kept list: for a
+    /// surface that draws many people at once and borrows the list.
+    pub fn peek(&self, person: &str, server: Option<&str>, now: Instant) -> Option<Arc<Identity>> {
+        let entry = &self.kept[self.position(person, server)?];
+        if now.saturating_duration_since(entry.at) >= FRESH {
+            return None;
+        }
+        entry.answer.clone()
+    }
+
     /// Forgets every answer about one person, in every server.
     pub fn forget_person(&mut self, person: &str) -> bool {
         let before = self.kept.len();

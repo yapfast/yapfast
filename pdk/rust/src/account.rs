@@ -173,6 +173,16 @@ pub fn server_affinities() -> Result<Pending> {
     ask(method::RELATIONSHIPS_AFFINITIES, json!({ "of": "servers" }))
 }
 
+/// A person's Discord badges, as their profile in `server` (or outside any)
+/// shows them: `people.read`, answered later as `[{ id, description, icon,
+/// link? }]`.
+pub fn badges(person: &str, server: Option<&str>) -> Result<Pending> {
+    ask(
+        method::PEOPLE_BADGES,
+        json!({ "person": person, "server": server }),
+    )
+}
+
 /// The linked Spotify: `spotify.control`. Yapfast makes the requests with the
 /// token Discord lends and the plugin never sees it. Control needs Spotify
 /// Premium; a free account's calls fail with a sentence saying so.

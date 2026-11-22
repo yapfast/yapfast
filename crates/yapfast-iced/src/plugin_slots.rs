@@ -669,6 +669,73 @@ pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
     (hasher.finish() | 1, marks)
 }
 
+/// The badges plugins put on a message's author line, after the name: those
+/// a decoration answered for this message (each saying whose on hover), and
+/// those a plugin's identity of the author names.
+pub fn author_badges<'a>(
+    ctx: Ctx<'a>,
+    message: &'a yapfast_core::chat::ChatMessage,
+) -> Vec<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let mut chips: Vec<Element<'a, Message>> = Vec::new();
+    let chip = |words: String, ink: iced::Color, tip: String| -> Element<'a, Message> {
+        tooltip(
+            container(text(words).size(10).font(BOLD).color(ink))
+                .padding([0, 4])
+                .height(16)
+                .align_y(Alignment::Center)
+                .style(move |_| {
+                    iced::widget::container::Style::default()
+                        .background(iced::Color { a: 0.18, ..ink })
+                        .border(iced::Border {
+                            radius: 4.0.into(),
+                            ..iced::Border::default()
+                        })
+                }),
+            controls::tip(theme, tip),
+            tooltip::Position::Top,
+        )
+        .into()
+    };
+    if let Some(slots) = ctx.state.plugin_slots.as_deref() {
+        for decoration in slots.decorations(&message.item) {
+            let Some(plugin) = slots.names().get(decoration.plugin) else {
+                continue;
+            };
+            for badge in &decoration.inline.author {
+                let ink = plugin_tree::tone_colour(theme, annotation_tone(&badge.tone));
+                let tip = if badge.tooltip.is_empty() {
+                    credit_line(&plugin.name)
+                } else {
+                    format!("{} \u{b7} {}", badge.tooltip, credit_line(&plugin.name))
+                };
+                chips.push(chip(badge.text.clone(), ink, tip));
+            }
+        }
+    }
+    let server = ctx
+        .state
+        .selected
+        .as_deref()
+        .and_then(yapfast_core::discord::parse_room)
+        .map(|(guild, _)| guild)
+        .filter(|guild| *guild != yapfast_core::discord::DM_GUILD);
+    if let (Some(plugins), Some(person)) = (
+        ctx.state.plugins.as_ref(),
+        yapfast_core::discord::sender_user(&message.sender),
+    ) && let Some(identity) = plugins.identity_of(person, server)
+    {
+        for badge in identity.badges.iter().take(3) {
+            chips.push(chip(
+                badge.clone(),
+                theme.accent,
+                "A plugin's badge".to_owned(),
+            ));
+        }
+    }
+    chips
+}
+
 /// What plugins add under a message's text: each one's line, its card and,
 /// when it styled the text, a word saying so. Each plugin's part is credited
 /// once, by one small line over it naming the plugin, with its id in a

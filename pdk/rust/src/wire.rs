@@ -312,6 +312,7 @@ pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
+    pub const PEOPLE_BADGES: &str = "people.badges";
     pub const OVERLAY_SET: &str = "overlay.set";
     pub const MICROPHONE_START: &str = "microphone.start";
     pub const MICROPHONE_STOP: &str = "microphone.stop";

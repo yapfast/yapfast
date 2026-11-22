@@ -339,6 +339,9 @@ pub struct Decoration {
     /// Styles over words of the text, as the plugin wrote them: checked by the
     /// parent with [`Mark::check_all`].
     pub marks: Option<serde_json::Value>,
+    /// Small badges on the author's line, after the name, as the plugin wrote
+    /// them: checked by the parent with [`AuthorBadge::check_all`].
+    pub author: Option<serde_json::Value>,
 }
 
 impl Decoration {
@@ -366,6 +369,7 @@ impl Decoration {
             blur_media: flag("blur_media").unwrap_or(false),
             annotation: present("annotation"),
             marks: present("marks"),
+            author: present("author"),
         };
         if decoration.tree.is_none()
             && !decoration.hide
@@ -373,6 +377,7 @@ impl Decoration {
             && !decoration.blur_media
             && decoration.annotation.is_none()
             && decoration.marks.is_none()
+            && decoration.author.is_none()
         {
             return None;
         }
@@ -430,6 +435,61 @@ impl Annotation {
             ));
         }
         Ok(annotation)
+    }
+}
+
+/// A small badge a plugin puts on a message's author line, after the name:
+/// what MoreUserTags and ShowBadgesInChat draw there.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AuthorBadge {
+    pub text: String,
+    /// One of [`Annotation::TONES`]; `accent` when left out.
+    #[serde(default)]
+    pub tone: String,
+    /// A word on hover, as a badge's description.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tooltip: String,
+}
+
+impl AuthorBadge {
+    /// The most a plugin puts on one author line.
+    pub const MAX_BADGES: usize = 3;
+    /// The longest badge, in characters: a tag, not a sentence.
+    pub const MAX_CHARS: usize = 24;
+
+    /// A plugin's badges, checked: at most [`Self::MAX_BADGES`], each one line
+    /// of 1 to [`Self::MAX_CHARS`] characters in one of the annotation tones.
+    pub fn check_all(value: &serde_json::Value) -> Result<Vec<Self>, String> {
+        let mut badges: Vec<AuthorBadge> = serde_json::from_value(value.clone())
+            .map_err(|error| format!("its author badges: {error}"))?;
+        if badges.len() > Self::MAX_BADGES {
+            return Err(format!(
+                "it put {} badges on an author line, which takes {}",
+                badges.len(),
+                Self::MAX_BADGES
+            ));
+        }
+        for badge in &mut badges {
+            badge.text = badge.text.trim().to_owned();
+            let count = badge.text.chars().count();
+            if count == 0 || count > Self::MAX_CHARS {
+                return Err(format!(
+                    "an author badge is 1 to {} characters",
+                    Self::MAX_CHARS
+                ));
+            }
+            crate::text::check(&badge.text).map_err(|why| format!("an author badge: {why}"))?;
+            if badge.tooltip.chars().count() > Annotation::MAX_CHARS {
+                return Err("an author badge's tooltip is too long".to_owned());
+            }
+            if badge.tone.is_empty() {
+                badge.tone = "accent".to_owned();
+            }
+            if !Annotation::TONES.contains(&badge.tone.as_str()) {
+                return Err(format!("an author badge's tone `{}` isn't one", badge.tone));
+            }
+        }
+        Ok(badges)
     }
 }
 
@@ -492,6 +552,22 @@ impl Mark {
 #[cfg(test)]
 mod decoration_tests {
     use super::*;
+
+    #[test]
+    fn author_badges_are_short_and_few() {
+        let parsed = Decoration::parse(serde_json::json!({ "author": [{ "text": "MOD" }] }))
+            .expect("an answer");
+        let badges = AuthorBadge::check_all(parsed.author.as_ref().unwrap()).unwrap();
+        assert_eq!(badges[0].tone, "accent");
+        for wrong in [
+            serde_json::json!([{ "text": "" }]),
+            serde_json::json!([{ "text": "x".repeat(25) }]),
+            serde_json::json!([{ "text": "a" }, { "text": "b" }, { "text": "c" }, { "text": "d" }]),
+            serde_json::json!([{ "text": "a", "tone": "danger" }]),
+        ] {
+            assert!(AuthorBadge::check_all(&wrong).is_err(), "{wrong}");
+        }
+    }
 
     #[test]
     fn a_bare_tree_is_still_a_decoration() {
@@ -744,6 +820,9 @@ pub enum FromHelper {
         /// Styles over the text's words, unchecked: the parent checks them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         marks: Option<serde_json::Value>,
+        /// Badges on the author's line, unchecked: the parent checks them.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        author: Option<serde_json::Value>,
     },
     /// How a plugin answered about one person, as `yf_identity` returned it, or
     /// nothing when it said nothing. The parent checks the answer, and keeps it

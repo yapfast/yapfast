@@ -539,6 +539,17 @@ impl PluginState {
             .get(person, server, std::time::Instant::now())
     }
 
+    /// [`Self::identity`] for a surface that draws many people at once: it
+    /// doesn't move them up the kept list, so it borrows nothing mutably.
+    pub fn identity_of(
+        &self,
+        person: &str,
+        server: Option<&str>,
+    ) -> Option<Arc<yapfast_plugin_api::identity::Identity>> {
+        self.identities
+            .peek(person, server, std::time::Instant::now())
+    }
+
     /// Asks the plugins about one person, when what is kept about them is
     /// missing or stale. A fresh answer costs nothing, which is what makes this
     /// safe to call from wherever a person is drawn.

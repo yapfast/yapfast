@@ -351,6 +351,7 @@ fn decorated_with(capabilities: &[&str], annotation: serde_json::Value) -> Optio
                 blur_media: false,
                 annotation: Some(annotation),
                 marks: Some(serde_json::json!([{ "text": "hi", "style": "bold" }])),
+                author: None,
             })
             .expect("it serializes"),
         ),
@@ -362,7 +363,10 @@ fn decorated_with(capabilities: &[&str], annotation: serde_json::Value) -> Optio
     };
     // The answer is kept, so the row coming back asks nobody.
     let kept = shared.decorated().look(&plugin, version, &row);
-    assert_eq!(kept, decorate_cache::Look::Answered(drawn.clone()));
+    assert_eq!(
+        kept,
+        decorate_cache::Look::Answered(drawn.clone().map(Box::new))
+    );
     drawn
 }
 

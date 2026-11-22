@@ -692,6 +692,7 @@ the services' own, and the sources).
 | `messages.search` | `{ place, query, offset? }` | `{ total, hits: [{ room, message, author, body, at }], indexing }` |
 | `drafts.list` | none | `[{ room, body }]` |
 | `account.sessions` | none | `[{ id_hash, last_used?, os?, platform?, location? }]` |
+| `people.badges` | `{ person, server? }`, with `people.read` | `[{ id, description, icon, link? }]`: the person's Discord badges, from their profile in that server or outside any, as Discord's profile gives them |
 | `relationships.affinities` | `{ of?: "users" \| "servers", detailed? }`, or none for the people | `{ users: [{ person, affinity, is_friend?, user_segment?, other_user_segment?, dm_probability?, dm_rank?, vc_probability?, vc_rank?, server_message_probability?, server_message_rank?, communication_probability?, communication_rank? }] }` or `{ servers: [{ server, affinity }] }`, highest first |
 | `spotify.now` | none | `{ playing, track?, artists, album?, album_art?, uri?, duration_ms?, position_ms?, shuffle?, repeat?, volume?, device? }`, or `null` |
 | `spotify.play`, `pause`, `next`, `previous` | none | `true` |
