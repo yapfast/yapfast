@@ -312,6 +312,12 @@ pub(super) fn tab_page<'a>(
     };
     scroll_view(content)
         .height(Length::Fill)
+        .on_scroll(|viewport| {
+            Message::Profile(Event::TabScrolled(
+                viewport.absolute_offset().y,
+                viewport.bounds().height,
+            ))
+        })
         .style(scrollbar(ctx.look.theme))
         .into()
 }

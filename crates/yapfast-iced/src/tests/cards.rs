@@ -630,3 +630,17 @@ fn a_card_shows_the_call_theyre_in() {
     assert!(shows(&app, "In voice"));
     assert!(shows(&app, "Join"));
 }
+
+/// A mutual tab asks only for the pictures of the rows on screen and
+/// ten either side, however long the list.
+#[test]
+fn a_mutual_tab_asks_only_for_the_rows_shown() {
+    use crate::profile::rows_shown;
+    assert_eq!(rows_shown((0.0, 400.0), 40.0), (0, 30));
+    assert_eq!(rows_shown((4000.0, 400.0), 40.0), (90, 30));
+    assert_eq!(
+        rows_shown((0.0, 0.0), 40.0),
+        (0, 43),
+        "a screenful before it scrolls"
+    );
+}

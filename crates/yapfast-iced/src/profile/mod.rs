@@ -95,6 +95,8 @@ pub enum Event {
     Enlarge(Option<Tab>, bool),
     /// The full profile's Mutual Friends search changed.
     FriendSearch(String),
+    /// A mutual tab scrolled: its offset and the height it shows.
+    TabScrolled(f32, f32),
     Close,
     Befriend(String),
     /// What a one-to-one DM's opening does about its person, by their id.
@@ -202,6 +204,9 @@ pub struct Profiles {
     note_of: String,
     /// What the full profile's Mutual Friends tab is searched for.
     pub friend_search: String,
+    /// How far a mutual tab is scrolled and how tall it shows: only the
+    /// rows there ask for their pictures.
+    pub tab_scroll: (f32, f32),
     pub pointed: bool,
     pub panel_pointed: bool,
     pub bubble: bool,
@@ -297,6 +302,7 @@ impl Profiles {
                 self.save_note(cx);
                 self.tab = tab;
                 self.friend_search.clear();
+                self.tab_scroll = (0.0, 0.0);
                 if panel {
                     let Some(room) = cx.state().selected.clone() else {
                         return Task::none();
@@ -404,6 +410,11 @@ impl Profiles {
             Event::EffectTick(generation) => return self.effect_tick(generation, cx.state()),
             Event::FriendSearch(words) => {
                 self.friend_search = words;
+                return Task::none();
+            }
+            Event::TabScrolled(offset, height) => {
+                self.tab_scroll = (offset, height);
+                cx.request(Request::Ask);
                 return Task::none();
             }
             Event::Bubble(pointed) => {
@@ -557,6 +568,16 @@ pub(crate) fn live_of(state: &yapfast_core::application::AppState, id: &str) -> 
             activity: room.activity.clone(),
             activities: room.activities.clone(),
         })
+}
+
+/// The rows of a list `row` px each that show at `(offset, height)`, and
+/// ten either side: the first and how many. Before it has scrolled, the
+/// first screenful.
+pub(crate) fn rows_shown((offset, height): (f32, f32), row: f32) -> (usize, usize) {
+    let height = if height > 0.0 { height } else { 900.0 };
+    let first = (offset / row).floor().max(0.0) as usize;
+    let first = first.saturating_sub(10);
+    (first, (height / row).ceil() as usize + 20)
 }
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and
@@ -887,19 +908,27 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
             continue;
         }
         match profile_tab(ctx, &shown.look) {
+            // Only the rows on screen, and a few either side: a long list
+            // asked for every picture as it opened, and lagged.
             Tab::Friends => {
+                let (first, count) = rows_shown(ctx.profiles.tab_scroll, 40.0);
                 urls.extend(
                     profile
                         .friends
                         .iter()
+                        .skip(first)
+                        .take(count)
                         .filter_map(|friend| friend.avatar.clone()),
                 );
             }
             Tab::Servers => {
+                let (first, count) = rows_shown(ctx.profiles.tab_scroll, 40.0);
                 urls.extend(
                     profile
                         .servers
                         .iter()
+                        .skip(first)
+                        .take(count)
                         .filter_map(|server| server.icon.clone()),
                 );
             }
