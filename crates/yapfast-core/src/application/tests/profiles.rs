@@ -1058,3 +1058,44 @@ fn a_profile_without_a_wishlist_has_an_empty_one() {
         chat::Wishlist::Loaded(Vec::new())
     );
 }
+
+/// Join on a tag's card asks Discord to join only a server anyone may.
+#[test]
+fn a_tags_card_joins_a_public_server() {
+    let mut app = discord_server();
+    let profile = |joinable| chat::TagServer {
+        name: "Aliens".into(),
+        icon: None,
+        description: String::new(),
+        members: None,
+        online: None,
+        created_ms: 0,
+        banner: None,
+        color: None,
+        traits: Vec::new(),
+        joinable,
+    };
+    let join = |app: &mut Application| {
+        app.dispatch(Action::JoinTagServer("discord:99".into()))
+            .iter()
+            .any(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(DiscordCommand::JoinTagServer { server }))
+                        if server == "discord:99"
+                )
+            })
+    };
+    app.state.tag_server = Some(("discord:99".into(), Ok(Some(profile(false)))));
+    assert!(!join(&mut app), "one that takes an invite");
+    app.state.tag_server = Some(("discord:99".into(), Ok(Some(profile(true)))));
+    assert!(join(&mut app));
+    app.apply(Event::TagServerJoined {
+        server: "discord:99".into(),
+        result: Err("Couldn't join the server: no".into()),
+    });
+    assert_eq!(
+        app.state.notice.as_deref(),
+        Some("Couldn't join the server: no")
+    );
+}

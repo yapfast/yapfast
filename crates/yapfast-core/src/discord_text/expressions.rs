@@ -76,6 +76,26 @@ pub(super) fn command(
             });
             return None;
         }
+        // Joining a tag's server from its card.
+        Command::Discord(DiscordCommand::JoinTagServer { server }) => {
+            let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+                let result = Err(discord.err().unwrap_or(NOT_DISCORD).to_owned());
+                let _ = events.send(Event::TagServerJoined { server, result });
+                return None;
+            };
+            let (discord, guild, events) = (discord.clone(), guild.to_owned(), events.clone());
+            tokio::spawn(async move {
+                let result = discord.join_public_server(&guild).await.map_err(|error| {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not join a tag's server"
+                    );
+                    format!("Couldn't join the server: {error}")
+                });
+                let _ = events.send(Event::TagServerJoined { server, result });
+            });
+            return None;
+        }
         other => return Some(other),
     };
     let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
@@ -151,6 +171,10 @@ async fn tag_server(discord: &Discord, guild: &str) -> TagServerAnswer {
         members: profile.members,
         online: profile.online,
         created_ms: yapfast_discord::message::snowflake_ms(guild),
+        banner: profile.banner,
+        color: profile.color,
+        traits: profile.traits,
+        joinable: profile.joinable,
     }))
 }
 

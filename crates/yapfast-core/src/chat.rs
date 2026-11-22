@@ -2637,6 +2637,14 @@ pub struct TagServer {
     pub online: Option<u64>,
     /// When it was made, from its id, in Unix milliseconds.
     pub created_ms: u64,
+    /// The picture across its card's top, when it has one, and its accent
+    /// colour, which fills the top without one.
+    pub banner: Option<String>,
+    pub color: Option<u32>,
+    /// The words it describes itself with, each with its emoji, if any.
+    pub traits: Vec<(String, String)>,
+    /// Anyone may join it, which its card offers.
+    pub joinable: bool,
 }
 
 /// What Discord answered for a server tag's card: the server's profile, none
@@ -3429,6 +3437,11 @@ pub enum DiscordCommand {
     /// The profile of the server a server tag is from, for the tag's card.
     /// [`Event::TagServer`] follows.
     TagServer {
+        server: String,
+    },
+    /// Join the server a tag's card shows, one anyone may join.
+    /// [`Event::TagServerJoined`] follows.
+    JoinTagServer {
         server: String,
     },
     /// What Stickers asks of Discord; [`Event::StickersChanged`] follows.
@@ -4573,6 +4586,11 @@ pub enum Event {
     TagServer {
         server: String,
         result: TagServerAnswer,
+    },
+    /// Whether [`DiscordCommand::JoinTagServer`] joined the server.
+    TagServerJoined {
+        server: String,
+        result: Result<(), String>,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.

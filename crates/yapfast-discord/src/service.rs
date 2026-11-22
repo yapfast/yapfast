@@ -2108,6 +2108,12 @@ impl Discord {
     /// a server it lists publicly; none for a server it keeps private. An
     /// answer, or that refusal, from the last minute is given again rather
     /// than asked for, as Discord's client does; a failure is not kept.
+    /// Joins a server its tag's card offers to, one anyone may join; it
+    /// lists once GUILD_CREATE comes.
+    pub async fn join_public_server(&self, guild: &str) -> Result<()> {
+        self.api.join_public_guild(guild).await
+    }
+
     pub async fn tag_server(&self, guild: &str) -> Result<Option<guild::Profile>> {
         let kept = {
             let servers = self.lock_tag_servers();

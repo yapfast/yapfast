@@ -2483,6 +2483,8 @@ pub enum Action {
     /// ask Discord for the server's profile, which it gives again from what
     /// it fetched in the last few minutes.
     OpenServerTag(String),
+    /// Join the server a tag's card shows, which anyone may join.
+    JoinTagServer(String),
     /// Show the profile of the other person in a one-to-one DM, large.
     ShowDmProfile(String),
     /// Show the profile of a friend a profile lists as mutual, by Discord
@@ -4283,6 +4285,7 @@ impl Application {
             Action::ShowDmProfile(id) => self.show_dm_profile(id),
             Action::PreviewServer(server) => self.preview_server(server),
             Action::OpenServerTag(server) => self.open_server_tag(server),
+            Action::JoinTagServer(server) => self.join_tag_server(server),
             Action::ShowFriendProfile { user, large } => self.show_friend_profile(user, large),
             Action::EnlargeProfile => {
                 if let Some(view) = self.state.profile.as_mut().filter(|view| !view.large) {
@@ -4702,6 +4705,9 @@ impl Application {
             Event::ServerPaused { server, result } => self.server_paused(server, result),
             Event::ServerPreview { server, result } => self.show_server_preview(server, result),
             Event::TagServer { server, result } => self.show_tag_server(server, result),
+            Event::TagServerJoined { server, result } => {
+                return self.tag_server_joined(server, result);
+            }
             Event::EmojisChanged {
                 server,
                 upload,
