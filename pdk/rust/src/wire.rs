@@ -313,6 +313,21 @@ pub mod method {
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
     pub const PEOPLE_BADGES: &str = "people.badges";
+    // The calls the PDK has no wrapper for yet, named for `call::call`.
+    pub const VOICE_STATE: &str = "voice.state";
+    pub const FILES_SAVE: &str = "files.save";
+    pub const ASSETS_LIST: &str = "assets.list";
+    pub const FS_LIST: &str = "fs.list";
+    pub const FS_STAT: &str = "fs.stat";
+    pub const FS_READ: &str = "fs.read";
+    pub const FS_WRITE: &str = "fs.write";
+    pub const FS_THUMBNAIL: &str = "fs.thumbnail";
+    pub const NET_LISTEN: &str = "net.listen";
+    pub const NET_RESPOND: &str = "net.respond";
+    pub const NET_CONNECT: &str = "net.connect";
+    pub const NET_SEND: &str = "net.send";
+    pub const NET_CLOSE: &str = "net.close";
+    pub const WINDOW_SET_TITLE: &str = "window.set_title";
     pub const OVERLAY_SET: &str = "overlay.set";
     pub const MICROPHONE_START: &str = "microphone.start";
     pub const MICROPHONE_STOP: &str = "microphone.stop";
