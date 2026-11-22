@@ -257,6 +257,7 @@ fn someones_menu_blocks_and_unblocks_them_but_never_this_account() {
             presence: None,
             activity: None,
             activities: Default::default(),
+            style: None,
         }]
         .into(),
         blocked: if eve_blocked {
@@ -396,6 +397,7 @@ fn a_discord_dms_menu_manages_its_person_and_notifications() {
                 presence: None,
                 activity: None,
                 activities: Default::default(),
+                style: None,
             }]
             .into()
         } else {

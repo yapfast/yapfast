@@ -376,8 +376,9 @@ pub fn name_look(
     in_server: bool,
     dark: bool,
 ) -> Option<NameLook> {
-    let style = style.filter(|style| !style.colors().is_empty())?;
-    if in_server {
+    let style = style?;
+    // A style without colours is its font alone, as in a server.
+    if in_server || style.colors().is_empty() {
         return Some(NameLook {
             effect: 1,
             family: family(style.font),
@@ -660,6 +661,18 @@ mod tests {
     };
 
     use super::{MemberLine, member_lines};
+
+    /// A style without colours is its font alone, everywhere a style
+    /// shows: in a server and out of one.
+    #[test]
+    fn a_style_without_colours_draws_its_font() {
+        let style = yapfast_core::chat::NameStyle::new(12, 1, &[]);
+        for in_server in [false, true] {
+            let look = super::name_look(Some(&style), "Ann", in_server, true).expect("its font");
+            assert_eq!(look.family, Some("Tempo"));
+            assert!(look.colors.is_empty());
+        }
+    }
 
     fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {
         ChatMember {
