@@ -1135,10 +1135,18 @@ fn mutual_line<'a>(
                 .height(18)
         ];
         for (index, friend) in profile.friends.iter().take(3).enumerate() {
-            faces = faces.push(placed(
+            // Yapfast's own: a face names its person when pointed at.
+            let face =
                 container(ctx.avatar(friend.avatar.as_deref(), &friend.name, 16.0, 8.0, 1.0))
                     .padding(1)
-                    .style(move |_| rounded(ground, 9)),
+                    .style(move |_| rounded(ground, 9));
+            faces = faces.push(placed(
+                tooltip(
+                    face,
+                    controls::tip(ctx.look.theme, friend.name.as_str()),
+                    tooltip::Position::Top,
+                )
+                .gap(6),
                 index as f32 * 12.0,
                 0.0,
             ));
@@ -1173,7 +1181,12 @@ fn mutual_line<'a>(
             ];
             for (index, server) in profile.servers.iter().take(3).enumerate() {
                 icons = icons.push(placed(
-                    ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+                    tooltip(
+                        ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+                        controls::tip(ctx.look.theme, server.name.as_str()),
+                        tooltip::Position::Top,
+                    )
+                    .gap(6),
                     index as f32 * 12.0,
                     0.0,
                 ));
