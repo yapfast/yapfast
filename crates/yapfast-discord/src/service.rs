@@ -75,6 +75,9 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// When this session saw them join the channel, in Unix seconds; none
+    /// for those already there when it started.
+    pub joined: Option<u64>,
 }
 
 /// The linked account, as Discord shows it outside any server.

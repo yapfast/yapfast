@@ -166,6 +166,15 @@ carry ids only, no messages. `lists_who_the_voice_server_says_is_in_the_call`
 checks the list against the fake, whose `POST
 /_control/voice-clients?user=ID` sends op 11, and with `&left` op 13.
 
+Pointing at someone under a voice channel says how long they've been in it,
+"In voice for 12m", in a tooltip, from when Yapfast saw them join: a
+VOICE_STATE_UPDATE that puts them in a channel they weren't in sets the
+time (`VoiceMember::joined`, then `VoicePerson::joined`), one that changes
+their state in place keeps it, and those already there when a session's
+READY, GUILD_CREATE or PASSIVE_UPDATE listed them have none, so their row
+says nothing. Discord sends no join time; the tooltip is made as the pointer
+arrives, so no clock ticks for it.
+
 ## The call's channel line
 
 As in Discord's voice panel, the dock's line under the status ("gen ·

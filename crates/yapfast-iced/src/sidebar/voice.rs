@@ -232,7 +232,21 @@ impl<'a> super::View<'a> {
                 Message::Arrange(crate::arrange::Event::Take(room.clone(), user.clone()))
             });
         if !person.elsewhere {
-            return drags.into();
+            // How long they've been in the channel, from when Yapfast saw
+            // them join; made only under the pointer, so no clock ticks
+            // for it.
+            let since = person.joined.filter(|_| pointed);
+            return match since {
+                Some(joined) => {
+                    let now = yapfast_core::clock::now_ms() / 1000;
+                    let words =
+                        format!("In voice for {}", yapfast_core::clock::lasted(joined, now));
+                    tooltip(drags, controls::tip(theme, words), tooltip::Position::Top)
+                        .gap(4)
+                        .into()
+                }
+                None => drags.into(),
+            };
         }
         // This account, in the call from another client.
         tooltip(

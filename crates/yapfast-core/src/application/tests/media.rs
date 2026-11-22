@@ -347,6 +347,7 @@ fn asks_once_for_the_pictures_on_screen() {
         voice: [(
             "11".to_owned(),
             vec![VoiceMember {
+                joined: None,
                 user_id: member.into(),
                 name: member.into(),
                 avatar: format!("{member}.png"),

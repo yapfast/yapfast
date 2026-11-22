@@ -65,7 +65,8 @@ row under the pointer or while selected offers Create invite, to that
 channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
-its tooltip "Connected on another client") and how long the
+its tooltip "Connected on another client"; anyone else's, made only under the
+pointer, "In voice for 12m" when Yapfast saw them join) and how long the
 call has gone on, which a timer set for the next whole minute brings up
 to date only while one shows (the same timer as open polls', the
 Activity panel's cards' and Active Now's); under the pointer, a card beside its row names who is there

@@ -102,6 +102,9 @@ struct VoiceEntry {
     server_deafened: bool,
     streaming: bool,
     video: bool,
+    /// When this session saw them join the channel, in Unix seconds; none
+    /// for those already there when it learned of them.
+    joined: Option<u64>,
 }
 
 /// Who the voice server of this account's call says is connected, in the
@@ -1188,6 +1191,18 @@ impl Tracker {
             Some(channel) => {
                 let flag = |name: &str| state[name].as_bool().unwrap_or(false);
                 let was = self.voice.get(&key).map(|entry| entry.channel.as_str());
+                // Only a voice state that comes as they join says when they
+                // did; READY and GUILD_CREATE list those already there.
+                let joined = if was == Some(channel) {
+                    self.voice.get(&key).and_then(|entry| entry.joined)
+                } else if matches!(event, Event::VoiceStateUpdate) {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|now| now.as_secs())
+                } else {
+                    None
+                };
                 if was != Some(channel) {
                     tracing::debug!(
                         target: VOICE_PRESENCE,
@@ -1210,6 +1225,7 @@ impl Tracker {
                         server_deafened: flag("deaf"),
                         streaming: flag("self_stream"),
                         video: flag("self_video"),
+                        joined,
                     },
                 );
             }
@@ -1871,6 +1887,7 @@ impl Tracker {
             .into_iter()
             .flatten()
             .map(|user| VoiceMember {
+                joined: None,
                 user_id: user.clone(),
                 name: name(user).to_owned(),
                 avatar: names.avatar(None, user),
@@ -2029,6 +2046,7 @@ impl Tracker {
                     streaming: entry.streaming,
                     video: entry.video,
                     elsewhere: *user == self.me && self.elsewhere(entry),
+                    joined: entry.joined,
                 });
         }
         // Those connected to this account's call whom the gateway's voice
@@ -2045,6 +2063,7 @@ impl Tracker {
                     .entry(heard.channel.clone())
                     .or_default()
                     .push(VoiceMember {
+                        joined: None,
                         user_id: user.clone(),
                         name: names
                             .name(&heard.guild, user)
@@ -2246,6 +2265,39 @@ mod tests {
             &json!({"guild_id": "10", "user_id": "1", "channel_id": null}),
         );
         assert_eq!(in_lounge(&mut tracker), [("2".into(), "Ann".into(), true)]);
+    }
+
+    /// A voice state that comes as someone joins says when they did; one
+    /// listing those already there doesn't, and a change in place keeps it.
+    #[test]
+    fn knows_when_someone_joined_voice_only_as_it_happens() {
+        let mut tracker = Tracker::from_ready("1".into(), &json!({}), Default::default());
+        let joined = |tracker: &mut Tracker, user: &str| {
+            tracker
+                .snapshot()
+                .voice
+                .values()
+                .flatten()
+                .find(|member| member.user_id == user)
+                .map(|member| member.joined)
+        };
+        tracker.apply(
+            &Event::PassiveUpdateV1,
+            &json!({"guild_id": "10", "voice_states": [{"user_id": "2", "channel_id": "11"}]}),
+        );
+        assert_eq!(joined(&mut tracker, "2"), Some(None));
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "3", "channel_id": "11"}),
+        );
+        let at = joined(&mut tracker, "3")
+            .flatten()
+            .expect("when they joined");
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "3", "channel_id": "11", "self_mute": true}),
+        );
+        assert_eq!(joined(&mut tracker, "3"), Some(Some(at)), "muting keeps it");
     }
 
     /// PASSIVE_UPDATE_V1 lists everyone in voice in a server; V2 says who
