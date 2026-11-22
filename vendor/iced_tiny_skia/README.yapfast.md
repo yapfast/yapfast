@@ -295,5 +295,14 @@ change spans several places):
     stretched to the card: a scrolled frame cost 45 ms. A test in
     `raster.rs`.
 
+43. `blit.rs` `gradient`, `engine.rs` `draw_quad`: a linear-gradient quad
+    is filled directly after its shadow, as a quad of one colour is
+    (patch 12), and at 100% off whole pixels too, each pixel an edge
+    crosses taking the part of it the quad covers. Before, one with a
+    shadow or an edge off whole pixels (Daydream's glossy chat bubbles,
+    as wide as their text, and its cards) went through tiny-skia's
+    pipeline and the clip mask: a scrolled frame cost 9 ms, now 1.3 ms.
+    On whole pixels every pixel is as before. Tests in `blit.rs`.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

@@ -303,13 +303,17 @@ fn times_255ths(pixel: u32, factor: u32) -> u32 {
     even | odd << 8
 }
 
-/// Yapfast port: fills a linear gradient, `width` by `height` at (`x`, `y`)
-/// on whole pixels, onto `pixels`, source over, within `clip_bounds`, with
-/// its corners cut round to `radius` (top left, top right, bottom right,
-/// bottom left). As tiny-skia's linear gradient with `SpreadMode::Pad`
-/// colours each pixel's centre: the stops' straight colours interpolated
-/// along `start` to `end`, then premultiplied. `stops` are (offset, colour
-/// as the frame orders it, straight), offsets ascending.
+/// Yapfast port: fills a linear gradient over `bounds` onto `pixels`,
+/// source over, within `clip_bounds`, with its corners cut round to
+/// `radius` (top left, top right, bottom right, bottom left). As
+/// tiny-skia's linear gradient with `SpreadMode::Pad` colours each pixel's
+/// centre: the stops' straight colours interpolated along `start` to `end`,
+/// then premultiplied. `stops` are (offset, colour as the frame orders it,
+/// straight), offsets ascending.
+///
+/// Patch 43: `bounds` may lie off whole pixels (a chat bubble as wide as
+/// its text, 192.9 px): a pixel an edge crosses takes the part of it the
+/// quad covers. On whole pixels every pixel is as before.
 ///
 /// Stock, a gradient quad was an anti-aliased path through tiny-skia's f32
 /// pipeline, over its whole area for every damaged region it touched, and
@@ -317,10 +321,7 @@ fn times_255ths(pixel: u32, factor: u32) -> u32 {
 /// core.
 #[allow(clippy::too_many_arguments)]
 pub fn gradient(
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
+    bounds: Rectangle,
     clip_bounds: Rectangle,
     radius: [f32; 4],
     start: (f32, f32),
@@ -330,12 +331,16 @@ pub fn gradient(
 ) {
     let (target_width, target_height) =
         (pixels.width() as i32, pixels.height() as i32);
-    let x0 = x.max(clip_bounds.x.round() as i32).max(0);
-    let y0 = y.max(clip_bounds.y.round() as i32).max(0);
-    let x1 = (x + width)
+    let (left, top) = (bounds.x, bounds.y);
+    let (right, bottom) = (bounds.x + bounds.width, bounds.y + bounds.height);
+    // Pixels as far as a frame reaches: a quad may be as wide as can be.
+    let pixel = |at: f32| at.clamp(-16_777_216.0, 16_777_216.0) as i32;
+    let x0 = pixel(left.floor()).max(clip_bounds.x.round() as i32).max(0);
+    let y0 = pixel(top.floor()).max(clip_bounds.y.round() as i32).max(0);
+    let x1 = pixel(right.ceil())
         .min((clip_bounds.x + clip_bounds.width).round() as i32)
         .min(target_width);
-    let y1 = (y + height)
+    let y1 = pixel(bottom.ceil())
         .min((clip_bounds.y + clip_bounds.height).round() as i32)
         .min(target_height);
     let (Some(first), Some(last)) = (stops.first(), stops.last()) else {
@@ -371,14 +376,14 @@ pub fn gradient(
     };
     let radius = radius.map(|radius| {
         radius
-            .min(width as f32 / 2.0)
-            .min(height as f32 / 2.0)
+            .min(bounds.width / 2.0)
+            .min(bounds.height / 2.0)
             .max(0.0)
     });
-    let [top_left, top_right, bottom_right, bottom_left] =
-        radius.map(|radius| radius.ceil() as i32);
-    let top = top_left.max(top_right);
-    let bottom = bottom_left.max(bottom_right);
+    // How much of the pixels from `at` to `at + 1` lie from `from` to `to`.
+    let part = |at: i32, from: f32, to: f32| {
+        ((at as f32 + 1.0).min(to) - (at as f32).max(from)).clamp(0.0, 1.0)
+    };
     let stride = pixels.width() as usize * 4;
     let target = pixels.data_mut();
     // Yapfast port (patch 29): within the filled span, how far along the
@@ -412,58 +417,81 @@ pub fn gradient(
             colors.extend((x0..x1).map(|column| color(at(column, row))));
             opaque = colors.iter().all(|pixel| pixel >> 24 == 255);
         }
-        let local_y = row - y;
-        let (left, right) = if local_y < top {
-            (
-                (local_y < top_left).then_some((radius[0], local_y)),
-                (local_y < top_right).then_some((radius[1], local_y)),
-            )
-        } else if local_y >= height - bottom {
-            let from_bottom = height - 1 - local_y;
-            (
-                (from_bottom < bottom_left).then_some((radius[3], from_bottom)),
-                (from_bottom < bottom_right).then_some((radius[2], from_bottom)),
-            )
+        // The round corner this row crosses on each side, as its radius
+        // and how far the row's centre is above or below the corner's.
+        let centre_y = row as f32 + 0.5;
+        let corner = |upper: f32, lower: f32| {
+            if upper > 0.0 && centre_y < top + upper {
+                Some((upper, top + upper - centre_y))
+            } else if lower > 0.0 && centre_y > bottom - lower {
+                Some((lower, centre_y - (bottom - lower)))
+            } else {
+                None
+            }
+        };
+        let (left_corner, right_corner) =
+            (corner(radius[0], radius[3]), corner(radius[1], radius[2]));
+        let down_part = part(row, top, bottom);
+        // The columns covered whole: clear of the corners and the edges.
+        let (inner_left, inner_right) = if down_part < 1.0 {
+            (x1, x1)
         } else {
-            (None, None)
+            let mut from = pixel(left.ceil());
+            let mut to = pixel(right.floor());
+            if let Some((radius, _)) = left_corner {
+                from = from.max(pixel((left + radius - 0.5).ceil()));
+            }
+            if let Some((radius, _)) = right_corner {
+                to = to.min(pixel((right - radius - 0.5).floor()) + 1);
+            }
+            let from = from.clamp(x0, x1);
+            (from, to.clamp(from, x1))
         };
         let to = row as usize * stride + x0 as usize * 4;
         let target_row = &mut target[to..to + (x1 - x0) as usize * 4];
-        // Yapfast port (patch 12): an opaque row clear of the corners, as
-        // most of a panel's are, is one copy.
-        if opaque && left.is_none() && right.is_none() && cfg!(target_endian = "little") {
-            target_row.copy_from_slice(bytemuck::cast_slice(&colors));
-            continue;
-        }
-        // Yapfast port (patch 29): a see-through row clear of the corners (a
-        // glass panel's tint) is laid over pixel by pixel without looking
-        // for corners.
-        if left.is_none()
-            && right.is_none()
-            && cfg!(target_endian = "little")
-            && let Ok(row) = bytemuck::try_cast_slice_mut::<u8, u32>(target_row)
+        let inner = (inner_left - x0) as usize..(inner_right - x0) as usize;
+        let all = 0..(x1 - x0) as usize;
+        let mut edges = (all.clone(), 0..0);
+        if cfg!(target_endian = "little")
+            && !inner.is_empty()
+            && let Ok(span) =
+                bytemuck::try_cast_slice_mut::<u8, u32>(&mut target_row[inner.start * 4..inner.end * 4])
         {
-            for (below, &pixel) in row.iter_mut().zip(&colors) {
-                *below = over(pixel, *below);
-            }
-            continue;
-        }
-        for (index, &pixel) in colors.iter().enumerate() {
-            let mut pixel = pixel;
-            let local_x = x0 - x + index as i32;
-            let corner = match (left, right) {
-                (Some((radius, cell_y)), _) if local_x < radius.ceil() as i32 => {
-                    Some((radius, local_x, cell_y))
+            if opaque {
+                // Yapfast port (patch 12): an opaque span clear of the
+                // corners, as most of a panel's rows are, is one copy.
+                span.copy_from_slice(&colors[inner.clone()]);
+            } else {
+                // Yapfast port (patch 29): a see-through one (a glass
+                // panel's tint) is laid over pixel by pixel without
+                // looking for corners.
+                for (below, &pixel) in span.iter_mut().zip(&colors[inner.clone()]) {
+                    *below = over(pixel, *below);
                 }
-                (_, Some((radius, cell_y)))
-                    if local_x >= width - radius.ceil() as i32 =>
-                {
-                    Some((radius, width - 1 - local_x, cell_y))
+            }
+            edges = (0..inner.start, inner.end..all.end);
+        }
+        for index in edges.0.chain(edges.1) {
+            let mut pixel = colors[index];
+            let column = x0 + index as i32;
+            let centre_x = column as f32 + 0.5;
+            let round = match (left_corner, right_corner) {
+                (Some((radius, cell_y)), _) if centre_x < left + radius => {
+                    Some((radius, left + radius - centre_x, cell_y))
+                }
+                (_, Some((radius, cell_y))) if centre_x > right - radius => {
+                    Some((radius, centre_x - (right - radius), cell_y))
                 }
                 _ => None,
             };
-            if let Some((radius, cell_x, cell_y)) = corner {
-                pixel = scaled(pixel, coverage(radius, cell_x, cell_y));
+            let covered = match round {
+                Some((radius, dx, dy)) if dx > 0.0 && dy > 0.0 => {
+                    (radius - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0)
+                }
+                _ => part(column, left, right) * down_part,
+            };
+            if covered < 1.0 {
+                pixel = scaled(pixel, (covered * 256.0) as u32);
             }
             let alpha = pixel >> 24;
             if alpha == 0 {
@@ -546,10 +574,7 @@ mod tests {
                 .expect("pixmap");
         let stops = [(0.0, [0.0, 0.0, 0.0, 1.0]), (1.0, [1.0, 0.5, 0.25, 1.0])];
         gradient(
-            0,
-            0,
-            width as i32,
-            height as i32,
+            Rectangle::new(crate::core::Point::ORIGIN, crate::core::Size::new(width as f32, height as f32)),
             Rectangle::new(crate::core::Point::ORIGIN, crate::core::Size::new(100.0, 100.0)),
             [0.0; 4],
             // A hair off vertical, as an angle's cosine leaves it.
@@ -569,6 +594,105 @@ mod tests {
             let expected = byte(t) | byte(0.5 * t) << 8 | byte(0.25 * t) << 16 | 255 << 24;
             assert_eq!(row[0], expected);
         }
+    }
+
+    /// Patch 43: a quad off whole pixels covers the part of each edge pixel
+    /// it lies over.
+    #[test]
+    fn a_gradient_off_whole_pixels_covers_part_of_its_edge_pixels() {
+        let (width, height) = (8_usize, 6_usize);
+        let mut bytes = pixels(&vec![0xff00_0000_u32; width * height]);
+        let mut target =
+            tiny_skia::PixmapMut::from_bytes(&mut bytes, width as u32, height as u32)
+                .expect("pixmap");
+        let white = [1.0, 1.0, 1.0, 1.0];
+        gradient(
+            Rectangle::new(crate::core::Point::new(1.0, 1.25), crate::core::Size::new(4.4, 3.75)),
+            Rectangle::new(crate::core::Point::ORIGIN, crate::core::Size::new(100.0, 100.0)),
+            [0.0; 4],
+            (0.0, 0.0),
+            (1.0, 0.0),
+            &[(0.0, white), (1.0, white)],
+            &mut target,
+        );
+        let drawn = values(&bytes);
+        let grey = |x: usize, y: usize| drawn[y * width + x] & 0xff;
+        assert_eq!(grey(2, 2), 255, "inside");
+        assert_eq!(grey(0, 2), 0, "left of it");
+        assert_eq!(grey(6, 2), 0, "right of it");
+        assert!(grey(5, 2).abs_diff(102) <= 2, "four tenths of its right edge: {}", grey(5, 2));
+        assert!(grey(2, 1).abs_diff(191) <= 2, "three quarters of its top edge: {}", grey(2, 1));
+        assert!(grey(5, 1).abs_diff(77) <= 2, "both: {}", grey(5, 1));
+        assert_eq!(grey(2, 4), 255, "its bottom on a whole pixel");
+    }
+
+    /// Patch 43: a round quad off whole pixels, as a chat bubble as wide as
+    /// its text, fills as tiny-skia's anti-aliased path does, near enough.
+    #[test]
+    fn a_round_gradient_off_whole_pixels_fills_as_its_path_did() {
+        let (width, height) = (60_u32, 40_u32);
+        let ground = 0xff20_1d1c_u32;
+        let bounds = Rectangle::new(crate::core::Point::new(5.0, 4.0), crate::core::Size::new(42.9, 26.0));
+        let (top, bottom) = ([0.9, 0.95, 1.0, 0.7], [0.6, 0.8, 1.0, 0.7]);
+        let mut fast = pixels(&vec![ground; (width * height) as usize]);
+        gradient(
+            bounds,
+            Rectangle::new(crate::core::Point::ORIGIN, crate::core::Size::new(100.0, 100.0)),
+            [10.0; 4],
+            (0.0, bounds.y),
+            (0.0, bounds.y + bounds.height),
+            &[(0.0, top), (1.0, bottom)],
+            &mut tiny_skia::PixmapMut::from_bytes(&mut fast, width, height).expect("pixmap"),
+        );
+        let mut path = pixels(&vec![ground; (width * height) as usize]);
+        let colour = |[b, g, r, a]: [f32; 4]| tiny_skia::Color::from_rgba(b, g, r, a).expect("colour");
+        tiny_skia::PixmapMut::from_bytes(&mut path, width, height).expect("pixmap").fill_path(
+            &crate::engine::rounded_rectangle(bounds, [10.0; 4]),
+            &tiny_skia::Paint {
+                shader: tiny_skia::LinearGradient::new(
+                    tiny_skia::Point::from_xy(0.0, bounds.y),
+                    tiny_skia::Point::from_xy(0.0, bounds.y + bounds.height),
+                    vec![
+                        tiny_skia::GradientStop::new(0.0, colour(top)),
+                        tiny_skia::GradientStop::new(1.0, colour(bottom)),
+                    ],
+                    tiny_skia::SpreadMode::Pad,
+                    tiny_skia::Transform::identity(),
+                )
+                .expect("gradient"),
+                anti_alias: true,
+                ..Default::default()
+            },
+            tiny_skia::FillRule::EvenOdd,
+            tiny_skia::Transform::identity(),
+            None,
+        );
+        let apart: Vec<u8> = fast.iter().zip(&path).map(|(a, b)| a.abs_diff(*b)).collect();
+        let most = apart.iter().copied().max().unwrap_or(0);
+        // Inside, the same but for rounding; along the outline, as
+        // tiny-skia's coverage steps.
+        let on_outline = |x: f32, y: f32| {
+            let (right, bottom) = (bounds.x + bounds.width, bounds.y + bounds.height);
+            let near = |at: f32, edge: f32| (at - edge).abs() < 1.5;
+            let in_corner = |at: f32, from: f32, to: f32| at < from + 11.0 || at > to - 11.0;
+            near(x, bounds.x)
+                || near(x, right)
+                || near(y, bounds.y)
+                || near(y, bottom)
+                || (in_corner(x, bounds.x, right) && in_corner(y, bounds.y, bottom))
+        };
+        for (index, pixel) in apart.chunks_exact(4).enumerate() {
+            let (x, y) = ((index as u32 % width) as f32 + 0.5, (index as u32 / width) as f32 + 0.5);
+            if pixel.iter().any(|&d| d > 2) {
+                assert!(on_outline(x, y), "({x}, {y}) inside, {pixel:?} apart");
+            }
+        }
+        assert!(most <= 24, "{most} levels apart at most");
+        // The right edge crossed at 47.9: the pixel from 47 to 48 is nine
+        // tenths covered, and the next not at all.
+        let at = |x: u32| values(&fast)[(17 * width + x) as usize];
+        assert_ne!(at(47), ground);
+        assert_eq!(at(48), ground);
     }
 
     #[test]

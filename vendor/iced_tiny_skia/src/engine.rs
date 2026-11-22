@@ -85,39 +85,6 @@ impl Engine {
             return;
         }
 
-        // Yapfast port: a linear gradient on whole pixels (the nameplates'
-        // fades and tints) is filled directly, only inside the clip; see
-        // `crate::blit::gradient`.
-        if let Background::Gradient(Gradient::Linear(linear)) = background
-            && (quad.border.width == 0.0 || quad.border.color.a == 0.0)
-            && quad.shadow.color.a == 0.0
-            && let Some((x, y, width, height)) = whole_pixels(physical_bounds, transformation.scale_factor())
-        {
-            let (start, end) = linear.angle.to_distance(&quad.bounds);
-            let (start, end) = (start * transformation, end * transformation);
-            let mut stops: Vec<(f32, [f32; 4])> = Vec::with_capacity(8);
-            for stop in linear.stops.into_iter().flatten() {
-                // Ascending, as tiny-skia makes them.
-                let offset = stop.offset.clamp(0.0, 1.0).max(stops.last().map_or(0.0, |last| last.0));
-                let color = stop.color;
-                stops.push((offset, [color.b, color.g, color.r, color.a]));
-            }
-            let scale = transformation.scale_factor();
-            crate::blit::gradient(
-                x,
-                y,
-                width,
-                height,
-                clip_bounds,
-                <[f32; 4]>::from(quad.border.radius).map(|radius| radius * scale),
-                (start.x, start.y),
-                (end.x, end.y),
-                &stops,
-                pixels,
-            );
-            return;
-        }
-
         let clip_mask = (!physical_bounds.is_within(&clip_bounds))
             .then_some(clip_mask as &_);
 
@@ -276,6 +243,45 @@ impl Engine {
             }
         }
 
+        // Yapfast port: a linear gradient (the nameplates' fades and tints)
+        // is filled directly, only inside the clip; see
+        // `crate::blit::gradient`. Patch 43: after its shadow, as a quad of
+        // one colour is, and at 100% off whole pixels too (a chat bubble as
+        // wide as its text): a theme's glossy bubbles and cards, each with
+        // a shadow, went through tiny-skia's pipeline and the clip mask.
+        // Scaled, it's put on whole pixels, as before.
+        if let Background::Gradient(Gradient::Linear(linear)) = background
+            && (quad.border.width == 0.0 || quad.border.color.a == 0.0)
+        {
+            let scale = transformation.scale_factor();
+            let bounds = if (scale - 1.0).abs() < 0.001 {
+                Some(physical_bounds)
+            } else {
+                whole_pixels(physical_bounds, scale).map(pixel_rectangle)
+            };
+            if let Some(bounds) = bounds {
+                let (start, end) = linear.angle.to_distance(&quad.bounds);
+                let (start, end) = (start * transformation, end * transformation);
+                let mut stops: Vec<(f32, [f32; 4])> = Vec::with_capacity(8);
+                for stop in linear.stops.into_iter().flatten() {
+                    // Ascending, as tiny-skia makes them.
+                    let offset = stop.offset.clamp(0.0, 1.0).max(stops.last().map_or(0.0, |last| last.0));
+                    let color = stop.color;
+                    stops.push((offset, [color.b, color.g, color.r, color.a]));
+                }
+                crate::blit::gradient(
+                    bounds,
+                    clip_bounds,
+                    <[f32; 4]>::from(quad.border.radius).map(|radius| radius * scale),
+                    (start.x, start.y),
+                    (end.x, end.y),
+                    &stops,
+                    pixels,
+                );
+                return;
+            }
+        }
+
         // Yapfast port (patch 12): a one-colour quad with round corners on
         // whole pixels and no border (cards, menus, the picker, buttons and
         // chips) is filled as patch 8's gradient of one colour: only inside
@@ -288,10 +294,7 @@ impl Engine {
         {
             let straight = [color.b, color.g, color.r, color.a];
             crate::blit::gradient(
-                x,
-                y,
-                width,
-                height,
+                pixel_rectangle((x, y, width, height)),
                 clip_bounds,
                 fill_border_radius
                     .map(|radius| radius * transformation.scale_factor()),
@@ -328,14 +331,11 @@ impl Engine {
             let fill = [color.b, color.g, color.r, color.a];
             let radius = fill_border_radius.map(|radius| radius * scale);
             crate::blit::gradient(
-                x, y, width, height, clip_bounds, radius,
+                pixel_rectangle((x, y, width, height)), clip_bounds, radius,
                 (0.0, 0.0), (1.0, 0.0), &[(0.0, edge), (1.0, edge)], pixels,
             );
             crate::blit::gradient(
-                x + border,
-                y + border,
-                width - border * 2,
-                height - border * 2,
+                pixel_rectangle((x + border, y + border, width - border * 2, height - border * 2)),
                 clip_bounds,
                 radius.map(|radius| (radius - border as f32).max(0.0)),
                 (0.0, 0.0), (1.0, 0.0), &[(0.0, fill), (1.0, fill)], pixels,
@@ -919,6 +919,11 @@ fn whole_pixels(bounds: Rectangle, scale: f32) -> Option<(i32, i32, i32, i32)> {
             let [x, y, width, height] = values.map(|value| value.round() as i32);
             (x, y, width, height)
         })
+}
+
+/// Whole pixels from [`whole_pixels`] as a rectangle.
+fn pixel_rectangle((x, y, width, height): (i32, i32, i32, i32)) -> Rectangle {
+    Rectangle { x: x as f32, y: y as f32, width: width as f32, height: height as f32 }
 }
 
 pub fn into_color(color: Color) -> tiny_skia::Color {
