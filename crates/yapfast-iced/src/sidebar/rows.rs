@@ -152,7 +152,7 @@ impl SideRow {
     }
 }
 
-/// The sidebar's header: the server's name and badge, or the DMs' button;
+/// The sidebar's header: the server's name and badge, or the DMs' search;
 /// and over a server's channels, its banner, boost goal and events row.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SideHeader {
@@ -242,11 +242,13 @@ pub fn room_icon(room: &ChatRoom) -> Icon {
 /// Requests, the heading and the DMs (pinned first), message requests and
 /// spam left to their screen; in a server its pinned channels under their
 /// heading, then each category's heading and channels, folded as
-/// `collapsed` says, a channel's threads after it.
+/// `collapsed` says, a channel's threads after it. `filter` keeps the
+/// conversations whose names hold it.
 pub fn sidebar(
     state: &AppState,
     categories: &[ListedCategory],
     collapsed: &HashMap<String, BTreeSet<String>>,
+    filter: &str,
     dark: bool,
 ) -> Vec<SideRow> {
     sidebar_in(
@@ -254,6 +256,7 @@ pub fn sidebar(
         &state.navigation,
         categories,
         collapsed,
+        filter,
         dark,
     )
 }
@@ -265,10 +268,12 @@ pub fn sidebar_in(
     navigation: &Navigation,
     categories: &[ListedCategory],
     collapsed: &HashMap<String, BTreeSet<String>>,
+    filter: &str,
     dark: bool,
 ) -> Vec<SideRow> {
     let cosmetics = state.cosmetics;
     let direct = *navigation == Navigation::DirectMessages;
+    let query = filter.to_lowercase();
     // Who is in a voice channel of a server this account is in, as the DM
     // list marks them.
     let spots = if direct {
@@ -276,7 +281,10 @@ pub fn sidebar_in(
     } else {
         HashMap::new()
     };
-    let mut listed: Vec<&ChatRoom> = state.rooms_in(navigation).collect();
+    let mut listed: Vec<&ChatRoom> = state
+        .rooms_in(navigation)
+        .filter(|room| room.name.to_lowercase().contains(&query))
+        .collect();
     // A forum's row counts its posts that are unread, and its badge the
     // mentions in them, as Discord's does. Only the row: the server's badge
     // counts each post already.
@@ -343,7 +351,9 @@ pub fn sidebar_in(
             .take_while(|room| pinned_at(room).is_some())
             .count();
     }
-    let folded = server.and_then(|server| collapsed.get(&server.id));
+    let folded = server
+        .and_then(|server| collapsed.get(&server.id))
+        .filter(|_| query.is_empty());
     let is_folded = |by: &str| folded.is_some_and(|folded| folded.contains(by));
     let voice_room = state
         .voice
@@ -387,9 +397,10 @@ pub fn sidebar_in(
                 None
             };
             if let Some((name, by)) = heading {
-                if let Some(at) = categories[next_category..]
-                    .iter()
-                    .position(|known| known.id == by)
+                if query.is_empty()
+                    && let Some(at) = categories[next_category..]
+                        .iter()
+                        .position(|known| known.id == by)
                 {
                     rows.extend(
                         categories[next_category..next_category + at]
@@ -556,7 +567,7 @@ pub fn sidebar_in(
             ),
         })));
     }
-    if !direct {
+    if !direct && query.is_empty() {
         rows.extend(
             categories[next_category.min(categories.len())..]
                 .iter()

@@ -151,6 +151,12 @@ impl<'a> Page<'a> {
                 self.cx.layout.peek_channels,
                 Pref::PeekChannels,
             ),
+            self.flip(
+                "Search DMs with the quick switcher",
+                "The box at the top of the DM list opens the quick switcher, as Discord's \"Find or start a conversation\" does, instead of filtering the list.",
+                self.cx.layout.dm_search_switcher,
+                Pref::DmSearchSwitcher,
+            ),
         ])
     }
 }

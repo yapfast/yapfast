@@ -63,8 +63,11 @@ never the panels' own widths.
 
 The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels,
 voice and DM rows each a file) shows, on the DM
-home, "Find or start a conversation", a button drawn as a field that opens
-the quick switcher, as Discord's does,
+home, the search field (which keeps the DMs whose names hold its text,
+and empties as the rail goes elsewhere), or with "Search DMs with the
+quick switcher" on (`dm_search_switcher`, off by default) "Find or start a
+conversation", a button drawn as a field that opens the quick switcher, as
+Discord's does,
 Friends and Requests (rows 38 px tall, in the navigation greys), "Direct
 Messages" and each DM with its person's
 presence, the voice channel they're in (a click goes to it, in its

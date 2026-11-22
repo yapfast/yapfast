@@ -32,7 +32,7 @@ pub(crate) use channels::listed_row_face;
 pub use rows::{Room, SideHeader, SideRow, room_icon, side_header, sidebar};
 
 /// The sidebar: its header and rows, its viewport, what's dragged in it,
-/// and the filter typed into Browse Channels.
+/// and the filters typed into it and into Browse Channels.
 pub struct Sidebar {
     pub header: SideHeader,
     pub rows: Vec<SideRow>,
@@ -49,6 +49,10 @@ pub struct Sidebar {
     /// The width the sidebar had as its edge was pressed, while it's
     /// dragged.
     pub drag: Option<f32>,
+    /// The DM search's filter, and where the rail went last, so the filter
+    /// goes when it goes elsewhere.
+    pub filter: String,
+    pub filtered_in: Option<yapfast_core::application::Navigation>,
     /// Browse Channels' search.
     pub browse_filter: String,
     /// A theme's server tree: its rows, the row the keys are on while it
@@ -97,6 +101,8 @@ impl Sidebar {
             arranging: None,
             moving_person: None,
             drag: None,
+            filter: String::new(),
+            filtered_in: None,
             browse_filter: String::new(),
             tree: Vec::new(),
             tree_cursor: None,
@@ -221,7 +227,8 @@ pub(crate) const GAP: f32 = 2.0;
 const END: f32 = 12.0;
 /// The list's inset from the sidebar's sides.
 const INSET: f32 = 8.0;
-/// The list's id.
+/// The search field's id, and the list's.
+pub const FILTER: &str = "sidebar-filter";
 pub const LIST: &str = "sidebar-list";
 /// How much taller the header is with the server's banner behind it, and
 /// how far down the banner's shade reaches.
@@ -269,7 +276,9 @@ pub enum Event {
     Voice(String),
     /// A category's heading, by what it folds by.
     Toggle(String),
-    /// The DM list's "Find or start a conversation": the quick switcher.
+    Filter(String),
+    /// The DM list's "Find or start a conversation" button, shown instead
+    /// of the filter when the setting is on: the quick switcher.
     FindConversation,
     Friends,
     Requests,
@@ -370,6 +379,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.layout.collapsed.remove(&server);
             }
             crate::layout::store(app.client.root(), "collapsed", &app.layout.collapsed);
+        }
+        Event::Filter(filter) => {
+            app.lists_shown = None;
+            app.sidebar.filter = filter;
         }
         Event::FindConversation => {
             return app.switcher_event(crate::switcher::Event::Toggle);

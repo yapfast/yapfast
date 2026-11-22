@@ -1,9 +1,9 @@
 //! The sidebar's top: a server's banner and name, its boost goal and
-//! events, or the DMs' Find or start a conversation.
+//! events, or the DMs' search.
 
 use iced::{
     Alignment, Background, Color, Element, Length, Padding,
-    widget::{Space, button, column, container, row, stack, text},
+    widget::{Space, button, column, container, row, stack, text, text_input},
 };
 
 use crate::{
@@ -17,7 +17,8 @@ use crate::{
 };
 
 use super::{
-    BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, HEADER, INSET, INVITE,
+    BANNER, BOOST_GOAL, BOOST_PILL, BOOST_PINK, BOOST_ROW, EVENTS_ROW, Event, FILTER, HEADER,
+    INSET, INVITE,
 };
 
 /// The number in a server's Boost level badge, measured (237, 237, 239).
@@ -25,15 +26,16 @@ const TIER_INK: Color = Color::from_rgb(237.0 / 255.0, 237.0 / 255.0, 239.0 / 25
 
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
-    /// or the DMs' Find or start a conversation, over the outline; with a banner, the
+    /// or the DMs' search field (or, with its setting on, Discord's Find or
+    /// start a conversation button), over the outline; with a banner, the
     /// header grows over it, shaded at its top, with no line under it.
     pub(super) fn side_header_view(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let inner: Element<'a, Message> = match &head.server {
-            // As Discord's: a button that looks like a field and opens the
-            // quick switcher, which Ctrl+K opens too.
-            None => {
+            // With its setting on, as Discord's: a button that looks like a
+            // field and opens the quick switcher, which Ctrl+K opens too.
+            None if self.cx.layout.dm_search_switcher => {
                 let (ground, hint) = (theme.field, theme.muted);
                 button(
                     text("Find or start a conversation")
@@ -51,6 +53,24 @@ impl<'a> super::View<'a> {
                     ..button::Style::default()
                 })
                 .into()
+            }
+            None => {
+                let (ground, ink, hint, selection) =
+                    (theme.field, theme.text, theme.muted, theme.selection);
+                text_input("Find a conversation", &self.s.filter)
+                    .id(FILTER)
+                    .on_input(|filter| Message::Side(Event::Filter(filter)))
+                    .size(13)
+                    .padding([8, 10])
+                    .style(move |_, _| text_input::Style {
+                        background: ground.into(),
+                        border: crate::style::round(6),
+                        icon: ink,
+                        placeholder: hint,
+                        value: ink,
+                        selection,
+                    })
+                    .into()
             }
             // As Slint: a server whose name opens no menu has it as a plain
             // title, 16 px bold in the window's face.
