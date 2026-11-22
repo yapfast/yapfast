@@ -3453,6 +3453,10 @@ impl<'a, M: 'a> From<Art<'a>> for Element<'a, M> {
 /// `ArtLayer` takes its surface's shape (`Look.r(Look.<surface>, stock)`):
 /// the theme's own for the surface, else the stock corner it rounds.
 fn corner_radius(ctx: crate::ctx::Ctx<'_>, surface: ArtSurface) -> f32 {
+    // The settings card's parts lie inside its 1 px edge (`sheet::backdrop`).
+    if surface == ArtSurface::Settings {
+        return crate::sheet::inner_radius(ctx.look.theme);
+    }
     let stock = match surface {
         ArtSurface::Picker | ArtSurface::Composer => 10.0,
         // The account card's ground rounds its corners as the card does.
@@ -3505,7 +3509,7 @@ pub fn surface<'a>(
         layers,
         own: floats,
         background,
-        radius: if ctx.look.theme.packaged() {
+        radius: if ctx.look.theme.packaged() || surface == ArtSurface::Settings {
             corner_radius(ctx, surface)
         } else {
             ctx.look.theme.surface_radius(surface.ground(), 0.0)

@@ -226,10 +226,32 @@ impl App {
             self.themes.package_layout(&self.theme.id),
             self.themes.chrome(&self.theme.id),
         );
+        // A floating navigation pane's ground rounds the pane's corners, and
+        // without the rail in it, it's the sidebar's paint: the account card
+        // under the list then shows the list's ground round its own corners,
+        // not a square of the rail's.
+        let navigation_style = if paned {
+            let radius = self
+                .themes
+                .glass_style(&self.theme.id)
+                .map_or(0.0, |style| style.radius);
+            let ground: iced::Background = if navigation_right {
+                self.theme.surface_paint("sidebar")
+            } else {
+                rail_ground.into()
+            };
+            iced::widget::container::Style {
+                background: Some(ground),
+                border: iced::Border::default().rounded(radius),
+                ..Default::default()
+            }
+        } else {
+            crate::style::fill(rail_ground)
+        };
         let navigation = container(navigation_inner)
             .width(navigation_width)
             .height(Length::Fill)
-            .style(move |_| crate::style::fill(rail_ground));
+            .style(move |_| navigation_style);
         // The sidebar's edge drags it wider or narrower.
         let splitter = crate::widgets::Splitter::new(
             iced::Color::TRANSPARENT,
