@@ -179,6 +179,9 @@ pub struct Timeline {
     /// on it notes: under the header, and under what else is over it (a
     /// banner, a forum post's bar, a DM's call). Empty until either.
     pub place: std::cell::Cell<iced::Rectangle>,
+    /// The height a plugin's welcome (`timeline.intro` replaced) took at its
+    /// last layout; none while Yapfast's own is drawn.
+    pub intro_drawn: std::cell::Cell<f32>,
     /// The window's last press as the keys came onto the messages: a later
     /// one off the list takes them away.
     pub keyed_press: iced::Point,
@@ -201,6 +204,21 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    /// The history's edge's height over the first row: a plugin's welcome
+    /// at the height it took, else [`Edge::height`].
+    pub fn edge_height(&self) -> f32 {
+        let drawn = self.intro_drawn.get();
+        if drawn > 0.0
+            && self.edge.ready
+            && self.edge.start
+            && matches!(self.edge.intro, Intro::Server(_) | Intro::Channel)
+        {
+            drawn
+        } else {
+            self.edge.height()
+        }
+    }
+
     /// The rows in view, and `margin` beyond.
     pub fn in_view(&self, margin: f32) -> (usize, usize) {
         let top = self.view_top();
@@ -251,6 +269,7 @@ impl Timeline {
             width,
             at_end: true,
             place: Default::default(),
+            intro_drawn: Default::default(),
             keyed_press: iced::Point::ORIGIN,
             latest_due: false,
             left_at: None,
@@ -629,7 +648,7 @@ impl<'a> crate::ctx::Ctx<'a> {
         let edge = match row.checked_sub(ASIDE) {
             Some(0) if self.lanes.aside.is_some_and(|aside| aside.ready) => EDGE,
             Some(_) => 0.0,
-            None if row == 0 => self.lanes.timeline.edge.height(),
+            None if row == 0 => self.lanes.timeline.edge_height(),
             None => 0.0,
         };
         lane.top + top + edge + self.row_look(row).map_or(0.0, top_space)

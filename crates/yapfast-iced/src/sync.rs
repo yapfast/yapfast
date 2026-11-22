@@ -588,7 +588,7 @@ impl App {
             messages: &self.timeline.messages,
             marks,
             width: self.timeline.width,
-            edge: self.timeline.edge.height(),
+            edge: self.timeline.edge_height(),
             edge_changed,
             foot: self.timeline.edge.foot(),
         });

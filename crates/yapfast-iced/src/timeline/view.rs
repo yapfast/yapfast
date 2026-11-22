@@ -446,8 +446,12 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if edge.intro == Intro::Direct {
         return direct_welcome(ctx);
     }
-    // A plugin that replaces the welcome draws in its place, as tall as it,
-    // so nothing under it moves. A DM's isn't replaced: Block is in it.
+    // A plugin that replaces the welcome draws in its place at the height
+    // what it drew takes: the row it heads is measured like any other, and
+    // the height noted here places the first message's hover bar and menus.
+    // What it can draw is bounded by the slot's own limits (256 cells, four
+    // deep, pictures at most 512 px a side), so nothing else holds it. A
+    // DM's isn't replaced: Block is in it.
     #[cfg(feature = "plugins")]
     if let Some(drawn) = crate::plugin_slots::replaced(
         ctx,
@@ -455,18 +459,17 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.state.selected.as_deref().unwrap_or_default(),
         true,
     ) {
-        return container(drawn)
+        let drawn = container(drawn)
             .padding(Padding {
                 top: 16.0,
                 right: 16.0,
                 bottom: 8.0,
                 left: 16.0,
             })
-            .width(Length::Fill)
-            .height(edge.height())
-            .clip(true)
-            .into();
+            .width(Length::Fill);
+        return crate::widgets::Wrap::new(drawn, Noted(&ctx.lanes.timeline.intro_drawn)).into();
     }
+    ctx.lanes.timeline.intro_drawn.set(0.0);
     let theme = ctx.look.theme;
     let title = |words: String, weight| {
         text(words)
@@ -868,4 +871,24 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
             ..container::Style::default()
         })
         .into()
+}
+
+/// Notes the height a plugin's welcome took as it's laid out
+/// ([`super::Timeline::edge_height`]).
+#[cfg(feature = "plugins")]
+struct Noted<'a>(&'a std::cell::Cell<f32>);
+
+#[cfg(feature = "plugins")]
+impl crate::widgets::Hooks<Message> for Noted<'_> {
+    type State = crate::widgets::Stateless;
+
+    fn layout(
+        &mut self,
+        limits: &iced::advanced::layout::Limits,
+        child: &mut dyn FnMut(&iced::advanced::layout::Limits) -> iced::advanced::layout::Node,
+    ) -> iced::advanced::layout::Node {
+        let node = child(limits);
+        self.0.set(node.size().height);
+        node
+    }
 }
