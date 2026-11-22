@@ -95,14 +95,16 @@ impl Kept {
             }));
         let mut wanted = Vec::new();
         for (plugin, tree) in trees {
-            for cell in tree.cells() {
-                if !matches!(cell.kind, Kind::Image | Kind::Icon) {
-                    continue;
-                }
-                let Some(Source::Web { url, .. }) = ui::source(&cell.src) else {
+            for src in tree
+                .cells()
+                .into_iter()
+                .filter(|cell| matches!(cell.kind, Kind::Image | Kind::Icon | Kind::Tile))
+                .flat_map(|cell| [&cell.src, &cell.hover_src])
+            {
+                let Some(Source::Web { url, .. }) = ui::source(src) else {
                     continue;
                 };
-                let at = plugin_tree::image_key(&plugin.id, &cell.src);
+                let at = plugin_tree::image_key(&plugin.id, src);
                 match plugins.web_pictures.get(&plugin.id, url) {
                     None => wanted.push((plugin.id.clone(), url.to_owned())),
                     Some(WebPictureState::Loading) => {}
@@ -237,14 +239,16 @@ fn read_pictures(
     tree: &Tree,
     picture: &impl Fn(&str, &str) -> Option<iced::widget::image::Handle>,
 ) {
-    for cell in tree.cells() {
-        if !matches!(cell.kind, Kind::Image | Kind::Icon) {
-            continue;
-        }
-        let Some(Source::Asset(path)) = ui::source(&cell.src) else {
+    for src in tree
+        .cells()
+        .into_iter()
+        .filter(|cell| matches!(cell.kind, Kind::Image | Kind::Icon | Kind::Tile))
+        .flat_map(|cell| [&cell.src, &cell.hover_src])
+    {
+        let Some(Source::Asset(path)) = ui::source(src) else {
             continue;
         };
-        let at = plugin_tree::image_key(plugin, &cell.src);
+        let at = plugin_tree::image_key(plugin, src);
         if images.contains_key(&at) {
             continue;
         }

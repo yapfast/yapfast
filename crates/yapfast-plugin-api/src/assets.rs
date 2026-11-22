@@ -13,14 +13,14 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 /// The most assets one manifest may name.
-pub const MAX_ASSETS: usize = 32;
+pub const MAX_ASSETS: usize = 128;
 
 /// The largest one asset may be: a picture a row or a card draws, or a short
 /// sound, and the same cap `audio.play` holds a sound a plugin brings to.
 pub const MAX_ASSET_BYTES: u64 = 512 << 10;
 
 /// The most a package's assets may weigh together.
-pub const MAX_ASSETS_TOTAL_BYTES: u64 = 4 << 20;
+pub const MAX_ASSETS_TOTAL_BYTES: u64 = 16 << 20;
 
 /// The longest name an asset may have, in bytes.
 pub const MAX_ASSET_NAME_BYTES: usize = 32;

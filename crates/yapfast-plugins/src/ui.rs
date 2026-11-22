@@ -1141,6 +1141,9 @@ pub enum Kind {
     Section,
     /// `cells` laid out in `columns`.
     Grid,
+    /// A picture over its label in one card of a fixed width, a button when it
+    /// has an `id`: a picker's choice, laid out in a grid that lines up.
+    Tile,
 }
 
 impl Kind {
@@ -1333,6 +1336,37 @@ pub struct Cell {
     /// A section starts folded shut.
     #[serde(default)]
     pub collapsed: bool,
+    /// The part of an image's or tile's picture shown, `[x, y, width,
+    /// height]` in its own pixels: one frame of an atlas.
+    #[serde(default)]
+    pub crop: Option<[u32; 4]>,
+    /// The picture drawn pixel-sharp (nearest neighbour), for pixel art.
+    #[serde(default)]
+    pub pixelated: bool,
+    /// An image's or tile picture's size on screen, 8 to [`PICTURE_SIDE`].
+    #[serde(default)]
+    pub width: Option<f32>,
+    #[serde(default)]
+    pub height: Option<f32>,
+    /// Drawn as the chosen one: an accent ring round it.
+    #[serde(default)]
+    pub selected: bool,
+    /// What an image or tile shows while the pointer is on it: another
+    /// picture, or (with `hover_crop` alone) another part of the same.
+    #[serde(default)]
+    pub hover_src: String,
+    #[serde(default)]
+    pub hover_crop: Option<[u32; 4]>,
+}
+
+/// The largest an image's or a tile's picture is drawn, either way.
+pub const PICTURE_SIDE: f32 = 512.0;
+
+impl Cell {
+    /// A picture that is a button: an image or a tile with an id.
+    pub fn pressable(&self) -> bool {
+        matches!(self.kind, Kind::Image | Kind::Tile) && !self.id.is_empty()
+    }
 }
 
 /// One tab of a `tabs` cell: its label and what it shows.
@@ -1422,6 +1456,13 @@ impl Default for Cell {
             header: Vec::new(),
             table: Vec::new(),
             collapsed: false,
+            crop: None,
+            pixelated: false,
+            width: None,
+            height: None,
+            selected: false,
+            hover_src: String::new(),
+            hover_crop: None,
         }
     }
 }
@@ -1547,7 +1588,9 @@ fn words(text: &str) -> String {
 }
 
 fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> {
-    if (cell.kind.interactive() || cell.kind.keeps_state()) && !plain_id(&cell.id) {
+    if (cell.kind.interactive() || cell.kind.keeps_state() || cell.pressable())
+        && !plain_id(&cell.id)
+    {
         return Err(format!("a {:?} cell has no plain id", cell.kind));
     }
     // Words that hide themselves or turn a line around are taken out, not
@@ -1578,8 +1621,17 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
         Kind::Number if !cell.value.is_empty() && cell.value.trim().parse::<f64>().is_err() => {
             cell.value.clear();
         }
-        Kind::Icon | Kind::Image if source(&cell.src).is_none() => cell.src.clear(),
+        Kind::Icon | Kind::Image | Kind::Tile if source(&cell.src).is_none() => cell.src.clear(),
         _ => {}
+    }
+    if !cell.hover_src.is_empty() && source(&cell.hover_src).is_none() {
+        cell.hover_src.clear();
+    }
+    // A size out of range is the picture's own instead.
+    for side in [&mut cell.width, &mut cell.height] {
+        if side.is_some_and(|side| !side.is_finite() || !(8.0..=PICTURE_SIDE).contains(&side)) {
+            *side = None;
+        }
     }
     // Only a container holds anything, and only what its kind draws.
     if cell.kind != Kind::Section {

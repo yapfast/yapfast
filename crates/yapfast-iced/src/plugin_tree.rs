@@ -319,7 +319,15 @@ fn cell_body<'a, M: Clone + 'a>(
             .into()
         }
         Kind::Badge => badge(theme, &cell.text, ink),
-        Kind::Icon | Kind::Image => picture(paint, cell),
+        Kind::Icon | Kind::Image => {
+            let shown = picture(paint, cell);
+            if cell.pressable() {
+                pressable(paint, cell, shown, set(cell.id.clone()))
+            } else {
+                shown
+            }
+        }
+        Kind::Tile => tile(paint, cell, cell.pressable().then(|| set(cell.id.clone()))),
         // A button that names one of Yapfast's icons draws it, its words the
         // tooltip, so it looks like the icon buttons beside it.
         Kind::Button => match kit_icon(&cell.icon) {
@@ -638,23 +646,44 @@ fn labelled_above<'a, M: Clone + 'a>(
 /// then (or for a picture from the web, which the runtime fetches) its room
 /// with its label.
 fn picture<'a, M: Clone + 'a>(paint: Paint<'a>, cell: &'a Cell) -> Element<'a, M> {
-    let theme = paint.look.theme;
     let square = cell.kind == Kind::Icon;
-    let (width, height) = if square {
+    let size = if square {
         (16.0, 16.0)
     } else {
-        (IMAGE_WIDTH, IMAGE_HEIGHT)
+        (
+            cell.width.unwrap_or(IMAGE_WIDTH),
+            cell.height.unwrap_or(IMAGE_HEIGHT),
+        )
     };
-    let found = (!cell.src.is_empty())
-        .then(|| paint.images.get(&image_key(paint.plugin, &cell.src)))
-        .flatten()
-        .and_then(Option::as_ref);
-    if let Some(handle) = found {
-        return image(handle.clone())
-            .width(width)
-            .height(height)
-            .content_fit(iced::ContentFit::Contain)
-            .into();
+    picture_at(paint, cell, size, !square)
+}
+
+/// [`picture`] at `size`, its placeholder saying the cell's words when
+/// `worded` and the picture hasn't come.
+fn picture_at<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    cell: &'a Cell,
+    (width, height): (f32, f32),
+    worded: bool,
+) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    if let Some(shown) = drawn(paint, cell, &cell.src, cell.crop, (width, height)) {
+        // Another picture, or another part of this one, while pointed at.
+        let hover_src = if cell.hover_src.is_empty() {
+            &cell.src
+        } else {
+            &cell.hover_src
+        };
+        let hover_crop = cell.hover_crop.or(if cell.hover_src.is_empty() {
+            None
+        } else {
+            cell.crop
+        });
+        let hovers = !cell.hover_src.is_empty() || cell.hover_crop.is_some();
+        if hovers && let Some(over) = drawn(paint, cell, hover_src, hover_crop, (width, height)) {
+            return iced::widget::hover(shown, over);
+        }
+        return shown;
     }
     let ground = theme.raised;
     // A picture from the web that hasn't come yet says so, where the plugin
@@ -666,7 +695,7 @@ fn picture<'a, M: Clone + 'a>(paint: Paint<'a>, cell: &'a Cell) -> Element<'a, M
             yapfast_core::plugins::ui::source(&cell.src),
             Some(yapfast_core::plugins::ui::Source::Web { .. })
         );
-    let label = if square {
+    let label = if !worded {
         String::new()
     } else if loading && cell.text.is_empty() {
         "Loading picture…".to_owned()
@@ -680,6 +709,126 @@ fn picture<'a, M: Clone + 'a>(paint: Paint<'a>, cell: &'a Cell) -> Element<'a, M
         .align_y(Alignment::Center)
         .style(move |_| style::rounded(ground, 6))
         .into()
+}
+
+/// One picture of a cell, from `src`, cut to `crop`, at `size`, pixel-sharp
+/// when the cell says; none until the picture is read.
+fn drawn<'a, M: 'a>(
+    paint: Paint<'a>,
+    cell: &Cell,
+    src: &str,
+    crop: Option<[u32; 4]>,
+    (width, height): (f32, f32),
+) -> Option<Element<'a, M>> {
+    let handle = paint.images.get(&image_key(paint.plugin, src))?.as_ref()?;
+    let mut shown = image(handle.clone())
+        .width(width)
+        .height(height)
+        .content_fit(iced::ContentFit::Contain);
+    if cell.pixelated {
+        shown = shown.filter_method(image::FilterMethod::Nearest);
+    }
+    if let Some([x, y, width, height]) = crop {
+        shown = shown.crop(iced::Rectangle {
+            x,
+            y,
+            width,
+            height,
+        });
+    }
+    Some(shown.into())
+}
+
+/// A picture made a button: pressing it reports the cell's id, and a chosen
+/// one has an accent ring.
+fn pressable<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    cell: &'a Cell,
+    shown: Element<'a, M>,
+    press: M,
+) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    let (accent, hover) = (theme.accent, theme.row_hover);
+    let selected = cell.selected;
+    let shown = button(shown)
+        .padding(2)
+        .on_press_maybe(cell.enabled.then_some(press))
+        .style(move |_, status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: lit.then_some(iced::Background::Color(hover)),
+                border: iced::Border {
+                    color: if selected { accent } else { Color::TRANSPARENT },
+                    width: if selected { 2.0 } else { 0.0 },
+                    radius: 6.0.into(),
+                },
+                ..button::Style::default()
+            }
+        });
+    if cell.tooltip.is_empty() {
+        shown.into()
+    } else {
+        tooltip(
+            shown,
+            controls::tip(theme, cell.tooltip.clone()),
+            tooltip::Position::Top,
+        )
+        .into()
+    }
+}
+
+/// The width a tile is when its cell gives none.
+const TILE_WIDTH: f32 = 96.0;
+
+/// A tile: its picture over its label, centred, in one card of a fixed
+/// width, so a grid of them lines up; a button with an accent ring when
+/// chosen.
+fn tile<'a, M: Clone + 'a>(paint: Paint<'a>, cell: &'a Cell, press: Option<M>) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    let width = cell.width.unwrap_or(TILE_WIDTH);
+    let side = cell.height.unwrap_or(width - 16.0).max(8.0);
+    let label = text(cell.text.clone())
+        .size(12)
+        .color(if cell.selected {
+            theme.text
+        } else {
+            theme.secondary
+        })
+        .width(Length::Fill)
+        .align_x(Alignment::Center)
+        .wrapping(text::Wrapping::WordOrGlyph);
+    let card = column![picture_at(paint, cell, (width - 16.0, side), false), label]
+        .spacing(6)
+        .width(width - 8.0)
+        .align_x(Alignment::Center);
+    let (accent, hover, ground) = (theme.accent, theme.row_hover, theme.raised);
+    let selected = cell.selected;
+    let card = button(card)
+        .padding(4)
+        .width(width)
+        .on_press_maybe(press.filter(|_| cell.enabled))
+        .style(move |_, status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: Some(iced::Background::Color(if lit { hover } else { ground })),
+                border: iced::Border {
+                    color: if selected { accent } else { Color::TRANSPARENT },
+                    width: if selected { 2.0 } else { 0.0 },
+                    radius: 8.0.into(),
+                },
+                ..button::Style::default()
+            }
+        });
+    if cell.tooltip.is_empty() {
+        card.into()
+    } else {
+        tooltip(
+            card,
+            controls::tip(theme, cell.tooltip.clone()),
+            tooltip::Position::Top,
+        )
+        .into()
+    }
 }
 
 /// The largest an image cell draws: wide enough to read a chart, small

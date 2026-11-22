@@ -274,6 +274,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `code` | Monospaced text on the sunken ground | `text` |
 | `badge` | A small mark in its tone | `text`, `tone` |
 | `icon`, `image` | A picture, 16 px square or up to 240 × 135 | `src`, `text` while it isn't there |
+| `tile` | A picture over its label in one card of a fixed width (96 px unless `width`), so a grid of them lines up; a button when it has an `id` | `src`, `text`, `id`, and the picture fields below |
 | `button`, `link` | A button in the kit's plain style, or a link's words | `id`, `text`, `enabled`, and a button's `icon` |
 | `toggle` | The kit's switch, its label before it | `id`, `text`, `checked` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
@@ -705,6 +706,14 @@ colours it gives code blocks are drawn in its tones (above). The core keeps what
 they all draw in
 [`slots.rs`](../../crates/yapfast-plugins/src/slots.rs) and
 [`ui.rs`](../../crates/yapfast-plugins/src/ui.rs).
+
+**Pictures that are buttons, frames and pixel art.** An `image` or a `tile`
+takes `crop: [x, y, width, height]`, the part of its picture shown in the
+picture's own pixels, so one atlas holds a whole sprite sheet; `pixelated:
+true`, drawn pixel-sharp; `width` and `height`, 8 to 512; `selected: true`,
+drawn with an accent ring; and `hover_src` or `hover_crop`, another picture or
+another part of the same while the pointer is on it. With an `id` it is a
+button: a press reports `{ id, value: id }` as a button's does.
 
 An `image` cell's `src` may be an `https://` address on one of the hosts the
 manifest's `network` lists, for a plugin that holds `images.web`. The window

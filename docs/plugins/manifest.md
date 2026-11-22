@@ -113,10 +113,10 @@ time and a path inside the plugin's folder:
 
 | Rule | Why |
 | --- | --- |
-| At most 32 assets | A plugin's own furniture, not a media library |
+| At most 128 assets, and an atlas with `crop` counts as one | A plugin's own furniture, not a media library |
 | A name is 1 to 32 bytes of `a-z`, `0-9`, `-`, `_` and `.`, starting with a letter or digit | It is a key, never a path: the store files each asset under its name, so none can land outside |
 | A path is relative and stays in the folder | The same rule as `wasm` and `icon` |
-| Each file is at most 512 KiB, and all of them 4 MiB together | Measured from git's object header before a byte is read, and again by the parent before anything is stored |
+| Each file is at most 512 KiB, and all of them 16 MiB together | Measured from git's object header before a byte is read, and again by the parent before anything is stored |
 | A file is a PNG, JPEG, GIF or WebP picture, or a WAV, Ogg or MP3 sound | Read from the file's first bytes, not its name: an SVG is code, and a `.png` that isn't one is refused |
 
 The install reads every asset, checks each and their total, and writes them into
