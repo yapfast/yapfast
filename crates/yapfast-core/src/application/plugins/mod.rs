@@ -252,7 +252,7 @@ pub enum News {
 }
 
 mod account;
-mod calls;
+pub(crate) mod calls;
 mod compose;
 mod events;
 pub(crate) mod page;
@@ -820,8 +820,11 @@ pub(crate) fn message_view(
         own,
         bot: message.bot,
     };
+    // The message as the timeline names it, `d:<id>`, which is what
+    // `messages.get`, a decoration, a menu row and every call about a message
+    // use, so one id goes everywhere.
     let view = MessageView {
-        id: message.id.clone(),
+        id: format!("d:{}", message.id),
         room: room.to_owned(),
         author,
         // As Discord wrote it, its mentions still as `<@id>`: a plugin that
@@ -846,9 +849,9 @@ pub(crate) fn message_view(
             })
             .collect(),
         reply_to: match &message.reply {
-            Some(yapfast_discord::message::Reply::Message { id, .. }) => Some(id.clone()),
+            Some(yapfast_discord::message::Reply::Message { id, .. }) => Some(format!("d:{id}")),
             Some(yapfast_discord::message::Reply::Unknown { id }) if !id.is_empty() => {
-                Some(id.clone())
+                Some(format!("d:{id}"))
             }
             _ => None,
         },

@@ -747,12 +747,12 @@ pub fn plugins_observed(
                         crate::application::plugins::message_view(discord, &room, message);
                     let author = view.author.id.clone();
                     (
-                        serde_json::json!({ "id": id, "message": view }),
+                        serde_json::json!({ "id": format!("d:{id}"), "message": view }),
                         Some(author),
                         own,
                     )
                 }
-                None => (serde_json::json!({ "id": id }), None, false),
+                None => (serde_json::json!({ "id": format!("d:{id}") }), None, false),
             };
             plugin_said(events, EventKind::MessageDelete, room, author, own, payload);
         }
@@ -776,7 +776,7 @@ pub fn plugins_observed(
                     plugin_room(discord, channels, channel),
                     None,
                     *me,
-                    serde_json::json!({ "message": message, "key": key, "emoji": emoji }),
+                    serde_json::json!({ "message": format!("d:{message}"), "key": key, "emoji": emoji }),
                 );
             }
         }

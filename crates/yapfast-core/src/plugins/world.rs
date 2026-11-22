@@ -451,10 +451,13 @@ impl World {
     pub fn message(&self, room: &str, id: &str) -> Option<MessageView> {
         let held = self.read();
         let timeline = held.timeline.as_ref().filter(|held| held.room == room)?;
+        // As the timeline names it, or by the bare Discord id an older build
+        // gave.
+        let item = crate::application::plugins::calls::message_item(room, id);
         timeline
             .items
             .iter()
-            .find(|message| message.id == id)
+            .find(|message| message.id == id || message.id == item)
             .map(|message| message_view(message, room))
     }
 

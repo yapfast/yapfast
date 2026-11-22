@@ -192,7 +192,11 @@ An event batch arrives as:
 }
 ```
 
-A message's payload is the message as `messages.get` answers it, each file in
+A message has one id everywhere: the timeline's, `d:<id>` for Discord, in a
+message event, `message_delete`, a reaction event's `message`, `reply_to`,
+`messages.get` and `messages.history`, a decoration's and a menu row's subject,
+and what `messages.edit`, `delete`, `react`, `jump_to` and the rest take (a bare
+Discord id is still read as its `d:` form). A message's payload is the message as `messages.get` answers it, each file in
 `attachments` with its name, size, type and `media`, the address `media.get`
 reads. `message_delete`'s is `{ "id": … }`, with `"message"` too, the message as
 it was, when a conversation Yapfast holds had it loaded, which is what a logger

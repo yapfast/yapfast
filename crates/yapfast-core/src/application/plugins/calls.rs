@@ -25,6 +25,7 @@ impl Application {
     ) -> (Vec<AppEffect>, yapfast_plugin_api::call::HostReturn) {
         use crate::plugins::state::AppCall;
         let done = yapfast_plugin_api::call::HostReturn::Ok(serde_json::Value::Bool(true));
+        let request = with_items(request);
         match request {
             AppCall::Send {
                 room,
@@ -621,5 +622,65 @@ impl Application {
             }
         }
         Ok(effects)
+    }
+}
+
+/// A message as the timeline names it, `d:<id>` for Discord: the form every
+/// payload gives a message in, which a plugin that kept a bare Discord id
+/// from an older build still reaches.
+pub(crate) fn message_item(room: &str, message: &str) -> String {
+    if crate::discord::parse_room(room).is_some()
+        && !message.is_empty()
+        && message.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        format!("d:{message}")
+    } else {
+        message.to_owned()
+    }
+}
+
+/// A call about a message, with its message in the timeline's form.
+fn with_items(request: crate::plugins::state::AppCall) -> crate::plugins::state::AppCall {
+    use crate::plugins::state::AppCall;
+    match request {
+        AppCall::Edit {
+            room,
+            message,
+            body,
+        } => AppCall::Edit {
+            message: message_item(&room, &message),
+            room,
+            body,
+        },
+        AppCall::Delete { room, message } => AppCall::Delete {
+            message: message_item(&room, &message),
+            room,
+        },
+        AppCall::React {
+            room,
+            message,
+            emoji,
+        } => AppCall::React {
+            message: message_item(&room, &message),
+            room,
+            emoji,
+        },
+        AppCall::JumpTo { room, message } => AppCall::JumpTo {
+            message: message_item(&room, &message),
+            room,
+        },
+        AppCall::StartReply { room, message } => AppCall::StartReply {
+            message: message_item(&room, &message),
+            room,
+        },
+        AppCall::StartEdit { room, message } => AppCall::StartEdit {
+            message: message_item(&room, &message),
+            room,
+        },
+        AppCall::Reactors { room, message } => AppCall::Reactors {
+            message: message_item(&room, &message),
+            room,
+        },
+        other => other,
     }
 }
