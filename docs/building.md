@@ -69,14 +69,18 @@ SDK and the C++ media bindings do not exhaust it.
 Development builds omit debug symbols for dependencies; the app keeps line
 tables. They optimize DeepFilterNet's crates and turn off tract-core's debug
 assertions, which reject its model; see Cargo.toml. Release builds strip
-symbols and use no LTO, which made both platforms' binaries bigger for no
-measured speed. Use them for builds people run. The `measure` profile
-optimizes like release, keeps symbols and builds incrementally. Use it for
+symbols and use ThinLTO across crates. Use them for builds people run. The
+`measure` profile optimizes like release, keeps symbols and builds
+incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
-measure`. The `fast` profile has the same settings in a target folder of its
-own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
---profile fast` or `cargo test --profile fast`. Builds to measure then stay
-apart from the ones everyday work replaces.
+measure`. Release and measurement builds abort the whole process on a Rust
+panic, including one in a background task or SVG rendering. Expected failures
+still use `Result` or `Option`; panic recovery and unwinding cleanup do not run.
+The `fast` profile keeps unwinding, as the test harness requires, so local
+builds and tests share that setting. Its target folder is `target/fast/`.
+Use it for tests, local runs and checks: `cargo build --profile fast` or
+`cargo test --profile fast`. Builds to measure then stay apart from the ones
+everyday work replaces.
 
 A plain `cargo build`, `cargo build --workspace` (`scripts/check`'s) and
 `scripts/ui-session`'s build give `yapfast-core`, the window and the binary
