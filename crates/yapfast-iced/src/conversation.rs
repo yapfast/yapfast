@@ -51,6 +51,31 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
         .extend(crate::banners::view(app.ctx()))
         .width(Length::Fill)
         .height(Length::Fill);
+    // A plugin's notice above the conversation.
+    #[cfg(feature = "plugins")]
+    {
+        let ctx = app.ctx();
+        if let Some(room) = ctx.state.selected_room()
+            && let Some(banner) = crate::plugin_slots::banner(ctx, &room.id)
+        {
+            chat = chat.push(iced::widget::container(banner).padding(iced::Padding {
+                top: 8.0,
+                right: 16.0,
+                bottom: 0.0,
+                left: 16.0,
+            }));
+        }
+    }
+    // A plugin sending as an agent says so for as long as it does, with the
+    // button that stops it; nothing a plugin draws can hide this.
+    #[cfg(feature = "plugins")]
+    if let Some(agent) = crate::plugin_slots::agent_strip(app.ctx()) {
+        chat = chat.push(agent);
+    }
+    #[cfg(feature = "plugins")]
+    if let Some(playing) = crate::plugin_slots::playing_strip(app.ctx()) {
+        chat = chat.push(playing);
+    }
     // A DM's call shows above its messages.
     if let Some(call) = crate::call::dm::dm_call_view(app) {
         chat = chat.push(call);

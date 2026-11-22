@@ -121,6 +121,7 @@ const MOST: f32 = 480.0;
 pub fn width(layout: &crate::layout::Layout) -> f32 {
     layout
         .members_width
+        .or(layout.plugin_members_width)
         .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
 }
 
@@ -146,6 +147,26 @@ const CARD_PITCH: f32 = 76.0;
 const PANEL_TOP: f32 = 8.0;
 const PANEL_BOTTOM: f32 = 4.0;
 const FIRST_CARDS: usize = 3;
+
+/// Tells the core which people the list shows, so plugins badge those rows
+/// (`member.decorate`): the core asks only when the list changed.
+pub fn report_shown(app: &mut App) {
+    let Some(room) = app.client.state().selected.clone() else {
+        return;
+    };
+    let (first, last) = app.roster.scroll.range(app.roster.lines.len(), PITCH, TOP);
+    let ids: Vec<String> = app.roster.lines[first..last]
+        .iter()
+        .filter_map(|line| match line {
+            MemberLine::Member(look) => Some(look.id.clone()),
+            MemberLine::Heading { .. } => None,
+        })
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    app.client.dispatch(Action::VisibleMembers { room, ids });
+}
 
 /// What's done in the member list and its Activity panel.
 #[derive(Clone, Debug)]
@@ -203,6 +224,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
             app.roster.scroll = Scroll::of(viewport);
+            report_shown(app);
             app.ask()
         }
         Event::Point(id, entered) => {
@@ -677,6 +699,11 @@ impl<'a> View<'a> {
         }
         if look.bot {
             name_line = name_line.push(self.cx.bot_tag(opacity));
+        }
+        // What plugins badge them with (`member.decorate`).
+        #[cfg(feature = "plugins")]
+        for chip in crate::plugin_slots::member_badges(self.cx, &look.id) {
+            name_line = name_line.push(chip);
         }
         if look.owner {
             let crown = self.cx.look.icon(Icon::Crown, 14, CROWN);

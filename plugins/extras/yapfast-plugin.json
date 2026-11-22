@@ -1,0 +1,43 @@
+{
+  "api": 1,
+  "id": "com.example.extras",
+  "name": "Extras",
+  "version": "1.0.0",
+  "description": "Opens Spotify and Steam links in their apps, keeps DMs first in the quick switcher, puts the start time in the title, says when friends come and go, and redraws a channel's welcome with a picture from the web.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "limits": { "memory_pages": 128 },
+  "activation": {
+    "on": [
+      "startup",
+      "event:startup_timing",
+      "event:relationship_add",
+      "event:relationship_remove",
+      "event:relationship_request",
+      "event:room_selected"
+    ]
+  },
+  "permissions": {
+    "capabilities": [
+      "links.offer",
+      "switcher.rank",
+      "window.title",
+      "app.timing",
+      "relationships.read",
+      "ui.modify",
+      "images.web",
+      "servers.read"
+    ],
+    "link-hosts": ["open.spotify.com", "store.steampowered.com"],
+    "schemes": ["spotify", "steam"],
+    "network": ["upload.wikimedia.org"]
+  },
+  "ui": {
+    "menu": [
+      { "target": "channel", "row": "copy-link", "label": "Copy channel link" },
+      { "target": "channel", "row": "mark-read", "after": "copy-id" }
+    ],
+    "parts": { "replace": ["timeline.intro"] },
+    "sizes": { "message-gap": 6, "channel-row-height": 36 }
+  }
+}

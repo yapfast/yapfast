@@ -777,6 +777,23 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         iced::widget::tooltip::Position::Top,
     )
     .gap(6);
+    // The buttons plugins add to a call, apart from Yapfast's own controls
+    // and before Leave, each naming its plugin (`call.actions`).
+    #[cfg(feature = "plugins")]
+    if let Some(plugins) = crate::plugin_slots::buttons(
+        app.ctx(),
+        yapfast_core::plugins::slots::Slot::CallActions,
+        voice.room.as_deref().unwrap_or_default(),
+    ) {
+        let line = theme.line;
+        controls = controls.push(
+            iced::widget::container(iced::widget::Space::new())
+                .width(1)
+                .height(24)
+                .style(move |_| crate::style::fill(line)),
+        );
+        controls = controls.push(plugins);
+    }
     container(controls.push(leave))
         .padding(Padding {
             top: 8.0,

@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// The preview at the window's own size, its data in a folder of its own.
-fn preview() -> (App, tempfile::TempDir) {
+pub(crate) fn preview() -> (App, tempfile::TempDir) {
     let folder = tempfile::tempdir_in(local()).expect("test folder");
     (start(&folder, true), folder)
 }
@@ -360,6 +360,8 @@ mod menus;
 mod navigation;
 mod people;
 mod pickers;
+#[cfg(feature = "plugins")]
+mod plugins;
 mod polls;
 mod rows;
 mod server;

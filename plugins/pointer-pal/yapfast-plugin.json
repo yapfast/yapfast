@@ -1,0 +1,13 @@
+{
+  "api": 1,
+  "id": "com.example.pointer-pal",
+  "name": "Pointer Pal",
+  "version": "1.0.0",
+  "description": "A cat that chases the pointer around the window, sits when it catches it and falls asleep when you stop. It is drawn on the overlay, so clicks go through it, except on the cat itself.",
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "assets": { "cat": "cat.png" },
+  "limits": { "memory_pages": 64 },
+  "activation": { "on": ["startup"] },
+  "permissions": { "capabilities": ["overlay"] }
+}

@@ -66,6 +66,7 @@ fn fix_mmap_threshold() {
 }
 
 fn main() -> Result<()> {
+    yapfast_core::startup::began();
     fix_mmap_threshold();
     // A stream worker starts nothing else: no UI, runtime or TLS.
     #[cfg(feature = "discord")]
@@ -78,6 +79,15 @@ fn main() -> Result<()> {
     let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
+    // Read before anything else is opened: a start that asked for no plugins
+    // must not read the plugin store or spawn a helper, and the flag has to be
+    // gone before the link arguments are parsed. Safe mode also keeps any
+    // plugin from changing the interface. A build without plugins takes the
+    // flag too, and starts without any as it always does.
+    #[cfg(feature = "plugins")]
+    yapfast_core::cli::parse_no_plugins(&mut arguments);
+    #[cfg(not(feature = "plugins"))]
+    let _ = flag_argument(&mut arguments, NO_PLUGINS);
     let mut links: Vec<String> = handed.clone().ok().flatten().into_iter().collect();
     if !arguments
         .first()
@@ -174,6 +184,7 @@ fn main() -> Result<()> {
         }
         [argument] if argument == "--help" || argument == "-h" => {
             println!("{}", help());
+
             Ok(())
         }
         _ => bail!("unknown argument; run yapfast --help"),
@@ -217,6 +228,7 @@ fn help() -> String {
          --renderer selects tiny-skia (software) or wgpu (gpu) for this start, over the setting.\n\
          If wgpu fails to start, Yapfast restarts with tiny-skia.\n\
          --background starts in the system tray with a saved session, as starting at sign-in does.\n\
+         --no-plugins starts without the plugin system for this run, keeping which plugins are enabled for the next.\n\
          LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
          --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
     } else {
@@ -228,7 +240,7 @@ fn help() -> String {
         ""
     };
     format!(
-        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n\
+        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--no-plugins] [LINK]\n\
          \x20      yapfast [--smoke-test | --version | --help{links}]\n\
          \x20      yapfast --call-experiment [--resume PATH]\n\
          \x20      yapfast [--voice-demo | --audio-devices]\n\
@@ -309,6 +321,10 @@ fn relaunch_program(
 ) -> Result<()> {
     let mut command = std::process::Command::new(program);
     command.args(arguments);
+    #[cfg(feature = "plugins")]
+    if yapfast_core::plugins::safe_mode() {
+        command.arg(NO_PLUGINS);
+    }
     match gpu_failure {
         Some(reason) => command
             .args(["--renderer", "software"])
@@ -432,6 +448,9 @@ fn flag_argument(arguments: &mut Vec<String>, flag: &str) -> bool {
     arguments.retain(|argument| argument != flag);
     arguments.len() != before
 }
+
+/// Starts in safe mode, without plugins.
+const NO_PLUGINS: &str = "--no-plugins";
 
 /// Comes before the link a desktop hands Yapfast, as its registrations
 /// write it: `yapfast --open-link LINK`.

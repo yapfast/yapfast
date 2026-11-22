@@ -21,9 +21,9 @@ use crate::{
 };
 
 use super::{
-    ASIDE, DIVIDER, EDGE, Edge, Event, GROUP_GAP, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD,
-    MENTIONED, MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP,
-    RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
+    ASIDE, DIVIDER, EDGE, Edge, Event, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD, MENTIONED,
+    MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, RowLook, TAIL,
+    TIMELINE, UNREAD_BAR, top_space,
 };
 
 /// What the unread bar says: how many new messages (more when the window
@@ -181,6 +181,12 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         })
     } else if look.highlighted {
         Some(if pointed { MENTIONED_HOVER } else { MENTIONED })
+    } else if retained_ground(ctx, message) {
+        // A kept deleted row's soft red ground, as its plugin chose.
+        Some(Color {
+            a: if pointed { 0.14 } else { 0.08 },
+            ..ctx.look.theme.danger
+        })
     } else if pointed {
         Some(theme.row_hover)
     } else {
@@ -188,7 +194,11 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     };
     // The tint starts under the gap that sets a group apart from the one
     // above it, as Discord's does.
-    let gap = if !head && look.first { GROUP_GAP } else { 0.0 };
+    let gap = if !head && look.first {
+        super::group_gap()
+    } else {
+        0.0
+    };
     let tinted = container(crate::message::message_content(ctx, index, look))
         .width(Length::Fill)
         .padding(Padding {
@@ -197,7 +207,7 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             } else {
                 top_space(look)
             },
-            bottom: ROW_GAP,
+            bottom: super::row_gap(),
             ..Padding::ZERO
         })
         .style(move |_| container::Style {
@@ -245,7 +255,7 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             .on_exit(Message::Timeline(Event::PointRow(look.item.clone(), false))),
     );
     if look.last {
-        whole = whole.push(Space::new().height(TAIL - ROW_GAP));
+        whole = whole.push(Space::new().height(TAIL - super::row_gap()));
     }
     // A window of older messages ends with what's after it: newer
     // messages loading, or a way to load them.
@@ -442,6 +452,30 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if edge.intro == Intro::Direct {
         return direct_welcome(ctx);
     }
+    // A plugin that replaces the welcome draws in its place at the height
+    // what it drew takes: the row it heads is measured like any other, and
+    // the height noted here places the first message's hover bar and menus.
+    // What it can draw is bounded by the slot's own limits (256 cells, four
+    // deep, pictures at most 512 px a side), so nothing else holds it. A
+    // DM's isn't replaced: Block is in it.
+    #[cfg(feature = "plugins")]
+    if let Some(drawn) = crate::plugin_slots::replaced(
+        ctx,
+        yapfast_core::plugins::slots::Slot::TimelineIntro,
+        ctx.state.selected.as_deref().unwrap_or_default(),
+        true,
+    ) {
+        let drawn = container(drawn)
+            .padding(Padding {
+                top: 16.0,
+                right: 16.0,
+                bottom: 8.0,
+                left: 16.0,
+            })
+            .width(Length::Fill);
+        return crate::widgets::Wrap::new(drawn, Noted(&ctx.lanes.timeline.intro_drawn)).into();
+    }
+    ctx.lanes.timeline.intro_drawn.set(0.0);
     let theme = ctx.look.theme;
     let title = |words: String, weight| {
         text(words)
@@ -843,4 +877,35 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
             ..container::Style::default()
         })
         .into()
+}
+
+/// Notes the height a plugin's welcome took as it's laid out
+/// ([`super::Timeline::edge_height`]).
+#[cfg(feature = "plugins")]
+struct Noted<'a>(&'a std::cell::Cell<f32>);
+
+#[cfg(feature = "plugins")]
+impl crate::widgets::Hooks<Message> for Noted<'_> {
+    type State = crate::widgets::Stateless;
+
+    fn layout(
+        &mut self,
+        limits: &iced::advanced::layout::Limits,
+        child: &mut dyn FnMut(&iced::advanced::layout::Limits) -> iced::advanced::layout::Node,
+    ) -> iced::advanced::layout::Node {
+        let node = child(limits);
+        self.0.set(node.size().height);
+        node
+    }
+}
+
+/// Whether a row is a kept deleted one whose plugin wants it on a red ground.
+fn retained_ground(ctx: crate::ctx::Ctx<'_>, message: &yapfast_core::chat::ChatMessage) -> bool {
+    #[cfg(feature = "plugins")]
+    return message.deleted && ctx.state.retained_look.red_ground;
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = (ctx, message);
+        false
+    }
 }

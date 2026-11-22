@@ -18,3 +18,5 @@ __pycache__/
 /deploy/
 /DESIGN.md
 /PRODUCT.md
+# Agent transcripts from review runs, which name files and quote code.
+/.audit-*.jsonl

@@ -154,8 +154,18 @@ pub struct Context {
     pub voice: Option<(String, String)>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum MenuAct {
+    /// Takes a kept deleted row off the timeline.
+    #[cfg(feature = "plugins")]
+    HideDeleted,
+    /// A row a plugin added, telling it what was chosen.
+    #[cfg(feature = "plugins")]
+    Plugin(yapfast_core::plugins::Input),
+    /// A row from a plugin's `menu.message` or `menu.user` drawing: pressing
+    /// its button.
+    #[cfg(feature = "plugins")]
+    PluginAct(crate::plugin_slots::Scope, crate::plugin_tree::Act),
     AddReaction,
     ViewReactions,
     Edit,
@@ -350,12 +360,55 @@ pub fn adds_reactions(app: &App, index: usize) -> bool {
 }
 
 /// A right click on a message: what one may do with it.
+/// A kept deleted row's menu: its text and id to copy, and the way to take it
+/// off the timeline. Nothing for a row deleted any other way.
+#[cfg_attr(
+    feature = "plugins",
+    allow(
+        clippy::needless_return,
+        reason = "each build's half ends in its own answer"
+    )
+)]
+fn deleted_menu(
+    app: &mut App,
+    message: &yapfast_core::chat::ChatMessage,
+    at: Point,
+) -> Task<Message> {
+    #[cfg(feature = "plugins")]
+    {
+        let row = MenuRow::new;
+        let mut rows = Vec::new();
+        if !message.body.is_empty() {
+            rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
+        }
+        rows.push(row(MenuAct::CopyId, "Copy Message ID", Icon::Id));
+        rows.push(MenuRow {
+            separated: true,
+            ..row(
+                MenuAct::HideDeleted,
+                "Hide this deleted message",
+                Icon::EyeOff,
+            )
+        });
+        app.win.menu = Some(Menu {
+            item: Some(message.item.clone()),
+            ..Menu::new(at, rows)
+        });
+        return iced::widget::operation::focus(crate::app::NOBODY);
+    }
+    #[cfg(not(feature = "plugins"))]
+    {
+        let _ = (app, message, at);
+        Task::none()
+    }
+}
+
 pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     let Some(message) = crate::timeline::row_message(app, index).cloned() else {
         return Task::none();
     };
     if message.deleted {
-        return Task::none();
+        return deleted_menu(app, &message, at);
     }
     let row = MenuRow::new;
     let mut rows = Vec::new();
@@ -440,6 +493,40 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
             separated: true,
             ..row(MenuAct::CopyId, "Copy Message ID", Icon::Id)
         });
+    }
+    // The rows plugins add to a message's menu, under a line, after its own.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty()
+        && let Some(overrides) = app.plugin_ui.clone()
+    {
+        use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+        let subject = Subject {
+            network: match state.selected_room().map(|room| room.network) {
+                Some(yapfast_core::network::Network::Discord) => NetworkName::Discord,
+                _ => NetworkName::Matrix,
+            },
+            own: state.account.as_deref() == Some(message.author.as_str()),
+            dm: state.selected_room().is_some_and(|room| room.direct),
+            has_attachment: !message.attachments.is_empty(),
+            is_bot: message.bot,
+            roles: &[],
+        };
+        crate::plugins_ui::edit_rows(&overrides, Target::Message, &subject, &mut rows);
+        rows.extend(crate::plugins_ui::rows(
+            &overrides,
+            Target::Message,
+            &subject,
+            &message.item,
+        ));
+    }
+    // The rows a running plugin draws for a message's menu.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty() {
+        rows.extend(crate::plugin_slots::menu_rows(
+            state,
+            yapfast_core::plugins::slots::Slot::MenuMessage,
+            &message.item,
+        ));
     }
     if rows.is_empty() {
         return Task::none();
@@ -543,7 +630,7 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
     };
     // One with a submenu opens it, unless clicking it does its own thing.
     if !row.submenu.is_empty() {
-        match row.click {
+        match row.click.clone() {
             Some(click) => {
                 let row = MenuRow {
                     act: click,
@@ -620,7 +707,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
     } else {
         crate::composer::refocus(app)
     };
-    match row.act {
+    match row.act.clone() {
         MenuAct::Person(choice) => match &menu.voice {
             Some((room, user)) => {
                 let task = crate::call::popups::person::choose_voice(
@@ -657,7 +744,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             let index = row.key.parse().unwrap_or_default();
             Task::batch([
                 focus,
-                crate::image_viewer::media_act(app, row.act, item, index),
+                crate::image_viewer::media_act(app, row.act.clone(), item, index),
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
@@ -720,6 +807,16 @@ pub fn act(
 ) -> Task<Message> {
     let focus = crate::composer::refocus(app);
     match act {
+        #[cfg(feature = "plugins")]
+        MenuAct::Plugin(input) => {
+            app.client.dispatch(Action::PluginInput(input));
+            Task::batch([app.sync(), focus])
+        }
+        #[cfg(feature = "plugins")]
+        MenuAct::PluginAct(scope, act) => {
+            crate::plugin_slots::act(app, scope, act);
+            Task::batch([app.sync(), focus])
+        }
         MenuAct::AddReaction => {
             crate::picker::open_picker(app, Target::React(item, at), Tab::Emoji)
         }
@@ -731,6 +828,14 @@ pub fn act(
         MenuAct::Edit => crate::edit::begin_edit(app, item),
         MenuAct::Reply => {
             app.client.dispatch(Action::Reply(item));
+            Task::batch([app.sync(), focus])
+        }
+        #[cfg(feature = "plugins")]
+        MenuAct::HideDeleted => {
+            app.client
+                .dispatch(yapfast_core::application::Action::Plugin(
+                    yapfast_core::application::plugins::Action::HideRetained(item),
+                ));
             Task::batch([app.sync(), focus])
         }
         MenuAct::CopyText => {

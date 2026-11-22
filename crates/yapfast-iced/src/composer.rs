@@ -51,6 +51,9 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
+    /// The caret and selection the core was last told.
+    #[cfg(feature = "plugins")]
+    pub caret_known: Option<(usize, Option<(usize, usize)>)>,
     /// Whether the composer's field has the keys, which its outline shows.
     pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
@@ -177,7 +180,14 @@ pub fn composer_top(app: &App) -> f32 {
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
-        Event::Field(which, event) => field_event(app, which, event),
+        Event::Field(which, event) => {
+            let task = field_event(app, which, event);
+            #[cfg(feature = "plugins")]
+            if which == Writing::Draft {
+                report_caret(app);
+            }
+            task
+        }
         Event::Pasted(which, pasted) => {
             if pasted.is_some() {
                 let draft = writing(app.ctx(), which);
@@ -471,6 +481,17 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
                 "Select All",
                 Icon::TextSelect,
             ));
+            // What plugins add to the composer's menu.
+            #[cfg(feature = "plugins")]
+            if which == Writing::Draft
+                && let Some(room) = app.client.state().selected.clone()
+            {
+                rows.extend(crate::plugins_ui::rows_here(
+                    app,
+                    yapfast_core::plugins::ui::Target::Composer,
+                    &room,
+                ));
+            }
             app.win.menu = Some(Menu::new(at, rows).width(crate::menus::FIELD_WIDTH));
             operation::focus(NOBODY)
         }
@@ -566,12 +587,38 @@ fn plus(app: &mut App) -> Task<Message> {
             ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
         });
     }
+    // What plugins add to the attach menu.
+    #[cfg(feature = "plugins")]
+    if let Some(room) = app.client.state().selected.clone() {
+        rows.extend(crate::plugins_ui::rows_here(
+            app,
+            yapfast_core::plugins::ui::Target::Attach,
+            &room,
+        ));
+    }
     let at = iced::Point::new(
         crate::conversation::chat_left(app) + GUTTER + INSET,
         composer_top(app) - 8.0,
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
     operation::focus(NOBODY)
+}
+
+/// Tells the core where the draft's caret is and what it selects, when that
+/// changed, for a plugin's `composer.get_draft` with `detail`.
+#[cfg(feature = "plugins")]
+fn report_caret(app: &mut App) {
+    let now = (app.composer.draft.caret(), app.composer.draft.span());
+    if app.composer.caret_known == Some(now) {
+        return;
+    }
+    app.composer.caret_known = Some(now);
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::Caret {
+            caret: now.0,
+            selection: now.1,
+        },
+    ));
 }
 
 /// Enter: the draft sent. The core empties the draft once the message is
@@ -954,6 +1001,18 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             tint(Tab::Stickers),
             opens(Tab::Stickers),
         )));
+    }
+    // A plugin's buttons sit with Yapfast's own, before the emoji's. They
+    // answer about the open room, as the composer's `composer.*` calls do.
+    #[cfg(feature = "plugins")]
+    {
+        let subject = ctx
+            .state
+            .selected_room()
+            .map_or("", |room| room.id.as_str());
+        if let Some(plugins) = crate::plugin_slots::composer_buttons(ctx, subject) {
+            buttons = buttons.push(lift(plugins));
+        }
     }
     let emoji = buttons.push(lift(composer_button(
         ctx,

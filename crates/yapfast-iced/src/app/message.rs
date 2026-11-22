@@ -43,6 +43,28 @@ pub enum Message {
     Timeline(crate::timeline::Event),
     /// The core's notice over the conversation, dismissed.
     DismissNotice,
+    /// What a person did with something a plugin drew: a slot's cell, a
+    /// notice's close button or a menu row.
+    #[cfg(feature = "plugins")]
+    Plugin(yapfast_core::plugins::Input),
+    /// A cell of a plugin's drawing was used: what only the window keeps
+    /// (a draft, a tab) stays here, and the rest goes to the plugin.
+    #[cfg(feature = "plugins")]
+    PluginAct(crate::plugin_slots::Scope, crate::plugin_tree::Act),
+    /// The agent strip's Stop: the plugin may no longer send without a key.
+    #[cfg(feature = "plugins")]
+    PluginStopAgent(yapfast_plugin_api::PluginId),
+    /// The recording bar's Stop: the plugin's recording ends now.
+    #[cfg(feature = "plugins")]
+    PluginStopRecording,
+    /// The save dialog a plugin's `files.save` opened closed: the file name
+    /// saved under, nothing for a cancel, or why the write failed.
+    #[cfg(feature = "plugins")]
+    PluginSaved(
+        yapfast_plugin_api::PluginId,
+        u64,
+        Result<Option<String>, String>,
+    ),
     /// A link in the timeline's text, and where the pointer is.
     Link(String, Point),
     /// The member list and its Activity panel (`members.rs`).
@@ -74,6 +96,10 @@ pub enum Message {
     Menu(crate::menus::Event),
     /// Someone's menu, at the pointer, by their id; the person dialog.
     PersonMenu(String, Point),
+    /// A menu of only the rows plugins add, about an emoji or a role, which
+    /// Yapfast has no menu of its own for.
+    #[cfg(feature = "plugins")]
+    PluginRows(yapfast_core::plugins::ui::Target, String),
     Person(crate::person_menu::Event),
     /// The delete confirmation's answers, and the masked link question's
     /// (`dialogs.rs`).

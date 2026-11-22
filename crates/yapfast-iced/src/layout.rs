@@ -45,6 +45,13 @@ pub struct Layout {
     pub members_hidden: bool,
     /// Copy ID shows in menus, as Discord's Developer Mode.
     pub developer_mode: bool,
+    /// The plugin devtools show on each plugin's page (Settings → Plugins →
+    /// Advanced); off until turned on.
+    pub plugin_devtools: bool,
+    /// The plugins whose changes to Yapfast's own interface (colours, sizes,
+    /// hidden parts) are turned off, by id: each runs, and draws in its
+    /// slots, without them.
+    pub plugin_looks_off: BTreeSet<String>,
     /// How calls are joined: unmuted unless turned off, and deafened.
     pub unmute_on_join: Option<bool>,
     pub deafen_on_join: bool,
@@ -64,6 +71,12 @@ pub struct Layout {
     /// has its own width.
     pub sidebar_width: Option<f32>,
     pub members_width: Option<f32>,
+    /// The widths enabled plugins give the two before they are dragged, kept
+    /// here by the window, never read from the file.
+    #[serde(skip)]
+    pub plugin_sidebar_width: Option<f32>,
+    #[serde(skip)]
+    pub plugin_members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.

@@ -7,13 +7,20 @@ separate preview. They install as the same app, so one replaces the other."""
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import struct
 import subprocess
 import tempfile
+from pathlib import Path
 
-from release_package import ROOT, dependency_notices, digest, names_home, source_snapshot, zip_directory
+from release_package import (
+    ROOT,
+    dependency_notices,
+    digest,
+    names_home,
+    source_snapshot,
+    zip_directory,
+)
 
 TARGET = "x86_64-pc-windows-msvc"
 # Inno Setup's compiler, run under Wine; installed once into its own prefix.
@@ -24,7 +31,7 @@ INNO_SETUP_SHA256 = "0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b4
 # Cargo features, the suffix of file names and release tag, and the name the
 # installer shows, for each flavour scripts/build-windows builds.
 FLAVOURS = {
-    "discord": {"features": ["--no-default-features", "--features", "desktop,discord"], "suffix": "", "edition": None},
+    "discord": {"features": ["--no-default-features", "--features", "desktop,discord,plugins"], "suffix": "", "edition": None},
     "full": {"features": ["--features", "matrix"], "suffix": "-full-preview", "edition": "full preview"},
 }
 
@@ -139,6 +146,14 @@ def main():
         package = temporary / f"{base}-windows-x64"
         package.mkdir()
         shutil.copy2(executable, package / "yapfast.exe")
+        # The plugin system's helper: the app starts it, and a package without
+        # it has the feature and nothing to run a plugin with.
+        # Every flavour has the plugins feature, so a package without its
+        # helper would ship a Plugins page that says plugins can't run.
+        helper = executable.with_name("yapfast-plugins.exe")
+        if not helper.is_file():
+            raise SystemExit(f"{helper} is missing; build the workspace's default members, not only yapfast")
+        shutil.copy2(helper, package / "yapfast-plugins.exe")
         shutil.copy2(ROOT / "LICENSE", package / "LICENSE.txt")
         # The source snapshot goes beside the packages, on the release page,
         # rather than into every install; SOURCE.txt says where.

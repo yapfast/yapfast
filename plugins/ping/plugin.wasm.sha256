@@ -1,0 +1,8 @@
+# The committed modules here, each with the files it was compiled from, so that a
+# stale one fails. Written by scripts/check-plugin-fixtures --update; see the
+# README beside this file, and `sha256sum -c` reads it as it stands.
+859ca947a51e710a48aae34e289f1c357cc7ae2eedef94b4c4d2a9ba10b53e79  .cargo/config.toml
+7baff6f3a20ac8a450d56a39a6e1cebe7e911d013016e337367c065d28f0b9dd  Cargo.lock
+9007b92d7a50999a3eda83dd47334611e96a7d657b5d045d0a20bf13b0cf88d9  Cargo.toml
+eea54c8d0b0b3407211c6174be3e521110eefb752c9189fd6cdad229784be886  plugin.wasm
+ee64d8adc943a64d7806e1fac7b245adbb10200a216468471cc0864caf836d85  src/lib.rs

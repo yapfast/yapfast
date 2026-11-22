@@ -112,6 +112,56 @@ pub fn open_person_menu(
             row
         })
         .collect();
+    // The rows plugins add extend it below, so it stays mutable in a build
+    // with them and is only written here otherwise.
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(unused_mut, reason = "a build without the plugin system adds no row")
+    )]
+    let mut rows = rows;
+    // The rows plugins add to a person's menu, after its own.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty()
+        && let Some(overrides) = app.plugin_ui.clone()
+    {
+        use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+        let subject = Subject {
+            network: match state.selected_room().map(|room| room.network) {
+                Some(yapfast_core::network::Network::Discord) => NetworkName::Discord,
+                _ => NetworkName::Matrix,
+            },
+            own: state.account.as_deref() == Some(user),
+            dm: state.selected_room().is_some_and(|room| room.direct),
+            has_attachment: false,
+            is_bot: state.person(user).is_some_and(|person| person.bot),
+            roles: &[],
+        };
+        crate::plugins_ui::edit_rows(&overrides, Target::User, &subject, &mut rows);
+        rows.extend(crate::plugins_ui::rows(
+            &overrides,
+            Target::User,
+            &subject,
+            user,
+        ));
+        // A profile's own menu also has the rows plugins add to profiles.
+        if location == PROFILE_OVERFLOW {
+            rows.extend(crate::plugins_ui::rows(
+                &overrides,
+                Target::UserProfile,
+                &subject,
+                user,
+            ));
+        }
+    }
+    // The rows a running plugin draws for a person's menu.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty() {
+        rows.extend(crate::plugin_slots::menu_rows(
+            state,
+            yapfast_core::plugins::slots::Slot::MenuUser,
+            user,
+        ));
+    }
     if rows.is_empty() {
         return Task::none();
     }

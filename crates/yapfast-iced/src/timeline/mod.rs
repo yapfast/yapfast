@@ -35,6 +35,8 @@ pub mod selection;
 pub mod view;
 
 pub use clocks::{Clock, Clocks};
+#[cfg(test)]
+pub use rows::undecorated;
 pub use rows::{
     Edge, EmbedText, Intro, Laid, Marks, RowLook, body_of, row_height, row_looks, same_text,
 };
@@ -59,8 +61,29 @@ pub const END_PAD: f32 = 48.0;
 /// The space above a group's first message, a date or "New" divider's
 /// row, and other messages.
 pub const GROUP_GAP: f32 = 18.0;
+
+/// The gap between message groups: a plugin's, while one sets it, else
+/// [`GROUP_GAP`].
+pub fn group_gap() -> f32 {
+    #[cfg(feature = "plugins")]
+    if let Some(gap) = crate::plugins_ui::group_gap() {
+        return gap;
+    }
+    GROUP_GAP
+}
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
+
+/// The space above and under each message inside a group: half the gap a
+/// plugin sets between two messages, while one does, else [`ROW_GAP`].
+pub fn row_gap() -> f32 {
+    #[cfg(feature = "plugins")]
+    if let Some(gap) = crate::plugins_ui::message_gap() {
+        return gap / 2.0;
+    }
+    ROW_GAP
+}
+
 /// The divider's line and what's on it, and the space under the last row,
 /// over the typing strip, as Discord's.
 const DIVIDER: f32 = 26.0;
@@ -156,6 +179,9 @@ pub struct Timeline {
     /// on it notes: under the header, and under what else is over it (a
     /// banner, a forum post's bar, a DM's call). Empty until either.
     pub place: std::cell::Cell<iced::Rectangle>,
+    /// The height a plugin's welcome (`timeline.intro` replaced) took at its
+    /// last layout; none while Yapfast's own is drawn.
+    pub intro_drawn: std::cell::Cell<f32>,
     /// The window's last press as the keys came onto the messages: a later
     /// one off the list takes them away.
     pub keyed_press: iced::Point,
@@ -178,6 +204,21 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    /// The history's edge's height over the first row: a plugin's welcome
+    /// at the height it took, else [`Edge::height`].
+    pub fn edge_height(&self) -> f32 {
+        let drawn = self.intro_drawn.get();
+        if drawn > 0.0
+            && self.edge.ready
+            && self.edge.start
+            && matches!(self.edge.intro, Intro::Server(_) | Intro::Channel)
+        {
+            drawn
+        } else {
+            self.edge.height()
+        }
+    }
+
     /// The rows in view, and `margin` beyond.
     pub fn in_view(&self, margin: f32) -> (usize, usize) {
         let top = self.view_top();
@@ -228,6 +269,7 @@ impl Timeline {
             width,
             at_end: true,
             place: Default::default(),
+            intro_drawn: Default::default(),
             keyed_press: iced::Point::ORIGIN,
             latest_due: false,
             left_at: None,
@@ -488,10 +530,17 @@ pub fn recolour(app: &mut App, old: &crate::theme::Theme) {
     }
     let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
     let revealed = &app.timeline.revealed;
+    let state = app.client.state();
     let lay = |message: &ChatMessage| {
-        Arc::new(body_of(message, mention, ink, muted, |spoiler| {
-            revealed.contains(&format!("{}/{spoiler}", message.item))
-        }))
+        Arc::new(body_of(
+            message,
+            mention,
+            ink,
+            muted,
+            |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+            |block| crate::code::spans(state, block),
+            |item| crate::code::decor(state, item),
+        ))
     };
     for (look, message) in app
         .timeline
@@ -535,6 +584,8 @@ pub fn body_for(app: &App, index: usize) -> Option<Laid> {
         rgb(app.theme.text),
         rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+        |block| crate::code::spans(app.client.state(), block),
+        |item| crate::code::decor(app.client.state(), item),
     ))
 }
 
@@ -597,7 +648,7 @@ impl<'a> crate::ctx::Ctx<'a> {
         let edge = match row.checked_sub(ASIDE) {
             Some(0) if self.lanes.aside.is_some_and(|aside| aside.ready) => EDGE,
             Some(_) => 0.0,
-            None if row == 0 => self.lanes.timeline.edge.height(),
+            None if row == 0 => self.lanes.timeline.edge_height(),
             None => 0.0,
         };
         lane.top + top + edge + self.row_look(row).map_or(0.0, top_space)

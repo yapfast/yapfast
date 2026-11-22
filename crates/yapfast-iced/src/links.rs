@@ -78,10 +78,22 @@ pub fn follow_link(app: &mut App, link: &str, at: iced::Point) -> Task<Message> 
     }
     // A masked link, whose words aren't where it goes, asks first.
     if let Some(target) = yapfast_core::links::masked(link) {
+        #[cfg(feature = "plugins")]
+        ask_plugins(app, target);
         app.leaving = Some(target.to_owned());
+        app.leaving_from = None;
         return operation::focus(crate::app::NOBODY);
     }
     if yapfast_core::links::openable(link) {
+        // A plugin that offers to open links on this host makes the leaving
+        // dialog show, with its offer beside Visit site, so the person
+        // chooses between the app and the browser.
+        #[cfg(feature = "plugins")]
+        if ask_plugins(app, link) {
+            app.leaving = Some(link.to_owned());
+            app.leaving_from = None;
+            return operation::focus(crate::app::NOBODY);
+        }
         crate::browser::open(link);
     }
     Task::none()
@@ -124,4 +136,14 @@ pub(crate) fn discord_link(
         DiscordRoute::Gift { code } => Action::OpenGiftLink(code),
         DiscordRoute::Event { guild, event } => Action::OpenEventLink { guild, event },
     }))
+}
+
+/// Asks the plugins that offer to open links on `link`'s host; whether any
+/// was asked.
+#[cfg(feature = "plugins")]
+fn ask_plugins(app: &mut App, link: &str) -> bool {
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::AskLink(link.to_owned()),
+    ));
+    app.client.state().plugin_link.is_some()
 }

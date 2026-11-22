@@ -1,6 +1,7 @@
 //! Dialogs over the dimmed window, drawn in the kit's frame
-//! ([`crate::dialog`]): Delete's confirmation and the question before
-//! following a masked link.
+//! ([`crate::dialog`]): Delete's confirmation, the question before
+//! following a masked link or a plugin's link, and the question a plugin's
+//! request for a site nobody allowed waits on.
 
 use iced::{
     Element, Length, Task,
@@ -25,7 +26,34 @@ pub enum Event {
     CancelDelete,
     /// The question before a masked link: visit it, or go back.
     Leave(bool),
+    /// The answer to a plugin's request to reach a site: allowed or not,
+    /// and whether it is kept (`grants.json`) or for this run only.
+    #[cfg(feature = "plugins")]
+    Consent {
+        allow: bool,
+        remember: bool,
+    },
+    /// A second passed while the site question shows: past
+    /// [`CONSENT_WAIT`] unanswered, it is denied for this time.
+    #[cfg(feature = "plugins")]
+    ConsentTick,
+    /// The answer to a powerful capability's first use: allowed or not.
+    #[cfg(feature = "plugins")]
+    Powerful(bool),
+    /// The folder the person picked for `fs.folder`, or none when they closed
+    /// the picker, which leaves the question up.
+    #[cfg(feature = "plugins")]
+    PowerfulFolder(Option<std::path::PathBuf>),
+    /// One of the apps plugins offered the leaving link in, by its place.
+    #[cfg(feature = "plugins")]
+    OpenInApp(usize),
 }
+
+/// How long the site question waits for an answer before it denies: a
+/// plugin's request mustn't wait on a person who walked away, and a yes is
+/// never given for them.
+#[cfg(feature = "plugins")]
+pub const CONSENT_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// What each answer does.
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -39,7 +67,248 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), crate::composer::refocus(app)])
         }
         Event::Leave(visit) => leave(app, visit),
+        #[cfg(feature = "plugins")]
+        Event::OpenInApp(index) => open_in_app(app, index),
+        #[cfg(feature = "plugins")]
+        Event::Consent { allow, remember } => answer_consent(app, allow, remember),
+        #[cfg(feature = "plugins")]
+        Event::ConsentTick => {
+            let due = app
+                .consent_since
+                .as_ref()
+                .is_some_and(|(_, since)| since.elapsed() >= CONSENT_WAIT);
+            if due {
+                answer_consent(app, false, false)
+            } else {
+                Task::none()
+            }
+        }
+        #[cfg(feature = "plugins")]
+        Event::Powerful(allow) => answer_powerful(app, allow),
+        #[cfg(feature = "plugins")]
+        Event::PowerfulFolder(folder) => match folder {
+            Some(folder) => dispatch_powerful(app, true, Some(folder)),
+            None => Task::none(),
+        },
     }
+}
+
+/// Starts the site question's clock when a question shows, and stops it when
+/// none does; a question about another site starts it again.
+#[cfg(feature = "plugins")]
+pub fn follow_consent(app: &mut App) {
+    let asked = app
+        .client
+        .state()
+        .plugin_consent
+        .as_ref()
+        .map(|ask| format!("{}\u{1f}{}", ask.plugin, ask.host));
+    match asked {
+        None => app.consent_since = None,
+        Some(key)
+            if app
+                .consent_since
+                .as_ref()
+                .is_none_or(|(kept, _)| *kept != key) =>
+        {
+            app.consent_since = Some((key, std::time::Instant::now()));
+        }
+        Some(_) => {}
+    }
+}
+
+/// Answers a powerful capability's first use. Allowing `fs.folder` opens the
+/// system's folder picker first: the plugin is given the folder the person
+/// picks, and nothing until they pick one.
+#[cfg(feature = "plugins")]
+pub fn answer_powerful(app: &mut App, allow: bool) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_powerful.clone() else {
+        return Task::none();
+    };
+    if allow && ask.capability == yapfast_plugin_api::capability::Capability::FsFolder {
+        let title = format!("Choose the folder {} may read", ask.name);
+        return Task::perform(
+            async move {
+                rfd::AsyncFileDialog::new()
+                    .set_title(title)
+                    .pick_folder()
+                    .await
+                    .map(|folder| folder.path().to_owned())
+            },
+            |folder| Message::Dialog(Event::PowerfulFolder(folder)),
+        );
+    }
+    dispatch_powerful(app, allow, None)
+}
+
+#[cfg(feature = "plugins")]
+fn dispatch_powerful(
+    app: &mut App,
+    allow: bool,
+    folder: Option<std::path::PathBuf>,
+) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_powerful.clone() else {
+        return Task::none();
+    };
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::AnswerPowerful {
+            plugin: ask.plugin,
+            capability: ask.capability,
+            allow,
+            folder,
+        },
+    ));
+    app.sync()
+}
+
+/// The red question a powerful capability's first use waits on: which plugin,
+/// what it would be able to do in plain words, and Don't allow or Allow (for a
+/// folder, Choose folder). Escape refuses.
+#[cfg(feature = "plugins")]
+pub fn powerful_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let ask = cx.state.plugin_powerful.as_ref()?;
+    let theme = cx.look.theme;
+    let danger = theme.danger;
+    let answer = |allow| Some(Message::Dialog(Event::Powerful(allow)));
+    let allow_label = if ask.capability == yapfast_plugin_api::capability::Capability::FsFolder {
+        "Choose folder"
+    } else {
+        "Allow"
+    };
+    // `profile.write` is asked about the same way, and isn't the powerful
+    // tier: the title says which this is.
+    let title = if ask.capability.is_powerful() {
+        "Allow a powerful permission?"
+    } else {
+        "Allow this permission?"
+    };
+    let body = column![
+        text(title).size(18).font(BOLD).color(danger),
+        text(format!(
+            "{} ({}) wants to use {} for the first time.",
+            ask.name, ask.plugin, ask.capability
+        ))
+        .size(15)
+        .color(theme.secondary),
+        container(
+            text(ask.sentence.clone())
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .style(move |_| {
+            iced::widget::container::Style::default()
+                .background(iced::Color { a: 0.14, ..danger })
+                .border(iced::Border {
+                    color: danger,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                })
+        }),
+        text(
+            "Only allow this for a plugin whose code you trust. You can take it back with \
+             one click on the plugin's page in Settings, Plugins.",
+        )
+        .size(13)
+        .color(theme.muted),
+        row![
+            Space::new().width(Length::Fill),
+            action(theme, "Don't allow", Kind::Ghost, answer(false)),
+            action(theme, allow_label, Kind::Danger, answer(true)),
+        ]
+        .spacing(8),
+    ]
+    .spacing(12)
+    .padding(20);
+    Some(dialog(theme, body.into(), CONFIRM_WIDTH, answer(false)?))
+}
+
+/// Answers the plugin the consent question is about, which takes the
+/// question away.
+#[cfg(feature = "plugins")]
+pub fn answer_consent(app: &mut App, allow: bool, remember: bool) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_consent.clone() else {
+        return Task::none();
+    };
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::AnswerConsent {
+            plugin: ask.plugin,
+            host: ask.host,
+            allow,
+            remember,
+        },
+    ));
+    app.sync()
+}
+
+/// The question a plugin's request waits on when it asks for a site it didn't
+/// declare and nobody has allowed: who asks (its name and id), the site, and
+/// Deny, Allow once and Always allow. It is drawn in Yapfast's own look,
+/// wherever the person is, and Escape denies for this time.
+#[cfg(feature = "plugins")]
+pub fn consent_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let ask = cx.state.plugin_consent.as_ref()?;
+    let theme = cx.look.theme;
+    let sunken = theme.sunken;
+    let since = cx.consent_since;
+    let answer = |allow, remember| Some(Message::Dialog(Event::Consent { allow, remember }));
+    let body = column![
+        text("Allow a plugin to reach a site?")
+            .size(18)
+            .font(BOLD)
+            .color(theme.text),
+        text(format!(
+            "{} ({}) wants to connect to a site it didn't list when you installed it:",
+            ask.name, ask.plugin
+        ))
+        .size(15)
+        .color(theme.secondary),
+        container(
+            text(ask.host.clone())
+                .size(15)
+                .font(BOLD)
+                .color(theme.text)
+                .wrapping(text::Wrapping::Glyph),
+        )
+        .padding([8, 10])
+        .width(Length::Fill)
+        .style(move |_| crate::style::rounded(sunken, 6)),
+        text(
+            "Anything the plugin can read could be sent there. You can take this \
+             back on the plugin's page in Settings, Plugins.",
+        )
+        .size(13)
+        .color(theme.muted),
+        // Said, and counted down, so the denial never comes as a surprise.
+        crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+            let left = since.map_or(CONSENT_WAIT, |since| {
+                CONSENT_WAIT.saturating_sub(since.elapsed())
+            });
+            format!(
+                "If you don't answer, it's denied in {} s, for this time only.",
+                left.as_secs()
+            )
+        })
+        .size(13)
+        .color(theme.muted),
+        row![
+            Space::new().width(Length::Fill),
+            action(theme, "Deny", Kind::Ghost, answer(false, false)),
+            action(theme, "Allow once", Kind::Plain, answer(true, false)),
+            action(theme, "Always allow", Kind::Primary, answer(true, true)),
+        ]
+        .spacing(8),
+    ]
+    .spacing(12)
+    .padding(20);
+    Some(dialog(
+        theme,
+        body.into(),
+        CONFIRM_WIDTH,
+        answer(false, false)?,
+    ))
 }
 
 /// The confirmation's keys: Escape cancels, Enter does what the focused
@@ -130,18 +399,31 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
 }
 
 /// The question before following a masked link (one whose words aren't
-/// where it goes): where it goes, Go back and Visit site. Escape goes back,
-/// Enter visits.
-pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+/// where it goes), or a link a plugin asked to open (`from`, the plugin's
+/// name): where it goes, Go back and Visit site. Escape goes back, Enter
+/// visits.
+pub fn leaving_view<'a>(
+    link: Option<&'a str>,
+    from: Option<&'a str>,
+    cx: Ctx<'a>,
+) -> Option<Element<'a, Message>> {
     let link = link?;
     let theme = cx.look.theme;
     let sunken = theme.sunken;
-    let body = column![
+    let lead = match from {
+        Some(plugin) => format!("The plugin {plugin} wants to open a link that goes to"),
+        None => "This link goes to".to_owned(),
+    };
+    #[cfg(feature = "plugins")]
+    let offers = offers_view(link, cx);
+    #[cfg(not(feature = "plugins"))]
+    let offers: Option<Element<'a, Message>> = None;
+    let mut body = column![
         text("Leaving Yapfast")
             .size(18)
             .font(BOLD)
             .color(theme.text),
-        text("This link goes to").size(15).color(theme.secondary),
+        text(lead).size(15).color(theme.secondary),
         text(yapfast_core::links::host(link))
             .size(17)
             .font(BOLD)
@@ -155,6 +437,13 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
         .padding([8, 10])
         .width(Length::Fill)
         .style(move |_| crate::style::rounded(sunken, 6)),
+    ]
+    .spacing(12)
+    .padding(20);
+    if let Some(offers) = offers {
+        body = body.push(offers);
+    }
+    let body = body.push(
         row![
             Space::new().width(Length::Fill),
             action(
@@ -171,9 +460,7 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
             ),
         ]
         .spacing(8),
-    ]
-    .spacing(12)
-    .padding(20);
+    );
     Some(dialog(
         theme,
         body.into(),
@@ -184,10 +471,72 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
 
 /// The question's answer: the link opens, or not.
 pub fn leave(app: &mut App, visit: bool) -> Task<Message> {
+    app.leaving_from = None;
     if let Some(link) = app.leaving.take()
         && visit
     {
         crate::browser::open(&link);
+    }
+    #[cfg(feature = "plugins")]
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::LinkClosed,
+    ));
+    Task::none()
+}
+
+/// What plugins offered to open the leaving link in: a button each, its
+/// plugin's name under it, so the person sees whose app it is and still
+/// chooses. None until one has answered.
+#[cfg(feature = "plugins")]
+fn offers_view<'a>(link: &str, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let asked = cx
+        .state
+        .plugin_link
+        .as_ref()
+        .filter(|asked| asked.url == link)?;
+    if asked.offers.is_empty() {
+        return None;
+    }
+    let theme = cx.look.theme;
+    let mut offers = column![].spacing(6);
+    for (index, offer) in asked.offers.iter().enumerate() {
+        offers = offers.push(
+            row![
+                action(
+                    theme,
+                    offer.label.clone(),
+                    Kind::Plain,
+                    Some(Message::Dialog(Event::OpenInApp(index))),
+                ),
+                text(format!("Offered by the {} plugin", offer.name))
+                    .size(12)
+                    .color(theme.secondary),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center),
+        );
+    }
+    Some(offers.into())
+}
+
+/// Opens the leaving link in the app a plugin offered, which the person
+/// chose in the dialog.
+#[cfg(feature = "plugins")]
+fn open_in_app(app: &mut App, index: usize) -> Task<Message> {
+    let uri = app
+        .client
+        .state()
+        .plugin_link
+        .as_ref()
+        .and_then(|asked| asked.offers.get(index))
+        .map(|offer| offer.uri.clone());
+    if let Some(uri) = uri {
+        crate::browser::open(&uri);
+        app.leaving = None;
+        app.leaving_from = None;
+        app.client.dispatch(Action::Plugin(
+            yapfast_core::application::plugins::Action::LinkClosed,
+        ));
     }
     Task::none()
 }

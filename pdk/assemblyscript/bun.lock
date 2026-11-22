@@ -1,0 +1,19 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 0,
+  "workspaces": {
+    "": {
+      "name": "@yapfast/as-pdk",
+      "devDependencies": {
+        "assemblyscript": "^0.27",
+      },
+    },
+  },
+  "packages": {
+    "assemblyscript": ["assemblyscript@0.27.37", "", { "dependencies": { "binaryen": "116.0.0-nightly.20240114", "long": "^5.2.4" }, "bin": { "asc": "bin/asc.js", "asinit": "bin/asinit.js" } }, "sha512-YtY5k3PiV3SyUQ6gRlR2OCn8dcVRwkpiG/k2T5buoL2ymH/Z/YbaYWbk/f9mO2HTgEtGWjPiAQrIuvA7G/63Gg=="],
+
+    "binaryen": ["binaryen@116.0.0-nightly.20240114", "", { "bin": { "wasm-opt": "bin/wasm-opt", "wasm2js": "bin/wasm2js" } }, "sha512-0GZrojJnuhoe+hiwji7QFaL3tBlJoA+KFUN7ouYSDGZLSo9CKM8swQX8n/UcbR0d1VuZKU+nhogNzv423JEu5A=="],
+
+    "long": ["long@5.3.2", "", {}, "sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA=="],
+  }
+}

@@ -277,6 +277,25 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     )
     .on_enter(Message::Account(Event::Point(true)))
     .on_exit(Message::Account(Event::Point(false)));
+    // A plugin that replaces the account's name draws in its place; the
+    // picture, the status menu and the call buttons stay Yapfast's.
+    #[cfg(feature = "plugins")]
+    let names = match crate::plugin_slots::replaced(
+        ctx,
+        yapfast_core::plugins::slots::Slot::AccountIdentity,
+        state.account.as_deref().unwrap_or_default(),
+        false,
+    ) {
+        Some(drawn) => mouse_area(
+            container(drawn)
+                .padding([0, 6])
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .align_y(Alignment::Center)
+                .clip(true),
+        ),
+        None => names,
+    };
     let names = match open.clone() {
         Some(open) => names
             .on_press(open)

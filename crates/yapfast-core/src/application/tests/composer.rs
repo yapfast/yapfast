@@ -510,3 +510,39 @@ fn a_slowmode_waits_after_a_message_and_holds_one_sent_too_soon() {
         Command::Send { .. }
     ));
 }
+
+/// A plugin that held a file says what goes: the file it wrote under a new
+/// name, or nothing and a link the composer takes after what is typed.
+#[cfg(feature = "plugins")]
+#[test]
+fn a_held_upload_stages_what_its_plugin_finished_with() {
+    let mut app = connected();
+    app.dispatch(Action::SetDraft("look".into()));
+    let folder = tempfile::tempdir().expect("a folder");
+    let picked = folder.path().join("cat.png");
+    std::fs::write(&picked, b"png").expect("a file");
+    let staged = chat::Staged::read(picked, 1024).expect("a file to stage");
+    app.pending_uploads.insert(1, ("dm".into(), staged.clone()));
+    app.pending_uploads.insert(2, ("dm".into(), staged));
+
+    let written = folder.path().join("written");
+    std::fs::write(&written, b"webp!").expect("its file");
+    app.plugins_upload_finished(1, Some((written.clone(), 5)), "cat.webp".into(), None);
+    let files = &app.state.staged["dm"];
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        (files[0].path.as_path(), files[0].size),
+        (written.as_path(), 5)
+    );
+    assert_eq!(files[0].name, "cat.webp");
+    assert!(files[0].image);
+
+    app.plugins_upload_finished(
+        2,
+        None,
+        "cat.png".into(),
+        Some("https://f.example/c".into()),
+    );
+    assert_eq!(app.state.staged["dm"].len(), 1, "nothing more goes");
+    assert_eq!(app.state.draft(), "look https://f.example/c");
+}

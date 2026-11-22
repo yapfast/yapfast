@@ -84,7 +84,8 @@ build() {
       _debug+=(--config "profile.release.package.$_crate.debug=\"full\"")
     done
   fi
-  cargo build --frozen "${_debug[@]}" --release --no-default-features --features desktop,discord
+  cargo build --frozen "${_debug[@]}" --release --no-default-features --features desktop,discord,plugins
+
   # yapfast-debug copies the crates' sources with their modes, and some crates ship files readable by their
   # owner only. namcap on yapfast-debug also reports "Referenced library ... is an uninstalled dependency"
   # for words in those Rust sources (version strings, "README.md"); it reads source text as library names.
@@ -96,6 +97,9 @@ build() {
 package() {
   cd "$pkgname"
   install -Dm755 target/release/yapfast -t "$pkgdir/usr/bin"
+  # The plugin system starts this one; without it the app has the feature and
+  # nothing to run a plugin with.
+  install -Dm755 target/release/yapfast-plugins -t "$pkgdir/usr/bin"
   install -Dm644 packaging/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_id.svg"
   install -Dm644 "packaging/linux/$_id.desktop" -t "$pkgdir/usr/share/applications"
   install -Dm644 "packaging/linux/$_id.metainfo.xml" -t "$pkgdir/usr/share/metainfo"

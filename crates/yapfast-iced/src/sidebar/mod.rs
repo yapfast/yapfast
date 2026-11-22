@@ -161,6 +161,7 @@ const MOST: f32 = 380.0;
 pub fn width(layout: &crate::layout::Layout) -> f32 {
     layout
         .sidebar_width
+        .or(layout.plugin_sidebar_width)
         .map_or(WIDTH, |width| width.clamp(LEAST, MOST))
 }
 
@@ -176,6 +177,15 @@ pub const HEADER: f32 = 50.0;
 /// A channel's row, a DM's, a category's heading, someone in a voice
 /// channel, and the gap after each row.
 pub const ROW: f32 = 32.0;
+
+/// A channel row's height: a plugin's, while one sets it, else [`ROW`].
+pub fn channel_row() -> f32 {
+    #[cfg(feature = "plugins")]
+    if let Some(height) = crate::plugins_ui::channel_row() {
+        return height;
+    }
+    ROW
+}
 const DM_ROW: f32 = 42.0;
 /// The Friends and Requests rows, taller than a channel's.
 const NAV_ROW: f32 = 38.0;

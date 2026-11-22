@@ -704,7 +704,7 @@ pub fn field<'a, M: Clone + 'a>(
     theme: &Theme,
     id: impl Into<iced::widget::Id>,
     placeholder: &'a str,
-    value: &'a str,
+    value: &str,
 ) -> text_input::TextInput<'a, M> {
     controls::field(theme, id, placeholder, value, false, true).size(15)
 }

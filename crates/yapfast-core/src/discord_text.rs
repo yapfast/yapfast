@@ -42,7 +42,10 @@ mod app_commands;
 mod audit_log;
 mod channels;
 mod commands;
-mod expressions;
+/// A server's Emoji and Stickers, and the pictures a person brings for them.
+/// `pub(crate)` for `discord.add_emoji` and `discord.add_sticker`: a plugin's
+/// picture takes the reader a person's does.
+pub(crate) mod expressions;
 mod gifs;
 mod interactions;
 mod open_channel;
@@ -50,6 +53,8 @@ mod overwrites;
 mod own_profile;
 mod ownership;
 mod people;
+#[cfg(feature = "plugins")]
+mod plugin_asks;
 mod render;
 mod roles;
 mod server_settings;
@@ -151,6 +156,8 @@ pub(crate) enum Wake {
     Save,
     Video(crate::playback::Wake),
     VoiceMessage(Option<crate::voice_message::Report>),
+    /// The song the session shares changed, for a plugin's `spotify_state`.
+    Music(Option<Option<Arc<serde_json::Value>>>),
 }
 
 /// The linked Discord account in the chat actor: its connection and the open
@@ -159,6 +166,9 @@ pub(crate) struct Chat {
     discord: Discord,
     // Each becomes None once the connection is gone.
     states: Option<watch::Receiver<Arc<Snapshot>>>,
+    /// The song the session shares, which a plugin's `spotify_state` follows;
+    /// none in a build without plugins, which has nobody to tell.
+    music: Option<watch::Receiver<Option<Arc<serde_json::Value>>>>,
     live: Option<broadcast::Receiver<Live>>,
     online: bool,
     channels: Channels,
@@ -205,6 +215,7 @@ impl Chat {
         let (done, finished) = tokio::sync::mpsc::unbounded_channel();
         Ok(Some(Self {
             states: Some(discord.snapshots()),
+            music: cfg!(feature = "plugins").then(|| discord.shared_music()),
             live: Some(discord.live()),
             discord,
             online: false,
@@ -472,6 +483,7 @@ impl Chat {
             _ = self.saving.tick() => Wake::Save,
             wake = next_video(&mut self.video) => Wake::Video(wake),
             report = next_voice_message(&mut self.voice_message) => Wake::VoiceMessage(report),
+            song = next_song(&mut self.music) => Wake::Music(song),
         }
     }
 
@@ -491,6 +503,10 @@ impl Chat {
                 {
                     channel.refresh(&self.discord, &self.done);
                 }
+                // The account's lists are here for the first time since it
+                // connected, so a plugin that reads them can look things up.
+                #[cfg(feature = "plugins")]
+                plugins_ready(&snapshot, online && !self.online, events);
                 self.online = online;
                 // A thread a message leads to shows its new count on the link.
                 for channel in self
@@ -539,6 +555,17 @@ impl Chat {
                     }
                 }
             }
+            #[cfg(feature = "plugins")]
+            Wake::Music(Some(song)) => {
+                let now = yapfast_discord::spotify::now_of_activity(
+                    song.as_deref(),
+                    crate::clock::now_ms(),
+                );
+                let _ = events.send(Event::SpotifyShared(now));
+            }
+            #[cfg(not(feature = "plugins"))]
+            Wake::Music(Some(_)) => {}
+            Wake::Music(None) => {}
             Wake::Snapshot(None) | Wake::Live(None) => {}
         }
     }
@@ -560,6 +587,20 @@ async fn next_voice_message(
         Some(player) => player.wait().await,
         None => std::future::pending().await,
     }
+}
+
+/// The next song the session shares, or never after it is gone.
+async fn next_song(
+    music: &mut Option<watch::Receiver<Option<Arc<serde_json::Value>>>>,
+) -> Option<Option<Arc<serde_json::Value>>> {
+    let Some(receiver) = music else {
+        return std::future::pending().await;
+    };
+    if receiver.changed().await.is_err() {
+        *music = None;
+        return None;
+    }
+    Some(receiver.borrow_and_update().clone())
 }
 
 /// The next snapshot, or never after the connection is gone.
@@ -592,6 +633,248 @@ async fn next_live(
 
 /// Why Discord commands fail when no account is linked.
 pub(crate) const NOT_LINKED: &str = "Discord isn't linked on this device.";
+
+/// Whether a plugin may want what Discord's gateway says.
+///
+/// Discord hands the chat actor every message and reaction the account may
+/// read, whether or not a conversation shows it, so this is the only place a
+/// plugin hears of a conversation that isn't on screen. The check costs one
+/// relaxed load, and while it is off nothing else happens: no envelope is
+/// built, nothing is serialized, and no event is sent.
+#[cfg(feature = "plugins")]
+static PLUGIN_WATCH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The kinds of gateway event a plugin subscribed to, one bit per
+/// [`EventKind`](yapfast_plugin_api::event::EventKind), in the layout
+/// [`Subscriptions::bit`](crate::plugins::registry::Subscriptions::bit) gives
+/// them: the same number the bridge reads before it writes an event, so a kind
+/// it would drop is one the gateway never builds.
+///
+/// The flag above says a plugin is on; this says which of the gateway's events
+/// one wants, so an event nobody subscribed to costs one relaxed load here
+/// instead of a room lookup and a serialized payload.
+#[cfg(feature = "plugins")]
+static PLUGIN_WANTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Says whether the gateway's events are handed to the plugin system, and
+/// which kinds a plugin subscribed to. The application sets both once the
+/// store says a plugin is enabled, and clears them when the last one is turned
+/// off.
+#[cfg(feature = "plugins")]
+pub fn watch_messages(watching: bool, wanted: u64) {
+    PLUGIN_WANTS.store(wanted, std::sync::atomic::Ordering::Relaxed);
+    PLUGIN_WATCH.store(watching, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether a plugin wants this kind of gateway event: one relaxed load, and
+/// nothing built while it says no.
+#[cfg(feature = "plugins")]
+fn wants(kind: yapfast_plugin_api::event::EventKind) -> bool {
+    PLUGIN_WANTS.load(std::sync::atomic::Ordering::Relaxed)
+        & crate::plugins::registry::Subscriptions::bit(kind)
+        != 0
+}
+
+/// The account connected and Discord's own lists came with it, which is when a
+/// plugin that asks for the account may read them.
+#[cfg(feature = "plugins")]
+pub fn plugins_ready(snapshot: &Snapshot, connected: bool, events: &UnboundedSender<Event>) {
+    use crate::application::plugins::{News, envelope};
+    if !connected || !PLUGIN_WATCH.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let account = snapshot.user_id.clone().unwrap_or_default();
+    let payload = serde_json::json!({ "account": &account });
+    let envelope = envelope(
+        yapfast_plugin_api::event::EventKind::AccountReady,
+        yapfast_plugin_api::event::Network::Discord,
+        None,
+        Some(account),
+        true,
+        payload,
+    );
+    let _ = events.send(Event::Plugin(News::Observed(envelope)));
+}
+
+/// Hands one of the gateway's events to the plugin system, if any plugin is
+/// watching.
+///
+/// The room is the one Discord shows the channel in, from the conversations
+/// held here or the account's own list for a channel nobody has open: a plugin
+/// hears of every channel the account may read, not only those on screen.
+#[cfg(feature = "plugins")]
+pub fn plugins_observed(
+    event: &Result<Live, RecvError>,
+    discord: &Discord,
+    channels: &Channels,
+    events: &UnboundedSender<Event>,
+) {
+    use yapfast_plugin_api::event::EventKind;
+    if !PLUGIN_WATCH.load(std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let Ok(event) = event else {
+        return;
+    };
+    // Each arm asks for its own kind first: an event nobody subscribed to is
+    // dropped before the room is looked up and the payload built, which is what
+    // makes a busy account cost nothing when the one plugin watching only reads
+    // messages.
+    match event {
+        Live::Created(message) if wants(EventKind::MessageCreate) => {
+            plugin_message(discord, channels, events, EventKind::MessageCreate, message);
+        }
+        Live::Updated(message) if wants(EventKind::MessageUpdate) => {
+            plugin_message(discord, channels, events, EventKind::MessageUpdate, message);
+        }
+        Live::Deleted { channel, id } if wants(EventKind::MessageDelete) => {
+            // The message as it was, when a conversation Yapfast holds had it
+            // loaded: the event comes before the conversation lets it go, so
+            // a logger hears what was deleted, not only its id.
+            let room = plugin_room(discord, channels, channel);
+            let kept = id.parse::<u64>().ok().and_then(|order| {
+                channels
+                    .open
+                    .iter()
+                    .chain(&channels.aside)
+                    .chain(&channels.recent)
+                    .find(|held| held.channel == *channel)
+                    .and_then(|held| held.message(order))
+            });
+            let (payload, author, own) = match kept {
+                Some(message) => {
+                    let (view, own) =
+                        crate::application::plugins::message_view(discord, &room, message);
+                    let author = view.author.id.clone();
+                    (
+                        serde_json::json!({ "id": format!("d:{id}"), "message": view }),
+                        Some(author),
+                        own,
+                    )
+                }
+                None => (serde_json::json!({ "id": format!("d:{id}") }), None, false),
+            };
+            plugin_said(events, EventKind::MessageDelete, room, author, own, payload);
+        }
+        Live::Reaction {
+            channel,
+            message,
+            key,
+            emoji,
+            me,
+            added,
+        } => {
+            let kind = if *added {
+                EventKind::ReactionAdd
+            } else {
+                EventKind::ReactionRemove
+            };
+            if wants(kind) {
+                plugin_said(
+                    events,
+                    kind,
+                    plugin_room(discord, channels, channel),
+                    None,
+                    *me,
+                    serde_json::json!({ "message": format!("d:{message}"), "key": key, "emoji": emoji }),
+                );
+            }
+        }
+        Live::Typing {
+            guild,
+            channel,
+            user,
+            name,
+        } if wants(EventKind::Typing) => plugin_said(
+            events,
+            EventKind::Typing,
+            crate::discord::room_id(
+                guild.as_deref().unwrap_or(yapfast_discord::ready::PRIVATE),
+                channel,
+            ),
+            Some(user.clone()),
+            false,
+            serde_json::json!({ "name": name }),
+        ),
+        _ => {}
+    }
+}
+
+/// A message the gateway brought or changed, as a plugin sees it.
+#[cfg(feature = "plugins")]
+fn plugin_message(
+    discord: &Discord,
+    channels: &Channels,
+    events: &UnboundedSender<Event>,
+    kind: yapfast_plugin_api::event::EventKind,
+    message: &Message,
+) {
+    use crate::application::plugins::message_view;
+    let room = plugin_room(discord, channels, &message.channel_id);
+    let (view, own) = message_view(discord, &room, message);
+    plugin_said(
+        events,
+        kind,
+        room,
+        Some(view.author.id.clone()),
+        own,
+        serde_json::to_value(&view).unwrap_or_default(),
+    );
+}
+
+/// One envelope to the plugin system, by the event path every other event
+/// takes.
+#[cfg(feature = "plugins")]
+fn plugin_said(
+    events: &UnboundedSender<Event>,
+    kind: yapfast_plugin_api::event::EventKind,
+    room: String,
+    author: Option<String>,
+    own: bool,
+    payload: serde_json::Value,
+) {
+    use crate::application::plugins::{News, envelope};
+    let envelope = envelope(
+        kind,
+        yapfast_plugin_api::event::Network::Discord,
+        Some(room),
+        author,
+        own,
+        payload,
+    );
+    let _ = events.send(Event::Plugin(News::Observed(envelope)));
+}
+
+/// The room Discord shows a channel in: one of the conversations held here, or
+/// from the account's own channel list for a channel nobody has open.
+#[cfg(feature = "plugins")]
+fn plugin_room(discord: &Discord, channels: &Channels, channel: &str) -> String {
+    let held = channels
+        .open
+        .iter()
+        .chain(&channels.aside)
+        .chain(&channels.recent)
+        .find(|held| held.channel == channel)
+        .map(|held| held.room.clone());
+    if let Some(room) = held {
+        return room;
+    }
+    let snapshot = discord.snapshots().borrow().clone();
+    let guild = snapshot.servers.iter().find_map(|marked| {
+        let server = &marked.server;
+        server
+            .text_channels
+            .iter()
+            .chain(&server.voice_channels)
+            .chain(&server.threads)
+            .any(|known| known.id == channel)
+            .then(|| server.id.clone())
+    });
+    crate::discord::room_id(
+        guild.as_deref().unwrap_or(yapfast_discord::ready::PRIVATE),
+        channel,
+    )
+}
 
 /// Answers a command for Discord while Discord isn't running, which `why`
 /// explains: it fails, so nothing waits on it.

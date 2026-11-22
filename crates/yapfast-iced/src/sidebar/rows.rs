@@ -69,7 +69,11 @@ pub struct Room {
 impl Room {
     /// The row's own height, without the people under it.
     pub(super) fn row_height(&self) -> f32 {
-        if self.direct { DM_ROW } else { ROW }
+        if self.direct {
+            DM_ROW
+        } else {
+            super::channel_row()
+        }
     }
 }
 

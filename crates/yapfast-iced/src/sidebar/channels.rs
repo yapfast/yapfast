@@ -485,7 +485,8 @@ impl<'a> super::View<'a> {
     /// channel and round into the thread, on down while another follows.
     pub(super) fn thread_line(self, continues: bool) -> Element<'a, Message> {
         let faint = self.cx.look.theme.faint;
-        let down = bar(faint, 1.5, if continues { ROW + GAP } else { 13.0 + GAP });
+        let row = super::channel_row();
+        let down = bar(faint, 1.5, if continues { row + GAP } else { 13.0 + GAP });
         let round = container(Space::new())
             .width(10.75)
             .height(7.5)
@@ -502,7 +503,7 @@ impl<'a> super::View<'a> {
             controls::placed(round, 17.25, 12.75),
         ])
         .width(28)
-        .height(ROW)
+        .height(row)
         .into()
     }
 

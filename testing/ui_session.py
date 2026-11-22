@@ -11,7 +11,6 @@ import argparse
 import json
 import math
 import os
-from pathlib import Path
 import runpy
 import shlex
 import signal
@@ -20,6 +19,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))

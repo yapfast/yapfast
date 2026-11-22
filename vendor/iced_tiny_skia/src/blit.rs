@@ -27,8 +27,7 @@ pub fn blit(
     pixels: &mut tiny_skia::PixmapMut<'_>,
 ) {
     let (width, height) = (width as i32, height as i32);
-    let (target_width, target_height) =
-        (pixels.width() as i32, pixels.height() as i32);
+    let (target_width, target_height) = (pixels.width() as i32, pixels.height() as i32);
     let x0 = x.max(clip_bounds.x.round() as i32).max(0);
     let y0 = y.max(clip_bounds.y.round() as i32).max(0);
     let x1 = (x + width)
@@ -88,9 +87,8 @@ pub fn blit(
         }
         for index in 0..count {
             let at = index * 4;
-            let mut pixel = u32::from_le_bytes(
-                source_row[at..at + 4].try_into().expect("four bytes"),
-            );
+            let mut pixel =
+                u32::from_le_bytes(source_row[at..at + 4].try_into().expect("four bytes"));
             if pixel >> 24 == 0 {
                 continue;
             }
@@ -100,9 +98,7 @@ pub fn blit(
                 (Some((radius, cell_y)), _) if local_x < radius.ceil() as i32 => {
                     Some((radius, local_x, cell_y))
                 }
-                (_, Some((radius, cell_y)))
-                    if local_x >= width - radius.ceil() as i32 =>
-                {
+                (_, Some((radius, cell_y))) if local_x >= width - radius.ceil() as i32 => {
                     Some((radius, width - 1 - local_x, cell_y))
                 }
                 _ => None,
@@ -123,7 +119,7 @@ pub fn blit(
                 continue;
             }
             let below = u32::from_le_bytes(target[..4].try_into().expect("four bytes"));
-            let blended = pixel + times_255ths(below, 255 - alpha);
+            let blended = add_channels(pixel, times_255ths(below, 255 - alpha));
             target.copy_from_slice(&blended.to_le_bytes());
         }
     }
@@ -156,7 +152,11 @@ pub fn resized(
             .map(|at| {
                 let at = (start + at * step).clamp(0, last);
                 let index = (at >> 16) as usize;
-                let weight = if nearest { 0 } else { ((at >> 8) & 0xff) as u32 };
+                let weight = if nearest {
+                    0
+                } else {
+                    ((at >> 8) & 0xff) as u32
+                };
                 (index, (index + 1).min(from as usize - 1), weight)
             })
             .collect()
@@ -173,7 +173,11 @@ pub fn resized(
             let mixed = if down == 0 {
                 top
             } else {
-                lerp(top, lerp(pixel(below, left), pixel(below, right), across), down)
+                lerp(
+                    top,
+                    lerp(pixel(below, left), pixel(below, right), across),
+                    down,
+                )
             };
             pixels.extend_from_slice(&mixed.to_le_bytes());
         }
@@ -256,13 +260,25 @@ pub fn over(pixel: u32, below: u32) -> u32 {
     match pixel >> 24 {
         0 => below,
         255 => pixel,
-        alpha => pixel + times_255ths(below, 255 - alpha),
+        alpha => add_channels(pixel, times_255ths(below, 255 - alpha)),
     }
+}
+
+/// Each channel of `pixel` plus the same channel of `other`, held at 255.
+/// Premultiplied pixels never pass 255 laid over one another; one that
+/// isn't premultiplied (a colour above its alpha) would carry into the next
+/// channel, and in a debug build overflow the top one.
+fn add_channels(pixel: u32, other: u32) -> u32 {
+    let saturate = |sum: u32| (sum | (((sum & 0x0100_0100) >> 8) * 0xff)) & 0x00ff_00ff;
+    let even = saturate((pixel & 0x00ff_00ff) + (other & 0x00ff_00ff));
+    let odd = saturate(((pixel >> 8) & 0x00ff_00ff) + ((other >> 8) & 0x00ff_00ff));
+    even | odd << 8
 }
 
 /// Each channel of a pixel times `factor` / 255, rounded.
 fn times_255ths(pixel: u32, factor: u32) -> u32 {
-    let divide = |value: u32| ((value + 0x0080_0080 + ((value >> 8) & 0x00ff_00ff)) >> 8) & 0x00ff_00ff;
+    let divide =
+        |value: u32| ((value + 0x0080_0080 + ((value >> 8) & 0x00ff_00ff)) >> 8) & 0x00ff_00ff;
     let even = divide((pixel & 0x00ff_00ff) * factor);
     let odd = divide(((pixel >> 8) & 0x00ff_00ff) * factor);
     even | odd << 8
@@ -293,8 +309,7 @@ pub fn gradient(
     stops: &[(f32, [f32; 4])],
     pixels: &mut tiny_skia::PixmapMut<'_>,
 ) {
-    let (target_width, target_height) =
-        (pixels.width() as i32, pixels.height() as i32);
+    let (target_width, target_height) = (pixels.width() as i32, pixels.height() as i32);
     let x0 = x.max(clip_bounds.x.round() as i32).max(0);
     let y0 = y.max(clip_bounds.y.round() as i32).max(0);
     let x1 = (x + width)
@@ -318,7 +333,10 @@ pub fn gradient(
         } else if t >= last.0 {
             last.1
         } else {
-            let next = stops.iter().position(|stop| stop.0 > t).unwrap_or(stops.len() - 1);
+            let next = stops
+                .iter()
+                .position(|stop| stop.0 > t)
+                .unwrap_or(stops.len() - 1);
             let (from, to) = (stops[next - 1], stops[next]);
             let f = (t - from.0) / (to.0 - from.0);
             std::array::from_fn(|channel| from.1[channel] + (to.1[channel] - from.1[channel]) * f)
@@ -386,9 +404,7 @@ pub fn gradient(
                 (Some((radius, cell_y)), _) if local_x < radius.ceil() as i32 => {
                     Some((radius, local_x, cell_y))
                 }
-                (_, Some((radius, cell_y)))
-                    if local_x >= width - radius.ceil() as i32 =>
-                {
+                (_, Some((radius, cell_y))) if local_x >= width - radius.ceil() as i32 => {
                     Some((radius, width - 1 - local_x, cell_y))
                 }
                 _ => None,
@@ -406,7 +422,7 @@ pub fn gradient(
                 continue;
             }
             let below = u32::from_le_bytes(target[..4].try_into().expect("four bytes"));
-            let blended = pixel + times_255ths(below, 255 - alpha);
+            let blended = add_channels(pixel, times_255ths(below, 255 - alpha));
             target.copy_from_slice(&blended.to_le_bytes());
         }
     }
@@ -417,7 +433,10 @@ mod tests {
     use super::*;
 
     fn pixels(values: &[u32]) -> Vec<u8> {
-        values.iter().flat_map(|value| value.to_le_bytes()).collect()
+        values
+            .iter()
+            .flat_map(|value| value.to_le_bytes())
+            .collect()
     }
 
     fn values(bytes: &[u8]) -> Vec<u32> {
@@ -425,6 +444,19 @@ mod tests {
             .chunks_exact(4)
             .map(|pixel| u32::from_le_bytes(pixel.try_into().expect("four bytes")))
             .collect()
+    }
+
+    /// Laying a pixel over another adds channel by channel: premultiplied
+    /// pixels come out as before, and one that isn't (a colour above its
+    /// alpha) is held at 255 rather than carrying into the next channel or
+    /// overflowing.
+    #[test]
+    fn a_pixel_over_another_stays_in_each_channel() {
+        // Half-transparent premultiplied grey over opaque white.
+        assert_eq!(over(0x8040_4040, 0xffff_ffff), 0xffbf_bfbf);
+        // Straight, not premultiplied: white at alpha 128 over white.
+        assert_eq!(over(0x80ff_ffff, 0xffff_ffff), 0xffff_ffff);
+        assert_eq!(add_channels(0xff01_ff00, 0x01ff_0100), 0xffff_ff00);
     }
 
     #[test]
@@ -455,7 +487,8 @@ mod tests {
         let ground = 0xff10_2030_u32;
         let mut frame = vec![ground; 8 * 4];
         let mut pixels =
-            tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), 8, 4).expect("pixmap");
+            tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), 8, 4)
+                .expect("pixmap");
         let half = tiny_skia::Color::from_rgba(1.0, 0.0, 0.0, 0.5).expect("colour");
         // Past the frame's edge, it stops at it.
         fill((-2, 1, 3, 9), half, false, &mut pixels);

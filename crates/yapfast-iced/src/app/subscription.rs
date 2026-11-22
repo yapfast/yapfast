@@ -123,6 +123,33 @@ impl App {
                     .map(|_| Message::Call(crate::call::Event::Second)),
             );
         }
+        // The recording bar's clock goes on while a plugin records.
+        #[cfg(feature = "plugins")]
+        if self.client.state().plugin_recording.is_some() {
+            subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Nothing));
+        }
+        // The site question's clock, and the devtools' view of a plugin, each
+        // second while they show.
+        #[cfg(feature = "plugins")]
+        if self.client.state().plugin_consent.is_some() {
+            subscriptions.push(
+                iced::time::every(Duration::from_secs(1))
+                    .map(|_| Message::Dialog(crate::dialogs::Event::ConsentTick)),
+            );
+        }
+        #[cfg(feature = "plugins")]
+        if self.layout.plugin_devtools
+            && self.win.settings.get().is_some_and(|settings| {
+                settings.section == Some(crate::settings::Section::Plugins)
+                    && settings.plugins.open.is_some()
+            })
+        {
+            subscriptions.push(iced::time::every(Duration::from_secs(1)).map(|_| {
+                Message::Settings(crate::settings::Event::Plugin(
+                    crate::settings::PluginEvent::Tick,
+                ))
+            }));
+        }
         subscriptions.extend(crate::arrange::arrange_subscription(self));
         subscriptions.extend(crate::uploads::follow_subscription(self));
         if shown {

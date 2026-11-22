@@ -91,7 +91,7 @@ def main():
               if not (index and frame[0] - frames[index - 1][0] < 1.0 and frame[1] == frames[index - 1][1])]
     rows = []
     guess = 0
-    for (before_at, before), (at, after) in zip(frames, frames[1:]):
+    for (before_at, before), (at, after) in zip(frames, frames[1:], strict=False):
         shift, score = shift_between(before, after, y0, y1, options.most, guess)
         if shift:
             guess = shift
@@ -115,7 +115,7 @@ def main():
     still = [row for row in span if not row[2]]
     # Time between moves: a repaint missed shows as a gap of two or more.
     move_times = [row[0] for row in moves]
-    gaps = [b - a for a, b in zip(move_times, move_times[1:])]
+    gaps = [b - a for a, b in zip(move_times, move_times[1:], strict=False)]
     steps = [abs(row[2]) for row in moves]
     period = statistics.median(intervals)
     print(f'repaints: {len(frames)}, interval median {period:.2f} ms '
@@ -133,7 +133,7 @@ def main():
     print(f'steps: median {statistics.median(steps)} px, max {max(steps)} px; '
           f'sequence {" ".join(str(row[2]) for row in span)}')
     # Unevenness: how much each step differs from its neighbours' mean.
-    jumps = [abs(b - (a + c) / 2) for a, b, c in zip(steps, steps[1:], steps[2:])]
+    jumps = [abs(b - (a + c) / 2) for a, b, c in zip(steps, steps[1:], steps[2:], strict=False)]
     if jumps:
         print(f'step unevenness (|step - mean of neighbours|): mean {statistics.mean(jumps):.2f} px, '
               f'max {max(jumps):.1f} px')

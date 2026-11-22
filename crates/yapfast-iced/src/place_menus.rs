@@ -168,6 +168,47 @@ fn place_menu(
             row
         })
         .collect();
+    // The rows plugins add extend it below, so it stays mutable in a build
+    // with them and is only written here otherwise.
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(unused_mut, reason = "a build without the plugin system adds no row")
+    )]
+    let mut rows = rows;
+    // The rows plugins add to a place's menu, after its own.
+    #[cfg(feature = "plugins")]
+    if !rows.is_empty()
+        && let Some(overrides) = app.plugin_ui.clone()
+    {
+        use yapfast_core::plugins::ui::{NetworkName, Subject, Target};
+        let room = state.rooms.iter().find(|room| room.id == id);
+        let target = if server {
+            if header {
+                Target::ServerHeader
+            } else {
+                Target::Server
+            }
+        } else if room.is_some_and(|room| room.direct) {
+            Target::GroupDm
+        } else if room.is_some_and(|room| room.parent.is_some()) {
+            Target::Thread
+        } else {
+            Target::Channel
+        };
+        let subject = Subject {
+            network: match room.map(|room| room.network) {
+                Some(yapfast_core::network::Network::Discord) => NetworkName::Discord,
+                _ => NetworkName::Matrix,
+            },
+            own: false,
+            dm: room.is_some_and(|room| room.direct),
+            has_attachment: false,
+            is_bot: false,
+            roles: &[],
+        };
+        crate::plugins_ui::edit_rows(&overrides, target, &subject, &mut rows);
+        rows.extend(crate::plugins_ui::rows(&overrides, target, &subject, id));
+    }
     if rows.is_empty() {
         return Task::none();
     }

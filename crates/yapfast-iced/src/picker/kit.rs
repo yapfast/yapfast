@@ -118,16 +118,22 @@ impl<T, S> Grid<T, S> {
     }
 }
 
-/// The tabs over the composer's picker.
-pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
-    let tab = |label: &'static str, tab: Tab| {
-        let on = tab == chosen;
+/// The tabs over the composer's picker: Yapfast's three, then one for each
+/// plugin that draws a `picker.tab`, named by the plugin. `plugin` is the
+/// plugin's tab chosen, when one is.
+pub fn tabs<'a>(
+    cx: crate::ctx::Ctx<'a>,
+    chosen: Tab,
+    plugin: Option<&str>,
+) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let tab = |label: String, on: bool, press: Message| {
         let (rest, lit) = (theme.secondary, theme.text);
         let (active, hover) = (theme.active, theme.hover);
         button(text(label).size(14).font(SEMIBOLD))
             .padding([0, 12])
             .height(30)
-            .on_press(Message::Picker(Event::Tab(tab)))
+            .on_press(press)
             .style(move |_, status| {
                 let lights = crate::controls::lights(status);
                 button::Style {
@@ -142,16 +148,49 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
                 }
             })
     };
-    container(
-        row![
-            tab("GIFs", Tab::Gifs),
-            tab("Emoji", Tab::Emoji),
-            tab("Stickers", Tab::Stickers)
-        ]
-        .spacing(8),
-    )
-    .padding(Padding::ZERO.top(16).left(16).bottom(12))
-    .into()
+    let own = |label: &str, which: Tab| {
+        tab(
+            label.to_owned(),
+            plugin.is_none() && which == chosen,
+            Message::Picker(Event::Tab(which)),
+        )
+    };
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(unused_mut, reason = "only plugins add tabs")
+    )]
+    let mut tabs = row![
+        own("GIFs", Tab::Gifs),
+        own("Emoji", Tab::Emoji),
+        own("Stickers", Tab::Stickers)
+    ]
+    .spacing(8);
+    #[cfg(feature = "plugins")]
+    for name in crate::plugin_slots::picker_tabs(cx) {
+        // Its name is the tab's, so no plugin's tab passes for Yapfast's.
+        // Long names end in an ellipsis; the whole name is on hover.
+        let label: String = if name.name.chars().count() > 24 {
+            let mut cut: String = name.name.chars().take(23).collect();
+            cut.push('…');
+            cut
+        } else {
+            name.name.clone()
+        };
+        tabs = tabs.push(iced::widget::tooltip(
+            tab(
+                label,
+                plugin == Some(name.id.as_str()),
+                Message::Picker(Event::PluginTab(name.id.clone())),
+            ),
+            crate::controls::tip(theme, crate::plugin_slots::from(name)),
+            iced::widget::tooltip::Position::Bottom,
+        ));
+    }
+    #[cfg(not(feature = "plugins"))]
+    let _ = plugin;
+    container(tabs)
+        .padding(Padding::ZERO.top(16).left(16).bottom(12))
+        .into()
 }
 
 /// The search field, sunken, at the panel's top.

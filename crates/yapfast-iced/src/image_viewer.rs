@@ -357,7 +357,42 @@ pub(crate) fn media_menu(app: &mut App, item: String, index: usize, video: bool)
         .and_then(|message| message.attachments.get(index))
         .and_then(|attachment| attachment.url.clone())
         .unwrap_or_default();
-    let rows = media_rows(index, video, preview, !link.is_empty());
+    #[cfg_attr(
+        not(feature = "plugins"),
+        allow(unused_mut, reason = "a build without the plugin system adds no row")
+    )]
+    let mut rows = media_rows(index, video, preview, !link.is_empty());
+    // What plugins add to a picture's or a sticker's menu: a picture is named
+    // as its attachment (`<message>:<index>`), a sticker by its id.
+    #[cfg(feature = "plugins")]
+    {
+        let attachment = app.client.state().message(&item).and_then(|message| {
+            Some((message.id.clone(), message.attachments.get(index)?.clone()))
+        });
+        if let Some((message, attachment)) = attachment {
+            let sticker = (attachment.placement == yapfast_core::chat::Placement::Sticker)
+                .then(|| {
+                    attachment.url.as_deref().and_then(|url| {
+                        yapfast_plugin_api::event::StickerView::id_of(url).map(str::to_owned)
+                    })
+                })
+                .flatten();
+            let added = match sticker {
+                Some(id) => crate::plugins_ui::rows_here(
+                    app,
+                    yapfast_core::plugins::ui::Target::Sticker,
+                    &id,
+                ),
+                None if !video => crate::plugins_ui::rows_here(
+                    app,
+                    yapfast_core::plugins::ui::Target::Image,
+                    &format!("{message}:{index}"),
+                ),
+                None => Vec::new(),
+            };
+            rows.extend(added);
+        }
+    }
     if app.client.state().viewer.is_some() || app.playback.clip_full {
         if rows.is_empty() {
             return Task::none();

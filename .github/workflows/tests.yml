@@ -1,0 +1,151 @@
+# The checks, on every pull request and push to main and feat/plugins, and the
+# longer matrix by hand: Actions > Tests > Run workflow.
+#
+# Neither job reinvents a step. Both run the repository's own entry point,
+# scripts/check, which enters the dev shell, runs one compile at a time so the
+# machine keeps its memory, and keeps each step's log under target/check/.
+name: Tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main, feat/plugins]
+  push:
+    branches: [main, feat/plugins]
+
+permissions:
+  contents: read
+
+# A pull request pushed to twice runs its newest commit alone; a run somebody
+# started by hand is theirs to watch, so nothing cancels it.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: scripts/check --fast
+    # The runner's preinstalled SDKs leave too little room: a compile of the UI
+    # crate takes 6 to 8 GiB of memory, and a run's target directory tens of
+    # GiB of disk beside the checkout's. The flake pins x86_64-linux, so the
+    # runner is the machine the build was written for.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # Nothing here compiles twice: a job builds once and is thrown away, and
+      # the incremental data a cold `target/` would keep is most of it.
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+            /opt/ghc /opt/hostedtoolcache/CodeQL
+      # The marketplace actions are pinned by tag here, as in
+      # .github/workflows/nightly.yml: a commit SHA is what should pin them, and
+      # whoever has the network to resolve these tags to one should do it.
+      - uses: actions/checkout@v5
+        with:
+          # The steps read the repository; nothing here pushes to it, so the
+          # job's token is not left in .git/config for a later step to find.
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+      # The crates, keyed on the lock file: the same crates are the same bytes,
+      # so a run starts by compiling rather than by downloading. The toolchain
+      # is in the same entry, and the pin in the key, because the pin in
+      # rust-toolchain.toml is 1.97.1 and without it every run fetches the whole
+      # toolchain from static.rust-lang.org; naming the pin means a bump starts
+      # from a cache that matches rather than restoring one that never will.
+      #
+      # What is compiled is not cached, and that is measured: target/fast is
+      # 79 GiB after a day of local builds here, and target/release alone is
+      # 8.5 GiB, so an entry would pass the 10 GiB the store keeps for one
+      # repository, be evicted every other run, and cost more to move than the
+      # compile it saves. A cold run compiles every dependency, the cost
+      # docs/building.md says a worktree without scripts/warm-worktree pays
+      # once. Skia, the largest thing a Rust UI build would otherwise compile,
+      # comes from the flake's binary cache, and Slint is built from this
+      # repository's patched sources (vendor/i-slint-*).
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.rustup/toolchains
+            ~/.rustup/downloads
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock',
+            'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - run: nix develop path:./nix --command scripts/check --fast
+      # Every step's log, because the one that failed says why in it among the C
+      # compilers' warnings; the script's own report in the run's output is only
+      # its first lines.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs-fast
+          path: target/check/*.log
+          if-no-files-found: ignore
+
+  matrix:
+    name: scripts/check --matrix, and the gate against a real name
+    # By hand only: it is the four-minute check, and a fresh runner compiles
+    # every dependency before it, while the last step here asks a name server
+    # outside the machine — which no pull request may depend on.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      # As in the job above: one build, thrown away.
+      CARGO_INCREMENTAL: 0
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+            /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ github.token }}
+      # The same cache as the job above, and the same reason not to keep what is
+      # compiled. Written out rather than shared, because a composite action for
+      # four steps would be a fifth thing to keep in step.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.rustup/toolchains
+            ~/.rustup/downloads
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock',
+            'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - run: nix develop path:./nix --command scripts/check --matrix
+      # The plugin system's one test that needs DNS, which is why no pull
+      # request runs it: it hands a public name to the system's resolver and
+      # checks that every address the answer holds is one the network gate
+      # accepts. It is about the resolver, not a server, so it belongs where
+      # somebody asked for the long check. `--exact` names it, so a second
+      # ignored test in that file can't join the run. libtest exits 0 when its
+      # filter matches nothing, though, so the count is checked as well: a
+      # rename, or dropping the `#[ignore]`, would otherwise pass this job
+      # having run no test. See crates/yapfast-core/tests/plugins_gate.rs.
+      - run: |
+          set -euo pipefail
+          nix develop path:./nix --command cargo test --locked --profile fast \
+            -p yapfast-core --no-default-features --features plugins \
+            --test plugins_gate -- --ignored --exact \
+            a_real_name_resolves_to_addresses_the_gate_accepts 2>&1 |
+            tee "$RUNNER_TEMP/plugins_gate.log"
+          grep -q 'test result: ok\. 1 passed' "$RUNNER_TEMP/plugins_gate.log"
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs-matrix
+          path: target/check/*.log
+          if-no-files-found: ignore

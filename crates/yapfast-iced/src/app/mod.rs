@@ -74,6 +74,25 @@ pub struct App {
     /// What the window keeps in `layout.json`: open folders, collapsed
     /// categories.
     pub layout: crate::layout::Layout,
+    /// The changes enabled plugins make to the window, taken again
+    /// whenever one starts or stops.
+    #[cfg(feature = "plugins")]
+    pub plugin_ui: Option<std::sync::Arc<yapfast_core::plugins::ui::UiOverrides>>,
+    /// Whether the development folder's previews were shown, which happens
+    /// once ([`App::refresh_plugins`]).
+    #[cfg(feature = "plugins")]
+    plugin_previews: bool,
+    /// What the window keeps of what plugins draw between their draws: the
+    /// text typed in their fields, their open tabs, their pictures.
+    #[cfg(feature = "plugins")]
+    pub plugin_kept: crate::plugin_slots::Kept,
+    /// The person's theme, and it with the plugins' colours over it.
+    #[cfg(feature = "plugins")]
+    pub looks: crate::plugins_ui::Looks,
+    /// The site question showing, by plugin and host, and when it first
+    /// showed, which its denial after `dialogs::CONSENT_WAIT` counts from.
+    #[cfg(feature = "plugins")]
+    pub consent_since: Option<(String, std::time::Instant)>,
     /// The thread beside's width as its edge was pressed, while it's dragged.
     pub aside_drag: Option<f32>,
     /// The minute now, as the clocks that show minutes read it, and the
@@ -120,6 +139,9 @@ pub struct App {
     pub playback: crate::playback::Playback,
     /// A masked link clicked, while the question before it shows.
     pub leaving: Option<String>,
+    /// The plugin that asked for that link to open, named in the question;
+    /// none for a link the person clicked.
+    pub leaving_from: Option<String>,
     /// The profiles on screen.
     pub profiles: crate::profile::Profiles,
     /// Where in the window the last press was, for a menu its button opens.
@@ -202,6 +224,10 @@ pub struct App {
     /// and of linking's progress, which stop when dropped.
     pub sign_in: SignIn,
     pub backend_events: Option<iced::task::Handle>,
+    /// The plugin system's notices, which outlive a session, so they have a
+    /// listener of their own (`client.rs`).
+    #[cfg(feature = "plugins")]
+    pub plugin_events: Option<iced::task::Handle>,
     pub linking: Option<iced::task::Handle>,
     pub mfa: mfa::Mfa,
 }
@@ -218,6 +244,7 @@ impl App {
     }
 
     pub fn new(client: Client, size: (u32, u32)) -> (Self, Task<Message>) {
+        yapfast_core::startup::window();
         // No test reaches the speakers or the microphone.
         #[cfg(test)]
         yapfast_core::silence_audio();
@@ -225,6 +252,9 @@ impl App {
         let layout = crate::layout::Layout::open(client.root(), &crate::build().version);
         let themes = Themes::read(&layout);
         let theme = themes.shown();
+        // The plugin devtools record from the start when they were left on.
+        #[cfg(feature = "plugins")]
+        yapfast_core::plugins::devtools::set_on(layout.plugin_devtools);
         let (fitter, fitted) = crate::pictures::Fitter::new();
         let mut client = client;
         for action in layout.actions() {
@@ -257,6 +287,16 @@ impl App {
             win: Window::new(crate::pictures::Pictures::new(fitter)),
             pointed: Pointed::default(),
             layout,
+            #[cfg(feature = "plugins")]
+            plugin_ui: None,
+            #[cfg(feature = "plugins")]
+            plugin_previews: false,
+            #[cfg(feature = "plugins")]
+            plugin_kept: Default::default(),
+            #[cfg(feature = "plugins")]
+            looks: crate::plugins_ui::Looks::new(theme.clone()),
+            #[cfg(feature = "plugins")]
+            consent_since: None,
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),
@@ -281,6 +321,7 @@ impl App {
             keyed: None,
             playback: Default::default(),
             leaving: None,
+            leaving_from: None,
             profiles: Default::default(),
             pressed: Default::default(),
             link_spot: Default::default(),
@@ -320,6 +361,8 @@ impl App {
             themes,
             sign_in: SignIn::default(),
             backend_events: None,
+            #[cfg(feature = "plugins")]
+            plugin_events: None,
             linking: None,
             mfa: mfa::Mfa::default(),
         };
@@ -348,6 +391,86 @@ impl App {
         (app, Task::batch([sync, frames, focus, away, talk]))
     }
 
+    /// Builds what the enabled plugins ask of the window again, after one was
+    /// turned on or off, installed, updated or removed (the core's
+    /// `Effect::Interface`): their changes to the interface, and their names
+    /// in the slots, which is what lets their toasts, banners, dialogs,
+    /// buttons and badges draw.
+    ///
+    /// The plugins of the development folder (`YAPFAST_PLUGINS_DIR`) come
+    /// first, then the store's enabled ones; a plugin in both is the
+    /// folder's. A plugin turned off keeps its place in the slots with nothing
+    /// drawn, so what the others drew stays theirs.
+    #[cfg(feature = "plugins")]
+    pub fn refresh_plugins(&mut self) {
+        let found = yapfast_core::plugins::load_from_environment();
+        self.plugin_kept.folders = found
+            .iter()
+            .map(|found| (found.manifest.id.clone(), found.folder.clone()))
+            .collect();
+        // What a development folder's `slots.json` shows, once, as the
+        // window's first build of them: a stand-in for what its module would
+        // draw, for trying the widgets.
+        let previews: Vec<_> = if self.plugin_previews {
+            Vec::new()
+        } else {
+            self.plugin_previews = true;
+            found
+                .iter()
+                .flat_map(yapfast_core::plugins::preview)
+                .collect()
+        };
+        let mut manifests: Vec<yapfast_core::plugins::Manifest> =
+            found.into_iter().map(|found| found.manifest).collect();
+        let store: Vec<_> = self
+            .client
+            .app
+            .plugin_interfaces()
+            .into_iter()
+            .filter(|manifest| !manifests.iter().any(|found| found.id == manifest.id))
+            .collect();
+        manifests.extend(store);
+        let names = manifests
+            .iter()
+            .map(|manifest| yapfast_core::plugins::ui::PluginName {
+                id: manifest.id.clone(),
+                name: manifest.name.clone(),
+            })
+            .collect();
+        self.client.app.add_plugin_names(names);
+        // A plugin whose changes to Yapfast's look the person turned off
+        // keeps its rows and buttons.
+        crate::plugins_ui::without_looks(&mut manifests, &self.layout.plugin_looks_off);
+        let before = (
+            self.plugin_ui
+                .as_ref()
+                .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize)),
+            crate::plugins_ui::group_gap(),
+        );
+        self.plugin_ui = crate::plugins_ui::overrides(&manifests);
+        crate::plugins_ui::keep_sizes(self.plugin_ui.as_deref(), &mut self.layout);
+        // The sidebar's header is built again, with or without its banner.
+        self.lists_shown = None;
+        let stock = self.looks.stock.clone();
+        self.show_theme(stock);
+        let after = (
+            self.plugin_ui
+                .as_ref()
+                .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize)),
+            crate::plugins_ui::group_gap(),
+        );
+        // Rows measured at another text size or gap are measured again.
+        if before != after {
+            let none = Messages::default();
+            self.measure(&none, true);
+            self.dirty = true;
+        }
+        for output in previews {
+            self.client
+                .apply(yapfast_core::chat::Event::PluginSlot(output));
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         // What's on top, only while the backstop's log is read.
         let top = tracing::enabled!(tracing::Level::DEBUG).then(|| self.layers().next());
@@ -355,6 +478,9 @@ impl App {
         crate::timeline::keys::follow_press(self);
         let task = self.handle_message(message);
         let task = Task::batch([task, self.settle(), crate::call::fit_screen(self)]);
+        // A protected screen opened or closed: the theme shown follows.
+        #[cfg(feature = "plugins")]
+        crate::plugins_ui::dress(self);
         if let Some(top) = top {
             self.focus_backstop(top);
         }
@@ -396,6 +522,50 @@ impl App {
             Message::Control(command) => crate::control_file::control(self, &command),
             Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),
+            #[cfg(feature = "plugins")]
+            Message::Plugin(input) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::PluginInput(input));
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
+            Message::PluginAct(scope, act) => {
+                crate::plugin_slots::act(self, scope, act);
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
+            Message::PluginStopAgent(plugin) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::StopAgent(plugin),
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
+            Message::PluginStopRecording => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::StopRecording,
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
+            Message::PluginSaved(plugin, call, saved) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::Saved {
+                            plugin,
+                            call,
+                            saved,
+                        },
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
             Message::Link(link, at) => crate::links::follow_link(self, &link, at),
             Message::Members(event) => crate::members::update(self, event),
             Message::Rail(event) => crate::rail::update(self, event),
@@ -425,6 +595,8 @@ impl App {
                 Task::none()
             }
             Message::Menu(event) => crate::menus::update(self, event),
+            #[cfg(feature = "plugins")]
+            Message::PluginRows(target, id) => crate::plugins_ui::open_rows_menu(self, target, &id),
             Message::PersonMenu(user, at) => crate::person_menu::open_person_menu(
                 self,
                 &user,

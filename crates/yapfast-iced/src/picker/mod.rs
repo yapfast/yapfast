@@ -72,6 +72,9 @@ pub enum Event {
     /// A press in the picker that nothing in it took.
     Pressed,
     Tab(Tab),
+    /// A plugin's tab chosen, by the plugin's id.
+    #[cfg(feature = "plugins")]
+    PluginTab(String),
     /// The GIFs' Back, to their home.
     Back,
     /// A trending or suggested term, searched for.
@@ -116,6 +119,10 @@ pub struct Picker {
     /// pressed, while it's dragged.
     width: f32,
     widen_from: Option<f32>,
+    /// A plugin's tab chosen in place of Yapfast's (`picker.tab`), by the
+    /// plugin's id.
+    #[cfg(feature = "plugins")]
+    pub plugin_tab: Option<String>,
 }
 
 impl Picker {
@@ -176,6 +183,8 @@ impl Picker {
             typed: 0,
             width,
             widen_from: None,
+            #[cfg(feature = "plugins")]
+            plugin_tab: None,
         };
         let query = open_tab(tab, cx);
         picker.show(tab, &query);
@@ -261,7 +270,18 @@ impl Picker {
             cx.request(Request::Focus(Focus::Id(FIELD)));
         }
         match event {
-            Event::Tab(tab) => self.switch_tab(tab, cx),
+            Event::Tab(tab) => {
+                #[cfg(feature = "plugins")]
+                {
+                    self.plugin_tab = None;
+                }
+                self.switch_tab(tab, cx)
+            }
+            #[cfg(feature = "plugins")]
+            Event::PluginTab(plugin) => {
+                self.plugin_tab = Some(plugin);
+                Task::none()
+            }
             Event::Scrolled(viewport) => {
                 self.scroll = Scroll {
                     top: viewport.absolute_offset().y,
@@ -618,6 +638,25 @@ impl<'a> View<'a> {
             Tab::Gifs => self.gifs_view(picker),
             Tab::Stickers => self.stickers_view(picker),
         };
+        // A plugin's tab, while one is chosen and its plugin still draws it.
+        #[cfg(feature = "plugins")]
+        let (body, plugin_tab) = {
+            let subject = self
+                .cx
+                .state
+                .selected_room()
+                .map_or("", |room| room.id.as_str());
+            match picker
+                .plugin_tab
+                .as_deref()
+                .and_then(|plugin| crate::plugin_slots::picker_tab(self.cx, plugin, subject))
+            {
+                Some(drawn) => (drawn, picker.plugin_tab.as_deref()),
+                None => (body, None),
+            }
+        };
+        #[cfg(not(feature = "plugins"))]
+        let plugin_tab: Option<&str> = None;
         let theme = self.cx.look.theme;
         let content: Element<'a, Message> = if picker.tabs {
             // Its left edge drags it wider, as Discord's: the right edge and
@@ -631,7 +670,7 @@ impl<'a> View<'a> {
                 Message::Picker(Event::ResetWidth),
             );
             iced::widget::stack![
-                column![kit::tabs(theme, picker.tab), body].height(Length::Fill),
+                column![kit::tabs(self.cx, picker.tab, plugin_tab), body].height(Length::Fill),
                 container(edge)
                     .padding(Padding::ZERO.left(3))
                     .height(Length::Fill),

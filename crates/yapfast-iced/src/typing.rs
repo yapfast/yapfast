@@ -96,6 +96,14 @@ pub fn strip<'a>(
 
 /// Who else is typing, or none while nobody does.
 fn line<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    // A plugin may hide who's typing (`timeline.typing`).
+    #[cfg(feature = "plugins")]
+    if crate::plugins_ui::hides(
+        ctx.plugins_ui,
+        yapfast_core::plugins::ui::Part::TimelineTyping,
+    ) {
+        return None;
+    }
     let line = ctx.state.typing_line();
     if line.is_empty() {
         return None;

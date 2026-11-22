@@ -421,6 +421,56 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     }
 }
 
+/// Plays a sound file a plugin carries in place of one of these, at `volume`
+/// from [`gain`] on `speaker`, as [`play`] plays its own: decoded and played
+/// on a thread of its own, so the window never waits for either.
+#[cfg(feature = "plugins")]
+pub fn play_replaced(file: Vec<u8>, volume: f32, speaker: Option<&str>) {
+    if volume <= 0.0 {
+        return;
+    }
+    let speaker: Option<Arc<str>> = speaker.map(Into::into);
+    let started = std::thread::Builder::new()
+        .name("yapfast-sound".into())
+        .spawn(move || {
+            let played = crate::plugins::audio::decode(&file).and_then(|decoded| {
+                let samples: Vec<f32> = decoded
+                    .iter()
+                    .map(|sample| f32::from(*sample) / f32::from(i16::MAX) * volume)
+                    .collect();
+                play_samples(&samples, speaker.as_deref())
+            });
+            if let Err(error) = played {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not play a plugin's sound"
+                );
+            }
+        });
+    if let Err(error) = started {
+        tracing::warn!(%error, "could not start a sound");
+    }
+}
+
+/// The name a manifest's `sounds` gives a sound, one of
+/// `yapfast_plugin_api::account::SOUND_EVENTS`.
+pub fn event_name(sound: Sound) -> &'static str {
+    match sound {
+        Sound::Join => "join",
+        Sound::Leave => "leave",
+        Sound::Mute => "mute",
+        Sound::Unmute => "unmute",
+        Sound::Deafen => "deafen",
+        Sound::Undeafen => "undeafen",
+        Sound::Message => "message",
+        Sound::Mention => "mention",
+        Sound::ViewerJoin => "viewer_join",
+        Sound::ViewerLeave => "viewer_leave",
+        Sound::StreamStart => "stream_start",
+        Sound::StreamStop => "stream_stop",
+    }
+}
+
 /// Plays interleaved stereo samples to the end.
 fn play_samples(samples: &[f32], speaker: Option<&str>) -> anyhow::Result<()> {
     use anyhow::Context;
@@ -486,5 +536,24 @@ mod tests {
         let loudest = render(SoundSet::Felt, Sound::Join);
         let peak = loudest.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
         assert!(peak * gain(200) <= 1.0 + 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod plugin_names {
+    use super::*;
+
+    #[test]
+    fn every_sound_has_the_name_a_manifest_writes() {
+        for sound in Sound::ALL {
+            assert!(
+                yapfast_plugin_api::account::SOUND_EVENTS.contains(&event_name(sound)),
+                "{sound:?}"
+            );
+        }
+        assert_eq!(
+            yapfast_plugin_api::account::SOUND_EVENTS.len(),
+            Sound::ALL.len()
+        );
     }
 }

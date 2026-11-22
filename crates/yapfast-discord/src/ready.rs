@@ -1306,6 +1306,30 @@ impl Server {
     }
 
     /// A member's named roles, highest first, each with its colour if it has one.
+    /// [`Self::named_roles`] with each role's id first.
+    pub fn named_roles_with_ids(&self, roles: &[String]) -> Vec<(String, String, Option<u32>)> {
+        let mut named: Vec<_> = roles
+            .iter()
+            .filter(|role| **role != self.id)
+            .filter_map(|role| {
+                let name = self.role_names.get(role)?;
+                let position = self.role_positions.get(role).copied().unwrap_or_default();
+                let color = self.role_colors.get(role).map(|(_, color)| *color);
+                Some((
+                    std::cmp::Reverse(position),
+                    name.clone(),
+                    role.clone(),
+                    color,
+                ))
+            })
+            .collect();
+        named.sort();
+        named
+            .into_iter()
+            .map(|(_, name, id, color)| (id, name, color))
+            .collect()
+    }
+
     pub fn named_roles(&self, roles: &[String]) -> Vec<(String, Option<u32>)> {
         let mut named: Vec<_> = roles
             .iter()

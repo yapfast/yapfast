@@ -1,0 +1,8 @@
+-Iinclude
+--target=wasm32-unknown-unknown
+-std=c11
+-O2
+-ffreestanding
+-nostdlib
+-Wall
+-Wextra

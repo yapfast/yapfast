@@ -1109,6 +1109,9 @@ pub struct ProfileFriend {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProfileRole {
+    /// Its id, which a plugin's role menu row names; the name where roles
+    /// have no ids.
+    pub id: String,
     pub name: String,
     /// Its RGB colour, for a coloured Discord role.
     pub color: Option<u32>,
@@ -2804,9 +2807,67 @@ pub struct CommandRun {
     pub files: Vec<PathBuf>,
 }
 
+/// What a plugin asks of the linked Discord account that is answered later,
+/// once Discord or Spotify has: [`Event::PluginAnswered`] carries the answer
+/// back under the plugin's own call.
+#[cfg(feature = "plugins")]
+#[derive(Clone, Debug)]
+pub enum PluginAsk {
+    /// `activity.set` and `activity.clear`.
+    Activity(Option<Box<yapfast_plugin_api::account::ActivitySet>>),
+    /// `profile.set`'s bio and pronouns; the custom status goes the way a
+    /// person's does.
+    Profile {
+        bio: Option<String>,
+        pronouns: Option<String>,
+    },
+    /// `messages.search`.
+    Search(yapfast_plugin_api::account::SearchRequest),
+    /// `account.sessions`.
+    Sessions,
+    /// `relationships.affinities`.
+    Affinities(yapfast_plugin_api::account::AffinitiesRequest),
+    /// `messages.get` and `messages.history` of a conversation the window
+    /// doesn't hold.
+    Messages {
+        room: String,
+        message: Option<String>,
+        before: Option<String>,
+        limit: Option<usize>,
+    },
+    /// `servers.details`.
+    ServerDetails { server: String },
+    /// `gifs.favourites`.
+    FavouriteGifs,
+    /// `media.get` for a file the picture store doesn't hold.
+    Media { url: String },
+    /// `people.badges`.
+    Badges {
+        person: String,
+        server: Option<String>,
+    },
+    /// `messages.voice`: a recording sent as a voice message.
+    Voice {
+        room: String,
+        path: std::path::PathBuf,
+        duration_ms: u64,
+        waveform: String,
+    },
+    /// The `spotify.*` calls.
+    Spotify(yapfast_plugin_api::account::SpotifyAction),
+}
+
 /// Commands only the linked Discord account carries out.
 #[derive(Clone)]
 pub enum DiscordCommand {
+    /// Something a plugin asked that Discord or Spotify answers; see
+    /// [`PluginAsk`].
+    #[cfg(feature = "plugins")]
+    PluginAsk {
+        plugin: String,
+        call: u64,
+        ask: Box<PluginAsk>,
+    },
     /// Fetches the Activity panel's feed; [`Event::ActivityFeed`] follows,
     /// and [`Event::ActivityFeedDue`] when it's time to ask again.
     ActivityFeed,
@@ -4278,6 +4339,23 @@ pub enum Event {
     /// Discord's servers, voice channels and who is in them.
     #[cfg(feature = "discord")]
     Discord(Arc<yapfast_discord::service::Snapshot>),
+    /// The plugin system: a hook's answer or a plugin's state change from the
+    /// bridge, or something a tap saw that a plugin subscribed to. It arrives
+    /// by the same path as every other event, which is how a held send
+    /// completes without anything polling for it.
+    #[cfg(feature = "plugins")]
+    Plugin(crate::application::plugins::News),
+    /// The answer to a [`DiscordCommand::PluginAsk`], for the plugin's call.
+    #[cfg(feature = "plugins")]
+    PluginAnswered {
+        plugin: String,
+        call: u64,
+        answer: yapfast_plugin_api::call::HostReturn,
+    },
+    /// What the linked Spotify plays, from the song the session shares, for a
+    /// plugin's `spotify_state`.
+    #[cfg(feature = "plugins")]
+    SpotifyShared(serde_json::Value),
     /// The video [`Command::PlayVideo`] plays, as it changes; none once it stops.
     Video(Option<Video>),
     /// The voice message [`Command::PlayVoiceMessage`] plays, as it
@@ -4783,6 +4861,9 @@ pub enum Event {
     Sync(bool),
     Error(String),
     LoggedOut,
+    /// The plugin runtime changed what a plugin draws.
+    #[cfg(feature = "plugins")]
+    PluginSlot(crate::plugins::slots::Output),
 }
 
 pub fn sort_members(members: &mut [ChatMember]) {

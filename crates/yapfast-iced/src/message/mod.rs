@@ -158,7 +158,32 @@ pub fn message_content<'a>(
             .align_y(Alignment::Center),
         );
     }
-    let ink = if message.deleted || message.delivery != chat::Delivery::default() {
+    // A deleted row a plugin kept is drawn as that plugin chose: red, faded,
+    // both or neither.
+    #[cfg(feature = "plugins")]
+    let retained = message.deleted.then_some(ctx.state.retained_look);
+    #[cfg(not(feature = "plugins"))]
+    let retained: Option<()> = None;
+    let ink = if let Some(_look) = retained {
+        #[cfg(feature = "plugins")]
+        {
+            let ink = if _look.red_text {
+                theme.danger
+            } else {
+                theme.text
+            };
+            if _look.faded {
+                iced::Color {
+                    a: ink.a * 0.55,
+                    ..ink
+                }
+            } else {
+                ink
+            }
+        }
+        #[cfg(not(feature = "plugins"))]
+        theme.muted
+    } else if message.deleted || message.delivery != chat::Delivery::default() {
         theme.muted
     } else if message.notice.is_some() {
         theme.secondary
@@ -169,21 +194,42 @@ pub fn message_content<'a>(
     if editing {
         content = content.push(crate::edit::inline_edit(ctx));
     } else if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
-        let body = ctx.body_view(
-            &look.body,
-            index,
-            FIRST_PART,
-            Look {
-                size: text_size(ctx),
-                line_height: LINE_HEIGHT,
-                ink,
-            },
-        );
+        // A kept deleted row the plugin asked struck through is, every word.
+        #[cfg(feature = "plugins")]
+        let strike = retained.is_some_and(|look| look.strike);
+        #[cfg(not(feature = "plugins"))]
+        let strike = false;
+        let body = crate::markdown::struck(strike, || {
+            ctx.body_view(
+                &look.body,
+                index,
+                FIRST_PART,
+                Look {
+                    size: text_size(ctx),
+                    line_height: LINE_HEIGHT,
+                    ink,
+                },
+            )
+        });
         content = content.push(if ctx.layout.collapse_long {
             folding(ctx, index, body)
         } else {
             body
         });
+    }
+    // A message a plugin sent says which, whatever the plugin draws.
+    #[cfg(feature = "plugins")]
+    if let Some(name) = ctx.state.plugin_sent_by.get(&message.item) {
+        content = content.push(crate::plugin_slots::sent_by(theme, name));
+    }
+    // What plugins add under the text: a line, a card, and the word that
+    // they styled it, each under its plugin's name (`plugin_slots.rs`).
+    #[cfg(feature = "plugins")]
+    if !editing
+        && let Some(slots) = ctx.state.plugin_slots.as_deref()
+        && let Some(under) = crate::plugin_slots::under_message(ctx, slots, &message.item)
+    {
+        content = content.push(under);
     }
     if message.flags & LOADING != 0 {
         content = content.push(thinking(ctx, message));
@@ -616,6 +662,14 @@ fn used_line<'a>(
 
 /// Messages' text size, as Messages' settings chose it.
 pub fn text_size(ctx: crate::ctx::Ctx<'_>) -> f32 {
+    // A plugin's text size, while one sets it (`text-size`).
+    #[cfg(feature = "plugins")]
+    if let Some(size) = ctx
+        .plugins_ui
+        .and_then(|ui| ui.size(yapfast_core::plugins::ui::Size::TextSize))
+    {
+        return size;
+    }
     crate::settings::message_size(ctx.layout.prefs.text_size)
 }
 
@@ -719,6 +773,11 @@ fn author_line<'a>(
     if message.new_member {
         line = line.push(ctx.look.glyph(Icon::StarFilled, 14, theme.live));
     }
+    // What plugins badge the author with, after Yapfast's own tags.
+    #[cfg(feature = "plugins")]
+    for chip in crate::plugin_slots::author_badges(ctx, message) {
+        line = line.push(chip);
+    }
     // OP gives way to the APP tag, as in Discord's client.
     if message.bot {
         line = line.push(ctx.bot_tag(1.0));
@@ -748,7 +807,44 @@ fn author_line<'a>(
         ctx.lanes.timeline.selecting,
         theme.selection,
     );
-    line.push(time).height(AUTHOR_LINE).into()
+    let line = line.push(time);
+    // A kept deleted row's tag, when its plugin wants one: when it went, on
+    // hover.
+    #[cfg(feature = "plugins")]
+    let line = if message.deleted && ctx.state.retained_look.tag {
+        let tip = match ctx.state.retained_at.get(&message.item) {
+            Some(at) => chrono::DateTime::from_timestamp_millis(*at as i64)
+                .map(|at| {
+                    format!(
+                        "Deleted at {}",
+                        at.with_timezone(&chrono::Local)
+                            .format("%H:%M:%S, %d %b %Y")
+                    )
+                })
+                .unwrap_or_else(|| "Deleted".to_owned()),
+            None => "Deleted".to_owned(),
+        };
+        let danger = theme.danger;
+        line.push(iced::widget::tooltip(
+            container(text("deleted").size(10).font(SEMIBOLD).color(danger))
+                .padding([0, 4])
+                .height(16)
+                .align_y(Alignment::Center)
+                .style(move |_| {
+                    container::Style::default()
+                        .background(iced::Color { a: 0.16, ..danger })
+                        .border(iced::Border {
+                            radius: 4.0.into(),
+                            ..iced::Border::default()
+                        })
+                }),
+            crate::controls::tip(theme, tip),
+            iced::widget::tooltip::Position::Top,
+        ))
+    } else {
+        line
+    };
+    line.height(AUTHOR_LINE).into()
 }
 
 /// A body that folds, when long messages fold: once it's a few lines past

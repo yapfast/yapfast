@@ -1,0 +1,34 @@
+{
+  "api": 1,
+  "id": "com.example.template",
+  "name": "Template",
+  "version": "1.0.0",
+  "description": "A plugin in C, ready to be something",
+  "authors": [
+    "Your Name"
+  ],
+  "license": "GPL-3.0-or-later",
+  "wasm": "plugin.wasm",
+  "activation": {
+    "on": [
+      "command"
+    ]
+  },
+  "permissions": {
+    "capabilities": []
+  },
+  "commands": [
+    {
+      "name": "hello",
+      "description": "Say hello",
+      "options": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Who to greet"
+        }
+      ]
+    }
+  ]
+}

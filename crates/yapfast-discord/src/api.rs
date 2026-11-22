@@ -143,6 +143,10 @@ pub struct Upload {
 }
 
 /// The most files one message can carry.
+/// A message's flag for a voice message (docs.discord.food, resources/message,
+/// Message Flags): its audio attachment is shown as one.
+pub const IS_VOICE_MESSAGE: u64 = 1 << 13;
+
 pub const MAX_FILES: usize = 10;
 
 /// The most channels one bulk read acknowledgement carries.
@@ -511,8 +515,8 @@ impl Api {
     }
 
     /// Discord's media proxy's names for images a game's Rich Presence gives
-    /// by address, as the desktop client asks for them.
-    #[cfg(target_os = "linux")]
+    /// by address, as the desktop client asks for them; a plugin's activity
+    /// names its pictures the same way.
     pub(crate) async fn rpc_external_assets(&self, id: &str, urls: &[&str]) -> Result<Value> {
         let path = format!("/applications/{id}/external-assets");
         self.json(with_json(
@@ -523,7 +527,6 @@ impl Api {
     }
 
     /// The images an application uploaded, by name, for its Rich Presence.
-    #[cfg(target_os = "linux")]
     pub(crate) async fn rpc_assets(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/assets");
         self.json(self.request(Method::GET, &path)).await
@@ -607,6 +610,32 @@ impl Api {
                 });
             }
         }
+        let path = format!("/channels/{channel}/messages");
+        self.json(with_json(self.request(Method::POST, &path), &body))
+            .await
+    }
+
+    /// Sends an uploaded recording as a voice message (docs.discord.food,
+    /// resources/message, Voice Messages): the `IS_VOICE_MESSAGE` flag, no
+    /// content, and the one audio attachment with its `duration_secs` and
+    /// base64 `waveform`.
+    pub async fn send_voice(
+        &self,
+        channel: &str,
+        upload: &Upload,
+        duration_secs: f64,
+        waveform: &str,
+        nonce: &str,
+    ) -> Result<Value> {
+        let mut body = message_body("", nonce);
+        body["flags"] = IS_VOICE_MESSAGE.into();
+        body["attachments"] = json!([{
+            "id": "0",
+            "filename": upload.filename,
+            "uploaded_filename": upload.uploaded_filename,
+            "duration_secs": duration_secs,
+            "waveform": waveform,
+        }]);
         let path = format!("/channels/{channel}/messages");
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
@@ -1320,6 +1349,19 @@ impl Api {
         ))
         .await
         .map(drop)
+    }
+
+    /// The devices signed in to this account (docs.discord.food,
+    /// authentication, Get Auth Sessions): up to 50, read-only.
+    pub(crate) async fn auth_sessions(&self) -> Result<Value> {
+        self.json(self.request(Method::GET, "/auth/sessions")).await
+    }
+
+    /// Discord's affinity scores for this account (docs.discord.food,
+    /// resources/user, Get User Affinities, Get User Affinities v2, Get Guild
+    /// Affinities): `path` is one of the three, each a GET with no query.
+    pub(crate) async fn affinities(&self, path: &str) -> Result<Value> {
+        self.json(self.request(Method::GET, path)).await
     }
 
     /// The services linked to this account, as READY's `connected_accounts`.

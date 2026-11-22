@@ -164,6 +164,18 @@ pub(super) fn profile_body<'a>(
     if !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
+    // What a plugin adds to the open person's card: under their own
+    // details, above its notes, as the `profile.badges` slot says.
+    #[cfg(feature = "plugins")]
+    if let Some(badges) = crate::plugin_slots::badges(ctx, &profile.id) {
+        body = body.push(badges);
+    }
+    // The sections plugins add to a person's card and full profile, each
+    // under its plugin's name (`profile.section`).
+    #[cfg(feature = "plugins")]
+    if let Some(sections) = crate::plugin_slots::profile_sections(ctx, &profile.id) {
+        body = body.push(sections);
+    }
     if !mode.large() && !look.activities.is_empty() {
         let mut activities = column![].spacing(12);
         for activity in &look.activities {
@@ -1100,30 +1112,38 @@ fn role_chips<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> El
     let mut chips = row![].spacing(4);
     for role in &profile.roles {
         let dot = role.color.map_or(faint, hex);
-        chips = chips.push(
-            container(
-                row![
-                    container(Space::new())
-                        .width(12)
-                        .height(12)
-                        .style(move |_| rounded(dot, 6)),
-                    text(role.name.as_str()).size(12).font(SEMIBOLD).color(ink)
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center),
-            )
-            .padding(Padding {
-                right: 8.0,
-                left: 6.0,
-                ..Padding::ZERO
-            })
-            .height(24)
-            .align_y(Alignment::Center)
-            .style(move |_| container::Style {
-                border: crate::style::edge(faded(ink, 0.2), 8.0),
-                ..Default::default()
-            }),
-        );
+        let chip: Element<'a, Message> = container(
+            row![
+                container(Space::new())
+                    .width(12)
+                    .height(12)
+                    .style(move |_| rounded(dot, 6)),
+                text(role.name.as_str()).size(12).font(SEMIBOLD).color(ink)
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding(Padding {
+            right: 8.0,
+            left: 6.0,
+            ..Padding::ZERO
+        })
+        .height(24)
+        .align_y(Alignment::Center)
+        .style(move |_| container::Style {
+            border: crate::style::edge(faded(ink, 0.2), 8.0),
+            ..Default::default()
+        })
+        .into();
+        // What plugins add about the role.
+        #[cfg(feature = "plugins")]
+        let chip: Element<'a, Message> = iced::widget::mouse_area(chip)
+            .on_right_press(Message::PluginRows(
+                yapfast_core::plugins::ui::Target::Role,
+                role.id.clone(),
+            ))
+            .into();
+        chips = chips.push(chip);
     }
     chips.wrap().vertical_spacing(4).into()
 }

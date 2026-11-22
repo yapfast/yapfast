@@ -1,0 +1,321 @@
+use super::*;
+
+impl Session {
+    /// Runs an `http.fetch` beside the conversation.
+    ///
+    /// The guest's request goes through the network gate, which holds the host
+    /// list the manifest declares and the consent that widens it. The guest never
+    /// sees a socket, and the check is made again on every hop of a redirect.
+    pub(super) fn fetch(
+        &mut self,
+        shared: &Arc<Shared>,
+        id: u64,
+        plugin: PluginId,
+        call: HostCall,
+    ) {
+        let (permissions, response_cap) = match shared.registry().entry(&plugin) {
+            Some(entry) => (
+                entry.manifest.permissions.clone(),
+                entry.manifest.limits.http_response_bytes,
+            ),
+            None => {
+                self.reply(
+                    &plugin,
+                    id,
+                    HostReturn::Error {
+                        message: format!("{plugin} isn't installed"),
+                    },
+                );
+                return;
+            }
+        };
+        // `network` reaches anywhere the gate allows and `network.local` only
+        // loopback: a plugin that asks for the second alone is asking for less,
+        // and the gate below is what decides which hosts are reachable.
+        let may_fetch = permissions.allows(Capability::Network)
+            || permissions.allows(Capability::NetworkLocal)
+            || permissions.allows(Capability::NetAny);
+        if !may_fetch
+            && let Err(denial) = crate::permissions::check(&permissions, Capability::Network)
+        {
+            self.reply(
+                &plugin,
+                id,
+                HostReturn::Denied {
+                    reason: denial.reason().to_owned(),
+                },
+            );
+            return;
+        }
+        let request: HttpRequest = match call.parse() {
+            Ok(request) => request,
+            Err(error) => {
+                self.reply(&plugin, id, wrong_payload(call::method::HTTP_FETCH, error));
+                return;
+            }
+        };
+        // A held upload as the body: streamed from disk by the gate, after
+        // the same check `uploads.read` makes.
+        let file = match &request.body_upload {
+            None => None,
+            Some(upload) => {
+                if let Err(denial) =
+                    crate::permissions::check(&permissions, Capability::UploadsIntercept)
+                {
+                    self.reply(
+                        &plugin,
+                        id,
+                        HostReturn::Denied {
+                            reason: denial.reason().to_owned(),
+                        },
+                    );
+                    return;
+                }
+                let found = shared
+                    .uploads()
+                    .body(&plugin, upload.upload, upload.replacement);
+                let made = found.and_then(|(path, size, name)| {
+                    crate::network::FileBody::new(path, size, &name, upload.form.as_ref())
+                        .map_err(|denial| denial.reason().to_owned())
+                });
+                match made {
+                    Ok(body) => Some(Arc::new(body)),
+                    Err(message) => {
+                        self.reply(&plugin, id, HostReturn::Error { message });
+                        return;
+                    }
+                }
+            }
+        };
+        // A build with no transport can't make the request. The contract's
+        // `unsupported` is the answer that lets a plugin feature-detect it rather
+        // than wait for a result that will never come.
+        let Some(gate) = shared.gate() else {
+            self.reply(&plugin, id, HostReturn::Unsupported);
+            return;
+        };
+        // `net.any` reaches any public host once the person allowed it; until
+        // then a plugin that also lists hosts reaches those, and one that
+        // doesn't is told why.
+        let any_host = if permissions.allows(Capability::NetAny) {
+            match self.powerful_gate(shared, &plugin, &permissions, Capability::NetAny) {
+                Ok(()) => true,
+                Err(answer) if !permissions.allows(Capability::Network) => {
+                    self.reply(&plugin, id, answer);
+                    return;
+                }
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+        let writer = self.writer.clone();
+        // The task outlives this call, so it owns what it reports through
+        // rather than borrowing a reference the caller is about to drop.
+        let shared = Arc::clone(shared);
+        tokio::spawn(async move {
+            // The gate answers about a host nobody has allowed rather than
+            // holding the request: this task is what holds it, and answers the
+            // guest under its own call id once the person has said yes or no.
+            // The guest was given `pending` by the helper, so a late answer is
+            // legal.
+            let mut asked = false;
+            let answer = loop {
+                let decided = gate
+                    .fetch_with(
+                        &plugin,
+                        request.clone(),
+                        response_cap,
+                        any_host,
+                        file.clone(),
+                    )
+                    .await;
+                match decided {
+                    Ok(crate::network::Outcome::Done(mut answer)) => {
+                        // A body too large for one answer is kept for the
+                        // plugin to read in pieces with `http.read`.
+                        if let Some(path) = answer.body.take() {
+                            answer.response.body_id =
+                                Some(shared.keep_body(&plugin, path, answer.response.bytes));
+                        }
+                        break match serde_json::to_value(&answer.response) {
+                            Ok(value) => HostReturn::Ok(value),
+                            Err(error) => HostReturn::Error {
+                                message: format!("could not answer `http.fetch`: {error}"),
+                            },
+                        };
+                    }
+                    Ok(crate::network::Outcome::AwaitingConsent { host, asking }) => {
+                        // One dialog per plugin at a time: a request for another
+                        // host waits its turn, and the plugin is told to ask
+                        // again rather than left in a queue behind a dialog it
+                        // doesn't know about.
+                        if asking == crate::network::Asking::Busy {
+                            break HostReturn::Denied {
+                                reason: format!(
+                                    "Yapfast is asking you about another site for {plugin} \
+                                     right now; ask again for {host} in a moment"
+                                ),
+                            };
+                        }
+                        // The answer was taken back between being given and
+                        // being used, so asking again would loop.
+                        if asked {
+                            break HostReturn::Denied {
+                                reason: format!("{host} isn't allowed for {plugin} any more"),
+                            };
+                        }
+                        if asking == crate::network::Asking::Opened {
+                            shared.announce(Notice::Consent {
+                                plugin: plugin.clone(),
+                                host: host.clone(),
+                            });
+                        }
+                        let (answer, receiver) = tokio::sync::oneshot::channel();
+                        if let Err(reason) = shared.hold(&plugin, &host, answer) {
+                            break HostReturn::Denied { reason };
+                        }
+                        asked = true;
+                        match receiver.await {
+                            Ok(Answered::Allowed) => continue,
+                            Ok(Answered::Denied(reason)) => {
+                                break HostReturn::Denied { reason };
+                            }
+                            // Nothing holds the other end any more, which is
+                            // what a helper that has gone leaves behind.
+                            Err(_) => {
+                                break HostReturn::Denied {
+                                    reason: format!(
+                                        "nothing is left to answer about {host}, so this \
+                                         request was refused"
+                                    ),
+                                };
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        break HostReturn::Denied {
+                            reason: format!("{error:#}"),
+                        };
+                    }
+                }
+            };
+            // The answer travels under the id the guest asked with, so the
+            // helper can hand it to the call that is waiting for it.
+            let outcome = crate::devtools::outcome(&answer);
+            let named = plugin.to_string();
+            match serde_json::to_vec(&ToHelper::Return {
+                plugin,
+                call: id,
+                answer,
+            }) {
+                Ok(payload) => {
+                    crate::devtools::answered(&named, id, payload.len(), outcome);
+                    let _ = writer.send(Frame::new(FrameKind::Reply, id, payload));
+                }
+                Err(error) => tracing::warn!(%error, "could not answer a fetch"),
+            }
+        });
+    }
+
+    /// Answers a guest's call under the id it asked with.
+    pub(super) fn reply(&self, plugin: &PluginId, id: u64, answer: HostReturn) {
+        let outcome = crate::devtools::outcome(&answer);
+        let message = ToHelper::Return {
+            plugin: plugin.clone(),
+            call: id,
+            answer,
+        };
+        match serde_json::to_vec(&message) {
+            Ok(payload) => {
+                crate::devtools::answered(plugin.as_str(), id, payload.len(), outcome);
+                self.write(FrameKind::Reply, id, payload);
+            }
+            Err(error) => tracing::warn!(%error, "could not answer a plugin's call"),
+        }
+    }
+}
+
+impl Session {
+    /// Fetches a picture a plugin's drawing shows from the web, through the
+    /// plugin's own gate, and decodes it off this task. The answer is a
+    /// [`Notice::WebPicture`]; a host that would need the person's say is no
+    /// picture, since nobody asked them anything.
+    pub(super) fn web_picture(&mut self, shared: &Arc<Shared>, plugin: PluginId, url: String) {
+        let shared = Arc::clone(shared);
+        let announce = |shared: &Shared, plugin: PluginId, url: String, picture| {
+            shared.announce(Notice::WebPicture {
+                plugin,
+                url,
+                picture,
+            });
+        };
+        let permissions = shared
+            .registry()
+            .entry(&plugin)
+            .map(|entry| entry.manifest.permissions.clone());
+        let checked = permissions
+            .ok_or_else(|| format!("{plugin} isn't installed"))
+            .and_then(|permissions| crate::web_picture::allowed(&permissions, &url));
+        if let Err(why) = checked {
+            announce(&shared, plugin, url, Err(why));
+            return;
+        }
+        let Some(gate) = shared.gate() else {
+            announce(
+                &shared,
+                plugin,
+                url,
+                Err("this build has no network".to_owned()),
+            );
+            return;
+        };
+        tokio::spawn(async move {
+            let request = HttpRequest {
+                method: "GET".to_owned(),
+                url: url.clone(),
+                headers: Vec::new(),
+                body_base64: None,
+                tag: None,
+                body_upload: None,
+            };
+            let fetched = gate
+                .fetch_reaching(&plugin, request, crate::web_picture::MAX_BYTES, false)
+                .await;
+            let bytes = match fetched {
+                Ok(crate::network::Outcome::Done(answer)) => {
+                    let response = answer.response;
+                    match (response.status, response.body_base64) {
+                        (200..=299, Some(body)) => {
+                            use base64::Engine;
+                            base64::engine::general_purpose::STANDARD
+                                .decode(body)
+                                .map_err(|error| error.to_string())
+                        }
+                        (200..=299, None) => Err(format!(
+                            "it is over {} bytes",
+                            crate::web_picture::MAX_BYTES
+                        )),
+                        (status, _) => Err(format!("the site answered {status}")),
+                    }
+                }
+                Ok(crate::network::Outcome::AwaitingConsent { host, .. }) => {
+                    Err(format!("{host} isn't allowed for {plugin}"))
+                }
+                Err(error) => Err(format!("{error:#}")),
+            };
+            let picture = match bytes {
+                Ok(bytes) => tokio::task::spawn_blocking(move || {
+                    crate::web_picture::decode(&bytes).map(Arc::new)
+                })
+                .await
+                .unwrap_or_else(|_| Err("decoding it stopped".to_owned())),
+                Err(why) => Err(why),
+            };
+            if let Err(why) = &picture {
+                tracing::info!(%plugin, %url, %why, "a plugin's picture from the web isn't shown");
+            }
+            announce(&shared, plugin, url, picture);
+        });
+    }
+}

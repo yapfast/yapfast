@@ -1,0 +1,14 @@
+# What `cargo generate` asks for, and which files it skips.
+#
+# Everything else is rendered as-is: the placeholders it fills are
+# `{{project-name}}`, `{{crate_name}}` and `{{plugin_id}}`.
+
+[template]
+# A module is built, not generated: it would be stale the moment it was copied.
+ignore = ["plugin.wasm"]
+
+[variables.plugin_id]
+type = "string"
+prompt = "The plugin's id, reverse-DNS and lowercase. It names the plugin's storage and is what a person sees beside anything the plugin draws, so it can't change later."
+regex = '^(?:[a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9])(?:\.(?:[a-z0-9]|[a-z0-9][a-z0-9-]*[a-z0-9]))+$'
+default = "com.example.plugin"

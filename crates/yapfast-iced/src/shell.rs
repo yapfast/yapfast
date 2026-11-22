@@ -766,11 +766,18 @@ impl App {
             .iter()
             .map(|room| room.mentions)
             .sum();
-        match waiting {
+        let title = match waiting {
             0 => "Yapfast".to_owned(),
             1..=99 => format!("({waiting}) Yapfast"),
             _ => "(99+) Yapfast".to_owned(),
+        };
+        // A plugin's few words go after Yapfast's own, after a dot, so the
+        // title still starts with what Yapfast says.
+        #[cfg(feature = "plugins")]
+        if let Some(shown) = &self.client.state().plugin_title {
+            return format!("{title} · {}", shown.suffix);
         }
+        title
     }
 
     /// The zoom, which iced multiplies the window's own scale by, and the

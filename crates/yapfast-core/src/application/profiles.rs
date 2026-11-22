@@ -45,6 +45,7 @@ impl Application {
             roles: role
                 .filter(|_| !discord)
                 .map(|name| ProfileRole {
+                    id: name.to_owned(),
                     name: name.into(),
                     color: None,
                 })
@@ -185,6 +186,28 @@ impl Application {
         ))]
     }
 
+    /// `profile` with what plugins say about how that person looks.
+    ///
+    /// §17.2's `identity.decorate`: one answer per (person, server), kept by
+    /// the plugin system, and applied here because the card is the surface
+    /// that shows a person today. A card opened before the answer comes is
+    /// drawn as Yapfast knows them and drawn again when it does.
+    #[cfg(feature = "plugins")]
+    fn plugin_dressed(
+        &mut self,
+        room: &str,
+        mut profile: crate::chat::Profile,
+    ) -> crate::chat::Profile {
+        self.plugins_identify(room, &mut profile);
+        profile
+    }
+
+    /// The same without the plugin system: nothing decorates a card.
+    #[cfg(not(feature = "plugins"))]
+    fn plugin_dressed(&self, _room: &str, profile: crate::chat::Profile) -> crate::chat::Profile {
+        profile
+    }
+
     /// Opens a profile card with what Yapfast knows, and fetches the rest of a
     /// Discord profile.
     pub(super) fn open_profile(
@@ -195,6 +218,7 @@ impl Application {
     ) -> Vec<Effect> {
         let fetch = Network::of(&room) == Network::Discord && !self.state.preview;
         let user = profile.id.clone();
+        let profile = self.plugin_dressed(&room, profile);
         self.state.profile = Some(Arc::new(ProfileView {
             profile,
             large,

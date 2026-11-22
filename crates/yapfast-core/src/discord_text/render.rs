@@ -680,10 +680,10 @@ pub(super) fn chat_profile(
             .map(|bio| discord.render(server, &bio))
             .unwrap_or_default(),
         roles: server
-            .map(|server| server.named_roles(&profile.roles))
+            .map(|server| server.named_roles_with_ids(&profile.roles))
             .unwrap_or_default()
             .into_iter()
-            .map(|(name, color)| ProfileRole { name, color })
+            .map(|(id, name, color)| ProfileRole { id, name, color })
             .collect(),
         created: Some(crate::clock::profile_day(profile.created / 1000)),
         joined: profile

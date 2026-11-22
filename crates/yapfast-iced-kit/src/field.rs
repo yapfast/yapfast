@@ -191,6 +191,19 @@ impl Draft {
         offset(&inner.editor, inner.editor.cursor().position)
     }
 
+    /// Where the selection starts and ends, as byte offsets in the text,
+    /// the earlier first; none when nothing is selected.
+    pub fn span(&self) -> Option<(usize, usize)> {
+        let inner = self.0.borrow();
+        let cursor = inner.editor.cursor();
+        let other = cursor.selection?;
+        let (a, b) = (
+            offset(&inner.editor, cursor.position),
+            offset(&inner.editor, other),
+        );
+        (a != b).then(|| (a.min(b), a.max(b)))
+    }
+
     /// The selected text.
     pub fn selection(&self) -> Option<String> {
         self.0.borrow().editor.copy()
@@ -399,7 +412,10 @@ pub struct Field<'a, M> {
     /// The line round it while it has the keys, and its corners.
     ring: Option<Color>,
     radius: f32,
-    on: fn(Event) -> M,
+    /// What each [`Event`] is told to the app as: a function for the
+    /// composer's, a closure for a field one of many draws (a plugin's text
+    /// area, which names its cell).
+    on: Box<dyn Fn(Event) -> M + 'a>,
 }
 
 /// A run of the text, by byte offsets, drawn as a pill: a filter's key, in
@@ -440,7 +456,7 @@ impl<'a, M: Clone> Field<'a, M> {
         draft: &'a Draft,
         id: Id,
         placeholder: String,
-        on: fn(Event) -> M,
+        on: impl Fn(Event) -> M + 'a,
         colors: Colors,
     ) -> Self {
         Self {
@@ -469,7 +485,7 @@ impl<'a, M: Clone> Field<'a, M> {
             colors,
             ring: None,
             radius: 8.0,
-            on,
+            on: Box::new(on),
         }
     }
 
