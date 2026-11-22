@@ -10,9 +10,10 @@ use crate::core::Rectangle;
 
 /// Copies `source`, `width` by `height` premultiplied pixels in the frame's
 /// byte order, onto `pixels` at (`x`, `y`), source over, within
-/// `clip_bounds`, with its corners cut round to `radius` (top left, top
-/// right, bottom right, bottom left) and scaled by `opacity` (256 is opaque).
-/// `opaque` says every source pixel is, which spares looking at each row.
+/// `clip_bounds`, with the corners of `corners` (left, top, right, bottom;
+/// `None` for its own) cut round to `radius` (top left, top right, bottom
+/// right, bottom left) and scaled by `opacity` (256 is opaque). `opaque`
+/// says every source pixel is, which spares looking at each row.
 #[allow(clippy::too_many_arguments)]
 pub fn blit(
     source: &[u8],
@@ -21,12 +22,18 @@ pub fn blit(
     x: i32,
     y: i32,
     clip_bounds: Rectangle,
+    corners: Option<[i32; 4]>,
     radius: [f32; 4],
     opacity: u32,
     opaque: bool,
     pixels: &mut tiny_skia::PixmapMut<'_>,
 ) {
     let (width, height) = (width as i32, height as i32);
+    // Yapfast port (patch 38): the box whose corners are cut, which may be
+    // smaller than the picture (one that overhangs its clip, cut to it).
+    let [box_left, box_top, box_right, box_bottom] =
+        corners.unwrap_or([x, y, x + width, y + height]);
+    let (box_width, box_height) = (box_right - box_left, box_bottom - box_top);
     let (target_width, target_height) =
         (pixels.width() as i32, pixels.height() as i32);
     let x0 = x.max(clip_bounds.x.round() as i32).max(0);
@@ -44,8 +51,8 @@ pub fn blit(
     // banner has round top corners only.
     let radius = radius.map(|radius| {
         radius
-            .min(width as f32 / 2.0)
-            .min(height as f32 / 2.0)
+            .min(box_width as f32 / 2.0)
+            .min(box_height as f32 / 2.0)
             .max(0.0)
     });
     let [top_left, top_right, bottom_right, bottom_left] =
@@ -56,15 +63,18 @@ pub fn blit(
     let target = pixels.data_mut();
     for row in y0..y1 {
         let local_y = row - y;
+        let box_y = row - box_top;
         // The corners this row passes through: (radius, cells from the
         // corner's edge row) for the left and the right one.
-        let (left, right) = if local_y < top {
+        let (left, right) = if box_y < 0 || box_y >= box_height {
+            (None, None)
+        } else if box_y < top {
             (
-                (local_y < top_left).then_some((radius[0], local_y)),
-                (local_y < top_right).then_some((radius[1], local_y)),
+                (box_y < top_left).then_some((radius[0], box_y)),
+                (box_y < top_right).then_some((radius[1], box_y)),
             )
-        } else if local_y >= height - bottom {
-            let from_bottom = height - 1 - local_y;
+        } else if box_y >= box_height - bottom {
+            let from_bottom = box_height - 1 - box_y;
             (
                 (from_bottom < bottom_left).then_some((radius[3], from_bottom)),
                 (from_bottom < bottom_right).then_some((radius[2], from_bottom)),
@@ -117,15 +127,18 @@ pub fn blit(
                 continue;
             }
             let mut scale = opacity;
-            let local_x = x0 - x + index as i32;
+            let box_x = x0 - box_left + index as i32;
             let corner = match (left, right) {
-                (Some((radius, cell_y)), _) if local_x < radius.ceil() as i32 => {
-                    Some((radius, local_x, cell_y))
+                (Some((radius, cell_y)), _)
+                    if (0..radius.ceil() as i32).contains(&box_x) =>
+                {
+                    Some((radius, box_x, cell_y))
                 }
                 (_, Some((radius, cell_y)))
-                    if local_x >= width - radius.ceil() as i32 =>
+                    if box_x >= box_width - radius.ceil() as i32
+                        && box_x < box_width =>
                 {
-                    Some((radius, width - 1 - local_x, cell_y))
+                    Some((radius, box_width - 1 - box_x, cell_y))
                 }
                 _ => None,
             };
@@ -481,6 +494,47 @@ mod tests {
             .chunks_exact(4)
             .map(|pixel| u32::from_le_bytes(pixel.try_into().expect("four bytes")))
             .collect()
+    }
+
+    /// Patch 38: a picture larger than its clip is cut round at the clip's
+    /// corners, not its own.
+    #[test]
+    fn a_picture_larger_than_its_clip_is_round_at_the_clips_corners() {
+        let side = 20_usize;
+        let source = pixels(&vec![0xffff_ffff_u32; side * side]);
+        let mut bytes = vec![0_u8; side * side * 4];
+        let mut target =
+            tiny_skia::PixmapMut::from_bytes(&mut bytes, side as u32, side as u32)
+                .expect("pixmap");
+        // The picture covers the frame; its clip is the middle 10 by 10.
+        let clip = Rectangle::new(
+            crate::core::Point::new(5.0, 5.0),
+            crate::core::Size::new(10.0, 10.0),
+        );
+        blit(
+            &source,
+            side as u32,
+            side as u32,
+            0,
+            0,
+            clip,
+            Some([5, 5, 15, 15]),
+            [4.0; 4],
+            256,
+            true,
+            &mut target,
+        );
+        let drawn = values(&bytes);
+        let at = |x: usize, y: usize| drawn[y * side + x] >> 24;
+        // The clip's corners are cut, its middle and edges' middles not.
+        for (x, y) in [(5, 5), (14, 5), (14, 14), (5, 14)] {
+            assert_eq!(at(x, y), 0, "corner ({x}, {y})");
+        }
+        for (x, y) in [(10, 10), (5, 10), (10, 5), (14, 10), (10, 14)] {
+            assert_eq!(at(x, y), 255, "({x}, {y})");
+        }
+        // Nothing outside the clip.
+        assert_eq!(at(2, 2), 0);
     }
 
     #[test]

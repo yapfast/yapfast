@@ -64,6 +64,7 @@ impl Pipeline {
         transform: tiny_skia::Transform,
         clip_mask: Option<&tiny_skia::Mask>,
         clip_bounds: Rectangle,
+        corners: Rectangle,
         border_radius: [f32; 4],
     ) {
         let mut cache = self.cache.borrow_mut();
@@ -118,6 +119,21 @@ impl Pipeline {
             let (left, top, right, bottom) = whole_span(bounds, transform);
             let opacity = (opacity.clamp(0.0, 1.0) * 256.0).round() as u32;
             let radius = border_radius.map(|radius| radius * transform.sx);
+            // Patch 38: round at the picture's own clip, as iced_wgpu's
+            // image shader does, so a picture larger than its box (art
+            // laid as a cover) takes the box's round corners.
+            // Held to a frame's reach: a clip may be as wide as can be.
+            let corners = border_radius.iter().any(|radius| *radius > 0.0).then(|| {
+                let pixel = |at: f32| at.round().clamp(-16_777_216.0, 16_777_216.0) as i32;
+                let left = corners.x * transform.sx + transform.tx;
+                let top = corners.y * transform.sy + transform.ty;
+                [
+                    pixel(left),
+                    pixel(top),
+                    pixel(left + corners.width * transform.sx),
+                    pixel(top + corners.height * transform.sy),
+                ]
+            });
             if (right - left, bottom - top) == (image.width() as i32, image.height() as i32) {
                 crate::blit::blit(
                     image.data(),
@@ -126,6 +142,7 @@ impl Pipeline {
                     left,
                     top,
                     clip_bounds,
+                    corners,
                     radius,
                     opacity,
                     opaque,
@@ -144,7 +161,16 @@ impl Pipeline {
                     image,
                 );
                 crate::blit::blit(
-                    copy, width, height, left, top, clip_bounds, radius, opacity, opaque,
+                    copy,
+                    width,
+                    height,
+                    left,
+                    top,
+                    clip_bounds,
+                    corners,
+                    radius,
+                    opacity,
+                    opaque,
                     pixels,
                 );
             }

@@ -30,6 +30,20 @@ pub fn draw_picture(
     radius: [f32; 4],
     opacity: f32,
 ) {
+    draw_picture_in(renderer, handle, bounds, bounds, radius, opacity);
+}
+
+/// A picture drawn in `bounds`, scaled to it, and seen through `clip`,
+/// whose corners are round by `radius`: a picture larger than its box
+/// takes the box's corners, with no copy made of it.
+pub fn draw_picture_in(
+    renderer: &mut Renderer,
+    handle: &Handle,
+    bounds: Rectangle,
+    clip: Rectangle,
+    radius: [f32; 4],
+    opacity: f32,
+) {
     use iced::advanced::image::Renderer as _;
     let [top_left, top_right, bottom_right, bottom_left] = radius;
     renderer.draw_image(
@@ -47,7 +61,7 @@ pub fn draw_picture(
             snap: true,
         },
         bounds,
-        bounds,
+        clip,
     );
 }
 

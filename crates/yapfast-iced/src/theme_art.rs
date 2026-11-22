@@ -170,12 +170,11 @@ thread_local! {
 }
 
 /// Lets go of the pictures made for the theme that showed: its grain,
-/// tilings, cut pictures and grounds. The next theme makes its own.
+/// tilings and grounds. The next theme makes its own.
 pub fn forget_pictures() {
     TILES.with_borrow_mut(Vec::clear);
     SOLIDS.with_borrow_mut(Vec::clear);
     TILED.with_borrow_mut(std::collections::HashMap::clear);
-    FITTED.with_borrow_mut(std::collections::HashMap::clear);
 }
 
 /// Grain pictures a cycle, and blocks (4 px each) a side of one.
@@ -1795,8 +1794,9 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                 }
                 .map(|radius| radius.min(most));
                 // A still picture that overhangs a round-cornered surface
-                // is cut to the surface's box once and drawn with its
-                // corners; a smaller one, inside the box, is drawn as it is.
+                // is seen through the surface's box with its corners, as
+                // the picture it is: no copy cut to each size. A smaller
+                // one, inside the box, is drawn as it is.
                 let overhangs = !fills
                     && (at.x < bounds.x - 0.5
                         || at.y < bounds.y - 0.5
@@ -1807,11 +1807,11 @@ impl<M> Widget<M, Theme, iced::Renderer> for Art<'_> {
                     && drift == Vector::new(0.0, 0.0)
                     && art.frames.is_empty()
                     && art.sheet.is_none()
-                    && let Some(whole) = fitted_whole(&art.handle, at, bounds)
                 {
-                    crate::widgets::draw_picture(
+                    yapfast_iced_kit::widgets::draw_picture_in(
                         renderer,
-                        &whole,
+                        &art.handle,
+                        at,
                         bounds,
                         radii,
                         art.layer.opacity,
@@ -1955,80 +1955,6 @@ fn tiled_whole(
             kept.clear();
         }
         let handle = iced::advanced::image::Handle::from_rgba(w, h, out);
-        kept.insert(key, handle.clone());
-        Some(handle)
-    })
-}
-
-/// Overhanging pictures cut to their surface's box, by picture, where it
-/// lies and the box.
-type FittedCache =
-    std::collections::HashMap<(u64, [i32; 4], [i32; 4]), iced::advanced::image::Handle>;
-
-thread_local! {
-    /// Pictures laid larger than their surface (`cover`), cut to its box
-    /// once per size so they can be drawn with its round corners.
-    static FITTED: std::cell::RefCell<FittedCache> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
-}
-
-/// `picture` drawn at `at` and seen through `bounds`, as one picture of the
-/// bounds' whole pixels: a layer that overhangs its surface, made into one
-/// that fills it exactly, so it takes the surface's round corners rather
-/// than showing past them.
-fn fitted_whole(
-    picture: &iced::advanced::image::Handle,
-    at: Rectangle,
-    bounds: Rectangle,
-) -> Option<iced::advanced::image::Handle> {
-    let iced::advanced::image::Handle::Rgba {
-        width: pw,
-        height: ph,
-        pixels,
-        ..
-    } = picture
-    else {
-        return None;
-    };
-    let (w, h) = (bounds.width.round() as u32, bounds.height.round() as u32);
-    let (aw, ah) = (at.width.round() as u32, at.height.round() as u32);
-    if *pw == 0 || *ph == 0 || w == 0 || h == 0 || w > 4096 || h > 4096 || aw > 8192 || ah > 8192 {
-        return None;
-    }
-    let id = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        picture.id().hash(&mut hasher);
-        hasher.finish()
-    };
-    let round = |r: Rectangle| {
-        [
-            r.x.round() as i32,
-            r.y.round() as i32,
-            r.width.round() as i32,
-            r.height.round() as i32,
-        ]
-    };
-    let key = (id, round(at), round(bounds));
-    FITTED.with_borrow_mut(|kept| {
-        if let Some(found) = kept.get(&key) {
-            return Some(found.clone());
-        }
-        let source = image::RgbaImage::from_raw(*pw, *ph, pixels.to_vec())?;
-        let scaled = image::imageops::resize(
-            &source,
-            aw.max(1),
-            ah.max(1),
-            image::imageops::FilterType::Triangle,
-        );
-        let mut out = image::RgbaImage::new(w, h);
-        let dx = (at.x - bounds.x).round() as i64;
-        let dy = (at.y - bounds.y).round() as i64;
-        image::imageops::overlay(&mut out, &scaled, dx, dy);
-        if kept.len() >= TILED_KEPT {
-            kept.clear();
-        }
-        let handle = iced::advanced::image::Handle::from_rgba(w, h, out.into_raw());
         kept.insert(key, handle.clone());
         Some(handle)
     })

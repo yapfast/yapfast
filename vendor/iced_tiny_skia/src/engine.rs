@@ -790,8 +790,10 @@ impl Engine {
                     transform,
                     clip_mask,
                     // Yapfast port: for the one-to-one copy; each corner's
-                    // own radius (round 3).
+                    // own radius (round 3), at the picture's own clip
+                    // (patch 38).
                     clip_bounds,
+                    *own,
                     {
                         let radius = image.border_radius;
                         [

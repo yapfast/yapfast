@@ -250,6 +250,13 @@ change spans several places):
     stretch ran to the reach's edge, so a hard shadow on square corners,
     whose reach is all stretch, drew one pixel of itself. A test in
     `engine.rs` draws one.
+38. `blit.rs` `blit`, `raster.rs` `draw`, `engine.rs` `draw_image`: a
+    picture's round corners are its own clip's, as iced_wgpu's image
+    shader puts them, not its bounds'. Stock had no round corners here;
+    the earlier patches cut them at the picture's bounds, so a picture
+    larger than its box (theme art laid as a cover, cut to a round pane)
+    came out square on the CPU while round on the GPU. A test in
+    `blit.rs`.
 
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.
