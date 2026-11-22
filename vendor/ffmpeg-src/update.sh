@@ -42,7 +42,7 @@ if [[ ! -d "$xwin/sdk" ]]; then
 fi
 # The Windows tools, by path, so the Linux build keeps the wrapped clang.
 llvm=$(nix build --no-link --print-out-paths --inputs-from "path:$root/nix" \
-  nixpkgs#llvmPackages_21.clang-unwrapped nixpkgs#llvmPackages_21.lld nixpkgs#llvmPackages_21.llvm |
+  nixpkgs#llvmPackages_23.clang-unwrapped nixpkgs#llvmPackages_23.lld nixpkgs#llvmPackages_23.llvm |
   tr '\n' ' ')
 
 work=$(mktemp -d)
