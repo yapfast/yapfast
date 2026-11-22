@@ -9,6 +9,9 @@
   "limits": { "memory_pages": 128 },
   "activation": { "on": ["command", "menu"] },
   "permissions": { "capabilities": [], "network": [] },
+  "settings": [
+    { "key": "reply", "type": "string", "label": "What /ping answers", "default": "pong" }
+  ],
   "commands": [
     { "name": "ping", "description": "Answers pong, in the room you typed it in" }
   ],

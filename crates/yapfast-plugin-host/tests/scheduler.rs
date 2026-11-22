@@ -522,6 +522,29 @@ fn idle_eviction_leaves_an_instance_holding_a_timer() {
     harness.finish();
 }
 
+/// A plugin in a hook chain keeps its instance however long it sits: the next
+/// hook has tens of milliseconds, which a fresh instance would spend before
+/// the guest ran. The plugin beside it, in no chain, goes as idle ones do.
+#[test]
+fn idle_eviction_leaves_a_plugin_in_a_hook_chain() {
+    let harness = Harness::new(Config {
+        workers: 1,
+        idle_after: Duration::from_millis(40),
+        budget_bytes: yapfast_plugin_api::limits::MAX_HELPER_BYTES,
+    });
+    let a = plugin("a");
+    let b = plugin("b");
+    harness.load(&a, 256);
+    harness.load_with(&b, 256, true);
+    harness.live(&a, 1);
+    harness.live(&b, 2);
+    harness.wait_log("evict:com.example.a");
+    std::thread::sleep(Duration::from_millis(200));
+    let log = harness.log();
+    assert!(!log.contains(&"evict:com.example.b".to_string()), "{log:?}");
+    harness.finish();
+}
+
 /// A guest that made a host call and returned is not idle: the answer is the
 /// only thing that resumes it, and evicting the instance would leave the answer
 /// arriving for a call nobody has.
@@ -1569,6 +1592,11 @@ impl Harness {
     }
 
     fn load(&self, plugin: &PluginId, memory_pages: u32) {
+        self.load_with(plugin, memory_pages, false);
+    }
+
+    /// Loads a plugin, saying whether it sits in a hook chain.
+    fn load_with(&self, plugin: &PluginId, memory_pages: u32, hooks: bool) {
         self.send(Message::Load {
             spec: LoadSpec {
                 plugin: plugin.clone(),
@@ -1576,6 +1604,7 @@ impl Harness {
                 memory_pages,
                 wasi: false,
                 state: None,
+                hooks,
             },
         });
         self.wait_log(&format!("load:{plugin}"));
@@ -1976,6 +2005,7 @@ fn the_helper_finishes_once_the_last_instance_is_gone() {
             memory_pages: 256,
             wasi: false,
             state: None,
+            hooks: false,
         },
     });
     scheduler.send(Message::Activate {

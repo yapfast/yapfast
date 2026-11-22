@@ -438,7 +438,11 @@ fn watch<B: Backend + 'static>(shared: Arc<Shared<B>>) {
             }
         }
         for (index, slot) in state.slots.iter_mut().enumerate() {
-            if !slot.live || slot.busy || slot.has_work() || !slot.unheld() {
+            // A plugin in a hook chain keeps its instance: the next hook has
+            // tens of milliseconds, which a fresh instance would spend before
+            // the guest ran. Memory is still the budget's to take back.
+            let hooked = slot.loaded.as_ref().is_some_and(|loaded| loaded.hooks);
+            if !slot.live || slot.busy || slot.has_work() || !slot.unheld() || hooked {
                 continue;
             }
             let at = slot.last_call + idle_after;
@@ -1960,7 +1964,10 @@ impl<B: Backend + 'static> Shared<B> {
         }
         self.watch.notify_all();
         let started = thread_cpu();
-        let value = call(&self.backend);
+        // The host calls the guest makes may wait for their answers up to this
+        // deadline, and no further.
+        let value =
+            crate::backend::answers::within(Instant::now() + budget, || call(&self.backend));
         self.charge(slots, thread_cpu().saturating_sub(started));
         let mut state = lock(&self.state);
         match state.running.iter().position(|r| r.serial == serial) {

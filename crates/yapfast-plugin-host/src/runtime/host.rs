@@ -1,10 +1,13 @@
 //! The two host functions a guest may import, and where their requests go.
 //!
-//! `yf_call` answers at once with `HostReturn::Pending` and lets the parent
-//! answer later, because everything a call can reach — storage, the network
-//! gate, a timer, a consent dialog — belongs to the parent, and waiting for it
-//! inside the host function would hold a worker for as long as a person takes
-//! to decide. `yf_post` asks for nothing back.
+//! Everything a call can reach — storage, the network gate, a timer, a consent
+//! dialog — belongs to the parent. `yf_call` waits for the parent's answer
+//! when it is one the parent gives at once, up to the deadline of the export
+//! it is in (see `backend::answers`), so a plain read returns its value; a
+//! call whose answer waits on the network, a person or another plugin answers
+//! `HostReturn::Pending` at once and lets the parent answer later, because
+//! waiting for it would hold a worker for as long as a person takes to
+//! decide. `yf_post` asks for nothing back.
 //!
 //! Both take one Extism memory handle, and `yf_call` returns one: the payload
 //! is JSON of a host call and the answer is JSON of a host return, written into
@@ -14,8 +17,9 @@
 //! handle a guest passes is taken rather than borrowed, as Extism's own kernel
 //! functions take one, so neither side has to remember who frees what.
 //!
-//! Nothing here blocks: the outbox is an unbounded channel the scheduler drains,
-//! so a host call costs a `send` and an allocation for the answer.
+//! The outbox is an unbounded channel, so sending never blocks; a call that
+//! waits for its answer waits on a channel of its own that the pipe's reader
+//! fills, never on a lock the reader or the scheduler needs.
 //!
 //! A call the parent will answer, and a timer the guest set, outlive the call
 //! that made them: the guest returns and only the answer, or the clock, resumes
@@ -36,7 +40,7 @@ use yapfast_plugin_api::call::{HostCall, HostReturn, TimerCancel, TimerRequest, 
 use yapfast_plugin_api::limits;
 use yapfast_plugin_api::message::{FromHelper, LogLevel, LogRecord};
 
-use crate::backend::{Wait, Waits};
+use crate::backend::{Wait, Waits, answers};
 
 /// What a host function needs to reach the parent, and whose requests these
 /// are.
@@ -139,8 +143,34 @@ impl Channel {
     /// pipe to Yapfast is gone, and the hold dies with the helper.
     fn request(&self, call: HostCall) -> Result<HostReturn, Error> {
         let id = self.next_call();
-        self.waited(Wait::Call(id));
         self.registered(&call);
+        // Most calls are answered by the parent at once: the guest waits for
+        // that answer rather than being told `pending`, so a plain read
+        // returns its value (see `backend::answers`).
+        if let Some(wait) = waits_for_answer(&call.method)
+            .then(answers::allowance)
+            .flatten()
+        {
+            let waiter = answers::Waiter::new(&self.plugin, id);
+            if let Err(error) = self.send(FromHelper::Call {
+                plugin: self.plugin.clone(),
+                call: id,
+                request: call,
+            }) {
+                waiter.cancel();
+                return Err(error);
+            }
+            // Late: from here the call is one the scheduler waits on, and the
+            // answer goes in a batch as every pending call's does. The wait is
+            // filed before any answer can reach the scheduler.
+            if let Some(answer) = waiter.wait(wait, || self.waited(Wait::Call(id))) {
+                return Ok(answer);
+            }
+            return Ok(HostReturn::Pending {
+                tag: id.to_string(),
+            });
+        }
+        self.waited(Wait::Call(id));
         self.send(FromHelper::Call {
             plugin: self.plugin.clone(),
             call: id,
@@ -236,6 +266,34 @@ impl Channel {
             self.waited(Wait::Timer(false));
         }
     }
+}
+
+/// Whether a guest's call waits for its answer, rather than being answered
+/// `pending` at once.
+///
+/// The ones that don't are those whose answer waits on the network, a person
+/// or another plugin, or that answer more than once: holding the guest's
+/// thread for them would only spend [`answers::SYNC_WAIT`] to say `pending`
+/// anyway, and a `plugin.call` needs a worker of its own to run in. The
+/// account's own calls stay answered later as their PDK wrappers expect.
+fn waits_for_answer(name: &str) -> bool {
+    !matches!(
+        name,
+        method::HTTP_FETCH
+            | method::PLUGIN_CALL
+            | method::SETTINGS_ON_CHANGE
+            | method::FILES_SAVE
+            | method::FS_THUMBNAIL
+            | method::NET_LISTEN
+            | method::NET_CONNECT
+            | method::MESSAGES_ATTACH
+            | method::ACTIVITY_SET
+            | method::ACTIVITY_CLEAR
+            | method::PROFILE_SET
+            | method::MESSAGES_SEARCH
+            | method::DRAFTS_LIST
+            | method::ACCOUNT_SESSIONS
+    ) && !method::SPOTIFY.contains(&name)
 }
 
 /// The guest's calls that this build hands to the parent.
@@ -384,8 +442,8 @@ pub fn functions(channel: Arc<Channel>) -> [Function; 2] {
     ]
 }
 
-/// A request and its answer: sent to the parent, answered to the guest at once
-/// as pending.
+/// A request and its answer: sent to the parent, and answered to the guest
+/// with the parent's answer, or `pending` when that comes later.
 fn yf_call(
     plugin: &mut CurrentPlugin,
     inputs: &[Val],

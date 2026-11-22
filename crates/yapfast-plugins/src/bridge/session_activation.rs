@@ -40,6 +40,7 @@ impl Session {
                 // What its last `yf_deactivate` handed on: the module may be a
                 // new version, and the state is what crosses that change.
                 state: self.handoff.remove(plugin).flatten(),
+                hooks: in_a_hook_chain(shared, plugin),
             })
         };
         let message = ToHelper::Activate {
@@ -180,4 +181,14 @@ impl Session {
             },
         );
     }
+}
+
+/// Whether a plugin's manifest puts it in one of the chains the parent runs,
+/// which is what keeps its instance from being evicted as idle.
+fn in_a_hook_chain(shared: &Shared, plugin: &PluginId) -> bool {
+    shared.registry().entry(plugin).is_some_and(|entry| {
+        yapfast_plugin_api::hook::HookKind::DISPATCHED
+            .iter()
+            .any(|hook| entry.manifest.permissions.allows(hook.capability()))
+    })
 }

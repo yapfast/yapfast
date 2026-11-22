@@ -95,6 +95,12 @@ pub struct Activation {
     /// swap, so an update doesn't cost the plugin's memory of where it was.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    /// Whether the plugin sits in a hook chain (`message.pre_send` and the
+    /// rest): its instance is then kept rather than evicted as idle, because a
+    /// hook answers inside tens of milliseconds and a fresh instance, its
+    /// `yf_activate` and its reads of its settings would spend them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hooks: bool,
 }
 
 /// The parent's request to the helper.

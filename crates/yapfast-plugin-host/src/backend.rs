@@ -135,6 +135,9 @@ pub struct LoadSpec {
     /// running version: the state crosses the swap, so an update doesn't cost
     /// the plugin its memory of where it was.
     pub state: Option<String>,
+    /// Whether it sits in a hook chain, which keeps its instance from idle
+    /// eviction: see [`yapfast_plugin_api::message::Activation::hooks`].
+    pub hooks: bool,
 }
 
 /// Runs one plugin's calls.
@@ -246,6 +249,125 @@ impl HookRun {
             outcome: Some(HookOutcome::Unchanged),
             by: None,
             failures: Vec::new(),
+        }
+    }
+}
+
+/// Host calls answered while the guest waits for them.
+///
+/// A guest's `yf_call` used to answer `pending` for everything, with the real
+/// answer only in the next `yf_event` batch, which left a PDK's plain reads —
+/// a setting, a stored value, the open room — unable to return anything.
+/// Most calls are answered by the parent in well under a millisecond, so the
+/// thread running the guest now waits for the answer, up to [`SYNC_WAIT`] and
+/// never past the deadline of the guest call it is in (a hook's 25 ms, say),
+/// and only answers `pending` when it hasn't come by then. The pipe's reader
+/// hands an answer to a waiting call here before the scheduler would queue
+/// it, so the wait holds no lock the reader needs.
+pub mod answers {
+    use std::cell::Cell;
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex, MutexGuard, mpsc};
+    use std::time::{Duration, Instant};
+
+    use yapfast_plugin_api::PluginId;
+    use yapfast_plugin_api::call::HostReturn;
+
+    /// The longest a guest's call waits for the parent before it is answered
+    /// `pending` instead. The parent's own answers take well under a
+    /// millisecond; one that goes through the window waits for its next
+    /// update, a frame or two.
+    pub const SYNC_WAIT: Duration = Duration::from_millis(250);
+
+    /// What is left of a guest call's deadline when a host call waits: a
+    /// little, so the guest can still use the answer and return in time.
+    pub const MARGIN: Duration = Duration::from_millis(3);
+
+    type Waiting = HashMap<(PluginId, u64), mpsc::SyncSender<HostReturn>>;
+
+    static WAITING: LazyLock<Mutex<Waiting>> = LazyLock::new(Mutex::default);
+
+    thread_local! {
+        static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+    }
+
+    fn waiting() -> MutexGuard<'static, Waiting> {
+        WAITING
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Runs a guest call with its deadline known to the host calls it makes on
+    /// this thread.
+    pub fn within<T>(deadline: Instant, call: impl FnOnce() -> T) -> T {
+        let before = DEADLINE.replace(Some(deadline));
+        let value = call();
+        DEADLINE.set(before);
+        value
+    }
+
+    /// How long a host call made now may wait: none when the guest call it is
+    /// in has too little left.
+    pub fn allowance() -> Option<Duration> {
+        let now = Instant::now();
+        let cap = match DEADLINE.get() {
+            Some(deadline) => deadline.checked_duration_since(now)?.checked_sub(MARGIN)?,
+            None => SYNC_WAIT,
+        };
+        let wait = cap.min(SYNC_WAIT);
+        (!wait.is_zero()).then_some(wait)
+    }
+
+    /// One call about to wait: register it before the call goes out, so an
+    /// answer that overtakes the wait still finds it.
+    pub struct Waiter {
+        key: (PluginId, u64),
+        answer: mpsc::Receiver<HostReturn>,
+    }
+
+    impl Waiter {
+        pub fn new(plugin: &PluginId, call: u64) -> Waiter {
+            let (sender, answer) = mpsc::sync_channel(1);
+            let key = (plugin.clone(), call);
+            waiting().insert(key.clone(), sender);
+            Waiter { key, answer }
+        }
+
+        /// The answer, if it came within `wait`. Otherwise `on_late` runs while
+        /// no answer can be handed over, and the call is left to the
+        /// scheduler's way: the answer, when it comes, goes in a batch.
+        pub fn wait(self, wait: Duration, on_late: impl FnOnce()) -> Option<HostReturn> {
+            if let Ok(answer) = self.answer.recv_timeout(wait) {
+                return Some(answer);
+            }
+            let mut waiting = waiting();
+            if waiting.remove(&self.key).is_none() {
+                // Handed over between the timeout and the lock: it is in the
+                // channel now.
+                drop(waiting);
+                return self.answer.try_recv().ok();
+            }
+            on_late();
+            None
+        }
+
+        /// The call never went out.
+        pub fn cancel(self) {
+            waiting().remove(&self.key);
+        }
+    }
+
+    /// Hands an answer to the guest call waiting for it, or gives it back for
+    /// the scheduler when none is.
+    pub fn deliver(plugin: &PluginId, call: u64, answer: HostReturn) -> Option<HostReturn> {
+        let mut waiting = waiting();
+        match waiting.remove(&(plugin.clone(), call)) {
+            Some(sender) => {
+                // The channel holds one, and this is its only send.
+                let _ = sender.try_send(answer);
+                None
+            }
+            None => Some(answer),
         }
     }
 }

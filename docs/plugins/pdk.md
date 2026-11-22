@@ -221,10 +221,15 @@ is how a plugin checks whether a Yapfast has something before relying on it.
 
 ### A call that answers later
 
-Most calls answer while the plugin's function is running. Two kinds may not: an
-HTTP request, because the person may have to allow the host first, and anything
-that waits on a dialog. Those answer `pending` with a tag, and the helper calls
-the plugin again when the answer arrives.
+Most calls answer while the plugin's function is running: `settings::get`,
+`storage::get` and the reads return their value, in a hook as in an event, so
+nothing needs caching at activation. The ones that wait on the network, a
+person or another plugin may not: an HTTP request, because the person may have
+to allow the host first, anything that waits on a dialog, `plugin.call`, and the
+account's own calls. Those answer `pending` with a tag, and the helper calls
+the plugin again when the answer arrives. A plain read that Yapfast couldn't
+answer within the call's deadline is `pending` too, rare as that is; `call::ok`
+returns it as an error saying so, which a plugin may treat as "try again".
 
 ```rust
 use yapfast_pdk::prelude::*;

@@ -1,6 +1,9 @@
 # Ping
 
 The first Yapfast plugin: one command, no capability, and nothing but an answer.
+What it answers is its one setting, `reply` (`pong` unless changed), read with
+`settings::get` inside the command: a plain read is answered while the
+plugin's function runs, so nothing is cached at activation.
 
 ```sh
 # Run from this folder. The prefixes keep this machine's paths out of the

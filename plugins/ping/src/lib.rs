@@ -26,9 +26,15 @@ impl Plugin for Ping {
         // Nothing to read: `/ping` takes no options, so the manifest declares
         // none and the composer rejects a `/ping something` before it gets here.
         let _ = command;
+        // What it answers is a setting, read where it is used: the call is
+        // answered while this function runs, so nothing is cached at
+        // activation and a change on the plugin's page counts at once.
+        let reply = settings::get::<String>("reply")?
+            .filter(|reply| !reply.trim().is_empty())
+            .unwrap_or_else(|| "pong".to_owned());
         // `Reply::notice` is a line for the person who typed it, in the room
         // they typed it in. Nothing is sent, so nothing needs a capability.
-        Ok(Reply::notice("pong"))
+        Ok(Reply::notice(reply))
     }
 }
 

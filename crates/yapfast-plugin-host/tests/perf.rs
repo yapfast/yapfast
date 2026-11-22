@@ -486,6 +486,7 @@ impl Helper {
                     memory_pages: PAGES,
                     wasi: false,
                     state: None,
+                    hooks: false,
                 }),
             },
         );

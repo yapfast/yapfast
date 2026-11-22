@@ -198,6 +198,70 @@ fn the_sample_plugin_answers_every_kind_of_hook() {
     }
 }
 
+/// A plugin reads one of its settings inside a hook and gets the value, not
+/// `pending`: the guest's `yf_call` waits for the parent's answer within the
+/// hook's own deadline. Before, every forwarded call answered `pending` and a
+/// PDK's `settings::get` could never return.
+#[test]
+fn a_setting_read_inside_a_hook_is_answered_in_the_same_call() {
+    let mut helper = Helper::start("settings-hook");
+    let signer = plugin("signer");
+    helper.activate(&signer, "settings_hook.wat", PAGES);
+    helper.wait_for(BUDGET, "Activated", |message| {
+        matches!(message, FromHelper::Activated { .. })
+    });
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Hook {
+            chain: vec![signer.clone()],
+            request: a_hook(),
+        },
+    );
+    let (frame, call) = match helper.wait_for_frame(BUDGET, "Call", |message| {
+        matches!(message, FromHelper::Call { .. })
+    }) {
+        (
+            frame,
+            FromHelper::Call {
+                plugin,
+                call,
+                request,
+            },
+        ) => {
+            assert_eq!(plugin, signer);
+            assert_eq!(request.method, "settings.get");
+            assert_eq!(request.payload["key"], "signature");
+            (frame, call)
+        }
+        (_, other) => panic!("expected Call, got {other:?}"),
+    };
+    helper.send(
+        FrameKind::Reply,
+        frame,
+        &ToHelper::Return {
+            plugin: signer.clone(),
+            call,
+            answer: HostReturn::Ok(json!("sent from my plugin")),
+        },
+    );
+    match helper.wait_for(BUDGET, "HookDone", |message| {
+        matches!(message, FromHelper::HookDone { .. })
+    }) {
+        FromHelper::HookDone {
+            outcome, failures, ..
+        } => {
+            assert!(failures.is_empty(), "{failures:?}");
+            let HookOutcome::Changed(HookSubject::Draft(draft)) = outcome else {
+                panic!("the hook answered with its setting: {outcome:?}");
+            };
+            assert_eq!(draft.body, "sent from my plugin");
+        }
+        other => panic!("expected HookDone, got {other:?}"),
+    }
+}
+
 #[test]
 fn a_spinning_activation_is_cancelled() {
     let mut helper = Helper::start("spin");
@@ -960,6 +1024,7 @@ impl Helper {
                     memory_pages,
                     wasi,
                     state: None,
+                    hooks: false,
                 }),
             },
         );

@@ -715,9 +715,23 @@ timers learns that one of them did and nothing more; the `tag` is what
 `timers.cancel` names.
 
 Every host call is a request the parent answers, because the parent holds the
-token, the network gate and the consent dialogs, and the guest's function is
-synchronous while a person may need to be asked something. So the guest's
-function never waits for a person: it gets `pending` and returns.
+token, the network gate and the consent dialogs. Most of those answers take the
+parent well under a millisecond — a setting, a stored value, the open room, a
+slot drawn — so the guest's `yf_call` waits for the answer and returns it in the
+same call: a PDK's `settings::get` or `storage::get` returns its value, inside a
+hook as anywhere else. The wait is at most 250 ms and never past the deadline of
+the export it is in, less 3 ms for the guest to use the answer (a
+`message_pre_send` hook has 25 ms), and an answer that hasn't come by then makes
+the call `pending` after all, finished the way below. A plugin reading a
+setting should still handle `pending`, which means Yapfast was busy, not that
+the setting is missing.
+
+The calls that wait on the network, a person or another plugin, or that answer
+more than once, are `pending` at once and never hold the guest's thread:
+`http.fetch`, `plugin.call`, `settings.on_change`, `files.save`,
+`fs.thumbnail`, `net.listen`, `net.connect` and the account's own calls
+([below](#the-accounts-own-calls)). The guest's function never waits for a
+person.
 
 ### How a pending call finishes
 
@@ -734,8 +748,8 @@ function never waits for a person: it gets `pending` and returns.
    arrived while the plugin was busy come in the same call, in the order the
    parent sent them, so a guest reads every entry of `results`, not the first.
 
-That is why an event function has to handle its own replies, and why a plugin
-that wants to look synchronous uses a PDK that wraps this in futures. A call
+That is why an event function has to handle the replies of the calls that
+answer later. A call
 answered later still counts as work: an instance with one in flight is not idle,
 and is not evicted under it.
 

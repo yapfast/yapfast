@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fails when a committed plugin module is older than the source it was built from.
 
-`testing/plugins/` holds ten hand-written `.wat` fixtures with the module each
+`testing/plugins/` holds eleven hand-written `.wat` fixtures with the module each
 compiles to beside it, and `plugins/ping/plugin.wasm` is built from
 `plugins/ping/src`. Nothing in this repository rebuilds either: there is no
 WebAssembly toolchain in the dev shell, and there should not be, since building

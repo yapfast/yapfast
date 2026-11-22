@@ -200,7 +200,12 @@ An instance is evicted in three cases:
 - under the memory budget, least recently used first.
 
 A plugin holding a timer or a request in flight isn't idle and isn't evicted
-under it; one that is busy, waiting on an answer or holding a timer is never the
+under it, and neither is one whose manifest puts it in a hook chain (any of the
+capabilities `message_pre_send`, `typing_pre_send`, `attachment_pre_upload`,
+`link_open` or `switcher_rank` run for): a hook has tens of milliseconds, which
+a fresh instance, its `yf_activate` and its first reads would spend, so its
+instance is kept for as long as it is enabled and only the memory budget, the
+window closing to the tray, or turning it off takes it away; one that is busy, waiting on an answer or holding a timer is never the
 instance a lowered budget gives up either. Shortening the idle timeout takes
 effect at once and wakes the watchdog, so it re-measures against the new one.
 Eviction is not a fault, so it costs no strike: the plugin goes back to

@@ -1,6 +1,6 @@
 # Plugin fixtures
 
-Ten behaviours the plugin system has to get right, each a WebAssembly module
+Eleven behaviours the plugin system has to get right, each a WebAssembly module
 written as text (`.wat`), with the compiled module beside it. The helper loads
 the `.wasm`, not the text: a loader that accepted `(module …)` would also accept
 anything else wasmtime can parse, and the magic check that refuses a text module
@@ -22,6 +22,7 @@ measure what the memory budgets buy.
 | `slow_host.wat` | Calls `yf_call` with an `http.fetch` the parent answers later | a `Call` frame to the parent, then a `Return` that leaves the worker free |
 | `filter.wat` | Answers `yf_hook` with a draft of its own | `HookDone` carrying that draft, which the send then goes out with |
 | `spin_hook.wat` | Never leaves `yf_hook` | `Fault` of kind `Deadline`, the chain answering without it |
+| `settings_hook.wat` | Reads its setting `signature` with `yf_call` inside `yf_hook` and answers a draft whose body is the value | a `Call` for `settings.get`, and once it is answered, `HookDone` with that value: the guest waited for the answer rather than being told `pending` |
 | `stdout.wat` | Asks for WASI and writes "hello" to its stdout on every event | Every later frame still reads, and the helper goes on serving |
 
 Every fixture exports all six of the ABI's functions (`yf_activate`,

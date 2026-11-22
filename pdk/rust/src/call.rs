@@ -107,7 +107,8 @@ pub fn value(method: &str, answer: HostReturn) -> Result<Value, Error> {
             Err(Error::msg(format!("`{method}` was refused: {reason}")))
         }
         HostReturn::Pending { tag } => Err(Error::msg(format!(
-            "`{method}` answered later, under `{tag}`, and this caller can't wait"
+            "`{method}` wasn't answered within this call's deadline, and its answer comes \
+             later, under `{tag}`; Yapfast was busy, so ask again"
         ))),
         HostReturn::Error { message } => Err(Error::msg(format!("`{method}` failed: {message}"))),
     }

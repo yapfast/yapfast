@@ -242,6 +242,7 @@ fn dispatch(
                     memory_pages,
                     wasi,
                     state: None,
+                    hooks: false,
                 },
             });
             After::Continue
@@ -303,6 +304,7 @@ fn dispatch(
                 memory_pages: load.memory_pages,
                 wasi: load.wasi,
                 state: load.state,
+                hooks: load.hooks,
             });
             scheduler.send(Message::Activate { id, plugin, load });
             After::Continue
@@ -357,6 +359,11 @@ fn dispatch(
             call,
             answer,
         } => {
+            // A guest call waiting for this answer takes it now; only one
+            // that was told `pending` hears it in a batch.
+            let Some(answer) = crate::backend::answers::deliver(&plugin, call, answer) else {
+                return After::Continue;
+            };
             scheduler.send(Message::Return {
                 plugin,
                 call,
