@@ -517,7 +517,10 @@ both answer xdg-decoration with server-side, and only KWin draws one. So
 LXQt, LXDE,
 Budgie, Pantheon, Deepin, COSMIC, Unity and Enlightenment get Yapfast's bar,
 and a tiling compositor such as Hyprland, sway or niri, or any desktop not
-listed, keeps whatever the desktop draws, which may be nothing. "Use the
+listed, keeps whatever the desktop draws, which may be nothing. There, and
+under any desktop's title bar, Discord's bar stays without the window's
+buttons, as Discord's client always shows it: where you are, back and
+forward, Inbox and Help; it neither moves nor resizes the window. "Use the
 system title bar" in Appearance overrides it either way
 (`system_title_bar` in `layout.json`) and applies at once. Each window is
 made with the desktop's frame or without it, so the window is made again
