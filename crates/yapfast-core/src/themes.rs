@@ -35,7 +35,9 @@ pub use package::{Mode, Package, Resolved};
 /// that turn text around, break lines or hide, and the fillers that draw as
 /// nothing (a "blank" name), which would let a label reorder or disguise
 /// what's beside it. The joiner emoji are made with (U+200D) and the emoji
-/// variation selectors (U+FE00 to U+FE0F) are allowed.
+/// variation selectors (U+FE00 to U+FE0F) are allowed, and so is the Braille
+/// blank (U+2800), which takes a space's room as a space does (Phosphor pads
+/// its prompt with one).
 pub fn refused_char(c: char) -> bool {
     c.is_control()
         || matches!(
@@ -54,7 +56,6 @@ pub fn refused_char(c: char) -> bool {
                 | '\u{200f}'
                 | '\u{2028}'..='\u{202e}'
                 | '\u{2060}'..='\u{2069}'
-                | '\u{2800}'
                 | '\u{3164}'
                 | '\u{feff}'
                 | '\u{ffa0}'
@@ -174,6 +175,23 @@ mod tests {
         }
         assert_eq!(shown("a\u{202e}b"), "a\\u{202e}b");
         assert_eq!(shown(&"x".repeat(200)).chars().count(), 161);
+    }
+
+    #[test]
+    fn blank_fillers_are_refused_and_emoji_joiners_kept() {
+        for blank in [
+            '\u{3164}',
+            '\u{115f}',
+            '\u{ffa0}',
+            '\u{00ad}',
+            '\u{180e}',
+            '\u{e0100}',
+        ] {
+            assert!(refused_char(blank), "{:x}", u32::from(blank));
+        }
+        for kept in ['\u{200d}', '\u{fe0f}', '\u{2800}', 'ก', 'ᠮ', '漢'] {
+            assert!(!refused_char(kept), "{:x}", u32::from(kept));
+        }
     }
 
     #[test]
