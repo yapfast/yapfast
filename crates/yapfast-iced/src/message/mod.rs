@@ -1257,15 +1257,21 @@ fn author_line<'a>(
         }
         container(words).max_width(room).into()
     });
+    // A gradient role colour runs across the name, letter by letter, as
+    // Discord draws it, unless the theme inks names itself; otherwise the
+    // one colour.
+    let spans = match message
+        .color_end
+        .filter(|_| message.color.is_some() && content.is_none())
+    {
+        Some(end) => crate::looks::gradient_letters(&shown_author, color, hex(end))
+            .into_iter()
+            .map(|(letter, ink)| span(letter).font(name_font).color(ink))
+            .collect(),
+        None => vec![span(shown_author).font(name_font)],
+    };
     let mut name = Piece::new(
-        vec![span(shown_author).font({
-            let stock = style_font(style.as_ref().and_then(crate::looks::NameLook::font), 500);
-            if style.is_some() {
-                stock
-            } else {
-                theme.font("names", stock)
-            }
-        })],
+        spans,
         index,
         0,
         Message::Link,
