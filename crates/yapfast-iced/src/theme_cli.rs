@@ -50,11 +50,34 @@ pub fn run(arguments: &[String]) -> i32 {
             print!("{text}");
             0
         }
-        Err(error) => {
+        Err(Stop::Usage(error)) => {
+            eprintln!("{error}");
+            2
+        }
+        Err(Stop::Failed(error)) => {
             eprintln!("{error}");
             1
         }
     }
+}
+
+/// Why a command stopped: it wasn't understood (exit status 2) or it failed
+/// (1).
+#[derive(Debug, PartialEq)]
+enum Stop {
+    Usage(String),
+    Failed(String),
+}
+
+impl From<String> for Stop {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// `usage` as what a command that wasn't understood says.
+fn usage(usage: &str) -> Stop {
+    Stop::Usage(usage.to_owned())
 }
 
 /// `theme check <folder> [--marketplace]`: the checks an install, and with
@@ -62,10 +85,10 @@ pub fn run(arguments: &[String]) -> i32 {
 fn check(mut arguments: Vec<String>) -> i32 {
     let marketplace = flag(&mut arguments, "--marketplace");
     let folder = match positional(&arguments, CHECK_USAGE)
-        .and_then(|folders| <[String; 1]>::try_from(folders).map_err(|_| CHECK_USAGE.to_owned()))
+        .and_then(|folders| <[String; 1]>::try_from(folders).map_err(|_| usage(CHECK_USAGE)))
     {
         Ok([folder]) => folder,
-        Err(error) => {
+        Err(Stop::Usage(error) | Stop::Failed(error)) => {
             eprintln!("{error}");
             return 2;
         }
@@ -91,11 +114,11 @@ fn check(mut arguments: Vec<String>) -> i32 {
 }
 
 /// `theme install <folder>`: a checked local folder into the theme store.
-fn install(mut arguments: Vec<String>) -> Result<String, String> {
+fn install(mut arguments: Vec<String>) -> Result<String, Stop> {
     let data = data_dir(&mut arguments)?;
     let [folder] = positional(&arguments, INSTALL_USAGE)?
         .try_into()
-        .map_err(|_| INSTALL_USAGE.to_owned())?;
+        .map_err(|_| usage(INSTALL_USAGE))?;
     let fetched = Fetched::local(Path::new(&folder))?;
     Themes::open(&data)
         .install(&fetched)
@@ -108,7 +131,7 @@ fn install(mut arguments: Vec<String>) -> Result<String, String> {
 
 /// `theme new <name>`: a theme's folder from the template, or from the
 /// theme `--from` names, checked, with what to do next.
-fn new(mut arguments: Vec<String>) -> Result<String, String> {
+fn new(mut arguments: Vec<String>) -> Result<String, Stop> {
     let light = flag(&mut arguments, "--light");
     let from = value(&mut arguments, "--from")?;
     let id = value(&mut arguments, "--id")?;
@@ -117,7 +140,7 @@ fn new(mut arguments: Vec<String>) -> Result<String, String> {
     let data = value(&mut arguments, "--data-dir")?;
     let [name] = positional(&arguments, NEW_USAGE)?
         .try_into()
-        .map_err(|_| NEW_USAGE.to_owned())?;
+        .map_err(|_| usage(NEW_USAGE))?;
     let start = match &from {
         Some(from) => {
             let data = match data {
@@ -144,18 +167,18 @@ fn new(mut arguments: Vec<String>) -> Result<String, String> {
 /// `theme export <custom theme> <folder>`: one of the person's own themes
 /// as a package, into a folder that's empty or not there. It never writes
 /// over files already there.
-fn export(mut arguments: Vec<String>) -> Result<String, String> {
+fn export(mut arguments: Vec<String>) -> Result<String, Stop> {
     let author = author(&mut arguments)?;
     let data = data_dir(&mut arguments)?;
     let [wanted, folder] = positional(&arguments, EXPORT_USAGE)?
         .try_into()
-        .map_err(|_| EXPORT_USAGE.to_owned())?;
+        .map_err(|_| usage(EXPORT_USAGE))?;
     let folder = PathBuf::from(folder);
     if std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some()) {
-        return Err(format!(
+        return Err(Stop::Failed(format!(
             "{} already holds files; export into an empty or new folder",
             folder.display()
-        ));
+        )));
     }
     let layout = Layout::read(&data);
     let Some(custom) = layout
@@ -168,7 +191,7 @@ fn export(mut arguments: Vec<String>) -> Result<String, String> {
             .iter()
             .map(|custom| format!("{} ({})", custom.id, custom.name))
             .collect();
-        return Err(if mine.is_empty() {
+        return Err(Stop::Failed(if mine.is_empty() {
             format!(
                 "there are no themes of your own in {}: make one with New theme in Settings → Themes",
                 data.display()
@@ -178,7 +201,7 @@ fn export(mut arguments: Vec<String>) -> Result<String, String> {
                 "none of your themes is called \"{wanted}\": {}",
                 mine.join(", ")
             )
-        });
+        }));
     };
     let source = custom.folder.as_deref().map(|own| data.join(own));
     let layers = match &source {
@@ -186,7 +209,7 @@ fn export(mut arguments: Vec<String>) -> Result<String, String> {
             match std::fs::read_to_string(source.join(yapfast_core::themes::MANIFEST)) {
                 Ok(text) => Some(text),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => return Err(format!("{}: {error}", source.display())),
+                Err(error) => return Err(Stop::Failed(format!("{}: {error}", source.display()))),
             }
         }
         None => None,
@@ -216,13 +239,13 @@ fn export(mut arguments: Vec<String>) -> Result<String, String> {
 }
 
 /// Takes `flag` and the value after it out of `arguments`.
-fn value(arguments: &mut Vec<String>, flag: &str) -> Result<Option<String>, String> {
+fn value(arguments: &mut Vec<String>, flag: &str) -> Result<Option<String>, Stop> {
     let Some(at) = arguments.iter().position(|argument| argument == flag) else {
         return Ok(None);
     };
     arguments.remove(at);
     if at >= arguments.len() {
-        return Err(format!("{flag} needs a value"));
+        return Err(Stop::Usage(format!("{flag} needs a value")));
     }
     Ok(Some(arguments.remove(at)))
 }
@@ -235,26 +258,26 @@ fn flag(arguments: &mut Vec<String>, flag: &str) -> bool {
 }
 
 /// `--data-dir`'s folder, or where Yapfast keeps its data.
-fn data_dir(arguments: &mut Vec<String>) -> Result<PathBuf, String> {
+fn data_dir(arguments: &mut Vec<String>) -> Result<PathBuf, Stop> {
     match value(arguments, "--data-dir")? {
         Some(folder) => Ok(folder.into()),
-        None => yapfast_core::default_directory().map_err(|error| error.to_string()),
+        None => Ok(yapfast_core::default_directory().map_err(|error| error.to_string())?),
     }
 }
 
-/// `--author`, or the account's name on this computer.
-fn author(arguments: &mut Vec<String>) -> Result<String, String> {
-    Ok(value(arguments, "--author")?
-        .or_else(|| std::env::var("USER").ok())
-        .or_else(|| std::env::var("USERNAME").ok())
-        .unwrap_or_default())
+/// `--author`, or none: a theme meant to be published never takes the
+/// computer's account name unasked.
+fn author(arguments: &mut Vec<String>) -> Result<String, Stop> {
+    Ok(value(arguments, "--author")?.unwrap_or_default())
 }
 
 /// What's left once the options are taken, refusing an option this doesn't
 /// know.
-fn positional(arguments: &[String], usage: &str) -> Result<Vec<String>, String> {
+fn positional(arguments: &[String], usage: &str) -> Result<Vec<String>, Stop> {
     if let Some(unknown) = arguments.iter().find(|argument| argument.starts_with("--")) {
-        return Err(format!("{unknown} isn't an option here\n{usage}"));
+        return Err(Stop::Usage(format!(
+            "{unknown} isn't an option here\n{usage}"
+        )));
     }
     Ok(arguments.to_vec())
 }
@@ -415,6 +438,9 @@ mod tests {
             data.path().to_str().unwrap(),
         ]))
         .unwrap_err();
+        let Stop::Failed(error) = error else {
+            panic!("{error:?}");
+        };
         assert!(error.contains("already holds files"), "{error}");
         assert_eq!(
             std::fs::read_to_string(into.path().join("keep.txt")).unwrap(),
@@ -428,6 +454,38 @@ mod tests {
         assert_eq!(check(strings(&["--force", "x"])), 2);
         assert_eq!(check(strings(&["a", "b"])), 2);
         assert_eq!(check(strings(&[])), 2);
-        assert!(install(strings(&["--force", "x"])).is_err());
+        assert!(matches!(
+            install(strings(&["--force", "x"])),
+            Err(Stop::Usage(_))
+        ));
+        assert!(matches!(new(strings(&[])), Err(Stop::Usage(_))));
+        assert!(matches!(
+            export(strings(&["only-one", "--data-dir", "."])),
+            Err(Stop::Usage(_))
+        ));
+        assert!(matches!(
+            new(strings(&["x", "--from"])),
+            Err(Stop::Usage(_))
+        ));
+        // Not understood exits 2, as the usage says; failed exits 1.
+        assert_eq!(run(&strings(&["install", "--force", "x"])), 2);
+        assert_eq!(
+            run(&strings(&[
+                "install",
+                "/no/such/theme/folder",
+                "--data-dir",
+                "/no/such/data"
+            ])),
+            1
+        );
+    }
+
+    #[test]
+    fn a_new_theme_names_no_author_unasked() {
+        let mut arguments = strings(&["Plum"]);
+        assert_eq!(author(&mut arguments).unwrap(), "");
+        let mut arguments = strings(&["Plum", "--author", "Ada"]);
+        assert_eq!(author(&mut arguments).unwrap(), "Ada");
+        assert_eq!(arguments, strings(&["Plum"]));
     }
 }

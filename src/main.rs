@@ -551,7 +551,12 @@ fn theme_dev_argument(arguments: &mut Vec<String>) -> Result<Option<std::path::P
     else {
         return Ok(None);
     };
-    let Some(folder) = arguments.get(index + 1).cloned() else {
+    // An option after it is a forgotten folder, not a folder named `--…`.
+    let Some(folder) = arguments
+        .get(index + 1)
+        .filter(|folder| !folder.starts_with("--"))
+        .cloned()
+    else {
         bail!("--theme-dev needs the folder of a theme");
     };
     arguments.drain(index..index + 2);
@@ -613,6 +618,14 @@ mod tests {
             Some("my theme".into())
         );
         assert_eq!(read, arguments);
+    }
+
+    #[test]
+    fn theme_dev_wants_a_folder_not_the_next_option() {
+        let mut arguments = strings(&["--theme-dev", "--preview"]);
+        assert!(theme_dev_argument(&mut arguments).is_err());
+        let mut arguments = strings(&["--theme-dev"]);
+        assert!(theme_dev_argument(&mut arguments).is_err());
     }
 
     fn strings(arguments: &[&str]) -> Vec<String> {
