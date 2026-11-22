@@ -122,7 +122,7 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         yapfast_core::voice::Phase::Joining | yapfast_core::voice::Phase::Leaving
     );
     (moving, state.busy, state.online, state.trusted).hash(&mut hasher);
-    (state.people_changes, theme).hash(&mut hasher);
+    (state.people_changes, state.reading, theme).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -334,6 +334,9 @@ impl App {
             let old = std::mem::replace(&mut self.timeline.messages, messages);
             self.measure(&old, edge_changed);
             tasks.push(crate::timeline::scroll::keep_reading(self, reading));
+            if self.timeline.at_end && self.timeline.from_end > 0.0 {
+                tasks.push(crate::timeline::scroll::go_to_end(self));
+            }
             // Sent from a window of older messages, or Jump to present: the
             // newest show at the end once they've replaced the window.
             if messages_changed && !self.client.state().detached && self.timeline.latest_due {
@@ -645,7 +648,7 @@ impl App {
         self.timeline.from_end = viewport.absolute_offset().y;
         self.timeline.height = viewport.bounds().height;
         self.timeline.place.set(viewport.bounds());
-        self.timeline.at_end = self.timeline.from_end <= 2.0;
+        self.timeline.at_end = self.timeline.from_end <= timeline::TAIL;
         let width = viewport.bounds().width;
         if (width - self.timeline.width).abs() > 1.0 {
             self.timeline.width = width;
@@ -658,7 +661,7 @@ impl App {
         // as read.
         if let Some(left_at) = self.timeline.left_at.take() {
             let back = crate::timeline::scroll::keep_reading(self, Some(left_at));
-            self.timeline.at_end = self.timeline.from_end <= 2.0;
+            self.timeline.at_end = self.timeline.from_end <= timeline::TAIL;
             return Task::batch([back, self.report(), self.ask()]);
         }
         Task::batch([self.report(), self.ask()])
@@ -671,6 +674,7 @@ impl App {
         }
         let (first, last) = self.timeline.in_view(0.0);
         let reads = self.reads();
+        let was_reading = self.client.state().reading;
         if !self.client.visible(
             first,
             last.saturating_sub(1).max(first),
@@ -682,7 +686,9 @@ impl App {
         }
         // What the report changed (earlier history asked for) shows later,
         // through events; the state it set is taken in here.
-        if Arc::ptr_eq(&self.timeline.messages, &self.client.state().messages) {
+        if Arc::ptr_eq(&self.timeline.messages, &self.client.state().messages)
+            && was_reading == self.client.state().reading
+        {
             Task::none()
         } else {
             self.sync()

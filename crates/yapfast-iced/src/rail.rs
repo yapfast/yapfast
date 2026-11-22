@@ -270,6 +270,9 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             room.direct
                 && !room.request
                 && room.category != discord::SPAM
+                && !(state.reading
+                    && !state.detached
+                    && state.selected.as_deref() == Some(room.id.as_str()))
                 && (room.unread > 0 || room.mentions > 0)
         })
         .map(|room| RailItem {

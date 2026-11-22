@@ -55,7 +55,9 @@ start, or Discord's welcome at a server channel's start. Until a
 conversation's first messages come, rows the shape of messages hold its
 place, still (`timeline::view::messages_skeleton`), as they do in the
 thread beside the channel. A short history
-is held down over the composer. While the "New" divider is
+is held down over the composer. A view within the 8 px padding below the
+last message follows the bottom as messages arrive; scrolling above that
+keeps the earlier messages in place. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window
 of older messages has the bar back to the present, and its last row ends
 with "Newer messages" (loading, or failed with a retry); a reply's line
