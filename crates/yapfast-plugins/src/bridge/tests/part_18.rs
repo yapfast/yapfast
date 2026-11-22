@@ -111,3 +111,41 @@ fn a_recording_is_sent_as_a_voice_message() {
     };
     assert_eq!(piece["eof"], true);
 }
+
+/// A message or history of a Discord conversation the window doesn't hold is
+/// asked of Discord rather than refused.
+#[test]
+fn history_of_another_conversation_is_asked_of_discord() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(
+        directory.path(),
+        r#"{"api":1,"id":"com.example.logger","name":"Logger","version":"1.0.0",
+            "wasm":"plugin.wasm","permissions":{"capabilities":["messages.read"]}}"#,
+        b"not a real module",
+    );
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let answer = ask(
+        &shared,
+        &plugin,
+        call::method::MESSAGES_HISTORY,
+        serde_json::json!({ "room": "discord:1:9", "before": "d:55", "limit": 20 }),
+    );
+    assert!(matches!(answer, HostReturn::Pending { .. }), "{answer:?}");
+    let handed = notices
+        .try_iter()
+        .find_map(|notice| match notice {
+            Notice::Call { request, .. } => Some(request),
+            _ => None,
+        })
+        .expect("handed to the application");
+    assert_eq!(
+        handed,
+        AppCall::Messages {
+            room: "discord:1:9".into(),
+            message: None,
+            before: Some("d:55".into()),
+            limit: Some(20),
+        }
+    );
+}

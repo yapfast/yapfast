@@ -313,6 +313,7 @@ impl Application {
             | AppCall::Sessions
             | AppCall::Affinities(_)
             | AppCall::SendVoice { .. }
+            | AppCall::Messages { .. }
             | AppCall::Spotify(_) => (
                 Vec::new(),
                 HostReturn::Error {

@@ -332,6 +332,15 @@ pub enum AppCall {
         format: yapfast_plugin_api::call::RecordingFormat,
         max_seconds: Option<u32>,
     },
+    /// A message, or a page of messages, of a conversation that isn't the
+    /// one on screen: `messages.get` and `messages.history`, asked of Discord.
+    Messages {
+        room: String,
+        /// One message, by id; a page when none.
+        message: Option<String>,
+        before: Option<String>,
+        limit: Option<usize>,
+    },
     /// Stop the plugin's recording: `microphone.stop`.
     RecordStop,
     /// Send a recording as a voice message: `messages.voice`, under the

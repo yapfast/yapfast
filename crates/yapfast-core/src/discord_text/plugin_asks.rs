@@ -61,6 +61,12 @@ pub(super) fn command(
                 Err(error) => failed(&error),
             },
             PluginAsk::Affinities(request) => affinities(&discord, request).await,
+            PluginAsk::Messages {
+                room,
+                message,
+                before,
+                limit,
+            } => messages(&discord, &room, message, before, limit).await,
             PluginAsk::Voice {
                 room,
                 path,
@@ -157,6 +163,64 @@ fn sessions_of(answer: &serde_json::Value) -> Vec<SessionView> {
             })
         })
         .collect()
+}
+
+/// A message, or a page of them, of a Discord conversation the window doesn't
+/// hold, as the plugin is told them: `messages.get` and `messages.history`
+/// for any channel the account can read, asked of Discord as its client asks.
+async fn messages(
+    discord: &Discord,
+    room: &str,
+    message: Option<String>,
+    before: Option<String>,
+    limit: Option<usize>,
+) -> HostReturn {
+    use yapfast_discord::api::Span;
+    let Some((guild, channel)) = discord::parse_room(room) else {
+        return HostReturn::Error {
+            message: format!("{room} isn't a Discord conversation"),
+        };
+    };
+    // Both forms of a message's id are read: the timeline's `d:<id>` and the
+    // bare Discord one.
+    let bare = |id: &str| id.strip_prefix("d:").unwrap_or(id).to_owned();
+    match message {
+        Some(id) => {
+            let id = bare(&id);
+            match discord.history(guild, channel, Span::Around(&id)).await {
+                Ok(page) => match page.messages.iter().find(|message| message.id == id) {
+                    Some(found) => {
+                        listed(crate::application::plugins::message_view(discord, room, found).0)
+                    }
+                    None => HostReturn::Ok(serde_json::Value::Null),
+                },
+                Err(error) => failed(&error),
+            }
+        }
+        None => {
+            let before = before.map(|id| bare(&id));
+            let span = match &before {
+                Some(id) => Span::Before(id),
+                None => Span::Latest,
+            };
+            match discord.history(guild, channel, span).await {
+                Ok(page) => {
+                    let limit = limit.unwrap_or(50).clamp(1, 100);
+                    let skip = page.messages.len().saturating_sub(limit);
+                    let views: Vec<_> = page
+                        .messages
+                        .iter()
+                        .skip(skip)
+                        .map(|message| {
+                            crate::application::plugins::message_view(discord, room, message).0
+                        })
+                        .collect();
+                    listed(views)
+                }
+                Err(error) => failed(&error),
+            }
+        }
+    }
 }
 
 /// A recording sent as a voice message, as Discord's clients send one: the

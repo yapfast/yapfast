@@ -520,6 +520,31 @@ impl Session {
             self.fetch(shared, call, plugin, request);
             return;
         }
+        // A message or history of a conversation the window doesn't hold is
+        // asked of Discord, later; one it holds is answered below, now.
+        if let Some(app) = elsewhere(shared, &request) {
+            let permissions = shared
+                .registry()
+                .entry(&plugin)
+                .map(|entry| entry.manifest.permissions.clone())
+                .unwrap_or_default();
+            if let Err(denial) = crate::permissions::check(&permissions, Capability::MessagesRead) {
+                self.reply(
+                    &plugin,
+                    call,
+                    HostReturn::Denied {
+                        reason: denial.reason().to_owned(),
+                    },
+                );
+                return;
+            }
+            shared.announce(Notice::Call {
+                plugin,
+                call,
+                request: app,
+            });
+            return;
+        }
         if request.method == call::method::OAUTH_LOGIN
             || request.method == call::method::OAUTH_TOKEN
         {
@@ -667,5 +692,35 @@ impl Session {
                     .map_err(|message| HostReturn::Error { message })
             })
             .collect()
+    }
+}
+
+/// `messages.get` or `messages.history` about a Discord conversation that
+/// isn't the one the window holds, as the call the application asks Discord.
+fn elsewhere(shared: &Shared, request: &HostCall) -> Option<AppCall> {
+    let held = |room: &str| shared.world.history(room, None, Some(1)).is_some();
+    let discord = |room: &str| room.starts_with("discord:");
+    match request.method.as_str() {
+        call::method::MESSAGES_GET => {
+            let asked: MessageGet = request.parse().ok()?;
+            let wanted = discord(&asked.room) && !held(&asked.room);
+            wanted.then_some(AppCall::Messages {
+                room: asked.room,
+                message: Some(asked.message),
+                before: None,
+                limit: None,
+            })
+        }
+        call::method::MESSAGES_HISTORY => {
+            let asked: call::MessageHistory = request.parse().ok()?;
+            let wanted = discord(&asked.room) && !held(&asked.room);
+            wanted.then_some(AppCall::Messages {
+                room: asked.room,
+                message: None,
+                before: asked.before,
+                limit: asked.limit,
+            })
+        }
+        _ => None,
     }
 }

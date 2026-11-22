@@ -76,6 +76,7 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         AppCall::Affinities(_) => Some(Capability::RelationshipsRead),
         AppCall::Record { .. } | AppCall::RecordStop => Some(Capability::Microphone),
         AppCall::SendVoice { .. } => Some(Capability::MessagesSend),
+        AppCall::Messages { .. } => Some(Capability::MessagesRead),
         AppCall::Spotify(_) => Some(Capability::SpotifyControl),
         // Navigation and the composer need no capability; the plan gives them
         // a recent gesture instead, and the composer is the person's own text.

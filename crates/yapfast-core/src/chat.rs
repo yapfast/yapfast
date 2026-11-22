@@ -2824,6 +2824,14 @@ pub enum PluginAsk {
     Sessions,
     /// `relationships.affinities`.
     Affinities(yapfast_plugin_api::account::AffinitiesRequest),
+    /// `messages.get` and `messages.history` of a conversation the window
+    /// doesn't hold.
+    Messages {
+        room: String,
+        message: Option<String>,
+        before: Option<String>,
+        limit: Option<usize>,
+    },
     /// `messages.voice`: a recording sent as a voice message.
     Voice {
         room: String,

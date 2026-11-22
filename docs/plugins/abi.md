@@ -784,10 +784,10 @@ A read answers from what the application already knows, never by asking a
 network: `app.version`, `app.locale` and `app.theme_mode` give one object;
 `account.me` the account signed in; `rooms.selected`, `rooms.get` and
 `rooms.list` the sidebar's own list; `messages.get` and `messages.history` the
-conversation on screen, because that is the timeline Yapfast keeps; and
-`people.get` and `people.member` the account, the open room's members and, for `people.get`, the friends. A
-question about a room that isn't open is answered with an error saying so, and
-`rooms.selected` names the one that is. Each read needs the capability
+conversation on screen from the timeline Yapfast keeps, and any other Discord
+conversation the account can read by asking Discord as its client asks (a page
+of at most 100, `before` a message's id), answered later; and
+`people.get` and `people.member` the account, the open room's members and, for `people.get`, the friends. `rooms.selected` names the conversation that is open. Each read needs the capability
 [`permissions.md`](permissions.md) gives it, and one answer is one frame: a page
 stops at 1 MiB rather than being cut.
 

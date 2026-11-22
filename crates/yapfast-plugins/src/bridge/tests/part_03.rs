@@ -86,7 +86,7 @@ fn a_read_without_its_capability_is_denied_by_the_name_of_what_it_needs() {
     // The hook plugin keeps storage and messages.read, and nothing about
     // servers or people.
     let plugin = installed(directory.path(), HOOK_MANIFEST, b"not a real module");
-    let (wake, _notices) = notice_channel();
+    let (wake, notices) = notice_channel();
     let shared = shared(directory.path(), wake);
     let (_session_directory, mut session, written, _inbound) = session_stub();
 
@@ -120,26 +120,34 @@ fn a_read_without_its_capability_is_denied_by_the_name_of_what_it_needs() {
     };
     assert!(reason.contains("people.read"), "{reason}");
 
-    // `messages.read` is declared, so the same shape answers.
-    let history = ask(
-        &mut session,
-        &written,
-        &shared,
-        &plugin,
-        HostCall::new(
-            call::method::MESSAGES_HISTORY,
-            MessageHistory {
-                room: "discord:1:2".to_owned(),
-                before: None,
-                limit: None,
-            },
+    // `messages.read` is declared, so a room nobody has open is asked of
+    // Discord rather than refused.
+    runtime().block_on(async {
+        session.on_call(
+            &shared,
+            7,
+            plugin.clone(),
+            HostCall::new(
+                call::method::MESSAGES_HISTORY,
+                MessageHistory {
+                    room: "discord:1:2".to_owned(),
+                    before: None,
+                    limit: None,
+                },
+            )
+            .expect("a call"),
         )
-        .expect("a call"),
+    });
+    assert!(
+        notices.try_iter().any(|notice| matches!(
+            notice,
+            Notice::Call {
+                request: AppCall::Messages { .. },
+                ..
+            }
+        )),
+        "handed to the application to ask Discord"
     );
-    let HostReturn::Error { message } = history else {
-        panic!("a room nobody has open says why: {history:?}");
-    };
-    assert!(message.contains("rooms.selected"), "{message}");
 }
 
 #[test]
