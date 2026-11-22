@@ -195,10 +195,15 @@ pub fn view<'a>(app: &'a App, ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Me
                 .found
                 .iter()
                 .map(|found| crate::found::found_view(ctx, found, Message::Nothing));
-            container(column(cards).spacing(8).padding(12))
+            // Kept to its newest at the bottom: when the cards are taller
+            // than the room, the older ones go under the top, not the
+            // newest under the foot.
+            iced::widget::scrollable(column(cards).spacing(8).padding(12))
+                .direction(iced::widget::scrollable::Direction::Vertical(
+                    iced::widget::scrollable::Scrollbar::hidden(),
+                ))
+                .anchor_bottom()
                 .height(Length::Shrink)
-                .align_y(Alignment::End)
-                .clip(true)
                 .into()
         }
     };
