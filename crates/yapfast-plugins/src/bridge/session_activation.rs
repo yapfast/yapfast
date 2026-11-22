@@ -165,6 +165,13 @@ impl Session {
     pub(super) fn hold(&mut self, shared: &Arc<Shared>, mut held: HeldSend, request: HookRequest) {
         // Whatever is left of the person's patience: the helper's start, the
         // hello and a module's first compile all came out of the same budget.
+        // A message the person sends is their gesture, for what the chain's
+        // plugins then do to their own messages.
+        if held.hook == yapfast_plugin_api::hook::HookKind::MessagePreSend {
+            for plugin in &held.chain {
+                shared.sent_through.record(plugin, Instant::now());
+            }
+        }
         let remaining = held.deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             tracing::debug!(

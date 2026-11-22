@@ -39,6 +39,7 @@ impl Bridge {
             answers: Mutex::new(BTreeMap::new()),
             agent_sends: Mutex::new(BTreeMap::new()),
             gestures: crate::permissions::Gestures::default(),
+            sent_through: crate::permissions::Gestures::default(),
             sends: Mutex::new(BTreeMap::new()),
             off: Mutex::new(None),
             gate: Mutex::new(None),

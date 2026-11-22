@@ -72,6 +72,10 @@ pub(crate) struct Shared {
     /// its menu row, a widget it drew. A send, an edit or a navigation stands
     /// behind that plugin's own gesture and no other's.
     pub(super) gestures: crate::permissions::Gestures,
+    /// When each plugin was last in a `message_pre_send` chain: the person
+    /// sending is a gesture for editing, deleting and reacting to their own
+    /// messages.
+    pub(super) sent_through: crate::permissions::Gestures,
     /// When each plugin last sent a message, for the 5-per-10-s the plan puts
     /// on `messages.send`.
     pub(super) sends: Mutex<BTreeMap<PluginId, Vec<Instant>>>,
@@ -272,6 +276,13 @@ impl Shared {
         }
         held.push(Instant::now());
         true
+    }
+
+    /// Whether the person sent a message through `plugin`'s pre-send hook
+    /// recently enough for an edit, a delete or a reaction of their own
+    /// message to stand behind it.
+    pub(super) fn sent_through(&self, plugin: &PluginId) -> bool {
+        self.sent_through.path(plugin, Instant::now()) == crate::permissions::SendPath::Gesture
     }
 
     /// Whether a person did something recently enough for a plugin's send to

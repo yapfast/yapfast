@@ -417,7 +417,21 @@ impl Session {
                 | AppCall::React { .. }
         ) {
             let mut agent = false;
-            if !shared.has_gesture(plugin)
+            // Editing, deleting or reacting to the person's own message just
+            // after they sent one through this plugin's pre-send hook stands
+            // behind that send, as a hook that tidies up after itself does.
+            let own_after_send = shared.sent_through(plugin)
+                && match &app {
+                    AppCall::Edit { room, message, .. }
+                    | AppCall::Delete { room, message }
+                    | AppCall::React { room, message, .. } => shared
+                        .world
+                        .message(room, message)
+                        .is_some_and(|view| view.author.own),
+                    _ => false,
+                };
+            if !own_after_send
+                && !shared.has_gesture(plugin)
                 && !permissions.allows(Capability::MessagesSendBackground)
             {
                 // An agent's send: no keystroke behind it, and the person said

@@ -82,6 +82,12 @@ never act without a user action behind it. A plugin's own consent is what pays f
 that exception, which is why the capability is the one the dialog shows in its
 danger tone.
 
+A message the person sends counts as their action for the plugins in its
+`message_pre_send` chain: for the five seconds after it (the window a click gives), such a plugin may edit,
+delete or react to the person's own messages under `messages.send` alone, as a
+hook that tidies up after the person's send does. Anything else still needs a
+gesture or `messages.send.background`.
+
 ## The powerful tier
 
 Yapfast's maintainers decided that some plugins worth having need more than
