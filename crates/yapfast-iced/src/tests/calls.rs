@@ -485,6 +485,8 @@ fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
         streaming: false,
         video: false,
         elsewhere: false,
+        style: None,
+        tag: None,
     };
     // Discord lists a channel's people by name; this account is among them.
     let you = app.client.state().voice.participants[0].person.clone();

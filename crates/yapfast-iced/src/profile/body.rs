@@ -766,8 +766,8 @@ fn styled_name<'a>(
 /// Whether a styled name lies on a dark ground: a profile's own theme
 /// decides that, as its card is drawn in it, and the app's theme only
 /// without one. Taking the app's on a light profile theme drew a white
-/// name's style for a dark ground, white on the white card: the owner's
-/// own card showed no name.
+/// name's style for a dark ground, white on the white card: that
+/// card showed no name.
 pub(crate) fn name_on_dark(theme: &crate::theme::Theme, colors: Option<[u32; 2]>) -> bool {
     let inks = Inks::new(theme, colors, theme.sidebar);
     if inks.themed { !inks.light } else { theme.dark }
