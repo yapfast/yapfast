@@ -87,9 +87,9 @@ spacing, while package animation is disabled. Reduce motion independently
 turns off package flourish; both choices keep the stock look's short transitions
 so menus and dialogs do not lose their ordinary opening and closing feedback.
 
-Resolved package metrics are registered beside the kit `Theme` under the same
-theme id, so the public `Theme` struct remains the single conversion boundary
-and keeps its original shape. Surface radii, outlines and shadows now reach the
+Resolved package metrics travel inside the kit `Theme` (`with_metrics`), so a
+theme value draws the same wherever it's copied, and a colour-only theme has
+none. Surface radii, outlines and shadows now reach the
 shared buttons, fields, composer, toggles, chips, menus, dialogs, tooltips,
 cards, code blocks, embeds, message/list rows, rail icons, call tiles, pickers,
 popouts, toasts and scrollbars. Header and list-label grounds, text and case,
