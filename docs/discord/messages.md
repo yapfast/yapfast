@@ -1207,7 +1207,9 @@ menu doesn't offer: `Action::ChangeNotifications` with the folder's id sends
 `{"guilds": {"<id>": {"muted": true, "mute_config": {...}}, ...}}`, the
 request Discord's client sends a server's own settings through. A mute with
 an end ends at the same moment for each. Discord answers with a
-USER_GUILD_SETTINGS_UPDATE for each server.
+USER_GUILD_SETTINGS_UPDATE for each server. A server right-clicked under
+Servers opens its own choices, which change that server alone with the
+same request its own menu sends.
 Mark folder as read marks every server's unread channels read, as each
 server's Mark as read does, which is what Discord's client does for a
 folder.

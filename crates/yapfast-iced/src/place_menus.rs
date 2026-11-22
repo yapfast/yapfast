@@ -408,6 +408,22 @@ pub fn sub_act(
             };
             Some(Action::ChangeNotifications { place, change })
         }
+        // A folder's server's own, by the server in the row's key.
+        MenuAct::NotifyServer(change) => {
+            let change = match (change, ticked) {
+                (NotificationChange::SuppressEveryone(_), Some(on)) => {
+                    NotificationChange::SuppressEveryone(on)
+                }
+                (NotificationChange::SuppressRoles(_), Some(on)) => {
+                    NotificationChange::SuppressRoles(on)
+                }
+                (change, _) => change,
+            };
+            Some(Action::ChangeNotifications {
+                place: row.key.clone(),
+                change,
+            })
+        }
         // A DM's own menu, or its person's.
         MenuAct::MuteDm(muting) => room.map(|room| Action::MuteDm { room, muting }),
         MenuAct::ShowAll => Some(Action::ShowAllChannels {
@@ -657,8 +673,15 @@ fn folder_rows(
                         level_name(own.level.unwrap_or(own.inherited)).to_owned()
                     }
                 });
+            let own = known
+                .iter()
+                .find(|(id, _)| *id == server.id)
+                .and_then(|(_, known)| *known);
             MenuRow {
                 subtitle: notifies.map(Into::into),
+                side: own
+                    .map(|own| server_choices(&server.id, &own, twelve))
+                    .unwrap_or_default(),
                 ..MenuRow::plain(MenuAct::GoServer, server.name.clone()).key(server.id.clone())
             }
         })
@@ -689,6 +712,75 @@ fn folder_rows(
         });
     }
     rows
+}
+
+/// A folder's server's own choices, which a right click on it in the
+/// folder's Servers list opens beside it, as its own menu has them in one
+/// list: mute for each time (or Unmute server while it's muted, saying
+/// till when), its levels and its two switches. Each changes that server
+/// alone, by its id in the rows' keys.
+fn server_choices(
+    server: &str,
+    known: &yapfast_core::chat::ServerNotifications,
+    twelve: bool,
+) -> Vec<MenuRow> {
+    let own = known.own;
+    let mut rows: Vec<MenuRow> = if own.muted {
+        vec![MenuRow {
+            icon: Some(Icon::Bell),
+            subtitle: own
+                .muted_until
+                .map(|until| muted_until(until / 1000, twelve).into()),
+            ..MenuRow::plain(
+                MenuAct::NotifyServer(NotificationChange::Mute(Muting::Off)),
+                "Unmute server",
+            )
+        }]
+    } else {
+        mute_times(|muting| MenuAct::NotifyServer(NotificationChange::Mute(muting)))
+    };
+    let current = own.level.unwrap_or(own.inherited);
+    for (at, level) in [
+        NotifyLevel::All,
+        NotifyLevel::Mentions,
+        NotifyLevel::Nothing,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        rows.push(MenuRow {
+            separated: at == 0,
+            check: if level == current {
+                Check::Current
+            } else {
+                Check::None
+            },
+            ..MenuRow::plain(
+                MenuAct::NotifyServer(NotificationChange::Level(Some(level))),
+                level_name(level),
+            )
+        });
+    }
+    rows.push(MenuRow {
+        separated: true,
+        check: Check::Box(known.suppress_everyone),
+        ..MenuRow::plain(
+            MenuAct::NotifyServer(NotificationChange::SuppressEveryone(
+                !known.suppress_everyone,
+            )),
+            "Suppress @everyone and @here",
+        )
+    });
+    rows.push(MenuRow {
+        check: Check::Box(known.suppress_roles),
+        ..MenuRow::plain(
+            MenuAct::NotifyServer(NotificationChange::SuppressRoles(!known.suppress_roles)),
+            "Suppress all role @mentions",
+        )
+    });
+    rows.into_iter()
+        .map(|row| row.key(server.to_owned()))
+        .collect()
 }
 
 /// What a level is called, as Discord's client words it.

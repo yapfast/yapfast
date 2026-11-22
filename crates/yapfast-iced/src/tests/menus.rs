@@ -900,8 +900,52 @@ fn a_folders_menu_changes_its_servers_together_and_lists_them() {
     let last = labels(&app).len() - 1;
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(last)));
     assert!(app.layout.open_folders.is_empty());
+    // A right click on a server of its list opens that server's own
+    // choices beside it, which change it alone and keep the menu open.
     open(&mut app);
     let _ = app.update(Message::Menu(crate::menus::Event::Choose(3)));
+    let _ = app.update(Message::Menu(crate::menus::Event::SideOpen(0)));
+    let side: Vec<(String, Check)> = app
+        .win
+        .menu
+        .as_ref()
+        .and_then(|menu| menu.side.as_ref())
+        .expect("its own choices")
+        .1
+        .iter()
+        .map(|row| (row.label.to_string(), row.check))
+        .collect();
+    assert_eq!(
+        side.len(),
+        MUTE_TIMES.len() + 5,
+        "its mutes, levels, switches"
+    );
+    assert_eq!(
+        side[MUTE_TIMES.len() + 1],
+        ("Only @mentions".to_owned(), Check::Current)
+    );
+    let nothing = MUTE_TIMES.len() + 2;
+    let _ = app.update(Message::Menu(crate::menus::Event::SideChoose(nothing)));
+    assert_eq!(
+        changes(&mut app),
+        [(
+            SERVER.into(),
+            NotificationChange::Level(Some(NotifyLevel::Nothing))
+        )],
+        "the server's own, not the folder's"
+    );
+    let menu = app.win.menu.as_ref().expect("still open");
+    let (_, side) = menu.side.as_ref().expect("its choices too");
+    assert_eq!(side[nothing].check, Check::Current, "checked in place");
+    assert_eq!(side[nothing - 1].check, Check::None);
+    let _ = app.update(Message::Menu(crate::menus::Event::SideChoose(
+        MUTE_TIMES.len() + 4,
+    )));
+    assert_eq!(
+        changes(&mut app),
+        [(SERVER.into(), NotificationChange::SuppressRoles(false))]
+    );
+    // A left click on a server goes to it.
     let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(0)));
     assert_eq!(
         app.client.state().navigation,

@@ -22,7 +22,7 @@ use crate::{
     picker::{Tab, Target},
     pictures::Icon,
     style::blend,
-    widgets::{Anchor, Place},
+    widgets::{Anchor, Place, RightPress},
 };
 
 /// How far a menu stays in from the window's edges.
@@ -66,6 +66,10 @@ pub struct Menu {
     /// The row whose submenu shows, and the submenu's row the keys light.
     pub sub: Option<usize>,
     pub sub_lit: Option<usize>,
+    /// A submenu's row right-clicked, and its own choices beside the
+    /// submenu (a folder's server's), with the row the keys light.
+    pub side: Option<(usize, Vec<MenuRow>)>,
+    pub side_lit: Option<usize>,
     /// How far down its rows are scrolled, when it's taller than the
     /// window: a submenu opens beside its row where it shows.
     pub scrolled: f32,
@@ -93,6 +97,8 @@ impl Menu {
             volumes: None,
             sub: None,
             sub_lit: None,
+            side: None,
+            side_lit: None,
             scrolled: 0.0,
             fits: Default::default(),
         }
@@ -219,6 +225,10 @@ pub enum MenuAct {
     GoServer,
     /// Close every open folder on the rail, as Discord's folder menu does.
     CloseFolders,
+    /// A change to the notifications of the server in the row's `key`,
+    /// from its own choices beside a folder's Servers list: that server
+    /// alone, not the folder.
+    NotifyServer(yapfast_core::chat::NotificationChange),
 }
 
 #[derive(Clone)]
@@ -244,6 +254,9 @@ pub struct MenuRow {
     /// What a click on the row itself does instead of opening its submenu,
     /// as a mute row mutes until it's turned back on.
     pub click: Option<MenuAct>,
+    /// What a right click on it opens beside its submenu: a folder's
+    /// server's own choices. Empty for none.
+    pub side: Vec<MenuRow>,
 }
 
 impl MenuRow {
@@ -269,6 +282,7 @@ impl MenuRow {
             key: String::new(),
             submenu: Vec::new(),
             click: None,
+            side: Vec::new(),
         }
     }
 
@@ -298,6 +312,11 @@ pub enum Event {
     /// The open submenu's row under the pointer, or chosen.
     SubLight(usize),
     SubChoose(usize),
+    /// A right click on the open submenu's row: its own choices beside it.
+    SideOpen(usize),
+    /// The row of those choices under the pointer, or chosen.
+    SideLight(usize),
+    SideChoose(usize),
     Close,
     /// A button of a message's hover bar: what it does, to which message,
     /// and where what it opens goes.
@@ -317,6 +336,27 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::none()
         }
         Event::SubChoose(index) => choose_sub(app, index),
+        Event::SideOpen(index) => {
+            if let Some(menu) = &mut app.win.menu
+                && let Some(side) = menu
+                    .sub
+                    .and_then(|sub| menu.rows.get(sub)?.submenu.get(index))
+                    .map(|row| row.side.clone())
+                    .filter(|side| !side.is_empty())
+            {
+                menu.sub_lit = Some(index);
+                menu.side = Some((index, side));
+                menu.side_lit = None;
+            }
+            Task::none()
+        }
+        Event::SideLight(index) => {
+            if let Some(menu) = &mut app.win.menu {
+                menu.side_lit = Some(index);
+            }
+            Task::none()
+        }
+        Event::SideChoose(index) => choose_side(app, index),
         Event::Choose(index) => {
             // Shift and a click on Delete message deletes without asking,
             // as the hover bar's Delete under Shift does.
@@ -535,6 +575,8 @@ pub fn menu_light(app: &mut App, index: usize) -> Task<Message> {
         if menu.sub != Some(index) {
             menu.sub = opens.then_some(index);
             menu.sub_lit = None;
+            menu.side = None;
+            menu.side_lit = None;
         }
     }
     Task::none()
@@ -566,6 +608,10 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
             }
             None => {
                 if let Some(menu) = &mut app.win.menu {
+                    if menu.sub != Some(index) {
+                        menu.side = None;
+                        menu.side_lit = None;
+                    }
                     menu.sub = Some(index);
                     menu.lit = Some(index);
                 }
@@ -598,6 +644,59 @@ pub fn choose_sub(app: &mut App, index: usize) -> Task<Message> {
         return carry_out(app, &row, Some(!ticked), true);
     }
     carry_out(app, &row, None, false)
+}
+
+/// A row of the choices beside the submenu was chosen: it applies and the
+/// menu stays, its choice checked in place (a level, a switch); a mute,
+/// whose rows change once Discord confirms it, puts the choices away.
+pub fn choose_side(app: &mut App, index: usize) -> Task<Message> {
+    let Some(row) = app
+        .win
+        .menu
+        .as_ref()
+        .and_then(|menu| menu.side.as_ref()?.1.get(index))
+        .filter(|row| !row.disabled)
+        .cloned()
+    else {
+        return Task::none();
+    };
+    let ticked = match row.check {
+        crate::controls::Check::Box(ticked) => Some(!ticked),
+        _ => None,
+    };
+    if let Some(menu) = &mut app.win.menu
+        && let Some((_, rows)) = &mut menu.side
+    {
+        match row.check {
+            crate::controls::Check::Box(ticked) => {
+                rows[index].check = crate::controls::Check::Box(!ticked);
+            }
+            crate::controls::Check::Current | crate::controls::Check::None
+                if matches!(
+                    row.act,
+                    MenuAct::NotifyServer(yapfast_core::chat::NotificationChange::Level(_))
+                ) =>
+            {
+                for (at, shown) in rows.iter_mut().enumerate() {
+                    if matches!(
+                        shown.act,
+                        MenuAct::NotifyServer(yapfast_core::chat::NotificationChange::Level(_))
+                    ) {
+                        shown.check = if at == index {
+                            crate::controls::Check::Current
+                        } else {
+                            crate::controls::Check::None
+                        };
+                    }
+                }
+            }
+            _ => {
+                menu.side = None;
+                menu.side_lit = None;
+            }
+        }
+    }
+    carry_out(app, &row, ticked, true)
 }
 
 /// Carries out a chosen row of the menu's own: a checkbox's flips and
@@ -660,6 +759,7 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             }
         },
         MenuAct::Notify(_)
+        | MenuAct::NotifyServer(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
         | MenuAct::Role
@@ -862,6 +962,7 @@ pub fn act(
         MenuAct::SearchSort
         | MenuAct::GoServer
         | MenuAct::CloseFolders
+        | MenuAct::NotifyServer(_)
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
@@ -890,6 +991,30 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
     let Some(menu) = &mut app.win.menu else {
         return Task::none();
     };
+    // Beside a submenu, a row's own choices take the keys first.
+    if let Some((_, rows)) = &menu.side {
+        let count = rows.len();
+        match named {
+            Some(key::Named::ArrowDown | key::Named::Tab) => {
+                menu.side_lit = step(rows, menu.side_lit.map_or(0, |lit| lit + 1), 1);
+            }
+            Some(key::Named::ArrowUp) if count > 0 => {
+                let from = menu.side_lit.map_or(count - 1, |lit| lit + count - 1);
+                menu.side_lit = step(rows, from, count - 1);
+            }
+            Some(key::Named::Enter | key::Named::Space) => {
+                if let Some(lit) = menu.side_lit {
+                    return choose_side(app, lit);
+                }
+            }
+            Some(key::Named::ArrowLeft | key::Named::Escape) => {
+                menu.side = None;
+                menu.side_lit = None;
+            }
+            _ => {}
+        }
+        return Task::none();
+    }
     // In a submenu the keys move through its rows.
     if let Some(sub) = menu.sub {
         let rows = &menu.rows[sub].submenu;
@@ -1116,7 +1241,7 @@ impl<'a> View<'a> {
             path.push(child);
             // The layout's places are the rows' unscrolled ones.
             let lift = PAD + menu.scrolled;
-            place = place.beside(opaque(self.submenu_view(menu, sub)), path, lift, SUB_GAP);
+            place = place.beside(self.submenu_view(menu, sub), path, lift, SUB_GAP);
         }
         Some(place.into())
     }
@@ -1142,8 +1267,10 @@ impl<'a> View<'a> {
     /// The open submenu: its rows, beside the row that opened it.
     fn submenu_view(self, menu: &'a Menu, sub: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
-        let decorated = self.cx.themes.decorates(&theme.id, surface);
+        let decorated = self.cx.themes.decorates(
+            &theme.id,
+            yapfast_core::themes::package::art::ArtSurface::Menu,
+        );
         let entries = &menu.rows[sub].submenu;
         let slot = ticks(entries);
         let mut rows = column![].padding(PAD);
@@ -1152,21 +1279,96 @@ impl<'a> View<'a> {
                 rows = rows.push(crate::controls::menu_separator(theme));
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
-            rows = rows.push(
+            let item: Element<'a, Message> = mouse_area(self.cx.look.context_item(
+                self.menu_entry(entry, slot),
+                light,
+                Message::Menu(Event::SubChoose(index)),
+            ))
+            .on_enter(Message::Menu(Event::SubLight(index)))
+            .into();
+            // A row with choices of its own opens them on a right click.
+            rows = rows.push(if entry.side.is_empty() {
+                item
+            } else {
+                RightPress::new(item, move |_| Message::Menu(Event::SideOpen(index))).into()
+            });
+        }
+        // Each panel takes the pointer; the room above the choices beside
+        // it doesn't, so a click there still closes the menu.
+        let panel = self.menu_surface(
+            container(rows)
+                .width(menu.fit(Some(sub)))
+                .style(menu_panel_over(theme, decorated))
+                .into(),
+        );
+        let Some((at, side)) = &menu.side else {
+            return panel;
+        };
+        // The choices beside the submenu, their first row level with the
+        // row right-clicked: the rows above it are as tall as Discord's.
+        let above: f32 = entries
+            .iter()
+            .take(*at)
+            .enumerate()
+            .map(|(index, entry)| {
+                let line = if entry.separated && index > 0 {
+                    SEPARATOR
+                } else {
+                    0.0
+                };
+                line + row_height(entry)
+            })
+            .sum::<f32>()
+            + if entries.get(*at).is_some_and(|entry| entry.separated) && *at > 0 {
+                SEPARATOR
+            } else {
+                0.0
+            };
+        let side_slot = ticks(side);
+        let mut choices = column![].padding(PAD);
+        for (index, entry) in side.iter().enumerate() {
+            if entry.separated && index > 0 {
+                choices = choices.push(crate::controls::menu_separator(theme));
+            }
+            let light = Light::Lit(menu.side_lit == Some(index) && !entry.disabled);
+            choices = choices.push(
                 mouse_area(self.cx.look.context_item(
-                    self.menu_entry(entry, slot),
+                    self.menu_entry(entry, side_slot),
                     light,
-                    Message::Menu(Event::SubChoose(index)),
+                    Message::Menu(Event::SideChoose(index)),
                 ))
-                .on_enter(Message::Menu(Event::SubLight(index))),
+                .on_enter(Message::Menu(Event::SideLight(index))),
             );
         }
-        let panel: Element<'a, Message> = container(rows)
-            .width(menu.fit(Some(sub)))
-            .style(menu_panel_over(theme, decorated))
-            .into();
-        let panel = crate::theme_art::surface(panel, self.cx, surface);
-        crate::theme_art::outlined(
+        let width = fit(side, side_slot).max(SUB_WIDTH);
+        row![
+            panel,
+            column![
+                Space::new().height(above),
+                self.menu_surface(
+                    container(choices)
+                        .width(width)
+                        .style(menu_panel_over(theme, decorated))
+                        .into(),
+                ),
+            ]
+        ]
+        .spacing(SUB_GAP)
+        .into()
+    }
+}
+
+impl<'a> View<'a> {
+    /// A menu panel as the theme draws menus: its art surface and outline,
+    /// taking the pointer so a click on it doesn't close the menu.
+    fn menu_surface(self, panel: Element<'a, Message>) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let panel = crate::theme_art::surface(
+            panel,
+            self.cx,
+            yapfast_core::themes::package::art::ArtSurface::Menu,
+        );
+        opaque(crate::theme_art::outlined(
             panel,
             self.cx,
             yapfast_core::themes::layout::BorderPlace::Menu,
@@ -1174,7 +1376,26 @@ impl<'a> View<'a> {
             8.0,
             1.0,
             theme.menu_line,
-        )
+        ))
+    }
+}
+
+/// A separator's height between rows, as `controls::menu_separator`
+/// draws it: a line with 8 px either side.
+const SEPARATOR: f32 = 17.0;
+
+/// How tall a menu row stands, as `Look::context_item` draws it.
+fn row_height(row: &MenuRow) -> f32 {
+    use crate::controls::Check;
+    if row.subtitle.is_some() {
+        51.0
+    } else if row.icon.is_some()
+        || (row.submenu.is_empty() && matches!(row.check, Check::Current | Check::Box(_)))
+    {
+        36.0
+    } else {
+        // 32 px and 2 under, or 34 with a submenu's arrow.
+        34.0
     }
 }
 

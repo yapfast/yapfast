@@ -49,7 +49,11 @@ it's turned back on; Unmute folder once all are muted, with when the last
 mute ends) and Notification settings (a level checked when every server
 has it, the switches ticked when every server has them on) change all its
 servers in one request (`place_menus::folder_levels`). Servers lists them
-beside the menu, each saying how it notifies, and a click goes to one;
+beside the menu, each saying how it notifies, and a click goes to one; a
+right click on one opens its own choices beside the list
+(`place_menus::server_choices`, `Menu::side`): mute for each time or
+Unmute server, its levels and its two switches, which change that server
+alone and leave the menu open, a level or a switch checked in place.
 Close all folders comes last while a folder is open.
 A middle click on a server or a folder marks it all read, as its menu's
 Mark as read does.
