@@ -196,10 +196,12 @@ pub(super) fn reactions<'a>(
     if message.can_react && reacts(ctx, index) == Reacts::Any {
         chips.push(add_chip(ctx, index, message));
     }
+    // Main's 4 px between chips with no theme; a theme's 6 px, as Slint's.
+    let gap = if ctx.look.theme.packaged() { 6 } else { 4 };
     Row::from_vec(chips)
-        .spacing(6)
+        .spacing(gap)
         .wrap()
-        .vertical_spacing(6)
+        .vertical_spacing(gap)
         .into()
 }
 
