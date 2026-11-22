@@ -316,6 +316,7 @@ pub mod method {
     pub const OVERLAY_PICTURE: &str = "overlay.picture";
     pub const SERVERS_DETAILS: &str = "servers.details";
     pub const MESSAGES_RETAIN_STYLE: &str = "messages.retain_style";
+    pub const SETTINGS_SET: &str = "settings.set";
     pub const GIFS_FAVOURITES: &str = "gifs.favourites";
     // The calls the PDK has no wrapper for yet, named for `call::call`.
     pub const VOICE_STATE: &str = "voice.state";

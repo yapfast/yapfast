@@ -2,9 +2,9 @@
 //!
 //! A setting's key and type are declared in the plugin's manifest, and Yapfast
 //! draws the form, checks it and stores it, so a plugin reads a setting the
-//! same way whatever a person typed into it. There is no write side: settings
-//! belong to the person, and a plugin that wants to keep something writes to
-//! [`storage`](crate::storage).
+//! same way whatever a person typed into it. [`set`] writes one of the
+//! plugin's own, checked as the page checks the person's typing; something
+//! that isn't a setting belongs in [`storage`](crate::storage).
 
 use serde::de::DeserializeOwned;
 
@@ -34,4 +34,15 @@ pub fn get<T: DeserializeOwned>(key: &str) -> Result<Option<T>> {
 /// One setting as JSON, for a key whose type the plugin only knows at runtime.
 pub fn value(key: &str) -> Result<Option<serde_json::Value>> {
     get::<serde_json::Value>(key)
+}
+
+/// Writes one of the plugin's own settings, as the person would on its page:
+/// a select by its option's value. The page shows it, and `settings.on_change`
+/// says so.
+pub fn set(key: &str, value: impl serde::Serialize) -> Result<()> {
+    call::ok(
+        method::SETTINGS_SET,
+        serde_json::json!({ "key": key, "value": value }),
+    )?;
+    Ok(())
 }

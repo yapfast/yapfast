@@ -698,6 +698,7 @@ the services' own, and the sources).
 | `drafts.list` | none | `[{ room, body }]` |
 | `account.sessions` | none | `[{ id_hash, last_used?, os?, platform?, location? }]` |
 | `messages.retain_style` | `{ red_text?, red_ground?, strike?, faded?, tag? }`, with `messages.retain` | `true`: how a kept deleted message is drawn, any of these together, each left out staying as it was; red text, a soft red ground and a `deleted` tag beside the time (its deletion time on hover) until a plugin says. A kept row's menu has Copy text, Copy Message ID and Hide this deleted message |
+| `settings.set` | `{ key, value }` | `true`: writes one of the plugin's own settings, checked as the page checks the person's typing, a select by its option's value; a list or widget setting isn't written whole. The page shows it and `settings.on_change` hears of it |
 | `servers.details` | `{ server }`, with `servers.read` | `{ roles: [{ id, name, colour?, icon?, position, permissions, mentionable, managed }], emojis: [{ id, name, animated, url, available }], stickers: [{ id, name, format, url }] }`, highest role first, from what Discord sent the account (a role's members aren't listed: Discord sends a server's members a list at a time) |
 | `gifs.favourites` | `{}`, with `media.read` | `[{ url, src, video, width, height }]`, the account's favourite GIFs in their order |
 | `people.badges` | `{ person, server? }`, with `people.read` | `[{ id, description, icon, link? }]`: the person's Discord badges, from their profile in that server or outside any, as Discord's profile gives them |

@@ -343,6 +343,11 @@ pub enum AppCall {
         before: Option<String>,
         limit: Option<usize>,
     },
+    /// One of the plugin's own settings: `settings.set`.
+    SetSetting {
+        key: String,
+        value: serde_json::Value,
+    },
     /// How kept deleted messages are drawn: `messages.retain_style`.
     RetainStyle(yapfast_plugin_api::call::RetainStyle),
     /// A server's roles, emoji and stickers: `servers.details`.

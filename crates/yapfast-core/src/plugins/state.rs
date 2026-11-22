@@ -458,6 +458,57 @@ impl PluginState {
         changed
     }
 
+    /// `settings.set`: a plugin writes one of its own settings, checked as the
+    /// page checks the person's typing; a select takes its option's value. A
+    /// list setting is the person's to edit row by row and isn't written
+    /// whole.
+    pub fn set_own_setting(
+        &mut self,
+        plugin: &PluginId,
+        key: &str,
+        value: &Value,
+    ) -> Result<(), String> {
+        let form = self
+            .bridge
+            .form(plugin)
+            .ok_or_else(|| format!("{plugin} has no settings"))?;
+        let setting = form
+            .schema
+            .setting(key)
+            .ok_or_else(|| format!("{plugin} declares no setting named `{key}`"))?;
+        let input = match (&setting.kind, value) {
+            (settings::Kind::List { .. }, _) | (settings::Kind::Widget, _) => {
+                return Err(format!("`{key}` isn't a setting a plugin writes whole"));
+            }
+            (settings::Kind::Select { options, .. }, Value::String(chosen)) => {
+                let index = options
+                    .iter()
+                    .position(|option| option.value == *chosen)
+                    .ok_or_else(|| format!("`{chosen}` isn't one of `{key}`'s options"))?;
+                settings::Input::Text(index.to_string())
+            }
+            (_, Value::Bool(on)) => settings::Input::Bool(*on),
+            (_, Value::String(text)) => settings::Input::Text(text.clone()),
+            (_, Value::Number(number)) => settings::Input::Text(number.to_string()),
+            _ => return Err(format!("`{key}` takes a string, a number or a boolean")),
+        };
+        self.set_setting(
+            plugin,
+            settings::Edit::Set {
+                key: key.to_owned(),
+                value: input,
+            },
+        );
+        match self
+            .refused
+            .get(plugin)
+            .and_then(|refused| refused.get(key))
+        {
+            Some(why) => Err(format!("`{key}` was refused: {}", why.message)),
+            None => Ok(()),
+        }
+    }
+
     /// Hands the input of a widget one of its settings draws to a running
     /// instance, the way a changed value is handed to it.
     ///

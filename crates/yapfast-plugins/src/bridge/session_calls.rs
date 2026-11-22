@@ -108,6 +108,14 @@ impl Session {
                     })
             }
             call::method::GIFS_FAVOURITES => Ok(AppCall::FavouriteGifs),
+            call::method::SETTINGS_SET => {
+                request
+                    .parse::<call::SettingSet>()
+                    .map(|set| AppCall::SetSetting {
+                        key: set.key,
+                        value: set.value,
+                    })
+            }
             call::method::MESSAGES_RETAIN_STYLE => request
                 .parse::<call::RetainStyle>()
                 .map(AppCall::RetainStyle),

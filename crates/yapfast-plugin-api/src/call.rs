@@ -49,6 +49,8 @@ pub mod method {
     pub const STORAGE_LIST: &str = "storage.list";
     pub const STORAGE_CLEAR: &str = "storage.clear";
     pub const SETTINGS_GET: &str = "settings.get";
+    /// One of the plugin's own settings, written by the plugin.
+    pub const SETTINGS_SET: &str = "settings.set";
     pub const SETTINGS_ON_CHANGE: &str = "settings.on_change";
     pub const HTTP_FETCH: &str = "http.fetch";
     /// A piece of a large answer's body, and letting it go.
@@ -182,7 +184,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 111] = [
+    pub const ALL: [&str; 112] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -199,6 +201,7 @@ pub mod method {
         OVERLAY_PICTURE,
         SERVERS_DETAILS,
         MESSAGES_RETAIN_STYLE,
+        SETTINGS_SET,
         GIFS_FAVOURITES,
         STORAGE_GET,
         STORAGE_SET,
@@ -1478,6 +1481,15 @@ pub struct PeopleBadges {
     pub person: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+}
+
+/// `settings.set`: one of the plugin's own settings, as its manifest declares
+/// it, checked as the settings page checks what the person types.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SettingSet {
+    pub key: String,
+    pub value: Value,
 }
 
 /// `messages.retain_style`: how a kept deleted message is drawn, any of these

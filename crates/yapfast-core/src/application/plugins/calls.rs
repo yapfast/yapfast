@@ -111,6 +111,16 @@ impl Application {
                 }),
                 done,
             ),
+            AppCall::SetSetting { key, value } => {
+                let answer = match self.state.plugins.as_mut() {
+                    Some(plugins) => match plugins.set_own_setting(plugin, &key, &value) {
+                        Ok(()) => done,
+                        Err(message) => yapfast_plugin_api::call::HostReturn::Error { message },
+                    },
+                    None => yapfast_plugin_api::call::HostReturn::Unsupported,
+                };
+                (Vec::new(), answer)
+            }
             AppCall::RetainStyle(style) => {
                 let look = &mut self.state.retained_look;
                 for (field, asked) in [
