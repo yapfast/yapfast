@@ -817,7 +817,8 @@ impl<'a> View<'a> {
                 .size(15)
                 .font(crate::fonts::MEDIUM)
                 .color(theme.text),
-            text(about).size(13).color(theme.secondary),
+            // 12 px, as Discord's, so each kind's line fits on one line.
+            text(about).size(12).color(theme.secondary),
         ]
         .spacing(2)
         .width(Length::Fill);
