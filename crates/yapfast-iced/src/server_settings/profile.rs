@@ -252,11 +252,17 @@ impl<'a> View<'a> {
         ]
         .spacing(2);
         let (ground, line) = (theme.sidebar, theme.line);
-        container(stack![
-            column![banner],
-            crate::controls::placed(ring, 12.0, 36.0),
-            crate::controls::placed(container(words).width(PREVIEW.0 - 32.0), 16.0, 102.0),
-        ])
+        // The stack takes the whole card, so the words under the icon
+        // aren't cut off at the bottom of the parts above them.
+        container(
+            stack![
+                column![banner],
+                crate::controls::placed(ring, 12.0, 36.0),
+                crate::controls::placed(container(words).width(PREVIEW.0 - 32.0), 16.0, 102.0),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill),
+        )
         .width(PREVIEW.0)
         .height(PREVIEW.1)
         .clip(true)
