@@ -96,8 +96,10 @@ pub struct Found {
 /// What a found place shows before its name.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Face {
-    /// A DM's or a server's picture, by its name's initial.
+    /// A DM's picture, by its name's initial: a circle.
     Avatar(Option<String>),
+    /// A server's icon, by its name's initials: a rounded square.
+    Server(Option<String>),
     /// A channel's icon.
     Icon(Icon),
 }
@@ -244,7 +246,7 @@ impl Quick {
                     place: "Server".to_owned(),
                     unread: false,
                     mentions: 0,
-                    face: Face::Avatar(server.icon.clone()),
+                    face: Face::Server(server.icon.clone()),
                 },
             })
             .collect();
@@ -365,6 +367,11 @@ impl<'a> View<'a> {
             Face::Avatar(picture) => {
                 self.cx
                     .avatar(picture.as_deref(), &found.name, 24.0, 12.0, 1.0)
+            }
+            // A server's icon is a rounded square, as Discord draws it.
+            Face::Server(picture) => {
+                self.cx
+                    .avatar(picture.as_deref(), &found.name, 24.0, 8.0, 1.0)
             }
             Face::Icon(icon) => self.cx.look.glyph(*icon, 20, theme.faint).into(),
         };
