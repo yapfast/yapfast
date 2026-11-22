@@ -993,6 +993,9 @@ pub struct RecentActivity {
     pub music: bool,
     /// When it ended, in Unix milliseconds.
     pub at: Option<u64>,
+    /// A game played, and how many days in a row, "13x Streak".
+    pub game: bool,
+    pub streak: Option<u32>,
 }
 
 /// A widget on a Discord board.

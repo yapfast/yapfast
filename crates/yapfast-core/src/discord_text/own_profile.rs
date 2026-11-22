@@ -140,6 +140,8 @@ pub(super) fn command(
                             picture: entry.picture,
                             music: entry.music,
                             at: entry.at,
+                            game: entry.game,
+                            streak: entry.streak,
                         })
                         .collect(),
                     Err(error) => {

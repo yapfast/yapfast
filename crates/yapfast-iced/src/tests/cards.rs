@@ -645,3 +645,40 @@ fn a_mutual_tab_asks_only_for_the_rows_shown() {
         "a screenful before it scrolls"
     );
 }
+
+/// A game on the Activity tab shows a controller and its streak of days,
+/// as Discord's row does.
+#[test]
+fn a_recent_game_shows_its_streak() {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::ProfileView,
+        chat::{Profile, RecentActivity},
+    };
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.profile = Some(Arc::new(ProfileView {
+            profile: Profile {
+                id: "123456789".into(),
+                name: "Zed".into(),
+                handle: "zed".into(),
+                recent: vec![RecentActivity {
+                    title: "Factorio".into(),
+                    at: Some(yapfast_core::clock::now_ms() - 3_600_000),
+                    game: true,
+                    streak: Some(13),
+                    ..Default::default()
+                }],
+                recent_came: true,
+                ..Default::default()
+            },
+            large: true,
+            kept: true,
+            ..Default::default()
+        }));
+    });
+    app.profiles.tab = Some(crate::profile::look::Tab::Activity);
+    let _ = app.sync();
+    assert!(shows(&app, "Factorio"));
+    assert!(shows(&app, "\u{26a1} 13x Streak"));
+}

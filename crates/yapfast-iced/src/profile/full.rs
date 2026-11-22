@@ -471,11 +471,25 @@ fn activity_tab<'a>(
         }
         if let Some(at) = entry.at {
             let music = if entry.music { "\u{266b} " } else { "" };
-            lines = lines.push(
+            // A game: a controller before when, and its streak of days, as
+            // Discord's row.
+            let mut when = row![].spacing(4).align_y(Alignment::Center);
+            if entry.game {
+                when = when.push(ctx.look.glyph(Icon::Gamepad, 12, inks.ink3));
+            }
+            when = when.push(
                 text(format!("{music}{}", time_ago(at)))
                     .size(12)
                     .color(inks.ink3),
             );
+            if let Some(days) = entry.streak {
+                when = when.push(
+                    text(format!("\u{26a1} {days}x Streak"))
+                        .size(12)
+                        .color(inks.ink3),
+                );
+            }
+            lines = lines.push(when);
         }
         list = list.push(
             container(
