@@ -389,6 +389,12 @@ impl Settings {
         self.marketplace.protected_theme().or(self.preview.as_ref())
     }
 
+    /// Lets go of the draft previewed, as Ctrl+Shift+T does. The editor or
+    /// creator stays open on it.
+    pub fn drop_preview(&mut self) {
+        self.preview = None;
+    }
+
     /// Whether a theme's review is open, which shows in the stock look.
     pub fn protected(&self) -> bool {
         self.marketplace.protected_theme().is_some()

@@ -468,8 +468,7 @@ impl App {
             && !modifiers.alt()
             && key.as_ref() == keyboard::Key::Character("t")
         {
-            self.themes.turn_off(self.client.root());
-            self.show_wanted_theme();
+            self.turn_package_off();
             return Task::none();
         }
         let taker = self.layers().find(|layer| layer.takes_keys());

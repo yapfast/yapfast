@@ -17,6 +17,14 @@ impl App {
     /// test display's commands.
     pub fn subscription(&self) -> Subscription<Message> {
         let keys = keyboard::listen().filter_map(|event| match event {
+            // Ctrl+Shift+T held turns a theme off once.
+            keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                physical_key,
+                repeat: true,
+                ..
+            } if turns_theme_off(&key, physical_key, modifiers) => None,
             keyboard::Event::KeyPressed {
                 key,
                 modifiers,
@@ -117,10 +125,7 @@ impl App {
                 repeat: false,
                 ..
             }) if status == iced::event::Status::Captured
-                && modifiers.control()
-                && modifiers.shift()
-                && !modifiers.alt()
-                && is_letter(&key, physical_key, "t", key::Code::KeyT) =>
+                && turns_theme_off(&key, physical_key, modifiers) =>
             {
                 Some(Message::Pressed(
                     keyboard::Key::Character("t".into()),
@@ -207,6 +212,18 @@ impl App {
         }
         Subscription::batch(subscriptions)
     }
+}
+
+/// Whether the keys are Ctrl+Shift+T, which turns a theme package off.
+fn turns_theme_off(
+    key: &keyboard::Key,
+    physical: key::Physical,
+    modifiers: keyboard::Modifiers,
+) -> bool {
+    modifiers.control()
+        && modifiers.shift()
+        && !modifiers.alt()
+        && is_letter(key, physical, "t", key::Code::KeyT)
 }
 
 /// The key of a shortcut's letter, `letter` in lower case: that letter in

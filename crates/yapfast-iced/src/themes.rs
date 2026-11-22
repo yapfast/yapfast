@@ -1334,6 +1334,20 @@ impl Themes {
         }
     }
 
+    /// Whether a package dresses [`Self::shown`]: one chosen or tried, or
+    /// `--theme-dev`'s.
+    pub fn package_shown(&self) -> bool {
+        self.dev.is_some()
+            || self
+                .trial
+                .as_ref()
+                .is_some_and(|trial| self.package(&trial.id).is_some())
+            || self
+                .chosen
+                .as_deref()
+                .is_some_and(|id| self.package(id).is_some())
+    }
+
     /// The chosen theme's id, as Appearance and Themes mark it.
     pub fn chosen_id(&self) -> &str {
         if let Some(trial) = &self.trial {

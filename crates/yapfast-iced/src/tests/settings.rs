@@ -94,19 +94,83 @@ fn a_theme_chosen_in_appearance_shows_at_once_and_is_kept() {
     assert_eq!(start(&folder, true).theme.id, "nord", "the next start too");
 }
 
-#[test]
-fn ctrl_shift_t_turns_the_theme_off_even_over_settings() {
-    let (mut app, folder) = preview();
-    assert!(app.choose_theme("nord"));
-    open(&mut app, Section::Themes);
+fn ctrl_shift_t(app: &mut App) {
     let _ = app.update(Message::Key(
         Key::Character("t".into()),
         iced::keyboard::Modifiers::CTRL | iced::keyboard::Modifiers::SHIFT,
     ));
+}
+
+/// A small package installed in `folder`, as `installed:dev.example.small`.
+fn install_small_package(folder: &tempfile::TempDir) {
+    let fetched = yapfast_core::themes::install::Fetched::new(
+        "https://github.com/ada/small".into(),
+        String::new(),
+        "main".into(),
+        "0123456789abcdef0123456789abcdef01234567".into(),
+        yapfast_core::themes::check::Files {
+            manifest: r##"{ "theme_api": 1, "id": "dev.example.small", "name": "Small",
+                "version": "1.0.0", "variants": { "dark": { "base": "yap" } } }"##
+                .into(),
+            ..Default::default()
+        },
+    )
+    .expect("a package");
+    yapfast_core::themes::install::Themes::open(folder.path())
+        .install(&fetched)
+        .expect("installed");
+}
+
+#[test]
+fn ctrl_shift_t_turns_a_package_off_even_over_settings() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    install_small_package(&folder);
+    let mut app = start(&folder, true);
+    assert!(app.choose_theme("installed:dev.example.small"));
+    assert!(app.theme.packaged());
+    open(&mut app, Section::Themes);
+    ctrl_shift_t(&mut app);
     assert_eq!(app.theme.id, "bonfire");
+    assert!(!app.theme.packaged());
     let kept = stored(&folder);
     assert!(kept["theme"].is_null());
-    assert_eq!(kept["previous_theme"], "nord");
+    assert_eq!(kept["previous_theme"], "installed:dev.example.small");
+}
+
+/// Only a package is turned off: a palette theme stays, and isn't kept
+/// as anything else.
+#[test]
+fn ctrl_shift_t_leaves_a_palette_theme_as_it_is() {
+    let (mut app, folder) = preview();
+    assert!(app.choose_theme("sakura"));
+    ctrl_shift_t(&mut app);
+    assert_eq!(app.theme.id, "sakura");
+    let kept = stored(&folder);
+    assert_eq!(kept["theme"], "sakura");
+}
+
+/// The creator's preview is a package too: the key lets go of it, and
+/// the palette theme chosen shows again.
+#[test]
+fn ctrl_shift_t_lets_go_of_the_creators_preview() {
+    use crate::settings::theme_creator::Event as CreatorEvent;
+    use crate::settings::{ThemeEvent, appearance_event as theme};
+
+    let (mut app, folder) = preview();
+    assert!(app.choose_theme("sakura"));
+    open(&mut app, Section::Themes);
+    let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::Open)));
+    let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::AccentPreset(
+        0xff6b6b,
+    ))));
+    assert_eq!(app.theme.id, crate::themes::CREATOR_PREVIEW_ID);
+    assert!(app.theme.packaged());
+    ctrl_shift_t(&mut app);
+    assert_eq!(app.theme.id, "sakura");
+    assert!(!app.theme.packaged());
+    assert!(app.themes.find(crate::themes::CREATOR_PREVIEW_ID).is_none());
+    assert!(shows(&app, "Save theme"), "the creator stays open");
+    assert_eq!(stored(&folder)["theme"], "sakura");
 }
 
 #[test]
