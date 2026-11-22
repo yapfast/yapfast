@@ -266,12 +266,17 @@ impl<'a> super::View<'a> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let open = self.cx.menu.is_some_and(|menu| menu.header);
+        let looks = yapfast_iced_kit::parts::ByStatus::new(theme, "sidebar.header", 0);
+        let rest = looks.rest().copied();
         // Over the banner, in white.
         let on_banner = head.banner.is_some();
         let (ink, chevron) = if on_banner {
             (Color::WHITE, Color::WHITE)
         } else {
-            (theme.text, theme.secondary)
+            (
+                yapfast_iced_kit::parts::ink(rest.as_ref(), theme.text),
+                yapfast_iced_kit::parts::ink(rest.as_ref(), theme.secondary),
+            )
         };
         let mut face = row![].spacing(10).align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
@@ -296,8 +301,14 @@ impl<'a> super::View<'a> {
             row![
                 crate::theme_effects::slot(
                     elide(theme.heading(&head.name).into_owned())
-                        .size(theme.header_size(15.0))
-                        .font(theme.header_font(BOLD))
+                        .size(yapfast_iced_kit::parts::size(
+                            rest.as_ref(),
+                            theme.header_size(15.0)
+                        ))
+                        .font(yapfast_iced_kit::parts::font(
+                            rest.as_ref(),
+                            theme.header_font(BOLD)
+                        ))
                         .color(ink),
                     self.cx,
                     yapfast_core::themes::package::Slot::ServerName,
@@ -333,7 +344,12 @@ impl<'a> super::View<'a> {
         .height(32)
         .width(Length::Fill)
         .on_press(Message::Side(Event::Header))
-        .style(lit_style(open.then_some(hover), hover, 6.0))
+        .style(move |iced_theme, status| {
+            looks.style(
+                status,
+                lit_style(open.then_some(hover), hover, 6.0)(iced_theme, status),
+            )
+        })
         .into()
     }
 }

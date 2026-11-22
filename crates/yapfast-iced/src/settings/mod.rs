@@ -854,6 +854,13 @@ impl<'a> Page<'a> {
             None,
             listed.is_some(),
             Some(0),
+            Some((
+                "settings.nav-row",
+                yapfast_iced_kit::parts::states(&[
+                    (yapfast_iced_kit::parts::SELECTED, selected),
+                    (yapfast_iced_kit::parts::HOVER, pointed),
+                ]),
+            )),
         );
         Some(
             container(row)

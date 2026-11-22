@@ -127,6 +127,13 @@ pub fn action<'a, M: Clone + 'a>(
         large_size: 15.0,
         hover_cue: theme.has_hover_cue(),
         press_cue: theme.has_press_cue(),
+        // A destructive button keeps Yapfast's red, as a theme's colours
+        // can't change it either.
+        looks: if kind == Kind::Danger {
+            crate::parts::ByStatus::default()
+        } else {
+            crate::parts::ByStatus::new(theme, "button", 0)
+        },
     }
 }
 
@@ -150,6 +157,8 @@ pub struct Action<'a, M> {
     large_size: f32,
     hover_cue: bool,
     press_cue: bool,
+    /// The theme's `button` part, by status.
+    looks: crate::parts::ByStatus,
 }
 
 /// A button's ground and ink at rest and lit, and its ring.
@@ -211,6 +220,8 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
         let base_border = action.border;
         let shadow = action.shadow;
         let motion = action.motion;
+        let looks = action.looks;
+        let radius = crate::parts::radius(looks.rest(), radius);
         let shown: Element<'a, M> = button(
             container({
                 let label = text(action.label)
@@ -240,7 +251,7 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
         .on_press_maybe(action.message)
         .style(move |_, status| {
             let lit = usize::from(lights(status));
-            button::Style {
+            let stock = button::Style {
                 background: Some(faces.ground[lit].into()),
                 text_color: faces.ink[lit],
                 border: Border {
@@ -254,6 +265,15 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
                 },
                 shadow,
                 ..Default::default()
+            };
+            let styled = looks.style(status, stock);
+            // A focus ring stays the accent's.
+            match faces.ring {
+                Some(_) => button::Style {
+                    border: stock.border,
+                    ..styled
+                },
+                None => styled,
             }
         })
         .into();
@@ -362,21 +382,31 @@ pub fn field_style(
     );
     let radius = theme.surface_radius("field", 6.0);
     let idle = theme.surface_border("field", 6.0, 0.0, Color::TRANSPARENT);
-    move |_, status| text_input::Style {
-        background: ground.into(),
-        border: Border {
-            color: Color { a: 0.8, ..accent },
-            width: if matches!(status, text_input::Status::Focused { .. }) {
-                1.0
-            } else {
-                idle.width
+    let looks = [
+        theme.part("field", 0),
+        theme.part("field", crate::parts::HOVER),
+        theme.part("field", crate::parts::FOCUSED),
+    ];
+    move |_, status| {
+        let focused = matches!(status, text_input::Status::Focused { .. });
+        let stock = text_input::Style {
+            background: ground.into(),
+            border: Border {
+                color: Color { a: 0.8, ..accent },
+                width: if focused { 1.0 } else { idle.width },
+                radius: radius.into(),
             },
-            radius: radius.into(),
-        },
-        icon: ink,
-        placeholder: if enabled { hint } else { faint },
-        value: if enabled { ink } else { faint },
-        selection,
+            icon: ink,
+            placeholder: if enabled { hint } else { faint },
+            value: if enabled { ink } else { faint },
+            selection,
+        };
+        let look = match status {
+            text_input::Status::Focused { .. } => looks[2],
+            text_input::Status::Hovered => looks[1],
+            _ => looks[0],
+        };
+        crate::parts::field_style(look.as_ref(), stock)
     }
 }
 
@@ -386,10 +416,10 @@ pub fn tip<'a, M: Clone + 'a>(theme: &Theme, label: impl text::IntoFragment<'a>)
     let tip = container(
         // As Slint's tip: 14 px bold in the window's face (a theme's body
         // face stands in for it), not the theme's labels.
-        text(label)
-            .size(14.0)
-            .font(BOLD)
-            .color(theme.token_colour("on-tooltip", theme.text)),
+        text(label).size(14.0).font(BOLD).color(crate::parts::ink(
+            theme.part("tooltip", 0).as_ref(),
+            theme.token_colour("on-tooltip", theme.text),
+        )),
     )
     .padding([0, 10])
     .height(32)
@@ -463,11 +493,22 @@ pub fn tip_style(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + u
             blur_radius: 12.0,
         },
     );
-    move |_| container::Style {
-        background: (!decorated).then_some(ground),
-        shadow,
-        border,
-        ..Default::default()
+    let look = theme.part("tooltip", 0);
+    move |_| {
+        let style = container::Style {
+            background: (!decorated).then_some(ground),
+            shadow,
+            border,
+            ..Default::default()
+        };
+        match look {
+            // Its art or glass stays seen.
+            Some(look) if decorated => container::Style {
+                background: None,
+                ..look.style(style)
+            },
+            _ => crate::parts::style(look.as_ref(), style),
+        }
     }
 }
 
@@ -725,11 +766,22 @@ pub fn menu_panel_over(
         border.width = 0.0;
     }
     let shadow = theme.surface_shadow("menu", crate::style::raised_shadow());
-    move |_| container::Style {
-        background: (!transparent).then_some(ground),
-        border,
-        shadow,
-        ..Default::default()
+    let look = theme.part("menu", 0);
+    move |_| {
+        let style = container::Style {
+            background: (!transparent).then_some(ground),
+            border,
+            shadow,
+            ..Default::default()
+        };
+        match look {
+            // Art or glass under it stays seen.
+            Some(look) if transparent => container::Style {
+                background: None,
+                ..look.style(style)
+            },
+            _ => crate::parts::style(look.as_ref(), style),
+        }
     }
 }
 
@@ -943,6 +995,12 @@ impl crate::look::Look<'_> {
             (true, false) => crate::style::faded(theme.danger, 0.1),
             (false, _) => theme.wash(0.06),
         };
+        // A destructive row keeps Yapfast's red.
+        let looks = if item.danger {
+            crate::parts::ByStatus::default()
+        } else {
+            crate::parts::ByStatus::new(theme, "menu.row", 0)
+        };
         let inks = [ink(false), ink(true)];
         // A disabled row: the whole of it at .45.
         let inks = if item.disabled {
@@ -960,12 +1018,18 @@ impl crate::look::Look<'_> {
                     Light::Pointer => lights(status),
                     Light::Lit(lit) => lit,
                 } && !matches!(status, button::Status::Disabled);
-                button::Style {
+                let stock = button::Style {
                     background: on.then(|| light_fill.into()),
                     text_color: inks[usize::from(on)],
                     border: Border::default().rounded(4),
                     ..Default::default()
-                }
+                };
+                // A row lit from the keys looks as one under the pointer.
+                let status = match status {
+                    button::Status::Active if on => button::Status::Hovered,
+                    status => status,
+                };
+                looks.style(status, stock)
             })
             .into();
         if !item.disabled && (theme.has_hover_cue() || theme.has_press_cue()) {
@@ -1030,6 +1094,8 @@ pub struct IconButton<'a, M> {
     hover_wash: Option<Color>,
     radius: f32,
     below: bool,
+    /// The named part it is, and the states it's in besides the pointer's.
+    part: Option<(&'static str, crate::parts::States)>,
 }
 
 enum Face {
@@ -1069,6 +1135,7 @@ impl<'a> crate::look::Look<'a> {
             hover_wash: None,
             radius: 6.0,
             below: false,
+            part: None,
         }
     }
 
@@ -1129,6 +1196,13 @@ impl<'a, M: Clone + 'a> IconButton<'a, M> {
         self.hover_wash = Some(color);
         self
     }
+
+    /// Styled as the theme's named part `name` (such as `header.button`),
+    /// in `states` (such as selected) and the pointer's.
+    pub fn part(mut self, name: &'static str, states: crate::parts::States) -> Self {
+        self.part = Some((name, states));
+        self
+    }
 }
 
 impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
@@ -1145,15 +1219,26 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
             hover_wash,
             radius,
             below,
+            part,
         } = icon_button;
         let theme = look.theme;
-        let radius = theme.surface_radius("button", radius);
+        let looks = part.map_or_else(crate::parts::ByStatus::default, |(name, states)| {
+            crate::parts::ByStatus::new(theme, name, states)
+        });
+        let radius = crate::parts::radius(looks.rest(), theme.surface_radius("button", radius));
         let enabled = message.is_some();
-        let rest_ink = ink.unwrap_or(if enabled || matches!(ground, Ground::Clear) {
+        let stock_ink = ink.unwrap_or(if enabled || matches!(ground, Ground::Clear) {
             theme.secondary
         } else {
             theme.faint
         });
+        let rest_ink = crate::parts::ink(looks.rest(), stock_ink);
+        // A part whose ink changes under the pointer shows a second face
+        // there, as a destructive button does.
+        let lit_ink = looks
+            .get(button::Status::Hovered)
+            .map(|lit| lit.ink(stock_ink))
+            .filter(|lit| *lit != rest_ink && enabled && matches!(face, Face::Icon(_)));
         // A face of its own shows once: a destructive button, whose lit
         // face is its glyph again in red, has none.
         let mut face_in = |ink: Color| match &mut face {
@@ -1163,15 +1248,31 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
                 .expect("a face of its own shows once")
                 .boxed(side),
         };
-        let pressed = |face, style| {
+        fn styled<'a, M: Clone + 'a>(
+            face: iced::widget::Container<'a, M>,
+            style: impl Fn(&iced::Theme, button::Status) -> button::Style + 'a,
+            looks: crate::parts::ByStatus,
+            side: f32,
+            message: Option<M>,
+        ) -> iced::widget::Button<'a, M> {
             button(face)
                 .padding(0)
                 .width(side)
                 .height(side)
-                .on_press_maybe(message.clone())
-                .style(style)
-        };
+                .on_press_maybe(message)
+                .style(move |iced_theme, status| looks.style(status, style(iced_theme, status)))
+        }
+        let pressed = |face, style| styled(face, style, looks, side, message.clone());
         let shown: Element<'a, M> = match ground {
+            Ground::Clear if lit_ink.is_some() => {
+                let wash = hover_wash.unwrap_or_else(|| theme.wash(0.1));
+                let rest = pressed(face_in(rest_ink), lit_style(None, wash, radius));
+                let lit = pressed(
+                    face_in(lit_ink.unwrap_or(rest_ink)),
+                    lit_style(None, wash, radius),
+                );
+                crate::widgets::Hover::new(rest, lit).into()
+            }
             Ground::Clear => pressed(
                 face_in(rest_ink),
                 lit_style(None, hover_wash.unwrap_or_else(|| theme.wash(0.1)), radius),

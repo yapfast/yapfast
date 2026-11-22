@@ -672,13 +672,19 @@ impl<'a> View<'a> {
             top = top.push(self.events_row(events));
         }
         let corner = self.cx.look.theme.radius(12.0);
+        let look = theme.part("sidebar", 0);
         container(column![top, list])
             .width(width(self.cx.layout, self.cx.look.theme))
             .height(list_height)
             .clip(true)
             // Its top corner by the theme's radii (square on Zine), as
             // Slint's `Look.radius`.
-            .style(move |_| rounded(ground, corners([corner, 0.0, 0.0, 0.0])))
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    look.as_ref(),
+                    rounded(ground, corners([corner, 0.0, 0.0, 0.0])),
+                )
+            })
             .into()
     }
 }

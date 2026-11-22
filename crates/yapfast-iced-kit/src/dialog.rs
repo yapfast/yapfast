@@ -128,14 +128,18 @@ pub fn dialog<'a, M: Clone + 'a>(
         border.width = 0.0;
     }
     let shadow = theme.surface_shadow("dialog", card_shadow());
-    let card = container(body)
-        .width(width)
-        .style(move |_| container::Style {
-            background: Some(ground.into()),
-            border,
-            shadow,
-            ..Default::default()
-        });
+    let look = theme.part("dialog", 0);
+    let card = container(body).width(width).style(move |_| {
+        crate::parts::style(
+            look.as_ref(),
+            container::Style {
+                background: Some(ground.into()),
+                border,
+                shadow,
+                ..Default::default()
+            },
+        )
+    });
     let card = opaque(crate::controls::themed_outline(
         card,
         theme,
@@ -185,12 +189,16 @@ pub fn panel<'a, M: Clone + 'a>(
     if theme.outline("dialog").is_some() {
         border.width = 0.0;
     }
-    let mut card = container(body)
-        .width(width)
-        .style(move |_| container::Style {
-            border,
-            ..crate::style::rounded(ground, border.radius)
-        });
+    let look = theme.part("dialog", 0);
+    let mut card = container(body).width(width).style(move |_| {
+        crate::parts::style(
+            look.as_ref(),
+            container::Style {
+                border,
+                ..crate::style::rounded(ground, border.radius)
+            },
+        )
+    });
     if let Some(height) = height {
         card = card.height(height);
     }

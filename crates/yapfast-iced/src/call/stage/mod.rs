@@ -732,7 +732,14 @@ fn stage_tile(
             tile
         }
     };
-    tile = tile.surface(theme, "call");
+    tile = tile.surface(theme, "call").part(theme.part(
+        "call.tile",
+        if pointed {
+            yapfast_iced_kit::parts::HOVER
+        } else {
+            0
+        },
+    ));
     if full {
         tile = tile.square();
     }

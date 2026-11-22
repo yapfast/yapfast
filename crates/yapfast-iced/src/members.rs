@@ -1285,15 +1285,19 @@ impl<'a> View<'a> {
             &self.cx.look.theme.id,
             yapfast_core::themes::package::art::ArtSurface::Members,
         );
+        let part = self.cx.look.theme.part("members", 0);
         let list = container(row![bar(edge, 1, Length::Fill), list])
             .width(width(self.cx.layout, self.cx.look.theme))
             .height(Length::Fill)
             .style(move |_| {
-                if bare {
-                    container::Style::default()
-                } else {
-                    fill(ground)
-                }
+                yapfast_iced_kit::parts::style(
+                    part.as_ref(),
+                    if bare {
+                        container::Style::default()
+                    } else {
+                        fill(ground)
+                    },
+                )
             });
         // Its edge drags it wider or narrower, over the line.
         let theme = self.cx.look.theme;
@@ -1986,11 +1990,15 @@ impl<'a> View<'a> {
                 });
         let heading = crate::themes::list_case(headers.and_then(|headers| headers.case), &heading);
         let heading = theme.surface_words("label", &heading).into_owned();
-        let ink = headers
-            .and_then(|headers| headers.colour)
-            .map(crate::themes::argb)
-            .or_else(|| theme.surface_text("label"))
-            .unwrap_or_else(|| hex(HEADING));
+        let part = theme.part("members.heading", 0);
+        let ink = yapfast_iced_kit::parts::ink(
+            part.as_ref(),
+            headers
+                .and_then(|headers| headers.colour)
+                .map(crate::themes::argb)
+                .or_else(|| theme.surface_text("label"))
+                .unwrap_or_else(|| hex(HEADING)),
+        );
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(icon) = icon.and_then(|icon| self.cx.picture(icon, 20, 20, false)) {
             line = line.push(Pic::square(icon, 20.0));
@@ -2003,19 +2011,25 @@ impl<'a> View<'a> {
         let header_role = headers
             .and_then(|h| h.font)
             .map_or(stock_role, yapfast_core::themes::lists::FontRole::name);
-        let size = headers.and_then(|headers| headers.size).unwrap_or_else(|| {
-            if label_bar || headers.and_then(|h| h.font).is_some() {
-                theme.type_size(header_role, 14.0)
-            } else {
-                14.0
-            }
-        });
-        let header_font = crate::themes::list_font(
-            theme,
-            headers.and_then(|h| h.font),
-            stock_role,
-            headers.and_then(|h| h.weight),
-            MEDIUM,
+        let size = yapfast_iced_kit::parts::size(
+            part.as_ref(),
+            headers.and_then(|headers| headers.size).unwrap_or_else(|| {
+                if label_bar || headers.and_then(|h| h.font).is_some() {
+                    theme.type_size(header_role, 14.0)
+                } else {
+                    14.0
+                }
+            }),
+        );
+        let header_font = yapfast_iced_kit::parts::font(
+            part.as_ref(),
+            crate::themes::list_font(
+                theme,
+                headers.and_then(|h| h.font),
+                stock_role,
+                headers.and_then(|h| h.weight),
+                MEDIUM,
+            ),
         );
         let header_shadow = crate::themes::offset_shadow(headers.and_then(|h| h.shadow));
         // As Slint's member heading: the list's own heading shadow only;
@@ -2071,21 +2085,29 @@ impl<'a> View<'a> {
             return crate::theme_art::surface(body, self.cx, surface);
         }
         let mut body = container(line)
-            .padding(Padding {
-                top: if fill_width { 4.0 } else { 20.0 },
-                right: if fill_width { 6.0 } else { 0.0 },
-                bottom: 4.0,
-                left: headers
-                    .and_then(|headers| headers.inset)
-                    .unwrap_or(if fill_width { 6.0 } else { 8.0 }),
-            })
+            .padding(yapfast_iced_kit::parts::padding(
+                part.as_ref(),
+                Padding {
+                    top: if fill_width { 4.0 } else { 20.0 },
+                    right: if fill_width { 6.0 } else { 0.0 },
+                    bottom: 4.0,
+                    left: headers
+                        .and_then(|headers| headers.inset)
+                        .unwrap_or(if fill_width { 6.0 } else { 8.0 }),
+                },
+            ))
             .height(height)
             .align_y(Alignment::Center)
-            .style(move |_| container::Style {
-                background,
-                border,
-                shadow,
-                ..Default::default()
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    part.as_ref(),
+                    container::Style {
+                        background,
+                        border,
+                        shadow,
+                        ..Default::default()
+                    },
+                )
             });
         if fill_width {
             body = body.width(Length::Fill);
@@ -2222,6 +2244,14 @@ impl<'a> View<'a> {
         // A theme's list ink beats its content colours, as on a grid tile.
         let themed_ink = list_name_ink(self.cx, themed, look);
         let color = themed_ink.map_or(stock_color, |colour| faded(colour, opacity));
+        let states = yapfast_iced_kit::parts::states(&[
+            (yapfast_iced_kit::parts::HOVER, pointed),
+            (yapfast_iced_kit::parts::SELECTED, selected),
+        ]);
+        let row_part = theme.part("members.row", states);
+        let name_part = theme.part("members.row.name", states);
+        // A role's colour stays the person's: the part fades it, no more.
+        let color = yapfast_iced_kit::parts::ink(name_part.as_ref(), color);
         let marked = self.cx.themes.marked(
             &theme.id,
             yapfast_core::themes::chrome::Place::Member,
@@ -2239,10 +2269,15 @@ impl<'a> View<'a> {
         let name = self.cx.person_name(
             marked.into_owned(),
             NameInk::new(
-                themed
-                    .and_then(|rows| rows.size)
-                    .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
-                themed.and_then(|rows| rows.weight).unwrap_or(500.0).round() as u16,
+                yapfast_iced_kit::parts::size(
+                    name_part.as_ref(),
+                    themed
+                        .and_then(|rows| rows.size)
+                        .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
+                ),
+                name_part.and_then(|part| part.weight).unwrap_or_else(|| {
+                    themed.and_then(|rows| rows.weight).unwrap_or(500.0).round() as u16
+                }),
                 color,
             )
             .font_role(name_role)
@@ -2485,16 +2520,19 @@ impl<'a> View<'a> {
             }
         }
         let content = person
-            .padding(Padding {
-                top: 0.0,
-                right: if plate.is_some() {
-                    right.max(12.0)
-                } else {
-                    right
+            .padding(yapfast_iced_kit::parts::padding(
+                row_part.as_ref(),
+                Padding {
+                    top: 0.0,
+                    right: if plate.is_some() {
+                        right.max(12.0)
+                    } else {
+                        right
+                    },
+                    bottom: 0.0,
+                    left,
                 },
-                bottom: 0.0,
-                left,
-            })
+            ))
             .height(row_height(self.cx.look.theme));
         // The ground the nameplate fades into.
         let ground = if selected {
@@ -2544,22 +2582,27 @@ impl<'a> View<'a> {
                 .width(Length::Fill)
                 .height(row_height)
                 .clip(true)
-                .style(move |_| container::Style {
-                    background: if selected {
-                        frame.is_none().then(|| {
-                            if selected_decorated {
-                                Color::TRANSPARENT
+                .style(move |_| {
+                    yapfast_iced_kit::parts::style(
+                        row_part.as_ref(),
+                        container::Style {
+                            background: if selected {
+                                frame.is_none().then(|| {
+                                    if selected_decorated {
+                                        Color::TRANSPARENT
+                                    } else {
+                                        theme.token_colour("row-selected", MEMBER_OPEN)
+                                    }
+                                    .into()
+                                })
                             } else {
-                                theme.token_colour("row-selected", MEMBER_OPEN)
-                            }
-                            .into()
-                        })
-                    } else {
-                        pointed.then(|| MEMBER_HOVER.into())
-                    },
-                    border,
-                    shadow,
-                    ..Default::default()
+                                pointed.then(|| MEMBER_HOVER.into())
+                            },
+                            border,
+                            shadow,
+                            ..Default::default()
+                        },
+                    )
                 })
                 .into();
             let mut body = iced::widget::stack![body]

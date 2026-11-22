@@ -414,7 +414,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         } else {
             None
         };
-        gel.unwrap_or_else(|| tinted_button(ctx, icon, label, alert(on), glyph, message))
+        gel.unwrap_or_else(|| tinted_button(ctx, icon, label, alert(on), glyph, message, on))
     };
     let controls = row![
         dimmed(
@@ -452,6 +452,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             theme.secondary,
             20,
             (!state.busy).then_some(Message::Account(Event::Reconnect)),
+            false,
         ))
     } else {
         controls
@@ -463,6 +464,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         theme.text,
         24,
         Some(crate::app::settings(crate::settings::Event::Reopen)),
+        false,
     ));
     let ground = theme.token_colour("account", theme.panel);
     let face: Element<'a, Message> = match open {
@@ -518,10 +520,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     {
         return card;
     }
+    let look = theme.part("account", 0);
     container(
         container(card)
             .clip(true)
-            .style(move |_| rounded(ground, 8)),
+            .style(move |_| yapfast_iced_kit::parts::style(look.as_ref(), rounded(ground, 8))),
     )
     .padding(Padding {
         left: INSET,
@@ -593,7 +596,19 @@ fn tinted_button<'a>(
     ink: iced::Color,
     glyph: u32,
     message: Option<Message>,
+    on: bool,
 ) -> Element<'a, Message> {
+    // On: a muted microphone, deafened sound.
+    let states = if on {
+        yapfast_iced_kit::parts::SELECTED
+    } else {
+        0
+    };
+    let ink =
+        yapfast_iced_kit::parts::ink(ctx.look.theme.part("account.button", states).as_ref(), ink);
     let face = Pic::square(ctx.look.icon(icon, glyph, rgb(ink)), glyph as f32);
-    ctx.look.face_button(face, 32.0, label, message).into()
+    ctx.look
+        .face_button(face, 32.0, label, message)
+        .part("account.button", states)
+        .into()
 }

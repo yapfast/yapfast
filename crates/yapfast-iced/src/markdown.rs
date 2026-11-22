@@ -944,14 +944,20 @@ impl<'c> crate::ctx::Ctx<'c> {
                     border.width = 0.0;
                 }
                 let shadow = theme.surface_shadow("code", iced::Shadow::default());
+                let look = theme.part("timeline.code", 0);
                 let code = container(piece)
                     .padding(size / 2.0)
                     .width(Length::Fill)
-                    .style(move |_| container::Style {
-                        background: Some(ground.into()),
-                        border,
-                        shadow,
-                        ..container::Style::default()
+                    .style(move |_| {
+                        yapfast_iced_kit::parts::style(
+                            look.as_ref(),
+                            container::Style {
+                                background: Some(ground.into()),
+                                border,
+                                shadow,
+                                ..container::Style::default()
+                            },
+                        )
                     });
                 let code = crate::theme_art::surface(code, self, surface);
                 crate::theme_art::outlined(

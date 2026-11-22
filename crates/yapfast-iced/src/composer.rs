@@ -809,13 +809,33 @@ pub fn composer_button(
     } else {
         faded(tint, 0.45)
     };
-    let face = ctx.look.glyph(icon, glyph, tint).boxed(32);
-    let face = button(face)
-        .padding(0)
-        .width(32)
-        .height(32)
-        .on_press_maybe(message)
-        .style(lit_style(None, ctx.look.theme.wash(0.1), 6.0));
+    let looks = yapfast_iced_kit::parts::ByStatus::new(ctx.look.theme, "composer.button", 0);
+    let rest_tint = yapfast_iced_kit::parts::ink(looks.rest(), tint);
+    let lit_tint = looks
+        .get(button::Status::Hovered)
+        .map(|lit| lit.ink(tint))
+        .filter(|lit| *lit != rest_tint && message.is_some());
+    let wash = ctx.look.theme.wash(0.1);
+    let pressable = |tint, message| {
+        button(ctx.look.glyph(icon, glyph, tint).boxed(32))
+            .padding(0)
+            .width(32)
+            .height(32)
+            .on_press_maybe(message)
+            .style(move |iced_theme, status| {
+                looks.style(status, lit_style(None, wash, 6.0)(iced_theme, status))
+            })
+    };
+    // Its ink under the pointer, when the theme changes it there, is a
+    // second face shown over the first, as a destructive button's is.
+    let face: Element<'static, Message> = match lit_tint {
+        Some(lit) => crate::widgets::Hover::new(
+            pressable(rest_tint, message.clone()),
+            pressable(lit, message),
+        )
+        .into(),
+        None => pressable(rest_tint, message).into(),
+    };
     tooltip(
         face,
         controls::tip(ctx.look.theme, label),
@@ -897,6 +917,8 @@ fn keyed_button(
     } else {
         faded(tint, 0.45)
     };
+    let tint =
+        yapfast_iced_kit::parts::ink(ctx.look.theme.part("composer.button", 0).as_ref(), tint);
     let face = ctx.look.glyph(icon, glyph, tint).boxed(32);
     // The key is the button's face: no hover wash over the candy.
     let face = button(face)
@@ -1178,7 +1200,20 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     } else {
         theme.outline_field
     };
-    let surface_radius = theme.surface_radius("composer", 10.0);
+    let mut part = theme.part(
+        "composer",
+        if ctx.composer.focused {
+            yapfast_iced_kit::parts::FOCUSED
+        } else {
+            0
+        },
+    );
+    let surface_radius =
+        yapfast_iced_kit::parts::radius(part.as_ref(), theme.surface_radius("composer", 10.0));
+    // Its corners are worked out here: square on top over a reply's bar.
+    if let Some(part) = &mut part {
+        part.radius = None;
+    }
     let radius = if replying {
         corners([0.0, 0.0, surface_radius, surface_radius])
     } else {
@@ -1217,22 +1252,37 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
                 container(Space::new())
                     .width(Length::Fill)
                     .height(Length::Fill)
-                    .style(move |_| container::Style {
-                        background: solid.then(|| ground.into()),
-                        border,
-                        shadow,
-                        ..Default::default()
+                    .style(move |_| {
+                        let style = container::Style {
+                            background: solid.then(|| ground.into()),
+                            border,
+                            shadow,
+                            ..Default::default()
+                        };
+                        match part {
+                            // Glass keeps its see-through ground.
+                            Some(part) if !solid => container::Style {
+                                background: None,
+                                ..part.style(style)
+                            },
+                            _ => yapfast_iced_kit::parts::style(part.as_ref(), style),
+                        }
                     }),
             )
             .into()
     } else {
         container(inside.push(line))
             .width(Length::Fill)
-            .style(move |_| container::Style {
-                background: Some(ground.into()),
-                border,
-                shadow,
-                ..Default::default()
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    part.as_ref(),
+                    container::Style {
+                        background: Some(ground.into()),
+                        border,
+                        shadow,
+                        ..Default::default()
+                    },
+                )
             })
             .into()
     };

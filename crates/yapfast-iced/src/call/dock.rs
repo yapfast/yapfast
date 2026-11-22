@@ -175,12 +175,18 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             (voice.phase != Phase::Leaving).then_some(Message::Call(Event::Leave)),
         ));
     }
-    let mut dock = column![top].spacing(6).padding(Padding {
-        top: 10.0,
-        bottom: 8.0,
-        right: 8.0,
-        left: 0.0,
-    });
+    let look = theme.part("voice.panel", 0);
+    let mut dock = column![top]
+        .spacing(6)
+        .padding(yapfast_iced_kit::parts::padding(
+            look.as_ref(),
+            Padding {
+                top: 10.0,
+                bottom: 8.0,
+                right: 8.0,
+                left: 0.0,
+            },
+        ));
     if active && let Some(sharing) = &voice.sharing {
         dock = dock.push(sharing_line(ctx, voice, sharing));
     }
@@ -297,7 +303,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     Some(
         container(dock)
             .width(Length::Fill)
-            .style(move |_| fill(panel))
+            .style(move |_| yapfast_iced_kit::parts::style(look.as_ref(), fill(panel)))
             .into(),
     )
 }
