@@ -1249,6 +1249,7 @@ impl AppState {
                 group_icon: None,
                 role_icon: None,
                 boosting_since: None,
+                color_end: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -1281,6 +1282,7 @@ impl AppState {
                 group_icon: None,
                 role_icon: None,
                 boosting_since: None,
+                color_end: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -1313,6 +1315,7 @@ impl AppState {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         })
     }
 

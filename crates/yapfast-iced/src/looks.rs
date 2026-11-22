@@ -54,6 +54,8 @@ pub struct MemberLook {
     pub style: Option<NameLook>,
     /// The name's colour, from their highest coloured role.
     pub color: Option<u32>,
+    /// Where the role colour's gradient ends, when the role's name is one.
+    pub color_end: Option<u32>,
     pub role_icon: Option<Arc<str>>,
     /// The server tag's letters and its badge's address.
     pub tag: Option<(Arc<str>, Option<Arc<str>>)>,
@@ -266,6 +268,7 @@ pub fn member_lines(
                 dark,
             ),
             color: member.color,
+            color_end: member.color_end,
             role_icon: member.role_icon.clone(),
             tag: cosmetics
                 .tag(member.tag.as_ref())
@@ -650,6 +653,30 @@ impl<'a> crate::ctx::Ctx<'a> {
     }
 }
 
+/// A gradient role name's letters, each in its share of the way from
+/// `from` to `to`, as Discord draws a role colour's gradient across a name.
+pub fn gradient_letters(name: &str, from: Color, to: Color) -> Vec<(String, Color)> {
+    let letters: Vec<char> = name.chars().collect();
+    let last = letters.len().saturating_sub(1).max(1) as f32;
+    letters
+        .iter()
+        .enumerate()
+        .map(|(at, letter)| {
+            let share = at as f32 / last;
+            let mix = |a: f32, b: f32| a + (b - a) * share;
+            (
+                letter.to_string(),
+                Color {
+                    r: mix(from.r, to.r),
+                    g: mix(from.g, to.g),
+                    b: mix(from.b, to.b),
+                    a: mix(from.a, to.a),
+                },
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use yapfast_core::{
@@ -658,6 +685,21 @@ mod tests {
     };
 
     use super::{MemberLine, member_lines};
+
+    /// A gradient role name runs from its colour at the first letter to
+    /// the second at the last.
+    #[test]
+    fn a_gradient_names_letters_run_from_one_colour_to_the_other() {
+        use iced::Color;
+        let letters = super::gradient_letters("Abc", Color::BLACK, Color::WHITE);
+        let shades: Vec<f32> = letters.iter().map(|(_, ink)| ink.r).collect();
+        assert_eq!(shades, [0.0, 0.5, 1.0]);
+        assert_eq!(letters[1].0, "b");
+        assert_eq!(
+            super::gradient_letters("A", Color::BLACK, Color::WHITE).len(),
+            1
+        );
+    }
 
     /// A style without colours is its font alone, everywhere a style
     /// shows: in a server and out of one.
@@ -693,6 +735,7 @@ mod tests {
             timed_out_until: None,
             tag: None,
             boosting_since: None,
+            color_end: None,
         }
     }
 

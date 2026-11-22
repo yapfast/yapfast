@@ -69,6 +69,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {

@@ -162,6 +162,7 @@ pub fn member_server(alice: &[&str]) -> Application {
         group_icon: None,
         role_icon: None,
         boosting_since: None,
+        color_end: None,
     };
     app.apply(Event::Members {
         room: "discord:10:11".into(),
