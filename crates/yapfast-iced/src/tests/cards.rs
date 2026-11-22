@@ -327,7 +327,8 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
     let shown = app.profiles.shown.as_ref().expect("shown");
     assert_eq!(
         crate::profile::banner_ground(app.ctx(), shown),
-        Some(0xC8_14_14)
+        Some(0xCC_14_14),
+        "color-thief's, from the middle of its 5-bit cell, as Discord's"
     );
 }
 
