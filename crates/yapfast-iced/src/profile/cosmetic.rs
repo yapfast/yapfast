@@ -240,14 +240,16 @@ impl Profiles {
                 Message::Profile(Event::EffectTick(generation)),
             );
         }
-        // A fade under way is drawn frame by frame, for its 0.6 s only.
-        if self
-            .effect
-            .turned
-            .iter()
-            .flatten()
-            .any(|turned| now.duration_since(*turned) < FADE)
-        {
+        // A fade under way is drawn frame by frame, for its 0.6 s only, on
+        // a card that wears an effect.
+        let fading = [self.shown.as_ref(), self.panel.as_ref()]
+            .into_iter()
+            .zip(self.effect.turned)
+            .any(|(shown, turned)| {
+                shown.and_then(|shown| worn_effect(state, shown)).is_some()
+                    && turned.is_some_and(|turned| now.duration_since(turned) < FADE)
+            });
+        if fading {
             return crate::after(
                 Duration::from_millis(16),
                 Message::Profile(Event::EffectTick(generation)),
