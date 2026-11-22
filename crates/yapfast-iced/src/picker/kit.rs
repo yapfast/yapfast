@@ -168,7 +168,14 @@ pub fn tabs<'a>(
     #[cfg(feature = "plugins")]
     for name in crate::plugin_slots::picker_tabs(cx) {
         // Its name is the tab's, so no plugin's tab passes for Yapfast's.
-        let label: String = name.name.chars().take(16).collect();
+        // Long names end in an ellipsis; the whole name is on hover.
+        let label: String = if name.name.chars().count() > 24 {
+            let mut cut: String = name.name.chars().take(23).collect();
+            cut.push('…');
+            cut
+        } else {
+            name.name.clone()
+        };
         tabs = tabs.push(iced::widget::tooltip(
             tab(
                 label,

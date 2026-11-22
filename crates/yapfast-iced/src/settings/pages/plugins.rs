@@ -1941,7 +1941,7 @@ impl<'a> Page<'a> {
                     theme,
                     format!("plugin-setting-{key}"),
                     &spec.placeholder,
-                    text_value,
+                    &text_value,
                 )
                 .on_input({
                     let at = key.clone();
@@ -1992,7 +1992,9 @@ impl<'a> Page<'a> {
                     let position = ((number - min) / span).clamp(0.0, 1.0);
                     const STEPS: u32 = 1000;
                     let current = (position * f64::from(STEPS)).round() as u32;
-                    controls::slider(setting.label.clone(), current, STEPS, {
+                    // The row's label is over it already, and its value is
+                    // the setting's own, not a share of the track.
+                    controls::slider("", current, STEPS, {
                         let key = key.clone();
                         move |chosen| {
                             let value = min + span * f64::from(chosen) / f64::from(STEPS);
@@ -2002,11 +2004,14 @@ impl<'a> Page<'a> {
                             })
                         }
                     })
+                    .step(1)
+                    .mark(false)
+                    .shown(trim(number))
                     .view(theme)
                 } else {
                     let at = key.clone();
                     let shown = self.draft_or(&key, value);
-                    form::field(theme, format!("plugin-setting-{key}"), "", shown)
+                    form::field(theme, format!("plugin-setting-{key}"), "", &shown)
                         .on_input({
                             let at = at.clone();
                             move |text| {
@@ -2023,7 +2028,7 @@ impl<'a> Page<'a> {
             SettingKind::Integer { .. } => {
                 let at = key.clone();
                 let shown = self.draft_or(&key, value);
-                form::field(theme, format!("plugin-setting-{key}"), "", shown)
+                form::field(theme, format!("plugin-setting-{key}"), "", &shown)
                     .on_input({
                         let at = at.clone();
                         move |text| {
@@ -2217,7 +2222,7 @@ impl<'a> Page<'a> {
             _ => {
                 let shown = self.draft_or(&at, value);
                 let submitted = at.clone();
-                form::field(theme, format!("plugin-list-{at}"), &field.label, shown)
+                form::field(theme, format!("plugin-list-{at}"), &field.label, &shown)
                     .on_input(move |text| {
                         plugin_message(PluginEvent::Draft {
                             at: at.clone(),
@@ -2232,32 +2237,20 @@ impl<'a> Page<'a> {
         container(control).into()
     }
 
-    /// What a field shows: what the person has typed, or the value itself.
+    /// What a field shows: the person's unsent text, else the setting's
+    /// value written out, a number as the person would type it.
     #[cfg(feature = "plugins")]
-    fn draft_or(&self, at: &str, value: Option<&'a Value>) -> &'a str {
+    fn draft_or(&self, at: &str, value: Option<&'a Value>) -> std::borrow::Cow<'a, str> {
+        use std::borrow::Cow;
         if let Some(text) = self.s.plugins.drafts.get(at) {
-            return text.as_str();
+            return Cow::Borrowed(text.as_str());
         }
         match value {
-            Some(Value::Text(text)) => text.as_str(),
-            Some(Value::Number(number)) => {
-                // A borrowed rendering would need a place to live; the draft
-                // is taken instead when the field is first used.
-                let _ = number;
-                ""
-            }
-            Some(Value::Integer(number)) => {
-                let _ = number;
-                ""
-            }
-            Some(Value::Bool(on)) => {
-                if *on {
-                    "true"
-                } else {
-                    "false"
-                }
-            }
-            _ => "",
+            Some(Value::Text(text)) => Cow::Borrowed(text.as_str()),
+            Some(Value::Number(number)) => Cow::Owned(trim(*number)),
+            Some(Value::Integer(number)) => Cow::Owned(number.to_string()),
+            Some(Value::Bool(on)) => Cow::Borrowed(if *on { "true" } else { "false" }),
+            _ => Cow::Borrowed(""),
         }
     }
 }
