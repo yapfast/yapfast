@@ -76,17 +76,18 @@ pub(crate) fn themed_name_colour(
     own: Color,
     theme: &crate::theme::Theme,
 ) -> Color {
+    // The theme's colours keep the name's fade (an offline member's).
+    let faded = |colour: u32| {
+        let colour = crate::themes::color(yapfast_core::theme::Colour::from_argb(colour));
+        colour.scale_alpha(own.a)
+    };
     match names.colours {
         NameColours::Keep => own,
-        NameColours::Theme => names.colour.map_or(theme.text, |colour| {
-            crate::themes::color(yapfast_core::theme::Colour::from_argb(colour))
-        }),
+        NameColours::Theme => names.colour.map_or(theme.text.scale_alpha(own.a), faded),
         NameColours::Clamp => clamp_name_colour(names, own, theme),
         NameColours::Palette => key
             .and_then(|key| names.palette_colour(key))
-            .map_or(own, |colour| {
-                crate::themes::color(yapfast_core::theme::Colour::from_argb(colour))
-            }),
+            .map_or(own, faded),
     }
 }
 
@@ -488,6 +489,26 @@ mod tests {
         theme.chat = crate::style::hex(chat);
         theme.text = crate::style::hex(if dark { 0xffffff } else { 0x111111 });
         theme.worked_out()
+    }
+
+    #[test]
+    fn the_themes_and_palettes_name_colours_keep_an_offline_names_fade() {
+        let own = crate::style::hex(0x336699).scale_alpha(0.5);
+        let mut names = Names {
+            colours: NameColours::Theme,
+            colour: Some(0xffff_0000),
+            ..Names::default()
+        };
+        let shown = themed_name_colour(&names, Some("someone"), own, &theme(true, 0x121214));
+        assert_eq!((shown.r, shown.a), (1.0, 0.5));
+        names.colour = None;
+        let shown = themed_name_colour(&names, Some("someone"), own, &theme(true, 0x121214));
+        assert_eq!(shown.a, 0.5);
+        names.colours = NameColours::Palette;
+        names.palette[0] = 0xff00_ff00;
+        names.palette_len = 1;
+        let shown = themed_name_colour(&names, Some("someone"), own, &theme(true, 0x121214));
+        assert_eq!((shown.g, shown.a), (1.0, 0.5));
     }
 
     #[test]

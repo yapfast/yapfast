@@ -2219,8 +2219,9 @@ impl<'a> View<'a> {
             ),
             opacity,
         );
-        let color = list_name_ink(self.cx, themed, look)
-            .map_or(stock_color, |colour| faded(colour, opacity));
+        // A theme's list ink beats its content colours, as on a grid tile.
+        let themed_ink = list_name_ink(self.cx, themed, look);
+        let color = themed_ink.map_or(stock_color, |colour| faded(colour, opacity));
         let marked = self.cx.themes.marked(
             &theme.id,
             yapfast_core::themes::chrome::Place::Member,
@@ -2246,7 +2247,8 @@ impl<'a> View<'a> {
             )
             .font_role(name_role)
             .style(look.style.as_ref())
-            .key(&look.id),
+            .key(&look.id)
+            .fixed(themed_ink.is_some()),
         );
         // A theme's ransom-note names, for someone with no name style of
         // their own (as Slint).
