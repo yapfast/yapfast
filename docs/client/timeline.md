@@ -215,6 +215,7 @@ slash command, where one may write, is written in the composer
 - A message from someone this account blocked shows as "Blocked user"
   and "Blocked message." with Show it, as Discord's does, until asked; with
   blocked messages hidden in Settings, the core leaves them out.
+  Messages from ignored accounts show as "Ignored message." with Show.
 - A masked link (words that aren't where they go) asks first: Go back,
   or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in
