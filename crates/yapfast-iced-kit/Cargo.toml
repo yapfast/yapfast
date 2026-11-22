@@ -17,17 +17,7 @@ doctest = false
 tokio.workspace = true
 tracing.workspace = true
 # As yapfast-iced builds it, so the two share one build of iced.
-iced = { version = "=0.14.0", default-features = false, features = [
-  "x11",
-  "wayland",
-  "image-without-codecs",
-  "advanced",
-  "crisp",
-  "tokio",
-  "tiny-skia",
-  "wgpu",
-  "web-colors",
-] }
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio", "tiny-skia", "wgpu", "web-colors"] }
 # The frame trace's hook in the patched renderer (`frames::install`), and
 # both renderers' switches (`renderer::choose`).
 iced_tiny_skia = "=0.14.1"

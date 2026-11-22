@@ -34,17 +34,7 @@ tracing.workspace = true
 # sRGB values, not linear light) so the two look the same. iced makes a
 # fallback renderer of the two; the GPU setting chooses which starts
 # (`renderer::choose`).
-iced = { version = "=0.14.0", default-features = false, features = [
-  "x11",
-  "wayland",
-  "image-without-codecs",
-  "advanced",
-  "crisp",
-  "tokio",
-  "tiny-skia",
-  "wgpu",
-  "web-colors",
-] }
+iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio", "tiny-skia", "wgpu", "web-colors"] }
 # A redraw of the window with no message, as a video frame comes: iced's
 # runtime, which iced builds already, for `task::effect`.
 iced_runtime = "=0.14.0"
@@ -83,8 +73,5 @@ png = "0.18"
 [dev-dependencies]
 # The headless simulator for the UI tests; see docs/client/tests.md.
 iced_test = "=0.14.0"
-yapfast-core = { path = "../yapfast-core", default-features = false, features = [
-  "discord",
-  "test-fixtures",
-] }
+yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord", "test-fixtures"] }
 tempfile.workspace = true

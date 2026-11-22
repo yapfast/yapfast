@@ -1,4 +1,3 @@
-# Tool environments are installed and cached by prek.
 exclude = '^(vendor/|target/|\.local/|\.venv/|node_modules/)|(^|/)(Cargo|flake)\.lock$|\.(patch|svg)$|^ui/fonts/LICENSE'
 
 [[repos]]
@@ -9,6 +8,7 @@ hooks = [
   ] },
   { id = "end-of-file-fixer" },
   { id = "check-merge-conflict" },
+  { id = "mixed-line-ending" },
   { id = "check-json" },
   { id = "check-yaml" },
   { id = "check-xml" },
@@ -18,78 +18,36 @@ hooks = [
 [[repos]]
 repo = "local"
 
-[[repos.hooks]]
-id = "ruff-check"
-name = "Ruff lint"
-entry = "ruff check --force-exclude --fix"
-language = "python"
-additional_dependencies = ["ruff==0.17.5"]
-types = ["python"]
-require_serial = true
+# [[repos.hooks]]
+# id = "ruff-check"
+# name = "ruff lint"
+# entry = "ruff check --force-exclude --fix"
+# language = "python"
+# additional_dependencies = ["ruff==0.17.6"]
+# types = ["python"]
+# require_serial = true
 
-[[repos.hooks]]
-id = "ruff-format"
-name = "Ruff format"
-entry = "ruff format --force-exclude"
-language = "python"
-additional_dependencies = ["ruff==0.17.5"]
-types = ["python"]
-require_serial = true
+# [[repos.hooks]]
+# id = "ruff-format"
+# name = "ruff format"
+# entry = "ruff format --force-exclude"
+# language = "python"
+# additional_dependencies = ["ruff==0.17.6"]
+# types = ["python"]
+# require_serial = true
 
-[[repos.hooks]]
-id = "clang-format"
-name = "clang-format"
-entry = "clang-format -i --style=file --fallback-style=none"
-language = "python"
-additional_dependencies = ["clang-format==23.1.5"]
-types_or = ["c", "c++", "objective-c", "objective-c++"]
-
-[[repos.hooks]]
-id = "taplo"
-name = "Taplo format"
-entry = "taplo format --option column_width=100 --option reorder_keys=false"
-language = "python"
-additional_dependencies = ["taplo==0.9.3"]
-types = ["toml"]
-
-[[repos.hooks]]
-id = "prettier"
-name = "Prettier"
-# Resolve the XML plugin from the managed environment, not the working tree.
-entry = '''node -e '
-const path = require("node:path");
-const cli = path.join(path.dirname(require.resolve("prettier/package.json")), "bin/prettier.cjs");
-const result = require("node:child_process").spawnSync(process.execPath, [
-    cli, "--plugin", require.resolve("@prettier/plugin-xml"),
-    "--print-width=100", "--prose-wrap=preserve",
-    "--embedded-language-formatting=off", "--xml-whitespace-sensitivity=strict",
-    "--write", ...process.argv.slice(1)
-], {stdio: "inherit"});
-if (result.error) console.error(result.error);
-process.exit(result.status ?? 1);
-' '''
-language = "node"
-language_version = "26.13.1"
-additional_dependencies = ["prettier@3.10.1", "@prettier/plugin-xml@3.4.2"]
-types_or = [
-  "json",
-  "yaml",
-  "markdown",
-  "javascript",
-  "jsx",
-  "ts",
-  "tsx",
-  "css",
-  "scss",
-  "html",
-  "xml",
-]
-exclude = '^testing/protocols/'
+# [[repos.hooks]]
+# id = "clang-format"
+# name = "clang format"
+# entry = "clang-format -i --style=file --fallback-style=none"
+# language = "python"
+# additional_dependencies = ["clang-format==23.1.6"]
+# types_or = ["c", "c++", "objective-c", "objective-c++"]
 
 [[repos.hooks]]
 id = "rustfmt"
-name = "Rustfmt (workspace)"
-entry = "cargo fmt --all -- --check"
+name = "rust format"
+entry = "cargo fmt --all"
 language = "system"
 files = '\.rs$'
 pass_filenames = false

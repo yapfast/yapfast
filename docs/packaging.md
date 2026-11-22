@@ -204,7 +204,7 @@ About's "Install updates automatically" switch stays greyed out and off.
   `Yapfast-VERSION-windows-x64-setup.exe` is downloaded to
   `%TEMP%\yapfast-update` and checked the same way. Yapfast quits, and a
   hidden `cmd` runs the installer with `/SILENT /SUPPRESSMSGBOXES /NORESTART
-/CLOSEAPPLICATIONS`, waits for it, starts Yapfast again and deletes the
+  /CLOSEAPPLICATIONS`, waits for it, starts Yapfast again and deletes the
   installer; the installer's log stays beside it. A silent run of the
   installer starts nothing itself, so that `cmd` does. A path that holds a `%`
   or `"` is refused, as `cmd` would read it as more than a name. If `cmd`

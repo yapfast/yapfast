@@ -5,14 +5,13 @@ runtime. Beside it go the .zsync file AppImageUpdate reads, which the release
 must carry too, and the source snapshot.
 
 scripts/build-appimage runs it inside the development shell."""
-
 import argparse
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from pathlib import Path
 
 from release_package import ROOT, dependency_notices, digest, names_home, source_snapshot
 
@@ -24,14 +23,8 @@ APPDIR = ".#appdir"
 
 
 def nix_build(installable):
-    return Path(
-        subprocess.check_output(
-            ["nix", "build", "--no-link", "--print-out-paths", installable],
-            cwd=ROOT,
-            text=True,
-            timeout=7200,
-        ).strip()
-    )
+    return Path(subprocess.check_output(["nix", "build", "--no-link", "--print-out-paths", installable],
+                                        cwd=ROOT, text=True, timeout=7200).strip())
 
 
 def main():
@@ -40,25 +33,12 @@ def main():
     args = parser.parse_args()
     # The flake sees only files Git tracks; a new one must be added first.
     parts = nix_build(APPDIR)
-    metadata = json.loads(
-        subprocess.check_output(
-            [
-                "cargo",
-                "metadata",
-                "--locked",
-                "--format-version",
-                "1",
-                "--filter-platform",
-                TARGET,
-                *FEATURES,
-            ],
-            cwd=ROOT,
-            timeout=30,
-        )
-    )
-    version = next(
-        package["version"] for package in metadata["packages"] if package["name"] == "yapfast"
-    )
+    metadata = json.loads(subprocess.check_output(
+        ["cargo", "metadata", "--locked", "--format-version", "1", "--filter-platform", TARGET,
+         *FEATURES],
+        cwd=ROOT, timeout=30,
+    ))
+    version = next(package["version"] for package in metadata["packages"] if package["name"] == "yapfast")
     webrtc = Path(os.environ["LK_CUSTOM_WEBRTC"])
     output = args.output or ROOT / "target/dist/linux"
     output.mkdir(parents=True, exist_ok=True)
@@ -74,10 +54,7 @@ def main():
 
         appdir = temporary / "AppDir"
         shutil.copytree(parts / "AppDir", appdir, symlinks=True)
-        for directory in [
-            appdir,
-            *(path for path in appdir.rglob("*") if path.is_dir() and not path.is_symlink()),
-        ]:
+        for directory in [appdir, *(path for path in appdir.rglob("*") if path.is_dir() and not path.is_symlink())]:
             directory.chmod(0o755)
         executable = appdir / "usr/bin/yapfast"
         contents = executable.read_bytes()
@@ -97,20 +74,14 @@ def main():
             encoding="utf-8",
         )
         dependencies = dependency_notices(metadata, doc, doc / "licenses", webrtc)
-        (doc / "THIRD-PARTY.json").write_text(
-            json.dumps(dependencies, indent=2) + "\n", encoding="utf-8"
-        )
+        (doc / "THIRD-PARTY.json").write_text(json.dumps(dependencies, indent=2) + "\n", encoding="utf-8")
         lock = json.loads((ROOT / "flake.lock").read_text())["nodes"]["nixpkgs"]["locked"]
         build = {
-            "version": version,
-            "flavour": "discord",
-            "target": TARGET,
+            "version": version, "flavour": "discord", "target": TARGET,
             "cargo_features": " ".join(FEATURES),
             "built_by": f"nix build {APPDIR}",
             "nixpkgs_revision": lock["rev"],
-            "ui_framework": (
-                "iced 0.14, with the patches in vendor/iced_wgpu and vendor/iced_tiny_skia"
-            ),
+            "ui_framework": "iced 0.14, with the patches in vendor/iced_wgpu and vendor/iced_tiny_skia",
             "renderer_default": "tiny-skia",
             "renderers": "tiny-skia, wgpu (Settings: Render with the GPU)",
             "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
@@ -124,34 +95,11 @@ def main():
         # mksquashfs takes the times from SOURCE_DATE_EPOCH, which the
         # development shell sets, or its options, not both.
         filesystem = temporary / "AppDir.squashfs"
-        environment = {
-            name: value for name, value in os.environ.items() if name != "SOURCE_DATE_EPOCH"
-        }
-        subprocess.run(
-            [
-                "mksquashfs",
-                appdir,
-                filesystem,
-                "-noappend",
-                "-quiet",
-                "-no-progress",
-                "-root-owned",
-                "-no-xattrs",
-                "-mkfs-time",
-                "0",
-                "-all-time",
-                "0",
-                "-comp",
-                "zstd",
-                "-Xcompression-level",
-                "19",
-                "-b",
-                "1M",
-            ],
-            env=environment,
-            check=True,
-            timeout=1800,
-        )
+        environment = {name: value for name, value in os.environ.items() if name != "SOURCE_DATE_EPOCH"}
+        subprocess.run(["mksquashfs", appdir, filesystem, "-noappend", "-quiet", "-no-progress",
+                        "-root-owned", "-no-xattrs", "-mkfs-time", "0", "-all-time", "0",
+                        "-comp", "zstd", "-Xcompression-level", "19", "-b", "1M"],
+                       env=environment, check=True, timeout=1800)
         with image.open("wb") as stream:
             for part in (parts / "runtime", filesystem):
                 with part.open("rb") as piece:
@@ -161,23 +109,15 @@ def main():
     offset = subprocess.check_output([image, "--appimage-offset"], text=True, timeout=30).strip()
     if int(offset) != (parts / "runtime").stat().st_size:
         raise SystemExit(f"{image} finds its filesystem at {offset}, not after the runtime")
-    update = subprocess.check_output(
-        [image, "--appimage-updateinformation"], text=True, timeout=30
-    ).strip()
+    update = subprocess.check_output([image, "--appimage-updateinformation"], text=True, timeout=30).strip()
     if update != build["update_information"]:
         raise SystemExit(f"{image} has the update information {update!r}")
     zsync = output / f"{image.name}.zsync"
-    subprocess.run(
-        ["zsyncmake", "-u", image.name, "-o", zsync, image],
-        check=True,
-        timeout=600,
-        stdout=subprocess.DEVNULL,
-    )
+    subprocess.run(["zsyncmake", "-u", image.name, "-o", zsync, image], check=True, timeout=600,
+                   stdout=subprocess.DEVNULL)
     hashes = output / "SHA256SUMS.txt"
     artifacts = [image, zsync, source_path]
-    hashes.write_text(
-        "".join(f"{digest(path)}  {path.name}\n" for path in artifacts), encoding="utf-8"
-    )
+    hashes.write_text("".join(f"{digest(path)}  {path.name}\n" for path in artifacts), encoding="utf-8")
     print(f"Packaged {image} ({image.stat().st_size / 1024 / 1024:.1f} MiB)")
     print(f"Update file: {zsync}")
     print(f"Source snapshot: {source_path}")

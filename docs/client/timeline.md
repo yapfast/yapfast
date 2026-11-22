@@ -217,26 +217,26 @@ slash command, where one may write, is written in the composer
   blocked messages hidden in Settings, the core leaves them out.
 - A masked link (words that aren't where they go) asks first: Go back,
   or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
-  the core's blocks (headings, subtext, quotes, fenced code) apart, and in
-  each the inline styles as runs, with mentions of people, roles and
-  everyone on pills of their colour (a channel's and a notice's coloured text
-  in its colour alone),
-  links, and spoilers covered until clicked. A web address opens the browser; a
-  mention or a notice's name opens the person's card, and a role's mention
-  the role's card beside it (`info_cards.rs`):
-  the role in its colour, then who Yapfast has seen with it, each opening
-  their card over it, or "Loading..." until Discord answers; Escape or a
-  click outside closes their card first, then the role's. An emoji in a
-  message's text is a link too (a shortcode sent unexpanded, such as
-  `:sob:`, shows as its emoji), and a click on it, or on a message's
-  sticker, opens its card 4 px under it, or above it without room (worked
-  out by the core's `emoji::card`): the emoji or sticker at 48 px,
-  its name and what it is, and for one of a server's this account can reach
-  the server it's from, whose card asks Discord how many are online there
-  and what Discover says of it; a click on the server goes there. An emoji
-  of a server out of reach says "Invite-Only Server" and no more. A Discord link this
-  account can follow stays in the app, as the core's `discord_route` reads
-  it: an invite opens its Join dialog, an app's authorization, a gift and
-  an event their dialogs (see [dialogs](dialogs.md)), a server, channel or
-  message goes
-  there, and a person's opens their card.
+the core's blocks (headings, subtext, quotes, fenced code) apart, and in
+each the inline styles as runs, with mentions of people, roles and
+everyone on pills of their colour (a channel's and a notice's coloured text
+in its colour alone),
+links, and spoilers covered until clicked. A web address opens the browser; a
+mention or a notice's name opens the person's card, and a role's mention
+the role's card beside it (`info_cards.rs`):
+the role in its colour, then who Yapfast has seen with it, each opening
+their card over it, or "Loading..." until Discord answers; Escape or a
+click outside closes their card first, then the role's. An emoji in a
+message's text is a link too (a shortcode sent unexpanded, such as
+`:sob:`, shows as its emoji), and a click on it, or on a message's
+sticker, opens its card 4 px under it, or above it without room (worked
+out by the core's `emoji::card`): the emoji or sticker at 48 px,
+its name and what it is, and for one of a server's this account can reach
+the server it's from, whose card asks Discord how many are online there
+and what Discover says of it; a click on the server goes there. An emoji
+of a server out of reach says "Invite-Only Server" and no more. A Discord link this
+account can follow stays in the app, as the core's `discord_route` reads
+it: an invite opens its Join dialog, an app's authorization, a gift and
+an event their dialogs (see [dialogs](dialogs.md)), a server, channel or
+message goes
+there, and a person's opens their card.

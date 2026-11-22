@@ -444,16 +444,16 @@ installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 
-| Read this                                   | For                                                                         |
-| ------------------------------------------- | --------------------------------------------------------------------------- |
-| [Contributing](CONTRIBUTING.md)             | What a pull request needs: checks, memory numbers, commit style             |
-| [Development](docs/development.md)          | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
-| [Architecture](docs/architecture.md)        | How `yapfast-core` and the window fit together                              |
-| [Building](docs/building.md)                | Toolchain, Cargo features, checks, releases                                 |
-| [Discord](docs/discord/README.md)           | What's done, what's next, and the fake server the tests use                 |
-| [Voice](docs/voice.md)                      | Calls, devices and audio processing                                         |
-| [Windows](docs/windows-beta.md)             | Packaging, the installer and Windows checks                                 |
-| [Measurements](docs/measurements/README.md) | How memory and CPU are measured                                             |
+| Read this | For |
+| --- | --- |
+| [Contributing](CONTRIBUTING.md) | What a pull request needs: checks, memory numbers, commit style |
+| [Development](docs/development.md) | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
+| [Architecture](docs/architecture.md) | How `yapfast-core` and the window fit together |
+| [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |
+| [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
+| [Voice](docs/voice.md) | Calls, devices and audio processing |
+| [Windows](docs/windows-beta.md) | Packaging, the installer and Windows checks |
+| [Measurements](docs/measurements/README.md) | How memory and CPU are measured |
 
 ## License
 
