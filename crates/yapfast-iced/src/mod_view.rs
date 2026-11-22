@@ -341,11 +341,17 @@ fn info<'a>(
     if member.may_timeout {
         let timeout: Element<'a, Message> = match member.timed_out_until {
             Some(until) => row![
+                // It counts down by itself, each second: no message, no
+                // view built again.
                 container(
-                    text(format!(
-                        "Timed Out · {} left",
-                        left(until.saturating_sub(now) / 1000)
-                    ))
+                    crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
+                        let seconds = until.saturating_sub(clock::now_ms()) / 1000;
+                        if seconds == 0 {
+                            "Timed Out · ending".to_owned()
+                        } else {
+                            format!("Timed Out · {} left", left(seconds))
+                        }
+                    })
                     .size(14)
                     .color(theme.danger)
                 )

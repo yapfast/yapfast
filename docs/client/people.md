@@ -28,7 +28,8 @@ member list, the DMs, and the lists still to come build on it.
   channel in place of the member list or the thread beside it, 340 px wide:
   the member's avatar and names; Message, Kick, Ban and Time out (their
   dialogs, as the menu opens them) with one-click timeouts of 60s to 1w, or
-  Remove while timed out; Copy ID and Copy mention; Signals; Server Activity
+  Remove while timed out, beside the time left counting down each second
+  (a `LiveText`, which builds no view); Copy ID and Copy mention; Signals; Server Activity
   (Messages and Links open the search, Moderator Action Log its page); Mod
   Permissions with All Granted Permissions; Roles, each with its X where it
   may be taken, and the roles it may give; and Account. All Granted
