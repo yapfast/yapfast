@@ -444,15 +444,16 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                 // A part this Yapfast doesn't have is ignored when the theme
                 // shows, so one for a later Yapfast still opens; the check
                 // refuses it, so a theme isn't published with a typo.
-                for sentence in variant
-                    .parts
-                    .unknown
-                    .iter()
-                    .cloned()
-                    .chain(super::parts::unreadable(&variant))
-                {
+                for sentence in variant.parts.unknown.iter().cloned() {
                     if !report.errors.contains(&sentence) {
                         report.errors.push(sentence);
+                    }
+                }
+                // A part's look is the theme maker's call: hard-to-read ink
+                // is a warning, not a refusal.
+                for sentence in super::parts::unreadable(&variant) {
+                    if !report.warnings.contains(&sentence) {
+                        report.warnings.push(sentence);
                     }
                 }
                 let (errors, warnings) = art::readable(&variant, files);
@@ -633,7 +634,6 @@ fn check_options(package: &Package, files: &Files, report: &mut Report) {
                         }
                     }
                     sentences.extend(unreadable(&variant));
-                    sentences.extend(super::parts::unreadable(&variant));
                     sentences.extend(art::readable(&variant, files).0);
                     sentences.extend(unreadable_content(&variant));
                     sentences.extend(unreadable_layout(&variant));
@@ -1667,15 +1667,17 @@ mod tests {
             report.errors
         );
         // Unreadable ink on a part's ground is refused.
+        // Hard-to-read ink in a part is the theme maker's call: a warning.
         let dim = with_options(r##""parts": { "menu.row": { "hover": { "ink": "#2a2a2a" } } }"##);
         let report = check(&files(&dim), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
         assert!(
             report
-                .errors
+                .warnings
                 .iter()
-                .any(|error| error.starts_with("parts.menu.row (hover): its ink contrasts")),
+                .any(|warning| warning.starts_with("parts.menu.row (hover): its ink contrasts")),
             "{:?}",
-            report.errors
+            report.warnings
         );
     }
 

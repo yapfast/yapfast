@@ -59,21 +59,30 @@ pub const OPACITY: Props = 1 << 6;
 pub const PADDING: Props = 1 << 7;
 pub const WEIGHT: Props = 1 << 8;
 pub const SIZE_STEP: Props = 1 << 9;
+pub const HIDDEN: Props = 1 << 10;
+pub const CASE: Props = 1 << 11;
+pub const ITALIC: Props = 1 << 12;
+pub const PICTURE: Props = 1 << 13;
+pub const ICON_INK: Props = 1 << 14;
 
 /// Every property by its name in `theme.json`, with what it takes.
-pub const PROPS: [(Props, &str, &str); 10] = [
+pub const PROPS: [(Props, &str, &str); 15] = [
     (
         GROUND,
         "ground",
         "a colour or a linear() gradient, as `colours` writes them",
     ),
     (INK, "ink", "the colour of its words and glyphs"),
-    (BORDER, "border", "the border's width, 0 to 4 pixels"),
+    (
+        BORDER,
+        "border",
+        "its border's width, 0 to 8 pixels: one number, or [top, right, bottom, left]",
+    ),
     (BORDER_COLOUR, "border_colour", "the border's colour"),
     (
         RADIUS,
         "radius",
-        "its corners, 0 to 999 pixels (999 a pill)",
+        "its corners, 0 to 999 pixels (999 a pill): one number, or [top left, top right, bottom right, bottom left]",
     ),
     (
         SHADOW,
@@ -83,25 +92,48 @@ pub const PROPS: [(Props, &str, &str); 10] = [
     (
         OPACITY,
         "opacity",
-        "0.3 to 1, laid on its ground, ink, border and shadow",
+        "0 to 1, laid on its ground, ink, border, shadow and picture; 0 leaves it invisible but in its place",
     ),
     (
         PADDING,
         "padding",
-        "0 to 24 pixels: one number, [vertical, horizontal] or [top, right, bottom, left]",
+        "0 to 48 pixels: one number, [vertical, horizontal] or [top, right, bottom, left]",
     ),
     (WEIGHT, "weight", "its words' weight, 100 to 900"),
     (
         SIZE_STEP,
         "size_step",
-        "pixels added to its words' size, -2 to 4",
+        "pixels added to its words' size, -4 to 12",
+    ),
+    (
+        HIDDEN,
+        "hidden",
+        "true takes it out of the window and its room with it; in its own values or unread, muted or selected",
+    ),
+    (
+        CASE,
+        "case",
+        "its words in `upper`, `lower` or `none` (as written)",
+    ),
+    (ITALIC, "italic", "true slants its words"),
+    (
+        PICTURE,
+        "picture",
+        "a picture in the theme under what's in it: a file, or `{ file, fit }` with fit `cover`, `contain` or `tile`",
+    ),
+    (
+        ICON_INK,
+        "icon_ink",
+        "the colour of its icons; its ink when left out",
     ),
 ];
 
-/// A box: its ground, border, corners, shadow and opacity.
-const BOX: Props = GROUND | BORDER | BORDER_COLOUR | RADIUS | SHADOW | OPACITY;
-/// Words: their ink, weight, size and opacity.
-const WORDS: Props = INK | WEIGHT | SIZE_STEP | OPACITY;
+/// A box: its ground, border, corners, shadow and picture.
+const BOX: Props = GROUND | BORDER | BORDER_COLOUR | RADIUS | SHADOW | PICTURE;
+/// Words: their ink, weight, size, slant and case.
+const WORDS: Props = INK | WEIGHT | SIZE_STEP | ITALIC | CASE;
+/// What every part takes: it can be faded or taken out.
+const EVERY: Props = OPACITY | HIDDEN;
 
 /// One named part.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,7 +165,7 @@ const fn part(
         name,
         about,
         states,
-        props,
+        props: props | EVERY,
         ground,
         ink,
     }
@@ -148,7 +180,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "rail",
         "the server rail's ground",
         0,
-        GROUND,
+        GROUND | PICTURE,
         Some("rail"),
         None,
     ),
@@ -156,15 +188,15 @@ pub const REGISTRY: &[PartInfo] = &[
         "rail.home",
         "the rail's Direct Messages tile",
         HOVER | SELECTED | UNREAD,
-        BOX | INK,
+        BOX | INK | ICON_INK,
         Some("raised"),
         Some("text"),
     ),
     part(
         "rail.server",
-        "a server's tile in the rail; its ink is a server without a picture's initials",
+        "a server's tile in the rail: on a picture, its ground shows round it inside its padding and its ink rings it",
         HOVER | SELECTED | UNREAD | MUTED,
-        BOX | INK,
+        BOX | INK | PADDING,
         Some("raised"),
         Some("text"),
     ),
@@ -181,7 +213,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "sidebar",
         "the channel list's ground",
         0,
-        GROUND,
+        GROUND | PICTURE,
         Some("sidebar"),
         None,
     ),
@@ -189,7 +221,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "sidebar.header",
         "the server's name over the channel list",
         HOVER,
-        BOX | INK | WEIGHT | SIZE_STEP,
+        BOX | WORDS,
         Some("sidebar"),
         Some("text"),
     ),
@@ -213,7 +245,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "sidebar.channel-row.icon",
         "the glyph before a channel's name",
         HOVER | SELECTED | UNREAD | MUTED,
-        INK | OPACITY,
+        INK,
         Some("sidebar"),
         Some("muted"),
     ),
@@ -221,7 +253,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "sidebar.dm-row",
         "a direct message's row",
         HOVER | SELECTED | UNREAD,
-        BOX | WORDS | PADDING,
+        BOX | INK | WEIGHT | SIZE_STEP | CASE | PADDING,
         Some("sidebar"),
         Some("muted"),
     ),
@@ -238,7 +270,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "account.button",
         "the account panel's microphone, sound and settings buttons",
         HOVER | PRESSED | SELECTED,
-        BOX | INK,
+        BOX | INK | ICON_INK,
         Some("panel"),
         Some("secondary"),
     ),
@@ -255,7 +287,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "header",
         "the bar over the conversation",
         0,
-        BOX | INK | WEIGHT | SIZE_STEP,
+        BOX | WORDS,
         Some("chat"),
         Some("text"),
     ),
@@ -263,7 +295,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "header.button",
         "the header's icon buttons",
         HOVER | PRESSED | SELECTED,
-        BOX | INK,
+        BOX | INK | ICON_INK,
         Some("chat"),
         Some("secondary"),
     ),
@@ -272,7 +304,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "timeline",
         "the conversation's ground",
         0,
-        GROUND,
+        GROUND | PICTURE,
         Some("chat"),
         None,
     ),
@@ -288,7 +320,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "timeline.message.author",
         "the name over a message",
         HOVER,
-        WEIGHT | SIZE_STEP | OPACITY,
+        WEIGHT | SIZE_STEP | ITALIC | CASE,
         Some("chat"),
         Some("text"),
     ),
@@ -304,7 +336,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "timeline.reaction",
         "a reaction under a message",
         HOVER | SELECTED,
-        BOX | INK,
+        BOX | WORDS,
         Some("raised"),
         Some("secondary"),
     ),
@@ -338,7 +370,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "composer.button",
         "the message box's buttons: attach, GIF, stickers, emoji",
         HOVER | PRESSED,
-        INK | OPACITY,
+        INK | ICON_INK,
         Some("composer"),
         Some("secondary"),
     ),
@@ -347,7 +379,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "members",
         "the member list's ground",
         0,
-        GROUND,
+        GROUND | PICTURE,
         Some("members"),
         None,
     ),
@@ -371,7 +403,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "members.row.name",
         "a member's name in their row",
         HOVER | SELECTED,
-        WEIGHT | SIZE_STEP | OPACITY,
+        WEIGHT | SIZE_STEP | CASE,
         Some("members"),
         Some("text"),
     ),
@@ -388,7 +420,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "menu.row",
         "a menu's row",
         HOVER | PRESSED,
-        BOX | INK,
+        BOX | WORDS | ICON_INK,
         Some("menu"),
         Some("secondary"),
     ),
@@ -396,7 +428,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "tooltip",
         "the window's tooltip",
         0,
-        BOX | INK,
+        BOX | WORDS,
         Some("tooltip"),
         Some("text"),
     ),
@@ -429,7 +461,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "settings.nav-row",
         "a row of Settings' section list",
         HOVER | SELECTED,
-        BOX | INK,
+        BOX | WORDS | ICON_INK,
         Some("sidebar"),
         Some("muted"),
     ),
@@ -456,7 +488,7 @@ pub const REGISTRY: &[PartInfo] = &[
         "button",
         "a labelled button",
         HOVER | PRESSED,
-        BOX | INK,
+        BOX | WORDS,
         None,
         None,
     ),
@@ -487,10 +519,12 @@ pub struct Style {
     pub ground: Option<Paint>,
     /// ARGB.
     pub ink: Option<u32>,
-    pub border: Option<f32>,
+    /// Top, right, bottom, left.
+    pub border: Option<[f32; 4]>,
     /// ARGB.
     pub border_colour: Option<u32>,
-    pub radius: Option<f32>,
+    /// Top left, top right, bottom right, bottom left.
+    pub radius: Option<[f32; 4]>,
     /// A shadow, or none at all (`"shadow": "none"`) as `Some(None)`.
     pub shadow: Option<Option<Shadow>>,
     pub opacity: Option<f32>,
@@ -498,6 +532,41 @@ pub struct Style {
     pub padding: Option<[f32; 4]>,
     pub weight: Option<u16>,
     pub size_step: Option<f32>,
+    /// Out of the window, room and all.
+    pub hidden: Option<bool>,
+    pub case: Option<Case>,
+    pub italic: Option<bool>,
+    pub picture: Option<Picture>,
+    /// ARGB.
+    pub icon_ink: Option<u32>,
+}
+
+/// A part's words' case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Case {
+    Upper,
+    Lower,
+    /// As written, undoing a case set under it.
+    None,
+}
+
+/// How a part's picture fills it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Fit {
+    /// All of it, cut to its shape.
+    #[default]
+    Cover,
+    /// All of the picture, inside it.
+    Contain,
+    /// Repeated at its own size from the top left.
+    Tile,
+}
+
+/// A part's picture: a file in the theme, and how it fills the part.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Picture {
+    pub file: std::path::PathBuf,
+    pub fit: Fit,
 }
 
 impl Style {
@@ -520,7 +589,12 @@ impl Style {
             opacity,
             padding,
             weight,
-            size_step
+            size_step,
+            hidden,
+            case,
+            italic,
+            picture,
+            icon_ink
         );
     }
 
@@ -586,6 +660,21 @@ impl Parts {
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
     }
+
+    /// Every picture its parts name, once each, relative to the theme.
+    pub fn files(&self) -> Vec<std::path::PathBuf> {
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        for rules in self.rules.values() {
+            for style in std::iter::once(&rules.base).chain(rules.states.iter().flatten()) {
+                if let Some(picture) = &style.picture
+                    && !files.contains(&picture.file)
+                {
+                    files.push(picture.file.clone());
+                }
+            }
+        }
+        files
+    }
 }
 
 /// Reads a `parts` layer over what `parts` already holds: each value a
@@ -645,6 +734,17 @@ pub(super) fn read_parts(
                         );
                         continue;
                     }
+                    if key == "hidden" && state & (HOVER | PRESSED | FOCUSED) != 0 {
+                        // Gone under the pointer, it'd come straight back.
+                        unknown(
+                            format!(
+                                "\"{there}\": a part can be hidden in its own values or unread, muted or selected, not {}",
+                                STATES[slot].1
+                            ),
+                            parts,
+                        );
+                        continue;
+                    }
                     if !read_prop(info, key, value, &there, &mut style)? {
                         unknown(prop_sentence(info, key, &there), parts);
                     }
@@ -700,9 +800,16 @@ fn read_prop(
     match *prop {
         GROUND => style.ground = Some(paint_at(value, here)?),
         INK => style.ink = Some(colour_at(value, here)?),
-        BORDER => style.border = Some(number(value, here, (0.0, 4.0))?),
+        BORDER => style.border = Some(four(value, here, (0.0, 8.0), "[top, right, bottom, left]")?),
         BORDER_COLOUR => style.border_colour = Some(colour_at(value, here)?),
-        RADIUS => style.radius = Some(number(value, here, (0.0, 999.0))?),
+        RADIUS => {
+            style.radius = Some(four(
+                value,
+                here,
+                (0.0, 999.0),
+                "[top left, top right, bottom right, bottom left]",
+            )?);
+        }
         SHADOW => {
             style.shadow = Some(if value.as_str() == Some("none") {
                 None
@@ -710,9 +817,9 @@ fn read_prop(
                 Some(super::package::read_shadow(value, here)?)
             });
         }
-        OPACITY => style.opacity = Some(number(value, here, (0.3, 1.0))?),
+        OPACITY => style.opacity = Some(number(value, here, (0.0, 1.0))?),
         PADDING => {
-            let side = |value: &Value, at: &str| number(value, at, (0.0, 24.0));
+            let side = |value: &Value, at: &str| number(value, at, (0.0, 48.0));
             style.padding = Some(match value {
                 Value::Array(items) if items.len() == 2 => {
                     let vertical = side(&items[0], &format!("{here}[0]"))?;
@@ -744,12 +851,82 @@ fn read_prop(
             style.weight = Some(weight as u16);
         }
         SIZE_STEP => {
-            let step = number(value, here, (-2.0, 4.0))?;
+            let step = number(value, here, (-4.0, 12.0))?;
             style.size_step = Some(step);
+        }
+        HIDDEN => style.hidden = Some(boolean(value, here)?),
+        ITALIC => style.italic = Some(boolean(value, here)?),
+        CASE => {
+            style.case = Some(match value.as_str() {
+                Some("upper") => Case::Upper,
+                Some("lower") => Case::Lower,
+                Some("none") => Case::None,
+                _ => return Err(Error(format!("\"{here}\" is upper, lower or none"))),
+            });
+        }
+        ICON_INK => style.icon_ink = Some(colour_at(value, here)?),
+        PICTURE => {
+            let (file, fit) = match value {
+                Value::String(file) => (file.as_str(), None),
+                Value::Object(fields) => (
+                    fields.get("file").and_then(Value::as_str).ok_or_else(|| {
+                        Error(format!("\"{here}\" needs a \"file\" in the theme"))
+                    })?,
+                    fields.get("fit"),
+                ),
+                _ => {
+                    return Err(Error(format!(
+                        "\"{here}\" is a file in the theme, or {{ \"file\", \"fit\" }}"
+                    )));
+                }
+            };
+            let fit = match fit.map(|fit| fit.as_str()) {
+                None => Fit::Cover,
+                Some(Some("cover")) => Fit::Cover,
+                Some(Some("contain")) => Fit::Contain,
+                Some(Some("tile")) => Fit::Tile,
+                Some(_) => {
+                    return Err(Error(format!("\"{here}.fit\" is cover, contain or tile")));
+                }
+            };
+            let file = super::package::relative(file, here)?;
+            let picture = file
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .map(str::to_ascii_lowercase);
+            if !matches!(picture.as_deref(), Some("png" | "jpg" | "jpeg" | "webp")) {
+                return Err(Error(format!(
+                    "\"{here}\" names {}: a part's picture is a .png, .jpg or .webp",
+                    file.display()
+                )));
+            }
+            style.picture = Some(Picture { file, fit });
         }
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+/// `true` or `false`.
+fn boolean(value: &Value, here: &str) -> Result<bool, Error> {
+    value
+        .as_bool()
+        .ok_or_else(|| Error(format!("\"{here}\" is true or false")))
+}
+
+/// One number for all four, or four of them, each in `range`.
+fn four(value: &Value, here: &str, range: (f32, f32), order: &str) -> Result<[f32; 4], Error> {
+    match value {
+        Value::Array(items) if items.len() == 4 => {
+            let mut four = [0.0; 4];
+            for (index, (item, slot)) in items.iter().zip(&mut four).enumerate() {
+                *slot = number(item, &format!("{here}[{index}]"), range)?;
+            }
+            Ok(four)
+        }
+        Value::Array(_) => Err(Error(format!("\"{here}\" is one number or four: {order}"))),
+        _ => Ok([number(value, here, range)?; 4]),
+    }
 }
 
 /// The names of the states in `set`, joined, or `None` for none.
@@ -949,6 +1126,10 @@ pub fn unreadable(variant: &Resolved) -> Vec<String> {
             if style.ink.is_none() && style.ground.is_none() && style.opacity.is_none() {
                 continue;
             }
+            // Hidden or faded to nothing on purpose: nothing to read.
+            if style.hidden == Some(true) || style.opacity == Some(0.0) {
+                continue;
+            }
             let opacity = style.opacity.unwrap_or(1.0);
             let grounds: Vec<u32> = style
                 .ground
@@ -975,7 +1156,7 @@ pub fn unreadable(variant: &Resolved) -> Vec<String> {
                     format!(" ({})", state_names(states).join(" + "))
                 };
                 let sentence = format!(
-                    "parts.{}{state}: its ink contrasts {worst:.1}:1 on its ground, under {:.1}:1; text has to stay readable",
+                    "parts.{}{state}: its ink contrasts {worst:.1}:1 on its ground, under {:.1}:1, which may be hard to read",
                     info.name,
                     needed + 0.005
                 );
@@ -1142,7 +1323,7 @@ mod tests {
         );
         let (hover, _) = rules.resolve(HOVER);
         assert_eq!(hover.ground, Some(Paint::Colour(0xff20_2020)));
-        assert_eq!(hover.radius, Some(4.0), "the base's other values stay");
+        assert_eq!(hover.radius, Some([4.0; 4]), "the base's other values stay");
         // Selected is laid last: its ground beats hover's.
         let (both, from) = rules.resolve(HOVER | SELECTED | UNREAD);
         assert_eq!(both.ground, Some(Paint::Colour(0xff30_3030)));
@@ -1172,7 +1353,7 @@ mod tests {
         let rules = resolved.parts.get("menu.row").unwrap();
         let (style, _) = rules.resolve(HOVER);
         assert_eq!(style.ink, Some(0xffff_ffff));
-        assert_eq!(style.radius, Some(6.0));
+        assert_eq!(style.radius, Some([6.0; 4]));
         assert_eq!(style.ground, Some(Paint::Colour(0xff33_3333)));
     }
 
@@ -1204,15 +1385,92 @@ mod tests {
     }
 
     #[test]
+    fn the_wider_properties_read_and_layer() {
+        let package = theme(
+            r##"{ "sidebar.channel-row": {
+                "border": [0, 0, 2, 0], "radius": [8, 8, 0, 0], "case": "upper", "italic": true,
+                "picture": { "file": "art/row.png", "fit": "tile" },
+                "muted": { "hidden": true, "case": "none" }, "hover": { "opacity": 0 } },
+              "menu.row": { "icon_ink": "#ff00ff", "picture": "art/menu.webp" } }"##,
+        )
+        .unwrap();
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        let rules = resolved.parts.get("sidebar.channel-row").unwrap();
+        let (rest, _) = rules.resolve(0);
+        assert_eq!(rest.border, Some([0.0, 0.0, 2.0, 0.0]));
+        assert_eq!(rest.radius, Some([8.0, 8.0, 0.0, 0.0]));
+        assert_eq!(rest.case, Some(Case::Upper));
+        assert_eq!(rest.italic, Some(true));
+        assert_eq!(
+            rest.picture,
+            Some(Picture {
+                file: "art/row.png".into(),
+                fit: Fit::Tile
+            })
+        );
+        let (muted, _) = rules.resolve(MUTED);
+        assert_eq!(muted.hidden, Some(true));
+        assert_eq!(muted.case, Some(Case::None));
+        assert_eq!(rules.resolve(HOVER).0.opacity, Some(0.0));
+        let (menu, _) = resolved.parts.get("menu.row").unwrap().resolve(0);
+        assert_eq!(menu.icon_ink, Some(0xffff_00ff));
+        assert_eq!(menu.picture.unwrap().fit, Fit::Cover);
+        // The theme installs and checks its parts' pictures.
+        let files = package.files();
+        assert!(files.contains(&"art/row.png".into()), "{files:?}");
+        assert!(files.contains(&"art/menu.webp".into()), "{files:?}");
+    }
+
+    #[test]
+    fn a_part_hides_only_where_the_pointer_cant_bring_it_back() {
+        let package = theme(r#"{ "menu.row": { "hover": { "hidden": true } } }"#).unwrap();
+        let resolved = package.resolve(Mode::Dark).unwrap();
+        assert!(
+            resolved.parts.unknown.join("\n").contains(
+                "\"parts.menu.row.hover.hidden\": a part can be hidden in its own values or unread, muted or selected, not hover"
+            ),
+            "{:?}",
+            resolved.parts.unknown
+        );
+        for (parts, place) in [
+            (r#"{ "menu": { "hidden": "yes" } }"#, "parts.menu.hidden"),
+            (
+                r#"{ "menu.row": { "case": "title" } }"#,
+                "parts.menu.row.case",
+            ),
+            (r#"{ "menu": { "border": [1, 2] } }"#, "parts.menu.border"),
+            (
+                r#"{ "menu": { "radius": [1, 2, 3, 1000] } }"#,
+                "parts.menu.radius[3]",
+            ),
+            (
+                r#"{ "menu": { "picture": "art/x.svg" } }"#,
+                "parts.menu.picture",
+            ),
+            (
+                r#"{ "menu": { "picture": { "file": "a.png", "fit": "fill" } } }"#,
+                "parts.menu.picture.fit",
+            ),
+            (
+                r#"{ "menu": { "picture": "../outside.png" } }"#,
+                "parts.menu.picture",
+            ),
+        ] {
+            let error = theme(parts).unwrap_err();
+            assert!(error.0.contains(place), "{parts}: {error}");
+        }
+    }
+
+    #[test]
     fn values_out_of_range_are_refused_with_their_place() {
         for (parts, place) in [
             (r#"{ "menu": { "border": 9 } }"#, "parts.menu.border"),
             (
-                r#"{ "menu.row": { "hover": { "opacity": 0.1 } } }"#,
+                r#"{ "menu.row": { "hover": { "opacity": 1.5 } } }"#,
                 "parts.menu.row.hover.opacity",
             ),
             (
-                r#"{ "timeline.message": { "padding": 40 } }"#,
+                r#"{ "timeline.message": { "padding": 60 } }"#,
                 "parts.timeline.message.padding",
             ),
             (
@@ -1224,7 +1482,7 @@ mod tests {
                 "parts.sidebar.category.weight",
             ),
             (
-                r#"{ "sidebar.category": { "size_step": 9 } }"#,
+                r#"{ "sidebar.category": { "size_step": 20 } }"#,
                 "parts.sidebar.category.size_step",
             ),
             (r#"{ "menu": { "ground": "red" } }"#, "parts.menu.ground"),

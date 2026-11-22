@@ -356,19 +356,24 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let app = &self.cx.app;
         let join_method = app.may(&core.server, Permission::ManageServer);
-        let search = controls::field(
+        let search = yapfast_iced_kit::parts::show(
             theme,
-            "members-search",
-            "Search by username or id",
-            &screen.people.typed,
-            false,
-            true,
-        )
-        .size(14)
-        .padding([10.9, 12.0])
-        .width(SEARCH)
-        .on_input(|typed| local(Event::Type(typed)))
-        .on_submit(local(Event::Enter));
+            "field",
+            0,
+            controls::field(
+                theme,
+                "members-search",
+                "Search by username or id",
+                &screen.people.typed,
+                false,
+                true,
+            )
+            .size(14)
+            .padding([10.9, 12.0])
+            .width(SEARCH)
+            .on_input(|typed| local(Event::Type(typed)))
+            .on_submit(local(Event::Enter)),
+        );
         let sort = form::dropdown(
             MEMBER_SORTS.iter().map(|name| (*name).to_owned()).collect(),
             Some(usize::from(page.sort.max(1) - 1)),

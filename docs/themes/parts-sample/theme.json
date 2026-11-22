@@ -2,54 +2,204 @@
   "theme_api": 1,
   "id": "com.example.parts-sample",
   "name": "Parts Sample",
-  "version": "1.0.0",
-  "description": "A small theme made only of named parts: rounder rows, a marigold selection, and hover, unread, muted and focused looks.",
-  "authors": ["Yapfast"],
+  "version": "1.1.0",
+  "description": "A small theme made only of named parts: rounder rows, a marigold selection, hover, unread, muted and focused looks, side borders and a tiled picture.",
+  "authors": [
+    "Yapfast"
+  ],
   "license": "CC0-1.0",
   "parts": {
-    "rail.home": { "radius": 16, "hover": { "radius": 12 }, "selected": { "radius": 12 } },
+    "rail.home": {
+      "radius": 16,
+      "hover": {
+        "radius": 12
+      },
+      "selected": {
+        "radius": 12
+      }
+    },
     "rail.server": {
       "radius": 16,
-      "hover": { "radius": 12 },
-      "selected": { "radius": 12, "border": 2, "border_colour": "#f0b232" }
+      "hover": {
+        "radius": 12
+      },
+      "selected": {
+        "radius": 12,
+        "border": 2,
+        "border_colour": "#f0b232"
+      }
     },
-    "sidebar.category": { "ink": "#c9a35a", "weight": 700, "hover": { "ink": "#f0c674" } },
+    "sidebar.category": {
+      "ink": "#c9a35a",
+      "weight": 700,
+      "case": "upper",
+      "size_step": -2,
+      "hover": {
+        "ink": "#f0c674"
+      }
+    },
     "sidebar.channel-row": {
       "radius": 8,
-      "padding": [0, 10],
-      "hover": { "ground": "#26272d" },
-      "unread": { "ink": "#f2f3f5", "weight": 700 },
-      "muted": { "opacity": 0.55 },
+      "padding": [
+        0,
+        10
+      ],
+      "hover": {
+        "ground": "#26272d"
+      },
+      "unread": {
+        "ink": "#f2f3f5",
+        "weight": 700
+      },
+      "muted": {
+        "hidden": true
+      },
       "selected": {
-        "ground": "linear(90deg, #4a3a14, #26272d)",
+        "ground": "#3a2f16",
         "ink": "#ffffff",
         "weight": 600,
         "border": 1,
-        "border_colour": "#f0b23266"
+        "border_colour": "#f0b23266",
+        "picture": {
+          "file": "hatch.png",
+          "fit": "tile"
+        }
       }
     },
-    "sidebar.channel-row.icon": { "hover": { "ink": "#dbdee1" }, "selected": { "ink": "#f0b232" } },
-    "header": { "shadow": { "blur": 6, "y": 2, "colour": "#00000055" } },
-    "timeline.message": {
-      "radius": 8,
-      "hover": { "ground": "#ffffff08", "border": 1, "border_colour": "#ffffff14" },
-      "selected": { "ground": "#f0b23214" }
+    "sidebar.channel-row.icon": {
+      "hover": {
+        "ink": "#dbdee1"
+      },
+      "selected": {
+        "ink": "#f0b232"
+      }
     },
-    "timeline.message.time": { "hover": { "ink": "#b5bac1" } },
+    "header": {
+      "border": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "border_colour": "#f0b23266",
+      "shadow": {
+        "blur": 6,
+        "y": 2,
+        "colour": "#00000055"
+      }
+    },
+    "timeline.message": {
+      "radius": [
+        0,
+        8,
+        8,
+        0
+      ],
+      "hover": {
+        "ground": "#ffffff08",
+        "border": [
+          0,
+          0,
+          0,
+          3
+        ],
+        "border_colour": "#f0b232"
+      },
+      "selected": {
+        "ground": "#f0b23214"
+      }
+    },
+    "timeline.message.time": {
+      "hover": {
+        "ink": "#b5bac1"
+      }
+    },
     "timeline.reaction": {
       "radius": 999,
-      "hover": { "border": 1, "border_colour": "#f0b23299" },
-      "selected": { "ground": "#f0b23226", "border": 1, "border_colour": "#f0b232" }
+      "hover": {
+        "border": 1,
+        "border_colour": "#f0b23299"
+      },
+      "selected": {
+        "ground": "#f0b23226",
+        "border": 1,
+        "border_colour": "#f0b232"
+      }
     },
-    "composer": { "radius": 14, "focused": { "border": 1, "border_colour": "#f0b232" } },
-    "composer.button": { "hover": { "ink": "#f0b232" } },
-    "members.row": { "radius": 8, "hover": { "ground": "#26272d" } },
-    "members.row.name": { "hover": { "weight": 600 } },
-    "menu": { "radius": 12, "border": 1, "border_colour": "#f0b23240" },
-    "menu.row": { "radius": 6, "hover": { "ground": "#f0b232", "ink": "#1a1a1e" } },
-    "tooltip": { "radius": 8, "border": 1, "border_colour": "#f0b23266" },
-    "button": { "radius": 999 },
-    "settings.nav-row": { "radius": 8, "selected": { "ground": "#f0b23226", "ink": "#ffffff" } }
+    "composer": {
+      "radius": [
+        14,
+        14,
+        4,
+        14
+      ],
+      "focused": {
+        "border": 1,
+        "border_colour": "#f0b232"
+      }
+    },
+    "composer.button": {
+      "hover": {
+        "ink": "#f0b232"
+      }
+    },
+    "members.row": {
+      "radius": 8,
+      "hover": {
+        "ground": "#26272d"
+      }
+    },
+    "members.row.name": {
+      "hover": {
+        "weight": 600
+      }
+    },
+    "menu": {
+      "radius": 12,
+      "border": 1,
+      "border_colour": "#f0b23240"
+    },
+    "menu.row": {
+      "radius": 6,
+      "hover": {
+        "ground": "#f0b232",
+        "ink": "#1a1a1e"
+      }
+    },
+    "tooltip": {
+      "radius": [
+        8,
+        8,
+        8,
+        0
+      ],
+      "border": 1,
+      "border_colour": "#f0b23266",
+      "case": "lower"
+    },
+    "button": {
+      "radius": 999
+    },
+    "settings.nav-row": {
+      "radius": 8,
+      "selected": {
+        "ground": "#f0b23226",
+        "ink": "#ffffff"
+      }
+    },
+    "timeline.message.author": {
+      "hover": {
+        "italic": true
+      }
+    },
+    "members.heading": {
+      "case": "lower",
+      "italic": true
+    }
   },
-  "variants": { "dark": { "base": "bonfire" } }
+  "variants": {
+    "dark": {
+      "base": "bonfire"
+    }
+  }
 }

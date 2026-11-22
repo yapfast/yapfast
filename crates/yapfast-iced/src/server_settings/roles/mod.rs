@@ -168,11 +168,15 @@ fn search<'a>(
     value: &'a str,
     on: impl Fn(String) -> RoleInput + 'a,
 ) -> Element<'a, Message> {
-    controls::field(theme, id, placeholder, value, false, true)
-        .size(14)
-        .padding([10.9, 12.0])
-        .on_input(move |text| input(on(text)))
-        .into()
+    yapfast_iced_kit::parts::show(
+        theme,
+        "field",
+        0,
+        controls::field(theme, id, placeholder, value, false, true)
+            .size(14)
+            .padding([10.9, 12.0])
+            .on_input(move |text| input(on(text))),
+    )
 }
 
 /// The open Roles, if it's showing.

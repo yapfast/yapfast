@@ -103,11 +103,14 @@ impl<'a> View<'a> {
             ),
             form::group([
                 form::heading(theme, "NAME"),
-                form::entry(theme, "server-name", "", &page.name)
-                    .on_input_maybe(
+                yapfast_iced_kit::parts::show(
+                    theme,
+                    "field",
+                    0,
+                    form::entry(theme, "server-name", "", &page.name).on_input_maybe(
                         ready.then_some(|text| message(Event::Write(SettingsText::Name, text))),
-                    )
-                    .into(),
+                    ),
+                ),
             ]),
             form::group([
                 form::heading(theme, "ICON"),

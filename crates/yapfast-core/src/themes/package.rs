@@ -1608,6 +1608,7 @@ impl Package {
                     .files()
                     .into_iter()
                     .chain(resolved.layout.files())
+                    .chain(resolved.parts.files())
                 {
                     if !files.contains(&picture) {
                         files.push(picture);

@@ -467,11 +467,15 @@ impl<'a> View<'a> {
                     "Paste an invite link or code to join a server you were invited to.",
                 ),
                 form::heading(theme, "INVITE LINK"),
-                form::field(theme, JOIN_FIELD, "https://discord.gg/yapfast", typed)
-                    .padding([8.0, 10.0])
-                    .on_input(|link| message(Event::JoinLink(link)))
-                    .on_submit(message(Event::Find))
-                    .into(),
+                yapfast_iced_kit::parts::show(
+                    theme,
+                    "field",
+                    0,
+                    form::field(theme, JOIN_FIELD, "https://discord.gg/yapfast", typed)
+                        .padding([8.0, 10.0])
+                        .on_input(|link| message(Event::JoinLink(link)))
+                        .on_submit(message(Event::Find)),
+                ),
             ]);
         }
         if let Some(preview) = preview {
@@ -636,11 +640,15 @@ impl<'a> View<'a> {
             };
             body.extend([
                 form::heading(theme, field),
-                form::field(theme, CHANNEL_FIELD, placeholder, &draft.name)
-                    .padding([8.0, 10.0])
-                    .on_input(|name| message(Event::ChannelName(name)))
-                    .on_submit(message(Event::SaveChannel))
-                    .into(),
+                yapfast_iced_kit::parts::show(
+                    theme,
+                    "field",
+                    0,
+                    form::field(theme, CHANNEL_FIELD, placeholder, &draft.name)
+                        .padding([8.0, 10.0])
+                        .on_input(|name| message(Event::ChannelName(name)))
+                        .on_submit(message(Event::SaveChannel)),
+                ),
             ]);
         }
         if let Some(error) = &asked.error {

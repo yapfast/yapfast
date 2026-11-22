@@ -521,11 +521,14 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         return card;
     }
     let look = theme.part("account", 0);
-    container(
+    container(yapfast_iced_kit::parts::show(
+        theme,
+        "account",
+        0,
         container(card)
             .clip(true)
             .style(move |_| yapfast_iced_kit::parts::style(look.as_ref(), rounded(ground, 8))),
-    )
+    ))
     .padding(Padding {
         left: INSET,
         right: INSET,
@@ -604,8 +607,10 @@ fn tinted_button<'a>(
     } else {
         0
     };
-    let ink =
-        yapfast_iced_kit::parts::ink(ctx.look.theme.part("account.button", states).as_ref(), ink);
+    let ink = yapfast_iced_kit::parts::icon_ink(
+        ctx.look.theme.part("account.button", states).as_ref(),
+        ink,
+    );
     let face = Pic::square(ctx.look.icon(icon, glyph, rgb(ink)), glyph as f32);
     ctx.look
         .face_button(face, 32.0, label, message)

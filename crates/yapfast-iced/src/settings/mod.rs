@@ -674,7 +674,10 @@ impl<'a> Page<'a> {
             ..iced::Padding::ZERO
         })
         .height(56);
-        let search = container(
+        let search = container(yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
             controls::field(
                 theme,
                 SEARCH,
@@ -686,7 +689,7 @@ impl<'a> Page<'a> {
             .size(14)
             .padding([11, 12])
             .on_input(|query| crate::app::settings(Event::Search(query))),
-        )
+        ))
         .padding([0, 16]);
         let query = settings.query.to_lowercase();
         let mut entries = column![];
@@ -770,6 +773,14 @@ impl<'a> Page<'a> {
         }
         .map(crate::themes::argb)
         .unwrap_or(stock);
+        let nav_look = theme.part(
+            "settings.nav-row",
+            yapfast_iced_kit::parts::states(&[
+                (yapfast_iced_kit::parts::SELECTED, selected),
+                (yapfast_iced_kit::parts::HOVER, pointed),
+            ]),
+        );
+        let ink = yapfast_iced_kit::parts::ink(nav_look.as_ref(), ink);
         let stock_icon = if selected { theme.text } else { theme.faint };
         let icon_ink = if rows.icon.follow_ink {
             ink
@@ -796,6 +807,8 @@ impl<'a> Page<'a> {
                 rows.icon.colour.is_some()
             };
         let icon_size = rows.icon.size.unwrap_or(20.0);
+        let themed_ink = themed_ink
+            || nav_look.is_some_and(|look| look.icon_ink.is_some() || look.ink.is_some());
         let glyph = if themed_ink {
             crate::look::Look::tinted_glyph
         } else {
@@ -804,18 +817,27 @@ impl<'a> Page<'a> {
         let role = rows
             .font
             .map_or("body", yapfast_core::themes::lists::FontRole::name);
-        let font =
-            crate::themes::list_font(theme, rows.font, "body", rows.weight, crate::fonts::MEDIUM);
+        let font = yapfast_iced_kit::parts::font(
+            nav_look.as_ref(),
+            crate::themes::list_font(theme, rows.font, "body", rows.weight, crate::fonts::MEDIUM),
+        );
         let shadow = if selected {
             crate::themes::offset_shadow(rows.ink.selected_shadow.map(|c| (c, 0.0, 1.0)))
         } else {
             crate::piece::TextLight::default()
         };
-        let words = crate::themes::list_case(rows.case, section.title()).into_owned();
+        let words = yapfast_iced_kit::parts::words(
+            nav_look.as_ref(),
+            crate::themes::list_case(rows.case, section.title()),
+        )
+        .into_owned();
         let underlined = selected && rows.selected.underline.is_some();
         let hug = rows.fit_text || underlined;
         let name = crate::elide::elide(words)
-            .size(rows.size.unwrap_or_else(|| theme.type_size(role, 15.0)))
+            .size(yapfast_iced_kit::parts::size(
+                nav_look.as_ref(),
+                rows.size.unwrap_or_else(|| theme.type_size(role, 15.0)),
+            ))
             .font(font)
             .color(ink)
             .light(shadow);
@@ -834,7 +856,7 @@ impl<'a> Page<'a> {
                 self.cx.look,
                 section.icon(),
                 icon_size.round() as u32,
-                icon_ink
+                yapfast_iced_kit::parts::icon_ink(nav_look.as_ref(), icon_ink)
             ),
             name
         ]

@@ -790,6 +790,7 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .on_input(|title| Message::Forum(Event::Title(title)))
             .on_submit(Message::Focus(BODY))
     };
+    let title = yapfast_iced_kit::parts::show(theme, "field", 0, title);
     let mut fields = column![column![heading("POST TITLE"), title].spacing(8)]
         .spacing(16)
         .padding(16);
@@ -993,7 +994,12 @@ fn tags_menu<'a>(
             .style(controls::lit_style(None, theme.hover, 4.0)),
         );
     }
-    let panel = container(list.padding(6)).style(controls::menu_panel(theme));
+    let panel = yapfast_iced_kit::parts::show(
+        theme,
+        "menu",
+        0,
+        container(list.padding(6)).style(controls::menu_panel(theme)),
+    );
     controls::themed_outline(panel, theme, "menu", theme.menu_line, 1.0, 8.0)
 }
 

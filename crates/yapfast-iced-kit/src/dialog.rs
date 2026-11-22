@@ -141,7 +141,7 @@ pub fn dialog<'a, M: Clone + 'a>(
         )
     });
     let card = opaque(crate::controls::themed_outline(
-        card,
+        crate::parts::show(theme, "dialog", 0, card),
         theme,
         "dialog",
         edge,
@@ -202,7 +202,14 @@ pub fn panel<'a, M: Clone + 'a>(
     if let Some(height) = height {
         card = card.height(height);
     }
-    let card = crate::controls::themed_outline(card, theme, "dialog", theme.edge, drawn_width, 8.0);
+    let card = crate::controls::themed_outline(
+        crate::parts::show(theme, "dialog", 0, card),
+        theme,
+        "dialog",
+        theme.edge,
+        drawn_width,
+        8.0,
+    );
     let scrim = theme.token_colour("scrim", PANEL_DIM);
     opaque(stack![
         crate::controls::dimmed(on_outside, scrim),

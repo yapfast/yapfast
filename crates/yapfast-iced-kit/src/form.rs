@@ -560,7 +560,10 @@ impl<'a, M: Clone + 'a> Dropdown<'a, M> {
                 };
                 rows = rows.push(look.menu_item(item, Light::Pointer, (self.pick)(index)));
             }
-            iced::widget::opaque(
+            iced::widget::opaque(crate::parts::show(
+                theme,
+                "menu",
+                0,
                 container(
                     scroll_view(rows)
                         .style(crate::style::scrollbar(theme))
@@ -570,7 +573,7 @@ impl<'a, M: Clone + 'a> Dropdown<'a, M> {
                 .max_height(LIST)
                 .width(Length::Fill)
                 .style(controls::menu_panel(theme)),
-            )
+            ))
         });
         Popover::new(base, list, Side::Below)
             .width(Width::Same)
@@ -754,14 +757,20 @@ pub fn colour_card<'a, M: Clone + 'a>(
 ) -> Element<'a, M> {
     let (raised, edge) = (theme.raised, theme.edge);
     iced::widget::opaque(
-        container(column![pad, code.size(14).padding([12, 12])].spacing(14))
-            .padding(10)
-            .width(Length::Fill)
-            .style(move |_| container::Style {
-                border: crate::style::edge(edge, 12.0),
-                shadow: crate::style::card_shadow(),
-                ..rounded(raised, 12)
-            }),
+        container(
+            column![
+                pad,
+                crate::parts::show(theme, "field", 0, code.size(14).padding([12, 12]))
+            ]
+            .spacing(14),
+        )
+        .padding(10)
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            border: crate::style::edge(edge, 12.0),
+            shadow: crate::style::card_shadow(),
+            ..rounded(raised, 12)
+        }),
     )
 }
 
@@ -811,7 +820,7 @@ pub fn colour_row<'a, M: Clone + 'a>(
     row![
         swatch,
         container(words).width(Length::Fill).clip(true),
-        field
+        crate::parts::show(theme, "field", 0, field)
     ]
     .spacing(10)
     .align_y(Alignment::Center)

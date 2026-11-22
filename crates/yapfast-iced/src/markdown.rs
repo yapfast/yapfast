@@ -959,6 +959,7 @@ impl<'c> crate::ctx::Ctx<'c> {
                             },
                         )
                     });
+                let code = yapfast_iced_kit::parts::show(theme, "timeline.code", 0, code);
                 let code = crate::theme_art::surface(code, self, surface);
                 crate::theme_art::outlined(
                     code,

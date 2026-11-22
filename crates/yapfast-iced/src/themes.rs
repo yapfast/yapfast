@@ -688,6 +688,7 @@ fn resolve_package(
     metrics.readable_text = layout.readable_text;
     let Loaded {
         types,
+        part_pictures,
         icons,
         sounds,
         art,
@@ -702,6 +703,7 @@ fn resolve_package(
         window,
     );
     metrics.types = types;
+    metrics.part_pictures = part_pictures;
     metrics.decorations = art.decorations();
     metrics.tooltip = tooltip_surface(&art);
     let sound_prefs = layout.theme_sounds.get(&id).copied().unwrap_or_default();
@@ -747,6 +749,8 @@ fn resolve_package(
 /// and art.
 struct Loaded {
     types: HashMap<String, yapfast_iced_kit::theme::TypeStyle>,
+    /// Its parts' pictures, in `Parts::files`' order.
+    part_pictures: Vec<yapfast_iced_kit::parts::Picture>,
     icons: HashMap<String, yapfast_iced_kit::icons::Replacement>,
     sounds: ThemeSounds,
     art: ThemeArt,
@@ -771,6 +775,7 @@ fn load(
     if !live {
         return Loaded {
             types: HashMap::new(),
+            part_pictures: Vec::new(),
             icons: HashMap::new(),
             sounds: ThemeSounds::default(),
             art: ThemeArt {
@@ -782,10 +787,47 @@ fn load(
     }
     Loaded {
         types: typography(folder, resolved),
+        part_pictures: part_pictures(folder, resolved),
         icons: icons(folder, resolved, palette),
         sounds: sounds(folder, resolved, options, choices),
         art: theme_art(folder, resolved, performance, reduced_motion, window),
     }
+}
+
+/// Each picture the theme's parts name, decoded once. One that somehow
+/// can't be read after the checks stands in as a clear pixel, so the
+/// indices the looks hold stay right.
+fn part_pictures(folder: &Path, resolved: &Resolved) -> Vec<yapfast_iced_kit::parts::Picture> {
+    resolved
+        .parts
+        .files()
+        .iter()
+        .map(|file| {
+            let path = folder.join(file);
+            match yapfast_core::chat::decode_picture_at(&path, 4096, 4096) {
+                Some(picture) => {
+                    let rgba = picture_rgba(&picture);
+                    let (width, height) = rgba.dimensions();
+                    // In the renderer's own pixels, as every picture is.
+                    let mut pixels = rgba.into_raw();
+                    yapfast_iced_kit::canvas::to_native(&mut pixels);
+                    yapfast_iced_kit::parts::Picture {
+                        handle: iced::advanced::image::Handle::from_rgba(width, height, pixels),
+                        width,
+                        height,
+                    }
+                }
+                None => {
+                    tracing::warn!(picture = %file.display(), "an installed theme's part picture could not be decoded");
+                    yapfast_iced_kit::parts::Picture {
+                        handle: iced::advanced::image::Handle::from_rgba(1, 1, vec![0; 4]),
+                        width: 1,
+                        height: 1,
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 fn creator_font_bytes(file: &str) -> Option<&'static [u8]> {
@@ -2276,6 +2318,7 @@ fn apply_resolution(
     metrics.readable_text = readable;
     let Loaded {
         types,
+        part_pictures,
         icons,
         sounds,
         art,
@@ -2290,6 +2333,7 @@ fn apply_resolution(
         window,
     );
     metrics.types = types;
+    metrics.part_pictures = part_pictures;
     metrics.decorations = art.decorations();
     metrics.tooltip = tooltip_surface(&art);
     let cues_on = installed.sound_prefs.interface && installed.sound_prefs.volume > 0;
@@ -3556,6 +3600,7 @@ fn metrics(
         hover_cue: false,
         press_cue: false,
         parts: parts(&resolved.parts),
+        part_pictures: Vec::new(),
     }
 }
 
@@ -3564,7 +3609,8 @@ fn metrics(
 fn parts(
     parts: &yapfast_core::themes::parts::Parts,
 ) -> HashMap<&'static str, yapfast_iced_kit::parts::PartTable> {
-    use yapfast_core::themes::parts::REGISTRY;
+    use yapfast_core::themes::parts::{Case, Fit, REGISTRY};
+    let pictures = parts.files();
     parts
         .rules
         .iter()
@@ -3583,6 +3629,25 @@ fn parts(
                     padding: style.padding,
                     weight: style.weight,
                     size_step: style.size_step,
+                    hidden: style.hidden == Some(true),
+                    case: style.case.map(|case| match case {
+                        Case::Upper => yapfast_iced_kit::parts::Case::Upper,
+                        Case::Lower => yapfast_iced_kit::parts::Case::Lower,
+                        Case::None => yapfast_iced_kit::parts::Case::None,
+                    }),
+                    italic: style.italic,
+                    picture: style.picture.as_ref().and_then(|picture| {
+                        let index = pictures.iter().position(|file| *file == picture.file)?;
+                        Some((
+                            u16::try_from(index).ok()?,
+                            match picture.fit {
+                                Fit::Cover => yapfast_iced_kit::parts::Fit::Cover,
+                                Fit::Contain => yapfast_iced_kit::parts::Fit::Contain,
+                                Fit::Tile => yapfast_iced_kit::parts::Fit::Tile,
+                            },
+                        ))
+                    }),
+                    icon_ink: style.icon_ink.map(argb),
                     from_base: from.base,
                     from_states: from.states,
                 }
@@ -5154,7 +5219,7 @@ mod tests {
             false,
         )));
         let rest = shown.part("sidebar.channel-row", 0).expect("styled");
-        assert_eq!(rest.radius, Some(4.0));
+        assert_eq!(rest.radius, Some([4.0; 4]));
         assert_eq!(rest.padding, Some([0.0, 12.0, 0.0, 12.0]));
         assert_eq!(rest.ground, None);
         assert!(rest.from_base && rest.from_states == 0);
@@ -5234,7 +5299,11 @@ mod tests {
                     .collect();
                 let named = before.ends_with(".part(")
                     || before.ends_with("Some((")
-                    || (before.contains("ByStatus::new(") && before.ends_with(','));
+                    || ((before.contains("ByStatus::new(")
+                        || before.contains("show(")
+                        || before.contains("show_pointed(")
+                        || before.contains("Dress::"))
+                        && before.ends_with(','));
                 if named
                     && !literal.is_empty()
                     && literal

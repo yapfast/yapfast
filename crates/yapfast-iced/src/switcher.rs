@@ -313,11 +313,16 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let places = &self.s.places;
         let current = self.s.chosen.min(places.len().saturating_sub(1));
-        let field = form::field(theme, SWITCHER, "Where would you like to go?", query)
-            .size(20)
-            .padding(14)
-            .on_input(|query| message(Event::Search(query)))
-            .on_submit(message(Event::Go));
+        let field = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            form::field(theme, SWITCHER, "Where would you like to go?", query)
+                .size(20)
+                .padding(14)
+                .on_input(|query| message(Event::Search(query)))
+                .on_submit(message(Event::Go)),
+        );
         let mut body = column![field].spacing(12).padding(16);
         if query.is_empty() && !places.is_empty() {
             body = body.push(
@@ -435,9 +440,14 @@ impl<'a> View<'a> {
         } else {
             "Find a friend"
         };
-        let field = form::field(theme, NEW_DM, placeholder, &new_dm.query)
-            .padding(10)
-            .on_input(|query| message(Event::NewDmQuery(query)));
+        let field = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            form::field(theme, NEW_DM, placeholder, &new_dm.query)
+                .padding(10)
+                .on_input(|query| message(Event::NewDmQuery(query))),
+        );
         let mut list = column![].spacing(2);
         let mut found = 0;
         for person in new_dm.people() {
@@ -561,14 +571,19 @@ impl<'a> View<'a> {
                 .size(12)
                 .color(theme.muted)
             ],
-            form::field(
+            yapfast_iced_kit::parts::show(
                 theme,
-                QUESTION,
-                "What question do you want to ask?",
-                &draft.question
-            )
-            .padding(10)
-            .on_input(move |text| edit(PollEdit::Question(text))),
+                "field",
+                0,
+                form::field(
+                    theme,
+                    QUESTION,
+                    "What question do you want to ask?",
+                    &draft.question
+                )
+                .padding(10)
+                .on_input(move |text| edit(PollEdit::Question(text)))
+            ),
             caps("ANSWERS"),
         ]
         .spacing(8);
@@ -690,18 +705,23 @@ impl<'a> View<'a> {
             message(Event::PollEmoji(index)),
             message(Event::Poll(PollEdit::Emoji { index, emoji: None })),
         );
-        let field = controls::field(
+        let field = yapfast_iced_kit::parts::show(
             theme,
-            "poll-answer",
-            "Type your answer",
-            &answer.text,
-            false,
-            true,
-        )
-        .id(iced::widget::Id::from(format!("poll-answer-{}", answer.id)))
-        .size(15)
-        .padding(10)
-        .on_input(move |text| message(Event::Poll(PollEdit::Answer { index, text })));
+            "field",
+            0,
+            controls::field(
+                theme,
+                "poll-answer",
+                "Type your answer",
+                &answer.text,
+                false,
+                true,
+            )
+            .id(iced::widget::Id::from(format!("poll-answer-{}", answer.id)))
+            .size(15)
+            .padding(10)
+            .on_input(move |text| message(Event::Poll(PollEdit::Answer { index, text }))),
+        );
         let mut line = row![emoji, field].spacing(8).align_y(Alignment::Center);
         if several {
             line = line.push(

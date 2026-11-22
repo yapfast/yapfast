@@ -603,6 +603,7 @@ impl<'a> View<'a> {
                     },
                 )
             });
+        let panel = yapfast_iced_kit::parts::show(theme, "popout", 0, panel);
         let panel = crate::theme_art::surface(panel, self.cx, surface);
         iced::widget::opaque(controls::edged(panel, edge, radius))
     }
@@ -1035,6 +1036,7 @@ impl<'a> View<'a> {
         } else {
             field
         };
+        let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
         let mut list = column![].spacing(2);
         for person in &self.s.people {
             let can_choose = !picker.adding && (person.chosen || chosen < room);

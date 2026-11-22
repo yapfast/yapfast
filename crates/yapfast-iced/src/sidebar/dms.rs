@@ -60,7 +60,7 @@ impl<'a> super::View<'a> {
         );
         let mut name = row![
             self.cx.person_name(
-                marked,
+                yapfast_iced_kit::parts::words(look.as_ref(), marked).into_owned(),
                 // As Slint's DM row: the window's face, not the theme's names.
                 NameInk {
                     font_role: "small",
@@ -189,7 +189,12 @@ impl<'a> super::View<'a> {
             .style(move |_| {
                 yapfast_iced_kit::parts::style(look.as_ref(), rounded(row_ground, ROW_RADIUS))
             });
-        self.row_presses(room.id.clone(), body.into(), select, Some(room.id.clone()))
+        self.row_presses(
+            room.id.clone(),
+            yapfast_iced_kit::parts::show(theme, "sidebar.dm-row", states, body),
+            select,
+            Some(room.id.clone()),
+        )
     }
 
     /// Discord's OFFICIAL badge by its own account's name: blurple, a

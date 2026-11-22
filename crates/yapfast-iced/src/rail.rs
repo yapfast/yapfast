@@ -1509,17 +1509,20 @@ impl<'a> View<'a> {
         let home = &self.s.home;
         let (width, height) = self.tile_size();
         let pointed = self.cx.pointed.rail.as_deref() == Some("");
-        let face = self.glyph_tile(
-            Icon::Logo,
-            home.selected || pointed,
-            Some((
-                "rail.home",
-                parts::states(&[
-                    (parts::HOVER, pointed),
-                    (parts::SELECTED, home.selected),
-                    (parts::UNREAD, home.unread),
-                ]),
-            )),
+        let states = parts::states(&[
+            (parts::HOVER, pointed),
+            (parts::SELECTED, home.selected),
+            (parts::UNREAD, home.unread),
+        ]);
+        let face = yapfast_iced_kit::parts::show(
+            self.cx.look.theme,
+            "rail.home",
+            states,
+            self.glyph_tile(
+                Icon::Logo,
+                home.selected || pointed,
+                Some(("rail.home", states)),
+            ),
         );
         let face = crate::theme_effects::rail_icon(face, self.cx, true, 0);
         let marks = Marks {
@@ -1565,7 +1568,7 @@ impl<'a> View<'a> {
         } else {
             (theme.raised, theme.accent)
         };
-        let ink = parts::ink(look.as_ref(), ink);
+        let ink = parts::icon_ink(look.as_ref(), ink);
         if self.framed() && icon == Icon::Logo {
             // As Slint's framed home tile: the logo in the theme's pink
             // ink on the raised ground in the print's window, turned with
@@ -1879,6 +1882,12 @@ impl<'a> View<'a> {
             .and_then(|url| self.cx.picture(url, picture_width, picture_height, true))
         {
             let (face_width, face_height) = self.face_box(&item.id, item.selected);
+            // Inside the part's padding, its ground showing round it.
+            let [top, right, bottom, left] = look.and_then(|look| look.padding).unwrap_or_default();
+            let (face_width, face_height) = (
+                (face_width - left - right).max(1.0),
+                (face_height - top - bottom).max(1.0),
+            );
             let picture = Pic::new(picture, Size::new(face_width, face_height))
                 .radius(radius)
                 .opacity(opacity * look.and_then(|look| look.opacity).unwrap_or(1.0))
@@ -1894,18 +1903,47 @@ impl<'a> View<'a> {
                 )
                 .expect("a gel theme");
             }
-            // A part's border and shadow round a server's picture too.
-            if let Some(look) = look.filter(|look| look.border.is_some() || look.shadow.is_some()) {
-                // The ring over the picture, which would cover it under.
+            // A part's frame round a server's picture: its ground round it,
+            // inside its padding; its border and shadow, the ring in its
+            // ink when it gives no border colour.
+            if let Some(look) = look.filter(|look| {
+                look.border.is_some()
+                    || look.shadow.is_some()
+                    || look.ground.is_some()
+                    || look.padding.is_some()
+            }) {
                 let ring = container(Space::new())
                     .width(Length::Fill)
                     .height(Length::Fill)
+                    .style(move |_| {
+                        let mut border = look.border(iced::Border::default().rounded(radius));
+                        if look.border_colour.is_none()
+                            && let Some(ink) = look.ink
+                        {
+                            border.color = look.fade(ink);
+                        }
+                        container::Style {
+                            border,
+                            shadow: look.shadow(iced::Shadow::default()),
+                            ..Default::default()
+                        }
+                    });
+                let ground = container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
                     .style(move |_| container::Style {
-                        border: look.border(iced::Border::default().rounded(radius)),
-                        shadow: look.shadow(iced::Shadow::default()),
+                        background: look.ground(None),
+                        border: iced::Border {
+                            radius: look.corners(radius.into()),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     });
-                return stack![picture, ring].width(width).height(height).into();
+                let inset = container(picture).padding(parts::padding(Some(&look), 0.0));
+                return stack![ground, inset, ring]
+                    .width(width)
+                    .height(height)
+                    .into();
             }
             return picture.into();
         }
@@ -2164,6 +2202,28 @@ impl<'a> View<'a> {
             .iter()
             .filter(|i| i.kind != Kind::Divider)
             .count();
+        // A closed folder's tile and a server's are parts; an open folder's
+        // icon and the add tile aren't.
+        let face = match &item.kind {
+            Kind::Folder { open: false, .. } => yapfast_iced_kit::parts::show(
+                self.cx.look.theme,
+                "rail.folder",
+                parts::states(&[(parts::HOVER, pointed), (parts::UNREAD, item.unread)]),
+                face,
+            ),
+            Kind::Folder { .. } | Kind::Add => face,
+            _ => yapfast_iced_kit::parts::show(
+                self.cx.look.theme,
+                "rail.server",
+                parts::states(&[
+                    (parts::HOVER, pointed),
+                    (parts::SELECTED, item.selected),
+                    (parts::UNREAD, item.unread),
+                    (parts::MUTED, item.muted),
+                ]),
+                face,
+            ),
+        };
         let face = crate::theme_effects::rail_icon(face, self.cx, false, place);
         let face = crate::widgets::motion::interactive_cued(
             face,

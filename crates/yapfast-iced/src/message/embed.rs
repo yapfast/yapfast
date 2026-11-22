@@ -266,6 +266,7 @@ pub(super) fn embed<'a>(
             }),
     )
     .padding(Padding::ZERO.top(4).bottom(3));
+    let shown = yapfast_iced_kit::parts::show(theme, "timeline.embed", 0, shown);
     let shown = crate::theme_art::surface(shown, ctx, surface);
     crate::theme_art::outlined(
         shown,

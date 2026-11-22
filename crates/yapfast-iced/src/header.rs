@@ -287,7 +287,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         crate::theme_effects::label(
             ctx,
             yapfast_core::themes::package::art::TextRole::Headings,
-            theme.heading(&header_name).into_owned(),
+            yapfast_iced_kit::parts::words(look.as_ref(), theme.heading(&header_name)).into_owned(),
             yapfast_iced_kit::parts::size(look.as_ref(), theme.header_size(16.0)),
             yapfast_iced_kit::parts::font(look.as_ref(), theme.header_font(SEMIBOLD)),
             yapfast_iced_kit::parts::ink(
@@ -395,9 +395,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 },
             )
         });
+    let bar = yapfast_iced_kit::parts::show(theme, "header", 0, bar);
     match shy_buttons {
         Some(buttons) => crate::widgets::Hover::new(bar, buttons).into(),
-        None => bar.into(),
+        None => bar,
     }
 }
 
@@ -481,7 +482,7 @@ fn header_icon_button<'a>(
     } else {
         ctx.look.theme.faint
     };
-    let ink = yapfast_iced_kit::parts::ink(rest.as_ref(), ink);
+    let ink = yapfast_iced_kit::parts::icon_ink(rest.as_ref(), ink);
     Spot::new(
         ctx.look
             .face_button(ctx.look.glyph(icon, GLYPH, ink), BUTTON, label, message)

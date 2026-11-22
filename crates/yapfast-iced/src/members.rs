@@ -362,13 +362,19 @@ pub(crate) enum Tops {
 }
 
 impl Tops {
-    pub(crate) fn new(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Self {
+    pub(crate) fn new(
+        lines: &[MemberLine],
+        pitch: f32,
+        heading: Option<f32>,
+        hidden: Hidden,
+    ) -> Self {
+        // Lines a theme hides take no room, so the tops go one by one.
         match heading.filter(|height| height + 2.0 != pitch) {
-            None => Self::Even {
+            None if !hidden.headings && !hidden.rows => Self::Even {
                 pitch,
                 count: lines.len(),
             },
-            Some(_) => Self::Each(line_tops(lines, pitch, heading)),
+            _ => Self::Each(line_tops(lines, pitch, heading, hidden)),
         }
     }
 
@@ -382,6 +388,7 @@ impl Tops {
             lines,
             pitch(theme, rows.and_then(|rows| rows.gap)),
             heading_height(rows),
+            Hidden::of(theme),
         )
     }
 
@@ -460,12 +467,19 @@ impl<'l> Walk<'l> {
 /// pitch, a heading its theme's own height (Zine's 42 px over 56 px rows,
 /// as Slint lays them) and the 2 px Slint keeps between it and the first
 /// member under it, else the pitch.
-fn line_tops(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Vec<f32> {
+pub(crate) fn line_tops(
+    lines: &[MemberLine],
+    pitch: f32,
+    heading: Option<f32>,
+    hidden: Hidden,
+) -> Vec<f32> {
     let mut tops = Vec::with_capacity(lines.len() + 1);
     let mut top = TOP;
     tops.push(top);
     for line in lines {
         top += match line {
+            MemberLine::Heading { .. } if hidden.headings => 0.0,
+            MemberLine::Member(_) if hidden.rows => 0.0,
             MemberLine::Heading { .. } => heading.map_or(pitch, |height| height + 2.0),
             MemberLine::Member(_) => pitch,
         };
@@ -524,6 +538,24 @@ fn dot_at(face: f32, dot: Option<f32>, out: Option<f32>) -> Point {
 }
 
 /// A themed list's heading height, when it has its own.
+/// The member list's lines a theme hides (`hidden` on `members.heading` or
+/// `members.row` in its own values), which take no room.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Hidden {
+    pub headings: bool,
+    pub rows: bool,
+}
+
+impl Hidden {
+    pub(crate) fn of(theme: &crate::theme::Theme) -> Self {
+        let hidden = |name| theme.part(name, 0).is_some_and(|look| look.hidden);
+        Self {
+            headings: hidden("members.heading"),
+            rows: hidden("members.row"),
+        }
+    }
+}
+
 pub(crate) fn heading_height(
     theme_rows: Option<&yapfast_core::themes::lists::MemberRows>,
 ) -> Option<f32> {
@@ -1309,6 +1341,7 @@ impl<'a> View<'a> {
             Message::Members(Event::Resized),
             Message::Members(Event::ResetWidth),
         );
+        let list = yapfast_iced_kit::parts::show(theme, "members", 0, list);
         let panel: Element<'a, Message> = iced::widget::stack![list, splitter].into();
         if collapsed {
             mouse_area(panel)
@@ -2036,12 +2069,14 @@ impl<'a> View<'a> {
         // the theme's `labels` light dresses Settings' section labels.
         let light = header_shadow;
         line = line.push(
-            crate::elide::elide(heading)
-                .size(size)
-                .font(header_font)
-                .color(ink)
-                .light(light)
-                .shrink(),
+            crate::elide::elide(
+                yapfast_iced_kit::parts::words(part.as_ref(), heading).into_owned(),
+            )
+            .size(size)
+            .font(header_font)
+            .color(ink)
+            .light(light)
+            .shrink(),
         );
         let border = theme.surface_border("label", 0.0, 0.0, Color::TRANSPARENT);
         let shadow = theme.surface_shadow("label", iced::Shadow::default());
@@ -2082,6 +2117,7 @@ impl<'a> View<'a> {
                     right: 0.0,
                 })
                 .height(height);
+            let body = yapfast_iced_kit::parts::show(theme, "members.heading", 0, body);
             return crate::theme_art::surface(body, self.cx, surface);
         }
         let mut body = container(line)
@@ -2112,7 +2148,8 @@ impl<'a> View<'a> {
         if fill_width {
             body = body.width(Length::Fill);
         }
-        let body: Element<'a, Message> = body.into();
+        let body: Element<'a, Message> =
+            yapfast_iced_kit::parts::show(theme, "members.heading", 0, body);
         let body = match headers.and_then(|headers| headers.frame.as_ref()) {
             Some(frame) => match crate::theme_art::tile_art(
                 self.cx,
@@ -2267,7 +2304,7 @@ impl<'a> View<'a> {
             .and_then(|rows| rows.font)
             .map_or("names", yapfast_core::themes::lists::FontRole::name);
         let name = self.cx.person_name(
-            marked.into_owned(),
+            yapfast_iced_kit::parts::words(name_part.as_ref(), marked).into_owned(),
             NameInk::new(
                 yapfast_iced_kit::parts::size(
                     name_part.as_ref(),
@@ -2309,6 +2346,7 @@ impl<'a> View<'a> {
             Some(ransom) => ransom,
             None => name,
         };
+        let name = yapfast_iced_kit::parts::show(theme, "members.row.name", states, name);
         let mut name_line = row![name].spacing(4).align_y(Alignment::Center);
         if let Some(presence) = look.presence
             && matches!(
@@ -2641,7 +2679,8 @@ impl<'a> View<'a> {
             {
                 body = body.push(art);
             }
-            let body: Element<'a, Message> = body.into();
+            let body: Element<'a, Message> =
+                yapfast_iced_kit::parts::show(theme, "members.row", states, body);
             if selected && frame.is_none() {
                 crate::theme_art::surface(body, self.cx, selected_surface)
             } else {
@@ -2904,15 +2943,15 @@ mod tests {
         };
         // Stock, and a theme whose headings keep the pitch: no tops kept.
         for heading in [None, Some(PITCH - 2.0)] {
-            let tops = Tops::new(&lines, PITCH, heading);
+            let tops = Tops::new(&lines, PITCH, heading, super::Hidden::default());
             assert!(matches!(tops, Tops::Even { .. }));
             assert_eq!(tops.in_view(&scroll), scroll.range(lines.len(), PITCH, TOP));
             assert_eq!(tops.top(1000), TOP + 1000.0 * PITCH);
             assert_eq!(tops.end(), TOP + 5000.0 * PITCH);
         }
         // Headings of their own height: each line's top.
-        let tops = Tops::new(&lines, PITCH, Some(30.0));
-        let each = line_tops(&lines, PITCH, Some(30.0));
+        let tops = Tops::new(&lines, PITCH, Some(30.0), super::Hidden::default());
+        let each = line_tops(&lines, PITCH, Some(30.0), super::Hidden::default());
         assert!(matches!(tops, Tops::Each(_)));
         assert_eq!(tops.in_view(&scroll), lines_in_view(&each, &scroll));
         assert_eq!(tops.top(10), TOP + 10.0 * 32.0);

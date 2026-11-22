@@ -203,6 +203,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
         };
         yapfast_iced_kit::parts::style(look.as_ref(), style)
     });
+    let action = yapfast_iced_kit::parts::show(theme, "timeline.actions", 0, action);
     let action = crate::theme_art::surface(action, ctx, surface);
     let action: Element<'a, Message> = if decorated {
         let shadow = theme.surface_shadow("actions", crate::style::hover_bar_shadow());

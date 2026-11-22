@@ -1012,10 +1012,14 @@ impl<'a> View<'a> {
         let panel: Element<'a, Message> = if menu.rows.is_empty() {
             Space::new().into()
         } else {
-            container(rows)
-                .width(width)
-                .style(menu_panel_over(theme, decorated))
-                .into()
+            yapfast_iced_kit::parts::show(
+                theme,
+                "menu",
+                0,
+                container(rows)
+                    .width(width)
+                    .style(menu_panel_over(theme, decorated)),
+            )
         };
         // Someone's volumes, in a panel of their own over their rows.
         let panel: Element<'a, Message> = match volumes {
@@ -1140,10 +1144,14 @@ impl<'a> View<'a> {
                 .on_enter(Message::Menu(Event::SubLight(index))),
             );
         }
-        let panel: Element<'a, Message> = container(rows)
-            .width(menu.fit(Some(sub)))
-            .style(menu_panel_over(theme, decorated))
-            .into();
+        let panel: Element<'a, Message> = yapfast_iced_kit::parts::show(
+            theme,
+            "menu",
+            0,
+            container(rows)
+                .width(menu.fit(Some(sub)))
+                .style(menu_panel_over(theme, decorated)),
+        );
         let panel = crate::theme_art::surface(panel, self.cx, surface);
         crate::theme_art::outlined(
             panel,

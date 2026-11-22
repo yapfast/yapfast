@@ -42,6 +42,9 @@ pub struct Metrics {
     /// Named parts' looks by the part's name, each worked out for every set
     /// of its states when the theme loaded ([`crate::parts`]).
     pub parts: HashMap<&'static str, crate::parts::PartTable>,
+    /// The pictures its parts name, decoded, by the index a
+    /// [`crate::parts::PartLook::picture`] gives.
+    pub part_pictures: Vec<crate::parts::Picture>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -824,6 +827,14 @@ impl Theme {
             return None;
         }
         metrics.parts.get(name).map(|table| *table.get(states))
+    }
+
+    /// One of the theme's part pictures ([`crate::parts::Dress`]).
+    pub fn part_picture(&self, index: u16) -> Option<crate::parts::Picture> {
+        self.metrics()?
+            .part_pictures
+            .get(usize::from(index))
+            .cloned()
     }
 
     /// A text role's face and weight. Readable text restores Wired's face

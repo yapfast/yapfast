@@ -300,16 +300,19 @@ impl<'a> super::View<'a> {
         face = face.push(
             row![
                 crate::theme_effects::slot(
-                    elide(theme.heading(&head.name).into_owned())
-                        .size(yapfast_iced_kit::parts::size(
-                            rest.as_ref(),
-                            theme.header_size(15.0)
-                        ))
-                        .font(yapfast_iced_kit::parts::font(
-                            rest.as_ref(),
-                            theme.header_font(BOLD)
-                        ))
-                        .color(ink),
+                    elide(
+                        yapfast_iced_kit::parts::words(rest.as_ref(), theme.heading(&head.name))
+                            .into_owned()
+                    )
+                    .size(yapfast_iced_kit::parts::size(
+                        rest.as_ref(),
+                        theme.header_size(15.0)
+                    ))
+                    .font(yapfast_iced_kit::parts::font(
+                        rest.as_ref(),
+                        theme.header_font(BOLD)
+                    ))
+                    .color(ink),
                     self.cx,
                     yapfast_core::themes::package::Slot::ServerName,
                     None,
@@ -327,7 +330,7 @@ impl<'a> super::View<'a> {
             .align_y(Alignment::Center),
         );
         let hover = theme.hover;
-        button(
+        let name_button = button(
             container(face)
                 .height(Length::Fill)
                 .align_y(Alignment::Center),
@@ -349,7 +352,7 @@ impl<'a> super::View<'a> {
                 status,
                 lit_style(open.then_some(hover), hover, 6.0)(iced_theme, status),
             )
-        })
-        .into()
+        });
+        yapfast_iced_kit::parts::show(theme, "sidebar.header", 0, name_button)
     }
 }

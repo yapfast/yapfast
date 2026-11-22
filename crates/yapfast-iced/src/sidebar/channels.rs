@@ -506,6 +506,7 @@ impl<'a> super::View<'a> {
         );
         let header_shadow = crate::themes::offset_shadow(headers.and_then(|h| h.shadow));
         let framed_words = headers.is_some_and(|headers| headers.frame.is_some());
+        let name = yapfast_iced_kit::parts::words(look.as_ref(), name).into_owned();
         let plain_heading = name.clone();
         let name = elide(name);
         // A frame hugs the words, so they take their own width.
@@ -687,6 +688,12 @@ impl<'a> super::View<'a> {
                 }
             };
         let body = crate::theme_art::surface(body, self.cx, surface);
+        let body = yapfast_iced_kit::parts::show(
+            theme,
+            "sidebar.category",
+            parts::states(&[(parts::HOVER, pointed)]),
+            body,
+        );
         let area = mouse_area(body)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Side(Event::Point(id.clone(), true)))
@@ -1022,11 +1029,16 @@ impl<'a> super::View<'a> {
             } else {
                 glyph
             };
-            face = face.push(glyph(
-                self.cx.look,
-                room.icon,
-                icon_size.round() as u32,
-                parts::ink(icon_look.as_ref(), faded(icon_ink, opacity)),
+            face = face.push(yapfast_iced_kit::parts::show(
+                theme,
+                "sidebar.channel-row.icon",
+                states,
+                glyph(
+                    self.cx.look,
+                    room.icon,
+                    icon_size.round() as u32,
+                    parts::ink(icon_look.as_ref(), faded(icon_ink, opacity)),
+                ),
             ));
         }
         let marked = self.cx.themes.marked(
@@ -1056,15 +1068,16 @@ impl<'a> super::View<'a> {
         } else {
             crate::piece::TextLight::default()
         };
-        let name = elide(name.into_owned())
-            .size(parts::size(
-                look.as_ref(),
-                list.and_then(|rows| rows.size)
-                    .unwrap_or_else(|| theme.type_size(row_role, 15.0)),
-            ))
-            .font(row_font)
-            .color(ink)
-            .light(selected_shadow);
+        let name =
+            elide(yapfast_iced_kit::parts::words(look.as_ref(), name.into_owned()).into_owned())
+                .size(parts::size(
+                    look.as_ref(),
+                    list.and_then(|rows| rows.size)
+                        .unwrap_or_else(|| theme.type_size(row_role, 15.0)),
+                ))
+                .font(row_font)
+                .color(ink)
+                .light(selected_shadow);
         // A theme's frame fitted to the name takes only the name's width.
         let fit = list.is_some_and(|rows| rows.fit_text);
         // As Slint's `ListedName`: the selected underline is as wide as the
@@ -1444,6 +1457,10 @@ pub(crate) fn listed_row_face<'a>(
         cx,
         selected && (rows.is_none() || selected_plain),
     );
+    let body = match part {
+        Some((name, states)) => yapfast_iced_kit::parts::show(theme, name, states, body),
+        None => body,
+    };
     let area = mouse_area(body)
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Side(Event::Point(id.clone(), true)))

@@ -694,7 +694,12 @@ impl<'a> Page<'a> {
                 false,
                 |sound| voice_message(Event::Entrance(Some(sound.id.clone()))),
             );
-            let panel = container(board).style(crate::controls::menu_panel(theme));
+            let panel = yapfast_iced_kit::parts::show(
+                theme,
+                "menu",
+                0,
+                container(board).style(crate::controls::menu_panel(theme)),
+            );
             crate::controls::themed_outline(panel, theme, "menu", theme.menu_line, 1.0, 8.0)
         });
         let choose: Element<'a, Message> = crate::popover::Popover::new(

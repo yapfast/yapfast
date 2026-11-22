@@ -138,6 +138,7 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .into(),
         None => layers.into(),
     };
+    let layers = yapfast_iced_kit::parts::show(ctx.look.theme, "timeline", 0, layers);
     crate::widgets::Spot::new(layers, &ctx.lanes.timeline.place).into()
 }
 
@@ -398,8 +399,17 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         let origin = iced::Vector::new(lane.left, lane.top);
         Message::Timeline(Event::RowMenu(item.clone(), at + origin))
     });
+    let content: Element<'a, Message> = yapfast_iced_kit::parts::show(
+        theme,
+        "timeline.message",
+        yapfast_iced_kit::parts::states(&[
+            (yapfast_iced_kit::parts::HOVER, pointed),
+            (yapfast_iced_kit::parts::SELECTED, target || edited),
+        ]),
+        content,
+    );
     let content = if carded {
-        content.into()
+        content
     } else {
         // As Slint's: a theme's row highlighter marks a plain row, not a
         // bubble's (Bubblegum's band ran the row's width under its pill).
@@ -1054,7 +1064,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     let border = theme.surface_border("toast", 16.0, 1.0, edge);
     let shadow = theme.surface_shadow("toast", crate::style::pill_shadow());
     let part = theme.part("toast", 0);
-    container(face)
+    let bar = container(face)
         .padding(Padding {
             left: 17.0,
             right: 13.0,
@@ -1073,8 +1083,8 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
                     ..container::Style::default()
                 },
             )
-        })
-        .into()
+        });
+    yapfast_iced_kit::parts::show(theme, "toast", 0, bar)
 }
 
 /// Whether the message is drawn as a theme's bubble, which takes no row

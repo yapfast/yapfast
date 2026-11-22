@@ -149,13 +149,18 @@ pub(super) fn reactions<'a>(
             row![
                 face,
                 // iced's default size with no theme, as main's; a theme's
-                // chips at Slint's 14 px.
+                // chips at Slint's 14 px, and a part's own size over both.
                 {
-                    let count = text(count_words)
-                        .font(theme.font(count_font, BOLD))
-                        .color(count);
-                    if theme.packaged() {
-                        count.size(14)
+                    let count = text(
+                        yapfast_iced_kit::parts::words(look.as_ref(), count_words).into_owned(),
+                    )
+                    .font(yapfast_iced_kit::parts::font(
+                        look.as_ref(),
+                        theme.font(count_font, BOLD),
+                    ))
+                    .color(count);
+                    if theme.packaged() || look.is_some() {
+                        count.size(yapfast_iced_kit::parts::size(look.as_ref(), 14.0))
                     } else {
                         count
                     }
@@ -194,6 +199,15 @@ pub(super) fn reactions<'a>(
                 reaction.key.clone(),
                 false,
             )));
+        let chip = yapfast_iced_kit::parts::show(
+            theme,
+            "timeline.reaction",
+            yapfast_iced_kit::parts::states(&[
+                (yapfast_iced_kit::parts::HOVER, pointed),
+                (yapfast_iced_kit::parts::SELECTED, reaction.mine),
+            ]),
+            chip,
+        );
         let words = reaction_tip(ctx, &message.item, &reaction.key)
             .unwrap_or_else(|| Space::new().width(0).height(0).into());
         chips.push(

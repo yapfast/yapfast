@@ -810,10 +810,10 @@ pub fn composer_button(
         faded(tint, 0.45)
     };
     let looks = yapfast_iced_kit::parts::ByStatus::new(ctx.look.theme, "composer.button", 0);
-    let rest_tint = yapfast_iced_kit::parts::ink(looks.rest(), tint);
+    let rest_tint = yapfast_iced_kit::parts::icon_ink(looks.rest(), tint);
     let lit_tint = looks
         .get(button::Status::Hovered)
-        .map(|lit| lit.ink(tint))
+        .map(|lit| lit.icon_ink(tint))
         .filter(|lit| *lit != rest_tint && message.is_some());
     let wash = ctx.look.theme.wash(0.1);
     let pressable = |tint, message| {
@@ -836,6 +836,7 @@ pub fn composer_button(
         .into(),
         None => pressable(rest_tint, message).into(),
     };
+    let face = yapfast_iced_kit::parts::show_pointed(ctx.look.theme, "composer.button", 0, face);
     tooltip(
         face,
         controls::tip(ctx.look.theme, label),
@@ -918,7 +919,7 @@ fn keyed_button(
         faded(tint, 0.45)
     };
     let tint =
-        yapfast_iced_kit::parts::ink(ctx.look.theme.part("composer.button", 0).as_ref(), tint);
+        yapfast_iced_kit::parts::icon_ink(ctx.look.theme.part("composer.button", 0).as_ref(), tint);
     let face = ctx.look.glyph(icon, glyph, tint).boxed(32);
     // The key is the button's face: no hover wash over the candy.
     let face = button(face)
@@ -932,7 +933,12 @@ fn keyed_button(
     } else {
         -1.0
     };
-    let face = crate::widgets::Wrap::new(face, KeyCap { key, hover });
+    let face = yapfast_iced_kit::parts::show(
+        ctx.look.theme,
+        "composer.button",
+        0,
+        crate::widgets::Wrap::new(face, KeyCap { key, hover }),
+    );
     tooltip(
         face,
         controls::tip(ctx.look.theme, label),
@@ -1286,6 +1292,16 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             })
             .into()
     };
+    let frame = yapfast_iced_kit::parts::show(
+        theme,
+        "composer",
+        if ctx.composer.focused {
+            yapfast_iced_kit::parts::FOCUSED
+        } else {
+            0
+        },
+        frame,
+    );
     let frame = crate::theme_art::outlined(
         frame,
         ctx,

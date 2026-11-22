@@ -1237,6 +1237,7 @@ fn author_line<'a>(
         style.as_ref().and_then(crate::looks::NameLook::font),
     )
     .into_owned();
+    let shown_author = yapfast_iced_kit::parts::words(look.as_ref(), shown_author).into_owned();
     let hover = crate::theme_effects::name_hover_effect(ctx, &shown_author);
     // A name longer than its room (the bubble's share, or the lane, less
     // its time) ends in "…" rather than widening its bubble past it.
@@ -1330,6 +1331,7 @@ fn author_line<'a>(
         ];
         crate::widgets::Hover::new(name, under).into()
     };
+    let name = yapfast_iced_kit::parts::show(theme, "timeline.message.author", hovered, name);
     let mut line = row![person_menu(ctx, index, message, name)]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -1369,10 +1371,11 @@ fn author_line<'a>(
         .themes
         .marked_time(&theme.id, sent_time(ctx, index, message));
     let time = Piece::new(
-        vec![span(sent).font(yapfast_iced_kit::parts::font(
-            time_look.as_ref(),
-            theme.font("time", REGULAR),
-        ))],
+        vec![
+            span(yapfast_iced_kit::parts::words(time_look.as_ref(), sent).into_owned()).font(
+                yapfast_iced_kit::parts::font(time_look.as_ref(), theme.font("time", REGULAR)),
+            ),
+        ],
         index,
         1,
         Message::Link,
@@ -1400,7 +1403,14 @@ fn author_line<'a>(
         ctx.lanes.timeline.selecting,
         theme.token_colour("selection", theme.selection),
     );
-    line.push(time).height(AUTHOR_LINE).into()
+    line.push(yapfast_iced_kit::parts::show(
+        theme,
+        "timeline.message.time",
+        hovered,
+        time,
+    ))
+    .height(AUTHOR_LINE)
+    .into()
 }
 
 /// A body that folds, when long messages fold: once it's a few lines past

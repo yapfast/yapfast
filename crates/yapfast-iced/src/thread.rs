@@ -1047,6 +1047,7 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
             .on_input(|name| Message::Thread(Event::Name(name)))
             .on_submit(Message::Focus(FIRST));
     }
+    let name = yapfast_iced_kit::parts::show(theme, "field", 0, name);
     fields = fields.push(
         column![
             form::heading(

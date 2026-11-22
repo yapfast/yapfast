@@ -673,7 +673,7 @@ impl<'a> View<'a> {
         }
         let corner = self.cx.look.theme.radius(12.0);
         let look = theme.part("sidebar", 0);
-        container(column![top, list])
+        let pane = container(column![top, list])
             .width(width(self.cx.layout, self.cx.look.theme))
             .height(list_height)
             .clip(true)
@@ -684,7 +684,7 @@ impl<'a> View<'a> {
                     look.as_ref(),
                     rounded(ground, corners([corner, 0.0, 0.0, 0.0])),
                 )
-            })
-            .into()
+            });
+        yapfast_iced_kit::parts::show(theme, "sidebar", 0, pane)
     }
 }

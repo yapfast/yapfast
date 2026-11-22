@@ -300,12 +300,14 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         }));
     }
     let panel = theme.panel;
-    Some(
+    Some(yapfast_iced_kit::parts::show(
+        theme,
+        "voice.panel",
+        0,
         container(dock)
             .width(Length::Fill)
-            .style(move |_| yapfast_iced_kit::parts::style(look.as_ref(), fill(panel)))
-            .into(),
-    )
+            .style(move |_| yapfast_iced_kit::parts::style(look.as_ref(), fill(panel))),
+    ))
 }
 
 /// The call's channel and how it's secured; a click opens the call, as

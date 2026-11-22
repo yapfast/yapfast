@@ -93,13 +93,19 @@ impl App {
                 self.theme.outline,
             );
             let look = self.theme.part("rail", 0);
-            container(rail)
-                .width(crate::rail::resolved_width(
-                    self.themes.package_layout(&self.theme.id),
-                    self.themes.chrome(&self.theme.id),
-                ))
-                .style(move |_| yapfast_iced_kit::parts::style(look.as_ref(), Default::default()))
-                .into()
+            yapfast_iced_kit::parts::show(
+                &self.theme,
+                "rail",
+                0,
+                container(rail)
+                    .width(crate::rail::resolved_width(
+                        self.themes.package_layout(&self.theme.id),
+                        self.themes.chrome(&self.theme.id),
+                    ))
+                    .style(move |_| {
+                        yapfast_iced_kit::parts::style(look.as_ref(), Default::default())
+                    }),
+            )
         };
         let mut rail_view = Some(rail_view);
         let sidebar_content: Element<'_, Message> =
@@ -677,6 +683,7 @@ impl App {
             )
         });
         let note = crate::theme_art::surface(note, self.ctx(), surface);
+        let note = yapfast_iced_kit::parts::show(theme, "toast", 0, note);
         Some(
             column![
                 Space::new().height(crate::window_bar::bar_height(self) + ZOOM_NOTE_TOP),

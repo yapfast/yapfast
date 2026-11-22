@@ -339,14 +339,26 @@ pub fn nav_row<'a, M: Clone + 'a>(
         theme.part("settings.nav-row", selected_state),
         theme.part("settings.nav-row", selected_state | crate::parts::HOVER),
     );
-    button(
+    let row = button(
         container(
             row![
-                look.glyph(icon, 20, icon_ink),
-                text(label)
-                    .size(15.0)
-                    .font(MEDIUM)
-                    .wrapping(text::Wrapping::None)
+                look.glyph(
+                    icon,
+                    20,
+                    if danger {
+                        icon_ink
+                    } else {
+                        crate::parts::icon_ink(rest_look.as_ref(), icon_ink)
+                    }
+                ),
+                text(if danger {
+                    label.into_fragment()
+                } else {
+                    crate::parts::words(rest_look.as_ref(), label.into_fragment())
+                })
+                .size(crate::parts::size(rest_look.as_ref(), 15.0))
+                .font(crate::parts::font(rest_look.as_ref(), MEDIUM))
+                .wrapping(text::Wrapping::None)
             ]
             .push(fresh.then(|| crate::form::new_tag(theme)))
             .spacing(8)
@@ -396,8 +408,19 @@ pub fn nav_row<'a, M: Clone + 'a>(
             },
             None => style,
         }
-    })
-    .into()
+    });
+    if danger {
+        row.into()
+    } else {
+        crate::parts::Dress::looked(
+            theme,
+            "settings.nav-row",
+            selected_state,
+            rest_look,
+            lit_look,
+        )
+        .wrap(row)
+    }
 }
 
 /// A card over the window dimmed by [`DIM`], `margin` in from its edges
