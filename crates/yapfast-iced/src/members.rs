@@ -2267,11 +2267,18 @@ impl<'a> View<'a> {
                 } else {
                     theme.font(name_role, stock)
                 };
-                let spans: Vec<iced::widget::text::Span<'a, ()>> =
-                    crate::looks::gradient_letters(&look.name, color, faded(hex(end), opacity))
-                        .into_iter()
-                        .map(|(letter, ink)| iced::widget::span(letter).color(ink).font(font))
-                        .collect();
+                let size = themed
+                    .and_then(|rows| rows.size)
+                    .unwrap_or_else(|| theme.type_size(name_role, 16.0));
+                let spans: Vec<iced::widget::text::Span<'a, ()>> = crate::looks::gradient_letters(
+                    &look.name,
+                    [color, faded(hex(end.0), opacity)],
+                    end.1.map(|third| faded(hex(third), opacity)),
+                    size * 0.6,
+                )
+                .into_iter()
+                .map(|(letter, ink)| iced::widget::span(letter).color(ink).font(font))
+                .collect();
                 container(
                     iced::widget::rich_text(spans)
                         .size(

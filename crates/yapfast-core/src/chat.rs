@@ -1151,7 +1151,7 @@ pub struct ChatMember {
     /// The RGB colour of their name, from their highest coloured Discord role,
     /// and where its gradient ends when that role's name is one.
     pub color: Option<u32>,
-    pub color_end: Option<u32>,
+    pub color_end: Option<(u32, Option<u32>)>,
     /// Their custom status, else what they're doing, from Discord, and
     /// what they're doing in full.
     pub activity: Option<String>,
@@ -2034,8 +2034,9 @@ pub struct ChatMessage {
     /// The RGB colour of the author's name, from their highest coloured
     /// Discord role.
     pub color: Option<u32>,
-    /// Where the author's role colour's gradient ends, when it is one.
-    pub color_end: Option<u32>,
+    /// The author's role colour's second colour, and its third for a
+    /// holographic one, when it is a gradient.
+    pub color_end: Option<(u32, Option<u32>)>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
     /// The server tag the author wears by their name, on Discord.

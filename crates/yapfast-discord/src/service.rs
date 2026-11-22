@@ -4084,7 +4084,7 @@ impl Discord {
 
     /// Where a member's name's gradient ends in a server, when their
     /// highest coloured role's name is one; see [`Server::gradient`].
-    pub fn gradient(&self, server: &Server, user: &str) -> Option<u32> {
+    pub fn gradient(&self, server: &Server, user: &str) -> Option<(u32, Option<u32>)> {
         server.gradient(self.read_names().roles(&server.id, user))
     }
 

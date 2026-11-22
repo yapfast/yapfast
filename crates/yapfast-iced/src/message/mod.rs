@@ -1264,32 +1264,31 @@ fn author_line<'a>(
         .color_end
         .filter(|_| message.color.is_some() && content.is_none())
     {
-        Some(end) => crate::looks::gradient_letters(&shown_author, color, hex(end))
-            .into_iter()
-            .map(|(letter, ink)| span(letter).font(name_font).color(ink))
-            .collect(),
+        Some(end) => crate::looks::gradient_letters(
+            &shown_author,
+            [color, hex(end.0)],
+            end.1.map(hex),
+            name_size * 0.6,
+        )
+        .into_iter()
+        .map(|(letter, ink)| span(letter).font(name_font).color(ink))
+        .collect(),
         None => vec![span(shown_author).font(name_font)],
     };
-    let mut name = Piece::new(
-        spans,
-        index,
-        0,
-        Message::Link,
-        Message::Select,
-    )
-    .item(Some(ctx.row_item(index)))
-    .size(theme.type_size("names", text_size(ctx)), AUTHOR_LINE)
-    .color(color)
-    .light(crate::theme_effects::text_light(
-        ctx,
-        yapfast_core::themes::package::art::TextRole::Names,
-    ))
-    .starts(false)
-    .selection(
-        ctx.selected(index, 0),
-        ctx.lanes.timeline.selecting,
-        theme.token_colour("selection", theme.selection),
-    );
+    let mut name = Piece::new(spans, index, 0, Message::Link, Message::Select)
+        .item(Some(ctx.row_item(index)))
+        .size(theme.type_size("names", text_size(ctx)), AUTHOR_LINE)
+        .color(color)
+        .light(crate::theme_effects::text_light(
+            ctx,
+            yapfast_core::themes::package::art::TextRole::Names,
+        ))
+        .starts(false)
+        .selection(
+            ctx.selected(index, 0),
+            ctx.lanes.timeline.selecting,
+            theme.token_colour("selection", theme.selection),
+        );
     if let Some(effect) = hover {
         name = name.hover_effect(effect);
     }
