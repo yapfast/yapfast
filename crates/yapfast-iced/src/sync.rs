@@ -990,6 +990,7 @@ impl App {
         }
         for url in crate::search_popout::pictures(self)
             .into_iter()
+            .chain(crate::mod_view::pictures(self))
             .chain(crate::search_filters::pictures(self))
         {
             want(Some(&url));

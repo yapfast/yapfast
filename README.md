@@ -156,11 +156,12 @@ setting says. See [Spotify](docs/discord/people.md#listening-to-spotify).
 Server Settings with roles, emoji, stickers, bans, the audit log and the rest of
 the pages your roles let you use, and channel settings with their permissions.
 Make and edit channels and categories, invite people, hand out roles, change
-nicknames, time out, kick and ban. In voice, server mute, deafen and move people
-to another channel, from their menu or by dragging them there. Edit your server
-profile, and leave. Join a server by invite, from the + under your servers, a
-link in chat or its invite card, and open a scheduled event from its link to mark yourself
-interested. Folders show up as they do in Discord.
+nicknames, time out, kick and ban, or look a member over in Mod View first. In
+voice, server mute, deafen and move people to another channel, from their menu
+or by dragging them there. Edit your server profile, and leave. Join a server
+by invite, from the + under your servers, a link in chat or its invite card,
+and open a scheduled event from its link to mark yourself interested. Folders
+show up as they do in Discord.
 
 <p align="center">
   <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">

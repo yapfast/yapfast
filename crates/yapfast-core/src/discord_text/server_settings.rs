@@ -123,7 +123,7 @@ pub(super) fn command(
                         .await
                         .map(|roles| ServerSettingsPage::Roles(super::roles::page(roles))),
                     SettingsSection::AuditLog => discord
-                        .audit_log(&guild, None, None, None)
+                        .audit_log(&guild, None, None, None, None)
                         .await
                         .map(|log| ServerSettingsPage::AuditLog(super::audit_log::parse(&log))),
                     SettingsSection::Members => {

@@ -84,6 +84,7 @@ mod members;
 mod menus;
 mod message;
 mod mfa;
+mod mod_view;
 mod paint;
 mod peek;
 mod people;

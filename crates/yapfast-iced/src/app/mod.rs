@@ -651,6 +651,7 @@ impl App {
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => crate::thread::update(self, event),
             Message::Popover(event) => crate::header_popovers::popover_event(self, event),
+            Message::ModView(event) => crate::mod_view::update(self, event),
             Message::Peek(event) => crate::peek::update(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);

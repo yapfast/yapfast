@@ -8,12 +8,12 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 use yapfast_discord::{
     api::MembersSearch,
-    server_settings::{FoundMember, Invite, parse_members_search},
+    server_settings::{FoundMember, Invite, activity_tabs, parse_activity, parse_members_search},
 };
 
 use super::{commands::NOT_DISCORD, *};
 use crate::chat::{
-    InvitesAction, JoinMethod, ListedMember, MembersQuery, RoleMember, ServerInvite,
+    InvitesAction, JoinMethod, ListedMember, MembersQuery, ModViewPart, RoleMember, ServerInvite,
 };
 
 /// How many times Members asks again while Discord indexes the server, as
@@ -160,6 +160,95 @@ fn invite(invite: Invite) -> ServerInvite {
     }
 }
 
+/// Fetches what Mod View shows of a member that Yapfast doesn't hold, or
+/// gives back any other command: the member as Members' search finds them,
+/// and their counts of messages, links and media, each sent as it comes.
+pub(super) fn mod_view(
+    command: Command,
+    discord: Result<&Discord, &str>,
+    events: &UnboundedSender<Event>,
+) -> Option<Command> {
+    let Command::Discord(DiscordCommand::ModView { server, user }) = command else {
+        return Some(command);
+    };
+    let send = |events: &UnboundedSender<Event>, part| {
+        let _ = events.send(Event::ModViewLoaded {
+            server: server.clone(),
+            user: user.clone(),
+            part,
+        });
+    };
+    let (Ok(discord), Some(guild)) = (discord, discord::parse_server(&server)) else {
+        let why = discord.err().unwrap_or(NOT_DISCORD).to_owned();
+        send(events, ModViewPart::Member(Err(why.clone())));
+        send(events, ModViewPart::Activity(Err(why)));
+        return None;
+    };
+    let (discord, guild, events) = (discord.clone(), guild.to_owned(), events.clone());
+    tokio::spawn(async move {
+        let found = async {
+            // Discord's client asks with the id, as Members' search box does.
+            let body = json!({
+                "or_query": {},
+                "and_query": {"user_id": {"or_query": [user]}},
+                "limit": 1,
+            });
+            let found = indexed(|| discord.members_search(&guild, &body)).await?;
+            let now = crate::clock::now_ms();
+            Ok(parse_members_search(&found)
+                .0
+                .into_iter()
+                .find(|member| member.user.id == user)
+                .map(|member| listed(member, now)))
+        };
+        let activity = async {
+            let body = activity_tabs(&user);
+            let found = indexed(|| discord.search_tabs(&guild, &body)).await?;
+            Ok(parse_activity(&found))
+        };
+        let (found, activity) = tokio::join!(found, activity);
+        let warn = |what: &str, error: &String| {
+            tracing::warn!(%error, "could not fetch Mod View's {what}");
+        };
+        if let Err(error) = &found {
+            warn("member", error);
+        }
+        if let Err(error) = &activity {
+            warn("counts", error);
+        }
+        let _ = events.send(Event::ModViewLoaded {
+            server: server.clone(),
+            user: user.clone(),
+            part: ModViewPart::Member(found),
+        });
+        let _ = events.send(Event::ModViewLoaded {
+            server,
+            user,
+            part: ModViewPart::Activity(activity),
+        });
+    });
+    None
+}
+
+/// Discord's answer to a search it indexes, asking again while it does.
+async fn indexed<F, Fut>(search: F) -> Result<Value, String>
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<MembersSearch>>,
+{
+    for attempt in 0..=INDEXING_RETRIES {
+        match search().await {
+            Ok(MembersSearch::Found(found)) => return Ok(found),
+            Ok(MembersSearch::Indexing(wait)) if attempt < INDEXING_RETRIES => {
+                tokio::time::sleep(Duration::from_secs_f64(wait.clamp(0.0, 60.0))).await;
+            }
+            Ok(MembersSearch::Indexing(_)) => break,
+            Err(error) => return Err(format!("{error:#}")),
+        }
+    }
+    Err("Discord is still indexing the server. Try again in a while.".to_owned())
+}
+
 /// A chunk of members for `query`, asking again while Discord indexes the
 /// server.
 pub(super) async fn members(
@@ -272,6 +361,7 @@ fn listed(member: FoundMember, now: u64) -> ListedMember {
         bot: member.bot,
         quarantined: member.flags & QUARANTINED != 0,
         joined_by,
+        inviter: member.inviter,
     }
 }
 

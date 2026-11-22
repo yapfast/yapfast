@@ -882,7 +882,8 @@ pub fn group_of(choice: MenuChoice) -> u8 {
         | MenuChoice::Timeout
         | MenuChoice::RemoveTimeout
         | MenuChoice::Kick
-        | MenuChoice::Ban => 5,
+        | MenuChoice::Ban
+        | MenuChoice::ModView => 5,
         MenuChoice::TransferOwnership => 9,
         MenuChoice::ServerSettings
         | MenuChoice::EditServerProfile
@@ -931,7 +932,7 @@ pub fn icon(choice: MenuChoice) -> Icon {
         C::CopyId => Icon::Id,
         C::Mention => Icon::AtSign,
         C::ServerNickname | C::EditChannel | C::EditServerProfile => Icon::Pencil,
-        C::Roles => Icon::Shield,
+        C::Roles | C::ModView => Icon::Shield,
         C::Timeout | C::RemoveTimeout => Icon::Clock,
         C::Kick => Icon::UserX,
         C::Ban => Icon::Gavel,
@@ -1018,6 +1019,7 @@ pub fn label(choice: MenuChoice) -> &'static str {
         MenuChoice::DuplicateChannel => "Duplicate channel",
         MenuChoice::DeleteChannel => "Delete channel",
         MenuChoice::LeaveServer => "Leave server",
+        MenuChoice::ModView => "Open in Mod View",
         MenuChoice::JoinThread => "Join thread",
         MenuChoice::LeaveThread => "Leave thread",
         MenuChoice::EditServerProfile => "Edit server profile",
