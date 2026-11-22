@@ -422,9 +422,34 @@ fn letter_seed(text: &str, index: usize) -> u64 {
     hasher.finish()
 }
 
-/// Pictures of ransom letters on their scraps, kept: a name's letters are
-/// drawn once, not each frame.
-type LetterKey = (String, String, u32, [u8; 4], [u8; 4], u32, u32);
+/// How a ransom letter is drawn: its face, size, ink, paper, pad and
+/// height. The letters drawn so are kept under it, by their text, so a
+/// lookup makes nothing.
+type LetterKey = (Font, u32, [u8; 4], [u8; 4], u32, u32);
+
+/// Pictures of ransom letters on their scraps, and their scraps' widths.
+type Letters = std::collections::HashMap<
+    LetterKey,
+    std::collections::HashMap<String, (iced::advanced::image::Handle, f32)>,
+>;
+
+/// The most letters [`LETTERS`] keeps before it starts again.
+const LETTERS_KEPT: usize = 1024;
+
+thread_local! {
+    /// Ransom letters on their scraps, kept: a name's letters are drawn
+    /// once, not each frame. How many, beside them.
+    static LETTERS: std::cell::RefCell<(Letters, usize)> =
+        std::cell::RefCell::new((Letters::new(), 0));
+}
+
+/// Lets go of the ransom letters drawn, as the theme shown changes.
+pub fn forget_letters() {
+    LETTERS.with_borrow_mut(|(letters, count)| {
+        *letters = Letters::new();
+        *count = 0;
+    });
+}
 
 /// How many times finer than the window a letter's picture is drawn, so it
 /// stays sharp turned.
@@ -443,22 +468,23 @@ fn letter_picture(
 ) -> Option<(iced::advanced::image::Handle, f32)> {
     use iced::advanced::graphics::text::{cosmic_text, font_system, to_attributes};
     use std::cell::RefCell;
-    use std::collections::HashMap;
     thread_local! {
-        static LETTERS: RefCell<HashMap<LetterKey, (iced::advanced::image::Handle, f32)>> =
-            RefCell::new(HashMap::new());
         static SWASH: RefCell<cosmic_text::SwashCache> = RefCell::new(cosmic_text::SwashCache::new());
     }
     let key: LetterKey = (
-        letter.to_owned(),
-        format!("{font:?}"),
+        font,
         size.to_bits(),
         ink.into_rgba8(),
         paper.into_rgba8(),
         pad.to_bits(),
         height.to_bits(),
     );
-    if let Some(found) = LETTERS.with_borrow(|letters| letters.get(&key).cloned()) {
+    if let Some(found) = LETTERS.with_borrow(|(letters, _)| {
+        letters
+            .get(&key)
+            .and_then(|drawn| drawn.get(letter))
+            .cloned()
+    }) {
         return Some(found);
     }
     let scale = LETTER_SCALE;
@@ -517,11 +543,46 @@ fn letter_picture(
         .collect();
     crate::paint::to_native(&mut rgba);
     let handle = iced::advanced::image::Handle::from_rgba(columns, rows, rgba);
-    LETTERS.with_borrow_mut(|letters| {
-        if letters.len() >= 1024 {
+    LETTERS.with_borrow_mut(|(letters, count)| {
+        if *count >= LETTERS_KEPT {
             letters.clear();
+            *count = 0;
         }
-        letters.insert(key, (handle.clone(), width));
+        letters
+            .entry(key)
+            .or_default()
+            .insert(letter.to_owned(), (handle.clone(), width));
+        *count += 1;
     });
     Some((handle, width))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ransom_letters_are_kept_by_their_look_until_the_theme_changes() {
+        crate::tests::install_fonts();
+        let draw = |letter: &str, size: f32| {
+            letter_picture(
+                letter,
+                crate::fonts::BOLD,
+                size,
+                Color::BLACK,
+                Color::WHITE,
+                2.0,
+                24.0,
+            )
+            .expect("drawn")
+        };
+        let a = draw("a", 16.0);
+        assert_eq!(draw("a", 16.0).0.id(), a.0.id(), "kept");
+        assert_ne!(draw("b", 16.0).0.id(), a.0.id());
+        assert_ne!(draw("a", 18.0).0.id(), a.0.id());
+        assert_eq!(LETTERS.with_borrow(|(_, count)| *count), 3);
+        forget_letters();
+        assert_eq!(LETTERS.with_borrow(|(_, count)| *count), 0);
+        assert_ne!(draw("a", 16.0).0.id(), a.0.id(), "drawn afresh");
+    }
 }

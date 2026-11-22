@@ -799,6 +799,11 @@ impl App {
         // their fonts, spacing, shapes, layout or art differ, so what's
         // laid out or cached always goes after a theme is shown.
         crate::fonts::set_default_family(body_family(&theme));
+        // What the theme before made for its art goes with it.
+        if theme.id != self.theme.id {
+            crate::theme_art::forget_pictures();
+            crate::theme_chrome::forget_letters();
+        }
         let _old = std::mem::replace(&mut self.theme, theme);
         self.show_roster(false);
         // A companion can change faces, type sizes, row spacing, avatar

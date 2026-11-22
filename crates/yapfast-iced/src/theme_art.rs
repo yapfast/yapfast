@@ -160,6 +160,24 @@ fn overlay_moves(overlay: &Overlay) -> bool {
 /// Pictures made once and kept by what made them, the latest last.
 type Kept<K> = Vec<(K, iced::advanced::image::Handle)>;
 
+thread_local! {
+    /// Grain pictures made, by phase and colour.
+    static TILES: std::cell::RefCell<Kept<(u32, [u8; 4])>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    /// Small pictures of one colour, by colour.
+    static SOLIDS: std::cell::RefCell<Kept<[u8; 4]>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Lets go of the pictures made for the theme that showed: its grain,
+/// tilings, cut pictures and grounds. The next theme makes its own.
+pub fn forget_pictures() {
+    TILES.with_borrow_mut(Vec::clear);
+    SOLIDS.with_borrow_mut(Vec::clear);
+    TILED.with_borrow_mut(std::collections::HashMap::clear);
+    FITTED.with_borrow_mut(std::collections::HashMap::clear);
+}
+
 /// Grain pictures a cycle, and blocks (4 px each) a side of one.
 const GRAIN_PHASES: u32 = 8;
 const GRAIN_SIDE: u32 = yapfast_core::themes::check::art::TEXTURE_SIDE;
@@ -169,10 +187,6 @@ const GRAIN_SIDE: u32 = yapfast_core::themes::check::art::TEXTURE_SIDE;
 /// drawn a pixel a pixel. Each phase seeds the hash afresh (Slint shifts
 /// one picture instead).
 fn grain_tile(phase: u32, colour: Color) -> iced::advanced::image::Handle {
-    use std::cell::RefCell;
-    thread_local! {
-        static TILES: RefCell<Kept<(u32, [u8; 4])>> = const { RefCell::new(Vec::new()) };
-    }
     let key = (phase, colour.into_rgba8());
     TILES.with_borrow_mut(|tiles| {
         if let Some((_, handle)) = tiles.iter().find(|(at, _)| *at == key) {
@@ -3186,10 +3200,6 @@ impl<M> Widget<M, Theme, iced::Renderer> for CardGround {
 
 /// A small picture of one colour, kept per colour: a leaning card's ground.
 fn solid(colour: Color) -> iced::advanced::image::Handle {
-    use std::cell::RefCell;
-    thread_local! {
-        static SOLIDS: RefCell<Kept<[u8; 4]>> = const { RefCell::new(Vec::new()) };
-    }
     let key = colour.into_rgba8();
     SOLIDS.with_borrow_mut(|solids| {
         if let Some((_, handle)) = solids.iter().find(|(at, _)| *at == key) {
@@ -3917,6 +3927,23 @@ fn overlay_layers<'a>(
 #[cfg(test)]
 mod motion_tests {
     use super::*;
+
+    #[test]
+    fn a_theme_change_lets_go_of_the_pictures_made_for_it() {
+        let tile = grain_tile(0, Color::WHITE);
+        solid(Color::WHITE);
+        tiled_whole(
+            &tile,
+            Rectangle::new(Point::ORIGIN, Size::new(300.0, 300.0)),
+        );
+        assert!(TILES.with_borrow(|kept| !kept.is_empty()));
+        assert!(SOLIDS.with_borrow(|kept| !kept.is_empty()));
+        assert!(TILED.with_borrow(|kept| !kept.is_empty()));
+        forget_pictures();
+        assert!(TILES.with_borrow(Vec::is_empty));
+        assert!(SOLIDS.with_borrow(Vec::is_empty));
+        assert!(TILED.with_borrow(std::collections::HashMap::is_empty));
+    }
 
     #[test]
     fn balanced_art_pauses_when_the_window_animation_gate_rests() {
