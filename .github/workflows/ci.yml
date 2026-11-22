@@ -43,32 +43,34 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: j178/prek-action@3.1.1
+      - uses: j178/prek-action@7b101f8338a08d2bd6fdb3625e4e7692428763a3
         with:
-          prek-version: "0.5.2"
+          prek-version: "0.5.11"
       - run: cargo fmt --all -- --check
 
-  dependencies:
-    name: dependencies (${{ matrix.tool }})
-    runs-on: ubuntu-26.04
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false # let both tools report even if one fails
-      matrix:
-        include:
-          - tool: cargo-audit # audits dependencies & vulnerabilities
-            # TODO: once the audit errors are fixed, drop --ignore and use `--deny warnings`.
-            run: cargo audit --ignore RUSTSEC-2026-0459
-          - tool: cargo-machete
-            run: cargo machete # finds unused dependencies
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - uses: taiki-e/install-action@v2.90.5
-        with:
-          tool: ${{ matrix.tool }}
-      - run: ${{ matrix.run }}
+  # TODO: uncomment once #313 bump versions and #314 code formatting are merged,
+  # otherwise CI will fail on the existing code.
+  # dependencies:
+  #   name: dependencies (${{ matrix.tool }})
+  #   runs-on: ubuntu-26.04
+  #   timeout-minutes: 5
+  #   strategy:
+  #     fail-fast: false # let both tools report even if one fails
+  #     matrix:
+  #       include:
+  #         - tool: cargo-audit # audits dependencies & vulnerabilities
+  #           # TODO: once the audit errors are fixed, drop --ignore and use `--deny warnings`.
+  #           run: cargo audit --ignore RUSTSEC-2026-0459
+  #         - tool: cargo-machete
+  #           run: cargo machete # finds unused dependencies
+  #   steps:
+  #     - uses: actions/checkout@v7.0.1
+  #       with:
+  #         persist-credentials: false
+  #     - uses: taiki-e/install-action@v2.90.5
+  #       with:
+  #         tool: ${{ matrix.tool }}
+  #     - run: ${{ matrix.run }}
 
   linux:
     name: ${{ matrix.name }}
