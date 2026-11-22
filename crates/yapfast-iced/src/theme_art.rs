@@ -2899,45 +2899,74 @@ impl<M> Widget<M, Theme, iced::Renderer> for TopLeftEdges {
     ) {
         use iced::advanced::Renderer as _;
         let bounds = layout.bounds();
-        // The right and bottom edges reach past the pane and are cut off,
-        // except where the sidebar is a rounded pane of its own (a glass
-        // gap): there the edges follow the pane's corners, so the top line
-        // bends down at its round corner instead of running past it.
+        // The right and bottom edges reach past the sidebar and are cut
+        // off. Where the sidebar shares a rounded pane's corner (a glass
+        // gap), its top line bends round the pane's top right corner and
+        // stops, and its left line round the bottom left one: Discord
+        // draws no line down the right or along the bottom.
         let pane = crate::widgets::pane_radii(bounds, 0.0);
-        let reach = self.width + self.radius.max(pane[0]) + 1.0;
-        let right = pane[1] > 0.0 || pane[2] > 0.0;
-        let bottom = pane[2] > 0.0 || pane[3] > 0.0;
-        let ring = Rectangle::new(
+        let top_left = self.radius.max(pane[0]);
+        let reach = self.width + top_left + 1.0;
+        let ring = |bounds: Rectangle, radius: iced::border::Radius| renderer::Quad {
+            bounds,
+            border: iced::Border {
+                color: self.colour,
+                width: self.width,
+                radius,
+            },
+            ..Default::default()
+        };
+        let stock = ring(
+            Rectangle::new(
+                bounds.position(),
+                Size::new(bounds.width + reach, bounds.height + reach),
+            ),
+            iced::border::Radius {
+                top_left,
+                ..self.radius.into()
+            },
+        );
+        let straight = Rectangle::new(
             bounds.position(),
             Size::new(
-                bounds.width + if right { 0.0 } else { reach },
-                bounds.height + if bottom { 0.0 } else { reach },
+                (bounds.width - pane[1]).max(0.0),
+                (bounds.height - pane[3]).max(0.0),
             ),
         );
-        let radius = iced::border::Radius {
-            top_left: self.radius.max(pane[0]),
-            top_right: if right { pane[1] } else { self.radius },
-            bottom_right: if right && bottom {
-                pane[2]
-            } else {
-                self.radius
-            },
-            bottom_left: if bottom { pane[3] } else { self.radius },
-        };
-        renderer.with_layer(bounds, |renderer| {
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: ring,
-                    border: iced::Border {
-                        color: self.colour,
-                        width: self.width,
-                        radius,
-                    },
-                    ..Default::default()
-                },
-                Color::TRANSPARENT,
-            );
+        renderer.with_layer(straight, |renderer| {
+            renderer.fill_quad(stock, Color::TRANSPARENT);
         });
+        // The pane's own corners, each drawn only in its square.
+        let bent = ring(
+            bounds,
+            iced::border::Radius {
+                top_left,
+                top_right: pane[1],
+                bottom_right: pane[2],
+                bottom_left: pane[3],
+            },
+        );
+        for corner in [
+            (pane[1] > 0.0).then(|| {
+                Rectangle::new(
+                    Point::new(bounds.x + bounds.width - pane[1], bounds.y),
+                    Size::new(pane[1], pane[1]),
+                )
+            }),
+            (pane[3] > 0.0).then(|| {
+                Rectangle::new(
+                    Point::new(bounds.x, bounds.y + bounds.height - pane[3]),
+                    Size::new(pane[3], pane[3]),
+                )
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            renderer.with_layer(corner, |renderer| {
+                renderer.fill_quad(bent, Color::TRANSPARENT);
+            });
+        }
     }
 }
 
