@@ -24,6 +24,7 @@ use crate::{
     controls::{Kind, action},
     fonts::{BOLD, SEMIBOLD},
     form,
+    pictures::Icon,
 };
 
 /// The inactive timeouts' names, as [`AFK_TIMEOUTS`] lists them.
@@ -484,8 +485,9 @@ impl<'a> View<'a> {
         form::page(parts)
     }
 
-    /// Boost Perks: the level, the progress bar's switch, and the banner
-    /// and invite background, each with the level that unlocks it.
+    /// Boost Perks, as Discord's page lays it out: the level, the progress
+    /// bar's switch, then the banner and the invite background, each with
+    /// the level that unlocks it, lines between.
     pub(super) fn boost_page(
         self,
         core: &'a ServerSettings,
@@ -510,30 +512,34 @@ impl<'a> View<'a> {
                 (!core.saving).then(|| message(Event::Toggle(SettingsToggle::ProgressBar))),
             )
             .description(
-                "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).",
+                "Servers with the Boost progress bar enabled get more Boosts. This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).",
             )
             .view(self.cx.look),
+            form::rule(theme),
             self.boost_background(
                 page,
                 ServerPicture::Banner,
                 2,
-                "SERVER BANNER BACKGROUND",
-                "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.",
+                "Server Banner Background",
+                "This image will display at the top of your channels list. The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.",
                 ready,
             ),
+            form::rule(theme),
             self.boost_background(
                 page,
                 ServerPicture::Splash,
                 1,
-                "SERVER INVITE BACKGROUND",
-                "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9.",
+                "Server Invite Background",
+                "This image will display when your server invite is viewed in a browser, as well as in invite confirmation screens and Server Onboarding. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9.",
                 ready,
             ),
         ])
     }
 
-    /// A banner or invite background: the picture at 16 by 9 (or the level
-    /// that unlocks it), with Upload and Remove.
+    /// A banner or invite background, as Discord's Boost Perks has it: its
+    /// title with the level it takes and what it's for on the left, with
+    /// Upload Background (and Remove) once the level unlocks it or "Unlocks
+    /// at Level N" before, and the picture at 16 by 9 on the right.
     fn boost_background(
         self,
         page: &'a BoostPage,
@@ -546,41 +552,78 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let (url, new) = page.picture(kind);
         let unlocked = page.unlocked(kind);
-        let empty = text(if unlocked {
-            "No image".to_owned()
-        } else {
-            format!("Unlocks at Level {level}")
-        })
-        .size(13)
-        .font(SEMIBOLD)
-        .color(theme.muted);
-        let mut buttons = column![action(
-            theme,
-            "Upload Background",
-            Kind::Plain,
-            (ready && unlocked).then(|| message(Event::Pick(kind))),
-        )]
-        .spacing(form::TIGHT);
-        if url.is_some() || new.is_some() {
-            buttons = buttons.push(action(
-                theme,
-                "Remove Background",
-                Kind::Ghost,
-                ready.then(|| message(Event::Remove(kind))),
-            ));
-        }
-        form::group([
-            form::heading(theme, heading),
-            form::note(theme, words),
+        let mut left = column![
             row![
-                picture_box(self.cx, url, new, 240.0, 135.0, 8.0, empty.into()),
-                buttons
+                text(heading).size(16).font(SEMIBOLD).color(theme.text),
+                level_pill(self.cx, level),
             ]
-            .spacing(form::GAP)
-            .align_y(Alignment::Center)
-            .into(),
-        ])
+            .spacing(8)
+            .align_y(Alignment::Center),
+            text(words).size(14).color(theme.secondary),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+        if unlocked {
+            let mut buttons = row![action(
+                theme,
+                "Upload Background",
+                Kind::Primary,
+                ready.then(|| message(Event::Pick(kind))),
+            )]
+            .spacing(8);
+            if url.is_some() || new.is_some() {
+                buttons = buttons.push(action(
+                    theme,
+                    "Remove",
+                    Kind::Ghost,
+                    ready.then(|| message(Event::Remove(kind))),
+                ));
+            }
+            left = left.push(container(buttons).padding(Padding::ZERO.top(4)));
+        } else {
+            left = left.push(
+                text(format!("Unlocks at Level {level}"))
+                    .size(14)
+                    .font(SEMIBOLD)
+                    .color(theme.muted),
+            );
+        }
+        // An empty box shows a picture's mark at its top right.
+        let mark = container(self.cx.look.glyph(Icon::Media, 24, theme.muted))
+            .width(Length::Fill)
+            .align_x(Alignment::End)
+            .padding(10)
+            .into();
+        row![
+            left,
+            picture_box(self.cx, url, new, 240.0, 135.0, 8.0, mark)
+        ]
+        .spacing(24)
+        .into()
     }
+}
+
+/// The boost level a perk takes, as Discord's pill beside its title shows
+/// it: a gem and "LVL 2".
+fn level_pill<'a>(cx: crate::ctx::Ctx<'a>, level: u8) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let ground = theme.hover;
+    container(
+        row![
+            cx.look.glyph(Icon::Gem, 12, theme.secondary),
+            text(format!("LVL {level}"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.text),
+        ]
+        .spacing(3)
+        .align_y(Alignment::Center),
+    )
+    .padding([0, 5])
+    .height(20)
+    .align_y(Alignment::Center)
+    .style(move |_| crate::style::rounded(ground, 10))
+    .into()
 }
 
 /// A list of channels as a page's dropdown shows it, `none` first, and the

@@ -28,9 +28,12 @@ dialog over the page, then the settings.
 - Engagement: the system messages' channel and its four switches, which
   wait for a channel; the default notifications; the inactive channel and
   its timeout, which waits for one.
-- Boost Perks: the server's level, the progress bar's switch, and the
-  banner and invite background at 16 by 9, each with the level that
-  unlocks it.
+- Boost Perks, laid out as Discord's: the server's level, the progress
+  bar's switch, then, between lines, the banner and the invite background,
+  each its title with a gem and "LVL N" pill and what it's for on the left,
+  with Upload Background (and Remove) once the level unlocks it or
+  "Unlocks at Level N" before, and the picture at 16 by 9 on the right.
+  Discord's Unlock with Boosting sells boosts, so it isn't there.
 - Roles (`roles/`: the list, the editor and its members' tab each a
   file): @everyone's card,
   the search with Create Role, and the roles in their order with how many
