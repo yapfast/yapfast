@@ -1701,6 +1701,37 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "image")]
+    #[test]
+    fn a_round_picture_at_twice_the_scale_has_corners_twice_as_round() {
+        // Patch 39: 40 by 40 at (10, 10) with 8 px corners, at scale 2: an
+        // 80 px box at (20, 20) with 16 px corners, not 32 px ones.
+        let mut engine = Engine::new();
+        let ground = 0xff20_1d1c_u32;
+        let size = 120u32;
+        let mut frame = vec![ground; (size * size) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), size, size).expect("pixmap");
+        let mut mask = tiny_skia::Mask::new(size, size).expect("mask");
+        let layer = Rectangle::new(crate::core::Point::ORIGIN, Size::new(size as f32, size as f32));
+        adjust_clip_mask(&mut mask, layer);
+        let bounds = Rectangle::new(crate::core::Point::new(10.0, 10.0), Size::new(40.0, 40.0));
+        let image = Image::Raster {
+            image: crate::core::image::Image {
+                border_radius: 8.0.into(),
+                ..crate::core::image::Image::new(crate::core::image::Handle::from_rgba(80, 80, vec![255u8; 80 * 80 * 4]))
+            },
+            bounds,
+            clip_bounds: bounds,
+        };
+        engine.draw_image(&image, Transformation::scale(2.0), &mut pixmap, &mut mask, layer);
+        let shown = |x: u32, y: u32| frame[(y * size + x) as usize] != ground;
+        // 13 px from the 16 px corner's centre: inside it, outside a 32 px one.
+        assert!(shown(27, 27), "inside a 16 px corner");
+        assert!(!shown(21, 21), "outside any corner");
+        assert!(shown(60, 20) && shown(20, 60) && shown(99, 60), "its edges");
+        assert!(!shown(100, 60) && !shown(60, 100), "nothing past its 80 px");
+    }
+
     #[cfg(feature = "svg")]
     #[test]
     fn an_svg_is_cut_to_its_own_clip() {

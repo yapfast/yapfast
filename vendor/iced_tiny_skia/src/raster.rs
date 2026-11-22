@@ -118,20 +118,27 @@ impl Pipeline {
             let opaque = self.opaque.borrow_mut().of(handle.id(), image.data());
             let (left, top, right, bottom) = whole_span(bounds, transform);
             let opacity = (opacity.clamp(0.0, 1.0) * 256.0).round() as u32;
-            let radius = border_radius.map(|radius| radius * transform.sx);
+            // The engine hands the radius over in physical pixels already
+            // (scaled by the window's scale factor), as the turned path
+            // below takes it; scaling it again made an 8 px corner 18 px at
+            // 150% (patch 39).
+            let radius = border_radius;
             // Patch 38: round at the picture's own clip, as iced_wgpu's
             // image shader does, so a picture larger than its box (art
             // laid as a cover) takes the box's round corners.
             // Held to a frame's reach: a clip may be as wide as can be.
             let corners = border_radius.iter().any(|radius| *radius > 0.0).then(|| {
                 let pixel = |at: f32| at.round().clamp(-16_777_216.0, 16_777_216.0) as i32;
-                let left = corners.x * transform.sx + transform.tx;
-                let top = corners.y * transform.sy + transform.ty;
+                let left = pixel(corners.x * transform.sx + transform.tx);
+                let top = pixel(corners.y * transform.sy + transform.ty);
+                // Its corner on the nearest pixel and its size rounded, as
+                // `whole_span` places the picture, so a box the picture's
+                // own size cuts exactly the pixels it covers (patch 39).
                 [
-                    pixel(left),
-                    pixel(top),
-                    pixel(left + corners.width * transform.sx),
-                    pixel(top + corners.height * transform.sy),
+                    left,
+                    top,
+                    left.saturating_add(pixel(corners.width * transform.sx)),
+                    top.saturating_add(pixel(corners.height * transform.sy)),
                 ]
             });
             if (right - left, bottom - top) == (image.width() as i32, image.height() as i32) {

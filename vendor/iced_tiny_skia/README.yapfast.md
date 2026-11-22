@@ -258,5 +258,13 @@ change spans several places):
     came out square on the CPU while round on the GPU. A test in
     `blit.rs`.
 
+39. `raster.rs` `draw`: an unturned picture's round corners are scaled to
+    the window's scale once, as the engine hands them over in physical
+    pixels already (patch 24 scaled them again, so an 8 px corner came out
+    18 px at 150%), and the box they round is placed as the picture is
+    (its corner on the nearest pixel, its size rounded), so a picture its
+    box's size is cut on exactly the pixels it covers. A test in
+    `engine.rs`.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.
