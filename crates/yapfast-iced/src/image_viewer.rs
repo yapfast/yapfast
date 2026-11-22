@@ -165,7 +165,9 @@ impl Viewed {
     }
 }
 
-/// Asks where to save a message's attachment, suggesting its own name.
+/// Asks where to save a message's attachment, suggesting its own name; on
+/// a Linux desktop without the file chooser portal, which rfd's dialog
+/// needs, it goes straight to the Downloads folder instead.
 pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
     if state.preview {
         return Task::none();
@@ -177,6 +179,11 @@ pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
         .unwrap_or_else(|| "attachment".into());
     Task::perform(
         async move {
+            if !crate::downloads::has_save_dialog().await {
+                let path = crate::downloads::fallback(&name);
+                tracing::info!(saved = path.is_some(), "no save dialog: to Downloads");
+                return path;
+            }
             rfd::AsyncFileDialog::new()
                 .set_title("Save attachment")
                 .set_file_name(name)

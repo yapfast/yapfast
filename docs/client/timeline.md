@@ -68,7 +68,8 @@ waits for its retry.
 
 A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
-a file's card (its name and size), link previews and bots' cards (a bar of
+a file's card (its name, a link to the file in the link colour, and its
+size), link previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
 thumbnail and footer), stickers, a poll, a voice message, an app's
 components, and reactions. The author line has the name (in its role
@@ -120,7 +121,10 @@ slash command, where one may write, is written in the composer
   Image or Video, Copy Link and Open Link, after the message's own rows
   (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
-  dialog, offering only the file's own name.
+  dialog, offering only the file's own name. On Linux without the file
+  chooser portal, which the dialog needs (`downloads::has_save_dialog`),
+  the file goes straight to the Downloads folder instead, as `notes (1).txt`
+  beside one of its name, and the notice says it saved.
 - A video (`playback.rs`) shows its poster with a play mark; clicked, it
   plays in its cell, its frames coming through the stream worker's shared
   mapping as a watched stream's do (`video::Sources::clip`). While the
