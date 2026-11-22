@@ -713,13 +713,22 @@ impl<'a> View<'a> {
                 .padding([8.0, 10.0])
                 .on_input(|name| message(Event::ChannelName(name)))
                 .on_submit(message(Event::SaveChannel));
+            // The kind's icon inside the field, before the name, as
+            // Discord's has it.
             let named_row: Element<'a, Message> = match icon.filter(|_| !category) {
-                Some(icon) => row![
-                    self.cx.look.glyph(icon, 18, theme.muted),
-                    container(field_box).width(Length::Fill),
+                Some(icon) => iced::widget::stack![
+                    field_box.padding(iced::Padding {
+                        top: 8.0,
+                        right: 10.0,
+                        bottom: 8.0,
+                        left: 34.0,
+                    }),
+                    container(self.cx.look.glyph(icon, 18, theme.muted))
+                        .padding(iced::Padding::ZERO.left(10))
+                        .height(Length::Fill)
+                        .align_y(Alignment::Center),
                 ]
-                .spacing(8)
-                .align_y(Alignment::Center)
+                .width(Length::Fill)
                 .into(),
                 None => field_box.into(),
             };
