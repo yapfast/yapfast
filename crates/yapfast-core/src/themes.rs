@@ -11,7 +11,7 @@
 //! and the marketplace's catalog of them.
 //!
 //! There are no selectors. A theme names a token, a surface, a slot or a part
-//! from closed lists Yapfast publishes, and Yapfast applies the value where it
+//! ([`parts`]) from closed lists Yapfast publishes, and Yapfast applies the value where it
 //! already draws that thing; a name it doesn't know is ignored with a note, so
 //! a theme written for a later Yapfast still opens.
 
@@ -26,6 +26,7 @@ pub mod media;
 pub mod motion;
 pub mod options;
 pub mod package;
+pub mod parts;
 pub mod remote;
 pub mod scaffold;
 
@@ -107,24 +108,6 @@ pub const THEME_API: u32 = 1;
 
 /// What a theme's folder names its description.
 pub const MANIFEST: &str = "theme.json";
-
-/// Parts a theme may one day rebuild, and the contract version of each this
-/// Yapfast offers: the fields a part receives. None are offered yet; a theme
-/// that declares one draws the stock part and its page says so. A part's
-/// minor version only adds fields, and a part built for another major draws
-/// the stock part, so a theme never breaks on an update.
-pub const PART_CONTRACTS: &[(&str, u32, u32)] = &[];
-
-/// The parts a theme will be able to rebuild, by name, so a theme that
-/// declares one is told it's for a later Yapfast rather than that the name is
-/// wrong.
-pub const PARTS: [&str; 5] = [
-    "message-row",
-    "member-row",
-    "account-panel",
-    "server-header",
-    "profile-card",
-];
 
 /// How much of a theme runs, which Settings → Appearance sets and every
 /// theme's cost is measured against.
