@@ -44,6 +44,9 @@ pub struct EffectClock {
     /// When the pointer came onto each, which the wait for the layers
     /// counts from.
     pointed: [Option<Instant>; 2],
+    /// When the pointer last came onto or left each, which its fade
+    /// counts from.
+    turned: [Option<Instant>; 2],
     generation: u64,
 }
 
@@ -114,6 +117,33 @@ pub(super) fn worn_effect<'a>(state: &'a AppState, shown: &Shown) -> Option<&'a 
 /// The longest an effect's clock waits for its layers to come.
 const LAYER_WAIT: Duration = Duration::from_secs(3);
 
+/// How long an effect takes to fade as the pointer comes or goes, and how
+/// faint it is under the pointer: Discord's `.profileEffects` has
+/// `transition: opacity .6s ease-in-out` and `.hovered` `opacity: .35`.
+const FADE: Duration = Duration::from_millis(600);
+const HOVERED: f32 = 0.35;
+
+/// The effect's opacity: easing to [`HOVERED`] since the pointer came
+/// onto the card, and back to whole since it left.
+pub(super) fn effect_opacity(pointed: bool, turned: Option<Instant>, now: Instant) -> f32 {
+    let Some(turned) = turned else {
+        return 1.0;
+    };
+    let t = (now.duration_since(turned).as_secs_f32() / FADE.as_secs_f32()).clamp(0.0, 1.0);
+    // CSS's ease-in-out, closely enough.
+    let eased = if t < 0.5 {
+        2.0 * t * t
+    } else {
+        1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+    };
+    let (from, to) = if pointed {
+        (1.0, HOVERED)
+    } else {
+        (HOVERED, 1.0)
+    };
+    from + (to - from) * eased
+}
+
 /// The effect's pictures to ask for: its still, and its layers while the
 /// card is pointed at.
 pub(super) fn effect_pictures(state: &AppState, shown: &Shown, pointed: bool) -> Vec<String> {
@@ -159,6 +189,7 @@ impl Profiles {
         }
         *since = pointed.then(Instant::now);
         clock.pointed[usize::from(panel)] = *since;
+        clock.turned[usize::from(panel)] = Some(Instant::now());
         clock.generation += 1;
         let generation = clock.generation;
         self.effect_tick(generation, state)
@@ -206,6 +237,19 @@ impl Profiles {
         if held {
             return crate::after(
                 Duration::from_millis(100),
+                Message::Profile(Event::EffectTick(generation)),
+            );
+        }
+        // A fade under way is drawn frame by frame, for its 0.6 s only.
+        if self
+            .effect
+            .turned
+            .iter()
+            .flatten()
+            .any(|turned| now.duration_since(*turned) < FADE)
+        {
+            return crate::after(
+                Duration::from_millis(16),
                 Message::Profile(Event::EffectTick(generation)),
             );
         }
@@ -262,7 +306,9 @@ pub(super) fn dressed<'a>(
             yapfast_core::themes::package::art::FoilSurface::Card,
         )
     };
-    let card = match effect_view(ctx, shown, width, since) {
+    let turned = ctx.profiles.effect.turned[usize::from(mode == Mode::Docked)];
+    let opacity = effect_opacity(since.is_some(), turned, Instant::now());
+    let card = match effect_view(ctx, shown, width, since, opacity) {
         Some(effect) => stack![card, effect].into(),
         None => card,
     };
@@ -292,6 +338,7 @@ fn effect_view<'a>(
     shown: &Shown,
     width: f32,
     since: Option<Instant>,
+    opacity: f32,
 ) -> Option<Element<'a, Message>> {
     if ctx
         .themes
@@ -328,17 +375,17 @@ fn effect_view<'a>(
             );
             let size = Size::new(width, (at.y + height).max(1.0));
             if let Some(moving) = ctx.moving(&layer.src, size, at, false) {
-                layers = layers.push(moving);
+                layers = layers.push(moving.opacity(opacity));
             } else if let Some(still) = ctx.picture(&layer.src, width as u32, height as u32, false)
             {
-                layers = layers.push(Pic::new(still, size).at(at));
+                layers = layers.push(Pic::new(still, size).at(at).opacity(opacity));
             }
         }
     } else {
         let url = effect.still.as_deref()?;
         let height = tall(url)?;
         let still = ctx.picture(url, width as u32, height as u32, false)?;
-        layers = layers.push(Pic::new(still, Size::new(width, height)));
+        layers = layers.push(Pic::new(still, Size::new(width, height)).opacity(opacity));
     }
     Some(
         container(layers)
@@ -452,6 +499,20 @@ mod tests {
             looped,
             loop_delay,
         }
+    }
+
+    /// The effect eases to 35% under the pointer over 0.6 s, and back,
+    /// as Discord's `.profileEffects` transition does.
+    #[test]
+    fn an_effect_fades_under_the_pointer_and_back() {
+        let at = Instant::now();
+        let after = |ms: u64| at + Duration::from_millis(ms);
+        assert_eq!(effect_opacity(false, None, at), 1.0, "at rest");
+        assert_eq!(effect_opacity(true, Some(at), at), 1.0);
+        assert!((effect_opacity(true, Some(at), after(300)) - 0.675).abs() < 0.01);
+        assert!((effect_opacity(true, Some(at), after(600)) - HOVERED).abs() < 1e-5);
+        assert_eq!(effect_opacity(false, Some(at), after(1000)), 1.0);
+        assert!(effect_opacity(false, Some(at), after(100)) < 0.5);
     }
 
     #[test]
