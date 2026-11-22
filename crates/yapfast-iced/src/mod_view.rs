@@ -309,7 +309,7 @@ fn info<'a>(
         who = who.push(text(username.clone()).size(14).color(theme.secondary));
     }
     // What may be done to them, as Discord's row of buttons.
-    let mut buttons = row![].spacing(6);
+    let mut buttons = row![].spacing(6).align_y(Alignment::Center);
     if !member.me {
         buttons = buttons.push(action(
             theme,
