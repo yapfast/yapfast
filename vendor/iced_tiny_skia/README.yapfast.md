@@ -92,8 +92,8 @@ change spans several places):
     is copied from it directly, source over; patch 17 filled the bands
     through tiny-skia's pattern pipeline, and a large shadow was worked
     out pixel by pixel again each time it was drawn. Tests in
-    `engine.rs` compare it with the shadow worked out whole (outside the
-    body, as patch 34 draws it).
+    `engine.rs` compare it with the shadow worked out whole, pixel by
+    pixel (outside a see-through quad's shape, as patch 34 draws it).
 19. `blit.rs` `fill`, `blit`, `engine.rs`, `raster.rs` `Opaque`, `lib.rs`
     `Renderer::draw`: a region's clear and a plain one-colour quad are
     written into the frame directly, in place or source over, not through
@@ -208,27 +208,36 @@ change spans several places):
 33. `engine.rs` `draw_quad`: a quad with no area draws nothing. Square
     cornered, its path couldn't be built and the draw panicked (a theme's
     0 px corners on a card's empty banner).
-34. `engine.rs` `draw_quad`: a shadow lies outside its quad, as CSS's
-    box-shadow does: nothing is drawn under the quad's body (its bounds
-    inside its largest corner), opaque or not. Stock drew the whole shadow
+34. `engine.rs` `draw_quad`, `Sliced`, `rounded_box_distance`: a shadow
+    lies outside its quad, as CSS's box-shadow does: nothing is drawn
+    under the quad's body (its bounds inside its largest corner), opaque
+    or not, and under a see-through quad the shadow is times one less the
+    quad's coverage of each pixel (from the distance of its centre to the
+    rounded outline), as iced_wgpu's quad shader draws it, so the band
+    between body and outline takes none either. An opaque quad hides that
+    band, so its shadow there is worked out whole, as before, and its
+    anti-aliased edge blends over it unchanged. Stock drew the whole shadow
     under it, so a see-through quad (a theme's menu, its ground and art
     drawn under a quad with no fill) showed its own shadow through itself.
-    The shadow tests in `engine.rs` leave the body out of the shadow they
-    compare with.
+    The shadow tests in `engine.rs` compare with a shadow worked out pixel
+    by pixel, times one less the quad's coverage, and look inside a
+    rounded edge.
 35. `engine.rs` `smoothstep`: a hard edge (a shadow with no blur, as
     themes' offset shadows are) steps at its edge, taking in half a pixel.
     Stock, 0 / 0 gave NaN inside the shape and the whole shadow came out
-    clear.
+    clear. A test in `engine.rs` (with patch 37's).
 36. `raster.rs` `draw`: a turned or flipped picture (drawn through
     tiny-skia's `draw_pixmap`) is placed at its bounds' own position, then
     scaled. Stock, the position was divided by the scale and cut to whole
     pixels of the picture, so a small picture stretched far (a turned
-    card's ground) landed up to a scaled pixel away.
+    card's ground) landed up to a scaled pixel away. A test in
+    `engine.rs`.
 37. `engine.rs` `Sliced::draw`: a kept shadow's reach counts every kept
     pixel and the whole stretch its straight one stands for. Stock had no
     slices; patch 18 undercounted by the last kept pixel's place when the
     stretch ran to the reach's edge, so a hard shadow on square corners,
-    whose reach is all stretch, drew one pixel of itself.
+    whose reach is all stretch, drew one pixel of itself. A test in
+    `engine.rs` draws one.
 
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

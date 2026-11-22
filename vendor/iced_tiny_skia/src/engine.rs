@@ -152,6 +152,13 @@ impl Engine {
         // of the clip outside it are worked out (a scrolled list in a
         // raised panel damages the panel, and working the shadow out under
         // all of it every frame cost more than drawing the list).
+        // Yapfast port (patch 34): under a see-through quad, the band
+        // between its body and its rounded outline takes only the shadow
+        // outside its shape (`cut`), as iced_wgpu's quad shader does: the
+        // shadow times one less the quad's coverage of each pixel. An
+        // opaque quad hides that band, so its shadow is worked out whole,
+        // as before, and its anti-aliased edge blends over it unchanged.
+        let cut = !crate::opaque(background);
         let corner = fill_border_radius
             .iter()
             .fold(0.0f32, |most, radius| most.max(*radius))
@@ -168,7 +175,8 @@ impl Engine {
             // Yapfast port (patch 34): a shadow lies outside its quad, as
             // CSS's box-shadow and Slint's drop shadow do: a see-through
             // quad (a theme's menu, its ground drawn under it with art) no
-            // longer shows its own shadow through itself.
+            // longer shows its own shadow through itself. Its body is
+            // wholly covered by the quad, so it's skipped whole.
             (right > left
                 && bottom > top)
                 .then(|| Rectangle {
@@ -228,6 +236,7 @@ impl Engine {
                 &radii,
                 shadow,
                 transformation.scale_factor(),
+                cut,
             );
             // Yapfast port (patch 18): a large shadow (a card's, a menu's)
             // is kept as its nine slices: the corners whole, each edge one
@@ -247,6 +256,7 @@ impl Engine {
                     &radii,
                     shadow,
                     transformation,
+                    cut,
                 )
                 .map(|sliced| {
                     if self.shadows.len() == SHADOWS_KEPT {
@@ -1104,6 +1114,22 @@ fn rounded_box_sdf(
     (x.powf(2.0) + y.powf(2.0)).sqrt() - radius
 }
 
+/// Yapfast port (patch 34): the signed distance from a point (`to_center`,
+/// from the box's centre) to a rounded box's outline, negative inside.
+/// `rounded_box_sdf` is iced's, right only outside (inside it's minus the
+/// corner's radius throughout).
+fn rounded_box_distance(to_center: Vector, size: tiny_skia::Size, radii: &[f32]) -> f32 {
+    let radius = match (to_center.x > 0.0, to_center.y > 0.0) {
+        (true, true) => radii[2],
+        (true, false) => radii[1],
+        (false, true) => radii[3],
+        (false, false) => radii[0],
+    };
+    let x = to_center.x.abs() - size.width() + radius;
+    let y = to_center.y.abs() - size.height() + radius;
+    x.max(0.0).hypot(y.max(0.0)) + x.max(y).min(0.0) - radius
+}
+
 /// Yapfast port (patch 30): whether a picture drawn with `transform` takes
 /// the direct copy in `raster.rs` (unrotated, unflipped), which cuts by its
 /// clip rectangle rather than the mask.
@@ -1205,6 +1231,8 @@ struct ShadowKey {
     blur: u32,
     offset: (u32, u32),
     color: [u32; 4],
+    /// Patch 34: whether the quad's own shape is cut out of it.
+    cut: bool,
 }
 
 impl ShadowKey {
@@ -1215,6 +1243,7 @@ impl ShadowKey {
         radii: &[f32],
         shadow: crate::core::Shadow,
         scale: f32,
+        cut: bool,
     ) -> Self {
         let mut corners = [0; 4];
         for (corner, radius) in corners.iter_mut().zip(radii) {
@@ -1233,6 +1262,7 @@ impl ShadowKey {
                 shadow.color.b.to_bits(),
                 shadow.color.a.to_bits(),
             ],
+            cut,
         }
     }
 }
@@ -1264,6 +1294,12 @@ impl Slices {
         } else {
             Self { start: 0, end: 0 }
         }
+    }
+
+    /// Patch 34: the stretch straight in both.
+    fn and(self, other: Self) -> Self {
+        let (start, end) = (self.start.max(other.start), self.end.min(other.end));
+        if end > start { Self { start, end } } else { Self { start: 0, end: 0 } }
     }
 
     /// How many pixels are kept of `pixels`.
@@ -1305,7 +1341,8 @@ struct Sliced {
 
 impl Sliced {
     /// Works the shadow out over its reach, `width` by `height` pixels
-    /// from `origin`, keeping one pixel of each straight stretch.
+    /// from `origin`, keeping one pixel of each straight stretch; when
+    /// `cut`, only what lies outside the quad's rounded shape (patch 34).
     fn new(
         physical_bounds: Rectangle,
         origin: (f32, f32),
@@ -1313,6 +1350,7 @@ impl Sliced {
         radii: &[f32],
         shadow: crate::core::Shadow,
         transformation: Transformation,
+        cut: bool,
     ) -> Option<Self> {
         let scale = transformation.scale_factor();
         let corner = radii.iter().fold(0.0f32, |most, radius| most.max(*radius));
@@ -1331,6 +1369,29 @@ impl Sliced {
             physical_bounds.y + offset_y + physical_bounds.height,
             corner,
         );
+        // Patch 34: the quad's coverage, sampled at pixel centres, is the
+        // same across where a centre lies `corner` and half a pixel inside
+        // both its ends: from `near` to `far - 1` as `Slices` counts.
+        let (x, y) = if cut {
+            (
+                x.and(Slices::new(
+                    origin.0,
+                    width,
+                    physical_bounds.x,
+                    physical_bounds.x + physical_bounds.width - 1.0,
+                    corner,
+                )),
+                y.and(Slices::new(
+                    origin.1,
+                    height,
+                    physical_bounds.y,
+                    physical_bounds.y + physical_bounds.height - 1.0,
+                    corner,
+                )),
+            )
+        } else {
+            (x, y)
+        };
         let (kept_width, kept_height) = (x.kept(width), y.kept(height));
         if kept_width == 0 || kept_height == 0 {
             return None;
@@ -1359,6 +1420,20 @@ impl Sliced {
                         shadow.blur_radius * scale,
                         shadow_distance,
                     );
+                // Patch 34: none where the quad covers the pixel.
+                let shadow_alpha = if cut {
+                    let distance = rounded_box_distance(
+                        Vector::new(
+                            at_x + 0.5 - physical_bounds.position().x - half_width,
+                            at_y + 0.5 - physical_bounds.position().y - half_height,
+                        ),
+                        size,
+                        radii,
+                    );
+                    shadow_alpha * (1.0 - (0.5 - distance).clamp(0.0, 1.0))
+                } else {
+                    shadow_alpha
+                };
                 let mut color = color;
                 color.apply_opacity(shadow_alpha);
                 let pixel = color.to_color_u8().premultiply();
@@ -1451,20 +1526,34 @@ mod tests {
     use super::*;
 
     /// Every pixel of a shadow's reach, worked out one by one as stock iced
-    /// does, then laid over a dark ground, except under the quad's body
-    /// (its bounds inside its largest corner), where patch 34 draws none.
+    /// does, then laid over a dark ground, times one less the see-through
+    /// quad's own coverage of the pixel (patch 34, as iced_wgpu's shader):
+    /// the signed distance from the pixel's centre to its rounded outline,
+    /// worked out here on its own.
     fn whole_shadow(bounds: Rectangle, radii: [f32; 4], shadow: crate::core::Shadow, size: (u32, u32)) -> Vec<u32> {
-        let corner = radii.iter().fold(0.0f32, |most, radius| most.max(*radius));
-        let (body_left, body_top) = ((bounds.x + corner).ceil(), (bounds.y + corner).ceil());
-        let (body_right, body_bottom) =
-            ((bounds.x + bounds.width - corner).floor(), (bounds.y + bounds.height - corner).floor());
-        let in_body = |x: f32, y: f32| x >= body_left && x < body_right && y >= body_top && y < body_bottom;
+        let (half_width, half_height) = (bounds.width / 2.0, bounds.height / 2.0);
+        let coverage = |x: f32, y: f32| {
+            let (dx, dy) = (x + 0.5 - bounds.x - half_width, y + 0.5 - bounds.y - half_height);
+            let radius = radii[match (dx > 0.0, dy > 0.0) {
+                (false, false) => 0,
+                (true, false) => 1,
+                (true, true) => 2,
+                (false, true) => 3,
+            }];
+            // How far past the box inset by the radius, on each axis.
+            let (past_x, past_y) = (dx.abs() - half_width + radius, dy.abs() - half_height + radius);
+            let distance = if past_x > 0.0 && past_y > 0.0 {
+                past_x.hypot(past_y) - radius
+            } else {
+                past_x.max(past_y) - radius
+            };
+            (0.5 - distance).clamp(0.0, 1.0)
+        };
         let quad = Quad { bounds, border: crate::core::Border::default(), shadow, ..Quad::default() };
         let reach = shadow_reach(&quad).expect("a shadow");
         let origin = (reach.x.floor(), reach.y.floor());
         let ground = 0xff20_1d1c_u32;
         let mut frame = vec![ground; (size.0 * size.1) as usize];
-        let (half_width, half_height) = (bounds.width / 2.0, bounds.height / 2.0);
         let half = tiny_skia::Size::from_wh(half_width, half_height).expect("size");
         for y in 0..size.1 {
             for x in 0..size.0 {
@@ -1473,7 +1562,6 @@ mod tests {
                     || at_y < origin.1
                     || at_x >= (reach.x + reach.width).ceil()
                     || at_y >= (reach.y + reach.height).ceil()
-                    || in_body(at_x, at_y)
                 {
                     continue;
                 }
@@ -1487,6 +1575,7 @@ mod tests {
                 )
                 .max(0.0);
                 let alpha = 1.0 - smoothstep(-shadow.blur_radius, shadow.blur_radius, distance);
+                let alpha = alpha * (1.0 - coverage(at_x, at_y));
                 let mut color = into_color(shadow.color);
                 color.apply_opacity(alpha);
                 let pixel = color.to_color_u8().premultiply();
@@ -1692,5 +1781,78 @@ mod tests {
         let bounds = Rectangle::new(crate::core::Point::new(20.0, 20.0), Size::new(30.0, 20.0));
         let (drawn, _) = drawn_shadow(bounds, [8.0; 4], shadow, (80, 70));
         assert_eq!(drawn, whole_shadow(bounds, [8.0; 4], shadow, (80, 70)));
+    }
+
+    #[test]
+    fn a_see_through_quad_shows_no_shadow_inside_its_rounded_edge() {
+        // Patch 34: the band between the body (inside the 12 px corners)
+        // and the outline is under the quad too.
+        let shadow = crate::core::Shadow { color: Color { a: 0.5, ..Color::BLACK }, offset: Vector::new(0.0, 0.0), blur_radius: 16.0 };
+        let bounds = Rectangle::new(crate::core::Point::new(40.0, 40.0), Size::new(200.0, 120.0));
+        let size = (280, 200);
+        let (drawn, _) = drawn_shadow(bounds, [12.0; 4], shadow, size);
+        let ground = 0xff20_1d1c_u32;
+        let at = |x: u32, y: u32| drawn[(y * size.0 + x) as usize];
+        for (x, y) in [(41, 100), (51, 100), (140, 41), (238, 100), (140, 158)] {
+            assert_eq!(at(x, y), ground, "({x}, {y}), inside the edge");
+        }
+        // Outside, it's there.
+        assert_ne!(at(38, 100), ground);
+        assert_eq!(drawn, whole_shadow(bounds, [12.0; 4], shadow, size));
+    }
+
+    #[test]
+    fn a_hard_shadow_steps_at_its_edge_and_is_drawn_whole() {
+        // Patch 35: no blur, as themes' offset shadows are. Patch 37: on
+        // square corners its reach is all straight stretch.
+        let shadow = crate::core::Shadow { color: Color::BLACK, offset: Vector::new(4.0, 4.0), blur_radius: 0.0 };
+        let bounds = Rectangle::new(crate::core::Point::new(20.0, 20.0), Size::new(30.0, 20.0));
+        let size = (80, 60);
+        let ground = 0xff20_1d1c_u32;
+        for radii in [[0.0; 4], [6.0; 4]] {
+            let (drawn, _) = drawn_shadow(bounds, radii, shadow, size);
+            let at = |x: u32, y: u32| drawn[(y * size.0 + x) as usize];
+            // Right of the quad and below it, to the reach's last pixel.
+            for (x, y) in [(50, 30), (53, 30), (35, 40), (35, 43)] {
+                assert_eq!(at(x, y), 0xff00_0000, "{radii:?}: ({x}, {y}) in the shadow");
+            }
+            // Past the reach, and under the see-through quad.
+            for (x, y) in [(54, 30), (35, 44), (30, 30), (45, 35)] {
+                assert_eq!(at(x, y), ground, "{radii:?}: ({x}, {y}) clear");
+            }
+            assert_eq!(drawn, whole_shadow(bounds, radii, shadow, size), "{radii:?}");
+        }
+    }
+
+    #[cfg(feature = "image")]
+    #[test]
+    fn a_turned_picture_stretched_far_lands_on_its_bounds() {
+        // Patch 36: a 4 px picture turned half round and stretched to 40
+        // px at x = 15. Stock placed it at 15 / 10 cut to a whole picture
+        // pixel, 1, times 10: at x = 10.
+        let mut engine = Engine::new();
+        let ground = 0xff20_1d1c_u32;
+        let size = 80u32;
+        let mut frame = vec![ground; (size * size) as usize];
+        let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut frame), size, size).expect("pixmap");
+        let mut mask = tiny_skia::Mask::new(size, size).expect("mask");
+        let layer = Rectangle::new(crate::core::Point::ORIGIN, Size::new(size as f32, size as f32));
+        adjust_clip_mask(&mut mask, layer);
+        let image = Image::Raster {
+            image: crate::core::image::Image {
+                rotation: crate::core::Radians(std::f32::consts::PI),
+                ..crate::core::image::Image::new(crate::core::image::Handle::from_rgba(4, 4, vec![255u8; 4 * 4 * 4]))
+            },
+            bounds: Rectangle::new(crate::core::Point::new(15.0, 20.0), Size::new(40.0, 40.0)),
+            clip_bounds: layer,
+        };
+        engine.draw_image(&image, Transformation::IDENTITY, &mut pixmap, &mut mask, layer);
+        let at = |x: u32, y: u32| frame[(y * size + x) as usize];
+        for x in [16, 35, 53] {
+            assert_eq!(at(x, 40), 0xffff_ffff, "({x}, 40) in the picture");
+        }
+        for x in [11, 13, 57] {
+            assert_eq!(at(x, 40), ground, "({x}, 40) outside it");
+        }
     }
 }
