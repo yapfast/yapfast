@@ -127,14 +127,16 @@ fn apply_media(look: MediaLook, pixels: &mut [u8], width: u32, height: u32) {
     }
 }
 
-fn themed_native(picture: &Picture, look: MediaLook) -> Vec<u8> {
+/// `picture`'s pixels under the theme's content look: borrowed as they are
+/// when the look leaves them alone, so a stock fit copies nothing first.
+fn themed_native(picture: &Picture, look: MediaLook) -> std::borrow::Cow<'_, [u8]> {
     if look.media == Media::Normal {
-        return picture.rgba.to_vec();
+        return std::borrow::Cow::Borrowed(&picture.rgba);
     }
     let mut pixels = straight_pixels(picture);
     apply_media(look, &mut pixels, picture.width, picture.height);
     paint::to_native(&mut pixels);
-    pixels
+    std::borrow::Cow::Owned(pixels)
 }
 
 pub(crate) fn apply_frame_media(look: MediaLook, pixels: &mut [u8], width: u32, height: u32) {
@@ -735,7 +737,7 @@ impl<'a> crate::ctx::Ctx<'a> {
                 if media.media == Media::Normal {
                     shared(picture)
                 } else {
-                    Handle::from_rgba(width, height, themed_native(picture, media))
+                    Handle::from_rgba(width, height, themed_native(picture, media).into_owned())
                 }
             }));
         }
