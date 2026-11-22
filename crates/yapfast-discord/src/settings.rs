@@ -331,8 +331,10 @@ fn fixed64s(value: Field<'_>) -> Vec<u64> {
     match value {
         Field::Fixed64(value) => vec![value],
         Field::Bytes(packed) => packed
-            .chunks_exact(8)
-            .map(|bytes| u64::from_le_bytes(bytes.try_into().expect("eight bytes")))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|bytes| u64::from_le_bytes(*bytes))
             .collect(),
         _ => Vec::new(),
     }

@@ -90,6 +90,7 @@ impl Pointer {
                 // SAFETY: the point outlives both calls, and a window gone
                 // meanwhile makes ScreenToClient fail rather than misbehave.
                 if unsafe { GetCursorPos(&mut point) } == 0
+                    // SAFETY: point is writable; an expired window handle makes the call fail.
                     || unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0
                 {
                     return None;

@@ -143,7 +143,9 @@ mod linux {
                         // ARGB, in network byte order.
                         data: pixels
                             .pixels
-                            .chunks_exact(4)
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
                             .flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
                             .collect(),
                     })
@@ -458,7 +460,9 @@ mod windows {
         };
         let colour: Vec<u8> = pixels
             .pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
             .collect();
         let (width, height) = (pixels.width, pixels.height);
@@ -585,9 +589,30 @@ mod tests {
         assert_eq!((plain.width, plain.height), (32, 32));
         let marigold = |pixel: &[u8]| pixel == [0xff, 0xbf, 0x47, 255];
         let red = |pixel: &[u8]| pixel == [0xf0, 0x54, 0x5e, 255];
-        assert!(plain.pixels.chunks_exact(4).any(marigold));
-        assert!(!plain.pixels.chunks_exact(4).any(red));
-        assert!(unread.pixels.chunks_exact(4).any(marigold));
+        assert!(
+            plain
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| marigold(pixel))
+        );
+        assert!(
+            !plain
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| red(pixel))
+        );
+        assert!(
+            unread
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| marigold(pixel))
+        );
         // The dot is in the bottom-right corner.
         let corner = (24 * 32 + 24) * 4;
         assert!(red(&unread.pixels[corner..corner + 4]));

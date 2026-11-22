@@ -103,6 +103,10 @@ fn switching_channels_shows_each_ones_messages_header_and_topic() {
 fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
+        // Leave an hour before the preview's zero timestamps for the older page.
+        for message in Arc::make_mut(&mut state.messages) {
+            Arc::make_mut(message).timestamp += 3600;
+        }
         state.history_start = false;
     });
     assert!(shows(&app, "Earlier messages"));

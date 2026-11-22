@@ -586,7 +586,7 @@ mod tests {
                 .unwrap();
         let mut frame = [0f32; RATE as usize / 50 * 2];
         for start in (0..RATE as usize).step_by(frame.len() / 2) {
-            for (at, pair) in frame.chunks_exact_mut(2).enumerate() {
+            for (at, pair) in frame.as_chunks_mut::<2>().0.iter_mut().enumerate() {
                 pair.fill(tone(start + at));
             }
             output.write(&frame).unwrap();
@@ -645,7 +645,9 @@ mod tests {
         hearing.join().unwrap();
         let other = heard.lock().unwrap().clone();
         let crossings = other
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| pair[0])
             .collect::<Vec<_>>()
             .windows(2)

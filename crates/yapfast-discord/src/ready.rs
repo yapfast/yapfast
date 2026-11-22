@@ -1788,15 +1788,14 @@ fn murmur3(data: &[u8]) -> u32 {
     const C2: u32 = 0x1b87_3593;
     let scramble = |k: u32| k.wrapping_mul(C1).rotate_left(15).wrapping_mul(C2);
     let mut hash = 0u32;
-    let mut blocks = data.chunks_exact(4);
-    for block in &mut blocks {
-        let k = u32::from_le_bytes([block[0], block[1], block[2], block[3]]);
+    let (blocks, tail) = data.as_chunks::<4>();
+    for block in blocks {
+        let k = u32::from_le_bytes(*block);
         hash = (hash ^ scramble(k))
             .rotate_left(13)
             .wrapping_mul(5)
             .wrapping_add(0xe654_6b64);
     }
-    let tail = blocks.remainder();
     if !tail.is_empty() {
         let k = tail
             .iter()

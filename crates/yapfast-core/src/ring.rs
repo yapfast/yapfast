@@ -111,7 +111,7 @@ fn play(pattern: &[f32], mut output: Output<i16>, stop: &AtomicBool) {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        for (pair, sample) in stereo.chunks_exact_mut(2).zip(chunk) {
+        for (pair, sample) in stereo.as_chunks_mut::<2>().0.iter_mut().zip(chunk) {
             pair.fill((sample * f32::from(i16::MAX)) as i16);
         }
         if let Err(error) = output.write(&stereo[..chunk.len() * 2]) {

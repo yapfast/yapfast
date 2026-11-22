@@ -147,6 +147,7 @@ mod windows {
                         delete_value(PROTOCOL, Some("URL Protocol"))?;
                     }
                 }
+                // SAFETY: the predefined key is valid and the terminated UTF-16 path lives through the call.
                 match unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, wide(BACKUP).as_ptr()) } {
                     ERROR_FILE_NOT_FOUND => Ok(()),
                     status => checked(status),
@@ -220,6 +221,7 @@ mod windows {
         kind: REG_VALUE_TYPE,
     ) -> io::Result<()> {
         let value = wide(value);
+        // SAFETY: names and value are terminated UTF-16; absent names are null and the byte count covers value.
         let status = unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -236,6 +238,7 @@ mod windows {
     }
 
     fn delete_value(key: &str, name: Option<&str>) -> io::Result<()> {
+        // SAFETY: terminated UTF-16 names live through the call; an absent name is null for the default value.
         let status = unsafe {
             RegDeleteKeyValueW(
                 HKEY_CURRENT_USER,
@@ -262,6 +265,7 @@ mod windows {
         let (key, name) = (wide(key), name.map(wide));
         let name = name.as_ref().map_or(std::ptr::null(), Vec::as_ptr);
         let mut size = 0u32;
+        // SAFETY: names are terminated UTF-16 or null; null data requests only the size, written to size.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -278,6 +282,7 @@ mod windows {
         }
         let mut data = vec![0u8; size as usize];
         let mut kind = REG_SZ;
+        // SAFETY: data holds size writable bytes; size and kind are writable and UTF-16 names remain live.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -294,7 +299,9 @@ mod windows {
         }
         data.truncate(size as usize);
         let text: Vec<u16> = data
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
             .take_while(|&unit| unit != 0)
             .collect();

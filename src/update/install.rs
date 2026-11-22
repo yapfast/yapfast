@@ -368,7 +368,10 @@ fn smoke_test(program: &Path) -> Result<(), String> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Prepared {
     /// The AppImage was replaced; start this file.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(
+        not(unix),
+        allow(dead_code, reason = "only Unix updates replace an AppImage in place")
+    )]
     Replaced(PathBuf),
     /// The installer is checked and waiting; running it replaces the program.
     Installer {

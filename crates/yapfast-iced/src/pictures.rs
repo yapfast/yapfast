@@ -172,7 +172,12 @@ impl Pictures {
     /// Whether `picture` is opaque all over.
     pub fn opaque(&self, picture: &Arc<Picture>) -> bool {
         self.opaque.borrow_mut().get(picture, |picture| {
-            picture.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255)
+            picture
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
         })
     }
 

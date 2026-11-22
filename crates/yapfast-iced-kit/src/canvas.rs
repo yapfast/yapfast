@@ -80,7 +80,7 @@ pub fn finish(pixels: &mut [u8]) {
     if !crate::renderer::gpu() {
         return;
     }
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         let straight = |c: u8| match a {
             0 => 0,
@@ -97,7 +97,7 @@ pub fn to_native(pixels: &mut [u8]) {
     if crate::renderer::gpu() {
         return;
     }
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         if a == 255 {
             pixel.copy_from_slice(&[b, g, r, a]);
@@ -124,7 +124,7 @@ pub fn svg_drawn(svg: &str, size: u32) -> Canvas {
         &mut pixmap.as_mut(),
     );
     canvas.pixels = pixmap.take();
-    for pixel in canvas.pixels.chunks_exact_mut(4) {
+    for pixel in canvas.pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     canvas
@@ -155,7 +155,7 @@ pub fn svg_icon(svg: &str, size: u32, rgb: u32) -> Canvas {
     // white (the logo's mask) comes out the same as one in `currentColor`.
     let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
     let scale = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-    for pixel in canvas.pixels.chunks_exact_mut(4) {
+    for pixel in canvas.pixels.as_chunks_mut::<4>().0 {
         let a = pixel[3];
         pixel.copy_from_slice(&[scale(b, a), scale(g, a), scale(r, a), a]);
     }
