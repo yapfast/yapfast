@@ -300,6 +300,9 @@ struct Media {
     /// One frame of the microphone, in both channels, and its Opus packet.
     pcm: Vec<f32>,
     packet: Vec<u8>,
+    /// The RTP packet the microphone's sound goes out in, which keeps its
+    /// room from one frame to the next.
+    out: Vec<u8>,
     sequence: u16,
     /// Goes on 20 ms every tick, sending or not, as a microphone's clock
     /// does. WebRTC's jitter buffer, which plays this account in Discord's
@@ -444,6 +447,7 @@ impl Media {
             encoder: opus::Encoder::new(2, opus::Application::Audio, BITRATE)?,
             pcm: vec![0.0; FRAME * 2],
             packet: vec![0; 1500],
+            out: Vec::new(),
             sequence: rand::random(),
             timestamp: rand::random(),
             speaking: false,
@@ -557,7 +561,7 @@ impl Media {
                         let mut read = 0;
                         while catches_up(read, started.elapsed()) {
                             match connection.udp.try_recv(&mut datagram) {
-                                Ok(length) => self.receive(connection, &datagram[..length]).await?,
+                                Ok(length) => self.receive(connection, &mut datagram[..length]).await?,
                                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                                 Err(error) => return Err(error.into()),
                             }
@@ -594,7 +598,7 @@ impl Media {
                         }
                     }
                     length = connection.udp.recv(&mut datagram) => {
-                        self.receive(connection, &datagram[..length?]).await?;
+                        self.receive(connection, &mut datagram[..length?]).await?;
                     }
                 }
             }
@@ -746,12 +750,28 @@ impl Media {
             let length = self.encoder.encode_float(&self.pcm, &mut self.packet)?;
             let opus = &self.packet[..length];
             if let Some(payload) = connection.dave.encrypt_opus(opus) {
-                self.transmit(connection, &payload, marker).await?;
+                Self::transmit(
+                    &mut self.sequence,
+                    self.timestamp,
+                    &mut self.out,
+                    connection,
+                    &payload,
+                    marker,
+                )
+                .await?;
             }
             self.silent = SILENT_FRAMES;
         } else if self.silent > 0 {
             if let Some(payload) = connection.dave.encrypt_opus(&SILENCE) {
-                self.transmit(connection, &payload, false).await?;
+                Self::transmit(
+                    &mut self.sequence,
+                    self.timestamp,
+                    &mut self.out,
+                    connection,
+                    &payload,
+                    false,
+                )
+                .await?;
             }
             self.silent -= 1;
             if self.silent == 0 {
@@ -768,36 +788,36 @@ impl Media {
         Ok(())
     }
 
+    /// Writes `payload` into this account's next audio packet and sends it,
+    /// numbered by `sequence`, which goes on to the next packet. The packet is
+    /// written into `out`, which the call keeps: a microphone sends 50 frames
+    /// a second, and the buffer keeps its room from one to the next.
     async fn transmit(
-        &mut self,
+        sequence: &mut u16,
+        timestamp: u32,
+        out: &mut Vec<u8>,
         connection: &mut Connection,
         payload: &[u8],
         marker: bool,
     ) -> Result<()> {
-        let mut packet = rtp::opus_packet(
-            connection.ssrc,
-            self.sequence,
-            self.timestamp,
-            marker,
-            payload,
-        );
-        self.sequence = self.sequence.wrapping_add(1);
-        let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
-        connection.transport.seal(&mut packet, clear)?;
-        connection.udp.send(&packet).await?;
+        rtp::write_audio_into(out, connection.ssrc, *sequence, timestamp, marker, payload);
+        *sequence = sequence.wrapping_add(1);
+        let clear = rtp::rtp_clear_len(out).unwrap_or(out.len());
+        connection.transport.seal(out, clear)?;
+        connection.udp.send(out).await?;
         Ok(())
     }
 
     /// Queues a received Opus packet for its speaker, hands a camera's
     /// packet on, and reads RTCP about this account's packets: their loss,
     /// and what the camera's viewers ask of it.
-    async fn receive(&mut self, connection: &mut Connection, datagram: &[u8]) -> Result<()> {
+    async fn receive(&mut self, connection: &mut Connection, datagram: &mut [u8]) -> Result<()> {
         if rtp::is_rtcp(datagram) {
             if let Some(rtcp) = connection.transport.open(datagram, rtp::RTCP_CLEAR) {
                 let ours = [connection.ssrc, connection.video];
-                self.reported.learn(&self.stats, &rtcp, &ours);
+                self.reported.learn(&self.stats, rtcp, &ours);
                 if let Some(filming) = self.filming.as_mut() {
-                    filming.feedback(connection, &rtcp).await?;
+                    filming.feedback(connection, rtcp).await?;
                 }
             }
             return Ok(());
@@ -808,7 +828,7 @@ impl Media {
         let Some(plain) = connection.transport.open(datagram, clear) else {
             return Ok(());
         };
-        let Some(packet) = rtp::parse(&plain) else {
+        let Some(packet) = rtp::parse(plain) else {
             return Ok(());
         };
         if packet.payload_type != rtp::OPUS {
@@ -828,7 +848,8 @@ impl Media {
         };
         // Silence passes in the clear even while sealed audio fails.
         let sealed = packet.payload.ends_with(&[0xfa, 0xfa]);
-        let Some(opus) = connection.dave.decrypt_opus(user, packet.payload.to_vec()) else {
+
+        let Some(opus) = connection.dave.decrypt_opus(user, packet.payload) else {
             self.diagnostics.dave_dropped += 1;
             let reason = connection.dave.unreadable.take().unwrap_or_default();
             self.report_drop(packet.ssrc, &reason, &connection.dave, packet.payload);
@@ -860,7 +881,8 @@ impl Media {
             },
         };
         speaker.user = user;
-        speaker.push(packet.sequence, packet.timestamp, opus);
+
+        speaker.push(packet.sequence, packet.timestamp, opus.into_owned());
         Ok(())
     }
 
@@ -883,6 +905,7 @@ impl Media {
 struct Speaker {
     user: u64,
     decoder: opus::Decoder,
+
     /// Packets by sequence number, oldest first, with their RTP timestamps.
     /// An empty one is a packet end-to-end encryption dropped, which plays as
     /// nothing, unless it held 20 ms of its own.
@@ -925,11 +948,6 @@ fn splice(skipped: &[i16], into: &mut [i16]) {
     }
 }
 
-/// Whether sequence number `a` comes before `b`, across wrapping.
-fn before(a: u16, b: u16) -> bool {
-    a != b && b.wrapping_sub(a) < 0x8000
-}
-
 impl Speaker {
     fn new(user: u64) -> Result<Self> {
         Ok(Self {
@@ -961,13 +979,13 @@ impl Speaker {
     }
 
     fn insert(&mut self, sequence: u16, timestamp: u32, opus: Vec<u8>) {
-        if self.next.is_some_and(|next| before(sequence, next)) {
+        if self.next.is_some_and(|next| rtp::before(sequence, next)) {
             return;
         }
         let at = self
             .waiting
             .iter()
-            .rposition(|(waiting, _, _)| !before(sequence, *waiting))
+            .rposition(|(waiting, _, _)| !rtp::before(sequence, *waiting))
             .map_or(0, |at| at + 1);
         if at > 0 && self.waiting[at - 1].0 == sequence {
             // A packet with something to play takes a skipped one's place.
@@ -1036,7 +1054,7 @@ impl Speaker {
         let mut next = next;
         loop {
             match self.waiting.front() {
-                Some((sequence, _, _)) if before(*sequence, next) => {}
+                Some((sequence, _, _)) if rtp::before(*sequence, next) => {}
                 // Dropped, but it held 20 ms of the sender's audio: that's
                 // concealed in its place, as Discord's clients, which play
                 // by timestamp, conceal it, rather than played from the next
@@ -1112,10 +1130,24 @@ impl Speaker {
             }
         };
         match decoded {
-            Ok(samples) => Some(samples),
-            Err(error) => {
-                tracing::debug!(%error, "a call's audio packet didn't decode");
-                None
+            Ok(samples) if samples > 0 => Some(samples),
+            // A packet libopus can't read, or one that decodes to nothing,
+            // is a missing frame like any other: Opus conceals 20 ms on from
+            // the last frame that played, so the mix hears the sound carry on
+            // rather than a hole where a word was. A stream's playout
+            // conceals a broken frame the same way and for the same reason;
+            // this is the slot a decode error used to leave empty.
+            decoded => {
+                if let Err(error) = decoded {
+                    tracing::debug!(%error, "a call's audio packet didn't decode");
+                }
+                match self.decoder.conceal(&mut self.pcm[..frame]) {
+                    Ok(samples) => Some(samples),
+                    Err(error) => {
+                        tracing::debug!(%error, "couldn't conceal a call's audio frame");
+                        None
+                    }
+                }
             }
         }
     }
@@ -1211,6 +1243,7 @@ mod tests {
         let mut speaker = Speaker::new(7).unwrap();
         let packets: Vec<Vec<u8>> = (0..8).map(|frame| tone(&mut encoder, frame)).collect();
         // Two packets aren't enough to start.
+
         speaker.push(65_534, at(65_534), packets[0].clone());
         speaker.push(65_535, at(65_535), packets[1].clone());
         assert!(speaker.next().is_none(), "waits for 60 ms");
@@ -1222,6 +1255,7 @@ mod tests {
         }
         assert!(speaker.waiting.is_empty());
         // A packet that comes too late is dropped, not played.
+
         speaker.push(65_535, at(65_535), packets[1].clone());
         assert!(speaker.waiting.is_empty());
         // Packet 2 is lost: it's concealed from packet 3's error correction.
@@ -1232,6 +1266,80 @@ mod tests {
         let played = std::iter::from_fn(|| speaker.next().map(|_| ())).count();
         assert_eq!(played, usize::from(GONE) - 1);
         assert!(speaker.next.is_none());
+    }
+
+    #[test]
+    fn a_broken_packet_plays_concealment_rather_than_leaving_a_hole() {
+        // A packet Opus can't read is a missing frame, not a frame of silence:
+        // the mix hears the sound carry on from the last frame that played,
+        // where a hole would be 20 ms of nothing in the middle of a word.
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        let packets: Vec<Vec<u8>> = (0..6).map(|frame| tone(&mut encoder, frame)).collect();
+        for sequence in 0..START as u16 {
+            speaker.push(
+                sequence,
+                at(sequence),
+                packets[usize::from(sequence)].clone(),
+            );
+        }
+        let mut played = Vec::new();
+        for _ in 0..START {
+            played.push(speaker.next().expect("a packet to play").to_vec());
+        }
+        speaker.push(START as u16, at(START as u16), vec![0xff]);
+        let concealed = speaker
+            .next()
+            .expect("a broken packet still gets its 20 ms")
+            .to_vec();
+        assert_eq!(concealed.len(), FRAME * 2);
+        assert!(
+            concealed.iter().any(|&sample| sample != 0),
+            "the slot was silence, not concealment"
+        );
+        assert_ne!(
+            concealed,
+            played[START - 1],
+            "the slot replayed the frame before it"
+        );
+        // The broken packet was its own slot, so the sound after it plays.
+        assert!(speaker.waiting.is_empty());
+        speaker.push(START as u16 + 1, at(START as u16 + 1), packets[4].clone());
+        assert!(speaker.next().is_some(), "packet 4 plays as itself");
+    }
+
+    #[test]
+    fn a_missing_packet_beside_a_broken_one_is_concealed_not_replayed() {
+        // Packet 3 is lost and packet 4, which would carry its forward error
+        // correction, can't be read: 3's slot is made up from the sound
+        // before it rather than played again, and 4 gets its own concealing
+        // turn, which is Opus's promise for a packet it can't read.
+        let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
+        let mut speaker = Speaker::new(7).unwrap();
+        let packets: Vec<Vec<u8>> = (0..6).map(|frame| tone(&mut encoder, frame)).collect();
+        for sequence in 0..START as u16 {
+            speaker.push(
+                sequence,
+                at(sequence),
+                packets[usize::from(sequence)].clone(),
+            );
+        }
+        let mut played = Vec::new();
+        for _ in 0..START {
+            played.push(speaker.next().expect("a packet to play").to_vec());
+        }
+        speaker.push(4, at(4), vec![0xff]);
+        let concealed = speaker.next().expect("3's slot, made up").to_vec();
+        assert_eq!(concealed.len(), FRAME * 2);
+        assert_ne!(concealed, played[START - 1], "3's slot replayed packet 2");
+        assert_eq!(
+            speaker.next().map(<[i16]>::len),
+            Some(FRAME * 2),
+            "4's slot, made up too"
+        );
+        assert!(speaker.waiting.is_empty());
+        speaker.push(5, at(5), packets[5].clone());
+        assert!(speaker.next().is_some(), "packet 5 plays as itself");
     }
 
     #[test]
@@ -1286,6 +1394,7 @@ mod tests {
         let concealed = speaker.next().expect("a concealed frame");
         assert!(concealed.iter().any(|sample| *sample != 0));
         // It comes, and plays next, with packet 4 waiting behind it.
+
         speaker.push(3, at(3), packets[3].clone());
         speaker.push(4, at(4), packets[4].clone());
         assert!(speaker.next().is_some());
@@ -1371,6 +1480,7 @@ mod tests {
             let mut packet = vec![0; 4000];
             let length = encoder.encode_float(&music, &mut packet).unwrap();
             packet.truncate(length);
+
             speaker.push(sequence, at(sequence), packet);
         }
         for tick in 0..START * 3 {
@@ -1436,9 +1546,10 @@ mod tests {
         let mut arrivals = arrivals.into_iter().peekable();
         for tick in 0..seconds * 50 {
             while let Some((_, sequence)) = arrivals.next_if(|(at, _)| *at <= tick * 20_000) {
-                if speaker.next.is_some_and(|next| before(sequence, next)) {
+                if speaker.next.is_some_and(|next| rtp::before(sequence, next)) {
                     late += 1;
                 }
+
                 speaker.push(
                     sequence,
                     at(sequence),
@@ -1492,6 +1603,7 @@ mod tests {
     fn a_burst_of_dropped_packets_keeps_the_frames_around_it() {
         let mut encoder = opus::Encoder::new(1, opus::Application::Voice, BITRATE).unwrap();
         let mut speaker = Speaker::new(7).unwrap();
+
         // The burst comes within a frame, sharing a timestamp.
         speaker.push(0, at(0), tone(&mut encoder, 0));
         for sequence in 1..=30 {
@@ -1510,6 +1622,7 @@ mod tests {
         }
         assert!(speaker.waiting.is_empty(), "{:?}", speaker.waiting);
         // A packet that comes after its sequence number was skipped plays.
+
         speaker.skip(34, at(4));
         speaker.push(34, at(4), tone(&mut encoder, 5));
         assert_eq!(speaker.queued(), 1);
@@ -1605,7 +1718,7 @@ mod tests {
         let mut read = |now: &mut Duration, speaker: &mut Speaker, late: &mut usize| {
             let (_, kind) = socket.next_if(|(at, _)| *at <= *now)?;
             if let Kind::Audio(sequence) = kind {
-                if speaker.next.is_some_and(|next| before(sequence, next)) {
+                if speaker.next.is_some_and(|next| rtp::before(sequence, next)) {
                     *late += 1;
                 }
                 speaker.push(sequence, at(sequence), packet.clone());

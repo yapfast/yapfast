@@ -34,14 +34,23 @@ The call's views and what they do are in `call/`.
   the microphone's level, measured only while the menu shows and read
   as it's drawn, and the
   noise suppression kind.
-- Go Live's menu lists the screens with a picture of each (from a stream
-  worker started for them and gone once they're in), the windows, the
-  system's own dialog where the portal picks, and the cameras, then the
-  resolution, frame rate and encoding; it fits a short window by
-  scrolling, keeping its button in view. It opens once they're listed (on
-  a thread of their own); meanwhile Escape, a second click, another popup
-  or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
-  switches what's shared; where the system's dialog is its only choice
+- Go Live's menu lists the screens with a picture of each, each in the shape
+  of the display it shows (from a stream worker started for them and gone
+  once they're in), the windows, the system's own dialog where the portal
+  picks, and the cameras, then the resolution, frame rate, the quality it
+  declares (Lean, Balanced or Sharp, the bits a pixel a frame it may take
+  from the uplink) and whether it carries sound ("Stream audio"); it fits a
+  short window by scrolling, keeping its button in view, and it follows its
+  button when the window is resized with it open. A picture is taken at twice
+  the width of the card it shows in, so a 3440×1440 desktop's is legible and a
+  screen on its side is as wide as one upright, and it comes through no tone
+  curve: the frames are SDR's, as the system hands an HDR screen's composition
+  over (`docs/discord/go-live.md`), and the card draws it in the format of the
+  renderer in use. It opens once they're
+  listed (on a thread of their own); meanwhile Escape, a second click,
+  another popup or leaving the call cancels it, and a listing cancelled
+  opens nothing. While live, the same menu switches what's shared; where the
+  system's dialog is its only choice
   (the portal picks and no camera is connected), Switch screen or window
   opens the dialog with no menu.
 - The soundboard lists the server's sounds and the defaults in rows of
@@ -67,11 +76,21 @@ The call's views and what they do are in `call/`.
   minutes of pings with its top and middle marked, the average and last
   ping and the packets lost; Privacy, while the call is end-to-end
   encrypted with someone else in it, the voice privacy code in groups of
-  five with Copy; Stream, while this account's screen is live, its
-  encoder, codec, size, bitrate sent and aimed for, keyframes asked for and
-  packets resent; and how the call is secured. What they show is copied
-  out of the call only while they or the tooltip show, again each second.
-  Their words and graph are the core's `call_details`.
+  five with Copy; Stream, while this account's screen is live or it
+  watches a stream: a share's encoder and codec, what captured it, the
+  size, the bitrate sent and aimed for, keyframes asked for, packets
+  resent and what share of the picture's packets they are ("22 of 11000
+  (0.2%)", or just "0") and frames a full queue skipped, the shared sound
+  waiting or
+  dropped, how the pictures reach the window and the adapter it draws on,
+  the wait a frame had before encoding and the encoder's buffers, and why
+  it isn't on the path it asked for, with Copy for the report as JSON; a
+  watch's decoder and sound, how far its picture runs from its sound as
+  it arrived and as it was shown, and the pictures the sound had passed;
+  and how the call is secured. A value nothing answered reads "unknown"
+  rather than zero. What they show is copied out of the call only while
+  they or the tooltip show, again each second. Their words and graph are
+  the core's `call_details`.
 - A DM's call (`call/dm.rs`) shows above its messages, taking more room
   while a tile is large: the stage and controls while in it, else who is
   in it with Join the call, or Accept and Decline while it rings. A call
@@ -100,4 +119,9 @@ in view or in the corner, at the size it shows in the window's pixels
 (the display's scale, as the window says it as it opens and moves, times
 the zoom), as a message's video and the camera's preview in Settings
 are; `Video` lays a frame out in those pixels, so one made at its tile's
-size is copied one to one.
+size is copied one to one. A stream worker is a process of its own, so
+the window tells the share's worker and the watched stream's whether a
+tile shows their pictures and how large that tile is, once when either
+changes (`call/stage/mod.rs`): a worker makes no preview, and converts
+no watched picture, while no tile shows one, and a new stream's worker
+knows neither until it is told.

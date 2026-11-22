@@ -1,0 +1,19 @@
+[package]
+name = "yapfast-skia-vulkan"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Skia's Vulkan, for the targets that have the archive for it"
+
+# A Cargo feature is one answer for every target, and Skia's Vulkan is the
+# archive built for Linux: rust-skia publishes none, so the one here is
+# `nix/skia-linux-vulkan.nix`'s, and a Windows build that asks for Vulkan finds
+# an archive without it — `skia-bindings` fails inside its own impls before
+# anything can say why. Yapfast's `skia-vulkan` feature turns this crate on
+# instead of naming Vulkan itself, and this crate names it for Linux only: a
+# Windows build of the same tree links the OpenGL archive it always did, and
+# draws on Direct3D 12 through wgpu where the GPU setting asks for a device.
+[target.'cfg(target_os = "linux")'.dependencies]
+i-slint-renderer-skia = { version = "=1.19.0", features = ["vulkan"] }
+skia-safe = { version = "=0.157.0", features = ["vulkan"] }
+slint = { version = "=1.19.0", default-features = false, features = ["renderer-skia-vulkan"] }

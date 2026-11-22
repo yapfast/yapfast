@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# The test tooling of a Linux development tree: it starts the private display
+# and the processes on it, which is where its killpg and SIGKILL belong, and
+# the pipes it asks Popen for are always there. See .pi-lens.json.
+# ruff: noqa: I001, B905, S310, B904
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false
 """Run Yapfast on the private display and act on commands from scripts/ui-session.
 
 scripts/ui-session starts this inside scripts/run-framework-isolated. It

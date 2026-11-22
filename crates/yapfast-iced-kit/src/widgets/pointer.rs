@@ -469,14 +469,39 @@ impl<'a, M: Clone + 'a> From<Hover<'a, M>> for Element<'a, M> {
 /// Its child, noting its bounds in the window into `spot` as a press lands
 /// on it, before the child hears of it: a button that opens a menu above
 /// itself (a device toggle's caret, the call's share button) opens it
-/// there.
-pub struct Spot<'a> {
+/// there. A button whose place moves while the menu is open — a window
+/// resized, a panel opened beside it — moves the place it noted with it, and
+/// `refresh` has the view built again where it is now.
+pub struct Spot<'a, M> {
     spot: &'a std::cell::Cell<Rectangle>,
     from_press: bool,
+    /// Sent when the bounds it noted move, so a menu opened above it is laid
+    /// out where the button is now.
+    refresh: Option<M>,
 }
 
-impl<'a> Spot<'a> {
-    pub fn new<M: Clone>(
+/// What a [`Spot`] keeps: the bounds it last noted. One `spot` cell is shared
+/// by every button that opens a menu from it (the call's device carets, its
+/// share buttons), so a button only moves the cell the press put there — the
+/// one that opened the menu — rather than the one another button noted.
+#[derive(Default)]
+pub struct Noted {
+    bounds: Rectangle,
+}
+
+impl Noted {
+    /// Where the child is now, `bounds`, answering whether that place is one
+    /// this button noted itself: the cell is only moved by the button whose
+    /// press put its bounds there. The first sight of a button opens nothing,
+    /// so it moves nothing either.
+    fn again(&mut self, spot: &std::cell::Cell<Rectangle>, bounds: Rectangle) -> bool {
+        let before = std::mem::replace(&mut self.bounds, bounds);
+        before != bounds && before.area() > 0.0 && spot.get() == before
+    }
+}
+
+impl<'a, M: Clone> Spot<'a, M> {
+    pub fn new(
         child: impl Into<Element<'a, M>>,
         spot: &'a std::cell::Cell<Rectangle>,
     ) -> Wrap<'a, Self, M> {
@@ -485,12 +510,13 @@ impl<'a> Spot<'a> {
             Self {
                 spot,
                 from_press: false,
+                refresh: None,
             },
         )
     }
 }
 
-impl<M: Clone> Wrap<'_, Spot<'_>, M> {
+impl<M: Clone> Wrap<'_, Spot<'_, M>, M> {
     /// Notes its bounds from the press instead, for a child in a list that
     /// scrolls, whose bounds aren't the window's: `App::pressed_spot` puts
     /// them in the window.
@@ -498,14 +524,22 @@ impl<M: Clone> Wrap<'_, Spot<'_>, M> {
         self.hooks.from_press = true;
         self
     }
+
+    /// Sends `message` when the place it noted moves, which is what has a
+    /// menu opened above it follow a window that changed size: the place is
+    /// noted again and the view built again with it.
+    pub fn refreshing(mut self, message: M) -> Self {
+        self.hooks.refresh = Some(message);
+        self
+    }
 }
 
-impl<M: Clone> Hooks<M> for Spot<'_> {
-    type State = Stateless;
+impl<M: Clone> Hooks<M> for Spot<'_, M> {
+    type State = Noted;
 
     fn update(
         &mut self,
-        _: &mut Stateless,
+        state: &mut Noted,
         event: &iced::Event,
         at: At,
         shell: &mut Shell<'_, M>,
@@ -514,11 +548,20 @@ impl<M: Clone> Hooks<M> for Spot<'_> {
         if let iced::Event::Mouse(mouse::Event::ButtonPressed(_)) = event
             && let Some(position) = at.cursor.position_over(at.bounds)
         {
+            state.bounds = at.bounds;
             self.spot.set(if self.from_press {
                 at.bounds - (position - Point::ORIGIN)
             } else {
                 at.bounds
             });
+        } else if !self.from_press && state.again(self.spot, at.bounds) {
+            // Not where it was, and it's this button's place the cell holds:
+            // the window was resized, or a panel took room beside it, and what
+            // opened above the button goes where it is now.
+            self.spot.set(at.bounds);
+            if let Some(refresh) = &self.refresh {
+                shell.publish(refresh.clone());
+            }
         }
         child.update(shell);
     }
@@ -594,5 +637,29 @@ impl<M: Clone, W: Default + 'static> Hooks<M> for CtrlWheel<M, W> {
             _ => {}
         }
         child.update(shell);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_button_whose_press_noted_its_place_moves_it() {
+        let spot = std::cell::Cell::new(Rectangle::default());
+        let aimed = Rectangle::new(Point::new(10.0, 20.0), Size::new(52.0, 52.0));
+        let beside = Rectangle::new(Point::new(90.0, 20.0), Size::new(52.0, 52.0));
+        let mut noted = Noted::default();
+        // A button seen for the first time opens nothing, so it moves nothing.
+        assert!(!noted.again(&spot, aimed));
+        assert!(!noted.again(&spot, beside), "a place nothing opened from");
+        // The caret that was pressed put its own bounds in the cell: when it
+        // moves, it takes the cell with it.
+        spot.set(aimed);
+        let mut pressed = Noted { bounds: aimed };
+        assert!(pressed.again(&spot, aimed.expand(4.0)));
+        // A button whose bounds aren't the ones the cell holds leaves the
+        // caret's place alone, however much it moves.
+        assert!(!noted.again(&spot, beside.expand(8.0)));
     }
 }

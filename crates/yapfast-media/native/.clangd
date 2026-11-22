@@ -1,0 +1,10 @@
+# native/pipewire_capture.c includes PipeWire's and SPA's headers, which live in
+# their own include directories rather than in /usr/include itself: a
+# distribution installs `pipewire` and `libspa-0.2` headers there, and the nix
+# dev shell puts them under its pipewire package, which pkg-config names when
+# build.rs asks. This is for clangd and only clangd: cargo is given the flags by
+# build.rs, so a machine whose headers sit elsewhere still builds.
+CompileFlags:
+  Add:
+    - -I/usr/include/pipewire-0.3
+    - -I/usr/include/spa-0.2

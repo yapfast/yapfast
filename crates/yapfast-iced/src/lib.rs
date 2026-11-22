@@ -67,6 +67,8 @@ mod frame;
 use yapfast_iced_kit::frames;
 mod friends;
 mod graphics;
+// Yapfast port: a stream worker's picture, shown where it lies, no copy.
+mod gpu;
 mod header;
 use yapfast_iced_kit::icons;
 mod image_viewer;

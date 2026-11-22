@@ -2038,7 +2038,7 @@ function makePost(name: string, owner: User, created: number, content: string, e
 // reactions and replies; Dave's, with a screenshot and two tags; Bob's
 // newest, made after Alice last read the forum, which she never opened;
 // and older, archived ones.
-const forumWelcome = makePost("Welcome to #ideas", users.bob, HISTORY_START + 1_000, "Read the guidelines before posting.", { pinned: true });
+const _forumWelcome = makePost("Welcome to #ideas", users.bob, HISTORY_START + 1_000, "Read the guidelines before posting.", { pinned: true });
 const darkTheme = makePost("Dark theme for the sidebar", users.carol, HISTORY_START + 2_000, "The sidebar could follow the system theme.", { tags: [FEATURE] });
 byId.get(darkTheme.id)!.reactions.push(
   { name: "👍", id: null, users: new Set([users.bob.id, users.dave.id, ALICE]) },
@@ -2055,7 +2055,7 @@ byId.get(gifCrash.id)!.files.push(addFile({
   data: screenshotDraw(400, 300), width: 400, height: 300, draw: screenshotDraw,
 }));
 post(gifCrash.id, users.carol, "Can't reproduce on Linux", HISTORY_START + 6_000);
-const shortcuts = makePost("Keyboard shortcut list?", users.bob, HISTORY_START + 7_000, "Is there a list of the shortcuts somewhere?", { tags: [QUESTION] });
+const _shortcuts = makePost("Keyboard shortcut list?", users.bob, HISTORY_START + 7_000, "Is there a list of the shortcuts somewhere?", { tags: [QUESTION] });
 for (let index = 0; index < 3; index++) {
   const created = HISTORY_START - (index + 1) * 86_400_000;
   // Dated ids, as the counter has moved past these days.

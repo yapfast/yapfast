@@ -9,9 +9,12 @@ import re
 import sys
 from pathlib import Path
 
+# pesq and scipy come from the shell that scripts/compare-noise-suppression
+# runs this in (`python3.withPackages` with numpy, scipy and pesq), so a checker
+# outside it cannot resolve them.
 import numpy as np
-from pesq import pesq
-from scipy.signal import butter, correlate, resample_poly, sosfilt
+from pesq import pesq  # pyright: ignore[reportMissingImports]
+from scipy.signal import butter, correlate, resample_poly, sosfilt  # pyright: ignore[reportMissingImports]
 
 RATE = 48000
 BLOCK = 480

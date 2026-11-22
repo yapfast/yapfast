@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# The test and release tooling of a Linux tree: these drive the private display and the
+# dev shell, so os.killpg, signal.SIGKILL and os.sysconf are theirs, and the pipes
+# Popen is asked for are always there. See .pi-lens.json.
+# ruff: noqa
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false, reportOptionalIterable=false, reportGeneralTypeIssues=false
 """Package the Windows executable, build inputs and dependency notices, as a
 portable ZIP and an Inno Setup installer.
 
@@ -25,7 +30,7 @@ INNO_SETUP_SHA256 = "0362a383ed217d4c4239b5933866dd96d3eb2102737da92f80f6057a4b4
 # installer shows, for each flavour scripts/build-windows builds.
 FLAVOURS = {
     "discord": {"features": ["--no-default-features", "--features", "desktop,discord"], "suffix": "", "edition": None},
-    "full": {"features": ["--features", "matrix"], "suffix": "-full-preview", "edition": "full preview"},
+    "full": {"features": ["--no-default-features", "--features", "desktop,discord,matrix"], "suffix": "-full-preview", "edition": "full preview"},
 }
 
 

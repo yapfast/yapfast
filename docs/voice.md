@@ -73,7 +73,7 @@ gives way to the first one listed until it returns, as audio devices do.
 `--audio-devices` lists cameras too.
 
 Yapfast films through libwebrtc's own capture module, which its libwebrtc
-archive already holds (`crates/yapfast-core/native/camera.cc`), through V4L2 on
+archive already holds (`crates/yapfast-media/native/camera.cc`), through V4L2 on
 Linux and DirectShow on Windows. The module reads the device on a thread of its
 own. Yapfast registers for the device's raw frames, so the module hands over
 the driver's buffer without converting it, and libyuv converts each one (YUY2,

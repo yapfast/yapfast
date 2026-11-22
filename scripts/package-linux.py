@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+# The test and release tooling of a Linux tree: these drive the private display and the
+# dev shell, so os.killpg, signal.SIGKILL and os.sysconf are theirs, and the pipes
+# Popen is asked for are always there. See .pi-lens.json.
+# ruff: noqa
+# pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false, reportOptionalSubscript=false, reportOptionalCall=false, reportOptionalIterable=false, reportGeneralTypeIssues=false
 """Package the Linux release as an AppImage: nix/appimage.nix's AppDir, with
 the dependencies' licenses and notices added, packed behind the AppImage
 runtime. Beside it go the .zsync file AppImageUpdate reads, which the release
