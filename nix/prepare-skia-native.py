@@ -37,8 +37,8 @@ pins: dict[str, tuple[str, str | None]] = {
 suffix, source_sha256 = pins[native_target]
 if not source_sha256:
     raise SystemExit("Windows preparation requires the verified source-build archive")
-key: str = "30669978c3f39a73e8a7-" + suffix
-package: str = "skia-binaries-" + key + ".tar.gz"
+key: str = f"30669978c3f39a73e8a7-{suffix}"
+package: str = f"skia-binaries-{key}.tar.gz"
 old_symbol: str = "jpeg_natural_order"
 new_symbol: str = "yapfast_skia_jpeg_natural_order"
 target: Path = Path(os.environ["YAPFAST_SKIA_OUTPUT"])
@@ -52,7 +52,7 @@ if not objcopy:
         "Needs LLVM 21 or later objcopy, from the development shell or YAPFAST_SKIA_OBJCOPY"
     )
 objcopy_version: str = subprocess.check_output([objcopy, "--version"], text=True).strip()
-# Nix pins 21.1.7, but a native host's LLVM is often newer; the checks for the
+# Nix selects a pinned LLVM, but a native host's version may differ; the checks for the
 # symbols and sections below, not the version string, are what keep the
 # rename to Skia's one JPEG table.
 version: re.Match[str] | None = re.search(r"LLVM version ([0-9]+)", objcopy_version)
@@ -62,7 +62,7 @@ try:
 except ValueError:
     objcopy_major = 0
 if objcopy_major < 21:
-    raise SystemExit("Unexpected objcopy version: " + objcopy_version)
+    raise SystemExit(f"Unexpected objcopy version: {objcopy_version}")
 stamp: dict[str, object] = {
     "tag": "0.157.0",
     "key": key,
@@ -76,6 +76,8 @@ if stamp_path.is_file() and archive_path.is_file() and upstream_path.is_file():
     try:
         previous: dict[str, object] = json.loads(stamp_path.read_text())
     except OSError, ValueError:
+        previous = {}
+    if not isinstance(previous, dict):
         previous = {}
     if (
         all(previous.get(k) == v for k, v in stamp.items())
@@ -191,7 +193,7 @@ def archive_members(path: Path) -> ArchiveMembers:
             else:
                 name = name.rstrip("/")
             if name in members:
-                raise SystemExit("Duplicate archive member: " + name)
+                raise SystemExit(f"Duplicate archive member: {name}")
             members[name] = (
                 elf_payloads(payload) if native_target == "linux" else coff_payloads(payload)
             )
@@ -237,15 +239,15 @@ with tempfile.TemporaryDirectory(
         if line.split()[-1:] == [old_symbol]
     ]
     if len(references) != 9 or sum(" R " in line for line in references) != 1:
-        raise SystemExit("Unexpected pinned JPEG table definitions/references: " + repr(references))
+        raise SystemExit(f"Unexpected pinned JPEG table definitions/references: {references!r}")
     for library in libraries:
         expected = [
-            line[: -len(old_symbol)] + new_symbol if line.split()[-1:] == [old_symbol] else line
+            f"{line[: -len(old_symbol)]}{new_symbol}" if line.split()[-1:] == [old_symbol] else line
             for line in original_symbols[library.name]
         ]
         if expected != original_symbols[library.name]:
             subprocess.run(
-                [objcopy, "--redefine-sym", old_symbol + "=" + new_symbol, str(library)], check=True
+                [objcopy, "--redefine-sym", f"{old_symbol}={new_symbol}", str(library)], check=True
             )
         if symbols(library) != sorted(expected):
             raise SystemExit("Native archive symbol change exceeded the one-table rename")
@@ -257,7 +259,7 @@ with tempfile.TemporaryDirectory(
                     if expected_section != actual_section:
                         raise SystemExit(
                             "Native section changed: "
-                            + repr((member, name, expected_section, actual_section))
+                            f"{(member, name, expected_section, actual_section)!r}"
                         )
             raise SystemExit("Native executable/data/relocation sections changed")
         hashes[library.name]["private_sha256"] = hashlib.sha256(library.read_bytes()).hexdigest()
@@ -288,6 +290,6 @@ with tempfile.TemporaryDirectory(
     upstream_path.parent.mkdir(parents=True, exist_ok=True)
     upstream_path.write_bytes(source)
     os.replace(prepared, archive_path)
-    stamp_path.write_text(json.dumps(stamp, indent=2) + "\n")
+    stamp_path.write_text(f"{json.dumps(stamp, indent=2)}\n")
 print("Prepared private Skia JPEG table namespace; native code/data unchanged", file=sys.stderr)
 print(archive_path)

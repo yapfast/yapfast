@@ -3,10 +3,10 @@
 { pkgs }:
 rec {
   webrtcArchive = pkgs.fetchurl {
-    url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-linux-x64-release.zip";
-    hash = "sha256-3OnZQUzY4syaRxwFRIGFGyV60qh5ESzlvlY2m0/v2u0=";
+    url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-a545de4/webrtc-linux-x64-release.zip";
+    hash = "sha256-Ls5zuacqLKzXPQxirDpBTiAvN4hcPI9J3dtDwUQ6wL0=";
   };
-  webrtc = pkgs.runCommand "talk-libwebrtc-51ef663" {
+  webrtc = pkgs.runCommand "talk-libwebrtc-a545de4" {
     nativeBuildInputs = [ pkgs.unzip ];
   } ''
     unzip -q ${webrtcArchive} -d unpacked
@@ -18,10 +18,10 @@ rec {
     sha256 = "d5ea4666b67f4ff74a2c9dccf9cbb069fc991552caa9ed26fd4379572ddfe3b1";
   };
   skia = pkgs.runCommand "talk-skia-0.157.0-linux" {
-    nativeBuildInputs = [ pkgs.python3 pkgs.binutils pkgs.llvmPackages_21.llvm ];
+    nativeBuildInputs = [ pkgs.python315 pkgs.binutils pkgs.llvmPackages_23.llvm ];
     YAPFAST_SKIA_SOURCE = skiaArchive;
-    YAPFAST_SKIA_OBJCOPY = "${pkgs.llvmPackages_21.llvm}/bin/llvm-objcopy";
-    YAPFAST_SKIA_NM = "${pkgs.llvmPackages_21.llvm}/bin/llvm-nm";
+    YAPFAST_SKIA_OBJCOPY = "${pkgs.llvmPackages_23.llvm}/bin/llvm-objcopy";
+    YAPFAST_SKIA_NM = "${pkgs.llvmPackages_23.llvm}/bin/llvm-nm";
   } ''
     export YAPFAST_SKIA_OUTPUT="$out"
     python3 ${./prepare-skia-native.py}

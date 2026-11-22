@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,12 +15,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / ".local/windows/skia-static-production"
 KEY = "30669978c3f39a73e8a7-x86_64-pc-windows-msvc-d3d-ganesh-gl-jpegd-jpege-pdf-static"
-PACKAGE = "skia-binaries-" + KEY + ".tar.gz"
+PACKAGE = f"skia-binaries-{KEY}.tar.gz"
 
 
 def digest(path):
     with Path(path).open("rb") as f:
         return hashlib.file_digest(f, "sha256").hexdigest()
+
+
+def read_stamp(path: Path) -> dict:
+    """Treat incomplete or damaged build metadata as a cache miss."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def link(target, source):
@@ -35,9 +45,16 @@ def main():
     lld = Path(os.environ["YAPFAST_SKIA_LLD"])
     headers = Path(os.environ["YAPFAST_SKIA_CLANG_HEADERS"])
     xwin = Path(os.environ.get("XWIN_CACHE_DIR", Path.home() / ".cache/cargo-xwin")) / "xwin"
-    compiler = subprocess.check_output([clang, "--version"], text=True).splitlines()[0]
-    if "21.1.7" not in compiler:
-        raise SystemExit("Windows Skia requires pinned Clang 21.1.7")
+    compiler = subprocess.check_output([clang, "--version"], text=True, timeout=30).splitlines()[0]
+    expected_version = os.environ["YAPFAST_SKIA_CLANG_VERSION"]
+    version = re.search(r"\bclang version (\d+\.\d+\.\d+)\b", compiler)
+    if not version or version.group(1) != expected_version:
+        raise SystemExit(f"Windows Skia requires pinned Clang {expected_version}; got {compiler}")
+    clang_major = expected_version.split(".")[0]
+    ninja_executable = shutil.which("ninja")
+    gn_executable = shutil.which("gn")
+    if ninja_executable is None or gn_executable is None:
+        raise SystemExit("Windows Skia preparation requires Ninja and GN on PATH")
     inputs = {
         "skia_source": str(source),
         "skia_revision": "6a8fe80eadfac737c12e64229a1b9530bc78f3d1",
@@ -65,11 +82,15 @@ def main():
     stamp = WORK / "build.json"
     prepared = WORK / "prepared" / PACKAGE
     if stamp.is_file() and prepared.is_file():
-        old = json.loads(stamp.read_text())
-        if old["inputs"] == inputs and digest(prepared) == old["prepared_sha256"]:
+        old = read_stamp(stamp)
+        if old.get("inputs") == inputs and digest(prepared) == old.get("prepared_sha256"):
             print(prepared)
             return
-        if old["inputs"].get("sdk_fingerprint") != inputs["sdk_fingerprint"]:
+        old_inputs = old.get("inputs")
+        if (
+            not isinstance(old_inputs, dict)
+            or old_inputs.get("sdk_fingerprint") != inputs["sdk_fingerprint"]
+        ):
             shutil.rmtree(WORK / "target", ignore_errors=True)
     WORK.mkdir(parents=True, exist_ok=True)
     vc = WORK / "toolchain/vc"
@@ -82,20 +103,20 @@ def main():
         link(sdk / "Lib/1" / group, xwin / "sdk/lib" / group)
     link(llvm / "bin/clang-cl", clang)
     link(llvm / "bin/lld-link", lld)
-    link(llvm / "lib/clang/21/include", headers)
+    link(llvm / f"lib/clang/{clang_major}/include", headers)
     ninja = WORK / "ninja"
-    ninja.write_text('#!/bin/sh\nexec "' + shutil.which("ninja") + f'" -j{jobs} "$@"\n')
+    ninja.write_text(f'#!/bin/sh\nexec "{ninja_executable}" -j{jobs} "$@"\n')
     ninja.chmod(0o755)
     args = " ".join(
         [
             'target_os="win"',
             'target_cpu="x64"',
-            "win_vc=" + json.dumps(str(vc)),
+            f"win_vc={json.dumps(str(vc))}",
             'win_toolchain_version="1"',
-            "win_sdk=" + json.dumps(str(sdk)),
+            f"win_sdk={json.dumps(str(sdk))}",
             'win_sdk_version="1"',
-            "clang_win=" + json.dumps(str(llvm)),
-            'clang_win_version="21"',
+            f"clang_win={json.dumps(str(llvm))}",
+            f"clang_win_version={json.dumps(clang_major)}",
             "is_trivial_abi=false",
             'extra_cflags+=["/MT", "-D__RTMINTRIN_H"]',
         ]
@@ -104,7 +125,7 @@ def main():
         os.environ,
         SKIA_SOURCE_DIR=str(source),
         SKIA_GN_ARGS=args,
-        SKIA_GN_COMMAND=shutil.which("gn"),
+        SKIA_GN_COMMAND=gn_executable,
         SKIA_NINJA_COMMAND=str(ninja),
         BUILD_ARTIFACTSTAGINGDIRECTORY=str(WORK / "export"),
         CARGO_TARGET_DIR=str(WORK / "target"),
@@ -171,8 +192,8 @@ def main():
         YAPFAST_SKIA_SOURCE=str(raw),
         YAPFAST_SKIA_OUTPUT=str(WORK / "prepared"),
         YAPFAST_SKIA_STATIC_SHA256=digest(raw),
-        YAPFAST_SKIA_NM=shutil.which("llvm-nm"),
-        YAPFAST_SKIA_OBJCOPY=shutil.which("llvm-objcopy"),
+        YAPFAST_SKIA_NM=str(shutil.which("llvm-nm")),
+        YAPFAST_SKIA_OBJCOPY=str(shutil.which("llvm-objcopy")),
     )
     subprocess.run(
         [sys.executable, str(ROOT / "nix/prepare-skia-native.py")],
@@ -187,11 +208,12 @@ def main():
     ]
     inputs["sdk_fingerprint"] = hashlib.sha256(json.dumps(sdk_files).encode()).hexdigest()
     stamp.write_text(
-        json.dumps(
-            {"inputs": inputs, "raw_sha256": digest(raw), "prepared_sha256": digest(prepared)},
-            indent=2,
-        )
-        + "\n"
+        f"{
+            json.dumps(
+                {'inputs': inputs, 'raw_sha256': digest(raw), 'prepared_sha256': digest(prepared)},
+                indent=2,
+            )
+        }\n"
     )
     print(prepared)
 

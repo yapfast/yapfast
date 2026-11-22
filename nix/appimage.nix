@@ -12,7 +12,7 @@
 let
   id = "io.github.yapfast.Yapfast";
   native = import ./native.nix { inherit pkgs; };
-  # The newest glibc and libstdc++ the binary may ask for: Ubuntu 24.04's and
+  # The newest glibc and libstdc++ the binary may ask for: ubuntu-26.04's and
   # Fedora 40's. Nix builds against a newer glibc, so a nixpkgs update can
   # raise what the binary asks for, and this fails the build when it does.
   glibcFloor = "2.39";

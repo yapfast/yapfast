@@ -4,15 +4,23 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[workspace]
+# Its build script exports the archive consumed by prepare-windows-skia.py.
+[package.metadata.cargo-machete]
+ignored = ["skia-bindings"]
 
 [dependencies]
-skia-bindings = { version = "=0.157.0", default-features = false, features = [
-  "binary-cache",
-  "ganesh",
-  "gl",
-  "d3d",
-  "jpeg-decode",
-  "jpeg-encode",
-  "pdf",
-] }
+skia-bindings = {
+  version = "=0.157.0",
+  default-features = false,
+  features = [
+    "binary-cache",
+    "d3d",
+    "ganesh",
+    "gl",
+    "jpeg-decode",
+    "jpeg-encode",
+    "pdf",
+  ]
+}
+
+[workspace]
