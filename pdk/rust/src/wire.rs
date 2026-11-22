@@ -379,6 +379,9 @@ pub mod method {
     pub const UPLOADS_READ: &str = "uploads.read";
     pub const UPLOADS_WRITE: &str = "uploads.write";
     pub const UPLOADS_FINISH: &str = "uploads.finish";
+    pub const OAUTH_LOGIN: &str = "oauth.login";
+    pub const OAUTH_TOKEN: &str = "oauth.token";
+    pub const OAUTH_LOGOUT: &str = "oauth.logout";
     pub const SPOTIFY_NOW: &str = "spotify.now";
     pub const SPOTIFY_PLAY: &str = "spotify.play";
     pub const SPOTIFY_PAUSE: &str = "spotify.pause";

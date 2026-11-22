@@ -285,6 +285,23 @@ it replaces: `join`, `leave`, `mute`, `unmute`, `deafen`, `undeafen`,
 `message`, `mention`, `viewer_join`, `viewer_leave`, `stream_start` and
 `stream_stop`. A plugin with nothing but sounds needs no module.
 
+## Signing in to a service
+
+```json
+"oauth": [{ "provider": "spotify", "client_id": "your-app-id",
+            "scopes": ["user-read-playback-state", "user-modify-playback-state"] }]
+```
+
+`oauth`, with `oauth.login`, names each service the plugin signs the person in
+to with an app of the author's own, for `oauth.login`
+([the ABI](abi.md#signing-in-to-a-service)). `spotify` is one Yapfast knows the
+addresses of; any other is a short lowercase name with `authorize` and `token`,
+each an `https` address. `client_id` is the app's, from the service's developer
+page, and `scopes` are the service's own words. `redirect_port` fixes the
+loopback port for a service that wants the redirect URI exact; without it a
+free port is used, which Spotify allows for an app whose redirect URI is
+registered as `http://127.0.0.1/callback`. Each provider once.
+
 ## Named parts
 
 A plugin can name what it draws in a slot, so Yapfast knows which of its parts
@@ -430,6 +447,7 @@ in the window changes.
 | Two parts with one name | Duplicate `parts[].name` |
 | Two settings with one key | Duplicate `settings[].key` |
 | Depending on itself | `dependencies` names the plugin's own id |
+| A sign-in that can't work | `oauth` is set and `oauth.login` isn't declared, a provider is named twice, a `client_id` or scope has a space, `spotify` is given addresses, or another provider's `authorize` or `token` isn't `https` |
 
 Nothing is executed during validation: the manifest is read, the module's header
 and magic are checked, its imports are checked against the two host functions the

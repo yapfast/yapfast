@@ -169,6 +169,10 @@ pub enum Capability {
     /// The game Yapfast sees this account playing, as it starts and stops.
     #[serde(rename = "activity.read")]
     ActivityRead,
+    /// Sign in to a service with the plugin's own app, in the browser, and
+    /// use the account: the manifest's `oauth`.
+    #[serde(rename = "oauth.login")]
+    OAuthLogin,
 }
 
 impl Capability {
@@ -178,7 +182,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 48] = [
+    pub const ALL: [Capability; 49] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -227,6 +231,7 @@ impl Capability {
         Capability::RelationshipsRead,
         Capability::ImagesWeb,
         Capability::ActivityRead,
+        Capability::OAuthLogin,
     ];
 
     /// Whether anything in this build looks at this capability.
@@ -319,6 +324,7 @@ impl Capability {
             Capability::RelationshipsRead => "relationships.read",
             Capability::ImagesWeb => "images.web",
             Capability::ActivityRead => "activity.read",
+            Capability::OAuthLogin => "oauth.login",
         }
     }
 
@@ -392,6 +398,9 @@ impl Capability {
             }
             Capability::ImagesWeb => "Shows pictures from the sites it lists",
             Capability::ActivityRead => "Sees which game you're playing, even when you hide it",
+            Capability::OAuthLogin => {
+                "Asks you to sign in to another site in your browser, and uses that account"
+            }
         }
     }
 

@@ -65,6 +65,7 @@ audio capabilities, which share one line.
 | `app.timing` | `startup_timing`, once a session | Reads how long Yapfast took to start |
 | `relationships.read` | `relationship_add`, `relationship_remove`, `relationship_request` and `relationships.affinities` | Sees friends being added and removed, friend requests, and who Discord ranks you closest to |
 | `images.web` | Pictures from the HTTPS hosts in `network`, in what it draws | Shows pictures from the sites it lists |
+| `oauth.login` | Sign the person in to the services its `oauth` names, in their browser, with its own app, and use the account through `http.fetch` | Asks you to sign in to another site in your browser, and uses that account |
 | `activity.read` | `game_start` and `game_stop`, the game Yapfast sees this account playing | Sees which game you're playing, even when you hide it |
 
 One of those sentences is shown in the dialog's danger tone:

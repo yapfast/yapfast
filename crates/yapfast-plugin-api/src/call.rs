@@ -138,6 +138,12 @@ pub mod method {
     pub const UPLOADS_WRITE: &str = "uploads.write";
     pub const UPLOADS_FINISH: &str = "uploads.finish";
 
+    // A plugin's own login to a service, such as Spotify with its own app:
+    // `oauth.login`.
+    pub const OAUTH_LOGIN: &str = "oauth.login";
+    pub const OAUTH_TOKEN: &str = "oauth.token";
+    pub const OAUTH_LOGOUT: &str = "oauth.logout";
+
     /// Every name above, in the order they are declared.
     ///
     /// A method is reachable only if the code in front of it knows its name, so
@@ -145,7 +151,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 92] = [
+    pub const ALL: [&str; 95] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -238,6 +244,9 @@ pub mod method {
         UPLOADS_READ,
         UPLOADS_WRITE,
         UPLOADS_FINISH,
+        OAUTH_LOGIN,
+        OAUTH_TOKEN,
+        OAUTH_LOGOUT,
     ];
 
     /// The Spotify calls, which share one capability.

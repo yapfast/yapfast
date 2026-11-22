@@ -47,6 +47,14 @@ pub enum Notice {
         name: String,
         insert: Option<String>,
     },
+    /// A plugin wants the person to sign in to a service with its own app:
+    /// the leaving dialog shows the service's page, named as the plugin's,
+    /// and the browser opens it on the person's say.
+    SignIn {
+        plugin: PluginId,
+        provider: String,
+        url: String,
+    },
     /// A plugin's state changed, for the page that lists them.
     Status {
         plugin: PluginId,

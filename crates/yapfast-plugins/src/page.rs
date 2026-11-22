@@ -663,6 +663,10 @@ pub fn capability(name: &str) -> (String, Tone) {
             Tone::Normal,
         ),
         "images.web" => ("Shows pictures from the sites it lists", Tone::Normal),
+        "oauth.login" => (
+            "Asks you to sign in to another site in your browser, such as Spotify, and uses that account as you",
+            Tone::Strong,
+        ),
         "activity.read" => (
             "Sees which game you're playing as you start and stop it, even when you hide it",
             Tone::Normal,

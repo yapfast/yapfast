@@ -84,6 +84,7 @@ mod session_frame;
 mod session_graph;
 mod session_hooks;
 mod session_lifecycle;
+pub(in crate::bridge) mod session_oauth;
 mod session_powerful;
 mod session_slots;
 mod session_socket;

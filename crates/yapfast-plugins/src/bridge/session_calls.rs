@@ -477,6 +477,12 @@ impl Session {
             self.fetch(shared, call, plugin, request);
             return;
         }
+        if request.method == call::method::OAUTH_LOGIN
+            || request.method == call::method::OAUTH_TOKEN
+        {
+            self.oauth(shared, call, plugin, request);
+            return;
+        }
         // The powerful tier's two calls that answer later: a picture decoded
         // off this task, and an endpoint whose requests are answers to come.
         if request.method == call::method::FS_THUMBNAIL {

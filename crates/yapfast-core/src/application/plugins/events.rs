@@ -86,6 +86,19 @@ impl Application {
             News::Notice(Notice::Attachment { id, name, blocked }) => {
                 self.plugins_upload_answered(id, name, blocked)
             }
+            // A plugin's sign-in page goes through the leaving dialog, which
+            // names the plugin, as any page a plugin opens does.
+            News::Notice(Notice::SignIn {
+                plugin,
+                provider,
+                url,
+            }) => {
+                let name = self.plugin_name(&plugin);
+                vec![AppEffect::ConfirmOpen {
+                    url,
+                    plugin: format!("{name} ({plugin}), to sign in to {provider}"),
+                }]
+            }
             News::Notice(Notice::UploadHeld { id, plugin, name }) => {
                 self.plugins_upload_held(id, &plugin, &name)
             }

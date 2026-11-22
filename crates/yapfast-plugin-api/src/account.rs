@@ -376,6 +376,125 @@ pub struct ServerAffinity {
     pub affinity: f64,
 }
 
+/// One service a plugin signs in to with its own app, from its manifest's
+/// `oauth`: `oauth.login`. Authorization Code with PKCE, the flow a desktop
+/// app with no secret uses, in the person's browser, with a redirect to this
+/// computer's loopback.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OAuthDecl {
+    /// `spotify`, whose addresses Yapfast knows, or a name of the plugin's
+    /// own with `authorize` and `token` given.
+    pub provider: String,
+    /// The plugin's own app's client id, from the service's developer page.
+    pub client_id: String,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    /// The service's authorization page, `https`, for a provider Yapfast
+    /// doesn't know.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize: Option<String>,
+    /// Its token endpoint, `https`, likewise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// The loopback port the app's redirect URI names, for a service that
+    /// wants it exact; a free port is picked when this is left out, which
+    /// Spotify allows for `http://127.0.0.1` (its redirect URI docs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect_port: Option<u16>,
+}
+
+/// Spotify's two addresses (developer.spotify.com, Authorization Code with
+/// PKCE Flow).
+pub const SPOTIFY_AUTHORIZE: &str = "https://accounts.spotify.com/authorize";
+pub const SPOTIFY_TOKEN: &str = "https://accounts.spotify.com/api/token";
+
+/// The path every redirect comes back to.
+pub const OAUTH_REDIRECT_PATH: &str = "/callback";
+
+impl OAuthDecl {
+    /// The authorization page and the token endpoint.
+    pub fn endpoints(&self) -> (&str, &str) {
+        match self.provider.as_str() {
+            "spotify" => (SPOTIFY_AUTHORIZE, SPOTIFY_TOKEN),
+            _ => (
+                self.authorize.as_deref().unwrap_or_default(),
+                self.token.as_deref().unwrap_or_default(),
+            ),
+        }
+    }
+
+    /// Why this can't be signed in with, if it can't.
+    pub fn problems(&self) -> Result<(), String> {
+        let plain = |text: &str| {
+            !text.is_empty()
+                && text.len() <= 128
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_graphic() && byte != b'&' && byte != b'#')
+        };
+        if !(1..=32).contains(&self.provider.len())
+            || !self
+                .provider
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err("a provider is a short lowercase name".to_owned());
+        }
+        if !plain(&self.client_id) {
+            return Err(format!("{}'s client_id isn't one", self.provider));
+        }
+        if self.scopes.iter().any(|scope| !plain(scope)) {
+            return Err(format!(
+                "{}'s scopes are words with no spaces",
+                self.provider
+            ));
+        }
+        match self.provider.as_str() {
+            "spotify" if self.authorize.is_some() || self.token.is_some() => Err(
+                "Yapfast knows Spotify's addresses, so `spotify` takes no `authorize` or `token`"
+                    .to_owned(),
+            ),
+            "spotify" => Ok(()),
+            other => {
+                let https = |url: &Option<String>| {
+                    url.as_deref()
+                        .is_some_and(|url| url.starts_with("https://") && url.len() > 8)
+                };
+                if https(&self.authorize) && https(&self.token) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "`{other}` needs an `authorize` and a `token` address, each https"
+                    ))
+                }
+            }
+        }
+    }
+}
+
+/// `oauth.login`, `oauth.token` and `oauth.logout`'s payload.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OAuthRequest {
+    pub provider: String,
+}
+
+/// A signed-in account's access token, for the plugin to send to the
+/// service's API itself with `http.fetch`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OAuthToken {
+    pub provider: String,
+    pub access_token: String,
+    /// `Bearer`, as services say.
+    pub token_type: String,
+    /// When it stops working, in Unix milliseconds; `oauth.token` asks for a
+    /// new one before then.
+    pub expires_at_ms: u64,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
 /// What a Spotify control call asks for. The method names it; the payload
 /// carries what the call needs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

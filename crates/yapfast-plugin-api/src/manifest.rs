@@ -822,6 +822,9 @@ pub struct PluginManifest {
     /// its sound `assets`: `sounds.replace`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sounds: BTreeMap<String, String>,
+    /// The services it signs in to with its own app: `oauth.login`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub oauth: Vec<crate::account::OAuthDecl>,
 }
 
 impl PluginManifest {
@@ -960,6 +963,23 @@ impl PluginManifest {
                     field: "a keybind's label",
                 });
             }
+        }
+        if !self.oauth.is_empty() && !self.permissions.allows(Capability::OAuthLogin) {
+            return Err(unpaired("oauth", "oauth.login"));
+        }
+        let mut providers: Vec<&str> = Vec::new();
+        for service in &self.oauth {
+            service.problems().map_err(|why| ManifestError::Text {
+                field: "oauth",
+                why,
+            })?;
+            if providers.contains(&service.provider.as_str()) {
+                return Err(ManifestError::Text {
+                    field: "oauth",
+                    why: format!("`{}` is named twice", service.provider),
+                });
+            }
+            providers.push(&service.provider);
         }
         if !self.sounds.is_empty() && !self.permissions.allows(Capability::SoundsReplace) {
             return Err(unpaired("sounds", "sounds.replace"));
@@ -1861,6 +1881,44 @@ mod tests {
             "*".parse::<VersionReq>()
                 .unwrap()
                 .matches(Version::new(9, 9, 9))
+        );
+    }
+
+    #[test]
+    fn an_oauth_service_needs_its_capability_and_addresses_yapfast_can_use() {
+        let with = |capabilities: &str, oauth: &str| {
+            PluginManifest::parse(&format!(
+                r#"{{"api":1,"id":"com.example.o","name":"O","version":"1.0.0","wasm":"o.wasm",
+                    "permissions":{{"capabilities":[{capabilities}]}},"oauth":{oauth}}}"#
+            ))
+        };
+        let spotify = r#"[{"provider":"spotify","client_id":"abc123","scopes":["user-read-playback-state"]}]"#;
+        assert!(matches!(
+            with("", spotify),
+            Err(ManifestError::Unpaired { .. })
+        ));
+        let fine = with(r#""oauth.login""#, spotify).expect("Spotify");
+        assert_eq!(
+            fine.oauth[0].endpoints(),
+            (
+                crate::account::SPOTIFY_AUTHORIZE,
+                crate::account::SPOTIFY_TOKEN
+            )
+        );
+        for wrong in [
+            r#"[{"provider":"spotify","client_id":"has space"}]"#,
+            r#"[{"provider":"spotify","client_id":"a","token":"https://evil.example/t"}]"#,
+            r#"[{"provider":"own","client_id":"a","authorize":"http://a.example","token":"https://a.example/t"}]"#,
+            r#"[{"provider":"spotify","client_id":"a"},{"provider":"spotify","client_id":"b"}]"#,
+        ] {
+            assert!(with(r#""oauth.login""#, wrong).is_err(), "{wrong}");
+        }
+        assert!(
+            with(
+                r#""oauth.login""#,
+                r#"[{"provider":"own","client_id":"a","authorize":"https://a.example/auth","token":"https://a.example/token"}]"#
+            )
+            .is_ok()
         );
     }
 

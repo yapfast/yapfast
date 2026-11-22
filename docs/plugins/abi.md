@@ -600,6 +600,38 @@ for that answer and then goes on, or is `denied` with the person's no.
 | `net.send` | `{ socket, text \| data_base64 }` | `true`, or an `error` for a connection that closed |
 | `net.close` | `{ socket }` | `true`; the `closed` news follows |
 
+### Signing in to a service
+
+A plugin with `oauth.login` signs the person in to a service its manifest's
+`oauth` names, with an app of its author's own: Spotify's Web API, for one, in
+place of the token Discord lends (`spotify.control`).
+
+| Call | Payload | Answer |
+| --- | --- | --- |
+| `oauth.login` | `{ provider }` | `pending`, then `{ provider, access_token, token_type, expires_at_ms, scopes }` once the person signed in, or an `error` saying why not |
+| `oauth.token` | `{ provider }` | `pending`, then the same shape: the kept token, renewed first when it has less than a minute left |
+| `oauth.logout` | `{ provider }` | Whether a sign-in was kept |
+
+`oauth.login` stands behind a click of the person's. Yapfast runs
+Authorization Code with PKCE (RFC 7636), the flow for an app with no secret:
+it listens for one request on `http://127.0.0.1:PORT/callback`, the leaving
+dialog shows the service's page with the plugin named, the browser opens it on
+the person's say, and the code that comes back (with its `state` checked) is
+traded for tokens in the parent. The person has five minutes. The refresh
+token is kept in the plugin's data folder, readable by this account only, and
+never reaches the plugin, which is given access tokens and calls the service's
+API itself through `http.fetch` with `Authorization: Bearer …`, the API's host
+in its `network`. A renewal that brings no new refresh token keeps the old one,
+as Spotify's docs say may happen. Uninstalling with the data removes the kept
+sign-in; signing out of the app itself is done on the service's site.
+
+Spotify's own rules apply to the author's app
+([developer.spotify.com](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri)):
+the redirect URI is registered as `http://127.0.0.1/callback` (`localhost`
+isn't allowed); an app in development mode needs its owner on Premium and
+lists the people allowed to sign in to it; and the player's controls need
+Premium on the account signed in.
+
 ### The account's own calls
 
 Each has its capability, and each is answered later: `pending`, then the

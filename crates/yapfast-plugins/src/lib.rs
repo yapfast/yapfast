@@ -32,6 +32,7 @@ pub mod listen;
 pub mod marketplace;
 pub mod media;
 pub mod network;
+pub mod oauth;
 pub mod page;
 pub mod permissions;
 pub mod powerful;

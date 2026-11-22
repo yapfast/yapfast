@@ -294,6 +294,8 @@ fn waits_for_answer(name: &str) -> bool {
             | method::DRAFTS_LIST
             | method::ACCOUNT_SESSIONS
             | method::RELATIONSHIPS_AFFINITIES
+            | method::OAUTH_LOGIN
+            | method::OAUTH_TOKEN
     ) && !method::SPOTIFY.contains(&name)
 }
 
@@ -309,7 +311,7 @@ fn waits_for_answer(name: &str) -> bool {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 92] = [
+const FORWARDED: [&str; 95] = [
     method::APP_VERSION,
     method::APP_LOCALE,
     method::APP_THEME_MODE,
@@ -404,6 +406,10 @@ const FORWARDED: [&str; 92] = [
     method::UPLOADS_READ,
     method::UPLOADS_WRITE,
     method::UPLOADS_FINISH,
+    // A plugin's own sign-in to a service, run by the parent.
+    method::OAUTH_LOGIN,
+    method::OAUTH_TOKEN,
+    method::OAUTH_LOGOUT,
     method::SPOTIFY_NOW,
     method::SPOTIFY_PLAY,
     method::SPOTIFY_PAUSE,

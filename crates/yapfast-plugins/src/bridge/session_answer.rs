@@ -21,6 +21,9 @@ impl Session {
             call::method::UPLOADS_READ
             | call::method::UPLOADS_WRITE
             | call::method::UPLOADS_FINISH => return upload_call(shared, plugin, &call),
+            call::method::OAUTH_LOGOUT => {
+                return super::session_oauth::oauth_logout(shared, plugin, &call);
+            }
             _ => {}
         }
         let registry = shared.registry();
