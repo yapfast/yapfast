@@ -1023,6 +1023,36 @@ fn person_menu<'a>(
     .into()
 }
 
+/// The widest a reply's whole original shows when its quote is pointed at,
+/// and the most of it shown.
+const REPLY_TIP_WIDTH: f32 = 400.0;
+const REPLY_TIP_CHARS: usize = 600;
+
+/// The whole message `reply` quotes, cut to a tooltip's worth: the loaded
+/// original's text when it has more than its first line, or else the
+/// quote's own text when a row would cut it short.
+pub(crate) fn whole_reply(
+    state: &yapfast_core::application::AppState,
+    reply: &chat::Reply,
+) -> Option<String> {
+    let original = reply
+        .item
+        .as_deref()
+        .and_then(|item| state.message(item))
+        .filter(|original| original.body.contains('\n'))
+        .map(|original| original.body.as_str());
+    let body = match original {
+        Some(body) => body,
+        None if reply.body.chars().count() > 60 => reply.body.as_str(),
+        None => return None,
+    };
+    let mut whole: String = body.chars().take(REPLY_TIP_CHARS).collect();
+    if whole.len() < body.len() {
+        whole.push('…');
+    }
+    Some(whole)
+}
+
 /// The quote a reply leads with: its author's avatar and "@name" in
 /// their colour, its text on one line; a click jumps to it.
 fn reply_line<'a>(
@@ -1087,6 +1117,25 @@ fn reply_line<'a>(
     let line = container(line)
         .height(HEADER_LINE)
         .align_y(Alignment::Center);
+    // Pointed at for half a second, the whole original, which the quote's
+    // one line cuts short; made only for the row under the pointer.
+    let pointed = ctx.pointed.message.as_deref() == Some(&*look.item);
+    let line: Element<'a, Message> = match pointed.then(|| whole_reply(ctx.state, reply)).flatten()
+    {
+        Some(whole) => iced::widget::tooltip(
+            line,
+            container(text(whole).size(14).color(theme.text))
+                .padding([8, 12])
+                .max_width(REPLY_TIP_WIDTH)
+                .style(controls::tip_style(theme)),
+            iced::widget::tooltip::Position::Top,
+        )
+        .gap(6)
+        .delay(std::time::Duration::from_millis(500))
+        .snap_within_viewport(true)
+        .into(),
+        None => line.into(),
+    };
     match &reply.item {
         Some(item) => button(line)
             .padding(0)
@@ -1097,7 +1146,7 @@ fn reply_line<'a>(
             ))
             .style(|_, _| button::Style::default())
             .into(),
-        None => line.into(),
+        None => line,
     }
 }
 

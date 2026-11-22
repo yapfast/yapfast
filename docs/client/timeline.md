@@ -77,7 +77,10 @@ author who joined the server in the last week (`new_member`; not a bot, not
 one who left and came back, and not in a server itself under a week old, as
 Discord's client marks them), and, in a forum post, an "OP" tag for the
 post's author unless the APP tag is there; a reply's line quotes the
-author's tag a little smaller. A notice shows its icon in place of the avatar
+author's tag a little smaller, and pointed at for half a second shows the
+whole original in a tooltip, up to 600 characters (`message::whole_reply`:
+the loaded original past its first line, or the quote's own text when the
+line cuts it short), made only for the row under the pointer. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.

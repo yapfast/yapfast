@@ -1922,3 +1922,37 @@ fn a_threads_card_shows_its_count_and_newest_message_as_discords_does() {
         "{count:?} past the card's 480 from {left}"
     );
 }
+
+#[test]
+fn a_replys_quote_offers_its_whole_original() {
+    use yapfast_core::chat::Reply;
+    let (mut app, _folder) = preview();
+    let items = long_history(&mut app, 3);
+    change(&mut app, |state| {
+        let original = Arc::make_mut(&mut Arc::make_mut(&mut state.messages)[0]);
+        original.body = "First line\nand the rest of it".into();
+    });
+    let reply = |item: Option<&str>, body: &str| Reply {
+        author: "Sam".into(),
+        avatar: None,
+        body: body.into(),
+        emoji: Vec::new(),
+        item: item.map(str::to_owned),
+        color: None,
+        tag: None,
+    };
+    let state = app.client.state();
+    assert_eq!(
+        crate::message::whole_reply(state, &reply(Some(&items[0]), "First line")).as_deref(),
+        Some("First line\nand the rest of it"),
+        "the loaded original, past its first line"
+    );
+    assert_eq!(
+        crate::message::whole_reply(state, &reply(Some(&items[1]), "Short")),
+        None,
+        "a quote that shows whole has none"
+    );
+    let long = "word ".repeat(200);
+    let whole = crate::message::whole_reply(state, &reply(None, &long)).expect("cut short");
+    assert_eq!(whole.chars().count(), 601, "600 characters and an ellipsis");
+}
