@@ -21,7 +21,7 @@ use iced::{
 use yapfast_core::{
     application::{
         Action, ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm,
-        OverwriteState, Overwrites, SLOWMODES, channel_groups, channel_permission,
+        OverwriteState, Overwrites, SLOWMODES, VOICE_REGIONS, channel_groups, channel_permission,
     },
     chat::{ChannelKind, ChannelOverwrite, RoleMember, ServerRole},
 };
@@ -54,6 +54,14 @@ const OVERVIEW_GAP: f32 = 20.0;
 const STEP: f32 = 32.0;
 const STEP_GLYPH: u32 = 18;
 const SLOWMODE_SHOWN: f32 = 48.0;
+/// A stepped voice setting's room for what's chosen: "US Central".
+const STEPPED_SHOWN: f32 = 110.0;
+/// A voice channel's bitrates, in kbps, as far as the server's boosts let
+/// it go, and its user limits, 0 for none.
+const BITRATES: [u32; 15] = [8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 128, 256, 384];
+const USER_LIMITS: [u32; 22] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 99,
+];
 /// Permissions' list of roles and members, a row of it, its mark.
 const OVERWRITES: f32 = 180.0;
 const OVERWRITE_HEAD: f32 = 28.0;
@@ -245,7 +253,7 @@ impl<'a> View<'a> {
     /// The channel as its settings name it: a text channel with its `#`.
     fn channel_label(self, core: &ChannelSettingsScreen) -> String {
         let title = self.cx.app.channel_title(&core.room);
-        if core.kind == ChannelKind::Text {
+        if core.kind.slug_named() {
             format!("#{title}")
         } else {
             title
@@ -358,14 +366,18 @@ impl<'a> View<'a> {
                     .into(),
             ]),
         ];
-        if core.kind == ChannelKind::Text {
+        // A text or announcement channel's topic; a text, announcement or
+        // voice channel's slowmode and age restriction; a voice channel's
+        // or stage's call settings.
+        let texty = matches!(core.kind, ChannelKind::Text | ChannelKind::Announcement);
+        if texty || core.kind == ChannelKind::Voice {
             let step = SLOWMODES
                 .iter()
                 .position(|seconds| *seconds == draft.slowmode)
                 .unwrap_or(0);
             let to = |index: usize| input(ChannelInput::Slowmode(SLOWMODES[index]));
-            parts.extend([
-                form::group([
+            if texty {
+                parts.push(form::group([
                     form::heading(theme, "CHANNEL TOPIC"),
                     form::entry(
                         theme,
@@ -375,7 +387,9 @@ impl<'a> View<'a> {
                     )
                     .on_input_maybe(ready.then_some(|text| input(ChannelInput::Topic(text))))
                     .into(),
-                ]),
+                ]));
+            }
+            parts.extend([
                 form::group([
                     form::heading(theme, "SLOWMODE"),
                     row![
@@ -407,10 +421,148 @@ impl<'a> View<'a> {
                 .view(self.cx.look),
             ]);
         }
+        if core.kind.voice() {
+            parts.extend(self.voice_overview(core, draft, ready));
+        }
         column(parts)
             .spacing(OVERVIEW_GAP)
             .width(Length::Fill)
             .into()
+    }
+
+    /// A setting stepped through its choices, as slowmode is: back, what's
+    /// chosen, on.
+    fn stepper(
+        self,
+        what: &'static str,
+        shown: String,
+        back: Option<Message>,
+        on: Option<Message>,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        row![
+            self.cx
+                .look
+                .icon_button(Icon::ChevronLeft, what, back)
+                .size(STEP, STEP_GLYPH)
+                .fill(iced::Color::TRANSPARENT),
+            container(text(shown).size(15).color(theme.text)).center_x(STEPPED_SHOWN),
+            self.cx
+                .look
+                .icon_button(Icon::ChevronRight, what, on)
+                .size(STEP, STEP_GLYPH)
+                .fill(iced::Color::TRANSPARENT),
+        ]
+        .spacing(form::TIGHT)
+        .align_y(Alignment::Center)
+        .into()
+    }
+
+    /// A voice channel's or stage's call settings, as Discord's Overview
+    /// has them: Bitrate up to what the server's boosts allow, a voice
+    /// channel's Video Quality, User Limit and Region Override.
+    fn voice_overview(
+        self,
+        core: &'a ChannelSettingsScreen,
+        draft: &'a yapfast_core::chat::ChannelSettings,
+        ready: bool,
+    ) -> Vec<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
+        let step_to = |list: &[u32], now: u32, by: isize| -> Option<u32> {
+            let at = list
+                .iter()
+                .position(|known| *known >= now)
+                .unwrap_or(list.len() - 1);
+            let at = if list.get(at) != Some(&now) && by > 0 {
+                at as isize - 1
+            } else {
+                at as isize
+            };
+            let next = (at + by).clamp(0, list.len() as isize - 1) as usize;
+            (list[next] != now && ready).then_some(list[next])
+        };
+        let most = core.bitrate_max / 1000;
+        let bitrates: Vec<u32> = BITRATES
+            .iter()
+            .copied()
+            .filter(|kbps| *kbps <= most)
+            .collect();
+        let kbps = draft.bitrate / 1000;
+        let bitrate = |by| {
+            step_to(&bitrates[..], kbps, by).map(|kbps| input(ChannelInput::Bitrate(kbps * 1000)))
+        };
+        let mut parts = vec![form::group([
+            form::heading(theme, "BITRATE"),
+            self.stepper("Bitrate", format!("{kbps}kbps"), bitrate(-1), bitrate(1)),
+            form::note(
+                theme,
+                if kbps > 64 {
+                    "ALL THE BITS! Going above 64 kbps may adversely affect people on poor connections."
+                } else {
+                    "Going above 64 kbps may adversely affect people on poor connections."
+                },
+            ),
+        ])];
+        if core.kind == ChannelKind::Voice {
+            let chosen = usize::from(draft.video_quality == 2);
+            parts.push(form::group([
+                form::heading(theme, "VIDEO QUALITY"),
+                controls::choices(theme, &["Auto", "720p"], chosen, move |index| {
+                    input(ChannelInput::VideoQuality(if index == 1 { 2 } else { 1 }))
+                }),
+                form::note(
+                    theme,
+                    "Sets camera video quality for all channel participants. Choose Auto for optimal performance.",
+                ),
+            ]));
+        }
+        let limit = |by| {
+            step_to(&USER_LIMITS[..], draft.user_limit, by)
+                .map(|limit| input(ChannelInput::UserLimit(limit)))
+        };
+        let users = match draft.user_limit {
+            0 => "No limit".to_owned(),
+            1 => "1 user".to_owned(),
+            count => format!("{count} users"),
+        };
+        parts.push(form::group([
+            form::heading(theme, "USER LIMIT"),
+            self.stepper("User limit", users, limit(-1), limit(1)),
+            form::note(
+                theme,
+                "Limits the number of users that can connect to this voice channel. Users with the Move Members permission ignore this limit and can move other users into the channel.",
+            ),
+        ]));
+        // Automatic, then Discord's regions, in their order.
+        let at = VOICE_REGIONS
+            .iter()
+            .position(|(id, _)| *id == draft.region)
+            .map_or(0, |index| index + 1);
+        let region = |index: usize| {
+            input(ChannelInput::Region(match index {
+                0 => String::new(),
+                index => VOICE_REGIONS[index - 1].0.to_owned(),
+            }))
+        };
+        let name = if at == 0 {
+            "Automatic"
+        } else {
+            VOICE_REGIONS[at - 1].1
+        };
+        parts.push(form::group([
+            form::heading(theme, "REGION OVERRIDE"),
+            self.stepper(
+                "Region",
+                name.to_owned(),
+                (ready && at > 0).then(|| region(at - 1)),
+                (ready && at < VOICE_REGIONS.len()).then(|| region(at + 1)),
+            ),
+            form::note(
+                theme,
+                "Anyone in this channel will attempt to connect to the region you set, regardless of where they live. Regions affect voice and video quality. Leave it on Automatic and Discord will figure out what works best.",
+            ),
+        ]));
+        parts
     }
 
     /// Permissions: the sync notice, Private Channel, and the overwrites
@@ -422,7 +574,7 @@ impl<'a> View<'a> {
         let page = &core.permissions;
         let rules = app.overwrite_rules(room);
         let category = core.kind == ChannelKind::Category;
-        let voice = core.kind == ChannelKind::Voice;
+        let voice = core.kind.voice();
         let may_edit = app
             .channel_sections(room)
             .contains(&ChannelSection::Permissions);

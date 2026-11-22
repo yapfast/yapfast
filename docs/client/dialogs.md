@@ -55,8 +55,14 @@ Escape closes it.
   already in it, a captcha or a form to finish in the browser), and Find
   Invite, Join Server or Open Server; Open the captcha again and Open in
   browser go through the core to `browser.rs`.
-- Create channel (Text or Voice) and Create category, in the server or
-  the category the menu was for, Duplicate channel with its name to change,
+- Create Channel and Create Category, as Discord's: "in" the category the
+  menu or the heading's "+" was for under the title, a new channel's kinds
+  as radio rows with Discord's line on each (Text, Voice and Forum, and in
+  a Community server Announcement and Stage; `server_dialogs::CHANNEL_KINDS`),
+  the name with the kind's icon before it, and Private Channel (Private
+  Category); a private one, once made and listed, opens its settings on
+  Permissions with Add members or roles open. Duplicate channel with its
+  name to change,
   and Delete channel or category in red, which Delete Channel in the
   channel's settings opens too; Enter does what the button does, and the
   core says while it saves and why it couldn't.

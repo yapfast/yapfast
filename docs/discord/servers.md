@@ -355,8 +355,30 @@ dialog shows them as they were when it opened.
 Where the account may manage channels (`MANAGE_CHANNELS`, on the server for one
 made there, on the category for one made in it, on the channel for the rest),
 Create channel and Create category make one with `POST /guilds/{id}/channels`
-and a body of its `name`, `type` (0 text, 2 voice, 4 category), `parent_id` for
-a category, and for text its `topic`, `rate_limit_per_user` and `nsfw`. Edit
+and a body of its `name`, `type` (0 text, 2 voice, 4 category, 15 forum, and in
+a Community server 5 announcement and 13 stage), `parent_id` for
+a category, and for text its `topic`, `rate_limit_per_user` and `nsfw`. The
+"+" on a category's heading, shown while the pointer is over it, makes one
+in that category. The dialog is Discord's Create Channel: the kinds as
+radio rows, each with Discord's line on what it's for, the name with the
+kind's icon before it, and Private Channel (Private Category). A private
+one goes with `permission_overwrites` denying @everyone View Channel, and
+Connect too for a voice channel or stage, and unless the account has every
+permission, an overwrite of its own allowing them, as the settings' Private
+Channel switch does. Discord's client then asks which members and roles to
+add; once Discord made it, Yapfast opens the new channel's settings on
+Permissions with Add members or roles open, for the same choice.
+
+A server channel's row, while pointed at or selected, shows Discord's
+buttons at its right: a voice channel's Open Chat, then Create Invite and
+Edit Channel (the cog) where its menu offers them.
+
+A category whose empty voice channels run past three shows the first three
+and folds the rest behind Show All at its end, as Discord's channel list
+does; a voice channel with people in it, the selected one, an unread one
+and the call the account is in always show. Show All lists them all, with
+Hide Voice Channels at the end to fold them again; Yapfast remembers which
+until it closes. Edit
 channel opens the channel's or category's [settings](server-settings.md#channel-settings).
 Duplicate channel reads the channel and makes another with its type, category,
 permission overwrites, topic, age restriction, slowmode and voice settings

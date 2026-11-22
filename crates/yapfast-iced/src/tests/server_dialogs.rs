@@ -116,9 +116,22 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
 fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
     let (mut app, _folder) = discord_server(permission::MANAGE_CHANNELS, |_, _| {});
     choose(&mut app, SERVER, true, "Create channel");
-    for words in ["Create channel", "In Test", "CHANNEL TYPE", "CHANNEL NAME"] {
+    // Discord's Create Channel: its kinds with their lines, the name and
+    // Private Channel; announcement channels and stages are a Community
+    // server's.
+    for words in [
+        "Create Channel",
+        "Channel Type",
+        "Text",
+        "Voice",
+        "Forum",
+        "Hang out together with voice, video, and screen share",
+        "Channel Name",
+        "Private Channel",
+    ] {
         assert!(shows(&app, words), "{words}");
     }
+    assert!(!shows(&app, "Stage") && !shows(&app, "Announcement"));
     interact(&mut app, |ui| {
         ui.click(Id::new("channel-name")).expect("the name's field");
         ui.typewrite("plans");
@@ -139,7 +152,11 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
 
     // A category's is named, without the kinds.
     choose(&mut app, SERVER, true, "Create category");
-    assert!(shows(&app, "CATEGORY NAME") && !shows(&app, "CHANNEL TYPE"));
+    assert!(
+        shows(&app, "Category Name")
+            && shows(&app, "Private Category")
+            && !shows(&app, "Channel Type")
+    );
     press(&mut app, key::Named::Escape);
 
     // A copy starts from its channel's name.
@@ -157,6 +174,8 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
             server_name: "Test".into(),
             name: "Talk".into(),
             kind: ChannelKind::Category,
+            community: false,
+            private: false,
             settings: Some(ChannelSettings::default()),
             saving: false,
             error: None,
@@ -324,7 +343,7 @@ fn a_categorys_plus_makes_a_channel_in_it() {
     )));
     let dialog = app.client.state().channel_dialog.clone().expect("open");
     assert_eq!(dialog.kind, ChannelKind::Text);
-    assert!(shows(&app, "In Talk"));
+    assert!(shows(&app, "in Talk"));
 }
 
 #[test]

@@ -62,7 +62,7 @@ pub use arrange::{Landing, MoveSync};
 pub use browse::{BrowseChannels, BrowsedChannel, BrowsedKind};
 pub use channel_settings::{
     ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm, OverwriteRules,
-    OverwriteState, Overwrites, channel_groups, channel_permission,
+    OverwriteState, Overwrites, VOICE_REGIONS, channel_groups, channel_permission,
 };
 pub use commands::{AppCommands, CommandTarget, SlashCommand};
 pub use cosmetics::Cosmetics;
@@ -2679,6 +2679,8 @@ pub struct Application {
     /// The room shown before the one on screen, where the conversation goes
     /// when the room on screen moves to split view.
     previous_room: Option<String>,
+    /// A private channel just made, whose Permissions open once it's listed.
+    pending_permissions: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
     /// it shows beside its channel.
     first_message: Option<String>,
@@ -3181,6 +3183,12 @@ impl Application {
             .take_if(|room| self.state.rooms.iter().any(|listed| &listed.id == room))
         {
             effects.extend(self.dispatch(Action::OpenAside(room)));
+        }
+        if let Some(room) = self
+            .pending_permissions
+            .take_if(|room| self.state.rooms.iter().any(|listed| &listed.id == room))
+        {
+            effects.extend(self.open_private_permissions(room));
         }
         effects.extend(self.send_pending_message());
         effects.extend(self.show_panel_profile());

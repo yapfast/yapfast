@@ -467,10 +467,17 @@ menu's Delete channel does. Leaving a page or the settings with unsaved
 changes shakes the bar, and the settings close once this account may
 change neither, or the channel is gone.
 
-Overview is the name, and for a text channel its topic, slowmode, one of
-Discord's from 0 to 6 hours, and age restriction; a voice channel or a
-category has only its name. A text channel's are read with `GET
+Overview is the name; for a text channel its topic; for a text or voice
+channel its slowmode, one of Discord's from 0 to 6 hours in a dropdown, and
+Content Visibility, Default or Age-Restricted Channel, as radio rows; and for
+a voice channel its Bitrate, a slider from 8 kbps to 96, or 128, 256 and 384
+kbps at boost levels 1 to 3, Video Quality, Auto or 720p
+(`video_quality_mode` 1 or 2), User Limit, a slider from none to 99, and
+Region Override, Automatic or one of Discord's regions (`rtc_region`). A
+category has only its name. A channel's are read with `GET
 /channels/{id}` as Overview opens, and saved with `PATCH /channels/{id}`.
+Discord's Spoiler Channel, and the Invites and Integrations pages, aren't
+there yet.
 Names are 1 to 100 characters, a text channel's lower case with dashes
 for spaces, and topics up to 1024, checked before asking.
 

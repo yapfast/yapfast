@@ -22,6 +22,41 @@ const MANAGE_ROLES: u32 = 28;
 const VIEW_CHANNEL: u64 = 1 << 10;
 const CONNECT: u64 = 1 << 20;
 
+/// The least bitrate Discord's voice channels take, and the most a user
+/// limit can be.
+pub const BITRATE_MIN: u32 = 8_000;
+pub const USER_LIMIT_MAX: u32 = 99;
+
+/// The regions a voice channel's Region Override offers after Automatic,
+/// by Discord's id, as its client names them.
+pub const VOICE_REGIONS: [(&str, &str); 14] = [
+    ("brazil", "Brazil"),
+    ("hongkong", "Hong Kong"),
+    ("india", "India"),
+    ("japan", "Japan"),
+    ("rotterdam", "Rotterdam"),
+    ("russia", "Russia"),
+    ("singapore", "Singapore"),
+    ("south-korea", "South Korea"),
+    ("southafrica", "South Africa"),
+    ("sydney", "Sydney"),
+    ("us-central", "US Central"),
+    ("us-east", "US East"),
+    ("us-south", "US South"),
+    ("us-west", "US West"),
+];
+
+/// The most bitrate a voice channel may have at a server's boost level:
+/// 96 kbps, then 128, 256 and 384 kbps.
+pub fn bitrate_max(premium_tier: u8) -> u32 {
+    match premium_tier {
+        0 => 96_000,
+        1 => 128_000,
+        2 => 256_000,
+        _ => 384_000,
+    }
+}
+
 /// A page of a channel's settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChannelSection {
@@ -43,6 +78,9 @@ pub struct ChannelSettingsScreen {
     /// Discord sends a text channel's.
     pub overview: Option<(ChannelSettings, ChannelSettings)>,
     pub permissions: Overwrites,
+    /// The most bitrate a voice channel may have, at the server's boost
+    /// level.
+    pub bitrate_max: u32,
     /// Discord is taking a change.
     pub saving: bool,
     pub error: Option<String>,
@@ -60,6 +98,12 @@ pub enum ChannelInput {
     Topic(String),
     Slowmode(u32),
     Nsfw(bool),
+    /// A voice channel's bitrate in bits a second, user limit, video
+    /// quality, 1 Auto or 2 720p, and region, empty for Automatic.
+    Bitrate(u32),
+    UserLimit(u32),
+    VideoQuality(u8),
+    Region(String),
     /// Shows a role's or member's overwrite, by its id.
     Select(String),
     /// Sets a permission, by its bit number, in the shown overwrite.
@@ -134,7 +178,7 @@ impl ChannelSettingsScreen {
 /// lowercase with dashes for spaces.
 fn channel_name(name: &str, kind: ChannelKind) -> String {
     let name = name.trim();
-    if kind == ChannelKind::Text {
+    if kind.slug_named() {
         name.to_lowercase()
             .split_whitespace()
             .collect::<Vec<_>>()
@@ -185,13 +229,14 @@ impl Application {
             section,
             overview: None,
             permissions: Overwrites::new(original, self.everyone_of(&room)),
+            bitrate_max: bitrate_max(self.premium_tier(&room)),
             saving: false,
             error: None,
             nudge: 0,
         };
-        // Only a text channel has more than a name to load, and only for
+        // A text or voice channel has more than a name to load, for
         // Overview.
-        let load = overview && kind == ChannelKind::Text;
+        let load = overview && kind != ChannelKind::Category;
         if !load {
             let settings = ChannelSettings {
                 name: self.channel_title(&room),
@@ -214,6 +259,17 @@ impl Application {
                     members: names,
                 },
             )));
+        }
+        effects
+    }
+
+    /// Opens a private channel's settings on Permissions, with the picker
+    /// of roles and members to let in open.
+    pub(super) fn open_private_permissions(&mut self, room: String) -> Vec<Effect> {
+        let mut effects = self.open_channel_settings(room);
+        if self.state.channel_settings.is_some() {
+            effects.extend(self.channel_input(ChannelInput::Section(ChannelSection::Permissions)));
+            effects.extend(self.channel_input(ChannelInput::Adding(true)));
         }
         effects
     }
@@ -537,6 +593,31 @@ impl Application {
                     draft.nsfw = on;
                 }
             }
+            ChannelInput::Bitrate(bits) => {
+                let most = screen.bitrate_max;
+                if let Some((_, draft)) = &mut screen.overview {
+                    draft.bitrate = bits.clamp(BITRATE_MIN, most);
+                }
+            }
+            ChannelInput::UserLimit(limit) => {
+                if let Some((_, draft)) = &mut screen.overview {
+                    draft.user_limit = limit.min(USER_LIMIT_MAX);
+                }
+            }
+            ChannelInput::VideoQuality(mode) => {
+                if let Some((_, draft)) = &mut screen.overview
+                    && matches!(mode, 1 | 2)
+                {
+                    draft.video_quality = mode;
+                }
+            }
+            ChannelInput::Region(region) => {
+                if let Some((_, draft)) = &mut screen.overview
+                    && (region.is_empty() || VOICE_REGIONS.iter().any(|(id, _)| *id == region))
+                {
+                    draft.region = region;
+                }
+            }
             ChannelInput::Select(id) => {
                 let page = &mut screen.permissions;
                 if page.draft().iter().any(|known| known.id == id) || id == page.everyone {
@@ -556,9 +637,10 @@ impl Application {
                 page.edit(changed);
             }
             ChannelInput::Private(on) => {
-                let access = match screen.kind {
-                    ChannelKind::Voice => VIEW_CHANNEL | CONNECT,
-                    _ => VIEW_CHANNEL,
+                let access = if screen.kind.voice() {
+                    VIEW_CHANNEL | CONNECT
+                } else {
+                    VIEW_CHANNEL
                 };
                 let locked = (0..64).any(|bit| access & (1 << bit) != 0 && rules.locked(bit));
                 if !editable || locked {

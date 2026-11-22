@@ -65,9 +65,15 @@ pub struct ChannelDialog {
     pub name: String,
     /// What it makes, changes or deletes.
     pub kind: ChannelKind,
+    /// The server is a Community one, whose Create Channel offers
+    /// announcement channels and stages too.
+    pub community: bool,
     /// Its settings as they stand; none while Discord sends them.
     pub settings: Option<ChannelSettings>,
     pub saving: bool,
+    /// It's making a private channel, whose Permissions open once it's
+    /// made, ready to add who may see it.
+    pub private: bool,
     pub error: Option<String>,
 }
 
@@ -1045,21 +1051,19 @@ impl Application {
         settings: Option<ChannelSettings>,
     ) {
         let server = self.server_of(place).unwrap_or_else(|| place.to_owned());
-        let server_name = self
-            .state
-            .servers
-            .iter()
-            .find(|known| known.id == server)
-            .map(|known| known.name.clone())
-            .unwrap_or_default();
+        let listed = self.state.servers.iter().find(|known| known.id == server);
+        let server_name = listed.map(|known| known.name.clone()).unwrap_or_default();
+        let community = listed.is_some_and(|known| known.community);
         self.state.channel_dialog = Some(ChannelDialog {
             ask,
             server,
             server_name,
             name,
             kind,
+            community,
             settings,
             saving: false,
+            private: false,
             error: None,
         });
     }
@@ -1080,23 +1084,25 @@ impl Application {
             return vec![];
         };
         let kind = match dialog.ask {
-            // Making a channel chooses text or voice; a category stays one,
-            // and a channel stays what it was.
-            ChannelAsk::Create { .. } if dialog.kind != ChannelKind::Category => {
-                if kind == ChannelKind::Category {
+            // Making a channel chooses its kind; a category stays one, and
+            // a channel stays what it was. Announcement channels and stages
+            // are a Community server's.
+            ChannelAsk::Create { .. } if dialog.kind != ChannelKind::Category => match kind {
+                ChannelKind::Category => ChannelKind::Text,
+                ChannelKind::Announcement | ChannelKind::Stage if !dialog.community => {
                     ChannelKind::Text
-                } else {
-                    kind
                 }
-            }
+                kind => kind,
+            },
             _ => dialog.kind,
         };
         let mut settings = settings;
         settings.name.truncate(settings.name.trim_end().len());
         let leading = settings.name.len() - settings.name.trim_start().len();
         settings.name.drain(..leading);
+        settings.private &= matches!(dialog.ask, ChannelAsk::Create { .. });
         // Discord's text channel names are lower case, with dashes for spaces.
-        if kind == ChannelKind::Text {
+        if kind.slug_named() {
             settings.name = settings
                 .name
                 .to_lowercase()
@@ -1127,30 +1133,56 @@ impl Application {
             return vec![];
         }
         dialog.saving = true;
+        dialog.private = settings.private;
         dialog.error = None;
-        let command = match dialog.ask.clone() {
+        let server = dialog.server.clone();
+        let ask = dialog.ask.clone();
+        dialog.kind = kind;
+        // A private one stays open to this account, unless it has every
+        // permission, as Discord's client keeps it.
+        let keep = settings
+            .private
+            .then(|| self.kept_from_private(&server))
+            .flatten();
+        let command = match ask {
             ChannelAsk::Create { parent } => DiscordCommand::CreateChannel {
-                server: dialog.server.clone(),
+                server,
                 kind,
                 parent,
                 copy_of: None,
                 settings: Box::new(settings),
+                keep,
             },
             ChannelAsk::Duplicate(room) => DiscordCommand::CreateChannel {
-                server: dialog.server.clone(),
+                server,
                 kind,
                 parent: None,
                 copy_of: Some(room),
                 settings: Box::new(settings),
+                keep: None,
             },
             ChannelAsk::Delete(room) => DiscordCommand::DeleteChannel { room },
         };
-        dialog.kind = kind;
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// This account's user id, when it hasn't every permission in a Discord
+    /// server, so a private channel it makes keeps an overwrite for it.
+    fn kept_from_private(&self, server: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some((known, None, me)) = self.discord_place(server) {
+            use yapfast_discord::ready::permission;
+            let held = known.server_permissions(me, &known.marks.roles);
+            return (held != permission::ALL).then(|| me.to_owned());
+        }
+        let _ = server;
+        None
+    }
+
     /// Closes the channel dialog once Discord did what it asked, opening a
-    /// text channel it made, as Discord's client does; or says why not.
+    /// text channel it made, as Discord's client does; or says why not. A
+    /// private channel's Permissions open too, with the picker of members
+    /// and roles to let in, a Yapfast addition.
     pub(super) fn channel_saved(&mut self, result: Result<Option<String>, String>) {
         let Some(dialog) = self
             .state
@@ -1162,8 +1194,14 @@ impl Application {
         };
         match result {
             Ok(made) => {
-                if dialog.kind == ChannelKind::Text {
-                    self.pending_open = made;
+                if matches!(
+                    dialog.kind,
+                    ChannelKind::Text | ChannelKind::Announcement | ChannelKind::Forum
+                ) {
+                    self.pending_open.clone_from(&made);
+                }
+                if dialog.private {
+                    self.pending_permissions = made;
                 }
                 self.state.channel_dialog = None;
             }

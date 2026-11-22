@@ -119,9 +119,12 @@ composer as it opens and gives them back when it closes. The form kit's
 settings with changes shakes it. Escape closes Add, then the question,
 then the settings.
 
-- Overview: the name, and for a text channel the topic, slowmode stepped
-  through Discord's intervals with the arrows either side of it, and the
-  Age-Restricted Channel switch.
+- Overview: the name, for a text or announcement channel the topic, for
+  those and a voice channel slowmode stepped through Discord's intervals
+  with the arrows either side of it and the Age-Restricted Channel switch,
+  and for a voice channel or stage Bitrate (8 kbps up to 96, or 128, 256
+  or 384 with the server's boosts), a voice channel's Video Quality (Auto
+  or 720p), User Limit and Region Override, each stepped the same way.
 - Permissions (the page fills the frame and scrolls its own list): the
   notice of whether a channel's permissions follow its category, with
   Sync Now when they don't; Private Channel (or Category), which takes

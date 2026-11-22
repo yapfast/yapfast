@@ -1467,7 +1467,7 @@ fn manage_channel(
     discord: Result<&Discord, &str>,
     events: &UnboundedSender<Event>,
 ) {
-    use crate::chat::{ChannelKind, ChannelSettings};
+    use crate::chat::ChannelSettings;
     let discord = match discord {
         Ok(discord) => discord.clone(),
         Err(why) => {
@@ -1488,6 +1488,11 @@ fn manage_channel(
         topic: settings.topic.clone(),
         slowmode: settings.slowmode,
         nsfw: settings.nsfw,
+        private: settings.private,
+        bitrate: settings.bitrate,
+        user_limit: settings.user_limit,
+        video_quality: settings.video_quality,
+        region: settings.region.clone(),
     };
     tokio::spawn(async move {
         let (result, what) = match command {
@@ -1501,6 +1506,11 @@ fn manage_channel(
                             topic: known.topic,
                             slowmode: known.slowmode,
                             nsfw: known.nsfw,
+                            private: false,
+                            bitrate: known.bitrate,
+                            user_limit: known.user_limit,
+                            video_quality: known.video_quality,
+                            region: known.region,
                         })
                         .map_err(|error| format!("Couldn't load the channel: {error}")),
                     None => Err(NOT_DISCORD.into()),
@@ -1514,15 +1524,12 @@ fn manage_channel(
                 parent,
                 copy_of,
                 settings: chosen,
+                keep,
             } => {
                 let guild = discord::parse_server(&server)
                     .unwrap_or_default()
                     .to_owned();
-                let code = match kind {
-                    ChannelKind::Text => 0,
-                    ChannelKind::Voice => 2,
-                    ChannelKind::Category => 4,
-                };
+                let code = kind.code();
                 let parent = parent.as_deref().and_then(channel);
                 let copy_of = copy_of.as_deref().and_then(channel);
                 let chosen = settings(&chosen);
@@ -1534,6 +1541,7 @@ fn manage_channel(
                             parent.as_deref(),
                             copy_of.as_deref(),
                             &chosen,
+                            keep.as_deref(),
                         )
                     })
                     .await
@@ -1548,9 +1556,7 @@ fn manage_channel(
                 let chosen = settings(&chosen);
                 let result = match channel(&room) {
                     Some(id) => discord
-                        .stepping_up(|| {
-                            discord.edit_channel(&id, kind == ChannelKind::Text, &chosen)
-                        })
+                        .stepping_up(|| discord.edit_channel(&id, kind.code(), &chosen))
                         .await
                         .map(|()| None),
                     None => Err(anyhow::anyhow!(NOT_DISCORD)),

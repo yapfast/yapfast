@@ -694,13 +694,42 @@ pub enum NotificationChange {
     SuppressRoles(bool),
 }
 
-/// What a Discord channel is: a text or voice channel, or a category.
+/// What a Discord channel is: a text or voice channel, or a category; or,
+/// for one to make, a forum, an announcement channel or a stage, which
+/// Discord's Create Channel offers besides.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChannelKind {
     #[default]
     Text,
     Voice,
     Category,
+    Forum,
+    Announcement,
+    Stage,
+}
+
+impl ChannelKind {
+    /// Its Discord channel type.
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Text => 0,
+            Self::Voice => 2,
+            Self::Category => 4,
+            Self::Announcement => 5,
+            Self::Stage => 13,
+            Self::Forum => 15,
+        }
+    }
+
+    /// One whose name Discord writes lower case, with dashes for spaces.
+    pub fn slug_named(self) -> bool {
+        matches!(self, Self::Text | Self::Forum | Self::Announcement)
+    }
+
+    /// One people join to talk in.
+    pub fn voice(self) -> bool {
+        matches!(self, Self::Voice | Self::Stage)
+    }
 }
 
 /// What a Discord channel's dialog sets: its name, and for a text channel
@@ -712,6 +741,16 @@ pub struct ChannelSettings {
     pub topic: String,
     pub slowmode: u32,
     pub nsfw: bool,
+    /// For one to make: kept from @everyone, as Create Channel's Private
+    /// Channel switch does.
+    pub private: bool,
+    /// A voice channel's: its bitrate in bits a second, how many people may
+    /// join, 0 for any number, its video quality, 1 Auto or 2 720p, and its
+    /// region, empty for Automatic.
+    pub bitrate: u32,
+    pub user_limit: u32,
+    pub video_quality: u8,
+    pub region: String,
 }
 
 /// A folder of servers on the rail, as Discord's server list keeps them.
@@ -3247,13 +3286,16 @@ pub enum DiscordCommand {
     /// Make a channel or category in a Discord server, by its server id,
     /// inside the category `parent` names by its room id, or a copy of
     /// `copy_of`'s channel, by its room id, with these settings;
-    /// [`Event::ChannelSaved`] follows with the new one's room id.
+    /// [`Event::ChannelSaved`] follows with the new one's room id. A
+    /// private one keeps its access for `keep`, this account's user id,
+    /// when it hasn't every permission.
     CreateChannel {
         server: String,
         kind: ChannelKind,
         parent: Option<String>,
         copy_of: Option<String>,
         settings: Box<ChannelSettings>,
+        keep: Option<String>,
     },
     /// A Discord channel's or category's settings, by its room id, for its
     /// dialog; [`Event::ChannelLoaded`] follows.

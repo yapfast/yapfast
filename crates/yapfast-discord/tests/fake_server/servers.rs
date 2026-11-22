@@ -301,7 +301,7 @@ async fn manages_channels_and_categories() {
         ..Default::default()
     };
     let shelf = discord
-        .create_channel(&guild, 4, None, None, &named("Shelf"))
+        .create_channel(&guild, 4, None, None, &named("Shelf"), None)
         .await
         .unwrap();
     let plans = discord
@@ -315,6 +315,7 @@ async fn manages_channels_and_categories() {
                 slowmode: 30,
                 ..named("Plans For Later")
             },
+            None,
         )
         .await
         .unwrap();
@@ -340,17 +341,92 @@ async fn manages_channels_and_categories() {
         ("What's next", 30, false)
     );
 
+    // A private voice channel, as Create Channel's switch makes one:
+    // @everyone may neither see nor join it, and she keeps both.
+    let alice = discord.snapshots().borrow().user_id.clone().unwrap();
+    let hideout = discord
+        .create_channel(
+            &guild,
+            2,
+            Some(&shelf),
+            None,
+            &ChannelSettings {
+                private: true,
+                ..named("Hideout")
+            },
+            Some(&alice),
+        )
+        .await
+        .unwrap();
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.servers[0]
+            .voice_channels
+            .iter()
+            .any(|channel| channel.id == hideout)
+    })
+    .await;
+    let made = snapshot.servers[0]
+        .voice_channels
+        .iter()
+        .find(|channel| channel.id == hideout)
+        .unwrap();
+    let access = (1 << 10) | (1 << 20);
+    let everyone = made
+        .overwrites
+        .iter()
+        .find(|known| known.id == guild)
+        .unwrap();
+    assert_eq!(
+        (everyone.member, everyone.allow, everyone.deny),
+        (false, 0, access)
+    );
+    let mine = made
+        .overwrites
+        .iter()
+        .find(|known| known.id == alice)
+        .unwrap();
+    assert_eq!((mine.member, mine.allow, mine.deny), (true, access, 0));
+
+    // Its Overview sets a voice channel's slowmode and call settings.
+    discord
+        .edit_channel(
+            &hideout,
+            2,
+            &ChannelSettings {
+                slowmode: 30,
+                bitrate: 96_000,
+                user_limit: 5,
+                video_quality: 2,
+                region: "rotterdam".into(),
+                ..named("Hideout")
+            },
+        )
+        .await
+        .unwrap();
+    let settings = discord.channel_settings(&hideout).await.unwrap();
+    assert_eq!(
+        (
+            settings.slowmode,
+            settings.bitrate,
+            settings.user_limit,
+            settings.video_quality,
+            settings.region.as_str()
+        ),
+        (30, 96_000, 5, 2, "rotterdam")
+    );
+
     // Changing it, as its settings do, and copying it, as Duplicate Channel
     // does, with its category and settings.
     discord
         .edit_channel(
             &plans,
-            true,
+            0,
             &ChannelSettings {
                 name: "plans".into(),
                 topic: "Soon".into(),
                 slowmode: 0,
                 nsfw: true,
+                ..Default::default()
             },
         )
         .await
@@ -363,7 +439,7 @@ async fn manages_channels_and_categories() {
     })
     .await;
     let copy = discord
-        .create_channel(&guild, 0, None, Some(&plans), &named("plans-copy"))
+        .create_channel(&guild, 0, None, Some(&plans), &named("plans-copy"), None)
         .await
         .unwrap();
     let copied = discord.channel_settings(&copy).await.unwrap();
@@ -412,7 +488,7 @@ async fn manages_channels_and_categories() {
     .await;
     assert!(
         discord
-            .create_channel(&guild, 0, None, None, &named(""))
+            .create_channel(&guild, 0, None, None, &named(""), None)
             .await
             .is_err()
     );

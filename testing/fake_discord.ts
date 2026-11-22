@@ -7320,14 +7320,14 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const known = guildChannels();
     const parent = body.parent_id ?? null;
     const invalid =
-      typeof body.name !== "string" || body.name.length < 1 || body.name.length > 100 || ![0, 2, 4].includes(type) ||
+      typeof body.name !== "string" || body.name.length < 1 || body.name.length > 100 || ![0, 2, 4, 5, 13, 15].includes(type) ||
       (parent !== null && (type === 4 || !known.some((channel) => channel.id === parent && channel.type === 4))) ||
       (body.topic != null && String(body.topic).length > 4096) ||
       (body.rate_limit_per_user != null && !(body.rate_limit_per_user >= 0 && body.rate_limit_per_user <= 21600));
     if (invalid) return json({ message: "Invalid Form Body", code: 50035 }, 400);
     const id = nextId(Date.now());
     // Discord makes text channel names lower case, with dashes for spaces.
-    const name = type === 0 ? body.name.trim().toLowerCase().replace(/\s+/g, "-") : body.name.trim();
+    const name = [0, 5, 15].includes(type) ? body.name.trim().toLowerCase().replace(/\s+/g, "-") : body.name.trim();
     const siblings = known.filter((channel) => channel.parent_id === parent && (channel.type === 4) === (type === 4));
     const channel = guildChannel(id, name, type, body.position ?? siblings.length, parent);
     channel.permission_overwrites = body.permission_overwrites ?? [];
@@ -7419,6 +7419,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       for (const key of ["position", "parent_id"] as const) if (key in body) (edit as any)[key] = body[key];
       if (before.type === 0) {
         for (const key of ["topic", "nsfw", "rate_limit_per_user"] as const) if (key in body) (edit as any)[key] = body[key];
+      }
+      // A voice channel's slowmode, age restriction and call settings, as
+      // Discord bounds them: 8 to 96 kbps unboosted, up to 99 people.
+      if (before.type === 2) {
+        if ((body.bitrate != null && !(body.bitrate >= 8000 && body.bitrate <= 96000)) ||
+          (body.user_limit != null && !(body.user_limit >= 0 && body.user_limit <= 99))) {
+          return json({ message: "Invalid Form Body", code: 50035 }, 400);
+        }
+        for (const key of ["nsfw", "rate_limit_per_user", "bitrate", "user_limit", "rtc_region", "video_quality_mode"] as const) {
+          if (key in body) (edit as any)[key] = body[key];
+        }
       }
       channelEdits.set(id, edit);
       dispatch("CHANNEL_UPDATE", channel());
