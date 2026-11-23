@@ -615,7 +615,7 @@ fn voice_volume_slider<'a>(
         .padding([6, 0])
         .width(VOICE_SLOT)
         .height(VOICE_SLIDER)
-        .style(move |_| crate::style::panel(ground, edge, 8.0));
+        .style(move |_| crate::style::surface_panel(theme, "tooltip", ground, edge, 8.0));
     // Down to the button, so the pointer stays on it on the way.
     let reach = container(boxed).padding(Padding::ZERO.bottom(VOICE_GAP));
     mouse_area(reach)

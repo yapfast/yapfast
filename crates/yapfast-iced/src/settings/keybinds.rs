@@ -62,7 +62,7 @@ pub enum Event {
 }
 
 fn keybind_message(event: Event) -> Message {
-    Message::Settings(SettingsEvent::Keybind(event))
+    crate::app::settings(SettingsEvent::Keybind(event))
 }
 
 impl Settings {
@@ -208,7 +208,7 @@ impl<'a> Page<'a> {
                 names,
                 chosen,
                 settings.open == Some(Drop::Keybind(row)),
-                Message::Settings(SettingsEvent::Drop(Drop::Keybind(row))),
+                crate::app::settings(SettingsEvent::Drop(Drop::Keybind(row))),
                 move |index| keybind_message(Event::Action(row, index)),
             )
             .view(self.cx.look),
@@ -279,7 +279,9 @@ pub(super) fn record_button<'a>(
             "Edit keybind"
         },
         if recording { Kind::Danger } else { Kind::Plain },
-        Some(Message::Settings(SettingsEvent::Record(target, !recording))),
+        Some(crate::app::settings(SettingsEvent::Record(
+            target, !recording,
+        ))),
     )
     .into()
 }
@@ -305,7 +307,7 @@ fn heard(
 ) -> Option<Message> {
     let escape = *key == Pressed::Named(key::Named::Escape);
     let key = recorded(key, physical, location)?;
-    Some(Message::Settings(SettingsEvent::Heard(Heard::Key {
+    Some(crate::app::settings(SettingsEvent::Heard(Heard::Key {
         key,
         pressed,
         escape,
@@ -340,7 +342,7 @@ pub fn record_keys() -> iced::Subscription<Message> {
             ),
         ),
         iced::Event::Window(iced::window::Event::Unfocused) => {
-            Some(Message::Settings(SettingsEvent::Heard(Heard::Unfocused)))
+            Some(crate::app::settings(SettingsEvent::Heard(Heard::Unfocused)))
         }
         _ => None,
     })
@@ -359,7 +361,7 @@ fn mouse(button: iced::mouse::Button, pressed: bool) -> Option<Message> {
         name: name.to_owned(),
         trigger: None,
     };
-    Some(Message::Settings(SettingsEvent::Heard(Heard::Key {
+    Some(crate::app::settings(SettingsEvent::Heard(Heard::Key {
         key,
         pressed,
         escape: false,

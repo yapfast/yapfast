@@ -56,6 +56,21 @@ const fn rgba(hex: u32) -> Colour {
     Colour::rgba(hex)
 }
 
+/// `name` with `-` for `_`, for [`Theme::TOKENS`]; `N` is its length.
+const fn token_bytes<const N: usize>(name: &str) -> [u8; N] {
+    let name = name.as_bytes();
+    let mut token = [0; N];
+    let mut index = 0;
+    while index < N {
+        token[index] = match name[index] {
+            b'_' => b'-',
+            byte => byte,
+        };
+        index += 1;
+    }
+    token
+}
+
 /// Declares `Theme` with one field per colour.
 macro_rules! theme {
     ($($name:ident,)*) => {
@@ -71,6 +86,17 @@ macro_rules! theme {
             /// Each colour's name, as `layout.json` has it but with `_` for
             /// `-`, in the order of [`Self::colour`].
             pub const NAMES: &[&str] = &[$(stringify!($name),)*];
+
+            /// Each colour's name as `layout.json` and a theme package's
+            /// `theme.json` write it (`row-hover`), in the order of
+            /// [`Self::colour`]: [`Self::NAMES`] with `-` for `_`.
+            pub const TOKENS: &[&str] = &[$({
+                const BYTES: [u8; stringify!($name).len()] = token_bytes(stringify!($name));
+                match std::str::from_utf8(&BYTES) {
+                    Ok(token) => token,
+                    Err(_) => panic!("a colour's name is ASCII"),
+                }
+            },)*];
 
             pub fn colour(&self, index: usize) -> Option<Colour> {
                 [$(self.$name,)*].get(index).copied()
@@ -657,12 +683,15 @@ pub fn token(name: &str) -> String {
 }
 
 /// Where a colour named as `layout.json` has it is in [`Theme::colour`].
-fn token_index(token: &str) -> Option<usize> {
-    Theme::NAMES.iter().position(|name| {
-        name.bytes()
-            .map(|byte| if byte == b'_' { b'-' } else { byte })
-            .eq(token.bytes())
-    })
+pub fn token_index(token: &str) -> Option<usize> {
+    Theme::TOKENS.iter().position(|known| *known == token)
+}
+
+impl Theme {
+    /// A colour by its name as `layout.json` has it, such as `row-hover`.
+    pub fn by_token(&self, token: &str) -> Option<Colour> {
+        self.colour(token_index(token)?)
+    }
 }
 
 /// A colour written `#rgb`, `#rrggbb` or `#rrggbbaa`.
@@ -702,6 +731,14 @@ pub struct Custom {
     /// any it doesn't name, such as one added since it was saved.
     pub base: &'static str,
     pub theme: Theme,
+    /// What the Slint theme creator was told. Keeping it here is required
+    /// even before iced exposes every creator control: rewriting
+    /// `custom_themes` must never discard an existing creator draft.
+    pub creator: Option<crate::themes::creator::Spec>,
+    /// The theme's package folder beyond its colours, relative to the data
+    /// folder or absolute. Iced preserves the link even where it does not
+    /// yet edit the package layers in that folder.
+    pub folder: Option<String>,
 }
 
 /// A custom theme in `layout.json`: each colour as text, by its name as
@@ -714,6 +751,10 @@ struct Stored {
     base: String,
     dark: Option<bool>,
     colours: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    creator: Option<crate::themes::creator::Spec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
 }
 
 /// A theme's base and colours as a stored or shared file names them: the
@@ -758,6 +799,8 @@ impl From<Stored> for Custom {
             name: stored.name,
             base,
             theme,
+            creator: stored.creator,
+            folder: stored.folder.filter(|folder| !folder.trim().is_empty()),
         }
     }
 }
@@ -770,6 +813,8 @@ impl From<&Custom> for Stored {
             base: custom.base.to_owned(),
             dark: Some(custom.theme.dark),
             colours: written(&custom.theme),
+            creator: custom.creator.clone(),
+            folder: custom.folder.clone(),
         }
     }
 }
@@ -1013,6 +1058,33 @@ mod tests {
             custom.theme
         );
         assert_eq!(chosen(Some("gone"), &[custom]).0, "yap");
+    }
+
+    #[test]
+    fn a_custom_theme_round_trip_preserves_creator_and_folder() {
+        let stored = r##"{"id":"custom:7","name":"Made","base":"yap",
+            "creator":{"accent":16728000,"ground":1974048,"messages":"cards","corners":20},
+            "folder":"themes/creator/custom-7","colours":{"chat":"#202124"}}"##;
+        let custom: Custom = serde_json::from_str(stored).expect("owner custom theme");
+        assert_eq!(
+            custom.creator.as_ref().map(|creator| creator.messages),
+            Some(crate::themes::creator::Messages::Cards)
+        );
+        assert_eq!(custom.folder.as_deref(), Some("themes/creator/custom-7"));
+        let written = serde_json::to_value(&custom).expect("written again");
+        assert_eq!(written["creator"]["messages"], "cards");
+        assert_eq!(written["creator"]["corners"], 20);
+        assert_eq!(written["folder"], "themes/creator/custom-7");
+    }
+
+    #[test]
+    fn tokens_are_the_names_with_dashes() {
+        assert_eq!(Theme::TOKENS.len(), Theme::NAMES.len());
+        for (token, name) in Theme::TOKENS.iter().zip(Theme::NAMES) {
+            assert_eq!(*token, super::token(name));
+        }
+        assert_eq!(YAP.by_token("row-hover"), Some(YAP.row_hover));
+        assert_eq!(YAP.by_token("row_hover"), None);
     }
 
     #[test]
