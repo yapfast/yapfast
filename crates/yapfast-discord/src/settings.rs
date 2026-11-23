@@ -294,11 +294,16 @@ pub(crate) fn write_server_order(folders: &[&[u64]]) -> String {
 pub(crate) fn write_server_list(entries: &[Folder]) -> String {
     let mut message = Vec::new();
     for entry in entries {
+        // A server id that isn't a snowflake has no place in the list.
         let packed: Vec<u8> = entry
             .servers
             .iter()
-            .flat_map(|id| id.parse::<u64>().unwrap().to_le_bytes())
+            .filter_map(|id| id.parse::<u64>().ok())
+            .flat_map(u64::to_le_bytes)
             .collect();
+        if packed.is_empty() {
+            continue;
+        }
         let mut folder = Vec::new();
         put_bytes(&mut folder, FOLDER_GUILDS, &packed);
         if let Ok(id) = entry.id.parse::<u64>() {
@@ -725,6 +730,97 @@ pub(crate) fn put_field(out: &mut Vec<u8>, number: u64, field: &Field<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A server list as Discord's client writes it, byte for byte: a server
+    /// on its own (no id), a folder whose `Int64Value` id is negative (ten
+    /// bytes, as an id from another client can be), named and coloured, a
+    /// folder with the largest id Discord's client makes and nothing else,
+    /// and the old `guild_positions` after them. Read and written back,
+    /// its folders come out the same bytes, so no folder loses its id, name
+    /// or colour, and no server moves.
+    #[test]
+    fn a_server_list_from_discord_writes_back_unchanged() {
+        let single = |servers: &[u64]| {
+            let mut entry = Vec::new();
+            let packed: Vec<u8> = servers.iter().flat_map(|id| id.to_le_bytes()).collect();
+            put_bytes(&mut entry, FOLDER_GUILDS, &packed);
+            entry
+        };
+        let folder = |servers: &[u64], id: i64, name: Option<&str>, color: Option<u64>| {
+            let mut entry = single(servers);
+            let mut wrapper = Vec::new();
+            put_varint(&mut wrapper, 1 << 3 | VARINT);
+            put_varint(&mut wrapper, id as u64);
+            put_bytes(&mut entry, FOLDER_ID, &wrapper);
+            if let Some(name) = name {
+                let mut wrapper = Vec::new();
+                put_bytes(&mut wrapper, 1, name.as_bytes());
+                put_bytes(&mut entry, FOLDER_NAME, &wrapper);
+            }
+            if let Some(color) = color {
+                let mut wrapper = Vec::new();
+                put_varint(&mut wrapper, 1 << 3 | VARINT);
+                put_varint(&mut wrapper, color);
+                put_bytes(&mut entry, FOLDER_COLOR, &wrapper);
+            }
+            entry
+        };
+        let entries = [
+            single(&[30]),
+            folder(&[10, 40], -5, Some("Raid"), Some(0xed4245)),
+            folder(&[20, 50], 4_294_967_295, None, None),
+        ];
+        let mut folders = Vec::new();
+        for entry in &entries {
+            put_bytes(&mut folders, FOLDERS, entry);
+        }
+        let mut message = folders.clone();
+        let positions: Vec<u8> = [30u64, 10, 40, 20, 50]
+            .iter()
+            .flat_map(|id| id.to_le_bytes())
+            .collect();
+        put_bytes(&mut message, GUILD_POSITIONS, &positions);
+        let mut settings = Vec::new();
+        put_bytes(&mut settings, GUILD_FOLDERS, &message);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(settings);
+
+        let list = server_list(&encoded).unwrap();
+        assert_eq!(list.order, ["30", "10", "40", "20", "50"]);
+        assert_eq!(list.folders[0].id, (-5i64 as u64).to_string());
+        assert_eq!(list.folders[0].name.as_deref(), Some("Raid"));
+        assert_eq!(list.folders[0].color, Some(0xed4245));
+        assert_eq!(list.folders[1].id, "4294967295");
+        // Back in the rail's order, each server outside a folder alone.
+        let mut back = vec![Folder {
+            servers: vec!["30".into()],
+            ..Folder::default()
+        }];
+        back.extend(list.folders.iter().cloned());
+        let written = base64::engine::general_purpose::STANDARD
+            .decode(write_server_list(&back))
+            .unwrap();
+        assert_eq!(message_of(&written), folders, "the same bytes as Discord's");
+    }
+
+    /// The `guild_folders` message of settings bytes.
+    fn message_of(settings: &[u8]) -> Vec<u8> {
+        message(settings, GUILD_FOLDERS).unwrap().to_vec()
+    }
+
+    #[test]
+    fn a_server_id_that_isnt_a_snowflake_is_left_out_not_a_crash() {
+        let written = write_server_list(&[
+            Folder {
+                servers: vec!["abc".into()],
+                ..Folder::default()
+            },
+            Folder {
+                servers: vec!["1".into()],
+                ..Folder::default()
+            },
+        ]);
+        assert_eq!(server_list(&written).unwrap().order, ["1"]);
+    }
 
     #[test]
     fn reads_the_server_list_with_its_folders() {
