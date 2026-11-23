@@ -4645,8 +4645,20 @@ mod tests {
             std::fs::create_dir(folder).unwrap();
         }
         let long_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+        let mut directory = std::fs::OpenOptions::new();
+        directory.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+            directory
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .access_mode(FILE_WRITE_ATTRIBUTES);
+        }
         for folder in [&left, &other] {
-            std::fs::File::open(folder)
+            directory
+                .open(folder)
                 .unwrap()
                 .set_modified(long_ago)
                 .unwrap();

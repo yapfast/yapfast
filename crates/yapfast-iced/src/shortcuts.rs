@@ -81,6 +81,7 @@ pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Opti
     let ctrl = Modifiers::CTRL;
     let shift = ctrl | Modifiers::SHIFT;
     let alt = ctrl | Modifiers::ALT;
+    let call = shift | Modifiers::ALT;
     if modifiers == ctrl {
         if key.as_ref() == Key::Character("/") {
             return Some(Help);
@@ -93,11 +94,14 @@ pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Opti
         }
     }
     if modifiers == alt {
-        match key {
-            Key::Named(key::Named::ArrowUp) => return Some(Server(false)),
-            Key::Named(key::Named::ArrowDown) => return Some(Server(true)),
-            _ => {}
-        }
+        return match key {
+            Key::Named(key::Named::ArrowUp) => Some(Server(false)),
+            Key::Named(key::Named::ArrowDown) => Some(Server(true)),
+            _ => None,
+        };
+    }
+    if modifiers != ctrl && modifiers != shift && modifiers != call {
+        return None;
     }
     let letter = key.to_latin(physical)?.to_ascii_lowercase();
     match (modifiers, letter) {
@@ -111,7 +115,7 @@ pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Opti
         (m, 'u') if m == shift => Some(Upload),
         (m, 'l') if m == shift => Some(CopyLink),
         (m, 'n') if m == shift => Some(JoinServer),
-        (m, 'v') if m == (shift | Modifiers::ALT) => Some(CurrentCall),
+        (m, 'v') if m == call => Some(CurrentCall),
         _ => None,
     }
 }

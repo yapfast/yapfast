@@ -108,6 +108,7 @@ fn a_built_in_chord_does_not_also_act_on_the_focused_message() {
         Key::Character("e".into()),
         Modifiers::CTRL,
         Physical::Code(Code::KeyE),
+        None,
     ));
     assert!(
         app.client.state().edit().is_none(),
@@ -117,6 +118,7 @@ fn a_built_in_chord_does_not_also_act_on_the_focused_message() {
         Key::Named(Named::Enter),
         Modifiers::CTRL,
         Physical::Code(Code::Enter),
+        None,
     ));
     assert!(
         app.win.menu.is_none(),
@@ -126,6 +128,7 @@ fn a_built_in_chord_does_not_also_act_on_the_focused_message() {
         Key::Named(Named::ArrowUp),
         Modifiers::CTRL | Modifiers::ALT,
         Physical::Code(Code::ArrowUp),
+        None,
     ));
     assert_eq!(
         app.keyed, keyed,
@@ -159,6 +162,7 @@ fn recording_does_not_type_into_or_navigate_messages() {
         Key::Character("x".into()),
         Modifiers::default(),
         Physical::Code(Code::KeyX),
+        yapfast_iced_kit::field::Typed::of(&Key::Character("x".into()), Modifiers::default()),
     ));
     assert_eq!(app.composer.draft.text(), draft);
     assert!(app.recording_keybind());
