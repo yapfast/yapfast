@@ -518,6 +518,31 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::FileServer {
+        server,
+        source_folder,
+        target,
+        folder,
+        before,
+    }) = command
+    {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .file_server(&server, source_folder, &target, folder, before)
+                        .await
+                        .map_err(|error| error.to_string());
+                    let _ = events.send(Event::ServerFiled(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ServerFiled(Err(why.into())));
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {

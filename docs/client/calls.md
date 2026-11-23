@@ -11,7 +11,12 @@ The call's views and what they do are in `call/`.
   in it)
   lays the tiles out in a grid, or one large with the rest in a row under
   it; a click on a tile makes it large, and a click beside it the grid
-  again. The tiles scroll when there are more than fit. Each tile is a
+  again. While a tile is large beside others, a pill on the strip's top
+  edge (Hide Members) hides the strip under it, so its cameras stop
+  decoding and the large tile fills the stage's height; the pill then sits
+  just over the controls (Show Members) to bring it back. Each voice
+  channel keeps its choice while Yapfast runs, through leaving and joining
+  again, as Discord's client keeps it. The tiles scroll when there are more than fit. Each tile is a
   `tile::Tile`: a camera, a stream or the avatar (a camera shows the
   avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream
@@ -84,7 +89,15 @@ The call's views and what they do are in `call/`.
 - While the call isn't on screen, the stream watched, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a
-  drag moves it to the nearest corner.
+  drag moves it to the nearest corner. A drag at its grip, the corner of
+  it away from the window's, where the pointer takes the shape that
+  resizes, makes it larger or smaller, its 16:9 shape kept, as Discord's
+  picture in picture: the width follows the pointer across only, 320 px
+  at first, between 200 and 960 px (20 past while dragged) and within the
+  window's room, and settles on the nearest 40 px when let go. The grip
+  takes its press before the stop button under it (the picture sat top
+  left). The width is kept in `layout.json` (`corner_width`), narrowed
+  while the window has less room, and its frames are made at it.
 - Sounds play as the core says (joining, leaving, muting, someone
   streaming), and a DM's call rings while it's incoming.
 - Push to talk and the other keybinds (the root `src/keybinds.rs`,

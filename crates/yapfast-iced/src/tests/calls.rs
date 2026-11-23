@@ -2,8 +2,8 @@
 //! device gone away, the share menu in a short window, the microphone's
 //! level only while its menu shows, the dock's channel line, a voice
 //! channel's Join, someone's volumes and menu from their tile, a camera's
-//! tile before its first frame, and the call's own order under its
-//! channel.
+//! tile before its first frame, the corner picture's grip resizing it,
+//! and the call's own order under its channel.
 
 use iced::{Point, Rectangle, Size};
 use yapfast_core::{
@@ -471,6 +471,184 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
     assert!(shows(&app, "Bob"), "his tile's name");
 }
 
+/// Discord's picture in picture: its grip resizes it horizontally only,
+/// between 200 and 960 px, and settles on the nearest 40 px when let go.
+#[test]
+fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
+    use crate::app::Message;
+    let (mut app, folder, _) = in_call();
+    // Bob's camera stays in the corner once the call is off screen.
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.local = false;
+        bob.video = Some(yapfast_core::picture::Feed::new());
+        state.voice.participants.push(bob);
+    });
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(
+        crate::call::corner::corner_view(&app).is_some(),
+        "in the corner"
+    );
+    let width = |app: &App| crate::call::corner::corner_size(app).width;
+    let size = crate::call::corner::corner_size(&app);
+    assert_eq!((size.width, size.height), (320.0, 180.0), "as it comes");
+    // Its grip, 90 px towards the window's middle: 90 px wider while
+    // dragged, whatever the pointer does up or down, then 400 px, the
+    // nearest 40, once let go.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    assert!(app.call.resize.is_some(), "its grip resizes it");
+    for down in [0.0, 120.0, -60.0] {
+        let _ = app.update(Message::Call(Event::DragTo(Point::new(
+            grip.x - 90.0,
+            grip.y + down,
+        ))));
+        assert_eq!(width(&app), 410.0, "across only, {down} px down");
+    }
+    let _ = app.update(Message::Call(Event::Drop));
+    assert!(app.call.resize.is_none() && app.call.grab.is_none());
+    assert_eq!(width(&app), 400.0, "settled on 40 px");
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).corner_width,
+        Some(400.0),
+        "kept"
+    );
+    // Up and down alone change nothing.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x,
+        grip.y + 200.0,
+    ))));
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 400.0, "the same");
+    // Towards the window's edge it shrinks, to 200 px at least.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x + 500.0,
+        grip.y,
+    ))));
+    assert_eq!(width(&app), 200.0, "no narrower");
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 200.0);
+    // And to 960 px at most, 20 past it while dragged, in a window with
+    // the room.
+    app.shell.frame = Size::new(3000.0, 2000.0);
+    crate::window_bar::fit_window(&mut app);
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x - 2000.0,
+        grip.y,
+    ))));
+    assert_eq!(width(&app), 980.0, "20 px past while dragged");
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 960.0, "no wider");
+    // A smaller window narrows it to the room it settles on.
+    app.shell.frame = Size::new(1000.0, 700.0);
+    crate::window_bar::fit_window(&mut app);
+    assert!(width(&app) < 960.0 && width(&app) % 40.0 == 0.0);
+    // A click on its grip opens nothing, where one on the picture returns
+    // to the call.
+    let selected = app.client.state().selected.clone();
+    app.pressed.set(crate::call::corner::grip(&app).center());
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(app.client.state().selected, selected, "no call opened");
+    // Pressed on the picture instead, it's moved, not resized.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(Point::new(grip.x + 100.0, grip.y - 100.0));
+    let _ = app.update(Message::Call(Event::Grab));
+    assert!(
+        app.call.grab.is_some() && app.call.resize.is_none(),
+        "moved"
+    );
+    let _ = app.update(Message::Call(Event::Drop));
+    // Its edges fall on the window's own pixels, at any zoom, so its
+    // picture and the shade over it end on the same row.
+    app.shell.zoom = 1.15;
+    let size = crate::call::corner::corner_size(&app);
+    let pixels = app.device_scale();
+    for length in [size.width, size.height] {
+        assert!(
+            ((length * pixels).round() - length * pixels).abs() < 0.01,
+            "{length} is a whole window pixel: {}",
+            length * pixels
+        );
+    }
+}
+
+/// Sat top left, the corner picture's grip is its bottom right, over the
+/// stop button's corner: a press there resizes, as the pointer says, and
+/// doesn't stop the share; the button's middle still stops it.
+#[test]
+fn the_corner_pictures_grip_over_its_stop_button_resizes() {
+    use crate::app::Message;
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+    });
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(
+        crate::call::corner::corner_view(&app).is_some(),
+        "your screen in the corner"
+    );
+    app.call.left = true;
+    app.call.bottom = false;
+    let grip = crate::call::corner::grip(&app);
+    let size = crate::call::corner::corner_size(&app);
+    // The button: 32 px, 8 px in from the picture's bottom right, where
+    // the grip ends.
+    let corner = Point::new(grip.x + grip.width, grip.y + grip.height);
+    let overlap = Point::new(corner.x - 15.0, corner.y - 15.0);
+    let button = Point::new(corner.x - 24.0, corner.y - 24.0);
+    assert!(grip.contains(overlap) && !grip.contains(button));
+    assert!(size.width > 64.0);
+    let press = |app: &App, at: Point| -> Vec<Message> {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.point_at(at);
+        let _ = ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect()
+    };
+    let stops = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Call(Event::StopSharing)))
+    };
+    let grabs = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Call(Event::Grab)))
+    };
+    let messages = press(&app, button);
+    assert!(stops(&messages), "the button's middle stops the share");
+    let messages = press(&app, overlap);
+    assert!(
+        grabs(&messages) && !stops(&messages),
+        "the grip takes it, {} messages",
+        messages.len()
+    );
+    for message in messages {
+        let _ = app.update(message);
+    }
+    assert!(app.call.resize.is_some(), "resized, not stopped");
+    assert!(app.client.state().voice.sharing.is_some());
+}
+
 #[test]
 fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
     let (mut app, _folder, room) = in_call();
@@ -636,4 +814,135 @@ fn someones_voice_menu_keeps_the_cores_order_with_an_icon_on_each_row() {
     for row in &menu.rows {
         assert!(row.icon.is_some(), "{} has its icon", row.label);
     }
+}
+
+#[test]
+fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
+    use crate::call::stage::MEMBERS_TOGGLE;
+    use iced::widget::Id;
+    use iced_test::selector::Candidate;
+
+    let (mut app, _folder, _) = in_call();
+    let bob_feed = yapfast_core::picture::Feed::new();
+    let bob_camera = bob_feed.clone();
+    super::change(&mut app, move |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = Some(bob_camera);
+        state.voice.participants.push(bob);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+
+    let on_stage = |app: &App, name: &str| {
+        let left = crate::conversation::chat_left(app);
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        let mut found = false;
+        let _ = ui.find(|candidate: Candidate<'_>| {
+            if let Candidate::Text {
+                content,
+                visible_bounds: Some(bounds),
+                ..
+            } = candidate
+                && content == name
+                && bounds.x >= left
+            {
+                found = true;
+            }
+            None::<()>
+        });
+        found
+    };
+
+    // Grid mode has no strip to hide.
+    interact(&mut app, |ui| {
+        assert!(ui.find(Id::new(MEMBERS_TOGGLE)).is_err());
+    });
+
+    // Focus the local tile: Bob sits in the bottom strip and his camera decodes.
+    let _ = crate::call::update(&mut app, Event::Focus(Some(0)));
+    let (_, _, before_tiles, _) = crate::call::stage::stage(&app);
+    assert!(before_tiles[1].width > 0.0 && before_tiles[1].height > 0.0);
+    assert!(bob_feed.shown_at().is_some(), "strip camera decodes");
+    assert!(on_stage(&app, "Bob"), "Bob shows in the strip");
+
+    let mut shown_toggle = None;
+    interact(&mut app, |ui| {
+        let target = ui
+            .find(Id::new(MEMBERS_TOGGLE))
+            .expect("Hide Members button");
+        let bounds = target.visible_bounds().expect("in view");
+        assert_eq!(bounds.size(), Size::new(60.0, 32.0));
+        let tip_area = Rectangle::new(
+            Point::new(bounds.x - 40.0, bounds.y - 44.0),
+            Size::new(140.0, 38.0),
+        );
+        assert!(
+            super::hover_draws(ui, bounds.center(), tip_area),
+            "Hide Members tooltip"
+        );
+        shown_toggle = Some(bounds);
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(MEMBERS_TOGGLE))
+            .expect("click Hide Members");
+    });
+
+    assert!(crate::call::members_hidden(&app));
+    let (_, _, after_tiles, _) = crate::call::stage::stage(&app);
+    assert_eq!(after_tiles[1].size(), Size::ZERO);
+    assert_eq!(
+        bob_feed.shown_at(),
+        None,
+        "hidden participant camera stops decoding"
+    );
+    assert!(after_tiles[0].height > before_tiles[0].height);
+    assert!(after_tiles[0].width > before_tiles[0].width);
+    assert!(!on_stage(&app, "Bob"), "Bob is hidden from the stage");
+
+    interact(&mut app, |ui| {
+        let target = ui
+            .find(Id::new(MEMBERS_TOGGLE))
+            .expect("Show Members button");
+        let bounds = target.visible_bounds().expect("in view");
+        assert_eq!(bounds.size(), Size::new(60.0, 32.0));
+        assert!(
+            bounds.y > shown_toggle.unwrap().y,
+            "Show Members sits just above the controls"
+        );
+        let tip_area = Rectangle::new(
+            Point::new(bounds.x - 40.0, bounds.y - 44.0),
+            Size::new(140.0, 38.0),
+        );
+        assert!(
+            super::hover_draws(ui, bounds.center(), tip_area),
+            "Show Members tooltip"
+        );
+    });
+    interact(&mut app, |ui| {
+        ui.click(Id::new(MEMBERS_TOGGLE))
+            .expect("click Show Members");
+    });
+
+    assert!(!crate::call::members_hidden(&app));
+    let (_, _, restored_tiles, _) = crate::call::stage::stage(&app);
+    assert_eq!(restored_tiles, before_tiles);
+    assert!(
+        bob_feed.shown_at().is_some(),
+        "participant camera resumes decoding"
+    );
+    assert!(on_stage(&app, "Bob"), "Bob returns to the strip");
+
+    // The channel keeps its choice after the call is left, as Discord's
+    // client keeps it while it runs.
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    assert!(crate::call::members_hidden(&app));
+    let room = app.client.state().voice.room.clone().expect("in a call");
+    let _ = crate::call::update(&mut app, Event::Leave);
+    assert!(app.call.members_hidden.contains(&room));
 }

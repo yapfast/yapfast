@@ -23,7 +23,7 @@ pub mod dock;
 pub(crate) mod popups;
 pub mod stage;
 
-use std::{cell::Cell, sync::Arc};
+use std::{cell::Cell, collections::HashSet, sync::Arc};
 
 use iced::{Point, Rectangle, Task, Vector};
 use yapfast_core::{
@@ -55,6 +55,10 @@ pub struct Call {
     pub watched: Option<String>,
     /// The large tile over the whole window.
     pub full: bool,
+    /// The voice channels whose strip of members under a large tile is
+    /// hidden: kept for each channel while Yapfast runs, through leaving
+    /// and joining again, as Discord's client keeps it.
+    pub members_hidden: HashSet<String>,
     /// How far the stage is scrolled, and the tile the pointer is on, by its
     /// place.
     pub scrolled: f32,
@@ -76,6 +80,9 @@ pub struct Call {
     pub drag: Option<Vector>,
     /// The corner picture is held, and where the pointer first moved.
     pub grab: Option<Option<Point>>,
+    /// Its grip is held, and where the pointer took it: the corner picture
+    /// is resized while it is.
+    pub resize: Option<Resize>,
     /// The call was connected as the window last looked: it unmutes or
     /// deafens on joining once.
     pub ready: bool,
@@ -96,6 +103,14 @@ pub struct Call {
     /// whether the desktop had it so already, in which case leaving keeps
     /// it so.
     pub screen: Option<(iced::window::Id, bool)>,
+}
+
+/// The corner picture's grip held: where the pointer took it, and how wide
+/// the picture was then, which the drag adds to.
+#[derive(Clone, Copy, Debug)]
+pub struct Resize {
+    pub from: Point,
+    pub width: f32,
 }
 
 /// What opens from a control, above it.
@@ -126,6 +141,8 @@ pub enum Event {
     /// A tile shown large, by its place, or none.
     Focus(Option<usize>),
     Full(bool),
+    /// The bottom participant strip hidden or shown while a tile is large.
+    ToggleMembers,
     Scrolled(f32),
     Point(usize, bool),
     /// A control's popup, opened above it, or the open one closed.
@@ -170,11 +187,21 @@ pub enum Event {
     Start(bool),
     /// Switching calls confirmed, or not.
     Switch(bool),
-    /// The corner picture pressed, the pointer moved to here in the window
-    /// while it's held, and let go.
+    /// The corner picture pressed, its grip's or elsewhere; the pointer
+    /// moved to here in the window while it's held, and let go.
     Grab,
     DragTo(Point),
     Drop,
+}
+
+/// Whether the call's strip of members under a large tile is hidden.
+pub fn members_hidden(app: &App) -> bool {
+    app.client
+        .state()
+        .voice
+        .room
+        .as_ref()
+        .is_some_and(|room| app.call.members_hidden.contains(room))
 }
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -201,6 +228,17 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Full(full) => {
             app.call.full = full && app.call.focus.is_some();
+            app.call.pointed = None;
+            crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::ToggleMembers => {
+            if let Some(room) = app.client.state().voice.room.clone()
+                && !app.call.members_hidden.remove(&room)
+            {
+                app.call.members_hidden.insert(room);
+            }
+            app.call.scrolled = 0.0;
             app.call.pointed = None;
             crate::call::stage::place_videos(app);
             return Task::none();
@@ -304,10 +342,21 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Switch(true) => Action::ConfirmVoiceSwitch,
         Event::Switch(false) => Action::CancelVoiceSwitch,
         Event::Grab => {
-            app.call.grab = Some(None);
+            // Its grip makes it larger or smaller; anywhere else, it moves.
+            let at = app.pressed.get();
+            if crate::call::corner::on_grip(app, at) {
+                let width = crate::call::corner::corner_size(app).width;
+                app.call.resize = Some(Resize { from: at, width });
+            } else {
+                app.call.grab = Some(None);
+            }
             return Task::none();
         }
         Event::DragTo(at) => {
+            if app.call.resize.is_some() {
+                crate::call::corner::resize_to(app, at);
+                return Task::none();
+            }
             match app.call.grab {
                 Some(None) => app.call.grab = Some(Some(at)),
                 Some(Some(from)) => {
@@ -322,6 +371,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Drop => {
+            if app.call.resize.is_some() {
+                crate::call::corner::let_go(app);
+                return Task::none();
+            }
             let dragged = app.call.drag.is_some();
             app.call.grab = None;
             if !dragged {
