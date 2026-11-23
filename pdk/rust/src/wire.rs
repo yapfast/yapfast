@@ -321,6 +321,7 @@ pub mod method {
     pub const PEOPLE_MEMBERS: &str = "people.members";
     pub const PEOPLE_FRIENDS: &str = "people.friends";
     pub const PEOPLE_BLOCKED: &str = "people.blocked";
+    pub const PEOPLE_PROFILE: &str = "people.profile";
     pub const GIFS_FAVOURITES: &str = "gifs.favourites";
     // The calls the PDK has no wrapper for yet, named for `call::call`.
     pub const VOICE_STATE: &str = "voice.state";

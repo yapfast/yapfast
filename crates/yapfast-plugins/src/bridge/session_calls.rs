@@ -109,6 +109,14 @@ impl Session {
             }
             call::method::GIFS_FAVOURITES => Ok(AppCall::FavouriteGifs),
             call::method::SERVERS_LIST => Ok(AppCall::Servers),
+            call::method::PEOPLE_PROFILE => {
+                request
+                    .parse::<call::PeopleBadges>()
+                    .map(|asked| AppCall::Profile {
+                        person: asked.person,
+                        server: asked.server,
+                    })
+            }
             call::method::PEOPLE_FRIENDS => Ok(AppCall::Relations { blocked: false }),
             call::method::PEOPLE_BLOCKED => Ok(AppCall::Relations { blocked: true }),
             call::method::SETTINGS_SET => {

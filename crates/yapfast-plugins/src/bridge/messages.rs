@@ -343,6 +343,11 @@ pub enum AppCall {
         before: Option<String>,
         limit: Option<usize>,
     },
+    /// A person's whole profile: `people.profile`.
+    Profile {
+        person: String,
+        server: Option<String>,
+    },
     /// The account's servers: `servers.list`.
     Servers,
     /// The account's friends or the people it blocked: `people.friends`,

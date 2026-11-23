@@ -46,6 +46,7 @@ pub(super) fn answered_later(request: &AppCall) -> bool {
             | AppCall::ServerDetails { .. }
             | AppCall::FavouriteGifs
             | AppCall::Servers
+            | AppCall::Profile { .. }
             | AppCall::Relations { .. }
     )
 }
@@ -103,6 +104,19 @@ impl Application {
             AppCall::ServerDetails { server } => Some(PluginAsk::ServerDetails { server }),
             AppCall::FavouriteGifs => Some(PluginAsk::FavouriteGifs),
             AppCall::Servers => Some(PluginAsk::Servers),
+            AppCall::Profile { person, server } => {
+                let bare = person.strip_prefix("discord:").unwrap_or(&person);
+                let activities = self
+                    .members_made()
+                    .and_then(|members| members.iter().find(|member| member.id == bare))
+                    .map(|member| member.activities.clone())
+                    .unwrap_or_default();
+                Some(PluginAsk::PersonProfile {
+                    person,
+                    server,
+                    activities,
+                })
+            }
             AppCall::Relations { blocked } => Some(PluginAsk::Relations { blocked }),
             AppCall::Messages {
                 room,

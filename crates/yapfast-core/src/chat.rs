@@ -2839,6 +2839,12 @@ pub enum PluginAsk {
     ServerDetails { server: String },
     /// `servers.list`.
     Servers,
+    /// `people.profile`, with what the open member list says they do.
+    PersonProfile {
+        person: String,
+        server: Option<String>,
+        activities: Activities,
+    },
     /// `people.friends`, or `people.blocked`.
     Relations { blocked: bool },
     /// `gifs.favourites`.

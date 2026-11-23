@@ -77,6 +77,49 @@ pub(super) fn command(
                     },
                 }
             }
+            PluginAsk::PersonProfile {
+                person,
+                server,
+                activities,
+            } => {
+                let guild = server
+                    .as_deref()
+                    .map(|server| discord::parse_server(server).unwrap_or(server).to_owned())
+                    .unwrap_or_else(|| yapfast_discord::ready::PRIVATE.to_owned());
+                let person = person
+                    .strip_prefix("discord:")
+                    .unwrap_or(&person)
+                    .to_owned();
+                match discord.profile(&guild, &person, |_| {}).await {
+                    Ok(profile) => {
+                        let snapshot = discord.snapshots().borrow().clone();
+                        let role_names = snapshot
+                            .servers
+                            .iter()
+                            .find(|held| held.server.id == guild)
+                            .map(|held| {
+                                held.server
+                                    .named_roles(&profile.roles)
+                                    .into_iter()
+                                    .map(|(name, _)| name)
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let friend_since_ms = snapshot
+                            .friend_list
+                            .iter()
+                            .find(|friend| friend.user_id == person)
+                            .and_then(|friend| friend.since);
+                        listed(profile_view(
+                            &profile,
+                            role_names,
+                            friend_since_ms,
+                            &activities,
+                        ))
+                    }
+                    Err(error) => failed(&error),
+                }
+            }
             PluginAsk::Servers => {
                 let snapshot = discord.snapshots().borrow().clone();
                 let now = crate::clock::now_ms();
@@ -574,6 +617,75 @@ fn server_details(
                         _ => "png",
                     }
                 ),
+            })
+            .collect(),
+    }
+}
+
+/// `people.profile`'s answer from a fetched profile.
+fn profile_view(
+    profile: &yapfast_discord::profile::Profile,
+    role_names: Vec<String>,
+    friend_since_ms: Option<u64>,
+    activities: &crate::chat::Activities,
+) -> yapfast_plugin_api::call::ProfileView {
+    use yapfast_plugin_api::call::{
+        ActivityView, ConnectionView, MutualServerView, ProfileView, RelationView,
+    };
+    let text = |value: &Option<Box<str>>| value.as_deref().map(str::to_owned);
+    ProfileView {
+        id: profile.user_id.clone(),
+        name: profile.name.clone(),
+        username: profile.username.clone(),
+        pronouns: profile.pronouns.clone().filter(|words| !words.is_empty()),
+        bio: profile.bio.clone().filter(|words| !words.is_empty()),
+        banner: profile.banner.clone(),
+        accent: profile.accent,
+        theme_colours: profile.theme,
+        created_ms: profile.created,
+        joined_ms: profile.joined,
+        friend_since_ms,
+        role_names,
+        mutual_servers: profile
+            .mutual_servers
+            .iter()
+            .map(|server| MutualServerView {
+                id: server.id.clone(),
+                nick: server.nick.clone(),
+            })
+            .collect(),
+        mutual_friends: profile
+            .mutual_friends
+            .iter()
+            .map(|friend| RelationView {
+                id: friend.id.clone(),
+                name: friend.name.clone(),
+                username: None,
+                avatar: friend.avatar.clone(),
+            })
+            .collect(),
+        connections: profile
+            .connections
+            .iter()
+            .map(|connection| ConnectionView {
+                kind: connection.kind.clone(),
+                name: connection.name.clone(),
+                verified: connection.verified,
+                url: connection.url.clone(),
+            })
+            .collect(),
+        activities: activities
+            .iter()
+            .map(|activity| ActivityView {
+                kind: format!("{:?}", activity.kind).to_ascii_lowercase(),
+                name: activity.name.to_string(),
+                details: text(&activity.details),
+                state: text(&activity.state),
+                start_ms: activity.start,
+                end_ms: activity.end,
+                url: text(&activity.url),
+                large_image: text(&activity.large_image),
+                application_id: text(&activity.application_id),
             })
             .collect(),
     }

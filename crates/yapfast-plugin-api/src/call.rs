@@ -49,6 +49,8 @@ pub mod method {
     pub const STORAGE_LIST: &str = "storage.list";
     pub const STORAGE_CLEAR: &str = "storage.clear";
     pub const SETTINGS_GET: &str = "settings.get";
+    /// A person's whole profile.
+    pub const PEOPLE_PROFILE: &str = "people.profile";
     /// The account's servers, with their names, icons and mutes.
     pub const SERVERS_LIST: &str = "servers.list";
     /// The open conversation's member list.
@@ -192,7 +194,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 116] = [
+    pub const ALL: [&str; 117] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -214,6 +216,7 @@ pub mod method {
         PEOPLE_MEMBERS,
         PEOPLE_FRIENDS,
         PEOPLE_BLOCKED,
+        PEOPLE_PROFILE,
         GIFS_FAVOURITES,
         STORAGE_GET,
         STORAGE_SET,
@@ -1493,6 +1496,89 @@ pub struct PeopleBadges {
     pub person: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+}
+
+/// `people.profile`'s answer: a person's profile as Discord's client shows
+/// it, in a server or outside any.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileView {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pronouns: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner: Option<String>,
+    /// The banner's colour when it has no picture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent: Option<u32>,
+    /// The profile's two theme colours, its gradient, when Nitro set them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_colours: Option<[u32; 2]>,
+    /// When the account was made, Unix milliseconds.
+    pub created_ms: u64,
+    /// When they joined this server, Unix milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub joined_ms: Option<u64>,
+    /// When they became this account's friend, Unix milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub friend_since_ms: Option<u64>,
+    /// Their roles in this server, by name, highest first.
+    #[serde(default)]
+    pub role_names: Vec<String>,
+    #[serde(default)]
+    pub mutual_servers: Vec<MutualServerView>,
+    #[serde(default)]
+    pub mutual_friends: Vec<RelationView>,
+    #[serde(default)]
+    pub connections: Vec<ConnectionView>,
+    /// What they're doing, as the open member list has it.
+    #[serde(default)]
+    pub activities: Vec<ActivityView>,
+}
+
+/// A server this account and the person are both in.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MutualServerView {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nick: Option<String>,
+}
+
+/// An account on another service the profile shows.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectionView {
+    pub kind: String,
+    pub name: String,
+    pub verified: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// One thing a person is doing. Discord sends other people's buttons as
+/// labels only, never their addresses.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityView {
+    /// `playing`, `streaming`, `listening`, `watching`, `competing` or `hang`.
+    pub kind: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<u64>,
+    /// A stream's address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub large_image: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application_id: Option<String>,
 }
 
 /// One of `servers.list`' answers: a server the account is in.

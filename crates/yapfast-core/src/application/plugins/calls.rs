@@ -367,6 +367,7 @@ impl Application {
             | AppCall::ServerDetails { .. }
             | AppCall::FavouriteGifs
             | AppCall::Servers
+            | AppCall::Profile { .. }
             | AppCall::Relations { .. }
             | AppCall::Spotify(_) => (
                 Vec::new(),
