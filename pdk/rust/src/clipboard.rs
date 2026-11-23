@@ -9,9 +9,11 @@ use serde_json::{Value, json};
 use crate::call::{self, method};
 use crate::{Error, Result};
 
-/// The most text one write takes: 64 KiB. Longer text is refused whole, never
-/// cut, so it's refused here before the call is made.
-pub const MAX_BYTES: usize = 64 << 10;
+/// The most text one write takes: 1 MiB, what one frame to Yapfast carries
+/// (a little less in practice, since the frame also holds the call's JSON).
+/// Longer text is refused whole, never cut, so it's refused here before the
+/// call is made.
+pub const MAX_BYTES: usize = 1 << 20;
 
 fn payload(text: &str) -> Result<Value> {
     if text.len() > MAX_BYTES {

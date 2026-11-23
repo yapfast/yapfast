@@ -19,9 +19,10 @@ pub const MAX_WASM_BYTES: u64 = 8 << 20;
 /// bad answer, since cutting a message would send it shorter than written.
 pub const MAX_PAYLOAD_BYTES: usize = 64 << 10;
 
-/// The most text one `clipboard.write` puts on the clipboard: 64 KiB, an ID,
-/// a link or a block of text, never a file passed through the clipboard.
-pub const MAX_CLIPBOARD_BYTES: usize = 64 << 10;
+/// The most text one `clipboard.write` puts on the clipboard: 1 MiB, what one
+/// frame carries (a little less in practice, since the frame also holds the
+/// call's JSON). Not a policy: it says the technical limit plainly.
+pub const MAX_CLIPBOARD_BYTES: usize = 1 << 20;
 
 /// Pages of guest memory an instance gets when its manifest doesn't say: 16 MiB.
 pub const DEFAULT_MEMORY_PAGES: u32 = 256;

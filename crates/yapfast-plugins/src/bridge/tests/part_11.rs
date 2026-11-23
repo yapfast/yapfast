@@ -80,7 +80,7 @@ fn a_navigation_action_without_a_gesture_is_refused() {
 /// `clipboard.write` follows the send's gesture rule, and takes at most
 /// [`limits::MAX_CLIPBOARD_BYTES`] of text, refused whole rather than cut.
 #[test]
-fn a_clipboard_write_needs_a_click_and_at_most_64_kib() {
+fn a_clipboard_write_needs_a_click_and_at_most_1_mib() {
     let directory = tempfile::tempdir().expect("a temporary directory");
     let plugin = installed(
         directory.path(),
@@ -116,7 +116,7 @@ fn a_clipboard_write_needs_a_click_and_at_most_64_kib() {
     );
     assert!(matches!(answer, HostReturn::Pending { .. }), "{answer:?}");
     let Ok(Notice::Call { request, .. }) = notices.recv_timeout(Duration::from_secs(2)) else {
-        panic!("64 KiB of text reaches the application");
+        panic!("1 MiB of text reaches the application");
     };
     assert_eq!(request, AppCall::Copy { text: most.clone() });
 
@@ -126,7 +126,7 @@ fn a_clipboard_write_needs_a_click_and_at_most_64_kib() {
         &["clipboard.write"],
     );
     let HostReturn::Error { message } = answer else {
-        panic!("a byte over 64 KiB is refused: {answer:?}");
+        panic!("a byte over 1 MiB is refused: {answer:?}");
     };
     assert!(message.contains("at most"), "{message}");
     assert!(

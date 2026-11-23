@@ -46,7 +46,7 @@ audio capabilities, which share one line.
 | `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
 | `microphone` | Record the microphone as Ogg Opus or PCM, asked about the first time, with a red bar while it does | Records your microphone when it asks: you're asked the first time, and a red bar shows while it does, with Stop |
 | `notifications` | OS notifications | Shows notifications |
-| `clipboard.write` | Write text to the clipboard, up to 64 KB, on a gesture | Copy text to your clipboard when you click something in it. |
+| `clipboard.write` | Write text to the clipboard, up to 1 MB, on a gesture | Copy text to your clipboard when you click something in it. |
 | `ui.modify` | Change, hide or replace named parts of the interface | Can change Yapfast's interface |
 | `network` | HTTPS to the hosts the manifest lists, and to no other | Uses network |
 | `network.local` | One exact loopback port, which the manifest names | Connects to an app on this computer |
