@@ -327,6 +327,7 @@ impl App {
         #[cfg(feature = "plugins")]
         if let Some(consent) = crate::dialogs::consent_view(self.ctx())
             .or_else(|| crate::dialogs::powerful_view(self.ctx()))
+            .or_else(|| crate::dialogs::sign_in_view(&self.sign_in_paste, self.ctx()))
         {
             layers = layers.push(self.popup(L(Layer::PluginConsent), consent));
         }

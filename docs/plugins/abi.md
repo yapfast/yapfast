@@ -678,6 +678,30 @@ in its `network`. A renewal that brings no new refresh token keeps the old one,
 as Spotify's docs say may happen. Uninstalling with the data removes the kept
 sign-in; signing out of the app itself is done on the service's site.
 
+A service whose own server takes the redirect (its manifest entry has
+`redirect`) is signed in to the same way up to the browser: the leaving
+dialog shows `authorize` with `client_id`, `response_type=code`, that
+`redirect_uri`, `scope` and a `state`, and no PKCE, since the server holds its
+app's secret and trades the code. Its token comes back one of two ways:
+
+- the server sends the browser on to
+  `yapfast://plugin-oauth/<plugin id>?provider=<provider>&state=<state>&token=<token>`
+  (`access_token` and `expires_in` are read too, and `error` ends the
+  sign-in), which Yapfast takes only with the sign-in's own `state`; or
+- the person pastes what the page shows into the small dialog the sign-in
+  waits in, named for the plugin and the service: the page's JSON with a
+  `token` or `access_token` in it (ReviewDB's and Decor's answers), the
+  address the browser ended on, or the token by itself.
+
+Cancel or Escape ends the sign-in with an error. The token is kept as the
+others are, outside the plugin's storage; `oauth.token` answers it
+until `oauth.logout`, or until `expires_in` ran out (`expires_at_ms` is 0 for
+one given with no end), and can't renew it.
+
+With `client_id_setting`, the person's own client id from that setting is used
+for the sign-in and every renewal, and the manifest's `client_id` only while
+the setting is empty.
+
 Spotify's own rules apply to the author's app
 ([developer.spotify.com](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri)):
 the redirect URI is registered as `http://127.0.0.1/callback` (`localhost`

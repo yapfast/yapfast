@@ -54,7 +54,13 @@ pub enum Notice {
         plugin: PluginId,
         provider: String,
         url: String,
+        /// The service's own server takes the redirect, so the sign-in's
+        /// dialog shows a field to paste what its page gives back.
+        paste: bool,
     },
+    /// A sign-in through a service's own server finished, failed or ran out:
+    /// its dialog goes.
+    SignInEnded { plugin: PluginId },
     /// What a plugin's overlay shows now, or none when it took it away.
     Overlay {
         plugin: PluginId,

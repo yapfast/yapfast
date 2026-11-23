@@ -39,6 +39,9 @@ pub enum Route {
     },
     /// A person's profile.
     User { user: String },
+    /// `yapfast://plugin-oauth/<plugin>?…`: a service's server handing a
+    /// plugin's sign-in its token back, with the query as it came.
+    PluginSignIn { plugin: String, query: String },
 }
 
 /// The route a Discord link names, when Yapfast can open it itself.
@@ -79,6 +82,15 @@ fn route(url: &Url) -> Option<Route> {
         return crate::oauth::Request::parse(query).map(|_| Route::Authorize {
             query: query.to_owned(),
         });
+    }
+    if url.scheme() == "yapfast" && url.host_str() == Some("plugin-oauth") {
+        return match segments.as_slice() {
+            [plugin] if plugin.len() <= 128 => Some(Route::PluginSignIn {
+                plugin: (*plugin).to_owned(),
+                query: url.query().unwrap_or_default().to_owned(),
+            }),
+            _ => None,
+        };
     }
     match url.scheme() {
         "http" | "https" => {
@@ -404,5 +416,19 @@ mod tests {
         ] {
             assert!(!on_discord(page), "{page}");
         }
+    }
+
+    #[test]
+    fn a_plugins_sign_in_comes_back_by_its_own_link() {
+        assert_eq!(
+            parse("yapfast://plugin-oauth/com.example.r?provider=reviewdb&state=s1&token=t"),
+            Some(Route::PluginSignIn {
+                plugin: "com.example.r".into(),
+                query: "provider=reviewdb&state=s1&token=t".into(),
+            })
+        );
+        assert_eq!(parse("yapfast://plugin-oauth/"), None);
+        assert_eq!(parse("yapfast://plugin-oauth/a/b?token=t"), None);
+        assert_eq!(parse("discord://plugin-oauth/com.example.r?token=t"), None);
     }
 }

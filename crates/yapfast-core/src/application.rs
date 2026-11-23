@@ -627,6 +627,10 @@ pub struct AppState {
     /// A powerful capability's first-use question, while its red dialog is up.
     #[cfg(feature = "plugins")]
     pub plugin_powerful: Option<crate::application::plugins::PowerfulAsk>,
+    /// A plugin's sign-in through a service's own server, while its dialog
+    /// waits for the token to be pasted or to come back by a link.
+    #[cfg(feature = "plugins")]
+    pub plugin_sign_in: Option<crate::application::plugins::SignInAsk>,
     /// The plugin that last sent as an agent, without a keystroke, and when:
     /// the window shows that it is doing so while it is recent.
     #[cfg(feature = "plugins")]
@@ -927,6 +931,11 @@ impl AppState {
                 (self.discord_online || self.preview) && server(guild)
             }
             DiscordRoute::Gift { .. } => self.discord_online || self.preview,
+            // A plugin's sign-in coming back, whatever is open.
+            #[cfg(feature = "plugins")]
+            DiscordRoute::PluginSignIn { .. } => self.plugins.is_some(),
+            #[cfg(not(feature = "plugins"))]
+            DiscordRoute::PluginSignIn { .. } => false,
             DiscordRoute::DirectMessages => self.discord_linked,
             DiscordRoute::Server { guild } => server(guild),
             DiscordRoute::Channel { guild, channel }

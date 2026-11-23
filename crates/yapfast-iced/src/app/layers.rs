@@ -597,7 +597,14 @@ impl App {
                 crate::dialogs::answer_consent(self, false, false)
             }
             #[cfg(feature = "plugins")]
-            Layer::PluginConsent => crate::dialogs::answer_powerful(self, false),
+            Layer::PluginConsent if self.client.state().plugin_powerful.is_some() => {
+                crate::dialogs::answer_powerful(self, false)
+            }
+            // The leaving question shows over the sign-in it opens the page of.
+            #[cfg(feature = "plugins")]
+            Layer::PluginConsent if self.leaving.is_some() => crate::dialogs::leave(self, false),
+            #[cfg(feature = "plugins")]
+            Layer::PluginConsent => crate::dialogs::close_sign_in(self),
             // Escape dismisses the first plugin's dialog.
             #[cfg(feature = "plugins")]
             Layer::PluginDialog => {
@@ -678,7 +685,9 @@ impl App {
 /// Whether a plugin's question about a site is open.
 #[cfg(feature = "plugins")]
 fn plugin_consent_open(state: &yapfast_core::application::AppState) -> bool {
-    state.plugin_consent.is_some() || state.plugin_powerful.is_some()
+    state.plugin_consent.is_some()
+        || state.plugin_powerful.is_some()
+        || state.plugin_sign_in.is_some()
 }
 
 /// Whether a plugin's dialog is drawn.

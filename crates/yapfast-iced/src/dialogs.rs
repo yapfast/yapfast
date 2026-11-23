@@ -47,7 +47,18 @@ pub enum Event {
     /// One of the apps plugins offered the leaving link in, by its place.
     #[cfg(feature = "plugins")]
     OpenInApp(usize),
+    /// A plugin's sign-in dialog: the pasted text changed, Done, or Cancel.
+    #[cfg(feature = "plugins")]
+    SignInText(String),
+    #[cfg(feature = "plugins")]
+    SignInDone,
+    #[cfg(feature = "plugins")]
+    SignInClose,
 }
+
+/// The sign-in dialog's field.
+#[cfg(feature = "plugins")]
+pub const SIGN_IN_FIELD: &str = "plugin-sign-in-paste";
 
 /// How long the site question waits for an answer before it denies: a
 /// plugin's request mustn't wait on a person who walked away, and a yes is
@@ -85,6 +96,27 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         #[cfg(feature = "plugins")]
         Event::Powerful(allow) => answer_powerful(app, allow),
+        #[cfg(feature = "plugins")]
+        Event::SignInText(text) => {
+            app.sign_in_paste = text;
+            Task::none()
+        }
+        #[cfg(feature = "plugins")]
+        Event::SignInDone => {
+            let Some(ask) = app.client.state().plugin_sign_in.clone() else {
+                return Task::none();
+            };
+            let text = std::mem::take(&mut app.sign_in_paste);
+            app.client.dispatch(Action::Plugin(
+                yapfast_core::application::plugins::Action::SignInPasted {
+                    plugin: ask.plugin,
+                    text,
+                },
+            ));
+            app.sync()
+        }
+        #[cfg(feature = "plugins")]
+        Event::SignInClose => close_sign_in(app),
         #[cfg(feature = "plugins")]
         Event::PowerfulFolder(folder) => match folder {
             Some(folder) => dispatch_powerful(app, true, Some(folder)),
@@ -223,6 +255,76 @@ pub fn powerful_view<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     .spacing(12)
     .padding(20);
     Some(dialog(theme, body.into(), CONFIRM_WIDTH, answer(false)?))
+}
+
+/// Closes a plugin's sign-in dialog, which ends the sign-in it waits on.
+#[cfg(feature = "plugins")]
+pub fn close_sign_in(app: &mut App) -> Task<Message> {
+    let Some(ask) = app.client.state().plugin_sign_in.clone() else {
+        return Task::none();
+    };
+    app.sign_in_paste.clear();
+    app.client.dispatch(Action::Plugin(
+        yapfast_core::application::plugins::Action::SignInClosed(ask.plugin),
+    ));
+    app.sync()
+}
+
+/// The dialog a sign-in through a service's own server waits in: the plugin
+/// and the service named, and a field for what the service's page gave back,
+/// for when it can't hand it to Yapfast by a link itself. Escape and Cancel
+/// end the sign-in.
+#[cfg(feature = "plugins")]
+pub fn sign_in_view<'a>(pasted: &'a str, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
+    let ask = cx.state.plugin_sign_in.as_ref()?;
+    let theme = cx.look.theme;
+    let done = (!pasted.trim().is_empty()).then_some(Message::Dialog(Event::SignInDone));
+    let body = column![
+        text(format!("Sign in to {}", ask.provider))
+            .size(18)
+            .font(BOLD)
+            .color(theme.text),
+        text(format!(
+            "{} ({}) opened {}'s sign-in in your browser. When it's done, it may come back \
+             here by itself; if the page shows a token or some text instead, copy all of it \
+             and paste it here.",
+            ask.name, ask.plugin, ask.provider
+        ))
+        .size(15)
+        .color(theme.secondary),
+        crate::controls::field(
+            theme,
+            SIGN_IN_FIELD,
+            "Paste what the page shows",
+            pasted,
+            true,
+            true
+        )
+        .on_input(|text| Message::Dialog(Event::SignInText(text)))
+        .on_submit_maybe(done.clone()),
+        text("Only paste what this service's own page gave you.")
+            .size(13)
+            .color(theme.muted),
+        row![
+            Space::new().width(Length::Fill),
+            action(
+                theme,
+                "Cancel",
+                Kind::Ghost,
+                Some(Message::Dialog(Event::SignInClose))
+            ),
+            action(theme, "Done", Kind::Primary, done),
+        ]
+        .spacing(8),
+    ]
+    .spacing(12)
+    .padding(20);
+    Some(dialog(
+        theme,
+        body.into(),
+        CONFIRM_WIDTH,
+        Message::Dialog(Event::SignInClose),
+    ))
 }
 
 /// Answers the plugin the consent question is about, which takes the

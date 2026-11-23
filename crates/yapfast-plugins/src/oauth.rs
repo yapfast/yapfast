@@ -14,8 +14,17 @@
 //! the redirect is `http://127.0.0.1:PORT/callback`, and a loopback redirect
 //! may take any port when the app registered it without one; a refresh may or
 //! may not bring a new refresh token, and the old one is kept when it doesn't.
+//!
+//! A service whose app sends the browser back to its own server (ReviewDB and
+//! Decor, whose Discord apps redirect to their own sites) trades the code on
+//! that server and hands a token back: [`login_by_server`] opens the page and
+//! waits for the token to come back through a `yapfast://plugin-oauth/<plugin>`
+//! link ([`Returns::link`]) or be pasted into the sign-in's dialog
+//! ([`Returns::pasted`]).
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -335,6 +344,245 @@ pub async fn login(
     Ok(kept.token(&service.provider))
 }
 
+/// The longest token a service's server may hand back.
+const TOKEN_LIMIT: usize = 4096;
+
+/// The sign-ins waiting for a service's server to hand a token back, one per
+/// plugin: a new sign-in of the plugin's replaces its last.
+#[derive(Default)]
+pub struct Returns {
+    waiting: Mutex<BTreeMap<String, Waiting>>,
+}
+
+struct Waiting {
+    provider: String,
+    state: String,
+    answer: tokio::sync::oneshot::Sender<Result<Kept, String>>,
+}
+
+impl Returns {
+    fn wait(
+        &self,
+        plugin: &str,
+        provider: &str,
+        state: &str,
+    ) -> tokio::sync::oneshot::Receiver<Result<Kept, String>> {
+        let (answer, waited) = tokio::sync::oneshot::channel();
+        self.waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(
+                plugin.to_owned(),
+                Waiting {
+                    provider: provider.to_owned(),
+                    state: state.to_owned(),
+                    answer,
+                },
+            );
+        waited
+    }
+
+    fn take(&self, plugin: &str) -> Option<Waiting> {
+        self.waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(plugin)
+    }
+
+    /// Whether `plugin` is waiting for a token now.
+    pub fn waits(&self, plugin: &str) -> bool {
+        self.waiting
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(plugin)
+    }
+
+    /// A `yapfast://plugin-oauth/<plugin>?provider=…&state=…&token=…` link's
+    /// query. Its `state` must be the sign-in's, so a link someone else made
+    /// can't sign the plugin in to their account; one that doesn't match
+    /// leaves the sign-in waiting.
+    pub fn link(&self, plugin: &str, query: &str) -> Result<()> {
+        let pairs = pairs(query);
+        let get = |name: &str| pairs.get(name).map(String::as_str);
+        let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(wait) = waiting.get(plugin) else {
+            bail!("{plugin} isn't signing in to anything now");
+        };
+        if get("state") != Some(wait.state.as_str()) {
+            bail!("the link back carried someone else's state, so it was ignored");
+        }
+        if get("provider").is_some_and(|provider| provider != wait.provider) {
+            bail!("the link back named another service");
+        }
+        let kept = match get("error") {
+            Some(error) => Err(format!("the sign-in was refused: {error}")),
+            None => kept_from_pairs(&pairs).map_err(|error| error.to_string()),
+        };
+        if let Some(wait) = waiting.remove(plugin) {
+            let _ = wait.answer.send(kept);
+        }
+        Ok(())
+    }
+
+    /// What the person pasted into the sign-in's dialog: the token, the page's
+    /// JSON with a `token` in it, or the address the browser ended on.
+    pub fn pasted(&self, plugin: &str, text: &str) -> Result<()> {
+        let kept = token_from_paste(text)?;
+        let wait = self
+            .take(plugin)
+            .ok_or_else(|| anyhow!("{plugin} isn't signing in to anything now"))?;
+        let _ = wait.answer.send(Ok(kept));
+        Ok(())
+    }
+
+    /// The person closed the sign-in's dialog.
+    pub fn cancel(&self, plugin: &str) {
+        if let Some(wait) = self.take(plugin) {
+            let _ = wait
+                .answer
+                .send(Err("the sign-in was closed before it finished".to_owned()));
+        }
+    }
+}
+
+/// A query's pairs, decoded; the first of a name counts.
+fn pairs(query: &str) -> BTreeMap<String, String> {
+    let mut pairs = BTreeMap::new();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
+        pairs.entry(decode(name)).or_insert_with(|| decode(value));
+    }
+    pairs
+}
+
+/// A token a service handed back, with `expires_in` seconds when it said.
+fn kept_from_pairs(pairs: &BTreeMap<String, String>) -> Result<Kept> {
+    let token = pairs
+        .get("token")
+        .or_else(|| pairs.get("access_token"))
+        .ok_or_else(|| anyhow!("that has no token in it"))?;
+    let expires_in = pairs.get("expires_in").and_then(|text| text.parse().ok());
+    kept_token(token, expires_in)
+}
+
+fn kept_token(token: &str, expires_in: Option<u64>) -> Result<Kept> {
+    let token = token.trim();
+    if token.is_empty()
+        || token.len() > TOKEN_LIMIT
+        || !token.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        bail!("that isn't a token: one word of up to {TOKEN_LIMIT} plain characters");
+    }
+    Ok(Kept {
+        access_token: token.to_owned(),
+        token_type: "Bearer".to_owned(),
+        // No end given: kept until `oauth.logout`.
+        expires_at_ms: expires_in.map_or(0, |seconds| now_ms() + seconds * 1000),
+        refresh_token: None,
+        scopes: Vec::new(),
+    })
+}
+
+/// Reads what the person pasted: the page's JSON (`token` or
+/// `access_token`, ReviewDB's and Decor's answers), the address the browser
+/// ended on (its query or fragment), or the token by itself.
+pub fn token_from_paste(text: &str) -> Result<Kept> {
+    let text = text.trim();
+    if text.starts_with('{') {
+        let json: serde_json::Value =
+            serde_json::from_str(text).context("that looks like JSON but isn't")?;
+        let token = json["token"]
+            .as_str()
+            .or(json["access_token"].as_str())
+            .ok_or_else(|| anyhow!("the page's answer has no token in it"))?;
+        return kept_token(token, json["expires_in"].as_u64());
+    }
+    if let Some((_, rest)) = text.split_once("://") {
+        let query = rest.split_once(['?', '#']).map_or("", |(_, query)| query);
+        return kept_from_pairs(&pairs(&query.replace('#', "&")));
+    }
+    kept_token(text, None)
+}
+
+/// Signs in through a service's own server: opens its page with the app's
+/// registered `redirect`, then waits for the token to come back by a link or
+/// a paste. The server holds the app's secret and trades the code itself.
+pub async fn login_by_server(
+    service: &OAuthDecl,
+    data_dir: &Path,
+    plugin: &str,
+    returns: &Returns,
+    open: impl FnOnce(String),
+) -> Result<OAuthToken> {
+    let redirect = service
+        .redirect
+        .as_deref()
+        .ok_or_else(|| anyhow!("{} has no `redirect`", service.provider))?;
+    let state = uuid::Uuid::new_v4().simple().to_string();
+    let waited = returns.wait(plugin, &service.provider, &state);
+    open(server_authorize_url(service, redirect, &state));
+    let kept = match tokio::time::timeout(LOGIN_TIMEOUT, waited).await {
+        Ok(Ok(Ok(kept))) => kept,
+        Ok(Ok(Err(why))) => bail!("{why}"),
+        Ok(Err(_)) => bail!("another sign-in of this plugin's took this one's place"),
+        Err(_) => {
+            returns.take(plugin);
+            bail!("the sign-in wasn't finished within five minutes")
+        }
+    };
+    let kept = Kept {
+        scopes: service.scopes.clone(),
+        ..kept
+    };
+    write_kept(&kept_path(data_dir, &service.provider), &kept)?;
+    Ok(kept.token(&service.provider))
+}
+
+/// The page a server sign-in opens: the code flow with the app's own
+/// redirect and no PKCE, since the server trades the code.
+pub fn server_authorize_url(service: &OAuthDecl, redirect: &str, state: &str) -> String {
+    let (authorize, _) = service.endpoints();
+    let separator = if authorize.contains('?') { '&' } else { '?' };
+    let mut url = format!(
+        "{authorize}{separator}client_id={}&response_type=code&redirect_uri={}&state={}",
+        encode(&service.client_id),
+        encode(redirect),
+        encode(state),
+    );
+    if !service.scopes.is_empty() {
+        url.push_str("&scope=");
+        url.push_str(&encode(&service.scopes.join(" ")));
+    }
+    url
+}
+
+/// The service as this plugin signs in to it: the client id the person put in
+/// the setting `client_id_setting` names, when they did, over the manifest's.
+pub fn resolve(mut service: OAuthDecl, settings: &serde_json::Value) -> Result<OAuthDecl> {
+    if let Some(key) = &service.client_id_setting
+        && let Some(own) = settings[key.as_str()]
+            .as_str()
+            .map(str::trim)
+            .filter(|own| !own.is_empty())
+    {
+        if own.len() > 128
+            || !own
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+        {
+            bail!("the client id in the plugin's settings isn't one");
+        }
+        service.client_id = own.to_owned();
+    }
+    if service.client_id.is_empty() {
+        bail!(
+            "fill in your own {} app's client id in the plugin's settings first",
+            service.provider
+        );
+    }
+    Ok(service)
+}
+
 /// The access token, renewed first when it is about to stop working.
 pub async fn token(service: &OAuthDecl, data_dir: &Path) -> Result<OAuthToken> {
     let path = kept_path(data_dir, &service.provider);
@@ -344,7 +592,8 @@ pub async fn token(service: &OAuthDecl, data_dir: &Path) -> Result<OAuthToken> {
             service.provider
         )
     })?;
-    if kept.expires_at_ms > now_ms() + RENEW_BEFORE_MS {
+    // 0 is a token a service's server gave with no end.
+    if kept.expires_at_ms == 0 || kept.expires_at_ms > now_ms() + RENEW_BEFORE_MS {
         return Ok(kept.token(&service.provider));
     }
     let refresh = kept.refresh_token.clone().ok_or_else(|| {
@@ -452,5 +701,113 @@ mod tests {
         assert_eq!(read_kept(&path), Some(renewed));
         assert!(logout(folder.path(), "spotify"));
         assert!(read_kept(&path).is_none());
+    }
+
+    #[test]
+    fn a_pasted_answer_is_read_as_json_an_address_or_the_token() {
+        let token = |text: &str| token_from_paste(text).map(|kept| kept.access_token);
+        assert_eq!(
+            token(r#"{"success":true,"token":"abc.def"}"#).unwrap(),
+            "abc.def"
+        );
+        assert_eq!(token("  tok-123  ").unwrap(), "tok-123");
+        assert_eq!(
+            token("https://site.example/done?state=x&token=a%2Bb").unwrap(),
+            "a+b"
+        );
+        assert_eq!(
+            token("https://site.example/done#access_token=frag&expires_in=60").unwrap(),
+            "frag"
+        );
+        assert!(
+            token_from_paste("https://site.example/done#access_token=frag&expires_in=60")
+                .unwrap()
+                .expires_at_ms
+                > 0
+        );
+        assert_eq!(token_from_paste("plain").unwrap().expires_at_ms, 0);
+        assert!(token("two words").is_err());
+        assert!(token(r#"{"error":"no"}"#).is_err());
+        assert!(token("").is_err());
+    }
+
+    #[test]
+    fn a_link_back_needs_the_sign_ins_state() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let returns = Returns::default();
+        let waited = returns.wait("com.example.r", "reviewdb", "s1");
+        assert!(returns.waits("com.example.r"));
+        assert!(
+            returns
+                .link("com.example.r", "state=other&token=t")
+                .is_err()
+        );
+        assert!(
+            returns
+                .link("com.example.other", "state=s1&token=t")
+                .is_err()
+        );
+        assert!(
+            returns.waits("com.example.r"),
+            "a wrong link leaves it waiting"
+        );
+        returns
+            .link("com.example.r", "provider=reviewdb&state=s1&token=t1")
+            .unwrap();
+        let kept = runtime.block_on(waited).unwrap().unwrap();
+        assert_eq!(kept.access_token, "t1");
+        assert!(!returns.waits("com.example.r"));
+
+        let waited = returns.wait("com.example.r", "reviewdb", "s2");
+        returns.cancel("com.example.r");
+        assert!(runtime.block_on(waited).unwrap().is_err());
+    }
+
+    #[test]
+    fn a_client_id_comes_from_the_setting_when_the_person_filled_it_in() {
+        let service = OAuthDecl {
+            provider: "spotify".into(),
+            client_id: "authors".into(),
+            client_id_setting: Some("app".into()),
+            ..OAuthDecl::default()
+        };
+        let resolved = |settings| resolve(service.clone(), &settings).map(|s| s.client_id);
+        assert_eq!(
+            resolved(serde_json::json!({ "app": " mine123 " })).unwrap(),
+            "mine123"
+        );
+        assert_eq!(
+            resolved(serde_json::json!({ "app": "" })).unwrap(),
+            "authors"
+        );
+        assert!(resolved(serde_json::json!({ "app": "has space" })).is_err());
+        let none = OAuthDecl {
+            client_id: String::new(),
+            ..service.clone()
+        };
+        assert!(resolve(none, &serde_json::json!({})).is_err());
+
+        let server = OAuthDecl {
+            provider: "reviewdb".into(),
+            client_id: "915".into(),
+            authorize: Some("https://discord.com/oauth2/authorize".into()),
+            redirect: Some("https://manti.vendicated.dev/api/reviewdb/auth".into()),
+            scopes: vec!["identify".into()],
+            ..OAuthDecl::default()
+        };
+        let url = server_authorize_url(&server, server.redirect.as_deref().unwrap(), "s1");
+        assert!(
+            url.starts_with(
+                "https://discord.com/oauth2/authorize?client_id=915&response_type=code"
+            )
+        );
+        assert!(
+            url.contains("redirect_uri=https%3A%2F%2Fmanti.vendicated.dev%2Fapi%2Freviewdb%2Fauth")
+        );
+        assert!(!url.contains("code_challenge"));
+        assert!(url.ends_with("&state=s1&scope=identify"));
     }
 }

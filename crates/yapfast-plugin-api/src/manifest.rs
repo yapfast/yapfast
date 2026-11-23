@@ -979,6 +979,20 @@ impl PluginManifest {
                     why: format!("`{}` is named twice", service.provider),
                 });
             }
+            if let Some(key) = &service.client_id_setting
+                && !self
+                    .settings
+                    .iter()
+                    .any(|setting| &setting.key == key && setting.kind == SettingKind::String)
+            {
+                return Err(ManifestError::Text {
+                    field: "oauth",
+                    why: format!(
+                        "{}'s `client_id_setting` names `{key}`, which isn't a string setting",
+                        service.provider
+                    ),
+                });
+            }
             providers.push(&service.provider);
         }
         if !self.sounds.is_empty() && !self.permissions.allows(Capability::SoundsReplace) {
@@ -1920,6 +1934,32 @@ mod tests {
             )
             .is_ok()
         );
+        // A service whose own server takes the redirect: no token address.
+        let server = with(
+            r#""oauth.login""#,
+            r#"[{"provider":"reviewdb","client_id":"915703782174752809","scopes":["identify"],
+                "authorize":"https://discord.com/oauth2/authorize",
+                "redirect":"https://manti.vendicated.dev/api/reviewdb/auth"}]"#,
+        )
+        .expect("ReviewDB");
+        assert!(server.oauth[0].redirect.is_some());
+        for wrong in [
+            r#"[{"provider":"own","client_id":"a","authorize":"https://a.example/auth","redirect":"http://a.example/r"}]"#,
+            r#"[{"provider":"own","client_id":"a","authorize":"https://a.example/auth","redirect":"https://a.example/r","token":"https://a.example/t"}]"#,
+            r#"[{"provider":"spotify","client_id":"a","redirect":"https://a.example/r"}]"#,
+            r#"[{"provider":"spotify","client_id_setting":"nothing"}]"#,
+        ] {
+            assert!(with(r#""oauth.login""#, wrong).is_err(), "{wrong}");
+        }
+        // The person's own app, from a string setting.
+        let own = PluginManifest::parse(
+            r#"{"api":1,"id":"com.example.o","name":"O","version":"1.0.0","wasm":"o.wasm",
+                "permissions":{"capabilities":["oauth.login"]},
+                "settings":[{"key":"app","type":"string","label":"Your Spotify app's client id"}],
+                "oauth":[{"provider":"spotify","client_id_setting":"app"}]}"#,
+        )
+        .expect("a client id from a setting");
+        assert_eq!(own.oauth[0].client_id_setting.as_deref(), Some("app"));
     }
 
     #[test]

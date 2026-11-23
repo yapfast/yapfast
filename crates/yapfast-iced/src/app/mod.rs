@@ -93,6 +93,9 @@ pub struct App {
     /// showed, which its denial after `dialogs::CONSENT_WAIT` counts from.
     #[cfg(feature = "plugins")]
     pub consent_since: Option<(String, std::time::Instant)>,
+    /// What the person typed or pasted into a plugin's sign-in dialog.
+    #[cfg(feature = "plugins")]
+    pub sign_in_paste: String,
     /// The thread beside's width as its edge was pressed, while it's dragged.
     pub aside_drag: Option<f32>,
     /// The minute now, as the clocks that show minutes read it, and the
@@ -297,6 +300,8 @@ impl App {
             looks: crate::plugins_ui::Looks::new(theme.clone()),
             #[cfg(feature = "plugins")]
             consent_since: None,
+            #[cfg(feature = "plugins")]
+            sign_in_paste: String::new(),
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),

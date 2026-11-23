@@ -58,6 +58,7 @@ impl Bridge {
             overlay_waiting: Mutex::new(BTreeMap::new()),
             overlay_pictures: Mutex::new(BTreeMap::new()),
             next_body: AtomicU64::new(0),
+            oauth_returns: crate::oauth::Returns::default(),
             wake,
         });
         shared.publish();

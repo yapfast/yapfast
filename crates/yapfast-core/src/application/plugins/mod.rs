@@ -29,6 +29,14 @@ use crate::plugins::state::{Notice, PreSend};
 
 /// Something a person or a plugin asks the plugin system to do.
 pub enum Action {
+    /// What the person pasted into a plugin's sign-in dialog: the token a
+    /// service's own server showed, its JSON, or the address it ended on.
+    SignInPasted { plugin: PluginId, text: String },
+    /// A plugin's sign-in dialog was closed before it finished.
+    SignInClosed(PluginId),
+    /// A `yapfast://plugin-oauth/<plugin>?…` link came back from a service's
+    /// server with the token; its query carries the sign-in's state.
+    SignInLink { plugin: String, query: String },
     /// The person pressed Stop on the red bar of a plugin's recording.
     StopRecording,
     /// Takes a kept deleted row off the timeline: the person's "Hide this
@@ -147,6 +155,16 @@ pub struct VoiceChange {
     pub input_volume: Option<u8>,
     pub output_volume: Option<u8>,
     pub suppressor: Option<crate::noise::Suppressor>,
+}
+
+/// A plugin's sign-in through a service's own server, waiting for the token to
+/// come back by a link or be pasted into its dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignInAsk {
+    pub plugin: PluginId,
+    /// The manifest's name, which the dialog shows.
+    pub name: String,
+    pub provider: String,
 }
 
 /// A powerful capability's first use, waiting for the person's answer in a red
@@ -434,6 +452,39 @@ impl Application {
                 vec![]
             }
             Action::SendHeld(draft) => self.plugins_send_held(draft),
+            Action::SignInPasted { plugin, text } => {
+                let result = match self.state.plugins.as_ref() {
+                    Some(plugins) => plugins.sign_in_pasted(&plugin, &text),
+                    None => Ok(()),
+                };
+                match result {
+                    Ok(()) => self.state.plugin_sign_in = None,
+                    // The dialog stays up for another try.
+                    Err(error) => self.state.notice = Some(format!("{error:#}")),
+                }
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
+            Action::SignInClosed(plugin) => {
+                if let Some(plugins) = self.state.plugins.as_ref() {
+                    plugins.sign_in_closed(&plugin);
+                }
+                self.state.plugin_sign_in = None;
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
+            Action::SignInLink { plugin, query } => {
+                let result = match (PluginId::parse(&plugin), self.state.plugins.as_ref()) {
+                    (Ok(id), Some(plugins)) => plugins.sign_in_link(&id, &query),
+                    (Err(_), _) => Err(anyhow::anyhow!("that sign-in link names no plugin")),
+                    (_, None) => Err(anyhow::anyhow!("plugins are off")),
+                };
+                match result {
+                    Ok(()) => self.state.plugin_sign_in = None,
+                    Err(error) => {
+                        self.state.notice = Some(format!("A sign-in link was ignored: {error:#}"));
+                    }
+                }
+                vec![AppEffect::Plugin(Effect::Page)]
+            }
             Action::AnswerPowerful {
                 plugin,
                 capability,
@@ -1321,6 +1372,38 @@ mod tests {
             matches!(effects.as_slice(), [AppEffect::ConfirmOpen { url, .. }] if url.ends_with("example.com/")),
             "the person is asked before a plugin's link opens"
         );
+    }
+
+    /// A sign-in through a service's own server opens its page through the
+    /// leaving question and waits in a dialog of its own, which goes when it
+    /// ends.
+    #[test]
+    fn a_server_sign_in_waits_in_its_dialog_until_it_ends() {
+        let mut app = connected();
+        let plugin = yapfast_plugin_api::PluginId::parse("dev.local.review").expect("an id");
+        let effects = app.apply(Event::Plugin(News::Notice(Notice::SignIn {
+            plugin: plugin.clone(),
+            provider: "reviewdb".into(),
+            url: "https://discord.com/oauth2/authorize?client_id=1".into(),
+            paste: true,
+        })));
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, AppEffect::ConfirmOpen { .. })),
+            "the page opens on the person's say"
+        );
+        let ask = app.state.plugin_sign_in.clone().expect("the dialog");
+        assert_eq!(
+            (ask.plugin.as_str(), ask.provider.as_str()),
+            ("dev.local.review", "reviewdb")
+        );
+        app.apply(Event::Plugin(News::Notice(Notice::SignInEnded {
+            plugin: yapfast_plugin_api::PluginId::parse("dev.local.other").expect("an id"),
+        })));
+        assert!(app.state.plugin_sign_in.is_some(), "another plugin's end");
+        app.apply(Event::Plugin(News::Notice(Notice::SignInEnded { plugin })));
+        assert!(app.state.plugin_sign_in.is_none());
     }
 
     /// What a plugin adds to the title, the switcher's order and a link's

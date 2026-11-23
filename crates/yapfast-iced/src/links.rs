@@ -134,6 +134,12 @@ pub(crate) fn discord_link(
         }
         DiscordRoute::Authorize { query } => Action::OpenOAuthLink(query),
         DiscordRoute::Gift { code } => Action::OpenGiftLink(code),
+        #[cfg(feature = "plugins")]
+        DiscordRoute::PluginSignIn { plugin, query } => {
+            Action::Plugin(yapfast_core::application::plugins::Action::SignInLink { plugin, query })
+        }
+        #[cfg(not(feature = "plugins"))]
+        DiscordRoute::PluginSignIn { .. } => return None,
         DiscordRoute::Event { guild, event } => Action::OpenEventLink { guild, event },
     }))
 }

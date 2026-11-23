@@ -35,6 +35,23 @@ impl Bridge {
         Ok(())
     }
 
+    /// What the person pasted into a sign-in's dialog, for a service whose
+    /// own server gives the token back.
+    pub fn sign_in_pasted(&self, plugin: &PluginId, text: &str) -> anyhow::Result<()> {
+        self.shared.oauth_returns.pasted(plugin.as_str(), text)
+    }
+
+    /// A `yapfast://plugin-oauth/<plugin>` link's query, which carries the
+    /// token a service's server handed back and the sign-in's state.
+    pub fn sign_in_link(&self, plugin: &PluginId, query: &str) -> anyhow::Result<()> {
+        self.shared.oauth_returns.link(plugin.as_str(), query)
+    }
+
+    /// The person closed a sign-in's dialog before it finished.
+    pub fn sign_in_closed(&self, plugin: &PluginId) {
+        self.shared.oauth_returns.cancel(plugin.as_str());
+    }
+
     /// The person answered a powerful capability's first-use dialog: `folder`
     /// is the one they picked for `fs.folder`. A no is kept for this session
     /// only, as the question that is no longer on screen; the plugin's next

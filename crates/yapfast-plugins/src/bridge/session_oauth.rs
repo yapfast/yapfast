@@ -15,10 +15,11 @@ impl Session {
         plugin: PluginId,
         call: HostCall,
     ) {
-        let (permissions, services) = match shared.registry().entry(&plugin) {
+        let (permissions, services, manifest) = match shared.registry().entry(&plugin) {
             Some(entry) => (
                 entry.manifest.permissions.clone(),
                 entry.manifest.oauth.clone(),
+                entry.manifest.clone(),
             ),
             None => {
                 self.reply(
@@ -61,6 +62,22 @@ impl Session {
             );
             return;
         };
+        // The person's own app, when they put its client id in the setting the
+        // manifest names.
+        let settings = shared.store().settings(&plugin, &manifest);
+        let service = match crate::oauth::resolve(service, &settings) {
+            Ok(service) => service,
+            Err(error) => {
+                self.reply(
+                    &plugin,
+                    id,
+                    HostReturn::Error {
+                        message: format!("{error:#}"),
+                    },
+                );
+                return;
+            }
+        };
         let login = call.method == call::method::OAUTH_LOGIN;
         if login && !shared.has_gesture(&plugin) {
             self.reply(
@@ -80,7 +97,32 @@ impl Session {
         let writer = self.writer.clone();
         let shared = Arc::clone(shared);
         tokio::spawn(async move {
-            let result = if login {
+            let result = if login && service.redirect.is_some() {
+                // The service's own server takes the redirect: the token comes
+                // back by a `yapfast://plugin-oauth` link or the person's paste.
+                let opener = Arc::clone(&shared);
+                let asker = plugin.clone();
+                let provider = service.provider.clone();
+                let result = crate::oauth::login_by_server(
+                    &service,
+                    &data_dir,
+                    plugin.as_str(),
+                    &shared.oauth_returns,
+                    move |url| {
+                        opener.announce(Notice::SignIn {
+                            plugin: asker,
+                            provider,
+                            url,
+                            paste: true,
+                        });
+                    },
+                )
+                .await;
+                shared.announce(Notice::SignInEnded {
+                    plugin: plugin.clone(),
+                });
+                result
+            } else if login {
                 let opener = Arc::clone(&shared);
                 let asker = plugin.clone();
                 let provider = service.provider.clone();
@@ -89,6 +131,7 @@ impl Session {
                         plugin: asker,
                         provider,
                         url,
+                        paste: false,
                     });
                 })
                 .await

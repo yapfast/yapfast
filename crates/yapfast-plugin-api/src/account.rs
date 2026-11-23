@@ -448,7 +448,25 @@ pub struct OAuthDecl {
     /// own with `authorize` and `token` given.
     pub provider: String,
     /// The plugin's own app's client id, from the service's developer page.
+    /// It may be left out when [`OAuthDecl::client_id_setting`] names where
+    /// the person puts theirs.
+    #[serde(default)]
     pub client_id: String,
+    /// A `string` setting of the plugin's own whose value, once the person
+    /// filled it in, is used in place of `client_id`: so someone can bring
+    /// their own app (a Spotify app in development mode lists who may sign
+    /// in to it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id_setting: Option<String>,
+    /// For a service whose app sends the browser back to its own server
+    /// (ReviewDB, Decor): that address, `https`, as the app registered it.
+    /// The service's server trades the code itself and gives a token back,
+    /// which comes to Yapfast through a `yapfast://plugin-oauth/<plugin>`
+    /// link or which the person pastes into the small dialog the sign-in
+    /// shows. No PKCE, no `token` address, no loopback; the token is kept as
+    /// given until `oauth.logout`, or until the time it came with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirect: Option<String>,
     #[serde(default)]
     pub scopes: Vec<String>,
     /// The service's authorization page, `https`, for a provider Yapfast
@@ -502,8 +520,23 @@ impl OAuthDecl {
         {
             return Err("a provider is a short lowercase name".to_owned());
         }
-        if !plain(&self.client_id) {
+        let from_setting = self.client_id_setting.is_some() && self.client_id.is_empty();
+        if !from_setting && !plain(&self.client_id) {
             return Err(format!("{}'s client_id isn't one", self.provider));
+        }
+        if let Some(redirect) = &self.redirect {
+            if !(redirect.starts_with("https://") && redirect.len() > 8 && plain(redirect)) {
+                return Err(format!(
+                    "{}'s `redirect` is the https address of its own server",
+                    self.provider
+                ));
+            }
+            if self.token.is_some() || self.redirect_port.is_some() {
+                return Err(format!(
+                    "{}'s server trades the code itself, so it takes no `token` or `redirect_port`",
+                    self.provider
+                ));
+            }
         }
         if self.scopes.iter().any(|scope| !plain(scope)) {
             return Err(format!(
@@ -512,8 +545,8 @@ impl OAuthDecl {
             ));
         }
         match self.provider.as_str() {
-            "spotify" if self.authorize.is_some() || self.token.is_some() => Err(
-                "Yapfast knows Spotify's addresses, so `spotify` takes no `authorize` or `token`"
+            "spotify" if self.authorize.is_some() || self.token.is_some() || self.redirect.is_some() => Err(
+                "Yapfast knows Spotify's addresses, so `spotify` takes no `authorize`, `token` or `redirect`"
                     .to_owned(),
             ),
             "spotify" => Ok(()),
@@ -522,17 +555,21 @@ impl OAuthDecl {
                     url.as_deref()
                         .is_some_and(|url| url.starts_with("https://") && url.len() > 8)
                 };
-                if https(&self.authorize) && https(&self.token) {
+                if https(&self.authorize) && (https(&self.token) || self.redirect.is_some()) {
                     Ok(())
                 } else {
                     Err(format!(
-                        "`{other}` needs an `authorize` and a `token` address, each https"
+                        "`{other}` needs an `authorize` and a `token` (or `redirect`) address, each https"
                     ))
                 }
             }
         }
     }
 }
+
+/// The host of the deep link a service's server sends a token back with:
+/// `yapfast://plugin-oauth/<plugin id>?provider=…&state=…&token=…`.
+pub const OAUTH_LINK_HOST: &str = "plugin-oauth";
 
 /// `oauth.login`, `oauth.token` and `oauth.logout`'s payload.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

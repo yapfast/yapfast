@@ -123,6 +123,8 @@ pub(crate) struct Shared {
     /// under the name its sprites use, oldest first.
     pub(super) overlay_pictures: Mutex<HeldPictures>,
     pub(super) next_body: AtomicU64,
+    /// The sign-ins waiting for a service's server to hand a token back.
+    pub(super) oauth_returns: crate::oauth::Returns,
     pub(super) wake: Arc<dyn Fn(Notice) + Send + Sync>,
 }
 

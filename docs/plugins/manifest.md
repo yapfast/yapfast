@@ -322,6 +322,26 @@ loopback port for a service that wants the redirect URI exact; without it a
 free port is used, which Spotify allows for an app whose redirect URI is
 registered as `http://127.0.0.1/callback`. Each provider once.
 
+`client_id_setting` names a `string` setting of the plugin's own: when the
+person filled it in, its value is the client id, so they can bring their own
+app (a Spotify app in development mode lists who may sign in to it);
+`client_id` may then be left out, and `oauth.login` says to fill the setting in
+first.
+
+A service whose app sends the browser back to its own server, as ReviewDB's
+and Decor's Discord apps do, gives that address as `redirect` (`https`, as the
+app registered it) beside `authorize`, and no `token` or `redirect_port`:
+
+```json
+"oauth": [{ "provider": "reviewdb", "client_id": "915703782174752809",
+            "scopes": ["identify"],
+            "authorize": "https://discord.com/oauth2/authorize",
+            "redirect": "https://manti.vendicated.dev/api/reviewdb/auth" }]
+```
+
+The server trades the code itself and gives a token back
+([the ABI](abi.md#signing-in-to-a-service)).
+
 ## Named parts
 
 A plugin can name what it draws in a slot, so Yapfast knows which of its parts
@@ -467,7 +487,7 @@ in the window changes.
 | Two parts with one name | Duplicate `parts[].name` |
 | Two settings with one key | Duplicate `settings[].key` |
 | Depending on itself | `dependencies` names the plugin's own id |
-| A sign-in that can't work | `oauth` is set and `oauth.login` isn't declared, a provider is named twice, a `client_id` or scope has a space, `spotify` is given addresses, or another provider's `authorize` or `token` isn't `https` |
+| A sign-in that can't work | `oauth` is set and `oauth.login` isn't declared, a provider is named twice, a `client_id` or scope has a space, `spotify` is given addresses, another provider's `authorize`, `token` or `redirect` isn't `https`, a `redirect` comes with `token` or `redirect_port`, or `client_id_setting` names no string setting |
 
 Nothing is executed during validation: the manifest is read, the module's header
 and magic are checked, its imports are checked against the two host functions the

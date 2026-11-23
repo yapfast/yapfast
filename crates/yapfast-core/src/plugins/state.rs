@@ -319,6 +319,21 @@ impl PluginState {
             .answer_powerful(plugin, capability, allow, folder)
     }
 
+    /// What the person pasted into a plugin's sign-in dialog.
+    pub fn sign_in_pasted(&self, plugin: &PluginId, text: &str) -> anyhow::Result<()> {
+        self.bridge.sign_in_pasted(plugin, text)
+    }
+
+    /// The token a `yapfast://plugin-oauth/<plugin>` link brought back.
+    pub fn sign_in_link(&self, plugin: &PluginId, query: &str) -> anyhow::Result<()> {
+        self.bridge.sign_in_link(plugin, query)
+    }
+
+    /// A plugin's sign-in dialog was closed before it finished.
+    pub fn sign_in_closed(&self, plugin: &PluginId) {
+        self.bridge.sign_in_closed(plugin);
+    }
+
     /// Takes a powerful capability back from a plugin.
     pub fn revoke_powerful(
         &mut self,

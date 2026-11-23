@@ -101,16 +101,38 @@ impl Application {
             }
             // A plugin's sign-in page goes through the leaving dialog, which
             // names the plugin, as any page a plugin opens does.
+            // A service whose own server takes the redirect gives the token
+            // back by a link or the person's paste: the sign-in's dialog
+            // waits under the leaving one with a field for it.
             News::Notice(Notice::SignIn {
                 plugin,
                 provider,
                 url,
+                paste,
             }) => {
                 let name = self.plugin_name(&plugin);
+                if paste {
+                    self.state.plugin_sign_in = Some(SignInAsk {
+                        plugin: plugin.clone(),
+                        name: name.clone(),
+                        provider: provider.clone(),
+                    });
+                }
                 vec![AppEffect::ConfirmOpen {
                     url,
                     plugin: format!("{name} ({plugin}), to sign in to {provider}"),
                 }]
+            }
+            News::Notice(Notice::SignInEnded { plugin }) => {
+                if self
+                    .state
+                    .plugin_sign_in
+                    .as_ref()
+                    .is_some_and(|ask| ask.plugin == plugin)
+                {
+                    self.state.plugin_sign_in = None;
+                }
+                vec![AppEffect::Plugin(Effect::Page)]
             }
             // What a plugin's overlay shows: the window draws it over
             // everything, and paces its frames with the ticker.
