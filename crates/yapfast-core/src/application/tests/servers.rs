@@ -179,6 +179,51 @@ fn server_channels_list_their_pins_and_search_them() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn recent_mentions_come_newest_first_once_each_up_to_a_hundred() {
+    let mut app = discord_server();
+    assert!(matches!(
+        app.dispatch(Action::LoadRecentMentions).as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::RecentMentions
+        ))]
+    ));
+    let said = |id: u64, timestamp: u64| ChatMessage {
+        id: format!("d:{id}"),
+        item: format!("d:{id}"),
+        timestamp,
+        ..Default::default()
+    };
+    let room = "discord:10:11".to_owned();
+    app.apply(Event::RecentMentions {
+        result: Ok(vec![(room.clone(), said(2, 2)), (room.clone(), said(1, 1))]),
+    });
+    let listed = |app: &Application| {
+        app.state
+            .recent_mentions
+            .iter()
+            .map(|(_, message)| message.item.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(listed(&app), ["d:2", "d:1"]);
+    // The same mention stays once, and a newer one leads.
+    app.apply(Event::RecentMentions {
+        result: Ok(vec![(room.clone(), said(3, 3)), (room.clone(), said(2, 2))]),
+    });
+    assert_eq!(listed(&app), ["d:3", "d:2", "d:1"]);
+    // Only the newest hundred stay.
+    let many = (4..=200)
+        .rev()
+        .map(|id| (room.clone(), said(id, id)))
+        .collect();
+    app.apply(Event::RecentMentions { result: Ok(many) });
+    let kept = listed(&app);
+    assert_eq!(kept.len(), crate::application::RECENT_MENTIONS);
+    assert_eq!(kept[0], "d:200");
+    assert_eq!(kept[95], "d:105");
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn server_channels_and_categories_offer_their_notifications() {
     let app = discord_server();
     let notifying = [MenuChoice::ChannelMute, MenuChoice::ChannelNotifications];

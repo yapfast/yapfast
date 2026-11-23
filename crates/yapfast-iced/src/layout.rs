@@ -133,6 +133,10 @@ pub struct Layout {
     /// Each place's searches, newest first, by server or DM id, as
     /// Discord's box keeps them (`search_popout::HISTORY`).
     pub search_history: HashMap<String, Vec<String>>,
+    /// The inbox's last tab ("unreads" or "mentions") and the Mentions
+    /// tab's last filter ("all", "direct", "role" or "everyone").
+    pub inbox_tab: Option<String>,
+    pub mention_filter: Option<String>,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,

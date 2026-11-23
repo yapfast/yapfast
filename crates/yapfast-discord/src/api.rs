@@ -83,6 +83,9 @@ const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 const FORWARD: u64 = 1;
 /// The most messages one history request returns.
 pub const PAGE: usize = 50;
+/// The most mentions one request to the Mentions inbox returns: Discord's
+/// whole page, up to which Yapfast keeps them.
+pub const MENTIONS_PAGE: usize = 100;
 
 /// How many archived threads a page of a channel's list of threads holds,
 /// as Discord's client asks for them.
@@ -1079,6 +1082,18 @@ impl Api {
                 .into_iter()
                 .map(|mut item| item["message"].take())
                 .collect()),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// This account's recent mentions, the newest first: the messages that
+    /// called on it in the past week, from any server or DM, up to
+    /// [`MENTIONS_PAGE`]; Discord's Mentions inbox. See "List Recent Mentions"
+    /// in <https://docs.discord.food/resources/user>.
+    pub async fn recent_mentions(&self) -> Result<Vec<Value>> {
+        let path = format!("/users/@me/mentions?limit={MENTIONS_PAGE}");
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(items) => Ok(items),
             _ => bail!("could not understand Discord's answer"),
         }
     }

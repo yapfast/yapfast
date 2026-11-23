@@ -242,6 +242,176 @@ fn the_own_title_bar_names_the_place_and_its_inbox_lists_the_unreads() {
 }
 
 #[test]
+fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
+    use yapfast_core::{
+        chat::ChatMessage,
+        mention::{Mentioned, Target},
+    };
+    let ping = |item: &str, body: &str, mentions: Vec<Mentioned>, replies: bool| {
+        Arc::new(ChatMessage {
+            id: item.into(),
+            item: item.into(),
+            author: "Riley".into(),
+            body: body.into(),
+            timestamp: 1_700_000_000,
+            mentions_me: true,
+            replies_to_me: replies,
+            mentions,
+            ..Default::default()
+        })
+    };
+    let (mut app, _folder) = preview();
+    own_bar(&mut app);
+    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![
+            ping(
+                "d:9",
+                "hey you look",
+                vec![Mentioned {
+                    text: "@you".into(),
+                    target: Target::User("1".into()),
+                    color: None,
+                    at: vec![4],
+                }],
+                false,
+            ),
+            ping(
+                "d:10",
+                "mods look",
+                vec![Mentioned {
+                    text: "@mods".into(),
+                    target: Target::Role("7".into()),
+                    color: None,
+                    at: vec![0],
+                }],
+                false,
+            ),
+            ping("d:11", "as said above", vec![], true),
+        ]);
+    });
+    assert_eq!(app.mention_hits.len(), 3, "the open room's pings kept"); // A room with mentions but no message kept still lists as a row.
+    unread(&mut app, "general", 1);
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Mentions,
+    )));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.mentions.len(), 3);
+    assert!(
+        !inbox
+            .mentions
+            .iter()
+            .any(|row| row.kind == window_bar::MentionKind::Everyone),
+        "no everyone ping among them"
+    );
+    assert!(shows(&app, "Direct"), "the filter chips show");
+    assert!(shows(&app, "@roles"));
+    assert!(shows(&app, "@everyone"));
+    assert!(
+        shows(&app, "#general"),
+        "a room with mentions but no message kept still lists"
+    );
+    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
+        window_bar::MentionFilter::Role,
+    )));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.mentions.len(), 1, "only the role ping shows");
+    assert_eq!(inbox.mentions[0].message.item, "d:10");
+    // Back to everything, for what comes next.
+    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
+        window_bar::MentionFilter::All,
+    )));
+    // A ping's row jumps to its message rather than just its room.
+    let room = app.client.state().selected.clone().expect("a room");
+    let _ = app.update(Message::Bar(window_bar::Event::InboxOpenMessage {
+        room: room.clone(),
+        item: "d:9".into(),
+    }));
+    assert!(app.inbox.is_none(), "jumping closes it");
+    assert_eq!(app.client.state().selected.as_deref(), Some(room.as_str()));
+    assert!(
+        app.client.state().jump.is_some(),
+        "jumped to the ping's message"
+    );
+    // What the startup fetch brings joins the same stash: its rooms need
+    // no visit before their pings list and jump.
+    change(&mut app, |state| {
+        state.recent_mentions.push((
+            "general".into(),
+            ChatMessage {
+                id: "d:20".into(),
+                item: "d:20".into(),
+                author: "Bob".into(),
+                body: "joined the server".into(),
+                timestamp: 1_700_000_100,
+                mentions_me: true,
+                ..Default::default()
+            },
+        ));
+        // A fetched reply holds no `<@id>` in its text, as the fetch path
+        // marks it from its metadata.
+        state.recent_mentions.push((
+            "general".into(),
+            ChatMessage {
+                id: "d:21".into(),
+                item: "d:21".into(),
+                author: "Bob".into(),
+                body: "good idea, bring the big one".into(),
+                timestamp: 1_699_999_900,
+                replies_to_me: true,
+                ..Default::default()
+            },
+        ));
+    });
+    assert_eq!(app.mention_hits.len(), 5, "the fetched pings kept");
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Mentions,
+    )));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert!(
+        inbox.mentions.iter().any(|row| row.message.item == "d:20"),
+        "the fetched ping lists without visiting its room"
+    );
+    assert!(
+        inbox.mentions.iter().any(|row| row.message.item == "d:21"),
+        "a fetched reply lists without visiting its room"
+    );
+    assert_eq!(
+        inbox.mentions.first().map(|row| row.message.item.as_str()),
+        Some("d:20"),
+        "the newer fetched ping leads the older live ones"
+    );
+    assert_eq!(
+        inbox.mentions.last().map(|row| row.message.item.as_str()),
+        Some("d:21"),
+        "the older fetched reply sorts under the newer live ones"
+    );
+    // The tab and its filter come back as they were left.
+    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
+        window_bar::MentionFilter::Role,
+    )));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    assert!(app.inbox.is_none());
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.tab, window_bar::Tab::Mentions);
+    assert_eq!(inbox.filter, window_bar::MentionFilter::Role);
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Unreads,
+    )));
+    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
+        window_bar::MentionFilter::All,
+    )));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.tab, window_bar::Tab::Unreads);
+    assert_eq!(inbox.filter, window_bar::MentionFilter::All);
+}
+
+#[test]
 fn under_the_own_title_bar_clicks_land_on_what_they_point_at() {
     let (mut app, _folder) = preview();
     own_bar(&mut app);

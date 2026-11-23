@@ -5,21 +5,24 @@
 //! desktop draws the title bar, or none (a tiling compositor), the bar still
 //! shows under it, as Discord's client always has one, without the window's
 //! buttons, and neither moves nor resizes the window. The Inbox
-//! opens its popout under it: the channels and conversations with unread
-//! messages, or those that mention this account.
+//! opens its popout under it: Unreads lists the channels and conversations
+//! with unread messages, and Mentions the messages that ping this account,
+//! filterable by what kind of ping they hold, each jumping to its message.
 //!
 //! Whether Yapfast draws it is the desktop's way (`frame.rs`) until
 //! Appearance's "Use the system title bar" chooses. A window is made with
 //! the frame or without; changing it makes the window again.
 
 use crate::widgets::scroll_view;
+use std::sync::Arc;
+
 use iced::{
     Alignment, Element, Length, Point, Size, Task,
     mouse::Interaction,
     widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
     window,
 };
-use yapfast_core::application::DmScreen;
+use yapfast_core::{application::DmScreen, chat::ChatMessage};
 
 use crate::{
     app::{App, Message},
@@ -83,7 +86,13 @@ pub enum Event {
     Forward,
     Inbox,
     InboxTab(Tab),
+    InboxFilter(MentionFilter),
     InboxOpen(String),
+    /// A ping's own message opened: its room shows that message.
+    InboxOpenMessage {
+        room: String,
+        item: String,
+    },
     InboxScrolled(crate::sync::Scroll),
     CloseInbox,
     Help,
@@ -112,11 +121,33 @@ pub enum Tab {
     Mentions,
 }
 
-/// The inbox popout while it's open: its tab and its rows.
+impl Tab {
+    /// As `layout.json` keeps it.
+    fn key(self) -> &'static str {
+        match self {
+            Tab::Unreads => "unreads",
+            Tab::Mentions => "mentions",
+        }
+    }
+
+    /// The tab a kept key names, or Unreads.
+    fn of(key: Option<&str>) -> Tab {
+        match key {
+            Some("mentions") => Tab::Mentions,
+            _ => Tab::Unreads,
+        }
+    }
+}
+
+/// The inbox popout while it's open: its tab, its rows, and the Mentions
+/// tab's filter, message cards and rooms with mentions but no message kept.
 #[derive(Default)]
 pub struct Inbox {
     pub tab: Tab,
     pub rows: Vec<InboxRow>,
+    pub mentions: Vec<MentionRow>,
+    pub more: Vec<InboxRow>,
+    pub filter: MentionFilter,
     /// Its list's viewport: only the rows near it are built.
     pub scroll: crate::sync::Scroll,
 }
@@ -132,6 +163,152 @@ pub struct InboxRow {
     pub place: String,
     pub picture: Option<String>,
     pub mentions: u64,
+}
+
+/// What kind of ping a message holds for this account: a direct mention or
+/// a reply to its message, one of its roles, or @everyone or @here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MentionKind {
+    Direct,
+    Role,
+    Everyone,
+}
+
+impl MentionKind {
+    /// As its message's card names it.
+    pub fn tag(self) -> &'static str {
+        match self {
+            MentionKind::Direct => "direct",
+            MentionKind::Role => "role",
+            MentionKind::Everyone => "everyone",
+        }
+    }
+}
+
+/// A message that pings this account, kept while the window runs: the room
+/// it came in and the message itself.
+#[derive(Clone, Debug)]
+pub struct MentionHit {
+    pub room: String,
+    pub message: Arc<ChatMessage>,
+}
+
+/// How many pings the inbox keeps, newest first.
+pub const MAX_MENTIONS: usize = 100;
+
+/// The Mentions tab's filter: every ping, or only one kind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MentionFilter {
+    #[default]
+    All,
+    Direct,
+    Role,
+    Everyone,
+}
+
+impl MentionFilter {
+    /// Whether a ping of this kind shows under the filter.
+    pub fn shows(self, kind: MentionKind) -> bool {
+        match self {
+            MentionFilter::All => true,
+            MentionFilter::Direct => kind == MentionKind::Direct,
+            MentionFilter::Role => kind == MentionKind::Role,
+            MentionFilter::Everyone => kind == MentionKind::Everyone,
+        }
+    }
+
+    /// The filter's chips, in the order the tab shows them.
+    pub fn chips() -> [MentionFilter; 4] {
+        [
+            MentionFilter::All,
+            MentionFilter::Direct,
+            MentionFilter::Role,
+            MentionFilter::Everyone,
+        ]
+    }
+
+    /// As its chip names it.
+    pub fn label(self) -> &'static str {
+        match self {
+            MentionFilter::All => "All",
+            MentionFilter::Direct => "Direct",
+            MentionFilter::Role => "@roles",
+            MentionFilter::Everyone => "@everyone",
+        }
+    }
+
+    /// As `layout.json` keeps it.
+    fn key(self) -> &'static str {
+        match self {
+            MentionFilter::All => "all",
+            MentionFilter::Direct => "direct",
+            MentionFilter::Role => "role",
+            MentionFilter::Everyone => "everyone",
+        }
+    }
+
+    /// The filter a kept key names, or All.
+    fn of(key: Option<&str>) -> MentionFilter {
+        match key {
+            Some("direct") => MentionFilter::Direct,
+            Some("role") => MentionFilter::Role,
+            Some("everyone") => MentionFilter::Everyone,
+            _ => MentionFilter::All,
+        }
+    }
+
+    /// As its empty state names it.
+    pub fn empty(self) -> &'static str {
+        match self {
+            MentionFilter::All => "Nothing mentions you right now.",
+            MentionFilter::Direct => "No direct mentions right now.",
+            MentionFilter::Role => "No role mentions right now.",
+            MentionFilter::Everyone => "No @everyone mentions right now.",
+        }
+    }
+}
+
+/// What kind of ping a message holds for this account, if any: @everyone
+/// or @here first, then a role, then a direct mention or a reply. A
+/// `#channel` mention names no one, so it counts as none.
+pub fn mention_kind(message: &ChatMessage) -> Option<MentionKind> {
+    use yapfast_core::mention::Target;
+    let mut role = false;
+    let mut direct = message.replies_to_me;
+    for mentioned in &message.mentions {
+        match mentioned.target {
+            Target::Everyone => return Some(MentionKind::Everyone),
+            Target::Role(_) => role = true,
+            Target::User(_) => direct = true,
+            Target::Channel(_) => {}
+        }
+    }
+    if role {
+        Some(MentionKind::Role)
+    } else if direct || message.mentions_me {
+        Some(MentionKind::Direct)
+    } else {
+        None
+    }
+}
+
+/// One ping the Mentions tab shows: its message's card, and where it came
+/// from. The card is laid out once, when the tab's rows are made.
+pub struct MentionRow {
+    pub room: String,
+    pub message: Arc<ChatMessage>,
+    /// The channel, with its `#`, and its server.
+    pub name: String,
+    pub place: String,
+    pub kind: MentionKind,
+    pub card: crate::found::Found,
+}
+
+impl MentionRow {
+    /// Whether it's the same ping showing the same message.
+    fn same(&self, room: &str, message: &ChatMessage) -> bool {
+        self.room == room && self.message.as_ref() == message
+    }
 }
 
 /// The press that may move the window, and where it was.
@@ -233,6 +410,8 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.inbox = match app.inbox.take() {
                 Some(_) => None,
                 None => Some(Inbox {
+                    tab: Tab::of(app.layout.inbox_tab.as_deref()),
+                    filter: MentionFilter::of(app.layout.mention_filter.as_deref()),
                     scroll: crate::sync::Scroll::new(INBOX_MOST),
                     ..Inbox::default()
                 }),
@@ -244,6 +423,17 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             if let Some(inbox) = &mut app.inbox {
                 inbox.tab = tab;
             }
+            app.layout.inbox_tab = Some(tab.key().into());
+            crate::layout::store(app.client.root(), "inbox_tab", tab.key());
+            inbox_sync(app);
+            Task::none()
+        }
+        Event::InboxFilter(filter) => {
+            if let Some(inbox) = &mut app.inbox {
+                inbox.filter = filter;
+            }
+            app.layout.mention_filter = Some(filter.key().into());
+            crate::layout::store(app.client.root(), "mention_filter", filter.key());
             inbox_sync(app);
             Task::none()
         }
@@ -251,6 +441,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.inbox = None;
             app.client
                 .dispatch(yapfast_core::application::Action::SwitchTo(room));
+            app.sync()
+        }
+        Event::InboxOpenMessage { room, item } => {
+            app.inbox = None;
+            app.client
+                .dispatch(yapfast_core::application::Action::JumpInRoom { room, item });
             app.sync()
         }
         Event::InboxScrolled(scroll) => {
@@ -349,13 +545,116 @@ pub fn choose_title_bar(app: &mut App, system: bool) -> Task<Message> {
 
 /// The inbox's rows for its tab, from what the client already knows:
 /// the channels and conversations with unread messages, muted ones only
+/// for a mention, and the pings the open rooms hold.
+pub fn mentions_sync(app: &mut App) -> bool {
+    // What the open rooms hold, and what the startup fetch brought that
+    // isn't kept yet, without holding the state's borrow.
+    let (fresh, fetched_new): (Vec<(String, Arc<ChatMessage>)>, usize) = {
+        let state = app.client.state();
+        let mut live = Vec::new();
+        if let Some(room) = state.selected.clone() {
+            live.extend(
+                state
+                    .messages
+                    .iter()
+                    .filter(|message| message.mentions_me || message.replies_to_me)
+                    .map(|message| (room.clone(), Arc::clone(message))),
+            );
+        }
+        if let Some(aside) = &state.aside {
+            live.extend(
+                aside
+                    .messages
+                    .iter()
+                    .filter(|message| message.mentions_me || message.replies_to_me)
+                    .map(|message| (aside.room.clone(), Arc::clone(message))),
+            );
+        }
+        let fetched: Vec<(String, Arc<ChatMessage>)> = state
+            .recent_mentions
+            .iter()
+            .filter(|(_, message)| {
+                !app.mention_hits
+                    .iter()
+                    .any(|hit| hit.message.item == message.item)
+            })
+            .map(|(room, message)| (room.clone(), Arc::new(message.clone())))
+            .collect();
+        let fetched_new = fetched.len();
+        (fetched.into_iter().chain(live).collect(), fetched_new)
+    };
+    if fetched_new > 0 {
+        tracing::info!(fetched_new, "kept fetched pings");
+    }
+    let mut changed = false;
+    for (room, message) in fresh {
+        let at = app
+            .mention_hits
+            .iter()
+            .position(|hit| hit.message.item == message.item);
+        match at {
+            Some(0)
+                if app.mention_hits[0].room == room
+                    && Arc::ptr_eq(&app.mention_hits[0].message, &message) => {}
+            Some(index) => {
+                app.mention_hits.remove(index);
+                app.mention_hits.push_front(MentionHit { room, message });
+                changed = true;
+            }
+            None => {
+                app.mention_hits.push_front(MentionHit { room, message });
+                changed = true;
+            }
+        }
+    }
+    // Newest first, by when each was sent: a ping a newly opened channel
+    // brings sorts under the newer ones rather than jumping the queue.
+    let before: Vec<String> = app
+        .mention_hits
+        .iter()
+        .map(|hit| hit.message.item.clone())
+        .collect();
+    app.mention_hits.make_contiguous().sort_by(|a, b| {
+        b.message
+            .timestamp
+            .cmp(&a.message.timestamp)
+            .then_with(|| mention_order(&b.message.item).cmp(&mention_order(&a.message.item)))
+    });
+    if app.mention_hits.len() > MAX_MENTIONS {
+        app.mention_hits.truncate(MAX_MENTIONS);
+    }
+    let after: Vec<String> = app
+        .mention_hits
+        .iter()
+        .map(|hit| hit.message.item.clone())
+        .collect();
+    changed = changed || before != after;
+    changed
+}
+
+/// Where a kept ping falls, newest first: its message's snowflake.
+fn mention_order(item: &str) -> u64 {
+    item.split_once(':')
+        .and_then(|(_, id)| id.parse().ok())
+        .unwrap_or_default()
+}
+
+/// How many of the kept pings the Mentions tab shows.
+const MENTION_ROWS: usize = 30;
+
+/// The inbox's rows for its tab, from what the client already knows:
+/// the channels and conversations with unread messages, muted ones only
 /// for a mention, or those that mention this account.
 pub fn inbox_sync(app: &mut App) {
-    let Some(inbox) = &mut app.inbox else {
+    if app.inbox.is_none() {
         return;
+    }
+    let (tab, filter) = {
+        let inbox = app.inbox.as_ref().expect("open");
+        (inbox.tab, inbox.filter)
     };
     let state = app.client.state();
-    let mentions_only = inbox.tab == Tab::Mentions;
+    let mentions_only = tab == Tab::Mentions;
     // Each channel's server, found once.
     let places: std::collections::HashMap<&str, &str> = state
         .servers
@@ -367,29 +666,103 @@ pub fn inbox_sync(app: &mut App) {
                 .map(|channel| (channel.as_str(), server.name.as_str()))
         })
         .collect();
+    let rooms: std::collections::HashMap<&str, &yapfast_core::chat::ChatRoom> = state
+        .rooms
+        .iter()
+        .map(|room| (room.id.as_str(), room.as_ref()))
+        .collect();
+    let row_of = |room: &yapfast_core::chat::ChatRoom| InboxRow {
+        id: room.id.clone(),
+        name: if room.direct {
+            room.name.clone()
+        } else {
+            format!("#{}", room.name)
+        },
+        avatar_name: room.name.clone(),
+        place: places
+            .get(room.id.as_str())
+            .map(|place| (*place).to_owned())
+            .unwrap_or_default(),
+        picture: room.direct.then(|| room.avatar.clone()).flatten(),
+        mentions: room.mentions,
+    };
     let rows: Vec<InboxRow> = state
         .rooms
         .iter()
         .filter(|room| !room.request && !room.unlisted)
         .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
-        .map(|room| InboxRow {
-            id: room.id.clone(),
-            name: if room.direct {
-                room.name.clone()
-            } else {
-                format!("#{}", room.name)
-            },
-            avatar_name: room.name.clone(),
-            place: places
-                .get(room.id.as_str())
-                .map(|place| (*place).to_owned())
-                .unwrap_or_default(),
-            picture: room.direct.then(|| room.avatar.clone()).flatten(),
-            mentions: room.mentions,
-        })
+        .map(|room| row_of(room.as_ref()))
         .collect();
+    // The Mentions tab's pings, newest first, under its filter: where each
+    // came from, and what kind of ping it holds.
+    let mut pinged: Vec<(String, Arc<ChatMessage>, String, String, MentionKind)> = Vec::new();
+    if mentions_only {
+        for hit in &app.mention_hits {
+            let Some(kind) = mention_kind(&hit.message) else {
+                continue;
+            };
+            if !filter.shows(kind) {
+                continue;
+            }
+            let Some(room) = rooms.get(hit.room.as_str()) else {
+                continue;
+            };
+            let row = row_of(room);
+            pinged.push((
+                hit.room.clone(),
+                Arc::clone(&hit.message),
+                row.name,
+                row.place,
+                kind,
+            ));
+            if pinged.len() >= MENTION_ROWS {
+                break;
+            }
+        }
+    }
+    // Rooms with mentions but no message kept open below the pings, as
+    // rows. What counts as kept doesn't depend on the filter: a filter
+    // hides pings, it doesn't turn their rooms back into rows.
+    let covered: std::collections::HashSet<&str> = app
+        .mention_hits
+        .iter()
+        .map(|hit| hit.room.as_str())
+        .collect();
+    let more: Vec<InboxRow> = if mentions_only {
+        rows.iter()
+            .filter(|row| row.mentions > 0 && !covered.contains(row.id.as_str()))
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // The pings' cards, laid out once here rather than every frame.
+    let mut mentions: Vec<MentionRow> = Vec::with_capacity(pinged.len());
+    for (room, message, name, place, kind) in pinged {
+        let card = crate::found::found(app, Arc::clone(&message));
+        mentions.push(MentionRow {
+            room,
+            message,
+            name,
+            place,
+            kind,
+            card,
+        });
+    }
+    let inbox = app.inbox.as_mut().expect("open");
     if rows != inbox.rows {
         inbox.rows = rows;
+    }
+    let same = mentions.len() == inbox.mentions.len()
+        && mentions
+            .iter()
+            .zip(inbox.mentions.iter())
+            .all(|(made, kept)| kept.room == made.room && kept.same(&made.room, &made.message));
+    if !same {
+        inbox.mentions = mentions;
+    }
+    if more != inbox.more {
+        inbox.more = more;
     }
 }
 
@@ -740,7 +1113,10 @@ pub fn resize_edges(app: &App) -> Option<Element<'_, Message>> {
 }
 
 /// The inbox popout under the bar's Inbox button, as Discord's: 440 px
-/// wide, Unreads and Mentions, a click on a row going there.
+/// wide, Unreads and Mentions. Unreads lists the rooms with something
+/// waiting, a click going there; Mentions its pings' own messages under a
+/// filter, a click jumping to the message, and the rooms with mentions but
+/// no message kept below.
 pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     let inbox = app.inbox.as_ref()?;
     if bar_height(app) == 0.0 || !crate::signin::workspace(app) {
@@ -778,46 +1154,107 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     .padding([0, 16])
     .height(48)
     .align_y(Alignment::Center);
-    let body: Element<'_, Message> = if inbox.rows.is_empty() {
-        container(
-            text(match inbox.tab {
-                Tab::Unreads => "Unread messages from your unmuted channels show up here.",
-                Tab::Mentions => "Nothing mentions you right now.",
-            })
-            .size(14)
-            .color(theme.muted)
-            .align_x(Alignment::Center)
-            .width(Length::Fill),
-        )
+    let body: Element<'_, Message> = if inbox.tab == Tab::Unreads {
+        if inbox.rows.is_empty() {
+            empty_inbox(
+                theme,
+                "Unread messages from your unmuted channels show up here.",
+            )
+        } else {
+            // Only the rows near the view are built: the Unreads can list
+            // hundreds.
+            let (first, last) = inbox.scroll.range(inbox.rows.len(), INBOX_ROW, INBOX_PAD);
+            let mut rows = Rows::new(inbox.rows.len() as f32 * INBOX_ROW + INBOX_PAD * 2.0);
+            for (index, entry) in inbox.rows.iter().enumerate().take(last).skip(first) {
+                rows.push(
+                    crate::app::key(&entry.id),
+                    INBOX_PAD + index as f32 * INBOX_ROW,
+                    INBOX_ROW,
+                    container(inbox_line(app, entry)).padding([0.0, INBOX_PAD]),
+                );
+            }
+            scroll_view(rows)
+                .on_scroll(|viewport| {
+                    Message::Bar(Event::InboxScrolled(crate::sync::Scroll::of(viewport)))
+                })
+                .style(scrollbar(theme))
+                .height(Length::Fill)
+                .into()
+        }
+    } else {
+        // The Mentions tab: the filter strip, always visible so every
+        // filter stays reachable, even one that matches nothing, over the
+        // pings' cards. The strip hugs its labels; the empty margin is
+        // doing design work.
+        let mut segments = row![].spacing(0).align_y(Alignment::Center);
+        for chip in MentionFilter::chips() {
+            let selected = inbox.filter == chip;
+            segments = segments.push(
+                button(text(chip.label()).size(12).font(BOLD).color(if selected {
+                    theme.text
+                } else {
+                    theme.secondary
+                }))
+                .padding([3, 8])
+                .on_press(Message::Bar(Event::InboxFilter(chip)))
+                .style(lit_style(
+                    selected.then(|| theme.wash(0.12)),
+                    theme.wash(if selected { 0.12 } else { 0.06 }),
+                    3.0,
+                )),
+            );
+        }
+        let line = theme.line;
+        let strip = container(container(segments).padding(2).style(move |_| {
+            iced::widget::container::Style {
+                border: crate::style::edge(line, 4.0),
+                ..Default::default()
+            }
+        }))
         .padding(iced::Padding {
-            top: 16.0,
+            top: 8.0,
             left: 16.0,
             right: 16.0,
             bottom: 0.0,
-        })
-        .height(136)
-        .align_y(Alignment::Center)
-        .into()
-    } else {
-        // Only the rows near the view are built: the Unreads can list
-        // hundreds.
-        let (first, last) = inbox.scroll.range(inbox.rows.len(), INBOX_ROW, INBOX_PAD);
-        let mut rows = Rows::new(inbox.rows.len() as f32 * INBOX_ROW + INBOX_PAD * 2.0);
-        for (index, entry) in inbox.rows.iter().enumerate().take(last).skip(first) {
-            rows.push(
-                crate::app::key(&entry.id),
-                INBOX_PAD + index as f32 * INBOX_ROW,
-                INBOX_ROW,
-                container(inbox_line(app, entry)).padding([0.0, INBOX_PAD]),
-            );
-        }
-        scroll_view(rows)
+        });
+        let list: Element<'_, Message> = if inbox.mentions.is_empty() && inbox.more.is_empty() {
+            container(text(inbox.filter.empty()).size(12).color(theme.muted))
+                .padding(iced::Padding {
+                    top: 12.0,
+                    left: 16.0,
+                    right: 16.0,
+                    bottom: 0.0,
+                })
+                .into()
+        } else {
+            let mut list = column![].spacing(8).width(Length::Fill);
+            for ping in &inbox.mentions {
+                list = list.push(mention_card(app, ping));
+            }
+            if !inbox.more.is_empty() {
+                list = list.push(
+                    text("More channels with mentions")
+                        .size(12)
+                        .color(theme.muted),
+                );
+                for entry in &inbox.more {
+                    list = list.push(inbox_line(app, entry));
+                }
+            }
+            scroll_view(container(list).padding(iced::Padding {
+                top: 8.0,
+                left: 8.0,
+                right: 8.0,
+                bottom: 8.0,
+            }))
             .on_scroll(|viewport| {
                 Message::Bar(Event::InboxScrolled(crate::sync::Scroll::of(viewport)))
             })
             .style(scrollbar(theme))
             .height(Length::Fill)
             .into()
+        };
+        column![strip, list].into()
     };
     let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
     let decorated =
@@ -849,6 +1286,55 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         ]
         .into(),
     )
+}
+
+fn empty_inbox<'a>(theme: &'a crate::theme::Theme, words: &'a str) -> Element<'a, Message> {
+    container(
+        text(words)
+            .size(14)
+            .color(theme.muted)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
+    )
+    .padding(iced::Padding {
+        top: 16.0,
+        left: 16.0,
+        right: 16.0,
+        bottom: 0.0,
+    })
+    .height(136)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// A ping's message as the Mentions tab shows it: where it came from and
+/// what kind of ping it holds, over its card; a click jumps to it.
+fn mention_card<'a>(app: &'a App, ping: &'a MentionRow) -> Element<'a, Message> {
+    let theme = &app.theme;
+    let mut where_ = row![elide(ping.name.as_str()).size(12).color(theme.secondary)];
+    if !ping.place.is_empty() {
+        where_ = where_
+            .push(text("·").size(12).color(theme.muted))
+            .push(elide(ping.place.as_str()).size(12).color(theme.muted));
+    }
+    where_ = where_
+        .push(text("·").size(12).color(theme.muted))
+        .push(text(ping.kind.tag()).size(12).color(theme.muted));
+    let jump = Message::Bar(Event::InboxOpenMessage {
+        room: ping.room.clone(),
+        item: ping.message.item.clone(),
+    });
+    column![
+        container(where_.spacing(4)).padding(iced::Padding {
+            left: 12.0,
+            right: 12.0,
+            top: 0.0,
+            bottom: 0.0,
+        }),
+        crate::found::found_view(app.ctx(), &ping.card, jump),
+    ]
+    .spacing(2)
+    .into()
 }
 
 fn inbox_line<'a>(app: &'a App, entry: &'a InboxRow) -> Element<'a, Message> {

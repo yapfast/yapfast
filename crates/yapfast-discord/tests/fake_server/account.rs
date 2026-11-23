@@ -513,6 +513,60 @@ async fn fetches_the_activity_feed_and_who_a_channel_may_show() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_the_accounts_recent_mentions() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("recent_mentions").await;
+    // Nothing has mentioned her yet.
+    assert!(discord.recent_mentions().await.unwrap().is_empty());
+
+    post_control(server, "/_control/mention", "");
+    post_control(server, "/_control/mention", "");
+    let mentions = discord.recent_mentions().await.unwrap();
+    assert_eq!(mentions.len(), 2);
+    // Discord's list is newest first, and each message keeps its server.
+    assert!(mentions[0].order() > mentions[1].order());
+    let message = &mentions[0];
+    assert_eq!(message.channel_id, general);
+    assert_eq!(message.guild_id.as_deref(), Some(guild.as_str()));
+    assert_eq!(message.author_id, bob);
+    assert_eq!(message.author, "Bob", "learned by its own name");
+    assert!(message.content.contains("are you in for co-op tonight?"));
+    assert!(
+        message
+            .mentions
+            .iter()
+            .any(|user| user == "1400000000000000001"),
+        "it mentions Alice"
+    );
+    // Every way Bob calls on her lists: by name, through her Crew role,
+    // with @everyone and @here, and in a reply to her message; not through
+    // Mods, which she lacks, nor the one that names nobody.
+    post_control(server, "/_control/mentions", "");
+    let mentions = discord.recent_mentions().await.unwrap();
+    assert_eq!(mentions.len(), 2 + 5);
+    assert!(
+        mentions
+            .windows(2)
+            .all(|pair| pair[0].order() > pair[1].order()),
+        "newest first"
+    );
+    assert!(
+        mentions
+            .iter()
+            .any(|message| message.replies_to("1400000000000000001")),
+        "a reply that pings her lists"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn resumes_the_gateway() {
     let Fixture {
         _fake,

@@ -2999,6 +2999,9 @@ pub enum DiscordCommand {
     Peek {
         room: String,
     },
+    /// This account's recent mentions, the newest first: Discord's Mentions
+    /// inbox; [`Event::RecentMentions`] follows.
+    RecentMentions,
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -4391,6 +4394,11 @@ pub enum Event {
     Pins {
         room: String,
         result: Result<Vec<ChatMessage>, String>,
+    },
+    /// [`DiscordCommand::RecentMentions`]'s messages, each with its room, the
+    /// newest first, or why they didn't come.
+    RecentMentions {
+        result: Result<Vec<(String, ChatMessage)>, String>,
     },
     /// [`DiscordCommand::StartThread`]'s thread, by room id, in the channel
     /// `room`, or why it didn't start.

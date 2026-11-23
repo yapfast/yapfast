@@ -63,6 +63,12 @@ pub struct App {
     /// The title bar's inbox, while open, and a press on it that may move
     /// the window (`window_bar.rs`).
     pub inbox: Option<crate::window_bar::Inbox>,
+    /// The pings this account's open rooms hold, newest first, for the
+    /// inbox's Mentions tab (`window_bar.rs`).
+    pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
+    /// Whether this account's recent mentions were asked for since Discord
+    /// came online (`window_bar.rs` fetches them once per session).
+    pub mentions_fetched: bool,
     pub bar_drag: crate::window_bar::Drag,
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
@@ -296,6 +302,8 @@ impl App {
             window: Size::new(width, height),
             shell,
             inbox: None,
+            mention_hits: Default::default(),
+            mentions_fetched: false,
             bar_drag: Default::default(),
             announce_updates: false,
             win: Window::new(crate::pictures::Pictures::new(fitter), theme_icons),

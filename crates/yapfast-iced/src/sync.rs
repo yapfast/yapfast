@@ -208,6 +208,22 @@ impl App {
     /// Takes in what changed in the client's state; returns the work that
     /// follows (a scroll, pictures to ask for, rows to report).
     pub fn sync(&mut self) -> Task<Message> {
+        // Discord's Mentions inbox fills the inbox's tab: asked for once
+        // it comes online, again after it went away and came back.
+        if self.client.state().discord_online {
+            if !self.mentions_fetched {
+                self.mentions_fetched = true;
+                self.client
+                    .dispatch(yapfast_core::application::Action::LoadRecentMentions);
+            }
+        } else {
+            self.mentions_fetched = false;
+        }
+        // A ping in an open room joins the inbox's Mentions tab, open or
+        // not; the open inbox shows it at once.
+        if crate::window_bar::mentions_sync(self) && self.inbox.is_some() {
+            crate::window_bar::inbox_sync(self);
+        }
         let state = self.client.state();
         // The DM search's filter is the DM home's: it goes as the rail
         // goes to a server, or back home.

@@ -437,6 +437,56 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// Asks for this account's recent mentions once, as Discord's Mentions
+    /// inbox opens or an adapter starts.
+    pub(super) fn load_recent_mentions(&self) -> Vec<Effect> {
+        if self.state.preview {
+            return vec![];
+        }
+        tracing::info!("asking for recent mentions");
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::RecentMentions,
+        ))]
+    }
+
+    /// The account's recent mentions came, each with its room: the newest
+    /// first, as Discord lists them, up to [`RECENT_MENTIONS`]. One already
+    /// kept stays as it was.
+    pub(super) fn recent_mentions_came(
+        &mut self,
+        result: Result<Vec<(String, ChatMessage)>, String>,
+    ) {
+        match result {
+            Ok(mentions) => {
+                let fetched = mentions.len();
+                for (room, message) in mentions {
+                    if !self
+                        .state
+                        .recent_mentions
+                        .iter()
+                        .any(|(_, kept)| kept.item == message.item)
+                    {
+                        self.state.recent_mentions.push((room, message));
+                    }
+                }
+                // A newer fetch goes before the older ones, which a stable
+                // sort keeps in their order: Discord's, newest first.
+                self.state
+                    .recent_mentions
+                    .sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
+                self.state.recent_mentions.truncate(RECENT_MENTIONS);
+                tracing::info!(
+                    fetched,
+                    kept = self.state.recent_mentions.len(),
+                    "listed recent mentions"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not list recent mentions");
+            }
+        }
+    }
+
     /// Shows what a Discord snapshot says about the account and its lists.
     #[cfg(feature = "discord")]
     pub(super) fn show_snapshot(

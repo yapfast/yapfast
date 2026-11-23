@@ -276,6 +276,9 @@ pub struct Peek {
     /// Oldest first; `None` while they're on their way.
     pub messages: Option<Result<Vec<ChatMessage>, String>>,
 }
+/// The most of this account's recent mentions Yapfast keeps, which is all
+/// Discord's page sends.
+pub const RECENT_MENTIONS: usize = 100;
 
 /// A search, while its results show: of a DM, or of a whole Discord server,
 /// which stays open while its channels do.
@@ -782,6 +785,10 @@ pub struct AppState {
     /// the peek shows.
     pub peek: Option<Peek>,
     pub search: Option<Search>,
+    /// This account's recent Discord mentions, each with its room, the
+    /// newest first, as its Mentions inbox lists them; see
+    /// [`DiscordCommand::RecentMentions`].
+    pub recent_mentions: Vec<(String, ChatMessage)>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
     /// The Discord forum on screen.
@@ -1989,6 +1996,9 @@ pub enum Action {
     /// Peek at a room's newest messages without opening or reading it, as
     /// holding Alt over it in the channel list asks, or stop.
     Peek(Option<String>),
+    /// Asks for this account's recent Discord mentions, as its Mentions
+    /// inbox lists them.
+    LoadRecentMentions,
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -3741,6 +3751,7 @@ impl Application {
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
             Action::Peek(room) => self.peek(room),
+            Action::LoadRecentMentions => self.load_recent_mentions(),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -4566,6 +4577,7 @@ impl Application {
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
             Event::Peeked { room, result } => self.peeked(room, result),
+            Event::RecentMentions { result } => self.recent_mentions_came(result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
