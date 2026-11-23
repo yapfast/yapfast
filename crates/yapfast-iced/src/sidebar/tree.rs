@@ -393,6 +393,7 @@ fn place_entries(app: &App, navigation: &Navigation) -> Vec<Entry> {
             &categories,
             &app.layout.collapsed,
             "",
+            &app.layout.voice_shown,
             app.theme.dark,
         );
         &other

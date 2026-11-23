@@ -20,13 +20,13 @@ const APPS: &[u32] = &[31, 39, 50];
 /// their permissions' bit numbers.
 pub fn channel_groups(kind: ChannelKind) -> &'static [(&'static str, &'static [u32])] {
     match kind {
-        ChannelKind::Text => &[
+        ChannelKind::Text | ChannelKind::Announcement | ChannelKind::Forum => &[
             ("General Channel Permissions", GENERAL),
             ("Membership Permissions", MEMBERSHIP),
             ("Text Channel Permissions", TEXT),
             ("Apps Permissions", APPS),
         ],
-        ChannelKind::Voice => &[
+        ChannelKind::Voice | ChannelKind::Stage => &[
             ("General Channel Permissions", GENERAL),
             ("Membership Permissions", MEMBERSHIP),
             ("Voice Channel Permissions", VOICE),

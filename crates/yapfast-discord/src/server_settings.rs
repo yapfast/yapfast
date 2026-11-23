@@ -13,6 +13,19 @@ pub struct ServerProfile {
     pub description: String,
     /// The address of its icon, when it has one.
     pub icon: Option<String>,
+    /// Its accent colour, `brand_color_primary`, as Discord's hex string
+    /// such as "#7cf895", which Server Profile's Banner picks.
+    pub brand_color: Option<String>,
+    /// Its traits, up to five, in their order.
+    pub traits: Vec<ProfileTrait>,
+}
+
+/// A trait of a server's profile: a word or two about it, with a Unicode
+/// emoji.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileTrait {
+    pub emoji: Option<String>,
+    pub label: String,
 }
 
 /// A server's profile from `GET /guilds/{id}/profile`.
@@ -26,6 +39,27 @@ pub fn parse_profile(guild: &str, profile: &Value) -> ServerProfile {
         icon: profile["icon_hash"]
             .as_str()
             .map(|hash| ready::server_icon(guild, hash)),
+        brand_color: profile["brand_color_primary"]
+            .as_str()
+            .filter(|color| !color.is_empty())
+            .map(str::to_owned),
+        traits: {
+            let mut traits: Vec<(i64, ProfileTrait)> = profile["traits"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|found| {
+                    let label = found["label"].as_str()?.to_owned();
+                    let emoji = found["emoji_name"].as_str().map(str::to_owned);
+                    Some((
+                        found["position"].as_i64().unwrap_or(0),
+                        ProfileTrait { emoji, label },
+                    ))
+                })
+                .collect();
+            traits.sort_by_key(|(position, _)| *position);
+            traits.into_iter().map(|(_, found)| found).take(5).collect()
+        },
     }
 }
 
@@ -203,6 +237,8 @@ pub struct FoundMember {
     pub join_source: u8,
     pub invite_code: Option<String>,
     pub integration: Option<String>,
+    /// Who made the invite, or added the bot, by id.
+    pub inviter: Option<String>,
 }
 
 /// Discord's user flag for an account it suspects of spam.
@@ -248,6 +284,7 @@ pub fn parse_members_search(found: &Value) -> (Vec<FoundMember>, Option<u64>) {
                 join_source: found["join_source_type"].as_u64().unwrap_or_default() as u8,
                 invite_code: found["source_invite_code"].as_str().map(str::to_owned),
                 integration: found["integration_type"].as_str().map(str::to_owned),
+                inviter: found["inviter_id"].as_str().map(str::to_owned),
             })
         })
         .collect();
@@ -475,6 +512,44 @@ pub fn parse_roles(roles: &Value) -> Vec<Role> {
     roles
 }
 
+/// The file types Mod View counts as media, as Discord's client lists
+/// them.
+const MEDIA_EXTENSIONS: [&str; 12] = [
+    "png", "jpg", "webp", "mov", "mp4", "qt", "gif", "mp3", "wav", "flac", "ogg", "opus",
+];
+
+/// Discord's `messages/search/tabs` body for Mod View's counts of what
+/// `user` sent: their messages, those with links and those with media, a
+/// message each, with exact totals and NSFW channels, as Discord's client
+/// asks.
+pub fn activity_tabs(user: &str) -> Value {
+    let tab = |extra: Value| {
+        let mut tab = serde_json::json!({"author_id": [user], "limit": 1, "cursor": null});
+        if let (Some(tab), Value::Object(extra)) = (tab.as_object_mut(), extra) {
+            tab.extend(extra);
+        }
+        tab
+    };
+    serde_json::json!({
+        "tabs": {
+            "messages": tab(Value::Null),
+            "links": tab(serde_json::json!({"has": ["link"]})),
+            "media": tab(serde_json::json!({"attachment_extension": MEDIA_EXTENSIONS})),
+        },
+        "track_exact_total_hits": true,
+        "include_nsfw": true,
+    })
+}
+
+/// How many messages, links and media an [`activity_tabs`] search found.
+pub fn parse_activity(found: &Value) -> [u64; 3] {
+    ["messages", "links", "media"].map(|tab| {
+        found["tabs"][tab]["total_results"]
+            .as_u64()
+            .unwrap_or_default()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,6 +595,28 @@ mod tests {
         assert_eq!(profile.name, "Crew");
         assert_eq!(profile.description, "");
         assert!(profile.icon.unwrap().ends_with("/icons/1/abc.png?size=128"));
+        assert_eq!((profile.brand_color, profile.traits.len()), (None, 0));
+        let profile = parse_profile(
+            "1",
+            &json!({"id": "1", "name": "Crew", "brand_color_primary": "#ff73fa", "traits": [
+                {"label": "Chill", "emoji_name": null, "emoji_animated": false, "position": 1},
+                {"label": "Games", "emoji_name": "\u{1F3AE}", "emoji_animated": false, "position": 0},
+            ]}),
+        );
+        assert_eq!(profile.brand_color.as_deref(), Some("#ff73fa"));
+        assert_eq!(
+            profile.traits,
+            [
+                ProfileTrait {
+                    emoji: Some("\u{1F3AE}".into()),
+                    label: "Games".into()
+                },
+                ProfileTrait {
+                    emoji: None,
+                    label: "Chill".into()
+                },
+            ]
+        );
     }
 
     #[test]

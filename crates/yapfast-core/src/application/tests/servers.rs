@@ -656,3 +656,101 @@ fn leaving_a_discord_server_asks_first_and_is_not_for_its_owner() {
     );
     assert!(app.state.leave.is_none());
 }
+
+#[test]
+#[cfg(feature = "discord")]
+fn a_drop_on_the_rail_undoes_and_folder_settings_save_name_and_colour() {
+    let mut app = discord_server();
+    app.state.discord_online = true;
+    let folder = chat::ServerFolder {
+        id: "discord-folder:7".into(),
+        name: Some("Games".into()),
+        color: None,
+    };
+    let server = |id: &str, folder: Option<&chat::ServerFolder>| {
+        Arc::new(chat::ChatServer {
+            id: format!("discord:{id}"),
+            name: id.into(),
+            discord: true,
+            folder: folder.cloned(),
+            ..Default::default()
+        })
+    };
+    app.state.servers = vec![
+        server("1", None),
+        server("2", Some(&folder)),
+        server("3", None),
+    ];
+    let before = app.rail_entries();
+    let arranged = |effects: Vec<Effect>| -> Vec<chat::RailEntry> {
+        match effects.as_slice() {
+            [Effect::Backend(Command::Discord(DiscordCommand::ArrangeServers { entries }))] => {
+                entries.clone()
+            }
+            other => panic!("{} effects", other.len()),
+        }
+    };
+    let drop = || Action::FileServer {
+        server: "discord:3".into(),
+        target: "discord:1".into(),
+        before: Some(true),
+        color: None,
+    };
+    // A drop keeps the list as it was, which Undo sends back once.
+    assert_eq!(app.dispatch(drop()).len(), 1);
+    assert_eq!(app.state.rail_undo.as_ref(), Some(&before));
+    assert_eq!(arranged(app.dispatch(Action::UndoRailMove)), before);
+    assert!(app.state.rail_undo.is_none());
+    assert!(app.dispatch(Action::UndoRailMove).is_empty());
+    // Once the line goes, or Discord refuses the drop, there's nothing to
+    // undo.
+    app.dispatch(drop());
+    app.dispatch(Action::ForgetRailUndo);
+    assert!(app.dispatch(Action::UndoRailMove).is_empty());
+    app.dispatch(drop());
+    app.apply(Event::ServerFiled(Err("refused".into())));
+    assert!(app.state.rail_undo.is_none());
+
+    // Folder Settings opens with the folder's name and colour, and saves
+    // them in the whole list; a blank name goes as none.
+    assert!(
+        app.menu_choices("discord-folder:7")
+            .contains(&MenuChoice::FolderSettings)
+    );
+    assert!(
+        !app.menu_choices("discord:1")
+            .contains(&MenuChoice::FolderSettings)
+    );
+    app.dispatch(Action::OpenFolderSettings("discord-folder:7".into()));
+    let settings = app.state.folder_settings.clone().unwrap();
+    assert_eq!((settings.name.as_str(), settings.color), ("Games", None));
+    assert!(app.state.dialog_open());
+    let entries = arranged(app.dispatch(Action::SaveFolderSettings {
+        name: "  Raids ".into(),
+        color: Some(0xe91e63),
+    }));
+    assert!(app.state.folder_settings.is_none());
+    let saved = entries[1].folder.clone().unwrap();
+    assert_eq!(
+        (saved.name.as_deref(), saved.color),
+        (Some("Raids"), Some(0xe91e63))
+    );
+    assert_eq!(entries[1].servers, ["discord:2"]);
+    app.dispatch(Action::OpenFolderSettings("discord-folder:7".into()));
+    let entries = arranged(app.dispatch(Action::SaveFolderSettings {
+        name: " ".into(),
+        color: None,
+    }));
+    assert_eq!(entries[1].folder.as_ref().unwrap().name, None);
+    // Unchanged, nothing goes; a server isn't a folder.
+    app.dispatch(Action::OpenFolderSettings("discord-folder:7".into()));
+    assert!(
+        app.dispatch(Action::SaveFolderSettings {
+            name: "Games".into(),
+            color: None,
+        })
+        .is_empty()
+    );
+    app.dispatch(Action::OpenFolderSettings("discord:1".into()));
+    assert!(app.state.folder_settings.is_none());
+}

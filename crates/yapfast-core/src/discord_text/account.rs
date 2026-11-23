@@ -11,9 +11,9 @@ use super::{
     *,
 };
 use crate::chat::{
-    EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
-    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange, SearchSort,
-    Searched,
+    EventPreview, GiftPreview, InviteCard, InvitePreview, JoinFrom, JoinedServer, MemberChange,
+    Muting, NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
+    SearchSort, Searched,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -518,12 +518,51 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ArrangeServers { entries }) = command {
+        let entries: Vec<yapfast_discord::settings::Folder> = entries
+            .into_iter()
+            .map(|entry| yapfast_discord::settings::Folder {
+                id: entry
+                    .folder
+                    .as_ref()
+                    .and_then(|folder| crate::discord::parse_folder(&folder.id))
+                    .unwrap_or_default()
+                    .to_owned(),
+                name: entry.folder.as_ref().and_then(|folder| folder.name.clone()),
+                color: entry.folder.as_ref().and_then(|folder| folder.color),
+                servers: entry
+                    .servers
+                    .iter()
+                    .filter_map(|server| crate::discord::parse_server(server))
+                    .map(str::to_owned)
+                    .collect(),
+            })
+            .filter(|entry| !entry.servers.is_empty())
+            .collect();
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .arrange_servers(entries)
+                        .await
+                        .map_err(|error| error.to_string());
+                    let _ = events.send(Event::ServerFiled(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ServerFiled(Err(why.into())));
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::FileServer {
         server,
         source_folder,
         target,
         folder,
         before,
+        color,
     }) = command
     {
         match discord {
@@ -531,7 +570,7 @@ pub(super) fn command(
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
                     let result = discord
-                        .file_server(&server, source_folder, &target, folder, before)
+                        .file_server(&server, source_folder, &target, folder, before, color)
                         .await
                         .map_err(|error| error.to_string());
                     let _ = events.send(Event::ServerFiled(result));
@@ -1065,7 +1104,37 @@ pub(super) fn command(
         }
         return None;
     }
-    if let Command::Discord(DiscordCommand::JoinServer { preview, from_link }) = command {
+    if let Command::Discord(DiscordCommand::LookUpInviteCard { code }) = command {
+        let Ok(discord) = discord else {
+            let _ = events.send(Event::InviteCard { code, card: None });
+            return None;
+        };
+        let (discord, events) = (discord.clone(), events.clone());
+        tokio::spawn(async move {
+            let card = match discord.invite_card(&code).await {
+                Ok(Some(preview)) => Some(InviteCard::Server(Box::new(invite_preview(&preview)))),
+                Ok(None) => Some(InviteCard::Other),
+                Err(error)
+                    if matches!(
+                        yapfast_discord::api::code(&error),
+                        Some(UNKNOWN_INVITE | INVALID_INVITE)
+                    ) =>
+                {
+                    Some(InviteCard::Invalid)
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = format!("{error:#}"),
+                        "could not look up an invite's card"
+                    );
+                    None
+                }
+            };
+            let _ = events.send(Event::InviteCard { code, card });
+        });
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::JoinServer { preview, from }) = command {
         let code = preview.code.clone();
         let invite = discord::parse_room(&preview.room).map(|(guild, channel)| {
             yapfast_discord::invite::Preview {
@@ -1084,11 +1153,11 @@ pub(super) fn command(
             (Ok(discord), Some(invite)) => {
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
-                    use yapfast_discord::invite::JoinFrom;
-                    let from = if from_link {
-                        JoinFrom::Link
-                    } else {
-                        JoinFrom::Dialog
+                    use yapfast_discord::invite::JoinFrom as From;
+                    let from = match from {
+                        JoinFrom::Dialog => From::Dialog,
+                        JoinFrom::Link => From::Link,
+                        JoinFrom::Card => From::Card,
                     };
                     let captchas = events.clone();
                     let result = discord
@@ -1358,6 +1427,7 @@ pub(super) fn command(
         | DiscordCommand::CloseDm { .. }
         | DiscordCommand::Mute { .. }
         | DiscordCommand::Notifications { .. }
+        | DiscordCommand::FolderNotifications { .. }
         | DiscordCommand::PinChannel { .. }
         | DiscordCommand::MoveChannels { .. }
         | DiscordCommand::FollowChannel { .. }
@@ -1436,7 +1506,7 @@ fn manage_channel(
     discord: Result<&Discord, &str>,
     events: &UnboundedSender<Event>,
 ) {
-    use crate::chat::{ChannelKind, ChannelSettings};
+    use crate::chat::ChannelSettings;
     let discord = match discord {
         Ok(discord) => discord.clone(),
         Err(why) => {
@@ -1457,6 +1527,11 @@ fn manage_channel(
         topic: settings.topic.clone(),
         slowmode: settings.slowmode,
         nsfw: settings.nsfw,
+        private: settings.private,
+        bitrate: settings.bitrate,
+        user_limit: settings.user_limit,
+        video_quality: settings.video_quality,
+        region: settings.region.clone(),
     };
     tokio::spawn(async move {
         let (result, what) = match command {
@@ -1470,6 +1545,11 @@ fn manage_channel(
                             topic: known.topic,
                             slowmode: known.slowmode,
                             nsfw: known.nsfw,
+                            private: false,
+                            bitrate: known.bitrate,
+                            user_limit: known.user_limit,
+                            video_quality: known.video_quality,
+                            region: known.region,
                         })
                         .map_err(|error| format!("Couldn't load the channel: {error}")),
                     None => Err(NOT_DISCORD.into()),
@@ -1483,15 +1563,12 @@ fn manage_channel(
                 parent,
                 copy_of,
                 settings: chosen,
+                keep,
             } => {
                 let guild = discord::parse_server(&server)
                     .unwrap_or_default()
                     .to_owned();
-                let code = match kind {
-                    ChannelKind::Text => 0,
-                    ChannelKind::Voice => 2,
-                    ChannelKind::Category => 4,
-                };
+                let code = kind.code();
                 let parent = parent.as_deref().and_then(channel);
                 let copy_of = copy_of.as_deref().and_then(channel);
                 let chosen = settings(&chosen);
@@ -1503,6 +1580,7 @@ fn manage_channel(
                             parent.as_deref(),
                             copy_of.as_deref(),
                             &chosen,
+                            keep.as_deref(),
                         )
                     })
                     .await
@@ -1517,9 +1595,7 @@ fn manage_channel(
                 let chosen = settings(&chosen);
                 let result = match channel(&room) {
                     Some(id) => discord
-                        .stepping_up(|| {
-                            discord.edit_channel(&id, kind == ChannelKind::Text, &chosen)
-                        })
+                        .stepping_up(|| discord.edit_channel(&id, kind.code(), &chosen))
                         .await
                         .map(|()| None),
                     None => Err(anyhow::anyhow!(NOT_DISCORD)),
@@ -1756,6 +1832,16 @@ fn change_person(
                     .await;
                 (result, "change the notification settings")
             }
+            DiscordCommand::FolderNotifications { servers, change } => {
+                let guilds: Vec<&str> = servers
+                    .iter()
+                    .filter_map(|server| discord::parse_server(server))
+                    .collect();
+                let result = discord
+                    .change_servers_notifications(&guilds, notification_change(change))
+                    .await;
+                (result, "change the folder's notification settings")
+            }
             DiscordCommand::PinChannel { room, flags } => {
                 let result = match discord::parse_room(&room) {
                     Some((guild, channel)) => discord.channel_flags(guild, channel, flags).await,
@@ -1912,6 +1998,11 @@ pub(super) fn emojis(emojis: yapfast_discord::frecency::Emojis) -> crate::chat::
 }
 
 /// What an invite shows, as the application keeps it.
+/// Discord's codes for an invite it doesn't know, or that can't be used:
+/// expired, revoked, or used up.
+const UNKNOWN_INVITE: u64 = 10006;
+const INVALID_INVITE: u64 = 50020;
+
 fn invite_preview(preview: &yapfast_discord::invite::Preview) -> InvitePreview {
     InvitePreview {
         code: preview.code.clone(),

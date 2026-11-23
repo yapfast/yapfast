@@ -21,7 +21,7 @@ use iced::{
 use yapfast_core::{
     application::{
         Action, ChannelInput, ChannelSection, ChannelSettingsScreen, OverwriteConfirm,
-        OverwriteState, Overwrites, SLOWMODES, channel_groups, channel_permission,
+        OverwriteState, Overwrites, SLOWMODES, VOICE_REGIONS, channel_groups, channel_permission,
     },
     chat::{ChannelKind, ChannelOverwrite, RoleMember, ServerRole},
 };
@@ -54,6 +54,10 @@ const OVERVIEW_GAP: f32 = 20.0;
 const STEP: f32 = 32.0;
 const STEP_GLYPH: u32 = 18;
 const SLOWMODE_SHOWN: f32 = 48.0;
+/// The lowest bitrate a voice channel takes, in kbps, and the most people
+/// a user limit lets in; none is 0.
+const MIN_BITRATE: u32 = 8;
+const MAX_USERS: u32 = 99;
 /// Permissions' list of roles and members, a row of it, its mark.
 const OVERWRITES: f32 = 180.0;
 const OVERWRITE_HEAD: f32 = 28.0;
@@ -82,12 +86,18 @@ pub struct Screen {
     /// page, and the sidebar stays as it was.
     sections: Vec<ChannelSection>,
     deletes: bool,
+    /// A voice channel's Region Override list is open.
+    region_open: bool,
 }
 
 /// What's done in the settings.
 #[derive(Clone, Debug)]
 pub enum Event {
     Input(ChannelInput),
+    /// A voice channel's Region Override list opened or closed, and a
+    /// region chosen from it by its place, Automatic first.
+    RegionMenu,
+    Region(usize),
     /// The bar's shake steps and its red ending.
     Shake(form::ShakeStep),
 }
@@ -168,6 +178,22 @@ impl Screen {
                 }
                 Task::none()
             }
+            Event::RegionMenu => {
+                self.region_open = !self.region_open;
+                Task::none()
+            }
+            Event::Region(index) => {
+                self.region_open = false;
+                let region = match index {
+                    0 => String::new(),
+                    index => VOICE_REGIONS
+                        .get(index - 1)
+                        .map(|(id, _)| (*id).to_owned())
+                        .unwrap_or_default(),
+                };
+                cx.dispatch(Action::ChannelSettings(ChannelInput::Region(region)));
+                Task::none()
+            }
             Event::Shake(step) => self.shake.step(step, shake),
         }
     }
@@ -245,7 +271,7 @@ impl<'a> View<'a> {
     /// The channel as its settings name it: a text channel with its `#`.
     fn channel_label(self, core: &ChannelSettingsScreen) -> String {
         let title = self.cx.app.channel_title(&core.room);
-        if core.kind == ChannelKind::Text {
+        if core.kind.slug_named() {
             format!("#{title}")
         } else {
             title
@@ -300,13 +326,14 @@ impl<'a> View<'a> {
         } else {
             page = page.push(self.channel_overview(core));
         }
-        if let Some(problem) = core.problem() {
-            page = page.push(form::error(theme, problem));
+        // Why the changes can't go, or why Discord refused them, in the bar
+        // while it shows, where it's seen; under the page otherwise.
+        let unsaved = core.changed() || core.saving;
+        let said = core.error.clone().or_else(|| core.problem());
+        if !unsaved && let Some(said) = &said {
+            page = page.push(form::error(theme, said.clone()));
         }
-        if let Some(error) = &core.error {
-            page = page.push(form::error(theme, error.as_str()));
-        }
-        let bar = (core.changed() || core.saving).then(|| {
+        let bar = unsaved.then(|| {
             form::Unsaved {
                 pad: 12.0,
                 radius: crate::sheet::BAR_RADIUS,
@@ -317,7 +344,7 @@ impl<'a> View<'a> {
                 undo: input(ChannelInput::Undo),
                 save: input(ChannelInput::Save),
             }
-            .view(theme)
+            .view_saying(theme, said)
         });
         let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
             .bar(bar)
@@ -358,14 +385,18 @@ impl<'a> View<'a> {
                     .into(),
             ]),
         ];
-        if core.kind == ChannelKind::Text {
+        // A text or announcement channel's topic; a text, announcement or
+        // voice channel's slowmode and age restriction; a voice channel's
+        // or stage's call settings.
+        let texty = matches!(core.kind, ChannelKind::Text | ChannelKind::Announcement);
+        if texty || core.kind == ChannelKind::Voice {
             let step = SLOWMODES
                 .iter()
                 .position(|seconds| *seconds == draft.slowmode)
                 .unwrap_or(0);
             let to = |index: usize| input(ChannelInput::Slowmode(SLOWMODES[index]));
-            parts.extend([
-                form::group([
+            if texty {
+                parts.push(form::group([
                     form::heading(theme, "CHANNEL TOPIC"),
                     form::entry(
                         theme,
@@ -375,7 +406,9 @@ impl<'a> View<'a> {
                     )
                     .on_input_maybe(ready.then_some(|text| input(ChannelInput::Topic(text))))
                     .into(),
-                ]),
+                ]));
+            }
+            parts.extend([
                 form::group([
                     form::heading(theme, "SLOWMODE"),
                     row![
@@ -407,10 +440,129 @@ impl<'a> View<'a> {
                 .view(self.cx.look),
             ]);
         }
+        if core.kind.voice() {
+            parts.extend(self.voice_overview(core, draft, ready));
+        }
         column(parts)
             .spacing(OVERVIEW_GAP)
             .width(Length::Fill)
             .into()
+    }
+
+    /// A voice channel's or stage's call settings, as Discord's Overview
+    /// has them: Bitrate's slider up to what the server's boosts allow, a
+    /// voice channel's Video Quality, User Limit's slider and Region
+    /// Override's list.
+    fn voice_overview(
+        self,
+        core: &'a ChannelSettingsScreen,
+        draft: &'a yapfast_core::chat::ChannelSettings,
+        ready: bool,
+    ) -> Vec<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
+        // Discord's sliders: the bitrate from 8 kbps to what the server's
+        // boosts allow, the user limit from none to 99. While it saves,
+        // they send nothing.
+        let most = (core.bitrate_max / 1000).max(MIN_BITRATE);
+        let kbps = (draft.bitrate / 1000).clamp(MIN_BITRATE, most);
+        let bitrate = controls::slider(
+            format!("{MIN_BITRATE}kbps"),
+            kbps - MIN_BITRATE,
+            most - MIN_BITRATE,
+            move |value| {
+                if ready {
+                    input(ChannelInput::Bitrate((value + MIN_BITRATE) * 1000))
+                } else {
+                    Message::Nothing
+                }
+            },
+        )
+        .step(1)
+        .mark(false)
+        .shown(format!("{kbps}kbps"))
+        .view(theme);
+        let mut parts = vec![form::group([
+            form::heading(theme, "BITRATE"),
+            bitrate,
+            form::note(
+                theme,
+                if kbps > 64 {
+                    "ALL THE BITS! Going above 64 kbps may adversely affect people on poor connections."
+                } else {
+                    "Going above 64 kbps may adversely affect people on poor connections."
+                },
+            ),
+        ])];
+        if core.kind == ChannelKind::Voice {
+            let chosen = usize::from(draft.video_quality == 2);
+            parts.push(form::group([
+                form::heading(theme, "VIDEO QUALITY"),
+                controls::choices(theme, &["Auto", "720p"], chosen, move |index| {
+                    input(ChannelInput::VideoQuality(if index == 1 { 2 } else { 1 }))
+                }),
+                form::note(
+                    theme,
+                    "Sets camera video quality for all channel participants. Choose Auto for optimal performance.",
+                ),
+            ]));
+        }
+        let users = match draft.user_limit {
+            0 => "No limit".to_owned(),
+            1 => "1 user".to_owned(),
+            count => format!("{count} users"),
+        };
+        let limit = controls::slider(
+            "\u{221e}",
+            draft.user_limit.min(MAX_USERS),
+            MAX_USERS,
+            move |value| {
+                if ready {
+                    input(ChannelInput::UserLimit(value))
+                } else {
+                    Message::Nothing
+                }
+            },
+        )
+        .step(1)
+        .mark(false)
+        .label_size(20.0)
+        .shown(users)
+        .view(theme);
+        parts.push(form::group([
+            form::heading(theme, "USER LIMIT"),
+            limit,
+            form::note(
+                theme,
+                "Limits the number of users that can connect to this voice channel. Users with the Move Members permission ignore this limit and can move other users into the channel.",
+            ),
+        ]));
+        // Automatic, then Discord's regions, in their order.
+        let at = VOICE_REGIONS
+            .iter()
+            .position(|(id, _)| *id == draft.region)
+            .map_or(0, |index| index + 1);
+        let names: Vec<String> = std::iter::once("Automatic")
+            .chain(VOICE_REGIONS.iter().map(|(_, name)| *name))
+            .map(str::to_owned)
+            .collect();
+        let region = form::dropdown(
+            names,
+            Some(at),
+            self.s.region_open && ready,
+            Message::ChannelSettings(Event::RegionMenu),
+            |index| Message::ChannelSettings(Event::Region(index)),
+        )
+        .enabled(ready)
+        .view(self.cx.look);
+        parts.push(form::group([
+            form::heading(theme, "REGION OVERRIDE"),
+            region,
+            form::note(
+                theme,
+                "Anyone in this channel will attempt to connect to the region you set, regardless of where they live. Regions affect voice and video quality. Leave it on Automatic and Discord will figure out what works best.",
+            ),
+        ]));
+        parts
     }
 
     /// Permissions: the sync notice, Private Channel, and the overwrites
@@ -422,7 +574,7 @@ impl<'a> View<'a> {
         let page = &core.permissions;
         let rules = app.overwrite_rules(room);
         let category = core.kind == ChannelKind::Category;
-        let voice = core.kind == ChannelKind::Voice;
+        let voice = core.kind.voice();
         let may_edit = app
             .channel_sections(room)
             .contains(&ChannelSection::Permissions);

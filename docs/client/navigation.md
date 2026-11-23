@@ -41,8 +41,29 @@ A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons, and the speaker
 only for the call this account is in, as Discord's does.
 A right click on a server, a folder or an unread DM opens its menu, the
-one its row in the sidebar opens; a folder's marks its servers read, and
-it has none while they are.
+one its row in the sidebar opens. A folder's starts with Mark folder as
+read, greyed while none of its servers has anything to read, as Discord's;
+while Discord is connected and knows each server's settings, Mute folder
+(the server menu's times beside it, a click on the row itself muting until
+it's turned back on; Unmute folder once all are muted, with when the last
+mute ends) and Notification settings (a level checked when every server
+has it, the switches ticked when every server has them on) change all its
+servers in one request (`place_menus::folder_levels`). Servers lists them
+beside the menu, each saying how it notifies, and a click goes to one; a
+right click on one opens its own choices beside the list
+(`place_menus::server_choices`, `Menu::side`): mute for each time or
+Unmute server, its levels and its two switches, which change that server
+alone and leave the menu open, a level or a switch checked in place.
+Close all folders comes last while a folder is open.
+A middle click on a server or a folder marks it all read, as its menu's
+Mark as read does.
+
+With Peek at channels on (Settings → Messages, `peek_channels`), holding Alt
+alone over a channel or DM row shows its newest messages beside the
+sidebar (`peek.rs`), as found cards, newest at the bottom; the row is asked
+for once the pointer stays on it 120 ms, and letting go of Alt, leaving the
+row or the window losing the focus closes it. The pointer's place is
+followed only while Alt is held with the switch on.
 
 The sidebar's right edge and the member list's left are each a kit
 `Splitter` laid over the panel's edge (`app/view.rs`, `members.rs`): a drag
@@ -55,7 +76,10 @@ never the panels' own widths.
 The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels,
 voice and DM rows each a file) shows, on the DM
 home, the search field (which keeps the DMs whose names hold its text,
-and empties as the rail goes elsewhere),
+and empties as the rail goes elsewhere), or with "Search DMs with the
+quick switcher" on (`dm_search_switcher`, off by default) "Find or start a
+conversation", a button drawn as a field that opens the quick switcher, as
+Discord's does,
 Friends and Requests (rows 38 px tall, in the navigation greys), "Direct
 Messages" and each DM with its person's
 presence, the voice channel they're in (a click goes to it, in its
@@ -76,7 +100,14 @@ Its 2 px stem starts one pixel below the parent row and spans the gaps
 between threads. The arms are 2 px thick and curve into the stem. The
 last arm ends the stem with a taller outer bend. A channel's row under
 the pointer or while selected offers Create invite, to that
-channel, for those who may invite; a busy voice channel lists who is in it (the call this
+channel, for those who may invite, and Edit channel's cog where its menu
+offers it (`Application::channel_row_actions`); past a category's first
+three empty voice channels the rest fold behind Show All at its end
+(`rows::fold_voice`; one with people in it, the open one, an unread one and
+the call this account is in always show), which under the pointer names
+those it would show and turns into Hide Voice Channels, each server's
+choice kept in `layout.json` as `voice_shown`, and the category's rows don't
+drag while folded so; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
 its tooltip "Connected on another client") and how long the

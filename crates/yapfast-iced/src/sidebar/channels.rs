@@ -164,6 +164,11 @@ impl<'a> super::View<'a> {
                 collapsed,
             } => self.heading(name, fold, *collapsed, place),
             SideRow::Room(room) => self.room_rows(room, place),
+            SideRow::VoiceMore {
+                fold,
+                shown,
+                hidden,
+            } => self.voice_more(fold, *shown, hidden),
             SideRow::Empty(words) => container(
                 text(*words)
                     .size(theme.type_size("body", 14.0))
@@ -782,20 +787,7 @@ impl<'a> super::View<'a> {
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Side(Event::Point(id.clone(), true)))
             .on_exit(Message::Side(Event::Point(id, false)));
-        let area = match message {
-            Some(message) => area.on_press(message),
-            None => area,
-        };
-        match menu {
-            Some(room) => {
-                let spot = self.cx.pressed;
-                RightPress::new(area, move |_| {
-                    Message::Side(Event::Menu(room.clone(), spot.get()))
-                })
-                .into()
-            }
-            None => area.into(),
-        }
+        row_area(self.cx, area, message, menu)
     }
 
     /// A conversation's row, with its thread line, and who is in it for a
@@ -1120,6 +1112,23 @@ impl<'a> super::View<'a> {
                     .size(CHAT_BUTTON, 16),
             );
         }
+        // Discord's Edit Channel cog beside it, where its menu offers it.
+        if !room.thread
+            && !room.direct
+            && (pointed || room.selected)
+            && self.cx.app.channel_row_actions(&room.id).1
+        {
+            face = face.push(
+                self.cx
+                    .look
+                    .icon_button(
+                        Icon::Settings,
+                        "Edit channel",
+                        Message::Side(Event::EditChannel(room.id.clone())),
+                    )
+                    .size(CHAT_BUTTON, 16),
+            );
+        }
         // A voice channel's chat opens without joining it, from a button
         // shown under the pointer or while it's selected, as in Discord.
         if room.chat && (pointed || room.selected) {
@@ -1159,6 +1168,74 @@ impl<'a> super::View<'a> {
             .into();
         }
         row
+    }
+
+    /// Discord's Show All under a category's voice channels, which names
+    /// what it unfolds under the pointer, or Hide Voice Channels once they
+    /// show.
+    pub(super) fn voice_more(
+        self,
+        fold: &'a str,
+        shown: bool,
+        hidden: &'a [String],
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let id = format!("voice-more:{fold}");
+        let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
+        let ink = if pointed {
+            theme.secondary
+        } else {
+            theme.channel_read
+        };
+        let words = if shown {
+            "Hide Voice Channels"
+        } else {
+            "Show All"
+        };
+        let face = row![
+            self.cx.look.glyph(
+                if shown {
+                    Icon::ChevronUp
+                } else {
+                    Icon::ChevronDown
+                },
+                16,
+                ink
+            ),
+            text(words)
+                .size(theme.type_size("body", 14.0))
+                .font(theme.font("body", MEDIUM))
+                .color(ink),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        let area: Element<'a, Message> = mouse_area(
+            container(face)
+                .padding(Padding {
+                    left: 10.0,
+                    ..Padding::ZERO
+                })
+                .height(ROW)
+                .width(Length::Fill)
+                .align_y(Alignment::Center),
+        )
+        .interaction(iced::mouse::Interaction::Pointer)
+        .on_press(Message::Side(Event::VoiceMore(fold.to_owned())))
+        .on_enter(Message::Side(Event::Point(id.clone(), true)))
+        .on_exit(Message::Side(Event::Point(id, false)))
+        .into();
+        if shown || !pointed {
+            return area;
+        }
+        // Under the pointer, the channels it would show.
+        iced::widget::tooltip(
+            area,
+            controls::tip(theme, hidden.join(", ")),
+            iced::widget::tooltip::Position::Right,
+        )
+        .gap(8)
+        .snap_within_viewport(true)
+        .into()
     }
 
     /// A row's ink, and its opacity: a muted one is faint until it's
@@ -1386,9 +1463,28 @@ pub(crate) fn listed_row_face<'a>(
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
         .on_exit(Message::Side(Event::Point(id, false)));
+    row_area(cx, area, message, menu)
+}
+
+/// What a row takes, every kind alike: its press, a middle click that
+/// opens a conversation's row in split view, and a right click for its
+/// menu, `menu` naming the conversation.
+fn row_area<'a>(
+    cx: crate::ctx::Ctx<'a>,
+    area: iced::widget::MouseArea<'a, Message>,
+    message: Option<Message>,
+    menu: Option<String>,
+) -> Element<'a, Message> {
     let area = match message {
         Some(message) => area.on_press(message),
         None => area,
+    };
+    // A conversation's row opens in split view on a middle click.
+    let area = match &menu {
+        Some(room) if cx.layout.split_view => {
+            area.on_middle_press(Message::Side(Event::Split(room.clone())))
+        }
+        _ => area,
     };
     match menu {
         Some(room) => {

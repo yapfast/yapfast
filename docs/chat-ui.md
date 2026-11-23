@@ -42,7 +42,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the focus again. A keyboard layout without Latin letters uses the key in
   K's place. Before a search it lists the last eight conversations opened
   this session, of either network, then the Discord places this account
-  uses most, fifteen at most and not the one open. A search lists up to 50
+  uses most, fifteen at most and not the one open, headed "Previous
+  Channels"; then, under "Mentions", the conversations that mention this
+  account and aren't listed already, most mentions first
+  (`AppState::switcher_mentions`). With "Search DMs with the quick
+  switcher" on (Settings > Messages, `dm_search_switcher`, off by default),
+  the DM list's box at its top is Discord's "Find or start a conversation",
+  a button that opens it, rather than a filter. A search lists up to 50
   conversations and servers, ranked as Forward To ranks them
   ([Forwarding](discord/messages.md#forwarding)), and those as good by name;
   `@` finds people, `#` text channels, `!` voice channels and `*` servers.
@@ -57,6 +63,26 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   what's typed. Escape in the box clears it and ends the search, keeping the
   focus there; in an empty box it lets go. A keyboard layout without Latin
   letters uses the key in F's place.
+- Split view, a Yapfast addition that Discord doesn't have: with "Split
+  view" on in Settings > Messages (`split_view`, off by default), a Discord
+  channel, thread or DM opens beside the open conversation, with its own
+  messages and composer, from Open in split view in its menu or a Ctrl+click
+  or middle click on its row, and stays while the conversation moves
+  elsewhere. See `docs/client/threads.md`.
+- Peek at a channel or DM without opening it, a Yapfast addition that
+  Discord doesn't have. With "Peek at channels" on in Settings > Messages
+  (`peek_channels` in `layout.json`, off by default), holding Alt alone over
+  a row of the channel list or the DM list shows its newest six messages
+  beside the row, as the pins show them, newest at the bottom. Letting go
+  of Alt, or leaving the row, closes it, and its rows go. A channel Yapfast
+  keeps in memory and that's up to date answers from there; any other asks
+  Discord once for six (`GET /channels/{id}/messages?limit=6`), which aren't
+  kept, and its pictures show only if they're kept already. Nothing is
+  opened and no read goes to Discord: the peek reads no channel, so it stays
+  unread with its mentions. Not over the open channel, a locked one, a
+  voice channel without a chat, a forum or a Matrix room. Alt is read from the
+  window's modifier keys wherever the focus is, and counts as let go when
+  the window loses the focus.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -120,7 +146,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   `layout.json`, off by default), a message whose text, code blocks and all,
   runs past fifteen lines shows its first twelve, cut off, with Show more
   under it; Show more shows it whole, and Show less folds it again. Its
-  pictures, embeds and reactions show under it either way. Each message
+  pictures, embeds and reactions show under it either way, though an
+  embed's description past ten of its lines folds the same way to eight,
+  with its own Show more, which shares the message's fold. Each message
   keeps its own choice while Yapfast runs, in the timeline and the thread
   beside it, and starts folded again after a restart. Folding measures the
   text as laid out, so it follows the window's width and the text size.
@@ -441,8 +469,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   reads the conversation and takes the banner away, leaving the divider. A
   Discord channel places it by message order; when every loaded message is
   unread, it opens on a window of the messages around the last read one,
-  where the bar counts those loaded with a plus ("50+ new messages"). A
-  Matrix room places it after the event its read receipt is on, once that
+  where the bar counts those loaded with a plus ("50+ new messages").
+  Replying from that window shows the newest messages, which can leave the
+  divider above everything loaded; the banner then stays, counting with a
+  plus, until the conversation is left, and clicking it brings the divider
+  back. A Matrix room places it after the event its read receipt is on, once that
   event is in the loaded timeline.
 - Highlight messages that call on the user with a faint gold tint and a gold
   edge on the left, as Discord does: a mention of them, of a Discord role
@@ -456,7 +487,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   always, as Discord's client does; one with its ping off only while it's
   new. Matrix's push rules decide which messages mention the user; a reply
   stays a mention when its text has their user ID or a link to it, or
-  @room. Their own messages are never highlighted. Yapfast counts unread
+  @room. Their own messages are highlighted only when they name the user
+  themselves on Discord, as Discord's client does, which never notifies of
+  them. Yapfast counts unread
   messages on this device; for a room that isn't open, sync often delivers
   only the newest event, so Yapfast shows that something is
   unread rather than how much.
@@ -512,7 +545,10 @@ both answer xdg-decoration with server-side, and only KWin draws one. So
 LXQt, LXDE,
 Budgie, Pantheon, Deepin, COSMIC, Unity and Enlightenment get Yapfast's bar,
 and a tiling compositor such as Hyprland, sway or niri, or any desktop not
-listed, keeps whatever the desktop draws, which may be nothing. "Use the
+listed, keeps whatever the desktop draws, which may be nothing. There, and
+under any desktop's title bar, Discord's bar stays without the window's
+buttons, as Discord's client always shows it: where you are, back and
+forward, Inbox and Help; it neither moves nor resizes the window. "Use the
 system title bar" in Appearance overrides it either way
 (`system_title_bar` in `layout.json`) and applies at once. Each window is
 made with the desktop's frame or without it, so the window is made again
@@ -611,7 +647,7 @@ The window follows Discord's arrangement:
   channels leaves them out, but for the open one and those that mention you.
   Removing a friend and blocking ask first. Matrix links go through
   matrix.to. Arrow keys, Home and End move through the menu, Tab steps
-  down and Shift+Tab up, Right opens a submenu and Left leaves it, Enter
+  down and Shift+Tab up, Right opens a submenu and Left leaves or folds it, Enter
   chooses, and Escape closes it.
 - Inviting opens a dialog with a link Discord made at once, lasting 7 days
   and working any number of times, a button that copies it, and a line on
@@ -630,7 +666,9 @@ The window follows Discord's arrangement:
   `channel_settings.rs` beside it.
 - Menus (`crates/yapfast-iced/src/menus.rs`) are as wide as their rows'
   text needs, 224px at least, and each row may open a submenu of its own,
-  beside the menu, or on its left near the window's right edge. A row can
+  folded down under it inside the menu, one at a time (the default), or,
+  with Settings > Appearance > Submenus on "Open beside", beside the menu,
+  or on its left near the window's right edge. A row can
   carry a second line under its text, such as the level a notification
   submenu has chosen, a check in place of its icon for the current choice,
   or a box to tick. Ticking leaves the menu open. A row can show greyed, as a
@@ -644,7 +682,7 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
+  theme, audio devices, message text size, clock, link previews, folding long messages and peeking, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in

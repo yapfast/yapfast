@@ -45,6 +45,27 @@ pub fn linkify(markdown: &str) -> String {
     linked
 }
 
+/// The file name a link to a file sent in a Discord message shows as, for an
+/// address on Discord's CDN or media proxy under `/attachments/`, which
+/// Discord's client shows on a pill; none for any other.
+pub fn attachment_name(address: &str) -> Option<&str> {
+    let path = [
+        "https://cdn.discordapp.com/attachments/",
+        "https://media.discordapp.net/attachments/",
+    ]
+    .into_iter()
+    .find_map(|start| address.strip_prefix(start))?;
+    let path = path.split(['?', '#']).next().unwrap_or_default();
+    let mut parts = path.split('/');
+    let ids = [parts.next()?, parts.next()?];
+    let name = parts.next()?;
+    (ids.iter()
+        .all(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))
+        && !name.is_empty()
+        && parts.next().is_none())
+    .then_some(name)
+}
+
 /// Markdown with the HTML in it escaped, so it shows as typed rather than
 /// styling the text around it.
 pub fn escape_html(markdown: &str) -> Cow<'_, str> {
@@ -400,6 +421,28 @@ fn addresses(text: &str) -> Vec<Range<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_link_to_a_file_sent_on_discord_names_its_file() {
+        let url = "https://media.discordapp.net/attachments/152634/156836/ZUo_Txc.mp4?ex=1&is=2";
+        assert_eq!(attachment_name(url), Some("ZUo_Txc.mp4"));
+        assert_eq!(
+            attachment_name("https://cdn.discordapp.com/attachments/1/2/a.png"),
+            Some("a.png")
+        );
+        assert_eq!(
+            attachment_name("https://cdn.discordapp.com/avatars/1/2.png"),
+            None
+        );
+        assert_eq!(
+            attachment_name("https://cdn.discordapp.com/attachments/1/x/a.png"),
+            None
+        );
+        assert_eq!(
+            attachment_name("https://example.com/attachments/1/2/a.png"),
+            None
+        );
+    }
 
     #[test]
     fn takes_tracking_out_of_links_and_leaves_the_rest() {

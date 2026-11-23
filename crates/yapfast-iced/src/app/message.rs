@@ -154,6 +154,10 @@ pub enum Message {
     /// The thread beside the channel, or the New Thread form (`thread.rs`).
     Thread(crate::thread::Event),
     Popover(crate::header_popovers::Event),
+    /// Mod View beside the channel (`mod_view.rs`).
+    ModView(crate::mod_view::Event),
+    /// Peeking at a row of the sidebar while Alt is held (`peek.rs`).
+    Peek(crate::peek::Event),
     Modal(crate::bot_modal::Event),
     Forum(crate::forum::Event),
     BrowseChannels(crate::browse_channels::Event),

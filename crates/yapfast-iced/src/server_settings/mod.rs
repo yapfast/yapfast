@@ -14,6 +14,7 @@
 
 mod expressions;
 mod moderation;
+pub(crate) use moderation::audit_words;
 mod ownership;
 pub(crate) mod people;
 mod profile;

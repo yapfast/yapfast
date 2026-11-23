@@ -15,7 +15,7 @@ use iced::{
     widget::{Id, button, container, operation, row, text},
 };
 use yapfast_core::{
-    application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES},
+    application::{Action, AppState, ChannelAsk, FOLDER_COLORS, INVITE_AGES, INVITE_USES},
     chat::{ChannelKind, ChannelSettings},
 };
 
@@ -25,6 +25,7 @@ use crate::{
     ctx::{Ctx, Cx, Focus, Request},
     dialog::buttons,
     form,
+    pictures::Icon,
     style::rounded,
 };
 
@@ -37,6 +38,9 @@ const LINK: f32 = 44.0;
 /// The fields' ids.
 const JOIN_FIELD: &str = "join-invite";
 const CHANNEL_FIELD: &str = "channel-name";
+const FOLDER_FIELD: &str = "folder-name";
+/// A colour swatch in Folder Settings.
+const SWATCH: f32 = 28.0;
 
 /// The choices for a new invite link, as Discord's dialog words them, in
 /// the order of `INVITE_AGES` and `INVITE_USES`.
@@ -57,6 +61,18 @@ pub struct Dialogs {
     channel: Option<ChannelDraft>,
     /// Whether the leave dialog showed at the last sync.
     leave_shown: bool,
+    /// Folder Settings' name and colour, while it's open.
+    folder: Option<FolderDraft>,
+}
+
+struct FolderDraft {
+    name: String,
+    /// None for Discord's default colour.
+    color: Option<u32>,
+    /// The colour the folder had, when it's none of the swatches (one
+    /// another client picked): offered as a swatch of its own after them,
+    /// so it shows picked and can be picked again.
+    own: Option<u32>,
 }
 
 struct InviteChoice {
@@ -67,8 +83,51 @@ struct InviteChoice {
 
 struct ChannelDraft {
     name: String,
-    voice: bool,
+    /// The kind a new channel is made as, of those Create Channel offers.
+    kind: ChannelKind,
+    /// Kept from @everyone, as Create Channel's Private Channel switch does.
+    private: bool,
 }
+
+/// The kinds Discord's Create Channel offers, with its line on each:
+/// announcement channels and stages only in a Community server.
+const CHANNEL_KINDS: [(ChannelKind, &str, &str, Icon, bool); 5] = [
+    (
+        ChannelKind::Text,
+        "Text",
+        "Send messages, images, GIFs, emoji, opinions, and puns",
+        Icon::Hash,
+        false,
+    ),
+    (
+        ChannelKind::Voice,
+        "Voice",
+        "Hang out together with voice, video, and screen share",
+        Icon::Voice,
+        false,
+    ),
+    (
+        ChannelKind::Forum,
+        "Forum",
+        "Create a space for organized discussions",
+        Icon::Forum,
+        false,
+    ),
+    (
+        ChannelKind::Announcement,
+        "Announcement",
+        "Important updates for people in and out of the server",
+        Icon::Announcement,
+        true,
+    ),
+    (
+        ChannelKind::Stage,
+        "Stage",
+        "Host events for an audience",
+        Icon::Stage,
+        true,
+    ),
+];
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -84,7 +143,10 @@ pub enum Event {
     OpenCaptcha,
     CloseJoin,
     ChannelName(String),
-    ChannelVoice(bool),
+    /// The kind a new channel is made as.
+    ChannelKind(ChannelKind),
+    /// Create Channel's Private Channel (or Private Category) switch.
+    ChannelPrivate(bool),
     SaveChannel,
     CloseChannel,
     Leave,
@@ -93,6 +155,12 @@ pub enum Event {
     /// The moved channel takes its category's permissions (true), keeps
     /// its own (false), or stays where it was (none).
     MoveSync(Option<bool>),
+    /// Folder Settings: its name typed, a colour chosen (none for the
+    /// default), Done, or closed.
+    FolderName(String),
+    FolderColor(Option<u32>),
+    SaveFolder,
+    CloseFolder,
 }
 
 fn message(event: Event) -> Message {
@@ -106,6 +174,7 @@ pub fn is_open(state: &AppState) -> bool {
         || state.channel_dialog.is_some()
         || state.leave.is_some()
         || state.move_sync.is_some()
+        || state.folder_settings.is_some()
 }
 
 /// The pictures the dialogs show: the server an invite is to.
@@ -158,13 +227,28 @@ impl Dialogs {
                         .as_ref()
                         .map(|settings| settings.name.clone())
                         .unwrap_or_default(),
-                    voice: asked.kind == ChannelKind::Voice,
+                    kind: asked.kind,
+                    private: false,
                 });
                 let named = !matches!(asked.ask, ChannelAsk::Delete(_));
                 focus = Some(if named { CHANNEL_FIELD } else { NOBODY });
             }
             Some(_) => {}
             None => local.channel = None,
+        }
+        match &state.folder_settings {
+            Some(settings) if local.folder.is_none() => {
+                local.folder = Some(FolderDraft {
+                    name: settings.name.clone(),
+                    color: settings.color.filter(|color| *color != FOLDER_COLORS[0]),
+                    own: settings
+                        .color
+                        .filter(|color| !FOLDER_COLORS.contains(color)),
+                });
+                focus = Some(FOLDER_FIELD);
+            }
+            Some(_) => {}
+            None => local.folder = None,
         }
         if state.leave.is_some() && !local.leave_shown {
             focus = Some(NOBODY);
@@ -236,15 +320,43 @@ impl Dialogs {
             }
             Event::OpenCaptcha => Action::OpenJoinCaptcha,
             Event::CloseJoin => Action::CloseJoin,
+            Event::FolderName(name) => {
+                if let Some(draft) = &mut local.folder {
+                    draft.name = name;
+                }
+                return Task::none();
+            }
+            Event::FolderColor(color) => {
+                if let Some(draft) = &mut local.folder {
+                    draft.color = color;
+                }
+                return Task::none();
+            }
+            Event::SaveFolder => {
+                let Some(draft) = &local.folder else {
+                    return Task::none();
+                };
+                Action::SaveFolderSettings {
+                    name: draft.name.clone(),
+                    color: draft.color,
+                }
+            }
+            Event::CloseFolder => Action::CloseFolderSettings,
             Event::ChannelName(name) => {
                 if let Some(draft) = &mut local.channel {
                     draft.name = name;
                 }
                 return Task::none();
             }
-            Event::ChannelVoice(voice) => {
+            Event::ChannelKind(kind) => {
                 if let Some(draft) = &mut local.channel {
-                    draft.voice = voice;
+                    draft.kind = kind;
+                }
+                return Task::none();
+            }
+            Event::ChannelPrivate(on) => {
+                if let Some(draft) = &mut local.channel {
+                    draft.private = on;
                 }
                 return Task::none();
             }
@@ -260,14 +372,16 @@ impl Dialogs {
                 if saving {
                     return Task::none();
                 }
+                let create = cx
+                    .state()
+                    .channel_dialog
+                    .as_ref()
+                    .is_some_and(|asked| matches!(asked.ask, ChannelAsk::Create { .. }));
                 Action::SaveChannel {
-                    kind: if draft.voice {
-                        ChannelKind::Voice
-                    } else {
-                        ChannelKind::Text
-                    },
+                    kind: draft.kind,
                     settings: ChannelSettings {
                         name: draft.name.clone(),
+                        private: create && draft.private,
                         ..Default::default()
                     },
                 }
@@ -289,7 +403,9 @@ impl Dialogs {
     /// a channel dialog or a leave without a field.
     pub fn key(&mut self, named: Option<key::Named>, cx: &mut Cx<'_>) -> Task<Message> {
         let state = cx.state();
-        let (close, enter) = if state.move_sync.is_some() {
+        let (close, enter) = if state.folder_settings.is_some() {
+            (Event::CloseFolder, Some(Event::SaveFolder))
+        } else if state.move_sync.is_some() {
             (Event::MoveSync(None), Some(Event::MoveSync(Some(true))))
         } else if state.leave.is_some() {
             (Event::CloseLeave, Some(Event::Leave))
@@ -327,6 +443,9 @@ struct View<'a> {
 impl<'a> View<'a> {
     fn view(self) -> Option<Element<'a, Message>> {
         let state = self.cx.state;
+        if state.folder_settings.is_some() {
+            return self.folder_view();
+        }
         if state.move_sync.is_some() {
             return self.move_sync_view();
         }
@@ -576,19 +695,26 @@ impl<'a> View<'a> {
         let category = asked.kind == ChannelKind::Category;
         let thing = if category { "category" } else { "channel" };
         let named = |name: &str| {
-            if asked.kind == ChannelKind::Text {
+            if asked.kind.slug_named() {
                 format!("#{name}")
             } else {
                 name.to_owned()
             }
         };
+        // As Discord's: "Create Channel", "in Text Channels", or nothing
+        // under it outside any category.
         let (title, detail, confirm) = match &asked.ask {
             ChannelAsk::Create { .. } => (
-                format!("Create {thing}"),
-                if asked.name.is_empty() {
-                    format!("In {}", asked.server_name)
+                if category {
+                    "Create Category"
                 } else {
-                    format!("In {}", asked.name)
+                    "Create Channel"
+                }
+                .to_owned(),
+                if asked.name.is_empty() {
+                    String::new()
+                } else {
+                    format!("in {}", asked.name)
                 },
                 format!("Create {thing}"),
             ),
@@ -611,37 +737,87 @@ impl<'a> View<'a> {
         };
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
         let ready = !asked.saving;
+        let create = matches!(asked.ask, ChannelAsk::Create { .. });
         let mut body = vec![
             self.cx
                 .look
                 .dialog_head(title, message(Event::CloseChannel)),
-            form::note(theme, detail),
         ];
-        if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
-            body.extend([
-                form::heading(theme, "CHANNEL TYPE"),
-                controls::choices(
-                    theme,
-                    &["Text", "Voice"],
-                    usize::from(draft.voice),
-                    |index| message(Event::ChannelVoice(index == 1)),
-                ),
-            ]);
+        if !detail.is_empty() {
+            body.push(form::note(theme, detail));
+        }
+        if create && !category {
+            body.push(form::heading(theme, "Channel Type"));
+            for (kind, name, about, icon, community) in CHANNEL_KINDS {
+                if community && !asked.community {
+                    continue;
+                }
+                body.push(self.kind_option(kind, name, about, icon, draft.kind == kind));
+            }
         }
         if !deleting {
-            let (field, placeholder) = if category {
-                ("CATEGORY NAME", "New Category")
-            } else {
-                ("CHANNEL NAME", "new-channel")
+            let (field, placeholder) = match (create, category) {
+                (true, true) => ("Category Name", "New Category"),
+                (true, false) => ("Channel Name", "new-channel"),
+                (false, true) => ("CATEGORY NAME", "New Category"),
+                (false, false) => ("CHANNEL NAME", "new-channel"),
             };
-            body.extend([
-                form::heading(theme, field),
-                form::field(theme, CHANNEL_FIELD, placeholder, &draft.name)
-                    .padding([8.0, 10.0])
-                    .on_input(|name| message(Event::ChannelName(name)))
-                    .on_submit(message(Event::SaveChannel))
-                    .into(),
-            ]);
+            // The name with the kind's icon before it, as Discord's has.
+            let shown = if create && !category {
+                draft.kind
+            } else {
+                asked.kind
+            };
+            let icon = CHANNEL_KINDS
+                .iter()
+                .find(|(kind, ..)| *kind == shown)
+                .map(|(_, _, _, icon, _)| *icon);
+            let field_box = form::field(theme, CHANNEL_FIELD, placeholder, &draft.name)
+                .padding([8.0, 10.0])
+                .on_input(|name| message(Event::ChannelName(name)))
+                .on_submit(message(Event::SaveChannel));
+            // The kind's icon inside the field, before the name, as
+            // Discord's has it.
+            let named_row: Element<'a, Message> = match icon.filter(|_| !category) {
+                Some(icon) => iced::widget::stack![
+                    field_box.padding(iced::Padding {
+                        top: 8.0,
+                        right: 10.0,
+                        bottom: 8.0,
+                        left: 34.0,
+                    }),
+                    container(self.cx.look.glyph(icon, 18, theme.muted))
+                        .padding(iced::Padding::ZERO.left(10))
+                        .height(Length::Fill)
+                        .align_y(Alignment::Center),
+                ]
+                .width(Length::Fill)
+                .into(),
+                None => field_box.into(),
+            };
+            body.extend([form::heading(theme, field), named_row]);
+        }
+        if create {
+            let (label, about) = if category {
+                (
+                    "Private Category",
+                    "By making a category private, only selected members and roles will be able to view this category. Synced channels in this category will automatically match to this setting.",
+                )
+            } else {
+                (
+                    "Private Channel",
+                    "Only selected members and roles will be able to view this channel.",
+                )
+            };
+            body.push(
+                form::switch(
+                    label,
+                    draft.private,
+                    ready.then(|| message(Event::ChannelPrivate(!draft.private))),
+                )
+                .description(about)
+                .view(self.cx.look),
+            );
         }
         if let Some(error) = &asked.error {
             body.push(form::note_in(error.as_str(), theme.danger));
@@ -674,7 +850,145 @@ impl<'a> View<'a> {
         ))
     }
 
+    /// A kind Create Channel offers: a radio, the kind's icon, its name and
+    /// Discord's line under it; the chosen one on the field's ground.
+    fn kind_option(
+        self,
+        kind: ChannelKind,
+        name: &'static str,
+        about: &'static str,
+        icon: Icon,
+        chosen: bool,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let (accent, edge, ground, hover) = (theme.accent, theme.muted, theme.field, theme.hover);
+        let dot: Element<'a, Message> = if chosen {
+            container(iced::widget::Space::new())
+                .width(10)
+                .height(10)
+                .style(move |_| rounded(accent, 5))
+                .into()
+        } else {
+            iced::widget::Space::new().into()
+        };
+        let radio = container(dot)
+            .width(20)
+            .height(20)
+            .center_x(20)
+            .center_y(20)
+            .style(move |_| iced::widget::container::Style {
+                border: iced::Border {
+                    color: if chosen { accent } else { edge },
+                    width: 2.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+        let words = iced::widget::column![
+            text(name)
+                .size(15)
+                .font(crate::fonts::MEDIUM)
+                .color(theme.text),
+            // 12 px, as Discord's, so each kind's line fits on one line.
+            text(about).size(12).color(theme.secondary),
+        ]
+        .spacing(2)
+        .width(Length::Fill);
+        button(
+            row![radio, self.cx.look.glyph(icon, 22, theme.muted), words]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .on_press(message(Event::ChannelKind(kind)))
+        .style(move |_, status| button::Style {
+            background: Some(
+                if chosen {
+                    ground
+                } else if matches!(status, button::Status::Hovered) {
+                    hover
+                } else {
+                    iced::Color::TRANSPARENT
+                }
+                .into(),
+            ),
+            border: crate::style::round(8),
+            ..button::Style::default()
+        })
+        .into()
+    }
+
     /// Asks before leaving a server or group DM, in red; a group's offers
+    /// Folder Settings, as Discord's: the folder's name, blank to name it by
+    /// its servers, and its colour from Discord's swatches, the first its
+    /// default; Done sends both in the server list.
+    fn folder_view(self) -> Option<Element<'a, Message>> {
+        let draft = self.s.folder.as_ref()?;
+        let theme = self.cx.look.theme;
+        let chosen = draft.color.unwrap_or(FOLDER_COLORS[0]);
+        let ring = theme.text;
+        let colours = FOLDER_COLORS.iter().copied().chain(draft.own);
+        let swatches = colours.enumerate().map(|(index, rgb)| {
+            let ground = crate::style::hex(rgb);
+            let picked = rgb == chosen;
+            let color = (index > 0).then_some(rgb);
+            button(iced::widget::Space::new().width(SWATCH).height(SWATCH))
+                .padding(0)
+                .on_press(message(Event::FolderColor(color)))
+                .style(move |_, _| button::Style {
+                    background: Some(ground.into()),
+                    border: iced::Border {
+                        color: ring,
+                        width: if picked { 2.0 } else { 0.0 },
+                        radius: 4.0.into(),
+                    },
+                    ..button::Style::default()
+                })
+                .into()
+        });
+        let swatches: Vec<Element<'a, Message>> = swatches.collect();
+        let swatches = iced::widget::Row::from_vec(swatches)
+            .spacing(8)
+            .wrap()
+            .vertical_spacing(8);
+        let body = vec![
+            self.cx
+                .look
+                .dialog_head("Folder settings".to_owned(), message(Event::CloseFolder)),
+            form::heading(theme, "FOLDER NAME"),
+            form::field(theme, FOLDER_FIELD, "", &draft.name)
+                .padding([8.0, 10.0])
+                .on_input(|name| message(Event::FolderName(name)))
+                .on_submit(message(Event::SaveFolder))
+                .into(),
+            form::heading(theme, "FOLDER COLOR"),
+            swatches.into(),
+            buttons([
+                action(
+                    theme,
+                    "Cancel",
+                    Kind::Ghost,
+                    Some(message(Event::CloseFolder)),
+                )
+                .into(),
+                action(
+                    theme,
+                    "Done",
+                    Kind::Primary,
+                    Some(message(Event::SaveFolder)),
+                )
+                .into(),
+            ]),
+        ];
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            NARROW,
+            message(Event::CloseFolder),
+        ))
+    }
+
     /// to leave without telling its other members.
     fn leave_view(self) -> Option<Element<'a, Message>> {
         let leave = self.cx.state.leave.as_ref()?;

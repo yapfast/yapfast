@@ -131,6 +131,16 @@ pub fn places(rows: &[SideRow], discord: bool, filtered: bool) -> Places {
     // Pinned channels come first, before a line.
     let mut pinned = rows.iter().any(|row| matches!(row, SideRow::Pinned));
     let mut folded = false;
+    // A category with voice channels folded behind Show All doesn't
+    // rearrange, as a folded category doesn't: its hidden rows hold
+    // places too.
+    let voice_folded: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SideRow::VoiceMore { fold, shown, .. } if !shown => Some(fold.as_str()),
+            _ => None,
+        })
+        .collect();
     for (index, row) in rows.iter().enumerate() {
         let id = match row {
             SideRow::PinnedEnd => {
@@ -141,7 +151,7 @@ pub fn places(rows: &[SideRow], discord: bool, filtered: bool) -> Places {
             SideRow::Heading {
                 fold, collapsed, ..
             } => {
-                folded = *collapsed;
+                folded = *collapsed || voice_folded.contains(&fold.as_str());
                 Some(fold)
             }
             SideRow::Room(room) if !room.thread && !folded => Some(&room.id),

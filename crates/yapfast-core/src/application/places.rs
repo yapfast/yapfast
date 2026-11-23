@@ -4,7 +4,7 @@
 //! choices as its menu in the rail, in the order Discord's dropdown has.
 
 use super::*;
-use crate::chat::{ChannelKind, ChannelSettings, Permission};
+use crate::chat::{ChannelKind, ChannelSettings, Permission, ServerNotifications};
 
 /// A Discord category as the channel list heads its channels with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,9 +65,15 @@ pub struct ChannelDialog {
     pub name: String,
     /// What it makes, changes or deletes.
     pub kind: ChannelKind,
+    /// The server is a Community one, whose Create Channel offers
+    /// announcement channels and stages too.
+    pub community: bool,
     /// Its settings as they stand; none while Discord sends them.
     pub settings: Option<ChannelSettings>,
     pub saving: bool,
+    /// It's making a private channel, whose Permissions open once it's
+    /// made, ready to add who may see it.
+    pub private: bool,
     pub error: Option<String>,
 }
 
@@ -124,6 +130,9 @@ impl Application {
         }
         if self.discord_server(id) {
             return self.discord_server_choices(id, &listed);
+        }
+        if self.state.is_folder(id) {
+            return self.folder_choices(id, listed);
         }
         if self.state.is_category(id) {
             return self.category_choices(id, &listed);
@@ -218,6 +227,46 @@ impl Application {
         choices
     }
 
+    /// A rail folder's menu: marking it read, as Discord's does, then the
+    /// notifications of all its servers at once, while Discord is connected
+    /// and knows each one's. Unmute shows once every one of them is muted.
+    fn folder_choices(&self, id: &str, mut listed: Vec<MenuChoice>) -> Vec<MenuChoice> {
+        let notifications: Option<Vec<_>> = self
+            .folder_notifications(id)
+            .map(|(_, notifications)| notifications)
+            .collect();
+        if let (true, Some(all)) = (self.state.discord_online, notifications)
+            && !all.is_empty()
+        {
+            listed.push(if all.iter().all(|known| known.own.muted) {
+                MenuChoice::UnmuteFolder
+            } else {
+                MenuChoice::MuteFolder
+            });
+            listed.push(MenuChoice::FolderNotifications);
+        }
+        if !self.state.preview
+            && self.state.discord_user.is_some()
+            && id.starts_with("discord-folder:")
+        {
+            listed.push(MenuChoice::FolderSettings);
+        }
+        listed
+    }
+
+    /// How each Discord server of a rail folder notifies this account, by
+    /// its server id, in the rail's order; none for one Yapfast doesn't
+    /// know the settings of.
+    pub fn folder_notifications<'a>(
+        &'a self,
+        folder: &'a str,
+    ) -> impl Iterator<Item = (&'a str, Option<ServerNotifications>)> + 'a {
+        self.state
+            .folder_servers(folder)
+            .filter(|server| server.discord)
+            .map(|server| (server.id.as_str(), self.server_notifications(&server.id)))
+    }
+
     /// Whether this account may leave a Discord server: any but one it
     /// owns, which Discord asks to hand on or delete instead.
     fn may_leave(&self, id: &str) -> bool {
@@ -292,6 +341,19 @@ impl Application {
                 dialog.error = Some(error);
             }
         }
+    }
+
+    /// What a Discord server channel's row offers while pointed at, as
+    /// Discord's: Create Invite and Edit Channel, where its menu offers them.
+    pub fn channel_row_actions(&self, room: &str) -> (bool, bool) {
+        if !self.discord_channel(room) || self.state.is_category(room) {
+            return (false, false);
+        }
+        let choices = self.menu_choices(room);
+        (
+            choices.contains(&MenuChoice::Invite),
+            choices.contains(&MenuChoice::EditChannel),
+        )
     }
 
     /// Whether this account may create a channel in a category, for the "+" on
@@ -995,21 +1057,19 @@ impl Application {
         settings: Option<ChannelSettings>,
     ) {
         let server = self.server_of(place).unwrap_or_else(|| place.to_owned());
-        let server_name = self
-            .state
-            .servers
-            .iter()
-            .find(|known| known.id == server)
-            .map(|known| known.name.clone())
-            .unwrap_or_default();
+        let listed = self.state.servers.iter().find(|known| known.id == server);
+        let server_name = listed.map(|known| known.name.clone()).unwrap_or_default();
+        let community = listed.is_some_and(|known| known.community);
         self.state.channel_dialog = Some(ChannelDialog {
             ask,
             server,
             server_name,
             name,
             kind,
+            community,
             settings,
             saving: false,
+            private: false,
             error: None,
         });
     }
@@ -1030,23 +1090,25 @@ impl Application {
             return vec![];
         };
         let kind = match dialog.ask {
-            // Making a channel chooses text or voice; a category stays one,
-            // and a channel stays what it was.
-            ChannelAsk::Create { .. } if dialog.kind != ChannelKind::Category => {
-                if kind == ChannelKind::Category {
+            // Making a channel chooses its kind; a category stays one, and
+            // a channel stays what it was. Announcement channels and stages
+            // are a Community server's.
+            ChannelAsk::Create { .. } if dialog.kind != ChannelKind::Category => match kind {
+                ChannelKind::Category => ChannelKind::Text,
+                ChannelKind::Announcement | ChannelKind::Stage if !dialog.community => {
                     ChannelKind::Text
-                } else {
-                    kind
                 }
-            }
+                kind => kind,
+            },
             _ => dialog.kind,
         };
         let mut settings = settings;
         settings.name.truncate(settings.name.trim_end().len());
         let leading = settings.name.len() - settings.name.trim_start().len();
         settings.name.drain(..leading);
+        settings.private &= matches!(dialog.ask, ChannelAsk::Create { .. });
         // Discord's text channel names are lower case, with dashes for spaces.
-        if kind == ChannelKind::Text {
+        if kind.slug_named() {
             settings.name = settings
                 .name
                 .to_lowercase()
@@ -1077,30 +1139,56 @@ impl Application {
             return vec![];
         }
         dialog.saving = true;
+        dialog.private = settings.private;
         dialog.error = None;
-        let command = match dialog.ask.clone() {
+        let server = dialog.server.clone();
+        let ask = dialog.ask.clone();
+        dialog.kind = kind;
+        // A private one stays open to this account, unless it has every
+        // permission, as Discord's client keeps it.
+        let keep = settings
+            .private
+            .then(|| self.kept_from_private(&server))
+            .flatten();
+        let command = match ask {
             ChannelAsk::Create { parent } => DiscordCommand::CreateChannel {
-                server: dialog.server.clone(),
+                server,
                 kind,
                 parent,
                 copy_of: None,
                 settings: Box::new(settings),
+                keep,
             },
             ChannelAsk::Duplicate(room) => DiscordCommand::CreateChannel {
-                server: dialog.server.clone(),
+                server,
                 kind,
                 parent: None,
                 copy_of: Some(room),
                 settings: Box::new(settings),
+                keep: None,
             },
             ChannelAsk::Delete(room) => DiscordCommand::DeleteChannel { room },
         };
-        dialog.kind = kind;
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// This account's user id, when it hasn't every permission in a Discord
+    /// server, so a private channel it makes keeps an overwrite for it.
+    fn kept_from_private(&self, server: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some((known, None, me)) = self.discord_place(server) {
+            use yapfast_discord::ready::permission;
+            let held = known.server_permissions(me, &known.marks.roles);
+            return (held != permission::ALL).then(|| me.to_owned());
+        }
+        let _ = server;
+        None
+    }
+
     /// Closes the channel dialog once Discord did what it asked, opening a
-    /// text channel it made, as Discord's client does; or says why not.
+    /// text channel it made, as Discord's client does; or says why not. A
+    /// private channel's Permissions open too, with the picker of members
+    /// and roles to let in, a Yapfast addition.
     pub(super) fn channel_saved(&mut self, result: Result<Option<String>, String>) {
         let Some(dialog) = self
             .state
@@ -1112,8 +1200,14 @@ impl Application {
         };
         match result {
             Ok(made) => {
-                if dialog.kind == ChannelKind::Text {
-                    self.pending_open = made;
+                if matches!(
+                    dialog.kind,
+                    ChannelKind::Text | ChannelKind::Announcement | ChannelKind::Forum
+                ) {
+                    self.pending_open.clone_from(&made);
+                }
+                if dialog.private {
+                    self.pending_permissions = made;
                 }
                 self.state.channel_dialog = None;
             }

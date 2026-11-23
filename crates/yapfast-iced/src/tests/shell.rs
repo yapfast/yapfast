@@ -745,3 +745,63 @@ fn a_window_opened_again_goes_back_to_the_messages_it_was_closed_on() {
         "{offset} px into it, was {into} px"
     );
 }
+
+#[test]
+fn under_the_desktops_title_bar_discords_bar_stays_without_moving_the_window() {
+    let (mut app, _folder) = preview();
+    let frame = app.shell.frame;
+    app.shell.own_title_bar = false;
+    app.shell.bar_under_frame = true;
+    window_bar::fit_window(&mut app);
+    assert_eq!(app.window.height, frame.height - window_bar::HEIGHT);
+    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
+    assert!(shows(&app, "Co-op crew"), "where Yapfast is");
+    assert!(
+        window_bar::resize_edges(&app).is_none(),
+        "the desktop resizes it"
+    );
+    // A press on its ground neither moves nor maximizes the window.
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    ui.point_at(Point::new(200.0, 12.0));
+    ui.simulate(click());
+    ui.simulate(click());
+    let pressed = ui
+        .into_messages()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::Bar(window_bar::Event::Press | window_bar::Event::Maximize)
+            )
+        })
+        .count();
+    assert_eq!(pressed, 0);
+    // Without it, as the tests lay the window out, there's none.
+    app.shell.bar_under_frame = false;
+    window_bar::fit_window(&mut app);
+    assert_eq!(app.window.height, frame.height);
+}
+
+#[test]
+fn a_notifications_open_in_split_view_opens_its_room_beside_the_open_one() {
+    let general = "discord:10:11";
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    change(&mut app, |state| state.selected = None);
+    // Off, as split view is by default, no notification offers it.
+    assert!(!crate::shell::notify_split(&app, general));
+    app.layout.split_view = true;
+    change(&mut app, |state| state.split_view = true);
+    assert!(
+        crate::shell::notify_split(&app, general),
+        "a channel it can show"
+    );
+    app.layout.split_notify = Some(false);
+    assert!(!crate::shell::notify_split(&app, general), "its button off");
+    app.layout.split_notify = None;
+    heard(
+        &mut app,
+        Heard::Opened(format!("{}{general}", crate::SPLIT)),
+    );
+    let aside = app.client.state().aside.as_ref().expect("beside");
+    assert!(aside.split && aside.room == general);
+}

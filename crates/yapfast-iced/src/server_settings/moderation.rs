@@ -678,23 +678,35 @@ impl<'a> View<'a> {
         ink: Color,
         now: u64,
     ) -> Element<'a, Message> {
-        let strong = self.cx.look.theme.text;
-        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
-        let spans: Vec<Span<'a, (), iced::Font>> = words
-            .spans()
-            .filter_map(|piece| match piece {
-                AuditSpan::Text(words) => Some(span(words).color(ink)),
-                AuditSpan::Bold("") => None,
-                AuditSpan::Bold(words) => Some(span(words).font(BOLD).color(strong)),
-                AuditSpan::Time(seconds) => Some(
-                    span(clock::calendar(seconds, now, twelve_hour))
-                        .font(BOLD)
-                        .color(strong),
-                ),
-            })
-            .collect();
-        rich_text(spans).size(size).into()
+        audit_words(self.cx, words, size, ink, now)
     }
+}
+
+/// A sentence of Audit Log's in `ink`, its names and times in bold in the
+/// text's ink, as Audit Log and Mod View's Moderator Action Log show it.
+pub(crate) fn audit_words<'a>(
+    cx: Ctx<'a>,
+    words: &'a AuditWords,
+    size: u32,
+    ink: Color,
+    now: u64,
+) -> Element<'a, Message> {
+    let strong = cx.look.theme.text;
+    let twelve_hour = cx.layout.prefs.twelve_hour_clock;
+    let spans: Vec<Span<'a, (), iced::Font>> = words
+        .spans()
+        .filter_map(|piece| match piece {
+            AuditSpan::Text(words) => Some(span(words).color(ink)),
+            AuditSpan::Bold("") => None,
+            AuditSpan::Bold(words) => Some(span(words).font(BOLD).color(strong)),
+            AuditSpan::Time(seconds) => Some(
+                span(clock::calendar(seconds, now, twelve_hour))
+                    .font(BOLD)
+                    .color(strong),
+            ),
+        })
+        .collect();
+    rich_text(spans).size(size).into()
 }
 
 /// A list's empty state, as Discord's: a heading and what it means,

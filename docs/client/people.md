@@ -23,6 +23,19 @@ member list, the DMs, and the lists still to come build on it.
   goes to it, in its server) or what they're up to, a group's members, and its
   nameplate under the pointer or while open, filling the row to its edges and
   6 px corners; a new DM offers Wave, which sends 👋.
+- Open in Mod View, in a moderator's menu for a server member, shows Mod
+  View (`mod_view.rs`, the core's `application/mod_view.rs`) beside the
+  channel in place of the member list or the thread beside it, 340 px wide:
+  the member's avatar and names; Message, Kick, Ban and Time out (their
+  dialogs, as the menu opens them) with one-click timeouts of 60s to 1w, or
+  Remove while timed out, beside the time left counting down each second
+  (a `LiveText`, which builds no view); Copy ID and Copy mention; Signals; Server Activity
+  (Messages and Links open the search, Moderator Action Log its page); Mod
+  Permissions with All Granted Permissions; Roles, each with its X where it
+  may be taken, and the roles it may give; and Account. All Granted
+  Permissions and the Moderator Action Log take the panel's place, with
+  Back. The view asks the core for the member (`mod_view_member`) as it's
+  built; only the page shown is made.
 - A right click on a member, a DM or a message's author opens the person's
   menu (`person_menu.rs`), built from the core's `person_choices`:
   Profile, Mention, Message, Call, Add Note,
