@@ -351,7 +351,7 @@ fn files_of(mut kept: BTreeMap<PathBuf, Vec<u8>>, too_large: &[PathBuf]) -> Resu
             if too_large.contains(&relative) {
                 return Err(format!(
                     "{} is too large: a theme holds at most 24 MiB, a font 4 MiB and a picture 2 MiB",
-                    relative.display()
+                    super::theme_path(&relative)
                 ));
             }
             let Some(bytes) = kept.remove(&relative) else {
