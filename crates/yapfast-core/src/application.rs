@@ -4919,7 +4919,9 @@ impl Application {
             }
             Event::ServerFiled(result) => {
                 if let Err(error) = result {
-                    self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't save your server folders: {error}"
+                    )));
                 }
             }
             Event::StatusSet(result) => {
