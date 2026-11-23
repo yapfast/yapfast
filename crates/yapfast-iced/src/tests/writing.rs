@@ -800,3 +800,27 @@ fn the_typing_line_has_its_own_strip_over_the_composer_and_never_covers_a_messag
         "on the line's strip: {note:?} {words:?}"
     );
 }
+
+/// The composer's buttons light under the pointer, as every icon button
+/// does. (The add button is greyed in the preview, which sends no files, so
+/// it's the emoji button that's pointed at.)
+#[test]
+fn the_composers_buttons_light_under_the_pointer() {
+    let (app, _folder) = preview();
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let words = ui
+        .find(iced::widget::Id::new(crate::composer::COMPOSER))
+        .expect("the composer's field")
+        .bounds();
+    // The emoji button, right of them.
+    let emoji = iced::Point::new(words.x + words.width + 22.0, words.y + words.height - 16.0);
+    let area = iced::Rectangle::new(
+        iced::Point::new(emoji.x - 14.0, emoji.y - 14.0),
+        iced::Size::new(28.0, 28.0),
+    );
+    assert!(
+        super::hover_draws(&mut ui, emoji, area),
+        "the emoji button's wash"
+    );
+}

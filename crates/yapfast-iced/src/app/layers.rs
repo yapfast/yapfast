@@ -469,7 +469,17 @@ impl App {
             && key.as_ref() == keyboard::Key::Character("t")
         {
             self.turn_package_off();
+            // The dev theme went with it: so does its inspector.
+            yapfast_iced_kit::inspect::set_on(false);
             return Task::none();
+        }
+        if modifiers.control()
+            && modifiers.shift()
+            && !modifiers.alt()
+            && key.as_ref() == keyboard::Key::Character("i")
+            && self.themes.dev_folder().is_some()
+        {
+            return self.toggle_inspector();
         }
         let taker = self.layers().find(|layer| layer.takes_keys());
         if let Some(layer) = taker {
@@ -499,6 +509,16 @@ impl App {
             return self.escape();
         }
         crate::composer::type_anywhere(self, &key, modifiers)
+    }
+
+    /// `--theme-dev`'s inspector on or off (Ctrl+Shift+I): the named part
+    /// under the pointer labelled, a click copying its name. Outside theme
+    /// dev mode it does nothing, and off it costs nothing.
+    pub fn toggle_inspector(&self) -> Task<Message> {
+        let on = self.themes.dev_folder().is_some() && !yapfast_iced_kit::inspect::on();
+        yapfast_iced_kit::inspect::set_on(on);
+        tracing::info!(on, "--theme-dev: the parts inspector");
+        Task::none()
     }
 
     /// A key for a layer that takes them all: those with keys of their own

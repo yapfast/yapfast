@@ -506,6 +506,7 @@ pub(crate) fn frame_style(
 ) -> impl Fn(&iced::Theme) -> container::Style {
     let border = theme.surface_border("card", radius, if inks.themed { 0.0 } else { 1.0 }, edge);
     let shadow = theme.surface_shadow("card", card_shadow());
+    let look = floats.then(|| theme.part("profile.card", 0)).flatten();
     move |_| {
         let background: iced::Background = if inks.themed {
             iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
@@ -515,7 +516,7 @@ pub(crate) fn frame_style(
         } else {
             inks.ground.into()
         };
-        container::Style {
+        let style = container::Style {
             background: Some(background),
             border,
             shadow: if floats {
@@ -524,6 +525,14 @@ pub(crate) fn frame_style(
                 iced::Shadow::default()
             },
             ..Default::default()
+        };
+        match look {
+            // A person's own profile colours stay theirs.
+            Some(look) if inks.themed => container::Style {
+                background: style.background,
+                ..look.style(style)
+            },
+            _ => yapfast_iced_kit::parts::style(look.as_ref(), style),
         }
     }
 }

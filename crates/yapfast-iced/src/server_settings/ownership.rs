@@ -132,6 +132,7 @@ impl<'a> View<'a> {
                     .on_input(|typed| answer(OwnershipInput::Type(typed)))
                     .on_submit(answer(OwnershipInput::Confirm));
             }
+            let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
             let mut name = column![form::heading(theme, "ENTER SERVER NAME"), field].spacing(6);
             if ask.wrong {
                 name = name.push(
@@ -181,6 +182,7 @@ impl<'a> View<'a> {
                     .on_input(|typed| answer(OwnershipInput::Type(typed)))
                     .on_submit(answer(OwnershipInput::Confirm));
             }
+            let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
             let mut part = column![form::heading(theme, "VERIFICATION CODE"), field].spacing(6);
             if let Some(error) = &ask.error {
                 part = part.push(text(error.as_str()).size(12).color(theme.danger));

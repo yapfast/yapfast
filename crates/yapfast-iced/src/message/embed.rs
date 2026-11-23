@@ -222,6 +222,7 @@ pub(super) fn embed<'a>(
         border.width = 0.0;
     }
     let shadow = theme.surface_shadow("embed", iced::Shadow::default());
+    let look = theme.part("timeline.embed", 0);
     let inset = if line.is_some() { 1.0 } else { 0.0 };
     let body = container(
         container(beside)
@@ -231,7 +232,13 @@ pub(super) fn embed<'a>(
                 left: 12.0,
                 right: 16.0,
             })
-            .style(move |_| rounded(ground, 0)),
+            .style(move |_| {
+                let mut style = rounded(ground, 0);
+                if let Some(look) = look {
+                    style.background = look.ground(style.background);
+                }
+                style
+            }),
     )
     .padding(Padding {
         top: inset,
@@ -246,14 +253,20 @@ pub(super) fn embed<'a>(
         container(shown)
             .max_width(EMBED_WIDTH)
             .clip(true)
-            .style(move |_| iced::widget::container::Style {
-                background: Some(edge.into()),
-                border,
-                shadow,
-                ..Default::default()
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    look.as_ref(),
+                    iced::widget::container::Style {
+                        background: Some(edge.into()),
+                        border,
+                        shadow,
+                        ..Default::default()
+                    },
+                )
             }),
     )
     .padding(Padding::ZERO.top(4).bottom(3));
+    let shown = yapfast_iced_kit::parts::show(theme, "timeline.embed", 0, shown);
     let shown = crate::theme_art::surface(shown, ctx, surface);
     crate::theme_art::outlined(
         shown,

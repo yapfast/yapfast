@@ -65,17 +65,22 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     .width(Length::Fill)
     .height(crate::header::HEIGHT)
     .align_y(Alignment::Center);
-    let field = controls::field(
+    let field = yapfast_iced_kit::parts::show(
         theme,
-        FILTER,
-        "Search channels",
-        ctx.browse_filter,
-        false,
-        true,
-    )
-    .size(15)
-    .padding([8, 10])
-    .on_input(|filter| Message::BrowseChannels(Event::Filter(filter)));
+        "field",
+        0,
+        controls::field(
+            theme,
+            FILTER,
+            "Search channels",
+            ctx.browse_filter,
+            false,
+            true,
+        )
+        .size(15)
+        .padding([8, 10])
+        .on_input(|filter| Message::BrowseChannels(Event::Filter(filter))),
+    );
     let query = ctx.browse_filter.trim().to_lowercase();
     let mut list = column![];
     let mut heading = None;

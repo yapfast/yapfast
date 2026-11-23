@@ -640,10 +640,15 @@ impl<'a> View<'a> {
             message(Event::Emoji),
             message(Event::RemoveEmoji),
         );
-        let field = form::field(theme, FIELD, "What's happening?", &draft.text)
-            .padding(10)
-            .on_input(|text| message(Event::Text(text)))
-            .on_submit(message(Event::Save));
+        let field = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            form::field(theme, FIELD, "What's happening?", &draft.text)
+                .padding(10)
+                .on_input(|text| message(Event::Text(text)))
+                .on_submit(message(Event::Save)),
+        );
         let mut body = column![
             head,
             row![emoji, field].spacing(8).align_y(Alignment::Center),

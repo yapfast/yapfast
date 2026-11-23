@@ -17,7 +17,7 @@ use std::path::{Component, Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{MANIFEST, PART_CONTRACTS, PARTS, THEME_API};
+use super::{MANIFEST, THEME_API};
 
 pub mod art;
 
@@ -1025,6 +1025,8 @@ pub struct Resolved {
     pub content: super::content::Content,
     /// The words and marks around the window: [`super::chrome`].
     pub chrome: super::chrome::Chrome,
+    /// Named parts' styles, by state: [`super::parts`].
+    pub parts: super::parts::Parts,
 }
 
 impl Resolved {
@@ -1120,7 +1122,7 @@ pub struct Package {
 }
 
 /// The top-level keys of `theme.json`.
-const TOP_KEYS: [&str; 17] = [
+const TOP_KEYS: [&str; 16] = [
     "theme_api",
     "id",
     "name",
@@ -1135,13 +1137,12 @@ const TOP_KEYS: [&str; 17] = [
     "icon",
     "variants",
     "$schema",
-    "parts",
     "options",
     "sets",
 ];
 
 /// The layers, at the top level or in a variant.
-const LAYER_KEYS: [&str; 13] = [
+const LAYER_KEYS: [&str; 14] = [
     "art",
     "chrome",
     "content",
@@ -1155,6 +1156,7 @@ const LAYER_KEYS: [&str; 13] = [
     "effects",
     "sounds",
     "icons",
+    "parts",
 ];
 
 /// A layer older themes may carry that Yapfast no longer draws: custom
@@ -1283,9 +1285,6 @@ impl Package {
                     "\"{key}\" isn't something this Yapfast reads; ignored"
                 ));
             }
-        }
-        if let Some(parts) = top.get("parts") {
-            parts_notes(parts, &mut notes);
         }
         let Some(Value::Object(variants)) = top.get("variants") else {
             bail!("it needs \"variants\" with \"dark\", \"light\" or both");
@@ -1569,6 +1568,9 @@ impl Package {
             if let Some(chrome) = layers.get("chrome") {
                 super::chrome::read_chrome(chrome, &place("chrome"), &mut resolved.chrome, notes)?;
             }
+            if let Some(parts) = layers.get("parts") {
+                super::parts::read_parts(parts, &place("parts"), &mut resolved.parts, notes)?;
+            }
         }
         super::lists::check_with(&resolved, [shared, variant], notes)?;
         Ok(resolved)
@@ -1606,6 +1608,7 @@ impl Package {
                     .files()
                     .into_iter()
                     .chain(resolved.layout.files())
+                    .chain(resolved.parts.files())
                 {
                     if !files.contains(&picture) {
                         files.push(picture);
@@ -2684,48 +2687,6 @@ fn read_effects(
     Ok(())
 }
 
-/// Parts aren't drawn yet: each declared part gets a note saying the stock
-/// part shows, and why, so its author knows it's waiting on Yapfast and not
-/// broken.
-fn parts_notes(parts: &Value, notes: &mut Vec<String>) {
-    let Some(parts) = parts.as_object() else {
-        notes.push("\"parts\" has to be an object; ignored".into());
-        return;
-    };
-    for (name, part) in parts {
-        if !PARTS.contains(&name.as_str()) {
-            notes.push(format!(
-                "\"parts.{name}\" isn't a part Yapfast has; ignored"
-            ));
-            continue;
-        }
-        let contract = part.get("contract").and_then(Value::as_str).unwrap_or("");
-        let offered = PART_CONTRACTS
-            .iter()
-            .find(|(part, ..)| part == name)
-            .map(|(_, major, minor)| (*major, *minor));
-        let wanted = contract.split_once('.').and_then(|(major, minor)| {
-            Some((major.parse::<u32>().ok()?, minor.parse::<u32>().ok()?))
-        });
-        let note = match (offered, wanted) {
-            (None, _) => format!("\"parts.{name}\" needs a later Yapfast; the stock {name} shows"),
-            (Some(_), None) => {
-                format!("\"parts.{name}.contract\" is written as 1.0; the stock {name} shows")
-            }
-            (Some((major, minor)), Some((wanted_major, wanted_minor)))
-                if wanted_major != major || wanted_minor > minor =>
-            {
-                format!(
-                    "\"parts.{name}\" is built for contract {wanted_major}.{wanted_minor}, and this \
-                     Yapfast offers {major}.{minor}; the stock {name} shows"
-                )
-            }
-            (Some(_), Some(_)) => continue,
-        };
-        notes.push(note);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2910,7 +2871,7 @@ mod tests {
         let notes = package.notes.join("\n");
         for expected in [
             "\"haptics\"",
-            "parts.message-row\" needs a later Yapfast",
+            "parts.message-row\" isn't a part Yapfast has",
             "parts.whole-window",
             "sparkle",
             "danger\" can't be set",
@@ -3075,17 +3036,5 @@ mod tests {
             "the danger colours stay Yapfast's"
         );
         assert_eq!(folder_name("Plum Night!"), "plum-night");
-    }
-
-    #[test]
-    fn a_part_for_a_contract_yapfast_offers_is_quiet() {
-        // No part is offered yet, so every declared part is noted; this keeps
-        // the note's wording for the major mismatch honest once one is.
-        let package = Package::parse(&SMALL.replace(
-            "\"variants\"",
-            r#""parts": { "member-row": { "contract": "2.0" } }, "variants""#,
-        ))
-        .unwrap();
-        assert!(package.notes.iter().any(|note| note.contains("member-row")));
     }
 }

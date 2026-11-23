@@ -92,6 +92,7 @@ pub(super) fn menu_list<'a>(
         .padding(6)
         .width(Length::Fill)
         .style(controls::menu_panel(ctx.look.theme));
+    let panel = yapfast_iced_kit::parts::show(ctx.look.theme, "menu", 0, panel);
     opaque(controls::themed_outline(
         panel,
         ctx.look.theme,
@@ -214,10 +215,15 @@ pub(super) fn tag_list<'a>(ctx: crate::ctx::Ctx<'a>, editor: &'a Editor) -> Elem
     }
     let panel = container(
         column![
-            form::field(theme, TAG_SEARCH, "Search", &editor.tag_query)
-                .size(13)
-                .padding(7)
-                .on_input(|query| message(Event::TagQuery(query))),
+            yapfast_iced_kit::parts::show(
+                theme,
+                "field",
+                0,
+                form::field(theme, TAG_SEARCH, "Search", &editor.tag_query)
+                    .size(13)
+                    .padding(7)
+                    .on_input(|query| message(Event::TagQuery(query)))
+            ),
             scroll_view(rows)
                 .height(Length::Shrink)
                 .style(scrollbar(theme)),
@@ -228,6 +234,7 @@ pub(super) fn tag_list<'a>(ctx: crate::ctx::Ctx<'a>, editor: &'a Editor) -> Elem
     .max_height(290)
     .width(Length::Fill)
     .style(controls::menu_panel(theme));
+    let panel = yapfast_iced_kit::parts::show(theme, "menu", 0, panel);
     opaque(controls::themed_outline(
         panel,
         theme,

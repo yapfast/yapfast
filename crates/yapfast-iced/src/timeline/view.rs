@@ -129,6 +129,16 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     // A press notes where the list is in the window, for the menus and
     // cards its rows open: what's over the list comes and goes.
+    let part = ctx.look.theme.part("timeline", 0);
+    let layers: Element<'a, Message> = match part {
+        Some(part) => container(layers)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| part.style(container::Style::default()))
+            .into(),
+        None => layers.into(),
+    };
+    let layers = yapfast_iced_kit::parts::show(ctx.look.theme, "timeline", 0, layers);
     crate::widgets::Spot::new(layers, &ctx.lanes.timeline.place).into()
 }
 
@@ -234,6 +244,24 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     } else {
         row_ground(ctx, index, look)
     };
+    let edited = ctx.composer.editing.as_deref() == Some(message.item.as_str());
+    let jumped = ctx.lanes.timeline.jump_lit.as_deref() == Some(message.item.as_str());
+    let part = theme
+        .part(
+            "timeline.message",
+            yapfast_iced_kit::parts::states(&[
+                (yapfast_iced_kit::parts::HOVER, pointed),
+                (yapfast_iced_kit::parts::SELECTED, target || edited),
+            ]),
+        )
+        .map(|mut part| {
+            // A mention's, a jump's, an edit's or a reply's tint says
+            // something: it stays over the part's own ground.
+            if ground.is_some() && (look.highlighted || jumped || edited || target) {
+                part.ground = None;
+            }
+            part
+        });
     // The tint starts under the gap that sets a group apart from the one
     // above it, as Discord's does.
     let gap = if !head && look.first {
@@ -241,17 +269,26 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     } else {
         0.0
     };
-    let mut message_content = container(crate::message::message_content(ctx, index, look))
-        .width(Length::Fill)
-        .padding(Padding {
-            top: if head || look.first {
-                0.0
-            } else {
-                top_space(look, spacing)
-            },
-            bottom: message_gap,
-            ..Padding::ZERO
-        });
+    let inner = crate::message::message_content(ctx, index, look);
+    let inner: Element<'a, Message> = match part.and_then(|part| part.padding) {
+        Some(_) => container(inner)
+            .padding(yapfast_iced_kit::parts::padding(
+                part.as_ref(),
+                Padding::ZERO,
+            ))
+            .width(Length::Fill)
+            .into(),
+        None => inner,
+    };
+    let mut message_content = container(inner).width(Length::Fill).padding(Padding {
+        top: if head || look.first {
+            0.0
+        } else {
+            top_space(look, spacing)
+        },
+        bottom: message_gap,
+        ..Padding::ZERO
+    });
     // A theme's row inset (Slint's `row-inset-x`/`-y`): the band and its
     // edges sit that far in from the row, clear of a pane's rim
     // (Bubblegum's), over the message rather than its gap above.
@@ -272,15 +309,20 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         }
     };
     let mut ground_layer = None;
-    if let Some(ground) = ground {
+    if ground.is_some() || (part.is_some() && !carded) {
         let mut border = theme.surface_border("row", 0.0, 0.0, Color::TRANSPARENT);
         border.radius = theme.row_radius(0.0).into();
         let shadow = theme.surface_shadow("row", iced::Shadow::default());
-        let style = move |_: &_| container::Style {
-            background: Some(ground.into()),
-            border,
-            shadow,
-            ..Default::default()
+        let style = move |_: &_| {
+            yapfast_iced_kit::parts::style(
+                part.as_ref(),
+                container::Style {
+                    background: ground.map(Into::into),
+                    border,
+                    shadow,
+                    ..Default::default()
+                },
+            )
         };
         if inset.is_some() {
             ground_layer = Some(band(
@@ -357,8 +399,17 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         let origin = iced::Vector::new(lane.left, lane.top);
         Message::Timeline(Event::RowMenu(item.clone(), at + origin))
     });
+    let content: Element<'a, Message> = yapfast_iced_kit::parts::show(
+        theme,
+        "timeline.message",
+        yapfast_iced_kit::parts::states(&[
+            (yapfast_iced_kit::parts::HOVER, pointed),
+            (yapfast_iced_kit::parts::SELECTED, target || edited),
+        ]),
+        content,
+    );
     let content = if carded {
-        content.into()
+        content
     } else {
         // As Slint's: a theme's row highlighter marks a plain row, not a
         // bubble's (Bubblegum's band ran the row's width under its pill).
@@ -1012,7 +1063,8 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     .align_y(Alignment::Center);
     let border = theme.surface_border("toast", 16.0, 1.0, edge);
     let shadow = theme.surface_shadow("toast", crate::style::pill_shadow());
-    container(face)
+    let part = theme.part("toast", 0);
+    let bar = container(face)
         .padding(Padding {
             left: 17.0,
             right: 13.0,
@@ -1021,13 +1073,18 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
         })
         .height(PRESENT_BAR)
         .align_y(Alignment::Center)
-        .style(move |_| container::Style {
-            background: Some(ground.into()),
-            border,
-            shadow,
-            ..container::Style::default()
-        })
-        .into()
+        .style(move |_| {
+            yapfast_iced_kit::parts::style(
+                part.as_ref(),
+                container::Style {
+                    background: Some(ground.into()),
+                    border,
+                    shadow,
+                    ..container::Style::default()
+                },
+            )
+        });
+    yapfast_iced_kit::parts::show(theme, "toast", 0, bar)
 }
 
 /// Whether the message is drawn as a theme's bubble, which takes no row

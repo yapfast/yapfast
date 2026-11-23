@@ -368,9 +368,9 @@ impl<'a> View<'a> {
                     controls::field(theme, "", &field.placeholder, &field.value, false, !saving)
                         .id(iced::widget::Id::unique());
                 if saving {
-                    input.into()
+                    yapfast_iced_kit::parts::show(theme, "field", 0, input)
                 } else {
-                    input.on_input(edited).into()
+                    yapfast_iced_kit::parts::show(theme, "field", 0, input.on_input(edited))
                 }
             }
             RADIO_GROUP | CHECKBOX_GROUP => {

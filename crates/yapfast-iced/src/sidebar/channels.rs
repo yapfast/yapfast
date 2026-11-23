@@ -18,6 +18,11 @@ use crate::{
 
 use super::{CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, Room, SideRow, VOICE_CARD_GAP};
 
+use yapfast_iced_kit::parts;
+
+/// A named part and the states it's in, for a row's face to lay its look.
+pub(crate) type Part = (&'static str, parts::States);
+
 fn themed_count_pill<'a>(
     theme: &crate::theme::Theme,
     count: &str,
@@ -451,6 +456,10 @@ impl<'a> super::View<'a> {
         };
         let id = format!("heading:{fold}");
         let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
+        let look = theme.part(
+            "sidebar.category",
+            parts::states(&[(parts::HOVER, pointed)]),
+        );
         let stock_ink = if pointed {
             theme.secondary
         } else {
@@ -472,6 +481,7 @@ impl<'a> super::View<'a> {
                     .flatten()
             })
             .unwrap_or(stock_ink);
+        let ink = parts::ink(look.as_ref(), ink);
         // While a drag is on, as a text channel's row.
         let ink = if self.s.arrange_dimmed(None, false) {
             faded(ink, crate::arrange::DIM)
@@ -480,30 +490,37 @@ impl<'a> super::View<'a> {
         };
         // As Slint's category heading: the label face only on a theme's
         // label bar (`Trim.label`), else the window's.
-        let header_font = crate::themes::list_font(
-            theme,
-            headers.and_then(|h| h.font),
-            if label_bar.is_some() {
-                "labels"
-            } else {
-                "body"
-            },
-            headers.and_then(|h| h.weight),
-            SEMIBOLD,
+        let header_font = parts::font(
+            look.as_ref(),
+            crate::themes::list_font(
+                theme,
+                headers.and_then(|h| h.font),
+                if label_bar.is_some() {
+                    "labels"
+                } else {
+                    "body"
+                },
+                headers.and_then(|h| h.weight),
+                SEMIBOLD,
+            ),
         );
         let header_shadow = crate::themes::offset_shadow(headers.and_then(|h| h.shadow));
         let framed_words = headers.is_some_and(|headers| headers.frame.is_some());
+        let name = yapfast_iced_kit::parts::words(look.as_ref(), name).into_owned();
         let plain_heading = name.clone();
         let name = elide(name);
         // A frame hugs the words, so they take their own width.
         let name = if framed_words { name.shrink() } else { name };
-        let size = headers.and_then(|headers| headers.size).unwrap_or_else(|| {
-            if label_bar.is_some() {
-                theme.type_size("labels", 14.0)
-            } else {
-                14.0
-            }
-        });
+        let size = parts::size(
+            look.as_ref(),
+            headers.and_then(|headers| headers.size).unwrap_or_else(|| {
+                if label_bar.is_some() {
+                    theme.type_size("labels", 14.0)
+                } else {
+                    14.0
+                }
+            }),
+        );
         // A theme's ransom-note headings, as Slint cuts them.
         let ransom = headers
             .filter(|headers| headers.style == yapfast_core::themes::lists::HeaderStyle::Ransom)
@@ -607,18 +624,21 @@ impl<'a> super::View<'a> {
                 }
                 .align_y(Alignment::Center);
                 let words = container(face)
-                    .padding(Padding {
-                        left: inset_left,
-                        right: if fill_width { 6.0 } else { 8.0 },
-                        top: if centred {
-                            0.0
-                        } else if fill_width {
-                            4.0
-                        } else {
-                            17.0
+                    .padding(parts::padding(
+                        look.as_ref(),
+                        Padding {
+                            left: inset_left,
+                            right: if fill_width { 6.0 } else { 8.0 },
+                            top: if centred {
+                                0.0
+                            } else if fill_width {
+                                4.0
+                            } else {
+                                17.0
+                            },
+                            bottom: 0.0,
                         },
-                        bottom: 0.0,
-                    })
+                    ))
                     .height(height)
                     .width(Length::Fill)
                     .align_y(Alignment::Center);
@@ -629,11 +649,16 @@ impl<'a> super::View<'a> {
                         let bar_ = container(Space::new())
                             .width(Length::Fill)
                             .height(22)
-                            .style(move |_| container::Style {
-                                background: Some(bar_ground),
-                                border,
-                                shadow,
-                                ..Default::default()
+                            .style(move |_| {
+                                parts::style(
+                                    look.as_ref(),
+                                    container::Style {
+                                        background: Some(bar_ground),
+                                        border,
+                                        shadow,
+                                        ..Default::default()
+                                    },
+                                )
                             });
                         stack![
                             container(bar_).padding(Padding {
@@ -648,16 +673,27 @@ impl<'a> super::View<'a> {
                         .into()
                     }
                     None => words
-                        .style(move |_| container::Style {
-                            background,
-                            border,
-                            shadow,
-                            ..Default::default()
+                        .style(move |_| {
+                            parts::style(
+                                look.as_ref(),
+                                container::Style {
+                                    background,
+                                    border,
+                                    shadow,
+                                    ..Default::default()
+                                },
+                            )
                         })
                         .into(),
                 }
             };
         let body = crate::theme_art::surface(body, self.cx, surface);
+        let body = yapfast_iced_kit::parts::show(
+            theme,
+            "sidebar.category",
+            parts::states(&[(parts::HOVER, pointed)]),
+            body,
+        );
         let area = mouse_area(body)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Side(Event::Point(id.clone(), true)))
@@ -730,11 +766,16 @@ impl<'a> super::View<'a> {
             selected,
             Some(message),
             None,
+            None,
         )
     }
 
     /// A row's face: lit while selected or pointed at, a press (unless a
     /// click is the row's `Drags`) and a right click on it.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each part it draws is its own input"
+    )]
     pub(super) fn row_face(
         self,
         id: String,
@@ -743,8 +784,9 @@ impl<'a> super::View<'a> {
         selected: bool,
         message: Option<Message>,
         menu: Option<String>,
+        part: Option<Part>,
     ) -> Element<'a, Message> {
-        self.row_face_listed(id, face, height, selected, message, menu, true)
+        self.row_face_listed(id, face, height, selected, message, menu, true, part)
     }
 
     /// [`row_face`](Self::row_face), dressed by a theme's channel rows only
@@ -763,9 +805,10 @@ impl<'a> super::View<'a> {
         message: Option<Message>,
         menu: Option<String>,
         listed: bool,
+        part: Option<Part>,
     ) -> Element<'a, Message> {
         listed_row_face(
-            self.cx, id, face, height, selected, message, menu, listed, None,
+            self.cx, id, face, height, selected, message, menu, listed, None, part,
         )
     }
 
@@ -894,7 +937,16 @@ impl<'a> super::View<'a> {
         let theme = self.cx.look.theme;
         let list = self.cx.themes.channel_rows(&theme.id);
         let pointed = self.cx.pointed.side.as_deref() == Some(room.id.as_str());
+        let states = parts::states(&[
+            (parts::HOVER, pointed),
+            (parts::SELECTED, room.selected),
+            (parts::UNREAD, room.unread),
+            (parts::MUTED, room.muted),
+        ]);
+        let look = theme.part("sidebar.channel-row", states);
+        let icon_look = theme.part("sidebar.channel-row.icon", states);
         let (ink, opacity) = self.row_ink(room, pointed);
+        let ink = parts::ink(look.as_ref(), ink);
         // While a drag is on, rows it can't land among dim.
         let (ink, opacity) = if self.s.arrange_dimmed(Some(&room.id), room.voice) {
             (
@@ -972,11 +1024,21 @@ impl<'a> super::View<'a> {
             } else {
                 crate::look::Look::glyph
             };
-            face = face.push(glyph(
-                self.cx.look,
-                room.icon,
-                icon_size.round() as u32,
-                faded(icon_ink, opacity),
+            let glyph = if icon_look.is_some_and(|look| look.ink.is_some()) {
+                crate::look::Look::tinted_glyph
+            } else {
+                glyph
+            };
+            face = face.push(yapfast_iced_kit::parts::show(
+                theme,
+                "sidebar.channel-row.icon",
+                states,
+                glyph(
+                    self.cx.look,
+                    room.icon,
+                    icon_size.round() as u32,
+                    parts::ink(icon_look.as_ref(), faded(icon_ink, opacity)),
+                ),
             ));
         }
         let marked = self.cx.themes.marked(
@@ -988,12 +1050,15 @@ impl<'a> super::View<'a> {
         let row_role = list
             .and_then(|rows| rows.font)
             .map_or("body", yapfast_core::themes::lists::FontRole::name);
-        let row_font = crate::themes::list_font(
-            theme,
-            list.and_then(|rows| rows.font),
-            "body",
-            list.and_then(|rows| rows.weight),
-            MEDIUM,
+        let row_font = parts::font(
+            look.as_ref(),
+            crate::themes::list_font(
+                theme,
+                list.and_then(|rows| rows.font),
+                "body",
+                list.and_then(|rows| rows.weight),
+                MEDIUM,
+            ),
         );
         let selected_shadow = if room.selected {
             crate::themes::offset_shadow(
@@ -1003,14 +1068,16 @@ impl<'a> super::View<'a> {
         } else {
             crate::piece::TextLight::default()
         };
-        let name = elide(name.into_owned())
-            .size(
-                list.and_then(|rows| rows.size)
-                    .unwrap_or_else(|| theme.type_size(row_role, 15.0)),
-            )
-            .font(row_font)
-            .color(ink)
-            .light(selected_shadow);
+        let name =
+            elide(yapfast_iced_kit::parts::words(look.as_ref(), name.into_owned()).into_owned())
+                .size(parts::size(
+                    look.as_ref(),
+                    list.and_then(|rows| rows.size)
+                        .unwrap_or_else(|| theme.type_size(row_role, 15.0)),
+                ))
+                .font(row_font)
+                .color(ink)
+                .light(selected_shadow);
         // A theme's frame fitted to the name takes only the name's width.
         let fit = list.is_some_and(|rows| rows.fit_text);
         // As Slint's `ListedName`: the selected underline is as wide as the
@@ -1146,6 +1213,7 @@ impl<'a> super::View<'a> {
             room.selected,
             (!dragged).then_some(message),
             Some(room.id.clone()),
+            Some(("sidebar.channel-row", states)),
         );
         // A busy voice channel's card beside it, under the pointer.
         if pointed && room.voice && !room.people.is_empty() && !self.s.voice_card_off {
@@ -1246,9 +1314,11 @@ pub(crate) fn listed_row_face<'a>(
     menu: Option<String>,
     listed: bool,
     seed: Option<usize>,
+    part: Option<Part>,
 ) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let pointed = cx.pointed.side.as_deref() == Some(id.as_str());
+    let look = part.and_then(|(name, states)| theme.part(name, states));
     let rows = cx.themes.channel_rows(&theme.id).filter(|_| listed);
     let frame = rows.and_then(|rows| {
         if selected {
@@ -1316,16 +1386,21 @@ pub(crate) fn listed_row_face<'a>(
     // A frame fitted to the name hugs it, as Slint's `fit_text` does.
     let fit = rows.is_some_and(|rows| rows.fit_text) && frame.is_some();
     let body: Element<'a, Message> = container(face)
-        .padding([0.0, inset])
+        .padding(parts::padding(look.as_ref(), [0.0, inset]))
         .height(height)
         .width(if fit { Length::Shrink } else { Length::Fill })
         .align_y(Alignment::Center)
         .clip(true)
-        .style(move |_| container::Style {
-            background: Some(ground.into()),
-            border,
-            shadow,
-            ..Default::default()
+        .style(move |_| {
+            parts::style(
+                look.as_ref(),
+                container::Style {
+                    background: Some(ground.into()),
+                    border,
+                    shadow,
+                    ..Default::default()
+                },
+            )
         })
         .into();
     let mut body = iced::widget::Stack::with_children([body])
@@ -1382,6 +1457,10 @@ pub(crate) fn listed_row_face<'a>(
         cx,
         selected && (rows.is_none() || selected_plain),
     );
+    let body = match part {
+        Some((name, states)) => yapfast_iced_kit::parts::show(theme, name, states, body),
+        None => body,
+    };
     let area = mouse_area(body)
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Side(Event::Point(id.clone(), true)))

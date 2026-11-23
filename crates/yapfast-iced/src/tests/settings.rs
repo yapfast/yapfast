@@ -1706,3 +1706,63 @@ fn a_theme_review_shows_the_whole_window_in_the_stock_look() {
     )));
     assert_eq!(app.theme.id, "nord");
 }
+
+/// `--theme-dev`'s inspector: Ctrl+Shift+I turns it on only in theme dev
+/// mode; then the named part under the pointer is the one a click copies,
+/// and the click goes no further; Ctrl+Shift+T turns it off with the dev
+/// theme.
+#[test]
+fn the_theme_inspector_copies_the_part_under_the_pointer_only_in_theme_dev() {
+    use yapfast_iced_kit::inspect;
+    let (mut app, folder) = preview();
+    let _ = app.update(Message::Inspect);
+    assert!(!inspect::on(), "nothing outside theme dev mode");
+    app.themes.develop_for_test(folder.path().join("dev"));
+    let _ = app.update(Message::Inspect);
+    assert!(inspect::on());
+    let messages: Vec<Message> = {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        // The sidebar's #general, the first in view (the header names it
+        // after).
+        let mut row = None;
+        let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+            if let iced_test::selector::Candidate::Text {
+                content: "general",
+                visible_bounds: Some(bounds),
+                ..
+            } = candidate
+                && row.is_none()
+            {
+                row = Some(bounds.center());
+            }
+            None::<()>
+        });
+        let row = row.expect("#general in the sidebar");
+        ui.point_at(row);
+        // A frame drawn with the pointer there finds the part under it.
+        let _ = ui.snapshot(&iced::Theme::Dark);
+        let under = inspect::under().expect("a part under the pointer");
+        assert_eq!(under.name, "sidebar.channel-row");
+        assert!(under.bounds.contains(row));
+        ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect()
+    };
+    assert!(
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::InspectCopy("sidebar.channel-row"))),
+        "the click copies the row's name"
+    );
+    assert!(
+        !messages
+            .iter()
+            .any(|message| matches!(message, Message::Side(crate::sidebar::Event::Select(_)))),
+        "the click doesn't reach the row (the pointer's coming still does)"
+    );
+    let _ = app.key(
+        iced::keyboard::Key::Character("t".into()),
+        iced::keyboard::Modifiers::CTRL | iced::keyboard::Modifiers::SHIFT,
+    );
+    assert!(!inspect::on(), "the emergency key turns it off");
+}

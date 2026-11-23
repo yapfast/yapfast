@@ -621,11 +621,15 @@ impl<'a> Page<'a> {
                     }),
                 ),
             ));
-            container(items)
-                .padding(6)
-                .width(MENU)
-                .style(controls::menu_panel(theme))
-                .into()
+            yapfast_iced_kit::parts::show(
+                theme,
+                "menu",
+                0,
+                container(items)
+                    .padding(6)
+                    .width(MENU)
+                    .style(controls::menu_panel(theme)),
+            )
         });
         Popover::new(face, popup, Side::Below)
             .width(Width::Own(MENU))

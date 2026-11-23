@@ -334,14 +334,31 @@ pub fn nav_row<'a, M: Clone + 'a>(
         theme.secondary,
         theme.danger,
     );
-    button(
+    let selected_state = if selected { crate::parts::SELECTED } else { 0 };
+    let (rest_look, lit_look) = (
+        theme.part("settings.nav-row", selected_state),
+        theme.part("settings.nav-row", selected_state | crate::parts::HOVER),
+    );
+    let row = button(
         container(
             row![
-                look.glyph(icon, 20, icon_ink),
-                text(label)
-                    .size(15.0)
-                    .font(MEDIUM)
-                    .wrapping(text::Wrapping::None)
+                look.glyph(
+                    icon,
+                    20,
+                    if danger {
+                        icon_ink
+                    } else {
+                        crate::parts::icon_ink(rest_look.as_ref(), icon_ink)
+                    }
+                ),
+                text(if danger {
+                    label.into_fragment()
+                } else {
+                    crate::parts::words(rest_look.as_ref(), label.into_fragment())
+                })
+                .size(crate::parts::size(rest_look.as_ref(), 15.0))
+                .font(crate::parts::font(rest_look.as_ref(), MEDIUM))
+                .wrapping(text::Wrapping::None)
             ]
             .push(fresh.then(|| crate::form::new_tag(theme)))
             .spacing(8)
@@ -357,7 +374,8 @@ pub fn nav_row<'a, M: Clone + 'a>(
     .on_press(press)
     .style(move |_, status| {
         let lit = lights(status);
-        button::Style {
+        let look = if lit { lit_look } else { rest_look };
+        let style = button::Style {
             background: if selected {
                 Some(active.into())
             } else {
@@ -374,9 +392,35 @@ pub fn nav_row<'a, M: Clone + 'a>(
             },
             border: Border::default().rounded(6),
             ..Default::default()
+        };
+        match look {
+            // A destructive row keeps its red.
+            Some(look) => button::Style {
+                background: look.ground(style.background),
+                text_color: if danger {
+                    style.text_color
+                } else {
+                    look.ink(style.text_color)
+                },
+                border: look.border(style.border),
+                shadow: look.shadow(style.shadow),
+                ..style
+            },
+            None => style,
         }
-    })
-    .into()
+    });
+    if danger {
+        row.into()
+    } else {
+        crate::parts::Dress::looked(
+            theme,
+            "settings.nav-row",
+            selected_state,
+            rest_look,
+            lit_look,
+        )
+        .wrap(row)
+    }
 }
 
 /// A card over the window dimmed by [`DIM`], `margin` in from its edges

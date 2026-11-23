@@ -732,7 +732,14 @@ fn stage_tile(
             tile
         }
     };
-    tile = tile.surface(theme, "call");
+    tile = tile.surface(theme, "call").part(theme.part(
+        "call.tile",
+        if pointed {
+            yapfast_iced_kit::parts::HOVER
+        } else {
+            0
+        },
+    ));
     if full {
         tile = tile.square();
     }
@@ -772,12 +779,19 @@ fn stage_tile(
         tile =
             tile.on_right(move |at| Message::Call(Event::Person(room.clone(), user.clone(), at)));
     }
-    tile.on_press(on_press)
-        .on_point(
+    yapfast_iced_kit::parts::show(
+        theme,
+        "call.tile",
+        if pointed {
+            yapfast_iced_kit::parts::HOVER
+        } else {
+            0
+        },
+        tile.on_press(on_press).on_point(
             Message::Call(Event::Point(place, true)),
             Message::Call(Event::Point(place, false)),
-        )
-        .into()
+        ),
+    )
 }
 
 /// What a watched stream's tile says until its first picture.

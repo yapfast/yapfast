@@ -238,6 +238,7 @@ pub fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
 pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let header = ctx.header;
     let theme = ctx.look.theme;
+    let look = theme.part("header", 0);
     let mut head = row![].spacing(10).align_y(Alignment::Center);
     if header.direct {
         head = head.push(
@@ -286,10 +287,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         crate::theme_effects::label(
             ctx,
             yapfast_core::themes::package::art::TextRole::Headings,
-            theme.heading(&header_name).into_owned(),
-            theme.header_size(16.0),
-            theme.header_font(SEMIBOLD),
-            theme.surface_text("header").unwrap_or(theme.channel_white),
+            yapfast_iced_kit::parts::words(look.as_ref(), theme.heading(&header_name)).into_owned(),
+            yapfast_iced_kit::parts::size(look.as_ref(), theme.header_size(16.0)),
+            yapfast_iced_kit::parts::font(look.as_ref(), theme.header_font(SEMIBOLD)),
+            yapfast_iced_kit::parts::ink(
+                look.as_ref(),
+                theme.surface_text("header").unwrap_or(theme.channel_white),
+            ),
         ),
         ctx,
         yapfast_core::themes::package::Slot::ChannelName,
@@ -380,15 +384,21 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .width(Length::Fill)
         .height(HEIGHT)
         .align_y(Alignment::Center)
-        .style(move |_| container::Style {
-            background,
-            border,
-            shadow,
-            ..Default::default()
+        .style(move |_| {
+            yapfast_iced_kit::parts::style(
+                look.as_ref(),
+                container::Style {
+                    background,
+                    border,
+                    shadow,
+                    ..Default::default()
+                },
+            )
         });
+    let bar = yapfast_iced_kit::parts::show(theme, "header", 0, bar);
     match shy_buttons {
         Some(buttons) => crate::widgets::Hover::new(bar, buttons).into(),
-        None => bar.into(),
+        None => bar,
     }
 }
 
@@ -459,6 +469,12 @@ fn header_icon_button<'a>(
 ) -> Element<'a, Message> {
     // Without a message, greyed.
     let message = message.into();
+    let states = if lit {
+        yapfast_iced_kit::parts::SELECTED
+    } else {
+        0
+    };
+    let rest = ctx.look.theme.part("header.button", states);
     let ink = if lit {
         ctx.look.theme.channel_white
     } else if message.is_some() {
@@ -466,9 +482,11 @@ fn header_icon_button<'a>(
     } else {
         ctx.look.theme.faint
     };
+    let ink = yapfast_iced_kit::parts::icon_ink(rest.as_ref(), ink);
     Spot::new(
         ctx.look
             .face_button(ctx.look.glyph(icon, GLYPH, ink), BUTTON, label, message)
+            .part("header.button", states)
             .below(),
         ctx.header_spot,
     )

@@ -11,6 +11,7 @@ use crate::widgets::scroll_view;
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
+use yapfast_iced_kit::parts;
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Size, Task,
@@ -232,6 +233,8 @@ pub struct RailItem {
     pub busy: Busy,
     /// Out of reach in a Discord outage, shown faded.
     pub unavailable: bool,
+    /// A muted server's.
+    pub muted: bool,
 }
 
 /// A server's voice channels with people in them, in its channel list's
@@ -281,6 +284,7 @@ impl RailItem {
             media: marks.media,
             busy: marks.busy,
             unavailable: server.unavailable,
+            muted: server.muted,
         }
     }
 
@@ -378,6 +382,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             media: None,
             busy: Busy::default(),
             unavailable: false,
+            muted: false,
         })
         .collect();
     items.push(RailItem {
@@ -392,6 +397,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         media: None,
         busy: Busy::default(),
         unavailable: false,
+        muted: false,
     });
     let call = state
         .voice
@@ -510,6 +516,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             media: call.then(call_media),
             busy: Busy::default(),
             unavailable: false,
+            muted: false,
         });
         if open {
             let last = inside.len() - 1;
@@ -538,6 +545,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             media: None,
             busy: Busy::default(),
             unavailable: false,
+            muted: false,
         });
     }
     items
@@ -709,8 +717,8 @@ pub fn drag_face<'a>(rail: &'a Rail, cx: crate::ctx::Ctx<'a>) -> Option<Element<
             open,
             tint,
             preview,
-        } => view.folder_face(*open, *tint, preview, true, DRAGGED),
-        _ => view.server_face_at(item, true, DRAGGED),
+        } => view.folder_face(*open, *tint, preview, true, item.unread, DRAGGED),
+        _ => view.server_face_at(item, true, true, DRAGGED),
     };
     Some(controls::placed(
         face,
@@ -1501,7 +1509,21 @@ impl<'a> View<'a> {
         let home = &self.s.home;
         let (width, height) = self.tile_size();
         let pointed = self.cx.pointed.rail.as_deref() == Some("");
-        let face = self.glyph_tile(Icon::Logo, home.selected || pointed);
+        let states = parts::states(&[
+            (parts::HOVER, pointed),
+            (parts::SELECTED, home.selected),
+            (parts::UNREAD, home.unread),
+        ]);
+        let face = yapfast_iced_kit::parts::show(
+            self.cx.look.theme,
+            "rail.home",
+            states,
+            self.glyph_tile(
+                Icon::Logo,
+                home.selected || pointed,
+                Some(("rail.home", states)),
+            ),
+        );
         let face = crate::theme_effects::rail_icon(face, self.cx, true, 0);
         let marks = Marks {
             selected: home.selected,
@@ -1528,10 +1550,16 @@ impl<'a> View<'a> {
 
     /// A tile with one of the icons on the raised ground, in the accent;
     /// lit, on the accent.
-    fn glyph_tile(self, icon: Icon, lit: bool) -> Element<'a, Message> {
+    fn glyph_tile(
+        self,
+        icon: Icon,
+        lit: bool,
+        part: Option<(&'static str, parts::States)>,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let (width, height) = self.tile_size();
-        let radius = self.tile_radius();
+        let look = part.and_then(|(name, states)| theme.part(name, states));
+        let radius = parts::radius(look.as_ref(), self.tile_radius());
         let mut border = theme.surface_border("rail-icon", RADIUS, 0.0, Color::TRANSPARENT);
         border.radius = radius.into();
         let shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
@@ -1540,6 +1568,7 @@ impl<'a> View<'a> {
         } else {
             (theme.raised, theme.accent)
         };
+        let ink = parts::icon_ink(look.as_ref(), ink);
         if self.framed() && icon == Icon::Logo {
             // As Slint's framed home tile: the logo in the theme's pink
             // ink on the raised ground in the print's window, turned with
@@ -1620,22 +1649,27 @@ impl<'a> View<'a> {
             .boxed(Length::Fill)
             .width(width)
             .height(height)
-            .style(move |_| container::Style {
-                background: Some(paint),
-                border: if tiled {
-                    iced::Border {
-                        radius: border.radius,
+            .style(move |_| {
+                parts::style(
+                    look.as_ref(),
+                    container::Style {
+                        background: Some(paint),
+                        border: if tiled {
+                            iced::Border {
+                                radius: border.radius,
+                                ..Default::default()
+                            }
+                        } else {
+                            border
+                        },
+                        shadow: if tiled {
+                            iced::Shadow::default()
+                        } else {
+                            shadow
+                        },
                         ..Default::default()
-                    }
-                } else {
-                    border
-                },
-                shadow: if tiled {
-                    iced::Shadow::default()
-                } else {
-                    shadow
-                },
-                ..Default::default()
+                    },
+                )
             })
             .into()
     }
@@ -1748,7 +1782,7 @@ impl<'a> View<'a> {
                 .align_y(Alignment::Center)
                 .into();
         }
-        let face = self.glyph_tile(icon, pointed);
+        let face = self.glyph_tile(icon, pointed, None);
         let marks = Marks {
             pointed,
             ..Marks::default()
@@ -1805,15 +1839,30 @@ impl<'a> View<'a> {
 
     /// A server's or a DM's face: its picture, else its initials on the
     /// raised ground (the accent while lit); faded while out of reach.
-    fn server_face(self, item: &RailItem, lit: bool) -> Element<'a, Message> {
-        self.server_face_at(item, lit, 1.0)
+    fn server_face(self, item: &RailItem, lit: bool, pointed: bool) -> Element<'a, Message> {
+        self.server_face_at(item, lit, pointed, 1.0)
     }
 
     /// [`Self::server_face`] at `opacity`, as the dragged tile shows.
-    fn server_face_at(self, item: &RailItem, lit: bool, opacity: f32) -> Element<'a, Message> {
+    fn server_face_at(
+        self,
+        item: &RailItem,
+        lit: bool,
+        pointed: bool,
+        opacity: f32,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let (width, height) = self.tile_size();
-        let radius = self.tile_radius();
+        let look = theme.part(
+            "rail.server",
+            parts::states(&[
+                (parts::HOVER, pointed),
+                (parts::SELECTED, item.selected),
+                (parts::UNREAD, item.unread),
+                (parts::MUTED, item.muted),
+            ]),
+        );
+        let radius = parts::radius(look.as_ref(), self.tile_radius());
         let picture_width = width.round() as u32;
         let picture_height = height.round() as u32;
         let opacity = if item.unavailable { 0.5 } else { 1.0 } * opacity;
@@ -1833,9 +1882,15 @@ impl<'a> View<'a> {
             .and_then(|url| self.cx.picture(url, picture_width, picture_height, true))
         {
             let (face_width, face_height) = self.face_box(&item.id, item.selected);
+            // Inside the part's padding, its ground showing round it.
+            let [top, right, bottom, left] = look.and_then(|look| look.padding).unwrap_or_default();
+            let (face_width, face_height) = (
+                (face_width - left - right).max(1.0),
+                (face_height - top - bottom).max(1.0),
+            );
             let picture = Pic::new(picture, Size::new(face_width, face_height))
                 .radius(radius)
-                .opacity(opacity)
+                .opacity(opacity * look.and_then(|look| look.opacity).unwrap_or(1.0))
                 .turn(if self.framed() {
                     self.lean(&item.id)
                 } else {
@@ -1847,6 +1902,48 @@ impl<'a> View<'a> {
                     self.cx, shell, radius, gel_tone, gel_lift, true,
                 )
                 .expect("a gel theme");
+            }
+            // A part's frame round a server's picture: its ground round it,
+            // inside its padding; its border and shadow, the ring in its
+            // ink when it gives no border colour.
+            if let Some(look) = look.filter(|look| {
+                look.border.is_some()
+                    || look.shadow.is_some()
+                    || look.ground.is_some()
+                    || look.padding.is_some()
+            }) {
+                let ring = container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| {
+                        let mut border = look.border(iced::Border::default().rounded(radius));
+                        if look.border_colour.is_none()
+                            && let Some(ink) = look.ink
+                        {
+                            border.color = look.fade(ink);
+                        }
+                        container::Style {
+                            border,
+                            shadow: look.shadow(iced::Shadow::default()),
+                            ..Default::default()
+                        }
+                    });
+                let ground = container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: look.ground(None),
+                        border: iced::Border {
+                            radius: look.corners(radius.into()),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    });
+                let inset = container(picture).padding(parts::padding(Some(&look), 0.0));
+                return stack![ground, inset, ring]
+                    .width(width)
+                    .height(height)
+                    .into();
             }
             return picture.into();
         }
@@ -1917,23 +2014,28 @@ impl<'a> View<'a> {
         } else {
             theme.surface_paint("raised")
         };
-        container(text(tile_initials(item)).size(16).font(font).color(ink))
-            .center_x(width)
-            .center_y(height)
-            .style(move |_| {
-                let mut style = crate::style::rounded(ground, radius);
-                style.background = Some(paint);
-                if tiled {
-                    // As Slint's `TilePicture`: no rail icon border or shadow
-                    // in a theme's tile window.
-                    return style;
-                }
-                style.border = theme.surface_border("rail-icon", RADIUS, 0.0, Color::TRANSPARENT);
-                style.border.radius = radius.into();
-                style.shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
-                style
-            })
-            .into()
+        container(
+            text(tile_initials(item))
+                .size(16)
+                .font(font)
+                .color(parts::ink(look.as_ref(), ink)),
+        )
+        .center_x(width)
+        .center_y(height)
+        .style(move |_| {
+            let mut style = crate::style::rounded(ground, radius);
+            style.background = Some(paint);
+            if tiled {
+                // As Slint's `TilePicture`: no rail icon border or shadow
+                // in a theme's tile window.
+                return parts::style(look.as_ref(), style);
+            }
+            style.border = theme.surface_border("rail-icon", RADIUS, 0.0, Color::TRANSPARENT);
+            style.border.radius = radius.into();
+            style.shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
+            parts::style(look.as_ref(), style)
+        })
+        .into()
     }
 
     /// A closed folder's face: its colour, with its first four servers'
@@ -1944,12 +2046,17 @@ impl<'a> View<'a> {
         tint: u32,
         preview: &[(String, Option<String>)],
         pointed: bool,
+        unread: bool,
         opacity: f32,
     ) -> Element<'a, Message> {
         let tint = hex(tint);
         let theme = self.cx.look.theme;
         let (width, height) = self.folder_size();
-        let radius = self.tile_radius();
+        let look = theme.part(
+            "rail.folder",
+            parts::states(&[(parts::HOVER, pointed), (parts::UNREAD, unread)]),
+        );
+        let radius = parts::radius(look.as_ref(), self.tile_radius());
         if open {
             return self
                 .cx
@@ -2010,7 +2117,7 @@ impl<'a> View<'a> {
                     theme.surface_border("rail-icon", FOLDER_RADIUS, 0.0, Color::TRANSPARENT);
                 style.border.radius = radius.into();
                 style.shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
-                style
+                parts::style(look.as_ref(), style)
             })
             .into()
     }
@@ -2071,12 +2178,12 @@ impl<'a> View<'a> {
                 tint,
                 preview,
             } => (
-                self.folder_face(*open, *tint, preview, pointed, 1.0),
+                self.folder_face(*open, *tint, preview, pointed, item.unread, 1.0),
                 (folder_width, folder_height),
                 Message::Rail(Event::Folder(item.id.clone())),
             ),
             Kind::Dm => (
-                self.server_face(item, lit),
+                self.server_face(item, lit, pointed),
                 (tile_width, tile_height),
                 Message::Rail(Event::Dm(item.id.clone())),
             ),
@@ -2086,7 +2193,7 @@ impl<'a> View<'a> {
                 Message::Rail(Event::Join),
             ),
             _ => (
-                self.server_face(item, lit),
+                self.server_face(item, lit, pointed),
                 (tile_width, tile_height),
                 Message::Rail(Event::Server(item.id.clone())),
             ),
@@ -2095,6 +2202,28 @@ impl<'a> View<'a> {
             .iter()
             .filter(|i| i.kind != Kind::Divider)
             .count();
+        // A closed folder's tile and a server's are parts; an open folder's
+        // icon and the add tile aren't.
+        let face = match &item.kind {
+            Kind::Folder { open: false, .. } => yapfast_iced_kit::parts::show(
+                self.cx.look.theme,
+                "rail.folder",
+                parts::states(&[(parts::HOVER, pointed), (parts::UNREAD, item.unread)]),
+                face,
+            ),
+            Kind::Folder { .. } | Kind::Add => face,
+            _ => yapfast_iced_kit::parts::show(
+                self.cx.look.theme,
+                "rail.server",
+                parts::states(&[
+                    (parts::HOVER, pointed),
+                    (parts::SELECTED, item.selected),
+                    (parts::UNREAD, item.unread),
+                    (parts::MUTED, item.muted),
+                ]),
+                face,
+            ),
+        };
         let face = crate::theme_effects::rail_icon(face, self.cx, false, place);
         let face = crate::widgets::motion::interactive_cued(
             face,
@@ -2804,6 +2933,7 @@ mod tests {
             kind,
             selected: false,
             unread: false,
+            muted: false,
             badge: String::new(),
             call: false,
             media: None,

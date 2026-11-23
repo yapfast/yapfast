@@ -39,6 +39,12 @@ pub struct Metrics {
     /// Whether the active package has armed Hover / Press interface sound cues.
     pub hover_cue: bool,
     pub press_cue: bool,
+    /// Named parts' looks by the part's name, each worked out for every set
+    /// of its states when the theme loaded ([`crate::parts`]).
+    pub parts: HashMap<&'static str, crate::parts::PartTable>,
+    /// The pictures its parts name, decoded, by the index a
+    /// [`crate::parts::PartLook::picture`] gives.
+    pub part_pictures: Vec<crate::parts::Picture>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -813,6 +819,24 @@ impl Theme {
             .map_or_else(Motion::default, |metrics| metrics.motion)
     }
 
+    /// The look the theme gives the part named `name` in `states`, laid
+    /// over a widget's own; `None` where the theme doesn't style it.
+    pub fn part(&self, name: &str, states: crate::parts::States) -> Option<crate::parts::PartLook> {
+        let metrics = self.metrics()?;
+        if metrics.parts.is_empty() {
+            return None;
+        }
+        metrics.parts.get(name).map(|table| *table.get(states))
+    }
+
+    /// One of the theme's part pictures ([`crate::parts::Dress`]).
+    pub fn part_picture(&self, index: u16) -> Option<crate::parts::Picture> {
+        self.metrics()?
+            .part_pictures
+            .get(usize::from(index))
+            .cloned()
+    }
+
     /// A text role's face and weight. Readable text restores Wired's face
     /// and weight for reading roles, while decorative headings, small text
     /// and times continue to follow the package.
@@ -1018,7 +1042,7 @@ impl Theme {
     }
 }
 
-fn type_weight(weight: i32) -> Weight {
+pub(crate) fn type_weight(weight: i32) -> Weight {
     match (weight.clamp(100, 900) + 50) / 100 {
         0 | 1 => Weight::Thin,
         2 => Weight::ExtraLight,

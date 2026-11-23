@@ -280,7 +280,13 @@ on one with no window (`crates/yapfast-iced/src/theme_cli.rs`):
   a second, two folders deep, off the window's thread). What fails the checks
   is logged and the look before stays, and the folder isn't checked again
   until the next save. Ctrl+Shift+T turns the dev theme off for the rest of
-  the run.
+  the run. Ctrl+Shift+I turns the parts inspector on and off: the named part
+  under the pointer is outlined, with a label giving its name, the states
+  it's in and the `parts` rules that styled it (or that none did), and a
+  click copies its name instead of reaching the part. Outside theme dev mode
+  the key does nothing, and while the inspector is off the window draws as
+  it does without it. Turning it on or off builds the window's view anew, so
+  a list may scroll back to where it starts.
 - `yapfast theme check FOLDER [--marketplace]` prints the checks an install
   runs, and with `--marketplace` those for a listing, and on a pass the
   `sha256` a catalog entry pins. A theme gets into the marketplace with a pull
@@ -302,6 +308,143 @@ Themes don't change the mouse cursor: the system's cursor always shows. An
 older theme's `cursors` layer (and its `cursors/` folder) is ignored, and
 `theme check` notes it rather than failing, so it still installs; the cursor
 files aren't copied, named or counted in the cost line.
+
+## Named parts
+
+Every piece of the window a theme can style has a stable, dotted name,
+grouped by its area (`sidebar.channel-row`, `menu.row`), and a theme styles
+any of them in its `parts` layer, at the top level for every variant or in
+one variant, as the other layers are. It's CSS without selectors: only the
+names below, each with the states and properties it takes, every value in
+its range, all of it resolved once when the theme loads.
+
+```json
+"parts": {
+  "sidebar.channel-row": {
+    "radius": [8, 8, 0, 0], "padding": [0, 10],
+    "hover": { "ground": "#2a2d33" },
+    "selected": { "picture": { "file": "art/tape.png", "fit": "tile" },
+                  "ink": "#ffffff", "weight": 600, "border": [0, 0, 2, 0], "border_colour": "#f0b232" },
+    "unread": { "ink": "#f2f3f5", "case": "upper" },
+    "muted": { "hidden": true }
+  },
+  "menu.row": { "radius": 4, "hover": { "ground": "#5865f2", "ink": "#ffffff" } }
+}
+```
+
+A part's own values show in every state; each state it's in is laid over
+them in the order unread, muted, hover, focused, pressed, selected, a later
+one's value winning where two set the same thing, so a selected row under
+the pointer shows its selected look. A value a part leaves out keeps what the
+rest of the theme (its colours, `shape`, `layout` lists and art) or the stock
+look draws, so parts override the other layers only where they say
+something. A variant's values replace the shared ones one at a time, and an
+option's `parts.menu.row.hover.ink` reaches `menu.row` even when the theme
+doesn't style it yet.
+
+| Property | Takes |
+| --- | --- |
+| `ground` | a colour or a `linear()` gradient, as `colours` writes them |
+| `ink` | the colour of its words and glyphs |
+| `icon_ink` | the colour of its icons; its `ink` when left out |
+| `border` | 0 to 8 pixels: one width, or `[top, right, bottom, left]` |
+| `border_colour` | the border's colour (its `ink` for sides drawn apart when left out) |
+| `radius` | 0 to 999 pixels (999 a pill): one, or `[top left, top right, bottom right, bottom left]` |
+| `shadow` | `none`, or `{ blur, x, y, colour }` as `shape` writes one |
+| `opacity` | 0 to 1, laid on its ground, ink, border, shadow and picture; 0 leaves it invisible but in its place |
+| `hidden` | `true` takes it out of the window, its room with it |
+| `padding` | 0 to 48 pixels between its edge and what's in it: one number, `[vertical, horizontal]` or `[top, right, bottom, left]` |
+| `weight` | its words' weight, 100 to 900 |
+| `size_step` | pixels added to its words' size, -4 to 12 |
+| `italic` | `true` slants its words, `false` straightens them |
+| `case` | its words `upper`, `lower` or `none` (as written) |
+| `picture` | a .png, .jpg or .webp in the theme under what's in it: a file, or `{ "file", "fit" }` with `cover` (the default), `contain` or `tile` |
+
+Every state takes every property its part does, so size, weight, case and
+the rest can change with the pointer or the selection. `hidden` is the one
+exception: a part hides in its own values or unread, muted or selected, not
+under the pointer, which would take it away from under the pointer and bring
+it straight back.
+
+A part with a picture draws its own ground (if it gives one) and then the
+picture under what's in it, in place of the ground under it. A picture's
+corners follow the part's radius where it fills the part exactly (`contain`
+on a matching shape); `cover` and `tile` are cut to the part's box. A border
+whose sides differ is drawn as four straight bars over the part. Opacity
+fades the part's own colours and its picture, not other pictures in it
+(iced has no group opacity yet). A name's ink stays its role's colour:
+`timeline.message.author` and `members.row.name` take a weight, size step,
+case and opacity, not an ink. A server's picture in the rail takes
+`rail.server`'s corners, border and shadow, with its ground showing round
+the picture inside its padding and its ink as the ring when it gives no
+border colour. A mention's, a jump's, an edit's or a reply's tint stays over
+`timeline.message`'s ground.
+
+A theme can make the window look however it likes. What it can't change is
+what keeps the person safe: sign-in, a link's confirmation and a theme's
+review always show the stock look with no parts, destructive buttons and
+menu rows keep Yapfast's red, a person's own profile colours stay theirs,
+and Ctrl+Shift+T turns the theme off from anywhere.
+
+`yapfast theme check` refuses a name, state or property this Yapfast doesn't
+have, naming the nearest part when it's a typo, and a value out of its
+range. A part's ink that reads under 4.5:1 on its ground (or under the
+stock pair it replaces, where that was lower) is a warning, not a
+refusal: it's the theme maker's call. The window ignores unknown names
+instead, so a theme written for a later Yapfast still opens. Parts are
+resolved once, when the theme loads, into a table of every state each part
+takes, and their pictures are decoded then too; the window only looks one
+up while it draws. `yapfast --theme-dev`'s inspector (Ctrl+Shift+I) names
+the part under the pointer. `yapfast theme parts` prints this list, and `--json`
+prints it with each part's stock colour tokens and each property's range,
+for tools such as a theme maker. The list is
+`yapfast_core::themes::parts::REGISTRY`; a test keeps this table to it, and
+another that every part it names is drawn.
+
+<!-- parts:start -->
+| Part | What it is | States | Properties |
+| --- | --- | --- | --- |
+| `rail` | the server rail's ground | – | ground, opacity, hidden, picture |
+| `rail.home` | the rail's Direct Messages tile | unread, hover, selected | ground, ink, border, border_colour, radius, shadow, opacity, hidden, picture, icon_ink |
+| `rail.server` | a server's tile in the rail: on a picture, its ground shows round it inside its padding and its ink rings it | unread, muted, hover, selected | ground, ink, border, border_colour, radius, shadow, opacity, padding, hidden, picture |
+| `rail.folder` | a closed server folder's tile | unread, hover | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `sidebar` | the channel list's ground | – | ground, opacity, hidden, picture |
+| `sidebar.header` | the server's name over the channel list | hover | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture |
+| `sidebar.category` | a channel category's heading | hover | ground, ink, border, border_colour, radius, shadow, opacity, padding, weight, size_step, hidden, case, italic, picture |
+| `sidebar.channel-row` | a channel's row | unread, muted, hover, selected | ground, ink, border, border_colour, radius, shadow, opacity, padding, weight, size_step, hidden, case, italic, picture |
+| `sidebar.channel-row.icon` | the glyph before a channel's name | unread, muted, hover, selected | ink, opacity, hidden |
+| `sidebar.dm-row` | a direct message's row | unread, hover, selected | ground, ink, border, border_colour, radius, shadow, opacity, padding, weight, size_step, hidden, case, picture |
+| `account` | the account panel at the channel list's foot | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `account.button` | the account panel's microphone, sound and settings buttons | hover, pressed, selected | ground, ink, border, border_colour, radius, shadow, opacity, hidden, picture, icon_ink |
+| `voice.panel` | the voice-connected panel over the account panel | – | ground, border, border_colour, radius, shadow, opacity, padding, hidden, picture |
+| `header` | the bar over the conversation | – | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture |
+| `header.button` | the header's icon buttons | hover, pressed, selected | ground, ink, border, border_colour, radius, shadow, opacity, hidden, picture, icon_ink |
+| `timeline` | the conversation's ground | – | ground, opacity, hidden, picture |
+| `timeline.message` | a message's row | hover, selected | ground, border, border_colour, radius, shadow, opacity, padding, hidden, picture |
+| `timeline.message.author` | the name over a message | hover | opacity, weight, size_step, hidden, case, italic |
+| `timeline.message.time` | a message's time | hover | ink, opacity, weight, size_step, hidden, case, italic |
+| `timeline.reaction` | a reaction under a message | hover, selected | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture |
+| `timeline.embed` | a link's or a bot's embed | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `timeline.code` | a code block | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `timeline.actions` | the actions over a message under the pointer | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `composer` | the message box | focused | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `composer.button` | the message box's buttons: attach, GIF, stickers, emoji | hover, pressed | ink, opacity, hidden, icon_ink |
+| `members` | the member list's ground | – | ground, opacity, hidden, picture |
+| `members.heading` | a member group's heading | – | ground, ink, border, border_colour, radius, shadow, opacity, padding, weight, size_step, hidden, case, italic, picture |
+| `members.row` | a member's row | hover, selected | ground, border, border_colour, radius, shadow, opacity, padding, hidden, picture |
+| `members.row.name` | a member's name in their row | hover, selected | opacity, weight, size_step, hidden, case |
+| `menu` | a menu from a button or a right click | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `menu.row` | a menu's row | hover, pressed | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture, icon_ink |
+| `tooltip` | the window's tooltip | – | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture |
+| `dialog` | a popup with a dimmed backdrop | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `popout` | pins, threads, the inbox and other popouts from the bars | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `toast` | notes over the window and the conversation | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `settings.nav-row` | a row of Settings' section list | hover, selected | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture, icon_ink |
+| `call.tile` | a person's tile on a call's stage | hover | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `profile.card` | a profile card over the window | – | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+| `button` | a labelled button | hover, pressed | ground, ink, border, border_colour, radius, shadow, opacity, weight, size_step, hidden, case, italic, picture |
+| `field` | a text field or search box | hover, focused | ground, border, border_colour, radius, shadow, opacity, hidden, picture |
+<!-- parts:end -->
 
 ## Custom themes
 

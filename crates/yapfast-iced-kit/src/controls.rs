@@ -127,6 +127,15 @@ pub fn action<'a, M: Clone + 'a>(
         large_size: 15.0,
         hover_cue: theme.has_hover_cue(),
         press_cue: theme.has_press_cue(),
+        danger: kind == Kind::Danger,
+        dress: (kind != Kind::Danger).then(|| crate::parts::Dress::pointed(theme, "button", 0)),
+        // A destructive button keeps Yapfast's red, as a theme's colours
+        // can't change it either.
+        looks: if kind == Kind::Danger {
+            crate::parts::ByStatus::default()
+        } else {
+            crate::parts::ByStatus::new(theme, "button", 0)
+        },
     }
 }
 
@@ -150,6 +159,12 @@ pub struct Action<'a, M> {
     large_size: f32,
     hover_cue: bool,
     press_cue: bool,
+    /// The theme's `button` part, by status.
+    looks: crate::parts::ByStatus,
+    /// Destructive: not a part a theme styles.
+    danger: bool,
+    /// Its part's hiding, picture and sides.
+    dress: Option<crate::parts::Dress>,
 }
 
 /// A button's ground and ink at rest and lit, and its ring.
@@ -211,15 +226,22 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
         let base_border = action.border;
         let shadow = action.shadow;
         let motion = action.motion;
+        let looks = action.looks;
+        let danger = action.danger;
+        let radius = crate::parts::radius(looks.rest(), radius);
         let shown: Element<'a, M> = button(
             container({
-                let label = text(action.label)
-                    .size(if action.small {
-                        action.small_size
-                    } else {
-                        action.large_size
-                    })
-                    .font(action.label_font);
+                let rest = looks.rest();
+                let label = text(crate::parts::words(rest, action.label))
+                    .size(crate::parts::size(
+                        rest,
+                        if action.small {
+                            action.small_size
+                        } else {
+                            action.large_size
+                        },
+                    ))
+                    .font(crate::parts::font(rest, action.label_font));
                 let side = if action.small { 16.0 } else { 18.0 };
                 match action.icon {
                     Some(icon) => Element::from(
@@ -240,7 +262,7 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
         .on_press_maybe(action.message)
         .style(move |_, status| {
             let lit = usize::from(lights(status));
-            button::Style {
+            let stock = button::Style {
                 background: Some(faces.ground[lit].into()),
                 text_color: faces.ink[lit],
                 border: Border {
@@ -254,9 +276,22 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
                 },
                 shadow,
                 ..Default::default()
+            };
+            let styled = looks.style(status, stock);
+            // A focus ring stays the accent's.
+            match faces.ring {
+                Some(_) => button::Style {
+                    border: stock.border,
+                    ..styled
+                },
+                None => styled,
             }
         })
         .into();
+        let shown = match action.dress {
+            Some(dress) if !danger => dress.wrap(shown),
+            _ => shown,
+        };
         if enabled {
             crate::widgets::motion::interactive_cued(
                 shown,
@@ -362,21 +397,31 @@ pub fn field_style(
     );
     let radius = theme.surface_radius("field", 6.0);
     let idle = theme.surface_border("field", 6.0, 0.0, Color::TRANSPARENT);
-    move |_, status| text_input::Style {
-        background: ground.into(),
-        border: Border {
-            color: Color { a: 0.8, ..accent },
-            width: if matches!(status, text_input::Status::Focused { .. }) {
-                1.0
-            } else {
-                idle.width
+    let looks = [
+        theme.part("field", 0),
+        theme.part("field", crate::parts::HOVER),
+        theme.part("field", crate::parts::FOCUSED),
+    ];
+    move |_, status| {
+        let focused = matches!(status, text_input::Status::Focused { .. });
+        let stock = text_input::Style {
+            background: ground.into(),
+            border: Border {
+                color: Color { a: 0.8, ..accent },
+                width: if focused { 1.0 } else { idle.width },
+                radius: radius.into(),
             },
-            radius: radius.into(),
-        },
-        icon: ink,
-        placeholder: if enabled { hint } else { faint },
-        value: if enabled { ink } else { faint },
-        selection,
+            icon: ink,
+            placeholder: if enabled { hint } else { faint },
+            value: if enabled { ink } else { faint },
+            selection,
+        };
+        let look = match status {
+            text_input::Status::Focused { .. } => looks[2],
+            text_input::Status::Hovered => looks[1],
+            _ => looks[0],
+        };
+        crate::parts::field_style(look.as_ref(), stock)
     }
 }
 
@@ -386,15 +431,22 @@ pub fn tip<'a, M: Clone + 'a>(theme: &Theme, label: impl text::IntoFragment<'a>)
     let tip = container(
         // As Slint's tip: 14 px bold in the window's face (a theme's body
         // face stands in for it), not the theme's labels.
-        text(label)
-            .size(14.0)
-            .font(BOLD)
-            .color(theme.token_colour("on-tooltip", theme.text)),
+        {
+            let look = theme.part("tooltip", 0);
+            text(crate::parts::words(look.as_ref(), label.into_fragment()))
+                .size(crate::parts::size(look.as_ref(), 14.0))
+                .font(crate::parts::font(look.as_ref(), BOLD))
+                .color(crate::parts::ink(
+                    look.as_ref(),
+                    theme.token_colour("on-tooltip", theme.text),
+                ))
+        },
     )
     .padding([0, 10])
     .height(32)
     .align_y(Alignment::Center)
     .style(tip_style(theme));
+    let tip = crate::parts::show(theme, "tooltip", 0, tip);
     let tip = tip_wrap(theme, tip);
     themed_outline(
         tip,
@@ -463,11 +515,22 @@ pub fn tip_style(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + u
             blur_radius: 12.0,
         },
     );
-    move |_| container::Style {
-        background: (!decorated).then_some(ground),
-        shadow,
-        border,
-        ..Default::default()
+    let look = theme.part("tooltip", 0);
+    move |_| {
+        let style = container::Style {
+            background: (!decorated).then_some(ground),
+            shadow,
+            border,
+            ..Default::default()
+        };
+        match look {
+            // Its art or glass stays seen.
+            Some(look) if decorated => container::Style {
+                background: None,
+                ..look.style(style)
+            },
+            _ => crate::parts::style(look.as_ref(), style),
+        }
     }
 }
 
@@ -725,11 +788,22 @@ pub fn menu_panel_over(
         border.width = 0.0;
     }
     let shadow = theme.surface_shadow("menu", crate::style::raised_shadow());
-    move |_| container::Style {
-        background: (!transparent).then_some(ground),
-        border,
-        shadow,
-        ..Default::default()
+    let look = theme.part("menu", 0);
+    move |_| {
+        let style = container::Style {
+            background: (!transparent).then_some(ground),
+            border,
+            shadow,
+            ..Default::default()
+        };
+        match look {
+            // Art or glass under it stays seen.
+            Some(look) if transparent => container::Style {
+                background: None,
+                ..look.style(style)
+            },
+            _ => crate::parts::style(look.as_ref(), style),
+        }
     }
 }
 
@@ -892,52 +966,71 @@ impl crate::look::Look<'_> {
                 theme.text
             }
         };
-        let icon_ink = match (item.danger, lit) {
-            (false, false) => theme.secondary,
-            _ => ink(lit),
+        // A destructive row keeps Yapfast's red.
+        let looks = if item.danger {
+            crate::parts::ByStatus::default()
+        } else {
+            crate::parts::ByStatus::new(theme, "menu.row", 0)
         };
         let slot = ITEM_ICON as f32;
         let current = item.check == Check::Current;
         let tall = item.subtitle.is_some();
-        let mut face = row![].spacing(8).align_y(Alignment::Center);
-        match item.icon {
-            _ if current => {
-                face = face.push(self.glyph(Icon::Check, ITEM_ICON, theme.accent_text()));
+        // The row's face as `look` dresses it: its icon in the look's icon
+        // ink, its words in its case, weight, slant and size.
+        let face_in = |look: Option<&crate::parts::PartLook>, pointed: bool| {
+            let _ = pointed;
+            let icon_ink = match (item.danger, lit) {
+                (false, false) => theme.secondary,
+                _ => ink(lit),
+            };
+            let icon_ink = crate::parts::icon_ink(look, icon_ink);
+            let mut face = row![].spacing(8).align_y(Alignment::Center);
+            match item.icon {
+                _ if current => {
+                    face = face.push(self.glyph(Icon::Check, ITEM_ICON, theme.accent_text()));
+                }
+                Some(icon) => face = face.push(self.glyph(icon, ITEM_ICON, icon_ink)),
+                None if item.slot => face = face.push(Space::new().width(slot).height(slot)),
+                None => {}
             }
-            Some(icon) => face = face.push(self.glyph(icon, ITEM_ICON, icon_ink)),
-            None if item.slot => face = face.push(Space::new().width(slot).height(slot)),
-            None => {}
-        }
-        // As Slint's menu row: 14 px in the window's face (a theme's body
-        // face stands in for it), not the theme's labels.
-        let label = text(item.label)
-            .size(14.0)
-            .font(if current { BOLD } else { MEDIUM })
-            .wrapping(text::Wrapping::None);
-        let words: Element<'a, M> = match item.subtitle {
-            Some(subtitle) => column![
-                label,
-                text(subtitle)
-                    .size(theme.type_size("small", 12.0))
-                    .font(theme.font("small", crate::fonts::REGULAR))
-                    .color(theme.muted)
-                    .wrapping(text::Wrapping::None)
-            ]
-            .spacing(3)
-            .into(),
-            None => label.into(),
+            // As Slint's menu row: 14 px in the window's face (a theme's body
+            // face stands in for it), not the theme's labels.
+            let label = text(crate::parts::words(look, item.label.clone()))
+                .size(crate::parts::size(look, 14.0))
+                .font(crate::parts::font(
+                    look,
+                    if current { BOLD } else { MEDIUM },
+                ))
+                .wrapping(text::Wrapping::None);
+            let words: Element<'a, M> = match item.subtitle.clone() {
+                Some(subtitle) => column![
+                    label,
+                    text(subtitle)
+                        .size(theme.type_size("small", 12.0))
+                        .font(theme.font("small", crate::fonts::REGULAR))
+                        .color(theme.muted)
+                        .wrapping(text::Wrapping::None)
+                ]
+                .spacing(3)
+                .into(),
+                None => label.into(),
+            };
+            let mut face = face.push(container(words).width(Length::Fill).clip(true));
+            if let Check::Box(ticked) = item.check {
+                face = face.push(self.checkbox(ticked, lit));
+            }
+            if item.check == Check::Submenu {
+                face = face.push(self.glyph(
+                    Icon::ChevronRight,
+                    SUBMENU_ARROW,
+                    crate::parts::icon_ink(look, theme.text),
+                ));
+            }
+            container(face)
+                .height(Length::Fill)
+                .align_y(Alignment::Center)
         };
-        let mut face = face.push(container(words).width(Length::Fill).clip(true));
-        if let Check::Box(ticked) = item.check {
-            face = face.push(self.checkbox(ticked, lit));
-        }
-        if item.check == Check::Submenu {
-            face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text));
-        }
         let height = if tall { height.max(44.0) } else { height };
-        let face = container(face)
-            .height(Length::Fill)
-            .align_y(Alignment::Center);
         let light_fill = match (item.danger, theme.bonfire) {
             (true, true) => crate::style::hex(0x34282d),
             (true, false) => crate::style::faded(theme.danger, 0.1),
@@ -950,24 +1043,68 @@ impl crate::look::Look<'_> {
         } else {
             inks
         };
-        let row_button: Element<'a, M> = button(face)
-            .padding([0, 8])
-            .width(Length::Fill)
-            .height(height)
-            .on_press_maybe((!item.disabled).then_some(press))
-            .style(move |_, status| {
-                let on = match light {
-                    Light::Pointer => lights(status),
-                    Light::Lit(lit) => lit,
-                } && !matches!(status, button::Status::Disabled);
-                button::Style {
-                    background: on.then(|| light_fill.into()),
-                    text_color: inks[usize::from(on)],
-                    border: Border::default().rounded(4),
-                    ..Default::default()
-                }
-            })
-            .into();
+        let press = (!item.disabled).then_some(press);
+        let row_button = |face, press: Option<M>| -> Element<'a, M> {
+            button(face)
+                .padding([0, 8])
+                .width(Length::Fill)
+                .height(height)
+                .on_press_maybe(press)
+                .style(move |_, status| {
+                    let on = match light {
+                        Light::Pointer => lights(status),
+                        Light::Lit(lit) => lit,
+                    } && !matches!(status, button::Status::Disabled);
+                    let stock = button::Style {
+                        background: on.then(|| light_fill.into()),
+                        text_color: inks[usize::from(on)],
+                        border: Border::default().rounded(4),
+                        ..Default::default()
+                    };
+                    // A row lit from the keys looks as one under the pointer.
+                    let status = match status {
+                        button::Status::Active if on => button::Status::Hovered,
+                        status => status,
+                    };
+                    looks.style(status, stock)
+                })
+                .into()
+        };
+        let (rest, pointed) = (
+            looks.rest().copied(),
+            looks.get(button::Status::Hovered).copied(),
+        );
+        let lit_by_keys = matches!(light, Light::Lit(true));
+        let shown = if lit_by_keys { pointed } else { rest };
+        // Under the pointer its face changes only where the theme's hover
+        // look changes the icon or the words: then the lit face is drawn
+        // over the row while the pointer is on it.
+        let changes = !lit_by_keys
+            && !item.disabled
+            && pointed.is_some_and(|pointed| {
+                rest.is_none_or(|rest| {
+                    rest.icon_ink != pointed.icon_ink
+                        || rest.ink != pointed.ink
+                        || rest.weight != pointed.weight
+                        || rest.size_step != pointed.size_step
+                        || rest.case != pointed.case
+                        || rest.italic != pointed.italic
+                })
+            });
+        let row_button = if changes {
+            crate::widgets::Hover::new(
+                row_button(face_in(shown.as_ref(), false), press.clone()),
+                row_button(face_in(pointed.as_ref(), true), press),
+            )
+            .into()
+        } else {
+            row_button(face_in(shown.as_ref(), lit_by_keys), press)
+        };
+        let row_button = if item.danger {
+            row_button
+        } else {
+            crate::parts::show_pointed(theme, "menu.row", 0, row_button)
+        };
         if !item.disabled && (theme.has_hover_cue() || theme.has_press_cue()) {
             crate::widgets::motion::interactive_cued(
                 row_button,
@@ -1030,6 +1167,8 @@ pub struct IconButton<'a, M> {
     hover_wash: Option<Color>,
     radius: f32,
     below: bool,
+    /// The named part it is, and the states it's in besides the pointer's.
+    part: Option<(&'static str, crate::parts::States)>,
 }
 
 enum Face {
@@ -1069,6 +1208,7 @@ impl<'a> crate::look::Look<'a> {
             hover_wash: None,
             radius: 6.0,
             below: false,
+            part: None,
         }
     }
 
@@ -1129,6 +1269,13 @@ impl<'a, M: Clone + 'a> IconButton<'a, M> {
         self.hover_wash = Some(color);
         self
     }
+
+    /// Styled as the theme's named part `name` (such as `header.button`),
+    /// in `states` (such as selected) and the pointer's.
+    pub fn part(mut self, name: &'static str, states: crate::parts::States) -> Self {
+        self.part = Some((name, states));
+        self
+    }
 }
 
 impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
@@ -1145,15 +1292,26 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
             hover_wash,
             radius,
             below,
+            part,
         } = icon_button;
         let theme = look.theme;
-        let radius = theme.surface_radius("button", radius);
+        let looks = part.map_or_else(crate::parts::ByStatus::default, |(name, states)| {
+            crate::parts::ByStatus::new(theme, name, states)
+        });
+        let radius = crate::parts::radius(looks.rest(), theme.surface_radius("button", radius));
         let enabled = message.is_some();
-        let rest_ink = ink.unwrap_or(if enabled || matches!(ground, Ground::Clear) {
+        let stock_ink = ink.unwrap_or(if enabled || matches!(ground, Ground::Clear) {
             theme.secondary
         } else {
             theme.faint
         });
+        let rest_ink = crate::parts::icon_ink(looks.rest(), stock_ink);
+        // A part whose ink changes under the pointer shows a second face
+        // there, as a destructive button does.
+        let lit_ink = looks
+            .get(button::Status::Hovered)
+            .map(|lit| lit.icon_ink(stock_ink))
+            .filter(|lit| *lit != rest_ink && enabled && matches!(face, Face::Icon(_)));
         // A face of its own shows once: a destructive button, whose lit
         // face is its glyph again in red, has none.
         let mut face_in = |ink: Color| match &mut face {
@@ -1163,15 +1321,31 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
                 .expect("a face of its own shows once")
                 .boxed(side),
         };
-        let pressed = |face, style| {
+        fn styled<'a, M: Clone + 'a>(
+            face: iced::widget::Container<'a, M>,
+            style: impl Fn(&iced::Theme, button::Status) -> button::Style + 'a,
+            looks: crate::parts::ByStatus,
+            side: f32,
+            message: Option<M>,
+        ) -> iced::widget::Button<'a, M> {
             button(face)
                 .padding(0)
                 .width(side)
                 .height(side)
-                .on_press_maybe(message.clone())
-                .style(style)
-        };
+                .on_press_maybe(message)
+                .style(move |iced_theme, status| looks.style(status, style(iced_theme, status)))
+        }
+        let pressed = |face, style| styled(face, style, looks, side, message.clone());
         let shown: Element<'a, M> = match ground {
+            Ground::Clear if lit_ink.is_some() => {
+                let wash = hover_wash.unwrap_or_else(|| theme.wash(0.1));
+                let rest = pressed(face_in(rest_ink), lit_style(None, wash, radius));
+                let lit = pressed(
+                    face_in(lit_ink.unwrap_or(rest_ink)),
+                    lit_style(None, wash, radius),
+                );
+                crate::widgets::Hover::new(rest, lit).into()
+            }
             Ground::Clear => pressed(
                 face_in(rest_ink),
                 lit_style(None, hover_wash.unwrap_or_else(|| theme.wash(0.1)), radius),
@@ -1212,6 +1386,10 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
             )
         } else {
             shown
+        };
+        let shown = match part {
+            Some((name, states)) => crate::parts::show_pointed(theme, name, states, shown),
+            None => shown,
         };
         if label.is_empty() {
             return shown;

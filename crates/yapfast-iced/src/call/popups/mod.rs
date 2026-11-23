@@ -142,6 +142,7 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
     let panel = container(panel)
         .width(width)
         .style(menu_panel(ctx.look.theme));
+    let panel = yapfast_iced_kit::parts::show(ctx.look.theme, "menu", 0, panel);
     let panel = crate::controls::themed_outline(
         panel,
         ctx.look.theme,

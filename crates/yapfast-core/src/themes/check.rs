@@ -441,6 +441,21 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                     Some(_) => {}
                 }
                 report.errors.extend(unreadable(&variant));
+                // A part this Yapfast doesn't have is ignored when the theme
+                // shows, so one for a later Yapfast still opens; the check
+                // refuses it, so a theme isn't published with a typo.
+                for sentence in variant.parts.unknown.iter().cloned() {
+                    if !report.errors.contains(&sentence) {
+                        report.errors.push(sentence);
+                    }
+                }
+                // A part's look is the theme maker's call: hard-to-read ink
+                // is a warning, not a refusal.
+                for sentence in super::parts::unreadable(&variant) {
+                    if !report.warnings.contains(&sentence) {
+                        report.warnings.push(sentence);
+                    }
+                }
                 let (errors, warnings) = art::readable(&variant, files);
                 report.errors.extend(errors);
                 report.warnings.extend(warnings);
@@ -465,6 +480,8 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             Err(error) => report.errors.push(error.0),
         }
     }
+    // Said once, as errors, above.
+    report.notes.retain(|note| !parts_note(note));
     check_options(&package, files, &mut report);
     // Two names one letter case apart are one file on Windows and macOS.
     let mut seen: BTreeMap<String, PathBuf> = BTreeMap::new();
@@ -578,6 +595,14 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
     report.cost = Cost::of(&resolved, files, &sound_seconds);
     report.package = Some(package);
     report
+}
+
+/// Whether a package note is about its `parts`, which the check refuses.
+fn parts_note(note: &str) -> bool {
+    note.starts_with("\"parts.")
+        || ["dark", "light"]
+            .iter()
+            .any(|mode| note.starts_with(&format!("\"variants.{mode}.parts.")))
 }
 
 /// A theme's options, each moved one at a time from the defaults, which the
@@ -1104,7 +1129,7 @@ fn unreadable_topbar(variant: &Resolved) -> Vec<String> {
 }
 
 /// A colour as a variant shows it: its own, the base's, or what it follows.
-fn shown_colours(variant: &Resolved, token: &str) -> Option<Vec<u32>> {
+pub(super) fn shown_colours(variant: &Resolved, token: &str) -> Option<Vec<u32>> {
     variant
         .paint(token)
         .map(Paint::colours)
@@ -1589,6 +1614,88 @@ mod tests {
     /// PLUM with `options` (and anything else) added at its top level.
     fn with_options(extra: &str) -> String {
         PLUM.replace(r#""variants""#, &format!(r#"{extra}, "variants""#))
+    }
+
+    #[test]
+    fn styled_parts_pass_and_unknown_ones_fail_the_check() {
+        let good = with_options(
+            r##""parts": { "sidebar.channel-row": { "radius": 4,
+                "hover": { "ground": "#3a2a4a", "ink": "#f2f3f5" }, "selected": { "ink": "#ffffff" } } }"##,
+        );
+        let report = check(&files(&good), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        for (parts, expected) in [
+            (
+                r##""parts": { "sidebar.channel_row": { "ink": "#ffffff" } }"##,
+                "\"parts.sidebar.channel_row\" isn't a part Yapfast has (did you mean \"sidebar.channel-row\"?)",
+            ),
+            (
+                r##""parts": { "menu": { "hover": { "ground": "#000000" } } }"##,
+                "\"parts.menu.hover\": menu has no hover state",
+            ),
+            (
+                r##""parts": { "menu.row": { "glow": 3 } }"##,
+                "\"parts.menu.row.glow\" isn't a property or state Yapfast has",
+            ),
+        ] {
+            let report = check(&files(&with_options(parts)), Strictness::Install);
+            assert!(!report.passed(), "{parts}");
+            assert!(
+                report.errors.iter().any(|error| error.contains(expected)),
+                "{expected} in {:?}",
+                report.errors
+            );
+            // Said once, as an error, not again as a note.
+            assert!(
+                !report.notes.iter().any(|note| note.contains("parts.")),
+                "{:?}",
+                report.notes
+            );
+        }
+        // In a variant too.
+        let variant = PLUM.replace(
+            r##""colours": { "chat": "#2a1a3a" }"##,
+            r##""colours": { "chat": "#2a1a3a" }, "parts": { "rail.servr": {} }"##,
+        );
+        let report = check(&files(&variant), Strictness::Install);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("\"variants.dark.parts.rail.servr\"")),
+            "{:?}",
+            report.errors
+        );
+        // Unreadable ink on a part's ground is refused.
+        // Hard-to-read ink in a part is the theme maker's call: a warning.
+        let dim = with_options(r##""parts": { "menu.row": { "hover": { "ink": "#2a2a2a" } } }"##);
+        let report = check(&files(&dim), Strictness::Install);
+        assert!(report.passed(), "{:?}", report.errors);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with("parts.menu.row (hover): its ink contrasts")),
+            "{:?}",
+            report.warnings
+        );
+    }
+
+    #[test]
+    fn an_option_that_sets_an_unknown_part_is_refused() {
+        let theme = with_options(
+            r##""options": [{ "id": "loud", "label": "Loud", "kind": "toggle", "default": false,
+                    "on": { "parts.menu.row.hover.ink": "#ffffff", "parts.menu.rowz.ink": "#ffffff" } }]"##,
+        );
+        let report = check(&files(&theme), Strictness::Install);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("parts.menu.rowz")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]

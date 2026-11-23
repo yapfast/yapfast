@@ -424,13 +424,16 @@ pub(super) fn editor_names<'a>(
     let mut names = column![].spacing(2);
     if editor.editing == Some(Text::Name) {
         let placeholder = profile.handle.as_str();
-        names = names.push(
+        names = names.push(yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
             form::field(theme, NAME, placeholder, &core.name)
                 .size(22)
                 .padding(8)
                 .on_input(|text| message(Event::Write(ProfileText::Name, text)))
                 .on_submit(message(Event::Edit(None))),
-        );
+        ));
     } else {
         let name: Element<'a, Message> = if core.loading() {
             text("Loading...")
@@ -469,14 +472,17 @@ pub(super) fn editor_names<'a>(
         } else {
             fallback
         };
-        line = line.push(
+        line = line.push(yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
             form::field(theme, PRONOUNS, placeholder, &core.pronouns)
                 .size(14)
                 .padding(6)
                 .width(220)
                 .on_input(|text| message(Event::Write(ProfileText::Pronouns, text)))
                 .on_submit(message(Event::Edit(None))),
-        );
+        ));
     } else {
         let (words, ink) = if !core.pronouns.is_empty() {
             (core.pronouns.as_str(), inks.ink2)
