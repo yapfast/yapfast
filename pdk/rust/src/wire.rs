@@ -333,6 +333,7 @@ pub mod method {
     pub const VOICE_SETTINGS: &str = "voice.settings";
     pub const VOICE_SET: &str = "voice.set";
     pub const FILES_SAVE: &str = "files.save";
+    pub const FILES_OPEN: &str = "files.open";
     pub const ASSETS_LIST: &str = "assets.list";
     pub const FS_LIST: &str = "fs.list";
     pub const FS_STAT: &str = "fs.stat";
