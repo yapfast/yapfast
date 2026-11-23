@@ -10,7 +10,8 @@ two stay matched.
 Stock, it copies and converts every picture on screen, draws pictures,
 glyphs and most quads through tiny-skia's f32 pipeline and a window-sized
 clip mask, and draws a scaled video frame at a core's whole cost. Changes,
-marked `Yapfast port` in the source and numbered there:
+marked `Yapfast port` in the source (with the patch's number where one
+change spans several places):
 
 1. `raster.rs`: an `Rgba` handle's pixels are taken to be premultiplied BGRA
    already, as the client decodes pictures (`chat::set_pixel_buffers`), and
@@ -25,7 +26,8 @@ marked `Yapfast port` in the source and numbered there:
    the clip, with no mask and no anti-aliased path.
 4. `engine.rs` `adjust_clip_mask`: clip masks are only ever rectangles here;
    only the rows of the old and new one are touched, and setting the same
-   one again does nothing.
+   one again does nothing (unless the mask is a new one, all clear, that
+   took the old one's place in memory, as `screenshot`'s can).
 5. `engine.rs` `draw_text`, `text.rs`: text is clipped by its rectangle in
    the blit, with no mask.
 6. `raster.rs`: the one-to-one copy also takes partly transparent pictures
@@ -41,9 +43,9 @@ marked `Yapfast port` in the source and numbered there:
 10. `raster.rs`: a picture drawn scaled with a `border_radius` is filled as
     its rounded rectangle (`engine::rounded_rectangle`, now `pub(crate)`)
     with the picture as a pattern; stock filled the whole rectangle.
-11. `engine.rs` `draw_quad`: a shadow is drawn only inside the clip, and
-    only outside the quad's body when the fill is opaque; stock laid the
-    whole shadow again over what was drawn for every damaged region.
+11. `engine.rs` `draw_quad`: a shadow is drawn only inside the clip;
+    stock laid the whole shadow again over what was drawn for every
+    damaged region. (Patch 34 also keeps it from under the quad's body.)
 12. `engine.rs` `draw_quad`, `blit.rs` `gradient`: a one-colour quad with
     round corners on whole pixels, or an opaque border round an opaque
     fill, is filled as patch 8's gradient of one colour; an opaque row clear
@@ -89,9 +91,9 @@ marked `Yapfast port` in the source and numbered there:
     thousand pixels and any shadow is kept, not only small ones. Each band
     is copied from it directly, source over; patch 17 filled the bands
     through tiny-skia's pattern pipeline, and a large shadow was worked
-    out pixel by pixel again each time it was drawn. An opaque gradient
-    counts as an opaque body, which the shadow isn't drawn under. Tests
-    in `engine.rs` compare it with the shadow worked out whole.
+    out pixel by pixel again each time it was drawn. Tests in
+    `engine.rs` compare it with the shadow worked out whole, pixel by
+    pixel (outside a see-through quad's shape, as patch 34 draws it).
 19. `blit.rs` `fill`, `blit`, `engine.rs`, `raster.rs` `Opaque`, `lib.rs`
     `Renderer::draw`: a region's clear and a plain one-colour quad are
     written into the frame directly, in place or source over, not through
@@ -122,7 +124,8 @@ marked `Yapfast port` in the source and numbered there:
     thread, Weston at each repaint) copied the whole window for a scrolled
     member list. The draw's own damage is against the buffer's older frame
     (two back, with two buffers), so the compositor's is worked out against
-    the last one presented, unless the buffer is that one.
+    the last one presented, unless the buffer is that one (from patch 32's
+    changes, which are against it).
 
 24. `raster.rs` `Resized`, `blit.rs` `resized`, `engine.rs` `trim`: a
     picture drawn unrotated at a size other than its own (every picture at
@@ -149,6 +152,157 @@ marked `Yapfast port` in the source and numbered there:
     has both, so a GPU that fails to start is an error rather than a
     window drawn by this renderer from pictures made for the other. iced's
     own choice between the two reads only `ICED_BACKEND`.
+
+27. `layer.rs` `Layer::extent`, `Layer::damage`, `primitive.rs`
+    `drawn_bounds`, `window/compositor.rs` `present`: a layer that came,
+    went or changed its bounds damages what it drew (its quads with their
+    shadows, text, primitives with a stroke's width, and pictures, inside
+    its bounds), not its whole bounds. Overlays and a stack's upper
+    children are window-sized layers, so stock, a tooltip appearing or
+    leaving redrew the whole window: 87 ms a frame on the CPU under a
+    theme with art (Daydream), 4 ms after. Tests in `layer.rs`. Layers
+    are in logical pixels, so a frame at a new scale (the app's zoom,
+    which changes the viewport's scale without reconfiguring the surface)
+    is drawn whole and past frames' layers are dropped: diffed across the
+    change, their damage lay where the old scale put things.
+28. `lib.rs` `start_layer`: a layer started inside another is cut to its
+    parent's bounds, as a clip inside a clip is. Stock, a picture cut to
+    its box (`ContentFit::Cover`) or a themed button's own layer inside a
+    scrolled page drew over the page's header once scrolled under it.
+    This also cuts a layer that means to draw outside its parent, as
+    iced's `Float` widget does with its shadow; the app uses no `Float`.
+    A test in `lib.rs`.
+29. `blit.rs` `gradient`, `blit`: a gradient running down (a panel's
+    fade) works out one colour a row rather than one a pixel, and a
+    see-through row clear of round corners is laid over without looking
+    for corners at each pixel. Scrolling Settings → Themes under Daydream
+    went from 82 ms a frame to 21. A test in `blit.rs`.
+30. `engine.rs` `draw_image`, `narrowed_mask`: a picture or SVG is cut to
+    its own clip (the box iced passes with it) as well as the layer's.
+    The direct copy cuts by the rectangle; a turned picture, one filled
+    through tiny-skia, and an SVG go by the mask, set to the narrower clip
+    while it draws and put back after. Stock ignored it, so a
+    `ContentFit::Cover` picture spilled out of its box over its neighbours
+    (the creator's suggested pictures, a Zine card's leaning print). Tests
+    in `engine.rs` (the SVG one runs with the `svg` feature).
+31. `layer.rs` `same_image`: pictures are told apart in the damage diff by
+    their handles' ids. Stock used `Image::eq`, and an `Rgba` handle's
+    derived equality compares every byte of its pixels: each frame
+    compared each picture's whole buffer with itself, a theme's
+    window-sized art and glass among them. The diff took 2 to 5 ms a frame
+    under a theme with art, 0.1 to 0.2 ms after; Eyeliner idle went from
+    19% of a core to 5%. A test in `layer.rs`.
+32. `lib.rs` `Backdrop`, `layer_changes`, `set_keep_backdrop`,
+    `window/compositor.rs`: regions of the frame as drawn up to the first
+    layer that changed in them are kept from one frame to the next, and a
+    region whose layers below that cut didn't change since comes back as
+    one copy; a region partly kept is drawn as the part kept and the parts
+    round it. A list scrolled over a theme's art and glass changed only its
+    own layer, yet every frame drew the window's art, the panes' glass and
+    grounds under it again. It runs only while the app says so
+    (`set_keep_backdrop`, off by default): the client turns it on in
+    `show_theme` for a theme with art or glass on any surface, where
+    what's under a change is costly to draw. Off (the stock look), nothing
+    is kept and what was goes, memory and all, with the next frame. Each
+    region keeps its own pixels, its buffer sized to it (at most eight,
+    none overlapping, so together never more than one frame: 5.2 MB at
+    1440x900, 33 MB at 4K), and a region taking an old one's place reuses
+    its memory; with eight kept, the one used least lately goes. A region
+    goes after 120 drawn frames that didn't use it; while the window draws
+    nothing, what's kept stays (frames are only counted as they're drawn).
+    Only the window's own frame uses them, told its layers' changes just
+    before and at the size and scale they were kept at; `screenshot`
+    draws whole, leaving unused any changes told for a frame that had no
+    damage and so wasn't drawn.
+    The compositor's damage (patch 23) is built from the same changes
+    rather than diffed again. Tests in `lib.rs` compare frames drawn
+    through it with each drawn whole.
+33. `engine.rs` `draw_quad`: a quad with no area draws nothing. Square
+    cornered, its path couldn't be built and the draw panicked (a theme's
+    0 px corners on a card's empty banner).
+34. `engine.rs` `draw_quad`, `Sliced`, `rounded_box_distance`: a shadow
+    lies outside its quad, as CSS's box-shadow does: nothing is drawn
+    under the quad's body (its bounds inside its largest corner), opaque
+    or not, and under a see-through quad the shadow is times one less the
+    quad's coverage of each pixel (from the distance of its centre to the
+    rounded outline), as iced_wgpu's quad shader draws it, so the band
+    between body and outline takes none either. An opaque quad hides that
+    band, so its shadow there is worked out whole, as before, and its
+    anti-aliased edge blends over it unchanged. Stock drew the whole shadow
+    under it, so a see-through quad (a theme's menu, its ground and art
+    drawn under a quad with no fill) showed its own shadow through itself.
+    The shadow tests in `engine.rs` compare with a shadow worked out pixel
+    by pixel, times one less the quad's coverage, and look inside a
+    rounded edge.
+35. `engine.rs` `smoothstep`: a hard edge (a shadow with no blur, as
+    themes' offset shadows are) steps at its edge, taking in half a pixel.
+    Stock, 0 / 0 gave NaN inside the shape and the whole shadow came out
+    clear. A test in `engine.rs` (with patch 37's).
+36. `raster.rs` `draw`: a turned or flipped picture (drawn through
+    tiny-skia's `draw_pixmap`) is placed at its bounds' own position, then
+    scaled. Stock, the position was divided by the scale and cut to whole
+    pixels of the picture, so a small picture stretched far (a turned
+    card's ground) landed up to a scaled pixel away. A test in
+    `engine.rs`.
+37. `engine.rs` `Sliced::draw`: a kept shadow's reach counts every kept
+    pixel and the whole stretch its straight one stands for. Stock had no
+    slices; patch 18 undercounted by the last kept pixel's place when the
+    stretch ran to the reach's edge, so a hard shadow on square corners,
+    whose reach is all stretch, drew one pixel of itself. A test in
+    `engine.rs` draws one.
+38. `blit.rs` `blit`, `raster.rs` `draw`, `engine.rs` `draw_image`: a
+    picture's round corners are its own clip's, as iced_wgpu's image
+    shader puts them, not its bounds'. Stock had no round corners here;
+    the earlier patches cut them at the picture's bounds, so a picture
+    larger than its box (theme art laid as a cover, cut to a round pane)
+    came out square on the CPU while round on the GPU. A test in
+    `blit.rs`.
+
+39. `raster.rs` `draw`: an unturned picture's round corners are scaled to
+    the window's scale once, as the engine hands them over in physical
+    pixels already (patch 24 scaled them again, so an 8 px corner came out
+    18 px at 150%), and the box they round is placed as the picture is
+    (its corner on the nearest pixel, its size rounded), so a picture its
+    box's size is cut on exactly the pixels it covers. A test in
+    `engine.rs`.
+
+40. `layer.rs` `image_reach`, `Layer::damage`, `Layer::extent`: a
+    picture or SVG damages where it can draw, its turned bounds cut to
+    its own clip, as `engine.rs` cuts it (patch 30). Stock damaged its
+    whole bounds, so a picture larger than its box (`ContentFit::Cover`,
+    a theme's leaning card) damaged far past it; merged, the regions of
+    a list scrolled under Zine came to the whole window each frame. A
+    test in `layer.rs`.
+
+41. `layer.rs` `changes`, `window/compositor.rs` `present`, `lib.rs`
+    `layer_changes`: with fewer or more layers than the frame before,
+    layers are paired by place from the start while they lie where they
+    lay, and from the end, the rest between them gone or new. Stock
+    paired them by place alone, so a layer come or gone partway (a
+    list's picture scrolled into view) paired each layer after it with
+    the one before it: a window-sized overlay with a pane, each pair
+    damaging both, and a list scrolled under a theme's overlays redrew
+    the whole window every frame. What the backdrop kept drawn past the
+    first unpaired layer is let go, as the layers it was drawn with are
+    no longer those in its place. Tests in `layer.rs` and `lib.rs`.
+
+42. `raster.rs` `draw`, `Opaque`: a turned picture all of one colour is
+    filled as its turned rectangle in that colour, unsmoothed as
+    `draw_pixmap` fills it (smoothed when its corners are round), rather
+    than sampled through the bilinear pattern pixel by pixel. Whether a
+    picture is one colour is found once, as whether it's opaque is
+    (patch 19). Zine's leaning cards are 4 by 4 pictures of one colour
+    stretched to the card: a scrolled frame cost 45 ms. A test in
+    `raster.rs`.
+
+43. `blit.rs` `gradient`, `engine.rs` `draw_quad`: a linear-gradient quad
+    is filled directly after its shadow, as a quad of one colour is
+    (patch 12), and at 100% off whole pixels too, each pixel an edge
+    crosses taking the part of it the quad covers. Before, one with a
+    shadow or an edge off whole pixels (Daydream's glossy chat bubbles,
+    as wide as their text, and its cards) went through tiny-skia's
+    pipeline and the clip mask: a scrolled frame cost 9 ms, now 1.3 ms.
+    On whole pixels every pixel is as before. Tests in `blit.rs`.
 
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.

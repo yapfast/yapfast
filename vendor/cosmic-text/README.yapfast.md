@@ -23,3 +23,7 @@ Changes, marked `Yapfast port` in the source:
    skipped DM Sans (one variable face, weight 400) and Twemoji as named
    fallbacks and took whichever loaded face came first, such as a Chinese
    font's plain ❤ before Twemoji's.
+3. `src/shape.rs`: `set_family_alias`, one family name standing for another
+   while shaping. The iced client makes "DM Sans" stand for a theme's body
+   face, as Slint's `default-font-family` follows the theme
+   (`crates/yapfast-iced-kit/src/fonts.rs`, `set_default_family`).
