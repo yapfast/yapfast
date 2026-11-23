@@ -50,7 +50,8 @@ glyphs such as check, x and chevrons.
 
 The rest are Lucide icons (https://lucide.dev/), under the accompanying
 LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,
-hand, maximize, minimize, minus, restore, slash, square and x. restore is
+hand, maximize, minimize, minus, paperclip, restore, slash, square and x.
+paperclip is the outline clip a file link's pill starts with, as Discord's. restore is
 Lucide's copy icon, which the title bar shows for its restore button. forward
 and reply are Lucide's corner-up-right and corner-up-left.
 

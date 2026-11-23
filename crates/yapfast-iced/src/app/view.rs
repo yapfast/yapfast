@@ -371,6 +371,10 @@ impl App {
         // come and go: the card, the suggestions, the picker, a menu, the
         // modal, each over the last.
         let mut layers = stack![base];
+        // A peek beside the sidebar, under everything that opens.
+        if let Some(peek) = crate::peek::view(self, self.ctx()) {
+            layers = layers.push(peek);
+        }
         if let Some(face) = crate::rail::drag_face(&self.rail, self.ctx()) {
             layers = layers.push(face);
         }

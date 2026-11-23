@@ -46,6 +46,30 @@ pub fn link_code(link: &str) -> Option<&str> {
     valid(code).then_some(code)
 }
 
+/// The most invite cards a message shows, however many links it has.
+pub const MESSAGE_CARDS: usize = 10;
+
+/// The codes of the invite links in a message's text, each once, in order,
+/// as Discord's client finds those it shows cards for: a link ends at a
+/// space or at the brackets and quotes Markdown puts around it.
+pub fn message_codes(content: &str) -> Vec<&str> {
+    let mut codes: Vec<&str> = Vec::new();
+    // Cheap for the many messages without one.
+    if !content.contains("discord") {
+        return codes;
+    }
+    let ends = |c: char| c.is_whitespace() || "<>()[]\"'`|*,!".contains(c);
+    for code in content.split(ends).filter_map(link_code) {
+        if !codes.contains(&code) {
+            codes.push(code);
+            if codes.len() == MESSAGE_CARDS {
+                break;
+            }
+        }
+    }
+    codes
+}
+
 /// The code in what someone typed or pasted into Join a Server: a link, as
 /// [`link_code`] reads it, or a bare code such as a server's vanity one.
 /// Discord's dialog takes the last part after a `/`.
@@ -137,6 +161,8 @@ pub enum JoinFrom {
     Dialog,
     /// The dialog a clicked invite link opens.
     Link,
+    /// The Join button of an invite link's card in a message.
+    Card,
 }
 
 impl JoinFrom {
@@ -144,6 +170,7 @@ impl JoinFrom {
         match self {
             Self::Dialog => "Join Guild",
             Self::Link => "Desktop Invite Modal",
+            Self::Card => "Invite Button Embed",
         }
     }
 }
@@ -199,6 +226,19 @@ mod tests {
         assert_eq!(link_code("https://example.com/invite/abc"), None);
         assert_eq!(link_code("https://discord.gg.example.com/abc"), None);
         assert_eq!(link_code("discord.gg/abc"), None);
+    }
+
+    #[test]
+    fn finds_each_invite_in_a_message_once() {
+        assert_eq!(
+            message_codes(
+                "join https://discord.gg/abc, or <https://discord.com/invite/xyz> \
+                 [here](https://discord.gg/abc) https://discord.gg/abc."
+            ),
+            ["abc", "xyz"]
+        );
+        assert!(message_codes("no links here").is_empty());
+        assert!(message_codes("https://discord.com/channels/1/2").is_empty());
     }
 
     #[test]

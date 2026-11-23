@@ -793,6 +793,9 @@ pub enum Check {
     Box(bool),
     /// It opens a submenu: a chevron at its end.
     Submenu,
+    /// Its submenu folds down under it, inside the menu: the chevron at its
+    /// end turned this many hundredths of the way from right to down.
+    Folds(u8),
 }
 
 /// Which light a menu row shows: under the pointer, or only while the menu
@@ -859,7 +862,7 @@ impl crate::look::Look<'_> {
             51.0
         } else if iconic {
             36.0
-        } else if item.check == Check::Submenu {
+        } else if matches!(item.check, Check::Submenu | Check::Folds(_)) {
             34.0
         } else {
             ITEM
@@ -933,6 +936,13 @@ impl crate::look::Look<'_> {
         }
         if item.check == Check::Submenu {
             face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text));
+        }
+        if let Check::Folds(turned) = item.check {
+            let turned = f32::from(turned.min(100)) / 100.0 * 90.0;
+            face = face.push(
+                self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text)
+                    .turn(turned),
+            );
         }
         let height = if tall { height.max(44.0) } else { height };
         let face = container(face)
@@ -1392,6 +1402,8 @@ pub struct Slider<'a, M> {
     step: u32,
     shown: Option<String>,
     mark: bool,
+    /// The label's size: 13 px unless set.
+    label_size: f32,
 }
 
 /// A [`Slider`] for `value` out of `maximum`.
@@ -1410,6 +1422,7 @@ pub fn slider<'a, M: Clone + 'a>(
         step: 5,
         shown: None,
         mark: maximum > 100,
+        label_size: 13.0,
     }
 }
 
@@ -1432,6 +1445,13 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
         self
     }
 
+    /// The label's size, for a sign that draws small at 13 px (a user
+    /// limit's infinity).
+    pub fn label_size(mut self, size: f32) -> Self {
+        self.label_size = size;
+        self
+    }
+
     /// Whether 100% is marked and snapped to; past 100% unless set.
     pub fn mark(mut self, mark: bool) -> Self {
         self.mark = mark;
@@ -1448,10 +1468,11 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
             step,
             shown,
             mark,
+            label_size,
         } = self;
         let head = row![
             text(label)
-                .size(13)
+                .size(label_size)
                 .font(MEDIUM)
                 .color(theme.secondary)
                 .width(Length::Fill),
@@ -1459,7 +1480,8 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
                 .size(13)
                 .font(MEDIUM)
                 .color(theme.text),
-        ];
+        ]
+        .align_y(Alignment::Center);
         let (field, accent, knob) = (theme.field, theme.accent, theme.text);
         let track = iced::widget::slider(0..=maximum, value, move |value| {
             let value = if mark && value.abs_diff(100) <= 4 {

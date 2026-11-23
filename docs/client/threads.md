@@ -75,3 +75,55 @@ form), and files alone make one, as in Discord's form; they wait in the
 form (`NewThread::files`) and go with the first message once the thread
 has started. Leaving it with something written or attached asks first
 (`thread::leave_question`).
+
+## Split view
+
+Split view, a Yapfast addition behind Settings → Messages → Split view
+(`split_view` in `layout.json`, off by default, offered once a Discord
+account is linked), shows a Discord channel, thread or DM beside the open
+conversation in the thread's panel (`thread.rs`): the core's `Aside` with
+`split` set, so its messages, history, composer, drafts and read marking
+are the thread's. It opens from Open in split view in a row's menu, after
+Mark as read, or with Ctrl+click or a middle click on its row in the
+channel list or the DM list (`sidebar::Event::Split`), unless Ctrl+click
+and middle click to open is off (`split_click`), when Ctrl+click is a
+plain click. The room already open moves to the split, and the
+conversation goes to the room shown before it (the core's
+`split_open_room`). Not for voice channels, forums, locked channels,
+message requests or Matrix rooms.
+
+Unlike a thread, it stays as the conversation goes to another channel,
+server, DM, the friends list or a voice channel's call, beside each of
+them (`conversation::conversation`). Its header has `#` or `@` (a thread's
+icon for a thread), Swap sides while the open room is one split view could
+show (`AppState::can_swap_split`), More, Open in full view and Close;
+Ctrl+W closes it and Ctrl+Tab moves typing between its composer and the
+conversation's (`app::subscription`, only while it shows). It opens at half
+the room beside the sidebar and keeps its own dragged width
+(`split_width`); a double click on its edge goes back to half. The room it
+shows is kept as `split_room` and opens there again on the next start once
+listed (`Action::RestoreSplit`), unless Reopen the split on start is off
+(`split_restore`). Turning split view off closes it.
+
+While typing is on the other side, a message from someone else in the
+split puts a dot by its name, which goes as typing moves to it (a press in
+its composer or Ctrl+Tab), unless Unread dot is off (`split_dot`;
+`thread::Aside::dot`, worked out as the core's messages come in
+`thread_sync`).
+
+A message's desktop notification offers Open in split view beside Open
+for a room split view can show (`shell::notify_split`), unless
+Notification button is off (`split_notify`). The notification service
+says only which button was clicked, so Ctrl+click on a notification can't
+work; the button does that job. It comes back as `Heard::Opened` with the
+room after `desktop::SPLIT`. Linux's freedesktop notifications show it as
+an action; Windows' toasts keep only Open.
+
+## A voice channel's chat
+
+A Discord voice channel's chat opens in the same panel beside its call
+(`Aside::voice`, `conversation::conversation` puts it beside
+`call::stage::call_view`), headed by a speech bubble, the channel's name
+and Hide chat, with neither More nor Open in full view; the header's
+button reads Show chat and Hide chat (`header::Header::chat_beside`). The
+call's stage takes the room left of it (`conversation::chat_right`).

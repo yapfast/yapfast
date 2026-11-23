@@ -232,6 +232,12 @@ pub fn choose_person(
         MenuChoice::Timeout => ask_member(PersonAsk::Timeout),
         MenuChoice::Kick => ask_member(PersonAsk::Kick),
         MenuChoice::Ban => ask_member(PersonAsk::Ban),
+        MenuChoice::ModView => place.map(|place| {
+            Action::ModView(yapfast_core::application::ModViewInput::Open {
+                place,
+                user: user.clone(),
+            })
+        }),
         // Offered only on Members, whose settings show the dialog.
         MenuChoice::TransferOwnership => {
             Some(Action::Ownership(OwnershipInput::Transfer(user.clone())))
@@ -667,6 +673,7 @@ pub(crate) fn acts(choice: MenuChoice) -> bool {
             | MenuChoice::Kick
             | MenuChoice::Ban
             | MenuChoice::RemoveTimeout
+            | MenuChoice::ModView
             | MenuChoice::TransferOwnership
             | MenuChoice::Mention
             | MenuChoice::CopyLink
@@ -750,6 +757,8 @@ pub(crate) fn submenu(
 pub(crate) fn discord_rank(choice: MenuChoice) -> u8 {
     match choice {
         MenuChoice::MarkRead | MenuChoice::JoinVoice | MenuChoice::OpenChat => 0,
+        // A conversation's, after Mark as read, before its person's.
+        MenuChoice::OpenInSplit => 0,
         MenuChoice::Profile => 1,
         MenuChoice::Mention => 2,
         MenuChoice::Message => 3,

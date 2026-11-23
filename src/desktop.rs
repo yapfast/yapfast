@@ -114,8 +114,8 @@ impl yapfast_iced::Tray for Tray {
 struct Notifier(crate::notify::Notifier);
 
 impl yapfast_iced::Notifier for Notifier {
-    fn show(&self, alert: Alert, text: bool) {
-        self.0.show(alert, crate::notify::Style { text });
+    fn show(&self, alert: Alert, text: bool, split: bool) {
+        self.0.show(alert, crate::notify::Style { text, split });
     }
 }
 

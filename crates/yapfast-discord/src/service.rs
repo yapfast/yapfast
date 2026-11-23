@@ -809,6 +809,15 @@ pub struct ChannelSettings {
     pub topic: String,
     pub slowmode: u32,
     pub nsfw: bool,
+    /// For one to make: @everyone may not see it, nor join a voice one.
+    pub private: bool,
+    /// A voice channel's bitrate in bits a second, its user limit, 0 for
+    /// none, its `video_quality_mode`, 1 Auto or 2 720p, and its
+    /// `rtc_region`, empty for Automatic.
+    pub bitrate: u32,
+    pub user_limit: u32,
+    pub video_quality: u8,
+    pub region: String,
 }
 
 impl ChannelSettings {
@@ -821,6 +830,23 @@ impl ChannelSettings {
                 .and_then(|seconds| u32::try_from(seconds).ok())
                 .unwrap_or_default(),
             nsfw: channel["nsfw"].as_bool().unwrap_or(false),
+            private: false,
+            bitrate: channel["bitrate"]
+                .as_u64()
+                .and_then(|bits| u32::try_from(bits).ok())
+                .unwrap_or_default(),
+            user_limit: channel["user_limit"]
+                .as_u64()
+                .and_then(|limit| u32::try_from(limit).ok())
+                .unwrap_or_default(),
+            video_quality: channel["video_quality_mode"]
+                .as_u64()
+                .and_then(|mode| u8::try_from(mode).ok())
+                .unwrap_or(1),
+            region: channel["rtc_region"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
         }
     }
 }
@@ -1491,6 +1517,16 @@ impl Discord {
                 })
             })
             .collect()
+    }
+
+    /// A channel's newest `limit` messages, oldest first, to peek at: a
+    /// server's channel, or with [`PRIVATE`] a DM. It reads nothing, and
+    /// keeps nothing of them but their authors' names.
+    pub async fn peek(&self, guild: &str, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let values = self.api.newest(channel, limit).await?;
+        let mut messages = self.learn_authors(guild, &values).await;
+        messages.sort_by_key(Message::order);
+        Ok(messages)
     }
 
     /// A channel's pinned messages, the latest pinned first: a server's
@@ -2183,8 +2219,20 @@ impl Discord {
         before: Option<&str>,
         user: Option<&str>,
         action: Option<u16>,
+        target: Option<&str>,
     ) -> Result<Value> {
-        self.api.audit_log(guild, before, user, action).await
+        self.api
+            .audit_log(guild, before, user, action, target)
+            .await
+    }
+
+    /// Mod View's counts; see [`crate::api::Api::search_tabs`].
+    pub async fn search_tabs(
+        &self,
+        guild: &str,
+        body: &Value,
+    ) -> Result<crate::api::MembersSearch> {
+        self.api.search_tabs(guild, body).await
     }
 
     /// A chunk of Members' search; see [`crate::api::Api::search_members`].
@@ -3079,6 +3127,22 @@ impl Discord {
         self.api.guild_settings(guild, &body).await
     }
 
+    /// Makes the same change to this account's notification settings for
+    /// each server of `guilds`, in one request, as a rail folder's menu
+    /// does; see [`crate::notifications::servers_body`]. Snapshots show it
+    /// when Discord confirms it.
+    pub async fn change_servers_notifications(
+        &self,
+        guilds: &[&str],
+        change: Change,
+    ) -> Result<()> {
+        if guilds.is_empty() {
+            return Ok(());
+        }
+        let body = crate::notifications::servers_body(guilds, change);
+        self.api.guilds_settings(&body).await
+    }
+
     /// Sets the `flags` of a server's channel's override, which pin it to
     /// the top of the channel list or unpin it, see
     /// [`crate::notifications::Override::pin_flags`], and add it to the
@@ -3137,6 +3201,14 @@ impl Discord {
     pub async fn invite(&self, code: &str, typed: Option<&str>) -> Result<invite::Preview> {
         let invite = self.api.resolve_invite(code, typed).await?;
         invite::Preview::of(&invite).context("This invite isn't to a server.")
+    }
+
+    /// What an invite link's card in a message shows, as [`Self::invite`]
+    /// looks it up: none for an invite that isn't to a server. An invalid
+    /// or expired invite is refused with [`api::code`] 10006 or 50020.
+    pub async fn invite_card(&self, code: &str) -> Result<Option<invite::Preview>> {
+        let invite = self.api.resolve_invite(code, None).await?;
+        Ok(invite::Preview::of(&invite))
     }
 
     /// Joins a server by the invite `preview` shows, as Discord's client
@@ -3273,8 +3345,29 @@ impl Discord {
         parent: Option<&str>,
         copy_of: Option<&str>,
         settings: &ChannelSettings,
+        keep: Option<&str>,
     ) -> Result<String> {
         let mut body = json!({"name": settings.name, "type": kind, "permission_overwrites": []});
+        // Private Channel, as Discord's client makes one: @everyone denied
+        // View Channel, and Connect for a voice channel or stage, which this
+        // account keeps with an overwrite of its own unless it has every
+        // permission.
+        if settings.private && copy_of.is_none() {
+            const VIEW_CHANNEL: u64 = 1 << 10;
+            const CONNECT: u64 = 1 << 20;
+            let access = if matches!(kind, 2 | 13) {
+                VIEW_CHANNEL | CONNECT
+            } else {
+                VIEW_CHANNEL
+            };
+            let mut overwrites =
+                vec![json!({"id": guild, "type": 0, "allow": "0", "deny": access.to_string()})];
+            if let Some(me) = keep {
+                overwrites
+                    .push(json!({"id": me, "type": 1, "allow": access.to_string(), "deny": "0"}));
+            }
+            body["permission_overwrites"] = json!(overwrites);
+        }
         if let Some(source) = copy_of {
             let source = self.api.channel(source).await?;
             for key in [
@@ -3292,7 +3385,7 @@ impl Discord {
                     body[key] = source[key].clone();
                 }
             }
-        } else if kind == 0 {
+        } else if matches!(kind, 0 | 5) {
             body["topic"] = json!(Some(settings.topic.as_str()).filter(|topic| !topic.is_empty()));
             body["rate_limit_per_user"] = json!(settings.slowmode);
             body["nsfw"] = json!(settings.nsfw);
@@ -3307,19 +3400,32 @@ impl Discord {
             .ok_or_else(|| anyhow!("Discord made no channel."))
     }
 
-    /// Renames a channel or category, and for a text channel sets its
-    /// topic, slowmode and age restriction too.
+    /// Renames a channel or category, of Discord's channel type `kind`;
+    /// for a text channel sets its topic, slowmode and age restriction too,
+    /// and for a voice channel its slowmode, age restriction, bitrate, user
+    /// limit, video quality and region.
     pub async fn edit_channel(
         &self,
         channel: &str,
-        text: bool,
+        kind: u8,
         settings: &ChannelSettings,
     ) -> Result<()> {
         let mut body = json!({"name": settings.name});
-        if text {
+        if matches!(kind, 0 | 5) {
             body["topic"] = json!(settings.topic);
+        }
+        if matches!(kind, 0 | 2 | 5) {
             body["rate_limit_per_user"] = json!(settings.slowmode);
             body["nsfw"] = json!(settings.nsfw);
+        }
+        if matches!(kind, 2 | 13) {
+            body["bitrate"] = json!(settings.bitrate);
+            body["user_limit"] = json!(settings.user_limit);
+            body["rtc_region"] =
+                json!(Some(settings.region.as_str()).filter(|region| !region.is_empty()));
+        }
+        if kind == 2 {
+            body["video_quality_mode"] = json!(settings.video_quality);
         }
         self.api.edit_channel(channel, &body).await
     }

@@ -25,6 +25,7 @@ use crate::{
     ctx::{Ctx, Cx, Focus, Request},
     dialog::buttons,
     form,
+    pictures::Icon,
     style::rounded,
 };
 
@@ -67,8 +68,51 @@ struct InviteChoice {
 
 struct ChannelDraft {
     name: String,
-    voice: bool,
+    /// The kind a new channel is made as, of those Create Channel offers.
+    kind: ChannelKind,
+    /// Kept from @everyone, as Create Channel's Private Channel switch does.
+    private: bool,
 }
+
+/// The kinds Discord's Create Channel offers, with its line on each:
+/// announcement channels and stages only in a Community server.
+const CHANNEL_KINDS: [(ChannelKind, &str, &str, Icon, bool); 5] = [
+    (
+        ChannelKind::Text,
+        "Text",
+        "Send messages, images, GIFs, emoji, opinions, and puns",
+        Icon::Hash,
+        false,
+    ),
+    (
+        ChannelKind::Voice,
+        "Voice",
+        "Hang out together with voice, video, and screen share",
+        Icon::Voice,
+        false,
+    ),
+    (
+        ChannelKind::Forum,
+        "Forum",
+        "Create a space for organized discussions",
+        Icon::Forum,
+        false,
+    ),
+    (
+        ChannelKind::Announcement,
+        "Announcement",
+        "Important updates for people in and out of the server",
+        Icon::Announcement,
+        true,
+    ),
+    (
+        ChannelKind::Stage,
+        "Stage",
+        "Host events for an audience",
+        Icon::Stage,
+        true,
+    ),
+];
 
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -84,7 +128,10 @@ pub enum Event {
     OpenCaptcha,
     CloseJoin,
     ChannelName(String),
-    ChannelVoice(bool),
+    /// The kind a new channel is made as.
+    ChannelKind(ChannelKind),
+    /// Create Channel's Private Channel (or Private Category) switch.
+    ChannelPrivate(bool),
     SaveChannel,
     CloseChannel,
     Leave,
@@ -158,7 +205,8 @@ impl Dialogs {
                         .as_ref()
                         .map(|settings| settings.name.clone())
                         .unwrap_or_default(),
-                    voice: asked.kind == ChannelKind::Voice,
+                    kind: asked.kind,
+                    private: false,
                 });
                 let named = !matches!(asked.ask, ChannelAsk::Delete(_));
                 focus = Some(if named { CHANNEL_FIELD } else { NOBODY });
@@ -242,9 +290,15 @@ impl Dialogs {
                 }
                 return Task::none();
             }
-            Event::ChannelVoice(voice) => {
+            Event::ChannelKind(kind) => {
                 if let Some(draft) = &mut local.channel {
-                    draft.voice = voice;
+                    draft.kind = kind;
+                }
+                return Task::none();
+            }
+            Event::ChannelPrivate(on) => {
+                if let Some(draft) = &mut local.channel {
+                    draft.private = on;
                 }
                 return Task::none();
             }
@@ -260,14 +314,16 @@ impl Dialogs {
                 if saving {
                     return Task::none();
                 }
+                let create = cx
+                    .state()
+                    .channel_dialog
+                    .as_ref()
+                    .is_some_and(|asked| matches!(asked.ask, ChannelAsk::Create { .. }));
                 Action::SaveChannel {
-                    kind: if draft.voice {
-                        ChannelKind::Voice
-                    } else {
-                        ChannelKind::Text
-                    },
+                    kind: draft.kind,
                     settings: ChannelSettings {
                         name: draft.name.clone(),
+                        private: create && draft.private,
                         ..Default::default()
                     },
                 }
@@ -576,19 +632,26 @@ impl<'a> View<'a> {
         let category = asked.kind == ChannelKind::Category;
         let thing = if category { "category" } else { "channel" };
         let named = |name: &str| {
-            if asked.kind == ChannelKind::Text {
+            if asked.kind.slug_named() {
                 format!("#{name}")
             } else {
                 name.to_owned()
             }
         };
+        // As Discord's: "Create Channel", "in Text Channels", or nothing
+        // under it outside any category.
         let (title, detail, confirm) = match &asked.ask {
             ChannelAsk::Create { .. } => (
-                format!("Create {thing}"),
-                if asked.name.is_empty() {
-                    format!("In {}", asked.server_name)
+                if category {
+                    "Create Category"
                 } else {
-                    format!("In {}", asked.name)
+                    "Create Channel"
+                }
+                .to_owned(),
+                if asked.name.is_empty() {
+                    String::new()
+                } else {
+                    format!("in {}", asked.name)
                 },
                 format!("Create {thing}"),
             ),
@@ -611,37 +674,87 @@ impl<'a> View<'a> {
         };
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
         let ready = !asked.saving;
+        let create = matches!(asked.ask, ChannelAsk::Create { .. });
         let mut body = vec![
             self.cx
                 .look
                 .dialog_head(title, message(Event::CloseChannel)),
-            form::note(theme, detail),
         ];
-        if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
-            body.extend([
-                form::heading(theme, "CHANNEL TYPE"),
-                controls::choices(
-                    theme,
-                    &["Text", "Voice"],
-                    usize::from(draft.voice),
-                    |index| message(Event::ChannelVoice(index == 1)),
-                ),
-            ]);
+        if !detail.is_empty() {
+            body.push(form::note(theme, detail));
+        }
+        if create && !category {
+            body.push(form::heading(theme, "Channel Type"));
+            for (kind, name, about, icon, community) in CHANNEL_KINDS {
+                if community && !asked.community {
+                    continue;
+                }
+                body.push(self.kind_option(kind, name, about, icon, draft.kind == kind));
+            }
         }
         if !deleting {
-            let (field, placeholder) = if category {
-                ("CATEGORY NAME", "New Category")
-            } else {
-                ("CHANNEL NAME", "new-channel")
+            let (field, placeholder) = match (create, category) {
+                (true, true) => ("Category Name", "New Category"),
+                (true, false) => ("Channel Name", "new-channel"),
+                (false, true) => ("CATEGORY NAME", "New Category"),
+                (false, false) => ("CHANNEL NAME", "new-channel"),
             };
-            body.extend([
-                form::heading(theme, field),
-                form::field(theme, CHANNEL_FIELD, placeholder, &draft.name)
-                    .padding([8.0, 10.0])
-                    .on_input(|name| message(Event::ChannelName(name)))
-                    .on_submit(message(Event::SaveChannel))
-                    .into(),
-            ]);
+            // The name with the kind's icon before it, as Discord's has.
+            let shown = if create && !category {
+                draft.kind
+            } else {
+                asked.kind
+            };
+            let icon = CHANNEL_KINDS
+                .iter()
+                .find(|(kind, ..)| *kind == shown)
+                .map(|(_, _, _, icon, _)| *icon);
+            let field_box = form::field(theme, CHANNEL_FIELD, placeholder, &draft.name)
+                .padding([8.0, 10.0])
+                .on_input(|name| message(Event::ChannelName(name)))
+                .on_submit(message(Event::SaveChannel));
+            // The kind's icon inside the field, before the name, as
+            // Discord's has it.
+            let named_row: Element<'a, Message> = match icon.filter(|_| !category) {
+                Some(icon) => iced::widget::stack![
+                    field_box.padding(iced::Padding {
+                        top: 8.0,
+                        right: 10.0,
+                        bottom: 8.0,
+                        left: 34.0,
+                    }),
+                    container(self.cx.look.glyph(icon, 18, theme.muted))
+                        .padding(iced::Padding::ZERO.left(10))
+                        .height(Length::Fill)
+                        .align_y(Alignment::Center),
+                ]
+                .width(Length::Fill)
+                .into(),
+                None => field_box.into(),
+            };
+            body.extend([form::heading(theme, field), named_row]);
+        }
+        if create {
+            let (label, about) = if category {
+                (
+                    "Private Category",
+                    "By making a category private, only selected members and roles will be able to view this category. Synced channels in this category will automatically match to this setting.",
+                )
+            } else {
+                (
+                    "Private Channel",
+                    "Only selected members and roles will be able to view this channel.",
+                )
+            };
+            body.push(
+                form::switch(
+                    label,
+                    draft.private,
+                    ready.then(|| message(Event::ChannelPrivate(!draft.private))),
+                )
+                .description(about)
+                .view(self.cx.look),
+            );
         }
         if let Some(error) = &asked.error {
             body.push(form::note_in(error.as_str(), theme.danger));
@@ -672,6 +785,75 @@ impl<'a> View<'a> {
             WIDE,
             message(Event::CloseChannel),
         ))
+    }
+
+    /// A kind Create Channel offers: a radio, the kind's icon, its name and
+    /// Discord's line under it; the chosen one on the field's ground.
+    fn kind_option(
+        self,
+        kind: ChannelKind,
+        name: &'static str,
+        about: &'static str,
+        icon: Icon,
+        chosen: bool,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let (accent, edge, ground, hover) = (theme.accent, theme.muted, theme.field, theme.hover);
+        let dot: Element<'a, Message> = if chosen {
+            container(iced::widget::Space::new())
+                .width(10)
+                .height(10)
+                .style(move |_| rounded(accent, 5))
+                .into()
+        } else {
+            iced::widget::Space::new().into()
+        };
+        let radio = container(dot)
+            .width(20)
+            .height(20)
+            .center_x(20)
+            .center_y(20)
+            .style(move |_| iced::widget::container::Style {
+                border: iced::Border {
+                    color: if chosen { accent } else { edge },
+                    width: 2.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+        let words = iced::widget::column![
+            text(name)
+                .size(15)
+                .font(crate::fonts::MEDIUM)
+                .color(theme.text),
+            // 12 px, as Discord's, so each kind's line fits on one line.
+            text(about).size(12).color(theme.secondary),
+        ]
+        .spacing(2)
+        .width(Length::Fill);
+        button(
+            row![radio, self.cx.look.glyph(icon, 22, theme.muted), words]
+                .spacing(12)
+                .align_y(Alignment::Center),
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .on_press(message(Event::ChannelKind(kind)))
+        .style(move |_, status| button::Style {
+            background: Some(
+                if chosen {
+                    ground
+                } else if matches!(status, button::Status::Hovered) {
+                    hover
+                } else {
+                    iced::Color::TRANSPARENT
+                }
+                .into(),
+            ),
+            border: crate::style::round(8),
+            ..button::Style::default()
+        })
+        .into()
     }
 
     /// Asks before leaving a server or group DM, in red; a group's offers

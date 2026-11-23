@@ -20,6 +20,8 @@ pub const PREVIEW_HEIGHT: u32 = 400;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
+/// How many of a channel's newest messages peeking at it shows.
+pub const PEEK_MESSAGES: usize = 6;
 /// The image viewer shows pictures up to this size, so a full-size photo
 /// costs at most about 9 MiB while it's open.
 pub const VIEW_WIDTH: u32 = 1920;
@@ -692,13 +694,42 @@ pub enum NotificationChange {
     SuppressRoles(bool),
 }
 
-/// What a Discord channel is: a text or voice channel, or a category.
+/// What a Discord channel is: a text or voice channel, or a category; or,
+/// for one to make, a forum, an announcement channel or a stage, which
+/// Discord's Create Channel offers besides.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChannelKind {
     #[default]
     Text,
     Voice,
     Category,
+    Forum,
+    Announcement,
+    Stage,
+}
+
+impl ChannelKind {
+    /// Its Discord channel type.
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Text => 0,
+            Self::Voice => 2,
+            Self::Category => 4,
+            Self::Announcement => 5,
+            Self::Stage => 13,
+            Self::Forum => 15,
+        }
+    }
+
+    /// One whose name Discord writes lower case, with dashes for spaces.
+    pub fn slug_named(self) -> bool {
+        matches!(self, Self::Text | Self::Forum | Self::Announcement)
+    }
+
+    /// One people join to talk in.
+    pub fn voice(self) -> bool {
+        matches!(self, Self::Voice | Self::Stage)
+    }
 }
 
 /// What a Discord channel's dialog sets: its name, and for a text channel
@@ -710,6 +741,16 @@ pub struct ChannelSettings {
     pub topic: String,
     pub slowmode: u32,
     pub nsfw: bool,
+    /// For one to make: kept from @everyone, as Create Channel's Private
+    /// Channel switch does.
+    pub private: bool,
+    /// A voice channel's: its bitrate in bits a second, how many people may
+    /// join, 0 for any number, its video quality, 1 Auto or 2 720p, and its
+    /// region, empty for Automatic.
+    pub bitrate: u32,
+    pub user_limit: u32,
+    pub video_quality: u8,
+    pub region: String,
 }
 
 /// A folder of servers on the rail, as Discord's server list keeps them.
@@ -1232,6 +1273,10 @@ pub struct Reply {
     pub color: Option<u32>,
     /// The author's server tag, which Discord's quote shows after the name.
     pub tag: Option<ServerTag>,
+    /// The mentions in `body`, by their text, each in its colour, or the
+    /// mentions' own without one: the quote colours them as its message
+    /// does.
+    pub mentions: Vec<(String, Option<u32>)>,
 }
 
 /// Who used which Discord app command a message answers, as the line
@@ -1895,17 +1940,22 @@ pub struct Embed {
     pub url: String,
     /// Markdown.
     pub description: String,
+    /// Who and what `description` mentions, coloured as a message's body's
+    /// mentions are: a webhook or a bot pings in its embeds too.
+    pub mentions: Vec<crate::mention::Mentioned>,
     pub fields: Vec<EmbedField>,
     pub footer: String,
     /// Its large picture is a video's poster, which opens `url`.
     pub video: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EmbedField {
     pub name: String,
     /// Markdown.
     pub value: String,
+    /// Who and what `value` mentions.
+    pub mentions: Vec<crate::mention::Mentioned>,
     /// Shares a row with the inline fields beside it.
     pub inline: bool,
 }
@@ -2049,7 +2099,7 @@ pub struct ChatMessage {
     /// From someone this account ignored: it shows collapsed until revealed.
     pub ignored: bool,
     /// Mentions this account or a group it's in, other than as a reply to
-    /// its message. The timeline highlights it.
+    /// its message, or is its own naming it. The timeline highlights it.
     pub mentions_me: bool,
     /// Replies to this account's message, which the timeline highlights
     /// while it's new; see [`Self::highlighted`].
@@ -2581,6 +2631,20 @@ impl FavoriteGif {
     }
 }
 
+/// The codes of the Discord invite links in a message's body, each once,
+/// whose cards show under it.
+pub fn invite_codes(body: &str) -> Vec<&str> {
+    #[cfg(feature = "discord")]
+    {
+        yapfast_discord::invite::message_codes(body)
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        let _ = body;
+        Vec::new()
+    }
+}
+
 /// What an invite to a Discord server shows before joining by it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvitePreview {
@@ -2599,6 +2663,32 @@ pub struct InvitePreview {
     /// Discord counts them.
     pub members: Option<u64>,
     pub online: Option<u64>,
+}
+
+/// Where someone joined a Discord server by an invite, which joining tells
+/// Discord.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JoinFrom {
+    /// Join a Server, with a typed or pasted invite.
+    Dialog,
+    /// The dialog a clicked invite link opens.
+    Link,
+    /// The Join button of an invite link's card in a message.
+    Card,
+}
+
+/// The card an invite link in a message shows, as Discord's client shows
+/// one under the message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InviteCard {
+    /// Being looked up.
+    Looking,
+    /// An invite to a server: its icon, name, counts and channel.
+    Server(Box<InvitePreview>),
+    /// Discord knows no such invite: it expired, was revoked or never was.
+    Invalid,
+    /// An invite to a group DM or to be friends, which shows no card.
+    Other,
 }
 
 /// What the card of a Discord server's emoji shows of it beyond the name and
@@ -2978,6 +3068,13 @@ pub enum DiscordCommand {
     Pins {
         room: String,
     },
+    /// A Discord DM's or channel's newest [`PEEK_MESSAGES`], to peek at
+    /// without opening or reading it; [`Event::Peeked`] follows. A channel
+    /// kept in memory and up to date answers from there; any other is asked
+    /// for that many once, and nothing of them is kept.
+    Peek {
+        room: String,
+    },
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -3048,6 +3145,14 @@ pub enum DiscordCommand {
     /// back as [`Event::Error`].
     Notifications {
         place: String,
+        change: NotificationChange,
+    },
+    /// Make the same change to the notification settings of several Discord
+    /// servers, by their server ids, in one request, as a rail folder's menu
+    /// does for its servers. Snapshots show it once Discord confirms it; a
+    /// failure comes back as [`Event::Error`].
+    FolderNotifications {
+        servers: Vec<String>,
         change: NotificationChange,
     },
     /// Mark a Discord channel, by its room id, unread after the message
@@ -3127,14 +3232,18 @@ pub enum DiscordCommand {
         code: String,
         typed: Option<String>,
     },
-    /// Join a Discord server by the invite `preview` shows, from Join a
-    /// Server, or from a clicked invite link with `from_link`.
-    /// [`Event::JoinCaptcha`] follows for each captcha Discord asks for
-    /// first, and then [`Event::ServerJoined`].
+    /// Look up an invite to show its card under a message that links it.
+    /// [`Event::InviteCard`] follows.
+    LookUpInviteCard {
+        code: String,
+    },
+    /// Join a Discord server by the invite `preview` shows, from where
+    /// `from` says. [`Event::JoinCaptcha`] follows for each captcha Discord
+    /// asks for first, and then [`Event::ServerJoined`].
     JoinServer {
         // Boxed: it's the largest command by far.
         preview: Box<InvitePreview>,
-        from_link: bool,
+        from: JoinFrom,
     },
     /// Look up a Discord server's scheduled event by its server and
     /// event ids, with whether this account is interested in it.
@@ -3177,13 +3286,16 @@ pub enum DiscordCommand {
     /// Make a channel or category in a Discord server, by its server id,
     /// inside the category `parent` names by its room id, or a copy of
     /// `copy_of`'s channel, by its room id, with these settings;
-    /// [`Event::ChannelSaved`] follows with the new one's room id.
+    /// [`Event::ChannelSaved`] follows with the new one's room id. A
+    /// private one keeps its access for `keep`, this account's user id,
+    /// when it hasn't every permission.
     CreateChannel {
         server: String,
         kind: ChannelKind,
         parent: Option<String>,
         copy_of: Option<String>,
         settings: Box<ChannelSettings>,
+        keep: Option<String>,
     },
     /// A Discord channel's or category's settings, by its room id, for its
     /// dialog; [`Event::ChannelLoaded`] follows.
@@ -3397,6 +3509,13 @@ pub enum DiscordCommand {
     Members {
         server: String,
         query: MembersQuery,
+    },
+    /// What Mod View shows of a member that Yapfast doesn't hold, by the
+    /// server's id: an [`Event::ModViewLoaded`] follows for each
+    /// [`ModViewPart`].
+    ModView {
+        server: String,
+        user: String,
     },
     /// What Invites asks of Discord; [`Event::InvitesLoaded`],
     /// [`Event::InviteRevoked`] or [`Event::ServerPaused`] follows.
@@ -3672,12 +3791,25 @@ pub struct AuditUser {
 }
 
 /// Which audit log entries to fetch: before an entry's id, by a user, of
-/// an action.
+/// an action, done to someone (Mod View's Moderator Action Log).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AuditQuery {
     pub before: Option<String>,
     pub user: Option<String>,
     pub action: Option<u16>,
+    pub target: Option<String>,
+}
+
+/// What Mod View fetches about a member besides what Yapfast holds;
+/// [`Event::ModViewLoaded`] brings each.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModViewPart {
+    /// The member as Members' search finds them: when and how they
+    /// joined, and Discord's signals; `None` when it finds nobody.
+    Member(Result<Option<ListedMember>, String>),
+    /// How many messages they sent in the server, of them with links, and
+    /// with media.
+    Activity(Result<[u64; 3], String>),
 }
 
 /// Someone banned from a Discord server, as Bans lists them: their name,
@@ -3792,6 +3924,8 @@ pub struct ListedMember {
     pub spammer: bool,
     pub quarantined: bool,
     pub joined_by: JoinMethod,
+    /// Who made the invite they joined by, or added the bot, by id.
+    pub inviter: Option<String>,
     /// A bot, which can't be given the server.
     pub bot: bool,
 }
@@ -3924,6 +4058,19 @@ pub struct ServerProfile {
     /// The address of its icon, when it has one; see
     /// [`DiscordCommand::Pictures`].
     pub icon: Option<String>,
+    /// Its accent colour, as Discord's hex string such as "#7cf895", which
+    /// Server Profile's Banner picks.
+    pub brand_color: Option<String>,
+    /// Its traits, up to five, in their order.
+    pub traits: Vec<ServerTrait>,
+}
+
+/// A trait of a Discord server's profile: a word or two about it, with a
+/// Unicode emoji.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ServerTrait {
+    pub emoji: Option<String>,
+    pub label: String,
 }
 
 /// What saving a page of a Discord server's settings changes: each field
@@ -3935,6 +4082,9 @@ pub enum ServerSettingsChange {
         description: Option<String>,
         /// A new icon, or `None` to remove it.
         icon: Option<Option<PickedPicture>>,
+        brand_color: Option<String>,
+        /// The traits whole, when any changed.
+        traits: Option<Vec<ServerTrait>>,
     },
     /// Engagement's and Boost Perks', saved with `PATCH /guilds/{id}`.
     Guild {
@@ -4351,6 +4501,12 @@ pub enum Event {
     JoinSoundSet(Result<(), String>),
     /// [`DiscordCommand::Unlink`] forgot the account.
     DiscordUnlinked,
+    /// [`DiscordCommand::Peek`]'s messages, oldest first, or why they didn't
+    /// come.
+    Peeked {
+        room: String,
+        result: Result<Vec<ChatMessage>, String>,
+    },
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {
@@ -4513,6 +4669,12 @@ pub enum Event {
         query: AuditQuery,
         result: Result<AuditLog, String>,
     },
+    /// A part of what [`DiscordCommand::ModView`] asked for.
+    ModViewLoaded {
+        server: String,
+        user: String,
+        part: ModViewPart,
+    },
     /// The members [`DiscordCommand::Members`] asked for, and how many
     /// match in all, or why Discord didn't send them.
     MembersFound {
@@ -4643,6 +4805,13 @@ pub enum Event {
     InviteResolved {
         code: String,
         result: Result<InvitePreview, String>,
+    },
+    /// What the card of the invite [`DiscordCommand::LookUpInviteCard`]
+    /// looked up shows; none when Discord couldn't be asked, to ask again
+    /// when the card next shows.
+    InviteCard {
+        code: String,
+        card: Option<InviteCard>,
     },
     /// The address of the page with a captcha Discord asked for before
     /// joining by the invite with this code.

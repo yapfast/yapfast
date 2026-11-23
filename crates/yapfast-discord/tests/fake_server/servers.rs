@@ -100,6 +100,67 @@ async fn changes_notification_settings() {
     })
     .await;
 
+    // A folder's menu changes its servers in one request to several
+    // servers' settings: a mute with an end, a level and a switch, each
+    // confirmed as the server's own.
+    discord
+        .change_servers_notifications(
+            &[&guild],
+            Change::Mute {
+                muted: true,
+                seconds: Some(900),
+            },
+        )
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::Level(Some(Level::Nothing)))
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::SuppressEveryone(true))
+        .await
+        .unwrap();
+    let folded = snapshot_where(&discord, |snapshot| {
+        let server = ours(snapshot);
+        let settings = &server.marks.notifications;
+        server.marks.muted
+            && settings.mute.until.is_some()
+            && settings.level == Some(Level::Nothing)
+            && settings.suppress_everyone
+    })
+    .await;
+    assert_eq!(
+        ours(&folded).marks.notifications.of(&general).level,
+        None,
+        "its channels keep their own"
+    );
+    discord
+        .change_servers_notifications(
+            &[&guild],
+            Change::Mute {
+                muted: false,
+                seconds: None,
+            },
+        )
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::SuppressEveryone(false))
+        .await
+        .unwrap();
+    discord
+        .change_servers_notifications(&[&guild], Change::Level(Some(Level::Mentions)))
+        .await
+        .unwrap();
+    snapshot_where(&discord, |snapshot| {
+        let server = ours(snapshot);
+        !server.marks.muted
+            && !server.marks.notifications.suppress_everyone
+            && server.marks.notifications.level == Some(Level::Mentions)
+    })
+    .await;
+
     // Pinning #general to the top sets its override's flags, through the
     // settings of several servers at once, and keeps its level; unpinning
     // leaves the opt-in flag that pinning set.
@@ -240,7 +301,7 @@ async fn manages_channels_and_categories() {
         ..Default::default()
     };
     let shelf = discord
-        .create_channel(&guild, 4, None, None, &named("Shelf"))
+        .create_channel(&guild, 4, None, None, &named("Shelf"), None)
         .await
         .unwrap();
     let plans = discord
@@ -254,6 +315,7 @@ async fn manages_channels_and_categories() {
                 slowmode: 30,
                 ..named("Plans For Later")
             },
+            None,
         )
         .await
         .unwrap();
@@ -279,17 +341,92 @@ async fn manages_channels_and_categories() {
         ("What's next", 30, false)
     );
 
+    // A private voice channel, as Create Channel's switch makes one:
+    // @everyone may neither see nor join it, and she keeps both.
+    let alice = discord.snapshots().borrow().user_id.clone().unwrap();
+    let hideout = discord
+        .create_channel(
+            &guild,
+            2,
+            Some(&shelf),
+            None,
+            &ChannelSettings {
+                private: true,
+                ..named("Hideout")
+            },
+            Some(&alice),
+        )
+        .await
+        .unwrap();
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.servers[0]
+            .voice_channels
+            .iter()
+            .any(|channel| channel.id == hideout)
+    })
+    .await;
+    let made = snapshot.servers[0]
+        .voice_channels
+        .iter()
+        .find(|channel| channel.id == hideout)
+        .unwrap();
+    let access = (1 << 10) | (1 << 20);
+    let everyone = made
+        .overwrites
+        .iter()
+        .find(|known| known.id == guild)
+        .unwrap();
+    assert_eq!(
+        (everyone.member, everyone.allow, everyone.deny),
+        (false, 0, access)
+    );
+    let mine = made
+        .overwrites
+        .iter()
+        .find(|known| known.id == alice)
+        .unwrap();
+    assert_eq!((mine.member, mine.allow, mine.deny), (true, access, 0));
+
+    // Its Overview sets a voice channel's slowmode and call settings.
+    discord
+        .edit_channel(
+            &hideout,
+            2,
+            &ChannelSettings {
+                slowmode: 30,
+                bitrate: 96_000,
+                user_limit: 5,
+                video_quality: 2,
+                region: "rotterdam".into(),
+                ..named("Hideout")
+            },
+        )
+        .await
+        .unwrap();
+    let settings = discord.channel_settings(&hideout).await.unwrap();
+    assert_eq!(
+        (
+            settings.slowmode,
+            settings.bitrate,
+            settings.user_limit,
+            settings.video_quality,
+            settings.region.as_str()
+        ),
+        (30, 96_000, 5, 2, "rotterdam")
+    );
+
     // Changing it, as its settings do, and copying it, as Duplicate Channel
     // does, with its category and settings.
     discord
         .edit_channel(
             &plans,
-            true,
+            0,
             &ChannelSettings {
                 name: "plans".into(),
                 topic: "Soon".into(),
                 slowmode: 0,
                 nsfw: true,
+                ..Default::default()
             },
         )
         .await
@@ -302,7 +439,7 @@ async fn manages_channels_and_categories() {
     })
     .await;
     let copy = discord
-        .create_channel(&guild, 0, None, Some(&plans), &named("plans-copy"))
+        .create_channel(&guild, 0, None, Some(&plans), &named("plans-copy"), None)
         .await
         .unwrap();
     let copied = discord.channel_settings(&copy).await.unwrap();
@@ -351,7 +488,7 @@ async fn manages_channels_and_categories() {
     .await;
     assert!(
         discord
-            .create_channel(&guild, 0, None, None, &named(""))
+            .create_channel(&guild, 0, None, None, &named(""), None)
             .await
             .is_err()
     );
@@ -540,6 +677,18 @@ async fn changes_server_settings_as_discords_client_does() {
         (saved.name.as_str(), saved.description.as_str(), saved.icon),
         ("Crew", "Where we talk", None)
     );
+    // The banner's colour and the traits come back as they were sent.
+    let saved = discord
+        .save_guild_profile(
+            guild,
+            &json!({"brand_color_primary": "#ff2f9d", "traits": [{"emoji_id": null,
+                "emoji_name": null, "emoji_animated": false, "label": "Chill", "position": 0}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(saved.brand_color.as_deref(), Some("#ff2f9d"));
+    assert_eq!(saved.traits.len(), 1);
+    assert_eq!(saved.traits[0].label, "Chill");
     snapshot_where(discord, |snapshot| {
         snapshot
             .servers
@@ -1008,7 +1157,10 @@ async fn moderates_as_discords_client_does() {
             .map(|entry| entry["action_type"].as_u64().unwrap())
             .collect()
     };
-    let log = discord.audit_log(guild, None, None, None).await.unwrap();
+    let log = discord
+        .audit_log(guild, None, None, None, None)
+        .await
+        .unwrap();
     let newest = &log["audit_log_entries"][0];
     assert_eq!(
         (newest["action_type"].as_u64(), newest["target_id"].as_str()),
@@ -1023,7 +1175,7 @@ async fn moderates_as_discords_client_does() {
     // By Bob, and by action.
     let bob = "1400000000000000002";
     let by_bob = discord
-        .audit_log(guild, None, Some(bob), None)
+        .audit_log(guild, None, Some(bob), None, None)
         .await
         .unwrap();
     assert_eq!(actions(&by_bob), [24, 24, 22, 22, 13, 1]);
@@ -1035,25 +1187,75 @@ async fn moderates_as_discords_client_does() {
             .any(|user| user["id"] == bob && user["username"] == "bob")
     );
     let bans = discord
-        .audit_log(guild, None, None, Some(22))
+        .audit_log(guild, None, None, Some(22), None)
         .await
         .unwrap();
     assert!(actions(&bans).iter().all(|action| *action == 22));
     // Fifty at a time, from before the last.
     post_control(server, "/_control/audit-entries", r#"{"count": 60}"#);
     let first = discord
-        .audit_log(guild, None, Some(bob), None)
+        .audit_log(guild, None, Some(bob), None, None)
         .await
         .unwrap();
     assert_eq!(actions(&first).len(), 50);
     let last = first["audit_log_entries"][49]["id"].as_str().unwrap();
     let next = discord
-        .audit_log(guild, Some(last), Some(bob), None)
+        .audit_log(guild, Some(last), Some(bob), None, None)
         .await
         .unwrap();
     assert_eq!(actions(&next).len(), 16);
     post_control(server, "/_control/audit-reset", "");
     post_control(server, "/_control/members-reset", "");
+}
+
+/// What Mod View asks about a member: their counts of messages, links and
+/// media from the server's message search tabs, and the audit log about
+/// them.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn counts_and_logs_a_member_as_mod_view_does() {
+    let fixture = Fixture::start("counts_and_logs_a_member_as_mod_view_does").await;
+    let (discord, server, guild) = (&fixture.discord, fixture.server, fixture.guild.as_str());
+    use yapfast_discord::{
+        api::MembersSearch,
+        server_settings::{activity_tabs, parse_activity},
+    };
+    let body = activity_tabs(&fixture.bob);
+    // The server's first search waits while Discord indexes it.
+    assert!(matches!(
+        discord.search_tabs(guild, &body).await.unwrap(),
+        MembersSearch::Indexing(_)
+    ));
+    let MembersSearch::Found(found) = discord.search_tabs(guild, &body).await.unwrap() else {
+        panic!("still indexing");
+    };
+    let [messages, links, media] = parse_activity(&found);
+    // As many as the server's search finds by him.
+    let searched = match discord
+        .search(guild, None, "from:bob", Sort::Newest, 0, &|| {})
+        .await
+        .unwrap()
+    {
+        Searched::Found(found) => found,
+        Searched::Indexing => panic!("still indexing"),
+    };
+    assert_eq!(messages, u64::from(searched.total));
+    assert!(messages > 0 && links <= messages && media <= messages);
+    let sent: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/search-tabs", "")).unwrap();
+    assert_eq!(sent.as_array().unwrap().last(), Some(&body));
+    assert_eq!(body["tabs"]["links"]["has"], serde_json::json!(["link"]));
+    assert_eq!(body["track_exact_total_hits"], true);
+
+    // The audit log about something: only what was done to it.
+    let general = fixture.general.as_str();
+    let log = discord
+        .audit_log(guild, None, None, None, Some(general))
+        .await
+        .unwrap();
+    let entries = log["audit_log_entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    assert!(entries.iter().all(|entry| entry["target_id"] == general));
 }
 
 /// Members and Invites in Server Settings, as Discord's client asks for

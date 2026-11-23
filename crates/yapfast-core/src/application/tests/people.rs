@@ -46,6 +46,7 @@ fn member(id: u64, joined: u64) -> ListedMember {
         spammer: false,
         quarantined: false,
         joined_by: JoinMethod::Invite("abc".into()),
+        inviter: None,
         bot: false,
     }
 }

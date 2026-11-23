@@ -69,6 +69,10 @@ pub trait PointerAt: Send + Sync {
 /// shows About.
 pub const ABOUT: &str = "yapfast:about";
 
+/// Before a room, what a notification's Open in split view hands back:
+/// the room opens beside the open one.
+pub const SPLIT: &str = "yapfast:split/";
+
 /// The tray's icon while it's there.
 pub trait Tray {
     /// A tray shows the icon now, so the window can close into it.
@@ -79,8 +83,10 @@ pub trait Tray {
 
 /// Shows desktop notifications.
 pub trait Notifier {
-    /// `text` says what the message says, rather than only who wrote.
-    fn show(&self, alert: Alert, text: bool);
+    /// `text` says what the message says, rather than only who wrote;
+    /// `split` offers Open in split view, which comes back as
+    /// [`Heard::Opened`] with the room after [`SPLIT`].
+    fn show(&self, alert: Alert, text: bool, split: bool);
 }
 
 /// What About shows of the releases.

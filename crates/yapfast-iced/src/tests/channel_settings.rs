@@ -61,6 +61,7 @@ fn channel_settings_cover_the_window_with_overview_and_permissions() {
             topic: "Say hi".into(),
             slowmode: 300,
             nsfw: true,
+            ..Default::default()
         }),
     });
     let _ = app.sync();
@@ -143,4 +144,62 @@ fn channel_settings_keep_their_sidebar_while_discord_is_away() {
     }
     super::change(&mut app, |state| state.discord_online = true);
     assert!(shows(&app, "Permissions"));
+}
+
+#[test]
+fn a_voice_channels_overview_sets_its_call_and_says_why_a_save_was_refused() {
+    let (mut app, _folder) = discord_server(permission::MANAGE_CHANNELS, |_, _| {});
+    let lounge = "discord:10:14";
+    app.client
+        .dispatch(yapfast_core::application::Action::OpenChannelSettings(
+            lounge.into(),
+        ));
+    let _ = app.sync();
+    app.client.apply(Event::ChannelLoaded {
+        room: lounge.into(),
+        result: Ok(ChannelSettings {
+            name: "Lounge".into(),
+            bitrate: 64_000,
+            video_quality: 1,
+            ..Default::default()
+        }),
+    });
+    let _ = app.sync();
+    for words in [
+        "BITRATE",
+        "64kbps",
+        "VIDEO QUALITY",
+        "Auto",
+        "720p",
+        "USER LIMIT",
+        "No limit",
+        "REGION OVERRIDE",
+        "Automatic",
+        "SLOWMODE",
+    ] {
+        // Laid out on the page, some below the test window's fold.
+        assert!(super::present(&app, words), "{words}");
+    }
+    assert!(
+        !shows(&app, "CHANNEL TOPIC"),
+        "a voice channel has no topic"
+    );
+    // The server has no boosts: 96 kbps at most.
+    input(&mut app, ChannelInput::Bitrate(384_000));
+    input(&mut app, ChannelInput::UserLimit(150));
+    input(&mut app, ChannelInput::Region("rotterdam".into()));
+    for words in ["96kbps", "99 users", "Rotterdam"] {
+        assert!(super::present(&app, words), "{words}");
+    }
+    assert!(shows(&app, "Save Changes"));
+    // Discord refuses it: the bar says why, where it's seen.
+    input(&mut app, ChannelInput::Save);
+    app.client.apply(Event::ChannelSaved(Err(
+        "Bitrate: int value should be less than or equal to 96000.".into(),
+    )));
+    let _ = app.sync();
+    assert!(shows(
+        &app,
+        "Discord didn't save the bitrate: this server's voice channels go up to 96 kbps."
+    ));
 }

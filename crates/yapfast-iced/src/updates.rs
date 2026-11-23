@@ -108,6 +108,7 @@ fn announce_update(app: &mut App, offered: Option<desktop::Offered>) {
                 mention: false,
             },
             true,
+            false,
         );
     }
 }

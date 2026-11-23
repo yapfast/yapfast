@@ -73,6 +73,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # their 30-second lifetime, without installing them.
 tempfile.workspace = true
 
+# Whether the desktop's file chooser portal answers, before a save asks it.
+# Already in the tree through the app's tray.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = { version = "5.19", default-features = false, features = ["async-io"] }
+
 # What build.rs packs Twemoji's pictures into a font with.
 [build-dependencies]
 emojis = "0.9"

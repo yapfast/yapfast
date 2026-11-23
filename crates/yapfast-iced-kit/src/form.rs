@@ -858,6 +858,15 @@ impl<M: Clone> Unsaved<M> {
     where
         M: 'a,
     {
+        self.view_saying(theme, None)
+    }
+
+    /// The bar saying `problem`, why the changes can't be saved or why the
+    /// save was refused, in red in place of its warning.
+    pub fn view_saying<'a>(self, theme: &Theme, problem: Option<String>) -> Element<'a, M>
+    where
+        M: 'a,
+    {
         let Self {
             pad,
             radius,
@@ -871,11 +880,19 @@ impl<M: Clone> Unsaved<M> {
         let red = shake.red;
         let (raised, edge, danger) = (theme.raised, theme.edge, theme.danger);
         let offset = shake.offset();
+        let ink = if red {
+            theme.on_danger
+        } else if problem.is_some() {
+            theme.danger_text
+        } else {
+            theme.text
+        };
+        let words = problem.unwrap_or_else(|| "Careful — you have unsaved changes!".to_owned());
         let bar = row![
-            text("Careful — you have unsaved changes!")
+            text(words)
                 .size(14)
                 .font(SEMIBOLD)
-                .color(if red { theme.on_danger } else { theme.text })
+                .color(ink)
                 .width(Length::Fill),
             controls::action(
                 theme,
