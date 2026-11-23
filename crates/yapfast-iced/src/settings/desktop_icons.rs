@@ -23,10 +23,10 @@ use crate::{
 };
 
 const MIN_TILE_WIDTH: f32 = 88.0;
-const MAX_COLUMNS: usize = 6;
+const MAX_COLUMNS: usize = 5;
 const TILE_HEIGHT: f32 = 86.0;
 const TILE_GAP: f32 = 8.0;
-const PREVIEW: u32 = 46;
+const PREVIEW: u32 = 48;
 const YAP: &str = "yap";
 
 /// Thumbnails are made as Appearance opens and reused until it closes.
@@ -116,30 +116,22 @@ impl Settings {
         let Some(icons) = self.icons.as_mut() else {
             return Task::none();
         };
+        if !matches!(&event, Event::Picked(..)) {
+            if icons.picker.is_some() {
+                return Task::none();
+            }
+            icons.error = None;
+        }
         let (target, choice) = match event {
             Event::FollowApplication(on) => {
-                if icons.picker.is_some() {
-                    return Task::none();
-                }
                 cx.layout.prefs.tray_uses_application_icon = Some(on);
                 cx.keep("tray_uses_application_icon", on);
                 icons.tray = (!on).then(|| Grid::new(cx.client.root(), IconTarget::Tray));
-                icons.error = None;
                 cx.request(Request::Changed(Pref::DesktopIcon(IconTarget::Tray)));
                 return Task::none();
             }
-            Event::Choose(target, choice) => {
-                if icons.picker.is_some() {
-                    return Task::none();
-                }
-                icons.error = None;
-                (target, choice)
-            }
+            Event::Choose(target, choice) => (target, choice),
             Event::Pick(target) => {
-                if icons.picker.is_some() {
-                    return Task::none();
-                }
-                icons.error = None;
                 let picker = widget::Id::unique();
                 icons.picker = Some(picker.clone());
                 return Task::perform(
@@ -221,7 +213,6 @@ impl<'a> Page<'a> {
                 &icons.application,
                 icons,
             ),
-            form::rule(theme),
             form::switch(
                 "Use the application icon in the tray",
                 follows,
@@ -264,34 +255,22 @@ impl<'a> Page<'a> {
             let fit = ((size.width + TILE_GAP) / (MIN_TILE_WIDTH + TILE_GAP)).floor() as usize;
             let columns = fit.clamp(1, MAX_COLUMNS);
             let width = (size.width - (columns - 1) as f32 * TILE_GAP) / columns as f32;
-            let mut tiles = grid
-                .presets
-                .iter()
-                .map(|tile| self.icon_tile(target, tile, tile.icon == *chosen, enabled, width))
-                .chain(std::iter::once_with(|| {
-                    self.custom_icon(
-                        target,
-                        grid.custom.as_ref(),
-                        *chosen == IconChoice::Custom,
-                        enabled,
-                        width,
-                    )
-                }));
-            // On a wide page the second row holds five presets and Custom.
-            let first_row = if columns == MAX_COLUMNS {
-                columns - 1
-            } else {
-                columns
-            };
-            let mut rows =
-                column![row(tiles.by_ref().take(first_row)).spacing(TILE_GAP)].spacing(TILE_GAP);
-            while let Some(tile) = tiles.next() {
-                rows = rows.push(
-                    row(std::iter::once(tile).chain(tiles.by_ref().take(columns - 1)))
-                        .spacing(TILE_GAP),
-                );
-            }
-            rows.into()
+            column(grid.presets.chunks(columns).map(|tiles| {
+                row(tiles
+                    .iter()
+                    .map(|tile| self.icon_tile(target, tile, tile.icon == *chosen, enabled, width)))
+                .spacing(TILE_GAP)
+                .into()
+            }))
+            .push(self.custom_icon(
+                target,
+                grid.custom.as_ref(),
+                *chosen == IconChoice::Custom,
+                enabled,
+                width,
+            ))
+            .spacing(TILE_GAP)
+            .into()
         })
         .height(Length::Shrink);
         let mut parts = vec![form::heading(look.theme, label), tiles.into()];

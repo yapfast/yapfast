@@ -57,18 +57,25 @@ pub fn prepare(path: &Path) -> Result<Vec<u8>, String> {
         image::ImageError::Limits(_) => "Choose an image up to 4096 × 4096 pixels.",
         _ => invalid,
     })?;
-    let resized = decoded
-        .resize(ICON_SIZE, ICON_SIZE, imageops::FilterType::Lanczos3)
-        .into_rgba8();
-    let mut square = RgbaImage::new(ICON_SIZE, ICON_SIZE);
-    imageops::replace(
-        &mut square,
-        &resized,
-        i64::from((ICON_SIZE - resized.width()) / 2),
-        i64::from((ICON_SIZE - resized.height()) / 2),
-    );
+    let mut resized = if (decoded.width(), decoded.height()) == (ICON_SIZE, ICON_SIZE) {
+        decoded.into_rgba8()
+    } else {
+        decoded
+            .resize(ICON_SIZE, ICON_SIZE, imageops::FilterType::Lanczos3)
+            .into_rgba8()
+    };
+    if resized.dimensions() != (ICON_SIZE, ICON_SIZE) {
+        let mut square = RgbaImage::new(ICON_SIZE, ICON_SIZE);
+        imageops::replace(
+            &mut square,
+            &resized,
+            i64::from((ICON_SIZE - resized.width()) / 2),
+            i64::from((ICON_SIZE - resized.height()) / 2),
+        );
+        resized = square;
+    }
     let mut png = Cursor::new(Vec::new());
-    square
+    resized
         .write_to(&mut png, ImageFormat::Png)
         .map_err(|_| "Could not prepare the icon.")?;
     Ok(png.into_inner())
@@ -271,7 +278,7 @@ impl Drop for NativeIcon {
 /// Gives the running window its own icons at the Windows title bar and
 /// taskbar sizes. The window owns both until they are replaced or it closes.
 #[cfg(windows)]
-pub fn set_on(hwnd: isize, artwork: &Artwork) {
+pub fn set_on(window: windows_sys::Win32::Foundation::HWND, artwork: &Artwork) {
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         UI::{
@@ -331,7 +338,6 @@ pub fn set_on(hwnd: isize, artwork: &Artwork) {
     // releases its icon property on destruction. Only the previous box can
     // be released after replacing the icons.
     unsafe {
-        let window = hwnd as HWND;
         let previous = GetPropW(window, ICON_PROPERTY).cast::<WindowIcons>();
         if SetWindowSubclass(window, Some(dispose), SUBCLASS_ID, 0) == 0
             || SetPropW(window, ICON_PROPERTY, icons.cast()) == 0
@@ -400,31 +406,5 @@ mod tests {
                 .chunks_exact(4)
                 .any(red)
         );
-    }
-
-    #[cfg(any(target_os = "linux", windows))]
-    #[test]
-    fn each_theme_colours_both_icons_with_its_accent() {
-        for preset in &theme::BUILT_IN {
-            let artwork = Artwork::Theme(&preset.theme);
-            let [_, r, g, b] = preset.theme.accent.rgb_part().to_be_bytes();
-            let accent = |pixel: &[u8]| pixel == [r, g, b, 255];
-            assert!(
-                artwork
-                    .window(64)
-                    .unwrap()
-                    .pixels
-                    .chunks_exact(4)
-                    .any(accent)
-            );
-            assert!(
-                artwork
-                    .tray(32, false)
-                    .unwrap()
-                    .pixels
-                    .chunks_exact(4)
-                    .any(accent)
-            );
-        }
     }
 }

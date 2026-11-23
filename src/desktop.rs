@@ -191,11 +191,9 @@ impl yapfast_iced::Desktop for Shell {
             .map(|pointer| Box::new(pointer) as Box<dyn yapfast_iced::PointerAt>)
     }
 
+    #[cfg(target_os = "linux")]
     fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell) {
-        #[cfg(target_os = "linux")]
         watch_wayland_drops(window, tell);
-        #[cfg(not(target_os = "linux"))]
-        let _ = (window, tell);
     }
 
     fn window_place(&self, window: &dyn yapfast_iced::Window) -> Option<[i32; 2]> {
@@ -257,7 +255,7 @@ impl yapfast_iced::Desktop for Shell {
     fn set_window_icon(&self, window: &dyn yapfast_iced::Window, root: &Path, choice: &IconChoice) {
         if let Some(window) = win32(window) {
             crate::icon::set_on(
-                window as isize,
+                window,
                 &Artwork::load(root, IconTarget::Application, choice),
             );
         }

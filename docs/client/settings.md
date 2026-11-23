@@ -93,9 +93,9 @@ recording. Each change is kept at once in
   tray's own choices. A previously saved different preset or separate custom
   image starts with the switch off. The tray keeps its separate choice
   while the switch is on.
-  The last tile imports an image or selects the saved one. Point at a saved
-  custom tile to show Replace. Imports accept PNG, ICO, JPEG or WebP files
-  up to 8 MiB and 4096 × 4096 pixels.
+  The tile below the presets imports an image or selects the saved one.
+  Point at a saved custom tile to show Replace. Imports accept PNG, ICO,
+  JPEG or WebP files up to 8 MiB and 4096 × 4096 pixels.
   Yapfast keeps a 256 × 256 PNG copy in its data folder, preserving aspect
   ratio and adding transparent padding where needed.
   The running window and tray update as soon as a choice is made. On Linux,
