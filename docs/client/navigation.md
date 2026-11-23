@@ -5,10 +5,11 @@ badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
 folders, then the "Add a server" tile after the last of them, which opens Join a Server (a plus
 cut from a disc on a raised ground, a step toward the rail's at rest; it has no menu and is
-there while Discord is connected or in the preview). The DM being read in the
-focused window stays off the rail while its read acknowledgment is pending;
-scrolling away from the newest messages or unfocusing the window lets its
-unread indicator show. Each tile has its pill at the
+there while Discord is connected or in the preview). A message in the DM
+being read (its newest message in view, the window in front) shows neither on
+the rail nor in the DM home's count while its read is on its way to Discord,
+as Discord's client marks it read as it comes; scrolled up, or with the window
+behind another, it shows. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
