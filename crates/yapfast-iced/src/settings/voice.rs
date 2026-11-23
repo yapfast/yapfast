@@ -353,7 +353,13 @@ impl Settings {
         self.voice.tries += 1;
         match yapfast_core::camera::Camera::open(camera, Box::new(feed.sink())) {
             Ok(camera) => self.voice.camera = Some((camera, feed)),
-            Err(error) => self.voice.camera_note = error.to_string(),
+            Err(error) => {
+                self.voice.camera_note = yapfast_core::voice::said(
+                    &error.to_string(),
+                    "Could not start your camera.",
+                    "No camera found. Connect one and try again.",
+                );
+            }
         }
     }
 }

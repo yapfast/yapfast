@@ -1448,3 +1448,51 @@ async fn calls_in_dms() {
     post_control(server, "/_control/hang-up", "");
     snapshot_where(&discord, |snapshot| !snapshot.voice.contains_key(&dm)).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_who_the_voice_server_says_is_in_the_call() {
+    let fixture = Fixture::start("lists_who_the_voice_server_says_is_in_the_call").await;
+    let (discord, server, guild, lounge) = (
+        &fixture.discord,
+        fixture.server,
+        &fixture.guild,
+        &fixture.lounge,
+    );
+    let (_, mut call) = join_lounge(&fixture, Arc::new(Dropping::default())).await;
+    let connected = call.connected();
+    // Someone the gateway never reported connects, as op 11 says; Yapfast
+    // passes who is connected on, as its call does, and they're listed.
+    let stranger = 777_000_000_000_000_001_u64;
+    post_control(
+        server,
+        &format!("/_control/voice-clients?user={stranger}"),
+        "",
+    );
+    until("the voice server named them", || {
+        connected.read().1.contains(&stranger)
+    })
+    .await;
+    discord.heard_in_call(guild, lounge, &connected.read().1);
+    let listed = |snapshot: &Snapshot| {
+        snapshot.voice.get(lounge.as_str()).is_some_and(|members| {
+            members.iter().any(|member| {
+                member.user_id == stranger.to_string() && member.name == "Discord user"
+            })
+        })
+    };
+    snapshot_where(discord, listed).await;
+    // They leave, as op 13 says.
+    post_control(
+        server,
+        &format!("/_control/voice-clients?user={stranger}&left"),
+        "",
+    );
+    until("the voice server said they left", || {
+        !connected.read().1.contains(&stranger)
+    })
+    .await;
+    discord.heard_in_call(guild, lounge, &connected.read().1);
+    snapshot_where(discord, |snapshot| !listed(snapshot)).await;
+    call.leave();
+}

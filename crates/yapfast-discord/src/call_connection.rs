@@ -26,7 +26,7 @@ use crate::{
     call_video::{self, Camera, Receiving, VideoFrame},
     dave::Dave,
     opus, rtp,
-    voice::{FRAME, Listener, MOVE_GRACE, Surplus},
+    voice::{Connected, FRAME, Listener, MOVE_GRACE, Surplus},
     voice_connection::{Closed, Connection, Identity, lock, receive, send_json},
 };
 
@@ -121,9 +121,10 @@ pub(crate) fn start(
     sending: Arc<Mutex<Option<Sending>>>,
     video: channel::SyncSender<VideoFrame>,
     stats: Arc<CallStats>,
+    connected: Arc<Connected>,
 ) -> Result<(mpsc::UnboundedSender<Order>, oneshot::Receiver<Result<()>>)> {
     let (orders, ordered) = mpsc::unbounded_channel();
-    let (ready, connected) = oneshot::channel();
+    let (ready, first) = oneshot::channel();
     std::thread::Builder::new()
         .name("yapfast-discord-call".into())
         .spawn(move || {
@@ -139,10 +140,10 @@ pub(crate) fn start(
                 }
             };
             runtime.block_on(run(
-                identity, listener, sending, video, stats, ordered, ready,
+                identity, listener, sending, video, stats, connected, ordered, ready,
             ));
         })?;
-    Ok((orders, connected))
+    Ok((orders, first))
 }
 
 /// Why the media loop stopped.
@@ -152,12 +153,17 @@ enum Ended {
     Dropped(anyhow::Error),
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the call's parts, each its own, as it starts"
+)]
 async fn run(
     mut identity: Identity,
     listener: Arc<dyn Listener>,
     sending: Arc<Mutex<Option<Sending>>>,
     video: channel::SyncSender<VideoFrame>,
     stats: Arc<CallStats>,
+    connected: Arc<Connected>,
     mut orders: mpsc::UnboundedReceiver<Order>,
     ready: oneshot::Sender<Result<()>>,
 ) {
@@ -171,7 +177,7 @@ async fn run(
             return;
         }
     };
-    let mut media = match Media::new(video, stats) {
+    let mut media = match Media::new(video, stats, connected) {
         Ok(media) => media,
         Err(error) => {
             listener.disconnected(&format!("{error:#}"));
@@ -329,6 +335,8 @@ struct Media {
     stats: Arc<CallStats>,
     reported: Reported,
     diagnostics: Diagnostics,
+    /// Who the voice server says is connected, for Yapfast to list.
+    connected: Arc<Connected>,
 }
 
 /// What a call's audio did over [`DIAGNOSE_EVERY`], for one line in the
@@ -439,7 +447,11 @@ impl Diagnostics {
 }
 
 impl Media {
-    fn new(video: channel::SyncSender<VideoFrame>, stats: Arc<CallStats>) -> Result<Self> {
+    fn new(
+        video: channel::SyncSender<VideoFrame>,
+        stats: Arc<CallStats>,
+        connected: Arc<Connected>,
+    ) -> Result<Self> {
         Ok(Self {
             encoder: opus::Encoder::new(2, opus::Application::Audio, BITRATE)?,
             pcm: vec![0.0; FRAME * 2],
@@ -458,11 +470,13 @@ impl Media {
             stats,
             reported: Reported::default(),
             diagnostics: Diagnostics::new(),
+            connected,
         })
     }
 
     /// A new connection: speakers, cameras and their SSRCs start over.
     fn reset(&mut self) {
+        self.connected.reset();
         self.speakers.clear();
         self.users.clear();
         self.dropped.clear();
@@ -484,6 +498,7 @@ impl Media {
             self.learn(op, &data);
             self.watching.learn(op, &data);
         }
+        self.connected.set(connection.dave.users());
         // Each heartbeat measures the ping, which Discord's web client
         // measures this often.
         let interval = connection.interval.min(PING_EVERY);
@@ -581,8 +596,10 @@ impl Media {
                     }
                     message = receive(&mut connection.ws, &mut connection.seq) => {
                         let handled = connection.handle(message?).await?;
-                        // DAVE's messages change the group, and its code.
+                        // DAVE's messages change the group, and its code,
+                        // and say who is connected.
                         self.secure(connection);
+                        self.connected.set(connection.dave.users());
                         if let Some((op, data)) = handled {
                             if op == 6 && let Some(round_trip) = Connection::acked(&data) {
                                 self.stats.ping(round_trip);
@@ -1386,7 +1403,7 @@ mod tests {
     #[test]
     fn learns_whose_audio_from_speaking_and_video_messages() {
         let (frames, _) = channel::sync_channel(1);
-        let mut media = Media::new(frames, Arc::default()).unwrap();
+        let mut media = Media::new(frames, Arc::default(), Arc::default()).unwrap();
         media.learn(5, &json!({"user_id": "7", "ssrc": 100, "speaking": 1}));
         // Already talking when Yapfast joined: only op 12 names their audio.
         media.learn(

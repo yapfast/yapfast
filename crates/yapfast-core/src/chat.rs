@@ -501,6 +501,9 @@ pub struct VoicePerson {
     /// This account, in the call on another client, as Discord shows it:
     /// dimmed, without its icons.
     pub elsewhere: bool,
+    /// When Yapfast saw them join the call, in Unix seconds; none for those
+    /// already in it when it started.
+    pub joined: Option<u64>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Hash)]

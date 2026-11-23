@@ -106,6 +106,7 @@ pub fn member_server(alice: &[&str]) -> Application {
             "12".to_owned(),
             vec![
                 yapfast_discord::service::VoiceMember {
+                    joined: None,
                     user_id: "4".into(),
                     name: "Dave".into(),
                     avatar: String::new(),
@@ -118,6 +119,7 @@ pub fn member_server(alice: &[&str]) -> Application {
                     elsewhere: false,
                 },
                 yapfast_discord::service::VoiceMember {
+                    joined: None,
                     user_id: "1".into(),
                     name: "Alice".into(),
                     avatar: String::new(),

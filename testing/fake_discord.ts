@@ -55,7 +55,9 @@
 // counts the audio each call connection sends: GET /_control/call-audio
 // lists it by connection, and GET /_control/voice-audio by SSRC with op 5's
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
-// seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
+// seconds of a tone in every call Alice is in. POST /_control/voice-clients?user=ID
+// has the voice server tell her calls that ID connected (op 11), or with
+// &left that they left (op 13). POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
 // resume with op 7. POST /_control/voice-discovery?off makes the voice
 // server ignore UDP address discovery, so that joining fails as a blocked
@@ -9149,6 +9151,17 @@ const server = Bun.serve<SocketData>({
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
       const spoke = calls.filter((ws) => bobSpeaks(ws)).length;
       return new Response(`Bob speaks in ${spoke} call(s)\n`, { status: spoke ? 200 : 409 });
+    }
+    if (req.method === "POST" && path === "/_control/voice-clients") {
+      // Someone the gateway hasn't reported connects to Alice's calls, as
+      // the voice server says with op 11, or with ?left leaves, op 13.
+      const user = url.searchParams.get("user") ?? "";
+      const left = url.searchParams.has("left");
+      const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
+      for (const ws of calls) {
+        ws.send(JSON.stringify(left ? { op: 13, d: { user_id: user } } : { op: 11, d: { user_ids: [user] } }));
+      }
+      return new Response(`told ${calls.length} call(s)\n`, { status: calls.length ? 200 : 409 });
     }
     if (req.method === "POST" && path === "/_control/voice-link") {
       voiceLink.ping = Number(url.searchParams.get("ping") ?? 0);

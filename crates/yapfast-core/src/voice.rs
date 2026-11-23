@@ -538,7 +538,8 @@ async fn worker(
                 )
                 .await;
                 if let Err(error) = result {
-                    state.error = Some(error.to_string());
+                    let ended = "Voice ended. Join again to reconnect.";
+                    state.error = Some(said(&error.to_string(), ended, ended));
                 }
                 state.disconnected();
                 trim_after_call();
@@ -726,9 +727,79 @@ pub(crate) fn device_id(guid: &str, name: &str) -> String {
 /// Marks a device id made from the device's name.
 pub const NAMED: &str = "name:";
 
+/// What the voice panel says for `error`. Yapfast's own messages are
+/// sentences and show as they are; a library's or the system's words, such
+/// as PipeWire's "error input enum formats: No such file or directory" or
+/// "No such file or directory (os error 2)", go to the log, and the panel
+/// says `missing` when they name a device that isn't there, or `failed`.
+pub fn said(error: &str, failed: &str, missing: &str) -> String {
+    if is_sentence(error) {
+        return error.to_owned();
+    }
+    let gone = [
+        "No such file or directory",
+        "No such device",
+        "No such entity",
+        "not found",
+    ]
+    .iter()
+    .any(|words| error.contains(words));
+    tracing::warn!(error, gone, "said plainly in the voice panel");
+    if gone { missing } else { failed }.to_owned()
+}
+
+/// Whether `text` is one of Yapfast's messages: a capitalised sentence with
+/// its stop, and no error code. A library's words start lowercase, as in
+/// `context: cause` chains, or lack the stop.
+fn is_sentence(text: &str) -> bool {
+    text.chars().next().is_some_and(char::is_uppercase)
+        && text.ends_with(['.', '!', '?'])
+        && !text.contains("(os error")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_voice_panel_says_a_libraries_error_plainly() {
+        let camera = |error| {
+            said(
+                error,
+                "Could not start your camera.",
+                "No camera found. Connect one and try again.",
+            )
+        };
+        // Yapfast's own sentences stay as they are.
+        assert_eq!(
+            camera("Could not start your camera. It may be in use by another app."),
+            "Could not start your camera. It may be in use by another app."
+        );
+        assert_eq!(
+            camera("Lost the stream: the server went away."),
+            "Lost the stream: the server went away."
+        );
+        // PipeWire's and the system's words don't reach the panel.
+        assert_eq!(
+            camera("error input enum formats: No such file or directory"),
+            "No camera found. Connect one and try again."
+        );
+        assert_eq!(
+            camera("could not open the video frames file: No such file or directory (os error 2)"),
+            "No camera found. Connect one and try again."
+        );
+        assert_eq!(
+            camera("No such entity"),
+            "No camera found. Connect one and try again."
+        );
+        assert_eq!(
+            camera("error alloc buffers: Invalid argument"),
+            "Could not start your camera."
+        );
+        assert_eq!(camera("Input/output error"), "Could not start your camera.");
+        assert_eq!(camera("task 12 panicked"), "Could not start your camera.");
+        assert_eq!(camera(""), "Could not start your camera.");
+    }
 
     #[test]
     fn devices_without_a_guid_are_known_by_name_and_choices_stay_on_disk() {

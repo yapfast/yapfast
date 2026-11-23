@@ -790,6 +790,7 @@ fn native_voice_switch_is_explicit_and_rechecks_trust_before_leaving() {
 fn discord_dm_calls_start_ring_and_are_answered() {
     use yapfast_discord::service::{Conversation, Snapshot, Status, VoiceMember};
     let person = |id: &str, name: &str| VoiceMember {
+        joined: None,
         user_id: id.into(),
         name: name.into(),
         avatar: format!("{id}.png"),
@@ -882,6 +883,7 @@ fn discord_dm_calls_start_ring_and_are_answered() {
 fn do_not_disturb_shows_a_call_without_notifying() {
     use yapfast_discord::service::{Conversation, DO_NOT_DISTURB, Snapshot, Status, VoiceMember};
     let ann = VoiceMember {
+        joined: None,
         user_id: "2".into(),
         name: "Ann".into(),
         avatar: "2.png".into(),
@@ -904,6 +906,7 @@ fn do_not_disturb_shows_a_call_without_notifying() {
             people: 2,
             person: Some("2".into()),
             ringing: vec![VoiceMember {
+                joined: None,
                 user_id: "1".into(),
                 name: "Me".into(),
                 ..ann.clone()

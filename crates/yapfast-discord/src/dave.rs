@@ -52,6 +52,11 @@ impl Dave {
         }
     }
 
+    /// Who the voice server says is connected, this account too.
+    pub fn users(&self) -> &HashSet<u64> {
+        &self.users
+    }
+
     /// Someone the voice server says is in the stream: a stream server
     /// announces its streamer through video attributes rather than op 11.
     pub fn recognise(&mut self, user: u64) {

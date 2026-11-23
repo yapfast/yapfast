@@ -23,6 +23,7 @@ use crate::{
     settings::{self, CustomStatus},
     stream::{self, StreamServer},
     unread::Unreads,
+    voice::VOICE_PRESENCE,
 };
 
 /// Relationship types: a friend, someone blocked, and friend requests to and
@@ -101,6 +102,18 @@ struct VoiceEntry {
     server_deafened: bool,
     streaming: bool,
     video: bool,
+    /// When this session saw them join the channel, in Unix seconds; none
+    /// for those already there when it learned of them.
+    joined: Option<u64>,
+}
+
+/// Who the voice server of this account's call says is connected, in the
+/// call's channel: there, those the gateway's voice states miss show too.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Heard {
+    pub guild: String,
+    pub channel: String,
+    pub users: Vec<String>,
 }
 
 /// The account's servers and voice channels, kept current from gateway events.
@@ -133,6 +146,8 @@ pub(super) struct Tracker {
     /// seconds, by channel id; shared with snapshots while it stays the
     /// same.
     voice_started: Arc<HashMap<String, u64>>,
+    /// Who the call's voice server says is connected, while in a call.
+    heard: Option<Heard>,
     /// The calls in DMs and group DMs, by channel id, with whom each rings.
     calls: HashMap<String, Vec<String>>,
     /// This account's roles, by server id.
@@ -235,6 +250,7 @@ impl Tracker {
             names,
             voice: HashMap::new(),
             voice_started: Arc::default(),
+            heard: None,
             calls: HashMap::new(),
             my_roles: HashMap::new(),
             unreads: Unreads::from_ready(ready),
@@ -281,6 +297,7 @@ impl Tracker {
             tracker.put_private(channel);
         }
         tracker.learn_members(&ready["guilds"], &ready["merged_members"]);
+        tracker.guild_voice_states(&Event::Ready, &ready["guilds"]);
         tracker
     }
 
@@ -407,14 +424,7 @@ impl Tracker {
                         self.presence(user, presence);
                     }
                 }
-                for guild in data["guilds"].as_array().into_iter().flatten() {
-                    let Some(id) = guild["id"].as_str() else {
-                        continue;
-                    };
-                    for state in guild["voice_states"].as_array().into_iter().flatten() {
-                        self.voice_state(id, state);
-                    }
-                }
+                self.guild_voice_states(event, &data["guilds"]);
                 self.learn_members(&data["guilds"], &data["merged_members"]);
                 true
             }
@@ -422,10 +432,10 @@ impl Tracker {
                 match data["guild_id"].as_str() {
                     Some(guild) => {
                         self.learn_member(guild, &data["member"]);
-                        self.voice_state(guild, data);
+                        self.voice_state(guild, data, event);
                     }
                     // In a DM or group DM call.
-                    None => self.voice_state(PRIVATE, data),
+                    None => self.voice_state(PRIVATE, data, event),
                 }
                 true
             }
@@ -443,7 +453,7 @@ impl Tracker {
                     .collect();
                 self.calls.insert(channel.to_owned(), ringing);
                 for state in data["voice_states"].as_array().into_iter().flatten() {
-                    self.voice_state(PRIVATE, state);
+                    self.voice_state(PRIVATE, state, event);
                 }
                 true
             }
@@ -452,8 +462,15 @@ impl Tracker {
                     return false;
                 };
                 self.calls.remove(channel);
+                let before = self.voice.len();
                 self.voice
                     .retain(|(guild, _), entry| guild != PRIVATE || entry.channel != channel);
+                tracing::debug!(
+                    target: VOICE_PRESENCE,
+                    channel,
+                    removed = before - self.voice.len(),
+                    "CALL_DELETE"
+                );
                 true
             }
             Event::GuildCreate => {
@@ -467,8 +484,17 @@ impl Tracker {
                     known.unavailable = true;
                     return true;
                 }
-                for state in data["voice_states"].as_array().into_iter().flatten() {
-                    self.voice_state(&server.id, state);
+                let states = data["voice_states"]
+                    .as_array()
+                    .map_or(&[][..], Vec::as_slice);
+                tracing::debug!(
+                    target: VOICE_PRESENCE,
+                    guild = server.id,
+                    states = states.len(),
+                    "GUILD_CREATE"
+                );
+                for state in states {
+                    self.voice_state(&server.id, state, event);
                 }
                 for member in data["members"].as_array().into_iter().flatten() {
                     self.learn_member(&server.id, member);
@@ -663,7 +689,14 @@ impl Tracker {
                 } else {
                     self.servers.retain(|server| server.id != id);
                 }
+                let before = self.voice.len();
                 self.voice.retain(|(guild, _), _| guild != id);
+                tracing::debug!(
+                    target: VOICE_PRESENCE,
+                    guild = id,
+                    removed = before - self.voice.len(),
+                    "GUILD_DELETE"
+                );
                 true
             }
             Event::ChannelCreate | Event::ChannelUpdate | Event::ChannelDelete
@@ -969,23 +1002,41 @@ impl Tracker {
                 for member in members.into_iter().flatten() {
                     self.learn_member(guild, member);
                 }
-                if *event == Event::PassiveUpdateV1 {
-                    self.voice.retain(|(server, _), _| server != guild);
-                }
                 let states = data["voice_states"]
                     .as_array()
-                    .or_else(|| data["updated_voice_states"].as_array());
-                for state in states.into_iter().flatten() {
-                    self.voice_state(guild, state);
-                }
-                for user in data["removed_voice_states"]
+                    .or_else(|| data["updated_voice_states"].as_array())
+                    .map_or(&[][..], Vec::as_slice);
+                let removed = data["removed_voice_states"]
                     .as_array()
-                    .into_iter()
-                    .flatten()
-                {
-                    if let Some(user) = user.as_str() {
-                        self.voice.remove(&(guild.to_owned(), user.to_owned()));
-                    }
+                    .map_or(&[][..], Vec::as_slice);
+                // V1 gives everyone in voice there: anyone else left.
+                let gone: Vec<String> = if *event == Event::PassiveUpdateV1 {
+                    let listed: HashSet<&str> = states
+                        .iter()
+                        .filter_map(|state| state["user_id"].as_str())
+                        .collect();
+                    self.voice
+                        .keys()
+                        .filter(|(server, user)| server == guild && !listed.contains(user.as_str()))
+                        .map(|(_, user)| user.clone())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                tracing::debug!(
+                    target: VOICE_PRESENCE,
+                    guild,
+                    updated = states.len(),
+                    removed = removed.len() + gone.len(),
+                    "{}",
+                    event.name()
+                );
+                for state in states {
+                    self.voice_state(guild, state, event);
+                }
+                let removed = removed.iter().filter_map(Value::as_str);
+                for user in gone.iter().map(String::as_str).chain(removed) {
+                    self.voice_left(guild, user, event);
                 }
                 true
             }
@@ -1107,7 +1158,29 @@ impl Tracker {
         self.session.is_some() && entry.session.is_some() && entry.session != self.session
     }
 
-    fn voice_state(&mut self, guild: &str, state: &Value) {
+    /// The voice states of each server of READY's or READY_SUPPLEMENTAL's
+    /// `guilds`.
+    fn guild_voice_states(&mut self, event: &Event, guilds: &Value) {
+        for guild in guilds.as_array().into_iter().flatten() {
+            let (Some(id), Some(states)) = (guild["id"].as_str(), guild["voice_states"].as_array())
+            else {
+                continue;
+            };
+            tracing::debug!(
+                target: VOICE_PRESENCE,
+                guild = id,
+                states = states.len(),
+                "{}",
+                event.name()
+            );
+            for state in states {
+                self.voice_state(id, state, event);
+            }
+        }
+    }
+
+    /// Applies a voice state `event` gave, logging who joined, moved or left.
+    fn voice_state(&mut self, guild: &str, state: &Value, event: &Event) {
         let Some(user) = state["user_id"].as_str() else {
             return;
         };
@@ -1115,6 +1188,30 @@ impl Tracker {
         match state["channel_id"].as_str() {
             Some(channel) => {
                 let flag = |name: &str| state[name].as_bool().unwrap_or(false);
+                let was = self.voice.get(&key).map(|entry| entry.channel.as_str());
+                // Only a voice state that comes as they join says when they
+                // did; READY and GUILD_CREATE list those already there.
+                let joined = if was == Some(channel) {
+                    self.voice.get(&key).and_then(|entry| entry.joined)
+                } else if matches!(event, Event::VoiceStateUpdate) {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|now| now.as_secs())
+                } else {
+                    None
+                };
+                if was != Some(channel) {
+                    tracing::debug!(
+                        target: VOICE_PRESENCE,
+                        guild,
+                        channel,
+                        user,
+                        from = event.name(),
+                        "{}",
+                        if was.is_some() { "moved" } else { "joined" }
+                    );
+                }
                 self.voice.insert(
                     key,
                     VoiceEntry {
@@ -1126,13 +1223,35 @@ impl Tracker {
                         server_deafened: flag("deaf"),
                         streaming: flag("self_stream"),
                         video: flag("self_video"),
+                        joined,
                     },
                 );
             }
-            None => {
-                self.voice.remove(&key);
-            }
+            None => self.voice_left(guild, user, event),
         }
+    }
+
+    fn voice_left(&mut self, guild: &str, user: &str, event: &Event) {
+        let left = self.voice.remove(&(guild.to_owned(), user.to_owned()));
+        tracing::debug!(
+            target: VOICE_PRESENCE,
+            guild,
+            channel = left.as_ref().map(|entry| entry.channel.as_str()),
+            user,
+            from = event.name(),
+            "{}",
+            if left.is_some() { "left" } else { "left, not known in voice" }
+        );
+    }
+
+    /// Who the voice server of this account's call says is connected, or
+    /// none once the call ends; returns whether it changed.
+    pub(super) fn hear(&mut self, heard: Option<Heard>) -> bool {
+        if self.heard == heard {
+            return false;
+        }
+        self.heard = heard;
+        true
     }
 
     fn learn_user(&self, user: &Value) {
@@ -1816,6 +1935,7 @@ impl Tracker {
             .into_iter()
             .flatten()
             .map(|user| VoiceMember {
+                joined: None,
                 user_id: user.clone(),
                 name: name(user).to_owned(),
                 avatar: names.avatar(None, user),
@@ -1974,7 +2094,39 @@ impl Tracker {
                     streaming: entry.streaming,
                     video: entry.video,
                     elsewhere: *user == self.me && self.elsewhere(entry),
+                    joined: entry.joined,
                 });
+        }
+        // Those connected to this account's call whom the gateway's voice
+        // states miss; once it reports them, its state stands.
+        if let Some(heard) = &self.heard {
+            let mut key = (heard.guild.clone(), String::new());
+            for user in &heard.users {
+                key.1.clear();
+                key.1.push_str(user);
+                if self.voice.contains_key(&key) {
+                    continue;
+                }
+                voice
+                    .entry(heard.channel.clone())
+                    .or_default()
+                    .push(VoiceMember {
+                        joined: None,
+                        user_id: user.clone(),
+                        name: names
+                            .name(&heard.guild, user)
+                            .unwrap_or("Discord user")
+                            .to_owned(),
+                        avatar: names.avatar(server(&heard.guild), user),
+                        muted: false,
+                        deafened: false,
+                        server_muted: false,
+                        server_deafened: false,
+                        streaming: false,
+                        video: false,
+                        elsewhere: false,
+                    });
+            }
         }
         for members in voice.values_mut() {
             members.sort_by(|a, b| {
@@ -2103,6 +2255,134 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// The voice server says who is in the call where the gateway's voice
+    /// states miss them; the gateway's state, once it comes, stands.
+    #[test]
+    fn lists_those_the_voice_server_says_are_in_the_call() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "users": [{"id": "2", "username": "ann", "global_name": "Ann", "avatar": "abc"}],
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "channels": [
+                {"id": "11", "name": "Lounge", "type": 2, "position": 0},
+            ]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "1", "channel_id": "11"}),
+        );
+        let heard = |users: &[&str]| {
+            Some(Heard {
+                guild: "10".into(),
+                channel: "11".into(),
+                users: users.iter().map(|user| (*user).to_owned()).collect(),
+            })
+        };
+        assert!(tracker.hear(heard(&["1", "2", "3"])));
+        assert!(!tracker.hear(heard(&["1", "2", "3"])), "nothing changed");
+        let in_lounge = |tracker: &mut Tracker| {
+            tracker.snapshot().voice["11"]
+                .iter()
+                .map(|member| (member.user_id.clone(), member.name.clone(), member.muted))
+                .collect::<Vec<_>>()
+        };
+        // Ann by the name Yapfast knows; someone unknown as Discord user.
+        assert_eq!(
+            in_lounge(&mut tracker),
+            [
+                ("2".into(), "Ann".into(), false),
+                ("3".into(), "Discord user".into(), false),
+                ("1".into(), "me".into(), false),
+            ]
+        );
+        // The gateway reports Ann muted: hers is the state shown, once.
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "2", "channel_id": "11", "self_mute": true}),
+        );
+        let lounge = in_lounge(&mut tracker);
+        assert_eq!(lounge.len(), 3);
+        assert!(lounge.contains(&("2".into(), "Ann".into(), true)));
+        // The voice server says someone left (op 13), and then the call ends.
+        tracker.hear(heard(&["1", "2"]));
+        assert!(!in_lounge(&mut tracker).iter().any(|(user, ..)| user == "3"));
+        tracker.hear(None);
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "1", "channel_id": null}),
+        );
+        assert_eq!(in_lounge(&mut tracker), [("2".into(), "Ann".into(), true)]);
+    }
+
+    /// A voice state that comes as someone joins says when they did; one
+    /// listing those already there doesn't, and a change in place keeps it.
+    #[test]
+    fn knows_when_someone_joined_voice_only_as_it_happens() {
+        let mut tracker = Tracker::from_ready("1".into(), &json!({}), Default::default());
+        let joined = |tracker: &mut Tracker, user: &str| {
+            tracker
+                .snapshot()
+                .voice
+                .values()
+                .flatten()
+                .find(|member| member.user_id == user)
+                .map(|member| member.joined)
+        };
+        tracker.apply(
+            &Event::PassiveUpdateV1,
+            &json!({"guild_id": "10", "voice_states": [{"user_id": "2", "channel_id": "11"}]}),
+        );
+        assert_eq!(joined(&mut tracker, "2"), Some(None));
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "3", "channel_id": "11"}),
+        );
+        let at = joined(&mut tracker, "3")
+            .flatten()
+            .expect("when they joined");
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "3", "channel_id": "11", "self_mute": true}),
+        );
+        assert_eq!(joined(&mut tracker, "3"), Some(Some(at)), "muting keeps it");
+    }
+
+    /// PASSIVE_UPDATE_V1 lists everyone in voice in a server; V2 says who
+    /// changed and who left.
+    #[test]
+    fn follows_passive_updates() {
+        let mut tracker = Tracker::from_ready("1".into(), &json!({}), Default::default());
+        let users = |tracker: &mut Tracker| {
+            let mut users: Vec<_> = tracker
+                .snapshot()
+                .voice
+                .values()
+                .flatten()
+                .map(|member| member.user_id.clone())
+                .collect();
+            users.sort();
+            users
+        };
+        tracker.apply(
+            &Event::PassiveUpdateV1,
+            &json!({"guild_id": "10", "voice_states": [
+                {"user_id": "2", "channel_id": "11"}, {"user_id": "3", "channel_id": "11"},
+            ]}),
+        );
+        assert_eq!(users(&mut tracker), ["2", "3"]);
+        tracker.apply(
+            &Event::PassiveUpdateV1,
+            &json!({"guild_id": "10", "voice_states": [{"user_id": "3", "channel_id": "11"}]}),
+        );
+        assert_eq!(users(&mut tracker), ["3"]);
+        tracker.apply(
+            &Event::PassiveUpdateV2,
+            &json!({"guild_id": "10", "updated_voice_states": [{"user_id": "4", "channel_id": "11"}],
+                "removed_voice_states": ["3"]}),
+        );
+        assert_eq!(users(&mut tracker), ["4"]);
+    }
 
     #[test]
     fn tracks_voice_channels_and_names() {

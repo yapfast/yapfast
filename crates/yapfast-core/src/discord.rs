@@ -273,6 +273,7 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        joined: member.joined,
     }
 }
 
@@ -2546,6 +2547,7 @@ mod tests {
             })
         };
         let ann = yapfast_discord::service::VoiceMember {
+            joined: None,
             user_id: "2".into(),
             name: "Ann".into(),
             avatar: "ann.png".into(),
@@ -2714,6 +2716,7 @@ mod tests {
         call.voice.insert(
             "20".into(),
             vec![VoiceMember {
+                joined: None,
                 user_id: "2".into(),
                 name: "Ann".into(),
                 avatar: String::new(),
@@ -2808,6 +2811,7 @@ mod tests {
             ..Default::default()
         };
         let ann = yapfast_discord::service::VoiceMember {
+            joined: None,
             user_id: "2".into(),
             name: "Ann".into(),
             avatar: String::new(),
@@ -2892,6 +2896,7 @@ mod tests {
             voice: [(
                 "11".to_owned(),
                 vec![yapfast_discord::service::VoiceMember {
+                    joined: None,
                     user_id: "2".into(),
                     name: "Ann".into(),
                     avatar: "ann.png".into(),

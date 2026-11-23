@@ -71,12 +71,46 @@ const LOG_FILE_SIZE: u64 = 4 << 20;
 // Dependency debug logs can contain tokens or message content. Keep them off.
 // `YAPFAST_LOG=debug` shows Yapfast's own, such as what Go Live's servers say.
 fn filter() -> Targets {
-    let level = if std::env::var("YAPFAST_LOG").is_ok_and(|level| level == "debug") {
+    targets(&std::env::var("YAPFAST_LOG").unwrap_or_default())
+}
+
+/// Yapfast's own logs at info, or debug with `debug`; or debug for only
+/// those of Yapfast's targets `setting` names, separated by commas, such as
+/// `yapfast_discord::voice_presence`.
+fn targets(setting: &str) -> Targets {
+    let level = if setting == "debug" {
         LevelFilter::DEBUG
     } else {
         LevelFilter::INFO
     };
-    Targets::new()
-        .with_target("yapfast", level)
-        .with_target("yapfast_core", level)
+    setting
+        .split(',')
+        .map(str::trim)
+        .filter(|target| target.starts_with("yapfast"))
+        .fold(
+            Targets::new()
+                .with_target("yapfast", level)
+                .with_target("yapfast_core", level),
+            |targets, target| targets.with_target(target, LevelFilter::DEBUG),
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use tracing::Level;
+
+    use super::targets;
+
+    #[test]
+    fn debug_for_only_the_targets_named() {
+        // Off unless asked for: the default writes none of them.
+        assert!(!targets("").would_enable("yapfast_discord::voice_presence", &Level::DEBUG));
+        let voice = targets("yapfast_discord::voice_presence");
+        assert!(voice.would_enable("yapfast_discord::voice_presence", &Level::DEBUG));
+        assert!(!voice.would_enable("yapfast_discord::gateway", &Level::DEBUG));
+        assert!(voice.would_enable("yapfast_discord::gateway", &Level::INFO));
+        // Never a dependency's.
+        assert!(!targets("hyper").would_enable("hyper", &Level::DEBUG));
+        assert!(targets("debug").would_enable("yapfast_discord::gateway", &Level::DEBUG));
+    }
 }

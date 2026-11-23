@@ -574,7 +574,9 @@ The window follows Discord's arrangement:
   DMs show the person's avatar. Participants of the call you are in appear under
   its voice channel, with a green ring while they speak and a muted icon; for
   Discord, who is in every other voice channel shows too, with a LIVE tag for a
-  screen share and a camera icon. You, in a channel on another client such as
+  screen share and a camera icon; in the channel of your call, so does anyone its
+  voice server says is connected whom the gateway hasn't reported (see
+  [Who is in voice](discord/voice.md#who-is-in-voice-and-where-they-went-missing)). You, in a channel on another client such as
   your phone, show dimmed until hovered, without icons, and the tooltip says
   "Connected on another client". Every row takes the hover tone, and clicking
   someone opens their profile card beside the row, as Discord's popout does;

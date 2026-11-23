@@ -57,6 +57,9 @@ pub(super) struct Shared {
     /// kept through reconnecting.
     pub(super) viewing: Option<(String, String)>,
     pub(super) beside: Option<(String, String)>,
+    /// Who the voice server says is in this account's call, which outlasts
+    /// a new gateway session's voice states.
+    pub(super) heard: Option<super::tracker::Heard>,
 }
 
 pub(super) async fn run(
@@ -187,6 +190,7 @@ fn refuse(request: Request, shared: &mut Shared) {
         Request::Beside { guild, thread } => {
             shared.beside = thread.map(|thread| (guild, thread));
         }
+        Request::Heard(heard) => shared.heard = heard,
         // The next session shows it once it connects.
         Request::Inactive(since, show_idle) => {
             shared.inactive = since.map(|since| (since, show_idle));
@@ -245,6 +249,7 @@ async fn connected_session(
         tracker.view(guild, Some(channel));
     }
     tracker.beside(shared.beside.as_ref().map(|(_, thread)| thread.as_str()));
+    tracker.hear(shared.heard.clone());
     shared.snapshots.send_replace(Arc::new(tracker.snapshot()));
     // Discord's client counts every command index out of date in a new
     // session.
@@ -448,6 +453,13 @@ impl Session<'_> {
                     self.shared.viewing = Some((guild, id));
                 }
                 self.publisher.changed();
+                Ok(())
+            }
+            Request::Heard(heard) => {
+                self.shared.heard.clone_from(&heard);
+                if self.tracker.hear(heard) {
+                    self.publisher.changed();
+                }
                 Ok(())
             }
             Request::Beside { guild, thread } => {
@@ -996,6 +1008,7 @@ mod tests {
             inactive: None,
             viewing: None,
             beside: None,
+            heard: None,
         };
         let (requests, mut received) = mpsc::unbounded_channel();
         let session = tokio::spawn(async move {

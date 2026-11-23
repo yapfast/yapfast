@@ -27,6 +27,10 @@ use crate::{
     voice_connection::{Identity, lock},
 };
 
+/// The log target of who is in voice, as the gateway and a call's voice
+/// server say: `YAPFAST_LOG=yapfast_discord::voice_presence` shows it.
+pub const VOICE_PRESENCE: &str = "yapfast_discord::voice_presence";
+
 /// How long a call whose voice connection Discord ended waits for Discord
 /// to say where it moved the call, before the call ends.
 pub const MOVE_GRACE: Duration = Duration::from_secs(5);
@@ -115,6 +119,43 @@ impl Surplus {
     }
 }
 
+/// Who a call's voice server says is connected to it, by Discord user id,
+/// this account too: those it named with op 11 and those whose speaking (5)
+/// or video (12) it relayed, until op 13 says they left.
+#[derive(Default)]
+pub struct Connected(Mutex<(u64, Vec<u64>)>);
+
+impl Connected {
+    /// How many times who is connected changed, and who is, in id order.
+    pub fn read(&self) -> (u64, Vec<u64>) {
+        lock(&self.0).clone()
+    }
+
+    /// How many times who is connected changed, without copying them.
+    pub fn changes(&self) -> u64 {
+        lock(&self.0).0
+    }
+
+    pub(crate) fn set(&self, users: &std::collections::HashSet<u64>) {
+        let mut connected = lock(&self.0);
+        let (changes, known) = &mut *connected;
+        if known.len() == users.len() && known.iter().all(|user| users.contains(user)) {
+            return;
+        }
+        known.clear();
+        known.extend(users);
+        known.sort_unstable();
+        *changes += 1;
+    }
+
+    /// A new connection: nobody is known connected until it says.
+    pub(crate) fn reset(&self) {
+        let mut connected = lock(&self.0);
+        connected.1.clear();
+        connected.0 += 1;
+    }
+}
+
 pub struct Call {
     orders: mpsc::UnboundedSender<Order>,
     /// The microphone, once it plays.
@@ -124,6 +165,7 @@ pub struct Call {
     /// Everyone else's camera frames, until taken.
     video: Option<channel::Receiver<VideoFrame>>,
     stats: Arc<CallStats>,
+    connected: Arc<Connected>,
 }
 
 /// Cameras' frames waiting to be decoded; beyond this many, decoding is
@@ -149,10 +191,17 @@ impl Call {
         let identity = identity(server, server_id, channel_id)?;
         let (frames, video) = channel::sync_channel(VIDEO_BACKLOG);
         let stats = Arc::new(CallStats::default());
-        let (orders, connected) =
-            call_connection::start(identity, listener, sending.clone(), frames, stats.clone())?;
+        let connected = Arc::new(Connected::default());
+        let (orders, started) = call_connection::start(
+            identity,
+            listener,
+            sending.clone(),
+            frames,
+            stats.clone(),
+            connected.clone(),
+        )?;
         // Errors say the step that failed; the caller says it was joining.
-        connected
+        started
             .await
             .context("the call stopped while connecting")??;
         Ok(Self {
@@ -161,6 +210,7 @@ impl Call {
             server_id: server_id.to_owned(),
             video: Some(video),
             stats,
+            connected,
         })
     }
 
@@ -213,6 +263,12 @@ impl Call {
     /// How the call's connection is doing, as the call measures it.
     pub fn stats(&self) -> Arc<CallStats> {
         self.stats.clone()
+    }
+
+    /// Who the voice server says is connected to the call, this account
+    /// too, as it changes.
+    pub fn connected(&self) -> Arc<Connected> {
+        self.connected.clone()
     }
 
     /// Everyone else's camera frames, as they come, for one taker.
@@ -333,6 +389,19 @@ mod tests {
         let buffer = lock(&input.buffer);
         assert_eq!(buffer.len(), MICROPHONE_BACKLOG);
         assert_eq!(buffer.back(), Some(&1.0));
+    }
+
+    #[test]
+    fn counts_changes_in_who_is_connected() {
+        let connected = Connected::default();
+        connected.set(&[3, 1, 2].into());
+        assert_eq!(connected.read(), (1, vec![1, 2, 3]));
+        connected.set(&[2, 3, 1].into());
+        assert_eq!(connected.changes(), 1, "the same people");
+        connected.set(&[1, 2].into());
+        assert_eq!(connected.read(), (2, vec![1, 2]));
+        connected.reset();
+        assert_eq!(connected.read(), (3, vec![]));
     }
 
     #[test]
