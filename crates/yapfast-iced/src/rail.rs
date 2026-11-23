@@ -142,6 +142,8 @@ const ABOVE: f32 = (GAP + INSERTION_LINE) / 2.0;
 const BELOW: f32 = 4.0;
 const LIST_TOP: f32 = TILE + 2.0 * GAP + 1.0;
 const DROP_EDGE: f32 = 6.0;
+/// How opaque the dragged tile's face is.
+const DRAGGED: f32 = 0.5;
 /// Discord's colour for a folder that wasn't given one.
 const FOLDER_COLOR: u32 = 0x5865f2;
 /// The pill at the rail's edge: open, pointed at, unread.
@@ -626,7 +628,9 @@ impl Rail {
     fn destination(&self, above: f32) -> Option<Destination<'_>> {
         let drag = self.dragging.as_ref()?;
         let y = drag.at.y - above - LIST_TOP;
-        if !(0.0..WIDTH).contains(&drag.at.x) || !(0.0..self.scroll.height).contains(&y) {
+        // The gap above the first tile is its, as each gap is the tile's
+        // below it, so a server can go first.
+        if !(0.0..WIDTH).contains(&drag.at.x) || !(-GAP / 2.0..self.scroll.height).contains(&y) {
             return None;
         }
         let y = y + self.scroll.offset;
@@ -670,7 +674,11 @@ impl Rail {
             if item.id == drag.server {
                 return None;
             }
-            let before = if local < DROP_EDGE {
+            let before = if matches!(item.kind, Kind::Nested { .. }) {
+                // As Discord's, a server joins a folder only from the rail's
+                // top level: one inside a folder takes a drop above or below.
+                Some(local < side / 2.0)
+            } else if local < DROP_EDGE {
                 Some(true)
             } else if local >= side - DROP_EDGE
                 && !matches!(item.kind, Kind::Folder { open: true, .. })
@@ -694,13 +702,15 @@ pub fn drag_face<'a>(rail: &'a Rail, cx: crate::ctx::Ctx<'a>) -> Option<Element<
     let drag = rail.dragging.as_ref()?;
     let item = rail.items.iter().find(|item| item.id == drag.server)?;
     let view = View { s: rail, cx };
+    // Half seen through, as the drag image Discord's client shows, so the
+    // line or outline under the pointer stays in sight.
     let face = match &item.kind {
         Kind::Folder {
             open,
             tint,
             preview,
-        } => view.folder_face(*open, *tint, preview, true),
-        _ => view.server_face(item, true),
+        } => view.folder_face(*open, *tint, preview, true, DRAGGED),
+        _ => view.server_face_at(item, true, DRAGGED),
     };
     Some(controls::placed(
         face,
@@ -1796,12 +1806,17 @@ impl<'a> View<'a> {
     /// A server's or a DM's face: its picture, else its initials on the
     /// raised ground (the accent while lit); faded while out of reach.
     fn server_face(self, item: &RailItem, lit: bool) -> Element<'a, Message> {
+        self.server_face_at(item, lit, 1.0)
+    }
+
+    /// [`Self::server_face`] at `opacity`, as the dragged tile shows.
+    fn server_face_at(self, item: &RailItem, lit: bool, opacity: f32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let (width, height) = self.tile_size();
         let radius = self.tile_radius();
         let picture_width = width.round() as u32;
         let picture_height = height.round() as u32;
-        let opacity = if item.unavailable { 0.5 } else { 1.0 };
+        let opacity = if item.unavailable { 0.5 } else { 1.0 } * opacity;
         // A gel theme's server tiles are glossy gel buttons (as
         // asked): its own bubble's gel when selected, the other's else,
         // brightened under the pointer.
@@ -1929,6 +1944,7 @@ impl<'a> View<'a> {
         tint: u32,
         preview: &[(String, Option<String>)],
         pointed: bool,
+        opacity: f32,
     ) -> Element<'a, Message> {
         let tint = hex(tint);
         let theme = self.cx.look.theme;
@@ -1938,7 +1954,7 @@ impl<'a> View<'a> {
             return self
                 .cx
                 .look
-                .glyph(Icon::Folder, 24, tint)
+                .glyph(Icon::Folder, 24, crate::style::faded(tint, opacity))
                 .boxed(Length::Fill)
                 .width(width)
                 .height(height)
@@ -1951,7 +1967,7 @@ impl<'a> View<'a> {
         let step = small + 2.0;
         let start_x = (width - (small * 2.0 + 2.0)) / 2.0;
         let start_y = (height - (small * 2.0 + 2.0)) / 2.0;
-        let raised = self.cx.look.theme.raised;
+        let raised = crate::style::faded(self.cx.look.theme.raised, opacity);
         let mut faces = stack![].width(FOLDER).height(FOLDER);
         for (index, (initial, icon)) in preview.iter().take(4).enumerate() {
             // Each one's outer corner is round, as the folder's.
@@ -1961,12 +1977,15 @@ impl<'a> View<'a> {
                 .as_deref()
                 .and_then(|url| self.cx.picture(url, small as u32, small as u32, true))
             {
-                Some(picture) => Pic::square(picture, small).radius_each(radius).into(),
+                Some(picture) => Pic::square(picture, small)
+                    .radius_each(radius)
+                    .opacity(opacity)
+                    .into(),
                 None => container(
                     text(initial.clone())
                         .size(8)
                         .font(BOLD)
-                        .color(self.cx.look.theme.text),
+                        .color(crate::style::faded(self.cx.look.theme.text, opacity)),
                 )
                 .center(small)
                 .style(move |_| rounded(raised, corners(radius)))
@@ -1979,7 +1998,7 @@ impl<'a> View<'a> {
             faces = faces.push(controls::placed(face, x, y));
         }
         let ground = Color {
-            a: if pointed { 0.55 } else { 0.4 },
+            a: if pointed { 0.55 } else { 0.4 } * opacity,
             ..tint
         };
         container(faces)
@@ -2052,7 +2071,7 @@ impl<'a> View<'a> {
                 tint,
                 preview,
             } => (
-                self.folder_face(*open, *tint, preview, pointed),
+                self.folder_face(*open, *tint, preview, pointed, 1.0),
                 (folder_width, folder_height),
                 Message::Rail(Event::Folder(item.id.clone())),
             ),
@@ -2198,7 +2217,20 @@ impl<'a> View<'a> {
                 Some(before) => controls::placed(
                     bar(live, TILE, INSERTION_LINE),
                     (rail_width - TILE) / 2.0,
-                    if before { 0.0 } else { height },
+                    // The first row's gap lies above the list, which cuts
+                    // it off: its line runs along the tile's top instead.
+                    // (The divider before it is 0 px tall with no unread DMs.)
+                    if !before {
+                        height
+                    } else if self.s.items[..index]
+                        .iter()
+                        .enumerate()
+                        .all(|(i, item)| item.height(i, tiles) == 0.0)
+                    {
+                        ABOVE
+                    } else {
+                        0.0
+                    },
                 ),
                 None => controls::placed(
                     container(Space::new())
@@ -2757,5 +2789,89 @@ impl<'a> View<'a> {
             ));
         }
         layers.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(id: String, kind: Kind) -> RailItem {
+        RailItem {
+            id,
+            name: String::new(),
+            icon: None,
+            kind,
+            selected: false,
+            unread: false,
+            badge: String::new(),
+            call: false,
+            media: None,
+            busy: Busy::default(),
+            unavailable: false,
+        }
+    }
+
+    /// A server, an open folder of two and a last server, with `dragged`
+    /// held at `y` in the window.
+    fn drop_at(dragged: &str, y: f32) -> Option<(String, Option<bool>)> {
+        let tint = FOLDER_COLOR;
+        let mut rail = Rail::new(600.0);
+        rail.items = vec![
+            item(discord::server_id("1"), Kind::Server),
+            item(
+                "discord-folder:9".into(),
+                Kind::Folder {
+                    open: true,
+                    tint,
+                    preview: Vec::new(),
+                },
+            ),
+            item(discord::server_id("2"), Kind::Nested { tint, last: false }),
+            item(discord::server_id("3"), Kind::Nested { tint, last: true }),
+            item(discord::server_id("4"), Kind::Server),
+        ];
+        rail.dragging = Some(Drag {
+            server: dragged.into(),
+            at: iced::Point::new(36.0, y),
+            grab: iced::Point::ORIGIN,
+        });
+        rail.destination(0.0)
+            .map(|drop| (drop.target.to_owned(), drop.before))
+    }
+
+    #[test]
+    fn a_server_inside_a_folder_takes_a_drop_above_or_below_not_a_new_member() {
+        let dragged = discord::server_id("4");
+        let nested = discord::server_id("2");
+        // The open folder's header row is FOLDER + 4 px tall, after the
+        // first server's row.
+        let top = LIST_TOP + (TILE + GAP) + (FOLDER + 4.0);
+        assert_eq!(
+            drop_at(&dragged, top + 2.0),
+            Some((nested.clone(), Some(true)))
+        );
+        assert_eq!(
+            drop_at(&dragged, top + 15.0),
+            Some((nested.clone(), Some(true)))
+        );
+        assert_eq!(drop_at(&dragged, top + 25.0), Some((nested, Some(false))));
+        // A server on the top level still makes a folder from its middle.
+        let first = discord::server_id("1");
+        assert_eq!(drop_at(&dragged, LIST_TOP + 20.0), Some((first, None)));
+    }
+
+    #[test]
+    fn the_gap_above_the_first_server_takes_a_drop() {
+        let first = discord::server_id("1");
+        assert_eq!(
+            drop_at(&discord::server_id("4"), LIST_TOP - 2.0),
+            Some((first.clone(), Some(true)))
+        );
+        assert_eq!(
+            drop_at("discord-folder:9", LIST_TOP - 2.0),
+            Some((first, Some(true)))
+        );
+        assert_eq!(drop_at(&discord::server_id("4"), LIST_TOP - GAP), None);
     }
 }
