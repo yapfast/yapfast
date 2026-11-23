@@ -355,7 +355,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   which stay as they were; one message is edited at a time. Saving text that
   is empty asks whether to delete the message, as Delete does, unless the
   message has files, and saving text that changed nothing just closes the
-  field. The thread beside the channel edits its messages the same way.
+  field. Saving turns the `@Name` of anyone the message mentioned back into
+  their mention, even someone no longer suggested (a name two of them share
+  stays text). The thread beside the channel edits its messages the same way.
   Starting an edit, from the message's Edit button, its menu, E, or Up in an empty
   composer, gives the field the keys and scrolls the row into view, and keeps
   it there as the field grows.
