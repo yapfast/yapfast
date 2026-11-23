@@ -142,3 +142,49 @@ fn a_card_at_the_pointer_opens_below_it_while_it_fits() {
     let card = ui.find("card").expect("the card");
     assert_eq!(card.visible_bounds().expect("shown").y, 90.0);
 }
+
+/// Discord's outline on a sidebar sharing a rounded pane's right side
+/// (a glass gap): its top and left edges, the top one bending round the
+/// pane's corner, and no line down the right.
+#[test]
+fn the_sidebar_outline_draws_no_right_edge_in_a_rounded_pane() {
+    super::install_fonts();
+    let red = Color::from_rgb(1.0, 0.0, 0.0);
+    let sidebar = crate::theme_art::top_left_edges(
+        iced::widget::Space::new()
+            .width(iced::Length::Fill)
+            .height(iced::Length::Fill)
+            .into(),
+        red,
+        1.0,
+        12.0,
+    );
+    let navigation: Element<'_, Message> = iced::widget::row![
+        iced::widget::Space::new()
+            .width(50)
+            .height(iced::Length::Fill),
+        sidebar
+    ]
+    .width(250)
+    .height(300)
+    .into();
+    let pane: Element<'_, Message> =
+        crate::widgets::Wrap::new(navigation, crate::widgets::Pane { radius: 16.0 }).into();
+    let mut ui = Simulator::with_size(Settings::default(), Size::new(250.0, 300.0), pane);
+    let (width, _, rgba) = super::drawn(&mut ui);
+    // Drawn at twice the size: any red in the pixels round the point.
+    let height = rgba.len() / 4 / width as usize;
+    let reddish = |x: f32, y: f32| {
+        let (x, y) = ((x * 2.0) as usize, (y * 2.0) as usize);
+        (y.saturating_sub(2)..(y + 3).min(height)).any(|row| {
+            (x.saturating_sub(2)..(x + 3).min(width as usize)).any(|column| {
+                let at = (row * width as usize + column) * 4;
+                rgba[at] > 128 && rgba[at + 1] < 100
+            })
+        })
+    };
+    assert!(reddish(150.0, 0.0), "the top edge");
+    assert!(reddish(50.0, 150.0), "the left edge");
+    assert!(!reddish(249.0, 150.0), "no right edge");
+    assert!(!reddish(150.0, 299.0), "no bottom edge");
+}

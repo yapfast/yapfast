@@ -2,7 +2,7 @@
 //! them: each at a size and colour drawn once and kept until the window
 //! goes or the theme changes.
 
-use std::{cell::RefCell, collections::HashMap};
+use std::{borrow::Cow, cell::RefCell, collections::HashMap, sync::Arc};
 
 use iced::advanced::image::Handle;
 
@@ -13,6 +13,24 @@ use crate::canvas::{self, handle};
 #[derive(Default)]
 pub struct Icons {
     drawn: RefCell<HashMap<Drawn, Handle>>,
+    replacements: HashMap<String, Replacement>,
+}
+
+/// A checked installed-theme SVG and how it is coloured.
+#[derive(Clone)]
+pub struct Replacement {
+    pub svg: Arc<str>,
+    pub colour: ReplacementColour,
+}
+
+#[derive(Clone, Copy)]
+pub enum ReplacementColour {
+    /// The colour the call site gives the stock icon.
+    Tint,
+    /// The SVG's own colours.
+    Keep,
+    /// One resolved theme colour.
+    Colour(u32),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,12 +39,34 @@ enum Drawn {
     Coloured(Icon, u32, u32),
     /// In its own colours, such as the verified badge's green and white.
     Own(Icon, u32),
+    /// In one colour even when the pack keeps a replacement's own.
+    Tinted(Icon, u32, u32),
 }
 
 impl Icons {
+    pub fn new(replacements: HashMap<String, Replacement>) -> Self {
+        Self {
+            drawn: RefCell::default(),
+            replacements,
+        }
+    }
+
+    /// Replaces the active package's icon pack and lets go of every raster
+    /// made from the one before it.
+    pub fn replace(&mut self, replacements: HashMap<String, Replacement>) {
+        self.replacements = replacements;
+        self.forget();
+    }
+
     /// `icon` at `size` in `rgb`, drawn once.
     pub fn coloured(&self, icon: Icon, size: u32, rgb: u32) -> Handle {
         self.get(Drawn::Coloured(icon, size, rgb))
+    }
+
+    /// `icon` at `size` in `rgb` even where the pack keeps its own
+    /// colours, as a theme list's own icon colours take Slint's pack icons.
+    pub fn tinted(&self, icon: Icon, size: u32, rgb: u32) -> Handle {
+        self.get(Drawn::Tinted(icon, size, rgb))
     }
 
     /// `icon` at `size` in its own colours, drawn once.
@@ -38,9 +78,33 @@ impl Icons {
         if let Some(handle) = self.drawn.borrow().get(&drawn) {
             return handle.clone();
         }
-        let canvas = match drawn {
-            Drawn::Coloured(icon, size, rgb) => canvas::svg_icon(icon.svg(), size, rgb),
-            Drawn::Own(icon, size) => canvas::svg_drawn(icon.svg(), size),
+        let replacement = drawn
+            .icon()
+            .name()
+            .and_then(|name| self.replacements.get(name.as_ref()));
+        let canvas = match (drawn, replacement) {
+            (Drawn::Coloured(_, size, rgb), Some(replacement)) => match replacement.colour {
+                ReplacementColour::Tint => canvas::svg_icon(&replacement.svg, size, rgb),
+                ReplacementColour::Keep => canvas::svg_drawn(&replacement.svg, size),
+                ReplacementColour::Colour(colour) => {
+                    canvas::svg_icon(&replacement.svg, size, colour)
+                }
+            },
+            (Drawn::Own(_, size), Some(replacement)) => match replacement.colour {
+                ReplacementColour::Keep | ReplacementColour::Tint => {
+                    canvas::svg_drawn(&replacement.svg, size)
+                }
+                ReplacementColour::Colour(colour) => {
+                    canvas::svg_icon(&replacement.svg, size, colour)
+                }
+            },
+            (Drawn::Tinted(_, size, rgb), Some(replacement)) => {
+                canvas::svg_icon(&replacement.svg, size, rgb)
+            }
+            (Drawn::Coloured(icon, size, rgb) | Drawn::Tinted(icon, size, rgb), None) => {
+                canvas::svg_icon(icon.svg(), size, rgb)
+            }
+            (Drawn::Own(icon, size), None) => canvas::svg_drawn(icon.svg(), size),
         };
         let handle = handle(canvas);
         self.drawn.borrow_mut().insert(drawn, handle.clone());
@@ -55,6 +119,14 @@ impl Icons {
     /// Whether it holds no icon: the window let them go.
     pub fn is_empty(&self) -> bool {
         self.drawn.borrow().is_empty()
+    }
+}
+
+impl Drawn {
+    fn icon(self) -> Icon {
+        match self {
+            Self::Coloured(icon, ..) | Self::Own(icon, ..) | Self::Tinted(icon, ..) => icon,
+        }
     }
 }
 
@@ -242,6 +314,44 @@ pub enum Icon {
 }
 
 impl Icon {
+    /// The public theme-icon name for this glyph. The two kit-only drawings
+    /// have no package replacement.
+    fn name(self) -> Option<Cow<'static, str>> {
+        let special = match self {
+            Self::PlayMark => "play",
+            Self::Volume => "volume-2",
+            Self::VolumeOff => "volume-x",
+            Self::Link => "external-link",
+            Self::Chain => "link",
+            Self::Paste => "clipboard-paste",
+            Self::Plus => "circle-plus",
+            Self::Add => "plus",
+            Self::Trash => "trash-2",
+            Self::Speaker => "volume-2-bold",
+            Self::Voice => "volume-2",
+            Self::VoiceLock => "volume-2-lock",
+            Self::VoiceWarning => "volume-2-warning",
+            Self::Forum | Self::ForumPost => "message-square-text",
+            Self::ForumLock => "message-square-text-lock",
+            Self::ForumWarning => "message-square-text-warning",
+            Self::Announcement => "megaphone",
+            Self::AnnouncementLock => "megaphone-lock",
+            Self::AnnouncementWarning => "megaphone-warning",
+            Self::Media => "image",
+            Self::MediaLock => "image-lock",
+            Self::MediaWarning => "image-warning",
+            Self::Dm => "message-circle",
+            Self::Help => "help-circle",
+            Self::Id => "id-filled",
+            Self::Refresh => "refresh-cw",
+            Self::Send => "send-horizontal",
+            Self::GitHub => "github",
+            Self::ChevronUp | Self::ReplySpine => return None,
+            _ => return Some(Cow::Owned(kebab(&format!("{self:?}")))),
+        };
+        Some(Cow::Borrowed(special))
+    }
+
     fn svg(self) -> &'static str {
         macro_rules! icon {
             ($file:literal) => {
@@ -435,4 +545,15 @@ impl Icon {
             _ => return None,
         })
     }
+}
+
+fn kebab(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    for (index, letter) in name.chars().enumerate() {
+        if index > 0 && letter.is_ascii_uppercase() {
+            out.push('-');
+        }
+        out.push(letter.to_ascii_lowercase());
+    }
+    out
 }
