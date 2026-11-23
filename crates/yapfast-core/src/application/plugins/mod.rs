@@ -1180,6 +1180,7 @@ pub(crate) fn message_view(
         // As Discord wrote it, its mentions still as `<@id>`: a plugin that
         // wants names calls `people.get`, rather than guessing at Markdown.
         body: message.content.clone(),
+        body_raw: message.content.clone(),
         at: message.timestamp() * 1000,
         edited: message.edited,
         deleted: false,

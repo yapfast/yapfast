@@ -741,6 +741,11 @@ pub struct MessageView {
     pub room: String,
     pub author: PersonView,
     pub body: String,
+    /// The body as Discord holds it: a mention is `<@id>`, `<@&role>` or
+    /// `<#channel>` where `body` reads the name the timeline shows. A Matrix
+    /// message's is its `body`.
+    #[serde(default)]
+    pub body_raw: String,
     /// Milliseconds since the Unix epoch.
     pub at: u64,
     #[serde(default)]

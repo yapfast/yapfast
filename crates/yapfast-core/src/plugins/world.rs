@@ -667,6 +667,7 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
             avatar: web_avatar(message.avatar.as_deref()),
         },
         body: message.body.clone(),
+        body_raw: raw_body(message, room),
         at: message.timestamp * 1000,
         edited: message.edited,
         deleted: message.deleted,
@@ -688,6 +689,49 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
         webhook: message.webhook,
         stickers: chat_stickers(message),
     }
+}
+
+/// A timeline message's body as Discord holds it: each mention the timeline
+/// shows by name (`@Bob`, `@Mods`, `#general`) put back as `<@id>`,
+/// `<@&role>` or `<#channel>`, where the body says that name at the places
+/// its mention notes. `@everyone` and `@here` read the same either way, and a
+/// Matrix room's body is what it is.
+pub fn raw_body(message: &ChatMessage, room: &str) -> String {
+    use crate::mention::Target;
+    if crate::discord::parse_room(room).is_none() || message.mentions.is_empty() {
+        return message.body.clone();
+    }
+    let mut spans: Vec<(usize, usize, String)> = Vec::new();
+    for mention in &message.mentions {
+        let token = match &mention.target {
+            Target::User(id) => format!("<@{id}>"),
+            Target::Role(id) => format!("<@&{id}>"),
+            Target::Channel(room) => match crate::discord::parse_room(room) {
+                Some((_, channel)) => format!("<#{channel}>"),
+                None => continue,
+            },
+            Target::Everyone => continue,
+        };
+        for &at in &mention.at {
+            let end = at + mention.text.len();
+            if message.body.get(at..end) == Some(mention.text.as_str()) {
+                spans.push((at, end, token.clone()));
+            }
+        }
+    }
+    spans.sort_by_key(|(at, ..)| *at);
+    let mut raw = String::with_capacity(message.body.len());
+    let mut from = 0;
+    for (at, end, token) in spans {
+        if at < from {
+            continue;
+        }
+        raw.push_str(&message.body[from..at]);
+        raw.push_str(&token);
+        from = end;
+    }
+    raw.push_str(&message.body[from..]);
+    raw
 }
 
 /// The stickers a message of the timeline carries, by the id their picture's
@@ -1015,6 +1059,36 @@ mod tests {
             Some(true),
             "the account itself is known without a member list"
         );
+    }
+
+    #[test]
+    fn a_body_raw_puts_mentions_back_as_discord_holds_them() {
+        use crate::mention::{Mentioned, Target};
+        let mention = |text: &str, target: Target, at: usize| Mentioned {
+            text: text.to_owned(),
+            target,
+            color: None,
+            at: vec![at],
+        };
+        let mut said = (*message("1", "hi @Bob and @Mods in #general, @everyone")).clone();
+        said.mentions = vec![
+            mention("@Bob", Target::User("11".into()), 3),
+            mention("@Mods", Target::Role("20".into()), 12),
+            mention("#general", Target::Channel("discord:1:30".into()), 21),
+            mention("@everyone", Target::Everyone, 31),
+        ];
+        assert_eq!(
+            raw_body(&said, "discord:1:2"),
+            "hi <@11> and <@&20> in <#30>, @everyone"
+        );
+        assert_eq!(
+            raw_body(&said, "!room:matrix.org"),
+            said.body,
+            "a Matrix body is what it is"
+        );
+        // An offset that no longer reads the name changes nothing.
+        said.mentions[0].at = vec![0];
+        assert!(raw_body(&said, "discord:1:2").starts_with("hi @Bob and <@&20>"));
     }
 
     #[test]

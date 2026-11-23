@@ -205,8 +205,11 @@ keeps.
 An event with a `room` whose payload is an object also carries `room_name`, the
 conversation's name as the sidebar shows it, unless the payload has its own. A
 message's payload says `pinned`, `webhook` (a Discord webhook sent it, so its
-author is the name and picture the webhook gave and no account), and
-`stickers`, `[{ id, name }]`, when it has any.
+author is the name and picture the webhook gave and no account),
+`stickers`, `[{ id, name }]`, when it has any, and `body_raw` beside `body`: the
+text as Discord holds it, each mention `<@id>`, `<@&role>` or `<#channel>` where
+the open conversation's `body` reads the name the timeline shows (a message read
+from another channel has Discord's text in both).
 
 `topics` is there only when something was published to a topic the plugin
 subscribed to; a batch with none has no field at all. Each entry is one
