@@ -56,22 +56,25 @@ def capture(folder, name):
 
 def locate_rail(picture, minimum_height=HEIGHT // 2):
     """Top-left corner of Yapfast's window content in screenshot pixels, found by the rail's exact colour."""
-    # The rail's exact graphite (Theme.rail, #111215) forms the window's long left edge.
+    # Fresh iced layouts use Bonfire (#121214); older fixtures can keep Yap
+    # (#111215). Both rails form the window's long left edge.
     output_width, output_height = (int(value) for value in subprocess.check_output(
         ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
          '-of', 'csv=p=0:s=x', str(picture)], text=True, timeout=10).strip().split('x'))
     pixels = subprocess.check_output(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', str(picture),
                                       '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], timeout=10)
-    target = bytes([17, 18, 21])
-    columns = [sum(pixels[(y * output_width + x) * 3:(y * output_width + x) * 3 + 3] == target
-                   for y in range(output_height)) for x in range(output_width)]
-    best = max(columns)
-    if best < minimum_height:
-        raise RuntimeError(f'Yapfast rail was not found; inspect {picture}')
-    x = next(x for x, count in enumerate(columns) if count >= best - 2)
-    ys = [y for y in range(output_height)
-          if pixels[(y * output_width + x) * 3:(y * output_width + x) * 3 + 3] == target]
-    return x, min(ys)
+    pixels = memoryview(pixels)
+    for target in (b'\x12\x12\x14', b'\x11\x12\x15'):
+        columns = [sum(pixels[(y * output_width + x) * 3:(y * output_width + x) * 3 + 3] == target
+                       for y in range(output_height)) for x in range(output_width)]
+        best = max(columns)
+        if best < minimum_height:
+            continue
+        x = next(x for x, count in enumerate(columns) if count >= best - 2)
+        y = next(y for y in range(output_height)
+                 if pixels[(y * output_width + x) * 3:(y * output_width + x) * 3 + 3] == target)
+        return x, y
+    raise RuntimeError(f'Yapfast rail was not found; inspect {picture}')
 
 
 class Container:

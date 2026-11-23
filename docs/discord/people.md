@@ -1075,23 +1075,31 @@ this account saves its own.
 `scripts/ui-session do 'pick avatar PATH'` chooses a picture in the editor,
 as its file chooser would.
 
-## Linux Rich Presence
+## Rich Presence
 
-Games and tools on Linux tell Discord what they're doing through its local
-RPC socket, which the discord-rpc library and Discord's game SDK use. While
-the account shares its game ([game detection](#game-detection)), Yapfast
-serves that socket itself, so no bridge such as arRPC needs to run. Windows'
-named pipes and the macOS socket aren't served yet.
+Games and tools on Linux and Windows tell Discord what they're doing through
+its local RPC socket or named pipe, which the discord-rpc library and
+Discord's game SDK use. While the account shares its game
+([game detection](#game-detection)), Yapfast
+serves that IPC endpoint itself, so no bridge such as arRPC needs to run. The
+macOS socket isn't served yet.
 
-The socket is the first free `discord-ipc-0` to `discord-ipc-9` in
+On Windows, Yapfast serves the first free `\\.\pipe\discord-ipc-0` to
+`\\.\pipe\discord-ipc-9` in byte mode and rejects remote clients. It reserves
+the pipe name before accepting clients, so it never adds an instance to
+another program's pipe. Each connection has its own instance, and Windows
+releases the pipe when its last handle closes. Music players such as Liner
+can publish their current track as a Listening activity through this pipe.
+
+On Linux, the socket is the first free `discord-ipc-0` to `discord-ipc-9` in
 `XDG_RUNTIME_DIR`, or else in `TMPDIR`, `TMP`, `TEMP` or `/tmp`. A socket
 another program serves, such as Discord's own app, stays that program's, and
 a game that only tries `discord-ipc-0` talks to it instead. A socket left by
 an ended program of the same user is taken over. The socket has mode `0600`
-and takes only that user's programs. `YAPFAST_DISCORD_RPC=0` turns it off,
-and `YAPFAST_DISCORD_RPC_DIR` puts it in another directory, for Wine or a
-sandboxed game that can't see the runtime directory; Yapfast doesn't change
-sandbox permissions or set up Wine's bridge.
+and takes only that user's programs. `YAPFAST_DISCORD_RPC=0` turns RPC off
+on both platforms. On Linux, `YAPFAST_DISCORD_RPC_DIR` puts it in another
+directory, for Wine or a sandboxed game that can't see the runtime directory;
+Yapfast doesn't change sandbox permissions or set up Wine's bridge.
 
 Yapfast answers the handshake with READY, PING with PONG, and CLOSE and
 SET_ACTIVITY, where `activity: null` clears the activity; other commands get
@@ -1100,7 +1108,9 @@ an error. As Discord's desktop client does when a game connects, it asks
 first time the game names an image, `GET /oauth2/applications/{id}/assets`
 for its images' ids. Images given by https address go to
 `POST /applications/{id}/external-assets` and show through the media proxy
-as `mp:` assets; each client's last 32 addresses are kept. Timestamps in
+as `mp:` assets; each client's cache holds up to 32 addresses. When it fills,
+older images are dropped while keeping both pictures the current activity
+uses. Timestamps in
 seconds become the gateway's milliseconds, and buttons become labels with
 their addresses in the activity's `metadata`. Playing, Listening, Watching
 and Competing activities show. Yapfast copies only the fields it knows, so a
@@ -1111,6 +1121,17 @@ disconnects, the one before shows again, and once none is left, the game
 detection found. The activity lasts through reconnecting to the gateway and
 is never saved. Presence updates keep to Discord's limit, as every other
 presence change does.
+
+Disconnects and CLOSE are read while an image lookup is in flight, so closing
+an application restores the previous RPC activity without waiting for HTTP
+or the game detector's next scan. Completed clients are removed before queued
+updates are applied. If no RPC activity remains, the process detector verifies
+its fallback immediately; a closed application needs no second periodic scan
+before another running application takes its place. Local cards follow this,
+subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+obeys the Gateway limit of five presence updates per 20 seconds. At most four
+commands and 64 KiB of payload wait behind an in-flight lookup per client;
+exceeding that bound closes the connection.
 
 ## Listening to Spotify
 

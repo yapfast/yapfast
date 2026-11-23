@@ -704,7 +704,22 @@ impl std::fmt::Debug for VoiceServer {
     }
 }
 
+struct ServerListWrite {
+    patch: String,
+    previous: Arc<settings::ServerList>,
+    shown: Arc<settings::ServerList>,
+}
+
 enum Request {
+    FileServer {
+        server: String,
+        source_folder: bool,
+        target: String,
+        folder: bool,
+        before: Option<bool>,
+        reply: oneshot::Sender<Option<ServerListWrite>>,
+    },
+    RestoreServerList(ServerListWrite),
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -877,6 +892,7 @@ pub struct Discord {
     /// Changes to the status settings on their way; see
     /// [`Self::change_status_settings`].
     status_writes: Arc<StatusWrites>,
+    folder_writes: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// This account's changes to the settings' `status` on their way.
@@ -1049,6 +1065,7 @@ impl Discord {
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
             status_writes: Arc::default(),
+            folder_writes: Arc::default(),
         })
     }
 
@@ -2617,6 +2634,35 @@ impl Discord {
             move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
             |now| Request::CustomStatus(now.custom.flatten()),
         )
+    }
+
+    /// Moves a server beside or into the target, or moves a whole folder.
+    pub async fn file_server(
+        &self,
+        server: &str,
+        source_folder: bool,
+        target: &str,
+        folder: bool,
+        before: Option<bool>,
+    ) -> Result<()> {
+        let _turn = self.folder_writes.lock().await;
+        let (reply, changed) = oneshot::channel();
+        let _ = self.requests.send(Request::FileServer {
+            server: server.to_owned(),
+            source_folder,
+            target: target.to_owned(),
+            folder,
+            before,
+            reply,
+        });
+        let Some(change) = changed.await.context("Discord isn't connected right now")? else {
+            return Ok(());
+        };
+        let result = self.api.set_user_settings(&change.patch).await;
+        if result.is_err() {
+            let _ = self.requests.send(Request::RestoreServerList(change));
+        }
+        result
     }
 
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere

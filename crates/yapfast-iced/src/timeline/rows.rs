@@ -54,6 +54,11 @@ pub struct RowLook {
     pub unread_start: bool,
     pub highlighted: bool,
     pub last: bool,
+    /// The last of its group: the next message starts one of its own.
+    pub group_end: bool,
+    /// Its group's first message's item, which seeds the group's looks
+    /// (a card's lean), as Slint's `group_seed`.
+    pub group: Arc<str>,
     pub body: Arc<Laid>,
     /// Its message's local date, worked out once.
     pub date: Option<chrono::NaiveDate>,
@@ -97,10 +102,11 @@ impl RowLook {
             && self.day == other.day
             && self.unread_start == other.unread_start
             && self.last == other.last
+            && self.group_end == other.group_end
             && Arc::ptr_eq(&self.body, &other.body)
     }
 
-    pub(super) fn divided(&self) -> bool {
+    pub(crate) fn divided(&self) -> bool {
         self.day.is_some() || self.unread_start
     }
 }
@@ -149,6 +155,7 @@ pub fn row_looks<'a>(
             before_date = date;
             // The author shows again below the "New" divider.
             let unread_start = marks.first_unread == Some(message.item.as_str());
+            let group = Arc::clone(&item);
             RowLook {
                 item,
                 first: new_day
@@ -158,12 +165,33 @@ pub fn row_looks<'a>(
                 unread_start,
                 highlighted: message.highlighted(index >= first_new),
                 last: index + 1 == messages.len(),
+                group_end: true,
+                group,
                 body: laid,
                 date,
                 time,
             }
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .tap_group_ends()
+}
+
+trait GroupEnds {
+    fn tap_group_ends(self) -> Self;
+}
+
+impl GroupEnds for Vec<RowLook> {
+    /// Marks each look whose next starts a group of its own.
+    fn tap_group_ends(mut self) -> Self {
+        for index in 1..self.len() {
+            let next_first = self[index].first;
+            self[index - 1].group_end = next_first;
+            if !next_first {
+                self[index].group = Arc::clone(&self[index - 1].group);
+            }
+        }
+        self
+    }
 }
 
 /// Whether [`body_of`] lays two forms of a message out the same: its text,
@@ -361,9 +389,22 @@ impl Edge {
 
 /// A row's height before it's measured: the lines its text wraps to,
 /// estimated by character count at the timeline's width, its pictures and
-/// reactions, and the space and dividers above it.
-pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) -> f32 {
-    let text_width = (width - GUTTER - END_PAD).max(100.0);
+/// reactions, and the space and dividers above it. In a log (`irc`, where
+/// its text column starts) the nick shares the first line, with no author
+/// line or avatar over it.
+pub fn row_height(
+    message: &ChatMessage,
+    look: &RowLook,
+    width: f32,
+    edge: f32,
+    spacing: crate::theme::Spacing,
+    irc: Option<f32>,
+) -> f32 {
+    let avatar = spacing.avatar_size.unwrap_or(AVATAR);
+    let gutter = avatar + 2.0 * spacing.chat_padding.unwrap_or((GUTTER - AVATAR) / 2.0);
+    let irc = irc.filter(|_| message.notice.is_none());
+    let text_width = (width - irc.unwrap_or(gutter) - END_PAD).max(100.0);
+    let headed = look.first && message.notice.is_none() && irc.is_none();
     let per_line = (text_width / CHAR).floor().max(1.0) as usize;
     let text = look.body.plain();
     let lines: usize = if text.is_empty() {
@@ -381,7 +422,7 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
     if header {
         content += LINE_HEIGHT;
     }
-    if look.first && message.notice.is_none() {
+    if headed {
         content += AUTHOR_LINE + AUTHOR_GAP;
     }
     let gallery = Gallery::of(&message.attachments, Placement::Message, text_width);
@@ -424,26 +465,40 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
     if message.thread.is_some() {
         content += THREAD_CARD;
     }
-    if look.first && message.notice.is_none() {
-        content = content.max(if header { 64.0 } else { AVATAR });
+    if headed {
+        content = content.max(if header { avatar + 24.0 } else { avatar });
     }
     // Whole pixels, as rows are measured, so rows sit on whole pixels.
-    (top_space(look) + edge + content + CONTENT_PAD * 2.0 + bottom_space(look)).round()
+    (top_space(look, spacing) + edge + content + CONTENT_PAD * 2.0 + bottom_space(look, spacing))
+        .round()
 }
 
 /// The space above a row's message, its dividers' included.
-pub(super) fn top_space(look: &RowLook) -> f32 {
+pub(super) fn top_space(look: &RowLook, spacing: crate::theme::Spacing) -> f32 {
     if look.divided() {
         DIVIDED_GAP + DIVIDER
+    } else if let Some(gap) = spacing.cards_gap {
+        // As Slint: a card's first row has the gap above it, and the rows
+        // after it run on inside the card.
+        if look.first { gap } else { 0.0 }
     } else if look.first {
-        GROUP_GAP
+        spacing.message_group_gap.unwrap_or(GROUP_GAP)
     } else {
-        ROW_GAP
+        spacing.message_gap.unwrap_or(ROW_GAP)
     }
 }
 
-pub(super) fn bottom_space(look: &RowLook) -> f32 {
-    if look.last { TAIL } else { ROW_GAP }
+pub(super) fn bottom_space(look: &RowLook, spacing: crate::theme::Spacing) -> f32 {
+    if look.last { TAIL } else { row_gap(spacing) }
+}
+
+/// The space under a row that isn't the last: none between cards' rows.
+pub(crate) fn row_gap(spacing: crate::theme::Spacing) -> f32 {
+    if spacing.cards_gap.is_some() {
+        0.0
+    } else {
+        spacing.message_gap.unwrap_or(ROW_GAP)
+    }
 }
 
 #[cfg(test)]

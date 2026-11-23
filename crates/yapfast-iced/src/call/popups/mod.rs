@@ -142,6 +142,14 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
     let panel = container(panel)
         .width(width)
         .style(menu_panel(ctx.look.theme));
+    let panel = crate::controls::themed_outline(
+        panel,
+        ctx.look.theme,
+        "menu",
+        ctx.look.theme.menu_line,
+        1.0,
+        8.0,
+    );
     Some(
         Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
             .anchor(Anchor::Bottom)

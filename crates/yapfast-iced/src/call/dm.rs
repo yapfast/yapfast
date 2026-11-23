@@ -211,13 +211,15 @@ pub fn incoming_view(app: &App) -> Option<Element<'_, Message>> {
     .spacing(10)
     .padding(20);
     let (ground, edge) = (theme.raised, theme.edge);
+    let border = theme.surface_border("dialog", 12.0, 1.0, edge);
+    let shadow = theme.surface_shadow("dialog", card_shadow());
     let card = opaque(
         container(card)
             .width(INCOMING_WIDTH)
             .style(move |_| container::Style {
                 background: Some(ground.into()),
-                border: crate::style::edge(edge, 12.0),
-                shadow: card_shadow(),
+                border,
+                shadow,
                 ..Default::default()
             }),
     );
