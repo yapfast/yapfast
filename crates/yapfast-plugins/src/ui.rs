@@ -1431,9 +1431,13 @@ pub struct Cell {
     /// A button's face ([`Variant`]); the neutral one when not given.
     #[serde(default)]
     pub variant: Variant,
-    /// A button drawn small (28 px tall), as in a row or a list.
+    /// A button drawn small (28 px tall), as in a row or a list; a
+    /// progress bar drawn thin (3 px), as a player's seek bar.
     #[serde(default)]
     pub small: bool,
+    /// A progress bar or a slider as wide as its row, on a line of its own.
+    #[serde(default)]
+    pub fill: bool,
     /// Drawn at its row's end (with the row's other end cells after it), or
     /// at a grid cell's end, as a dialog's buttons or a row's action are.
     #[serde(default)]
@@ -1616,6 +1620,7 @@ impl Default for Cell {
             icon: String::new(),
             variant: Variant::Secondary,
             small: false,
+            fill: false,
             end: false,
             rows: Vec::new(),
             cells: Vec::new(),
@@ -1759,7 +1764,9 @@ fn words(text: &str) -> String {
 }
 
 fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> {
-    if (cell.kind.interactive() || cell.kind.keeps_state() || cell.pressable())
+    // A progress bar is shown when it has no id, and seeked when it has one.
+    let seekable = cell.kind == Kind::Progress && !cell.id.is_empty();
+    if (cell.kind.interactive() || cell.kind.keeps_state() || cell.pressable() || seekable)
         && !plain_id(&cell.id)
     {
         return Err(format!("a {:?} cell has no plain id", cell.kind));
@@ -2501,6 +2508,23 @@ mod tests {
         )
         .unwrap();
         assert!(tree.rows[0].center);
+    }
+
+    #[test]
+    fn a_progress_bar_may_fill_its_row_and_be_seeked() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "progress", "id": "seek", "value": "61000", "min": 0, "max": 200000, "fill": true, "small": true }
+            ] }] }"#,
+        )
+        .unwrap();
+        let bar = &tree.rows[0].cells[0];
+        assert!(bar.fill && bar.small && bar.id == "seek");
+        assert!(
+            Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "progress", "value": "1" }] }] }"#)
+                .is_ok(),
+            "a bar without an id is only shown"
+        );
     }
 
     #[test]

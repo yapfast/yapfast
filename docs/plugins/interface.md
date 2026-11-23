@@ -291,7 +291,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `number` | A field with − and + beside it | `id`, `text`, `value`, `min`, `max`, `step` |
 | `color` | A swatch, the `#rrggbb` field and eight colours to pick | `id`, `text`, `value` |
 | `slider` | The kit's slider, showing the plugin's own number | `id`, `text`, `value`, `min`, `max` |
-| `progress` | A bar, its label over it | `text`, `value`, `min`, `max`, `tone` |
+| `progress` | A bar, its label over it: 200 px, or its row's width with `fill`; 6 px tall, or 3 with `small` (a player's seek bar, filled in the text's ink); with an `id`, a seek bar: dragged at once, the plugin told the value where it's let go | `text`, `value`, `min`, `max`, `tone`, `fill`, `small`, `id` |
 | `spinner` | Eight dots turning, beside its label | `text`, `tone` |
 | `list` | Its items, numbered when `ordered`, each markdown | `items`, `ordered` |
 | `table` | Its column names over its rows, each cell markdown | `header`, `table` |

@@ -108,8 +108,10 @@ impl Local {
             }
             Act::Set { id, .. } => {
                 // A choice closes the list it was made in, and the field
-                // shows what the plugin settles on from now on.
+                // shows what the plugin settles on from now on; a seek bar
+                // let go shows the plugin's position again.
                 self.open.remove(&format!("open:{id}"));
+                self.open.remove(&format!("seek:{id}"));
                 true
             }
         }
@@ -190,7 +192,7 @@ fn rows_view<'a, M: Clone + 'a>(
         // don't move to a line of their own: every cell keeps its natural
         // width, so a narrow card stacks a row rather than crushing its text
         // into a column a letter wide. A container takes the row's width.
-        let wide = line.cells.iter().any(|cell| wide(cell.kind));
+        let wide = line.cells.iter().any(|cell| wide(cell.kind) || cell.fill);
         let drawn: Element<'a, M> = if wide {
             let mut cells = column![].spacing(6).width(Length::Fill);
             for cell in &line.cells {
@@ -685,33 +687,7 @@ fn cell_body<'a, M: Clone + 'a>(
             .width(Length::Fixed(SLIDER_WIDTH))
             .into()
         }
-        Kind::Progress => {
-            let span = (cell.max - cell.min).max(f32::EPSILON);
-            let done =
-                ((cell.value.parse::<f32>().unwrap_or(cell.min) - cell.min) / span).clamp(0.0, 1.0);
-            let fill = if cell.tone == Tone::Normal {
-                theme.accent
-            } else {
-                ink
-            };
-            let ground = theme.sunken;
-            let bar = container(
-                container(Space::new())
-                    .width(Length::Fixed(200.0 * done))
-                    .height(Length::Fixed(6.0))
-                    .style(move |_| style::rounded(fill, 3.0)),
-            )
-            .width(Length::Fixed(200.0))
-            .height(Length::Fixed(6.0))
-            .style(move |_| style::rounded(ground, 3.0));
-            if cell.text.is_empty() {
-                bar.into()
-            } else {
-                column![text(cell.text.clone()).size(12).color(theme.muted), bar]
-                    .spacing(4)
-                    .into()
-            }
-        }
+        Kind::Progress => progress(paint, cell, message),
         Kind::Spinner => spinner(theme, &cell.text, ink),
         Kind::Divider => {
             let line = theme.line;
@@ -984,6 +960,104 @@ fn trailing<'a, M: Clone + 'a>(
         .into();
     }
     cell_view(paint, cell, message)
+}
+
+/// A progress bar, its label over it: 200 px, or its row's width with
+/// `fill`; 6 px tall, or 3 with `small`, as a player's seek bar, whose fill is
+/// the text's ink rather than the accent. With an id it can be seeked: a
+/// drag moves it at once and the plugin hears where it was let go.
+fn progress<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    cell: &'a Cell,
+    message: &Sender<'a, M>,
+) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    let ink = tone_colour(theme, cell.tone);
+    let thick = if cell.small { 3.0 } else { 6.0 };
+    let width = if cell.fill {
+        Length::Fill
+    } else {
+        Length::Fixed(200.0)
+    };
+    let fill = match cell.tone {
+        Tone::Normal if cell.small => theme.text,
+        Tone::Normal => theme.accent,
+        _ => ink,
+    };
+    // A thin bar's rest is a wash that shows on any ground (the sidebar's,
+    // a card's), as Discord's seek bar track.
+    let ground = if cell.small {
+        theme.wash(0.16)
+    } else {
+        theme.sunken
+    };
+    let seek_key = format!("seek:{}", cell.id);
+    let at = paint
+        .local
+        .shown(&seek_key)
+        .map(|held| held as f32)
+        .unwrap_or_else(|| cell.value.parse::<f32>().unwrap_or(cell.min))
+        .clamp(cell.min, cell.max);
+    let bar: Element<'a, M> = if cell.id.is_empty() {
+        let span = (cell.max - cell.min).max(f32::EPSILON);
+        let done = ((at - cell.min) / span).clamp(0.0, 1.0);
+        let filled = (done * 1000.0).round() as u16;
+        container(row![
+            container(Space::new())
+                .width(Length::FillPortion(filled))
+                .height(Length::Fixed(thick))
+                .style(move |_| style::rounded(fill, thick / 2.0)),
+            Space::new().width(Length::FillPortion(1000 - filled)),
+        ])
+        .width(width)
+        .height(Length::Fixed(thick))
+        .style(move |_| style::rounded(ground, thick / 2.0))
+        .into()
+    } else {
+        let (moved, released) = (message.clone(), message.clone());
+        let id = cell.id.clone();
+        let let_go = released(Act::Set {
+            id: id.clone(),
+            value: trim(f64::from(at)),
+        });
+        iced::widget::slider(cell.min..=cell.max, at, move |value: f32| {
+            moved(Act::Local {
+                key: format!("seek:{id}"),
+                value: value.max(0.0).round() as usize,
+            })
+        })
+        .on_release(let_go)
+        .step(1.0_f32)
+        .width(width)
+        .height(12.0)
+        .style(move |_, status| {
+            let lit = !matches!(status, iced::widget::slider::Status::Active);
+            iced::widget::slider::Style {
+                rail: iced::widget::slider::Rail {
+                    backgrounds: (fill.into(), ground.into()),
+                    width: thick,
+                    border: iced::Border::default().rounded(thick / 2.0),
+                },
+                handle: iced::widget::slider::Handle {
+                    shape: iced::widget::slider::HandleShape::Circle {
+                        radius: if lit { 6.0 } else { 0.0 },
+                    },
+                    background: fill.into(),
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                },
+            }
+        })
+        .into()
+    };
+    if cell.text.is_empty() {
+        bar
+    } else {
+        column![text(cell.text.clone()).size(12).color(theme.muted), bar]
+            .spacing(4)
+            .width(width)
+            .into()
+    }
 }
 
 /// A button in its face ([`Variant`]), small when `small` says: the kit's
