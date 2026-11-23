@@ -280,6 +280,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `tile` | A picture over its label in one card of a fixed width (96 px unless `width`), so a grid of them lines up; a button when it has an `id` | `src`, `text`, `id`, and the picture fields below |
 | `button`, `link` | A button, or a link's words | `id`, `text`, `enabled`, and a button's `icon`, `variant` and `small` |
 | `toggle` | The kit's switch, its label before it; with a `description`, Settings' own switch row: the label, the description under it, the switch at the row's end, and a click anywhere on the row flips it | `id`, `text`, `checked`, `description` |
+| `empty` | What a list or page shows with nothing in it, centred: one of Yapfast's icons (`icon`, 40 px and faint), what isn't there (`text`) and what to do about it (`description`) | `icon`, `text`, `description` |
 | `item` | One row of a list as Settings draws one: a picture (`src`, 32 px with a `description`, else 24; round when `round`), its name (`text`) with the `description` under it, and its `cells`, its actions, at the end, a button among them drawn small; with an `id` the whole row is pressed, lit while `selected` | `src`, `round`, `text`, `description`, `cells`, `id`, `selected` |
 | `setting` | A setting's row as Settings draws one: `text` (15 px) with `description` (13 px, muted) under it at the start, and its `cells`, the controls, at the end, a button among them drawn small | `text`, `description`, `cells` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
@@ -308,7 +309,7 @@ is on it, as a list row's Remove), `link` (the accent's words) or `success`. A
 
 A button may name one of Yapfast's own icons in `icon` — `previous`, `play`,
 `pause`, `next`, `stop`, `volume`, `volume-off`, `music`, `star`, `bell`,
-`pin`, `link`, `download`, `refresh`, `search` or `settings` — and is drawn as
+`pin`, `link`, `download`, `refresh`, `search`, `settings`, `inbox`, `users`, `user`, `message`, `image`, `clock`, `eye`, `eye-off`, `shield`, `file`, `sticker`, `gif`, `trash`, `copy`, `pencil`, `plus`, `check`, `close`, `mic`, `hash`, `palette`, `history`, `ban`, `at`, `calendar`, `globe`, `smile` or `forward` — and is drawn as
 an icon button with its `text` as what the tooltip and a screen reader say, so
 it looks like the buttons beside it; a name this build doesn't have draws the
 text. In the voice panel each button is a tile of the panel's own row, its

@@ -254,6 +254,7 @@ fn wide(kind: Kind) -> bool {
             | Kind::List
             | Kind::Setting
             | Kind::Item
+            | Kind::Empty
     )
 }
 
@@ -294,6 +295,34 @@ pub fn kit_icon(name: &str) -> Option<crate::icons::Icon> {
         "refresh" => Icon::Refresh,
         "search" => Icon::Search,
         "settings" => Icon::Settings,
+        "inbox" => Icon::Inbox,
+        "users" => Icon::Users,
+        "user" => Icon::User,
+        "message" => Icon::MessageCircle,
+        "image" => Icon::Image,
+        "clock" => Icon::Clock,
+        "eye" => Icon::Eye,
+        "eye-off" => Icon::EyeOff,
+        "shield" => Icon::Shield,
+        "file" => Icon::File,
+        "sticker" => Icon::Sticker,
+        "gif" => Icon::Gif,
+        "trash" => Icon::Trash,
+        "copy" => Icon::Copy,
+        "pencil" => Icon::Pencil,
+        "plus" => Icon::Plus,
+        "check" => Icon::Check,
+        "close" => Icon::X,
+        "mic" => Icon::Mic,
+        "hash" => Icon::Hash,
+        "palette" => Icon::Palette,
+        "history" => Icon::History,
+        "ban" => Icon::Ban,
+        "at" => Icon::AtSign,
+        "calendar" => Icon::Calendar,
+        "globe" => Icon::Community,
+        "smile" => Icon::Smile,
+        "forward" => Icon::Forward,
         _ => return None,
     })
 }
@@ -406,6 +435,7 @@ fn cell_body<'a, M: Clone + 'a>(
         }
         Kind::Setting => setting(paint, cell, message),
         Kind::Item => item(paint, cell, message),
+        Kind::Empty => empty(paint, cell),
         Kind::Toggle => {
             let checked = paint.local.checked(cell);
             let on = Some(set(if checked { "false" } else { "true" }.to_owned()));
@@ -827,6 +857,43 @@ fn initial<'a, M: Clone + 'a>(theme: &Theme, cell: &'a Cell, side: f32) -> Eleme
     .align_y(Alignment::Center)
     .style(move |_| style::rounded(ground, radius))
     .into()
+}
+
+/// What a list shows with nothing in it, centred: its icon (40 px, faint),
+/// what isn't there (16 px, semibold) and what to do about it (14 px,
+/// muted), as Voice's camera preview says it's off.
+fn empty<'a, M: Clone + 'a>(paint: Paint<'a>, cell: &'a Cell) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    let mut shown = column![]
+        .spacing(6)
+        .align_x(Alignment::Center)
+        .width(Length::Fill);
+    if let Some(icon) = kit_icon(&cell.icon) {
+        shown = shown.push(paint.look.glyph(icon, 40, theme.faint));
+        shown = shown.push(Space::new().height(4));
+    }
+    if !cell.text.is_empty() {
+        shown = shown.push(
+            text(cell.text.clone())
+                .size(16)
+                .font(crate::fonts::SEMIBOLD)
+                .color(theme.text)
+                .align_x(Alignment::Center),
+        );
+    }
+    if !cell.description.is_empty() {
+        shown = shown.push(
+            text(cell.description.clone())
+                .size(14)
+                .color(theme.muted)
+                .align_x(Alignment::Center)
+                .width(Length::Fill),
+        );
+    }
+    container(shown)
+        .padding([24, 16])
+        .width(Length::Fill)
+        .into()
 }
 
 /// A control at a row's end: a button there is drawn small.

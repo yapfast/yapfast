@@ -44,7 +44,7 @@ pub const COLUMNS: usize = 8;
 
 /// The icons a button may name, which Yapfast draws from its own set so a
 /// plugin's button looks like the ones beside it.
-pub const ICONS: [&str; 16] = [
+pub const ICONS: [&str; 44] = [
     "previous",
     "play",
     "pause",
@@ -61,6 +61,34 @@ pub const ICONS: [&str; 16] = [
     "refresh",
     "search",
     "settings",
+    "inbox",
+    "users",
+    "user",
+    "message",
+    "image",
+    "clock",
+    "eye",
+    "eye-off",
+    "shield",
+    "file",
+    "sticker",
+    "gif",
+    "trash",
+    "copy",
+    "pencil",
+    "plus",
+    "check",
+    "close",
+    "mic",
+    "hash",
+    "palette",
+    "history",
+    "ban",
+    "at",
+    "calendar",
+    "globe",
+    "smile",
+    "forward",
 ];
 
 /// The most characters a tooltip says.
@@ -1115,6 +1143,10 @@ pub enum Kind {
     /// its name (`text`) with `description` under it, and its actions
     /// (`cells`) at the end; pressed as a whole when it has an `id`.
     Item,
+    /// What a list or page shows with nothing in it: one of Yapfast's icons
+    /// (`icon`), what isn't there (`text`) and what to do (`description`),
+    /// centred.
+    Empty,
     /// A setting's row, as Settings draws one: `text` with `description`
     /// under it at the start, and `cells` (its controls) at the end.
     Setting,
@@ -2436,6 +2468,22 @@ mod tests {
         assert!(
             Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "item", "id": "a b" }] }] }"#).is_err(),
             "a pressable row's id is plain"
+        );
+    }
+
+    #[test]
+    fn an_empty_state_names_one_of_yapfasts_icons() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "empty", "icon": "inbox", "text": "No reminders yet", "description": "Add one from a message's menu." },
+                { "kind": "empty", "icon": "rocket", "text": "Nothing" }
+            ] }] }"#,
+        )
+        .unwrap();
+        assert_eq!(tree.rows[0].cells[0].icon, "inbox");
+        assert_eq!(
+            tree.rows[0].cells[1].icon, "",
+            "an icon Yapfast doesn't have is dropped"
         );
     }
 
