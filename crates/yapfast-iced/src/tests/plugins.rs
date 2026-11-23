@@ -727,6 +727,87 @@ fn a_plugins_own_page_embeds_its_settings_form() {
     );
 }
 
+/// A Discord message's subject is its timeline id, `d:<id>`, on both of the
+/// real paths a plugin's button about a message is pressed from: the hover
+/// bar (`message.actions`) and the message's menu (`menu.message`).
+#[test]
+fn message_actions_and_menu_rows_name_the_message_by_its_timeline_id() {
+    use crate::menus::MenuAct;
+
+    const ITEM: &str = "d:1300000000000000001";
+    let (mut app, _data) = super::preview();
+    let source = folder_plugin();
+    load(&mut app, source.path());
+    let button = |id: &str, label: &str| {
+        format!(
+            r#"{{ "rows": [{{ "cells": [{{ "kind": "button", "id": "{id}", "text": "{label}" }}] }}] }}"#
+        )
+    };
+    draw(&mut app, Slot::HoverBar, &button("pin-it", "Pin it"));
+    draw(
+        &mut app,
+        Slot::MenuMessage,
+        &button("translate", "Translate"),
+    );
+    // A Discord message, as the timeline holds one.
+    super::change(&mut app, |state| {
+        let template = state.messages.last().cloned().expect("a message");
+        let mut messages = (*state.messages).clone();
+        messages.push(std::sync::Arc::new(yapfast_core::chat::ChatMessage {
+            id: ITEM.trim_start_matches("d:").into(),
+            item: ITEM.into(),
+            body: "Which one is this".into(),
+            timestamp: template.timestamp + 600,
+            ..(*template).clone()
+        }));
+        state.messages = std::sync::Arc::new(messages);
+    });
+    let index = app
+        .timeline
+        .messages
+        .iter()
+        .position(|message| message.item == ITEM)
+        .expect("the row");
+
+    // The hover bar: each of its buttons pressed, as the bar draws them.
+    let mut pressed = Vec::new();
+    for at in 0..8 {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(400.0, 40.0),
+            crate::message::hover_bar::hover_bar(app.ctx(), index).expect("its bar"),
+        );
+        ui.point_at(iced::Point::new(3.0 + 16.0 + 32.0 * at as f32, 19.0));
+        ui.simulate(iced_test::simulator::click());
+        pressed.extend(ui.into_messages().filter_map(|message| match message {
+            crate::app::Message::PluginAct(scope, act) => Some((scope, act)),
+            _ => None,
+        }));
+    }
+    let (scope, act) = pressed.first().expect("the plugin's hover button");
+    assert_eq!(scope.slot, Slot::HoverBar);
+    assert_eq!(
+        scope.subject, ITEM,
+        "the hover bar names the message by d:<id>"
+    );
+    assert!(matches!(act, crate::plugin_tree::Act::Set { id, .. } if id == "pin-it"));
+
+    // The menu, opened on the row as a right click opens it.
+    let _ = crate::menus::open_menu(&mut app, index, iced::Point::new(100.0, 100.0));
+    let menu = app.win.menu.as_ref().expect("the message's menu");
+    let subjects: Vec<&str> = menu
+        .rows
+        .iter()
+        .filter_map(|row| match &row.act {
+            MenuAct::PluginAct(scope, _) if scope.slot == Slot::MenuMessage => {
+                Some(scope.subject.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(subjects, vec![ITEM], "the menu's row names it by d:<id>");
+}
+
 /// A plugin's keybind action is offered on the Keybinds page as
 /// "<plugin>: <label>", a binding to it is watched by its own id, and keys
 /// Yapfast already uses are refused for it with a note.
