@@ -55,7 +55,9 @@ start, or Discord's welcome at a server channel's start. Until a
 conversation's first messages come, rows the shape of messages hold its
 place, still (`timeline::view::messages_skeleton`), as they do in the
 thread beside the channel. A short history
-is held down over the composer. While the "New" divider is
+is held down over the composer. A view within the 8 px padding below the
+last message follows the bottom as messages arrive; scrolling above that
+keeps the earlier messages in place. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window
 of older messages has the bar back to the present, and its last row ends
 with "Newer messages" (loading, or failed with a retry); a reply's line
@@ -215,6 +217,7 @@ slash command, where one may write, is written in the composer
 - A message from someone this account blocked shows as "Blocked user"
   and "Blocked message." with Show it, as Discord's does, until asked; with
   blocked messages hidden in Settings, the core leaves them out.
+  Messages from ignored accounts show as "Ignored message." with Show.
 - A masked link (words that aren't where they go) asks first: Go back,
   or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in

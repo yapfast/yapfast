@@ -483,28 +483,34 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     // Discord's cards run from 17 px in to 16 px short of the right, and a
     // dark theme's column is a shade under the chat's.
-    let mut page = column![text("Active Now").size(20).font(BOLD).color(theme.text)]
-        .spacing(10)
-        .padding(Padding {
-            top: 13.0,
-            left: 17.0,
-            right: 16.0,
-            bottom: 16.0,
-        })
-        .height(Length::Fill);
+    let mut page = column![
+        text(theme.heading("Active Now").into_owned())
+            .size(theme.header_size(20.0))
+            .font(theme.header_font(BOLD))
+            .color(theme.text)
+    ]
+    .spacing(10)
+    .padding(Padding {
+        top: 13.0,
+        left: 17.0,
+        right: 16.0,
+        bottom: 16.0,
+    })
+    .height(Length::Fill);
     if ctx.active_now.is_empty() {
         page = page.push(
             column![
                 text("It's quiet for now...")
-                    .size(16)
-                    .font(BOLD)
+                    .size(theme.type_size("headings", 16.0))
+                    .font(theme.font("headings", BOLD))
                     .color(theme.text)
                     .width(Length::Fill)
                     .align_x(Alignment::Center),
                 text(
                     "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!"
                 )
-                .size(13)
+                .size(theme.type_size("body", 13.0))
+                .font(theme.font("body", crate::fonts::REGULAR))
                 .color(theme.muted)
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
@@ -565,12 +571,13 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         face,
         column![
             text(card.title.as_str())
-                .size(15)
-                .font(BOLD)
+                .size(theme.type_size("names", 15.0))
+                .font(theme.font("names", BOLD))
                 .color(theme.text)
                 .wrapping(text::Wrapping::None),
             text(format!("{}{since}", card.doing))
-                .size(13)
+                .size(theme.type_size("small", 13.0))
+                .font(theme.font("small", crate::fonts::REGULAR))
                 .color(theme.muted)
                 .wrapping(text::Wrapping::None),
         ]
@@ -599,10 +606,23 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
     for entry in &card.rows {
         body = body.push(active_row(ctx, entry));
     }
+    let activity_themed = ctx
+        .themes
+        .content(&theme.id, ctx.layout.theme_content.contains(&theme.id))
+        .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
+    let border = if activity_themed {
+        theme.surface_border("card", 16.0, 1.0, edge)
+    } else {
+        crate::style::outlined(ground, edge, 16.0).border
+    };
     container(body)
         .width(Length::Fill)
         .clip(true)
-        .style(move |_| crate::style::outlined(ground, edge, 16.0))
+        .style(move |_| iced::widget::container::Style {
+            background: Some(ground.into()),
+            border,
+            ..Default::default()
+        })
         .into()
 }
 
@@ -610,8 +630,8 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
     let theme = ctx.look.theme;
     let mut words = column![
         text(entry.title.as_str())
-            .size(14)
-            .font(SEMIBOLD)
+            .size(theme.type_size("body", 14.0))
+            .font(theme.font("body", SEMIBOLD))
             .color(theme.text)
             .wrapping(text::Wrapping::None)
     ]
@@ -619,7 +639,8 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
     if !entry.detail.is_empty() {
         words = words.push(
             text(entry.detail.as_str())
-                .size(12)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", crate::fonts::REGULAR))
                 .color(theme.muted)
                 .wrapping(text::Wrapping::None),
         );
@@ -743,7 +764,7 @@ fn faces_row<'a>(
 /// Whether the Friends screen is wide enough for the column: narrower,
 /// it isn't drawn, so its cards aren't made, timed or fetched for.
 pub fn active_now_fits(ctx: crate::ctx::Ctx<'_>) -> bool {
-    ctx.look.window.width - crate::conversation::navigation(ctx.layout) >= ROOM
+    ctx.look.window.width - crate::conversation::navigation_ctx(ctx) >= ROOM
 }
 
 #[cfg(test)]

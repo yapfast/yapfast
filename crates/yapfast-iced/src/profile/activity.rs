@@ -161,7 +161,18 @@ fn card_view<'a>(
             } else {
                 ctx.look.theme.raised
             };
-            let ink = inks.ink;
+            let activity_themed = ctx
+                .themes
+                .content(
+                    &ctx.look.theme.id,
+                    ctx.layout.theme_content.contains(&ctx.look.theme.id),
+                )
+                .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
+            let ink = if activity_themed {
+                ctx.look.theme.accent
+            } else {
+                inks.ink
+            };
             let filled = crate::widgets::gauge(second, move |renderer, bounds| {
                 let share = played() as f32 / length.max(1) as f32;
                 progress(renderer, bounds, share, track, ink);
@@ -240,16 +251,36 @@ fn activity_art<'a>(
     small: Option<&str>,
     inks: &Inks,
 ) -> Element<'a, Message> {
-    let raised = ctx.look.theme.raised;
+    let theme = ctx.look.theme;
+    let raised = theme.raised;
+    let activity_themed = ctx
+        .themes
+        .content(&theme.id, ctx.layout.theme_content.contains(&theme.id))
+        .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
+    let tile_border = if activity_themed {
+        theme.surface_border("card", LARGE / 6.0, 0.0, Color::TRANSPARENT)
+    } else {
+        crate::style::round(LARGE / 6.0)
+    };
+    let tile_radius = if activity_themed {
+        theme.surface_radius("card", LARGE / 6.0)
+    } else {
+        LARGE / 6.0
+    };
     let square = Size::new(LARGE, LARGE);
-    let mut pictures = stack![
-        container(Space::new())
-            .width(LARGE)
-            .height(LARGE)
-            .style(move |_| rounded(raised, LARGE / 6.0))
-    ];
+    let mut pictures =
+        stack![
+            container(Space::new())
+                .width(LARGE)
+                .height(LARGE)
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(raised.into()),
+                    border: tile_border,
+                    ..Default::default()
+                })
+        ];
     if let Some(picture) = ctx.picture(large, LARGE as u32, LARGE as u32, true) {
-        pictures = pictures.push(Pic::new(picture, square).radius(LARGE / 6.0));
+        pictures = pictures.push(Pic::new(picture, square).radius(tile_radius));
     }
     if let Some(small) = small {
         let ground = inks.ground;

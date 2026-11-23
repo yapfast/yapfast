@@ -359,7 +359,9 @@ impl<'a> View<'a> {
             container(crate::widgets::scroll_view(column![header, body]).height(Length::Shrink))
                 .width(POPOVER)
                 .max_height((bottom - 8.0).max(1.0))
-                .style(crate::profile::frame_style(inks, theme.line, 8.0, true));
+                .style(crate::profile::frame_style(
+                    inks, theme, theme.line, 8.0, true,
+                ));
         Some(
             Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
                 .anchor(Anchor::Bottom)

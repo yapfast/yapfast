@@ -23,7 +23,7 @@ pub mod dock;
 pub(crate) mod popups;
 pub mod stage;
 
-use std::{cell::Cell, sync::Arc};
+use std::{cell::Cell, collections::HashSet, sync::Arc};
 
 use iced::{Point, Rectangle, Task, Vector};
 use yapfast_core::{
@@ -55,6 +55,10 @@ pub struct Call {
     pub watched: Option<String>,
     /// The large tile over the whole window.
     pub full: bool,
+    /// The voice channels whose strip of members under a large tile is
+    /// hidden: kept for each channel while Yapfast runs, through leaving
+    /// and joining again, as Discord's client keeps it.
+    pub members_hidden: HashSet<String>,
     /// How far the stage is scrolled, and the tile the pointer is on, by its
     /// place.
     pub scrolled: f32,
@@ -126,6 +130,8 @@ pub enum Event {
     /// A tile shown large, by its place, or none.
     Focus(Option<usize>),
     Full(bool),
+    /// The bottom participant strip hidden or shown while a tile is large.
+    ToggleMembers,
     Scrolled(f32),
     Point(usize, bool),
     /// A control's popup, opened above it, or the open one closed.
@@ -177,6 +183,16 @@ pub enum Event {
     Drop,
 }
 
+/// Whether the call's strip of members under a large tile is hidden.
+pub fn members_hidden(app: &App) -> bool {
+    app.client
+        .state()
+        .voice
+        .room
+        .as_ref()
+        .is_some_and(|room| app.call.members_hidden.contains(room))
+}
+
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     let voice = &app.client.state().voice;
     let action = match event {
@@ -201,6 +217,17 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Full(full) => {
             app.call.full = full && app.call.focus.is_some();
+            app.call.pointed = None;
+            crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::ToggleMembers => {
+            if let Some(room) = app.client.state().voice.room.clone()
+                && !app.call.members_hidden.remove(&room)
+            {
+                app.call.members_hidden.insert(room);
+            }
+            app.call.scrolled = 0.0;
             app.call.pointed = None;
             crate::call::stage::place_videos(app);
             return Task::none();
