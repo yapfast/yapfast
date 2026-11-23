@@ -10859,6 +10859,7 @@ dependencies = [
  "iced_tiny_skia",
  "iced_wgpu",
  "resvg",
+ "sys-locale",
  "tokio",
  "tracing",
  "ttf-parser",
