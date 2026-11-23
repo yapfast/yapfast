@@ -49,6 +49,14 @@ pub mod method {
     pub const STORAGE_LIST: &str = "storage.list";
     pub const STORAGE_CLEAR: &str = "storage.clear";
     pub const SETTINGS_GET: &str = "settings.get";
+    /// The account's servers, with their names, icons and mutes.
+    pub const SERVERS_LIST: &str = "servers.list";
+    /// The open conversation's member list.
+    pub const PEOPLE_MEMBERS: &str = "people.members";
+    /// The account's friends.
+    pub const PEOPLE_FRIENDS: &str = "people.friends";
+    /// Those the account blocked.
+    pub const PEOPLE_BLOCKED: &str = "people.blocked";
     /// One of the plugin's own settings, written by the plugin.
     pub const SETTINGS_SET: &str = "settings.set";
     pub const SETTINGS_ON_CHANGE: &str = "settings.on_change";
@@ -184,7 +192,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 112] = [
+    pub const ALL: [&str; 116] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -202,6 +210,10 @@ pub mod method {
         SERVERS_DETAILS,
         MESSAGES_RETAIN_STYLE,
         SETTINGS_SET,
+        SERVERS_LIST,
+        PEOPLE_MEMBERS,
+        PEOPLE_FRIENDS,
+        PEOPLE_BLOCKED,
         GIFS_FAVOURITES,
         STORAGE_GET,
         STORAGE_SET,
@@ -1481,6 +1493,33 @@ pub struct PeopleBadges {
     pub person: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+}
+
+/// One of `servers.list`' answers: a server the account is in.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerView {
+    pub id: String,
+    pub name: String,
+    /// The address of its icon, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// The account muted the whole server.
+    pub muted: bool,
+    /// Its channels and categories the account muted, by id, now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub muted_channels: Vec<String>,
+}
+
+/// One of `people.friends`' or `people.blocked`' answers.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationView {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    /// The address of their avatar.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub avatar: String,
 }
 
 /// `settings.set`: one of the plugin's own settings, as its manifest declares

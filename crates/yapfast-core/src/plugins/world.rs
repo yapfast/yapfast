@@ -97,6 +97,27 @@ impl yapfast_plugins::bridge::world::World for World {
         World::member(self, server, id)
     }
 
+    fn members(&self) -> Option<Vec<MemberView>> {
+        let held = self.read();
+        let members = held.members.as_ref()?;
+        Some(
+            members
+                .people
+                .iter()
+                .map(|member| MemberView {
+                    person: person(member),
+                    roles: member.roles.iter().cloned().collect(),
+                    presence: member
+                        .presence
+                        .map(|around| crate::plugins::presence::name(around).to_owned()),
+                    colour: member.color,
+                    activity: member.activity.clone(),
+                    timed_out_until: member.timed_out_until,
+                })
+                .collect(),
+        )
+    }
+
     fn voice(&self) -> Option<yapfast_plugin_api::call::VoiceView> {
         self.read().voice.clone()
     }

@@ -343,6 +343,13 @@ pub enum AppCall {
         before: Option<String>,
         limit: Option<usize>,
     },
+    /// The account's servers: `servers.list`.
+    Servers,
+    /// The account's friends or the people it blocked: `people.friends`,
+    /// `people.blocked`.
+    Relations {
+        blocked: bool,
+    },
     /// One of the plugin's own settings: `settings.set`.
     SetSetting {
         key: String,

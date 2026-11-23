@@ -317,6 +317,10 @@ pub mod method {
     pub const SERVERS_DETAILS: &str = "servers.details";
     pub const MESSAGES_RETAIN_STYLE: &str = "messages.retain_style";
     pub const SETTINGS_SET: &str = "settings.set";
+    pub const SERVERS_LIST: &str = "servers.list";
+    pub const PEOPLE_MEMBERS: &str = "people.members";
+    pub const PEOPLE_FRIENDS: &str = "people.friends";
+    pub const PEOPLE_BLOCKED: &str = "people.blocked";
     pub const GIFS_FAVOURITES: &str = "gifs.favourites";
     // The calls the PDK has no wrapper for yet, named for `call::call`.
     pub const VOICE_STATE: &str = "voice.state";

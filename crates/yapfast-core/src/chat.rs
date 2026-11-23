@@ -2837,6 +2837,10 @@ pub enum PluginAsk {
     },
     /// `servers.details`.
     ServerDetails { server: String },
+    /// `servers.list`.
+    Servers,
+    /// `people.friends`, or `people.blocked`.
+    Relations { blocked: bool },
     /// `gifs.favourites`.
     FavouriteGifs,
     /// `media.get` for a file the picture store doesn't hold.

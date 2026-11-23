@@ -73,7 +73,9 @@ impl Session {
             call::method::MESSAGES_GET | call::method::MESSAGES_HISTORY => {
                 Some(Capability::MessagesRead)
             }
-            call::method::PEOPLE_GET | call::method::PEOPLE_MEMBER => Some(Capability::PeopleRead),
+            call::method::PEOPLE_GET
+            | call::method::PEOPLE_MEMBER
+            | call::method::PEOPLE_MEMBERS => Some(Capability::PeopleRead),
             call::method::MEDIA_GET => Some(Capability::MediaRead),
             // Who is in the call and who is talking is what people do, read
             // the way presence is: a capability the review names.
@@ -376,6 +378,14 @@ impl Session {
             call::method::PEOPLE_GET => match parsed::<PeopleGet>(&call, method) {
                 Ok(request) => answered_option(shared.world.person(&request.person)),
                 Err(answer) => answer,
+            },
+            call::method::PEOPLE_MEMBERS => match shared.world.members() {
+                Some(members) => answered(members),
+                None => HostReturn::Error {
+                    message: "no member list is open: `people.members` reads the open \
+                              conversation's"
+                        .to_owned(),
+                },
             },
             call::method::PEOPLE_MEMBER => match parsed::<PeopleMember>(&call, method) {
                 Ok(request) => match shared.world.member(&request.server, &request.person) {

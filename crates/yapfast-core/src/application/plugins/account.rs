@@ -45,6 +45,8 @@ pub(super) fn answered_later(request: &AppCall) -> bool {
             | AppCall::MediaFetch { .. }
             | AppCall::ServerDetails { .. }
             | AppCall::FavouriteGifs
+            | AppCall::Servers
+            | AppCall::Relations { .. }
     )
 }
 
@@ -100,6 +102,8 @@ impl Application {
             AppCall::MediaFetch { url } => Some(PluginAsk::Media { url }),
             AppCall::ServerDetails { server } => Some(PluginAsk::ServerDetails { server }),
             AppCall::FavouriteGifs => Some(PluginAsk::FavouriteGifs),
+            AppCall::Servers => Some(PluginAsk::Servers),
+            AppCall::Relations { blocked } => Some(PluginAsk::Relations { blocked }),
             AppCall::Messages {
                 room,
                 message,

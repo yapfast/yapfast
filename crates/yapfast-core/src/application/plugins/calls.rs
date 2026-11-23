@@ -366,6 +366,8 @@ impl Application {
             | AppCall::MediaFetch { .. }
             | AppCall::ServerDetails { .. }
             | AppCall::FavouriteGifs
+            | AppCall::Servers
+            | AppCall::Relations { .. }
             | AppCall::Spotify(_) => (
                 Vec::new(),
                 HostReturn::Error {

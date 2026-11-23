@@ -77,6 +77,67 @@ pub(super) fn command(
                     },
                 }
             }
+            PluginAsk::Servers => {
+                let snapshot = discord.snapshots().borrow().clone();
+                let now = crate::clock::now_ms();
+                listed(
+                    snapshot
+                        .servers
+                        .iter()
+                        .map(|held| {
+                            let notifications = &held.marks.notifications;
+                            yapfast_plugin_api::call::ServerView {
+                                id: held.server.id.clone(),
+                                name: held.server.name.clone(),
+                                icon: held.server.icon.as_ref().map(|icon| {
+                                    if icon.starts_with("https://") {
+                                        icon.clone()
+                                    } else {
+                                        format!(
+                                            "https://cdn.discordapp.com/icons/{}/{icon}.png",
+                                            held.server.id
+                                        )
+                                    }
+                                }),
+                                muted: held.marks.muted,
+                                muted_channels: notifications
+                                    .overrides
+                                    .keys()
+                                    .filter(|channel| notifications.channel_muted(channel, now))
+                                    .cloned()
+                                    .collect(),
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            }
+            PluginAsk::Relations { blocked } => {
+                let snapshot = discord.snapshots().borrow().clone();
+                let people: Vec<yapfast_plugin_api::call::RelationView> = if blocked {
+                    snapshot
+                        .blocked_list
+                        .iter()
+                        .map(|person| yapfast_plugin_api::call::RelationView {
+                            id: person.user_id.clone(),
+                            name: person.name.clone(),
+                            username: person.username.clone(),
+                            avatar: person.avatar.clone(),
+                        })
+                        .collect()
+                } else {
+                    snapshot
+                        .friend_list
+                        .iter()
+                        .map(|person| yapfast_plugin_api::call::RelationView {
+                            id: person.user_id.clone(),
+                            name: person.name.clone(),
+                            username: None,
+                            avatar: person.avatar.clone(),
+                        })
+                        .collect()
+                };
+                listed(people)
+            }
             PluginAsk::FavouriteGifs => match discord.favorite_gifs().await {
                 Ok(mut favourites) => {
                     favourites.sort_by_key(|favourite| favourite.order);
