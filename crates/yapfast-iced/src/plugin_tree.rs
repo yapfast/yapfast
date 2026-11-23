@@ -681,7 +681,11 @@ fn picture_at<'a, M: Clone + 'a>(
         });
         let hovers = !cell.hover_src.is_empty() || cell.hover_crop.is_some();
         if hovers && let Some(over) = drawn(paint, cell, hover_src, hover_crop, (width, height)) {
-            return iced::widget::hover(shown, over);
+            // The hover picture replaces the first, never lies over it: a
+            // sprite's clear pixels would show both frames at once.
+            return Element::new(Swap {
+                parts: [shown, over],
+            });
         }
         return shown;
     }
@@ -1365,5 +1369,135 @@ mod tests {
         let red = parse_colour("#ff0000").unwrap();
         assert_eq!(hex(red), "#ff0000");
         assert_eq!(argb(red), Color::from_rgb8(255, 0, 0));
+    }
+}
+
+/// Two pictures in one place, only one of them drawn: the second while the
+/// pointer is over it, the first otherwise. `iced::widget::hover` draws the
+/// second over the first, which shows both where the second is clear.
+struct Swap<'a, M> {
+    parts: [Element<'a, M>; 2],
+}
+
+/// Whether the pointer was over a [`Swap`] when it last looked.
+#[derive(Default)]
+struct Pointed(bool);
+
+/// Which of a swap's two parts is drawn.
+fn swap_shown(pointed: bool) -> usize {
+    usize::from(pointed)
+}
+
+impl<M> iced::advanced::Widget<M, iced::Theme, iced::Renderer> for Swap<'_, M> {
+    fn size(&self) -> iced::Size<Length> {
+        self.parts[0].as_widget().size()
+    }
+
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<Pointed>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(Pointed::default())
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.parts
+            .iter()
+            .map(iced::advanced::widget::Tree::new)
+            .collect()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(&self.parts);
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &iced::Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        let [first, second] = &mut self.parts;
+        let first = first
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits);
+        // The second takes the first's room, so the swap never moves a thing.
+        let room = iced::advanced::layout::Limits::new(iced::Size::ZERO, first.size());
+        let second = second
+            .as_widget_mut()
+            .layout(&mut tree.children[1], renderer, &room);
+        iced::advanced::layout::Node::with_children(first.size(), vec![first, second])
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::mouse::Cursor,
+        _renderer: &iced::Renderer,
+        _clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, M>,
+        _viewport: &iced::Rectangle,
+    ) {
+        if let iced::Event::Mouse(_) = event {
+            let pointed = cursor.is_over(layout.bounds());
+            let state = tree.state.downcast_mut::<Pointed>();
+            if state.0 != pointed {
+                state.0 = pointed;
+                shell.request_redraw();
+            }
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+    ) {
+        let shown = swap_shown(cursor.is_over(layout.bounds()));
+        if let Some(part) = layout.children().nth(shown) {
+            self.parts[shown].as_widget().draw(
+                &tree.children[shown],
+                renderer,
+                theme,
+                style,
+                part,
+                cursor,
+                viewport,
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod swap_tests {
+    use super::*;
+
+    #[test]
+    fn a_hover_picture_replaces_the_first_rather_than_lying_over_it() {
+        assert_eq!(swap_shown(false), 0, "the first while not pointed at");
+        assert_eq!(swap_shown(true), 1, "only the second while pointed at");
+    }
+
+    #[test]
+    fn a_swap_takes_the_first_pictures_size() {
+        let swap: Swap<'_, ()> = Swap {
+            parts: [
+                Space::new().width(40).height(30).into(),
+                Space::new().width(90).height(90).into(),
+            ],
+        };
+        let size = iced::advanced::Widget::<(), iced::Theme, iced::Renderer>::size(&swap);
+        assert_eq!(
+            size,
+            iced::Size::new(Length::Fixed(40.0), Length::Fixed(30.0))
+        );
     }
 }
