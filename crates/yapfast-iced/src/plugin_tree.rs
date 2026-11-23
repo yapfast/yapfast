@@ -851,7 +851,10 @@ fn item<'a, M: Clone + 'a>(
     let mut line = row![]
         .spacing(if compact { 8 } else { 12 })
         .align_y(Alignment::Center);
-    if !cell.src.is_empty() {
+    // A row given a picture size keeps its picture's box even without one
+    // (its name's initial), so a list of servers with and without icons
+    // lines up.
+    if !cell.src.is_empty() || cell.width.is_some() {
         let shown = drawn(paint, cell, &cell.src, cell.crop, (side, side))
             .unwrap_or_else(|| initial(theme, cell, side));
         // `hover_src`: the picture shown large while the pointer rests on
