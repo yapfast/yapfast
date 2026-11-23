@@ -246,7 +246,13 @@ fn rows_view<'a, M: Clone + 'a>(
 fn wide(kind: Kind) -> bool {
     matches!(
         kind,
-        Kind::Tabs | Kind::Section | Kind::Grid | Kind::Table | Kind::Textarea | Kind::List
+        Kind::Tabs
+            | Kind::Section
+            | Kind::Grid
+            | Kind::Table
+            | Kind::Textarea
+            | Kind::List
+            | Kind::Setting
     )
 }
 
@@ -388,6 +394,16 @@ fn cell_body<'a, M: Clone + 'a>(
             ),
         },
         Kind::Link => link_words(theme, cell, cell.enabled.then(|| set(cell.id.clone()))),
+        Kind::Toggle if !cell.description.is_empty() => {
+            // Settings' own switch: the label, what it does under it, the
+            // toggle at the end, and a click anywhere on it flips it.
+            let checked = paint.local.checked(cell);
+            let flip = set(if checked { "false" } else { "true" }.to_owned());
+            form::switch(cell.text.as_str(), checked, cell.enabled.then_some(flip))
+                .description(cell.description.as_str())
+                .view(paint.look)
+        }
+        Kind::Setting => setting(paint, cell, message),
         Kind::Toggle => {
             let checked = paint.local.checked(cell);
             let on = Some(set(if checked { "false" } else { "true" }.to_owned()));
@@ -618,6 +634,71 @@ fn cell_body<'a, M: Clone + 'a>(
             grid.into()
         }
     }
+}
+
+/// A setting's row: its label (15 px) and what it does under it (13 px,
+/// muted) taking the room there is, and its controls at the end, centred
+/// against the words, a button among them drawn small, as Settings' rows
+/// put theirs.
+fn setting<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    cell: &'a Cell,
+    message: &Sender<'a, M>,
+) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    let mut words = column![
+        text(cell.text.clone())
+            .size(15)
+            .color(if cell.enabled {
+                theme.text
+            } else {
+                theme.muted
+            })
+            .wrapping(text::Wrapping::WordOrGlyph)
+    ]
+    .spacing(4)
+    .width(Length::Fill);
+    if !cell.description.is_empty() {
+        words = words.push(form::note(theme, cell.description.clone()));
+    }
+    let mut controls = row![].spacing(8).align_y(Alignment::Center);
+    for inner in &cell.cells {
+        controls = controls.push(trailing(paint, inner, message));
+    }
+    row![words, controls]
+        .spacing(16)
+        .align_y(Alignment::Center)
+        .width(Length::Fill)
+        .into()
+}
+
+/// A control at a row's end: a button there is drawn small.
+fn trailing<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    cell: &'a Cell,
+    message: &Sender<'a, M>,
+) -> Element<'a, M> {
+    if cell.kind == Kind::Button && kit_icon(&cell.icon).is_none() {
+        let message = message.clone();
+        let id = cell.id.clone();
+        let press = cell.enabled.then(|| {
+            message(Act::Set {
+                id: id.clone(),
+                value: id,
+            })
+        });
+        let drawn = action_button(paint.look.theme, cell, true, press);
+        if cell.tooltip.is_empty() {
+            return drawn;
+        }
+        return tooltip(
+            drawn,
+            controls::tip(paint.look.theme, cell.tooltip.as_str()),
+            tooltip::Position::Top,
+        )
+        .into();
+    }
+    cell_view(paint, cell, message)
 }
 
 /// A button in its face ([`Variant`]), small when `small` says: the kit's

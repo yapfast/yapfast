@@ -1111,6 +1111,9 @@ pub enum Kind {
     Caption,
     /// A dialog's or a page's title, larger than a heading.
     Title,
+    /// A setting's row, as Settings draws one: `text` with `description`
+    /// under it at the start, and `cells` (its controls) at the end.
+    Setting,
     Muted,
     Code,
     Badge,
@@ -1182,7 +1185,15 @@ impl Kind {
 
     /// It holds other rows or cells.
     pub const fn container(self) -> bool {
-        matches!(self, Self::Tabs | Self::Section | Self::Grid)
+        matches!(
+            self,
+            Self::Tabs | Self::Section | Self::Grid | Self::Setting
+        )
+    }
+
+    /// It holds cells of its own (`cells`).
+    pub const fn holds_cells(self) -> bool {
+        matches!(self, Self::Grid | Self::Setting)
     }
 }
 
@@ -1330,6 +1341,10 @@ pub struct Cell {
     /// Markdown for text, a label for a control.
     #[serde(default)]
     pub text: String,
+    /// What a setting's row, a toggle or a list's row says under its label:
+    /// plain words in the muted ink.
+    #[serde(default)]
+    pub description: String,
     #[serde(default)]
     pub tone: Tone,
     /// An input's text, a select's chosen option, a slider's or a progress
@@ -1512,6 +1527,7 @@ impl Default for Cell {
             kind: Kind::Text,
             id: String::new(),
             text: String::new(),
+            description: String::new(),
             tone: Tone::Normal,
             value: String::new(),
             checked: false,
@@ -1675,6 +1691,7 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
     // Words that hide themselves or turn a line around are taken out, not
     // refused: a tree is a plugin's drawing, not its name.
     cell.text = words(&cell.text);
+    cell.description = words(&cell.description);
     cell.value = words(&cell.value);
     cell.tooltip = line(&cell.tooltip, TOOLTIP_CHARS);
     if !ICONS.contains(&cell.icon.as_str()) {
@@ -1716,7 +1733,7 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
     if cell.kind != Kind::Section {
         cell.rows.clear();
     }
-    if cell.kind != Kind::Grid {
+    if !cell.kind.holds_cells() {
         cell.cells.clear();
     }
     if cell.kind != Kind::Tabs {
@@ -1731,6 +1748,14 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
     }
     match cell.kind {
         Kind::Section => check_rows(&mut cell.rows, depth + 1, most)?,
+        Kind::Setting => {
+            if depth + 1 > most {
+                return Err(format!("its containers nest deeper than {most} levels"));
+            }
+            for inner in &mut cell.cells {
+                check_cell(inner, depth + 1, most)?;
+            }
+        }
         Kind::Grid => {
             if depth + 1 > most {
                 return Err(format!("its containers nest deeper than {most} levels"));
@@ -2262,6 +2287,32 @@ mod tests {
         let kinds: Vec<Kind> = tree.rows[0].cells.iter().map(|cell| cell.kind).collect();
         assert_eq!(kinds, [Kind::Title, Kind::Caption]);
         assert!(!Kind::Caption.interactive() && !Kind::Title.container());
+    }
+
+    #[test]
+    fn a_setting_row_holds_its_controls() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "setting", "text": "Sound", "description": "Plays when it starts.",
+                  "cells": [{ "kind": "toggle", "id": "sound", "checked": true }] },
+                { "kind": "text", "text": "Hi", "description": "kept", "cells": [{ "kind": "text" }] }
+            ] }] }"#,
+        )
+        .unwrap();
+        let setting = &tree.rows[0].cells[0];
+        assert_eq!(setting.description, "Plays when it starts.");
+        assert_eq!(setting.cells.len(), 1);
+        assert!(
+            tree.rows[0].cells[1].cells.is_empty(),
+            "only a container holds cells"
+        );
+        assert!(
+            Tree::parse(
+                r#"{ "rows": [{ "cells": [{ "kind": "setting", "cells": [{ "kind": "toggle" }] }] }] }"#
+            )
+            .is_err(),
+            "its controls need ids"
+        );
     }
 
     #[test]

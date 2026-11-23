@@ -279,7 +279,8 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `settings_form` | The manifest's settings form, drawn and saved as the plugin's page draws it, where this row is: only on the plugin's own settings page (`settings.page`), nothing anywhere else | `options`: the settings' keys it shows, every shown one when empty |
 | `tile` | A picture over its label in one card of a fixed width (96 px unless `width`), so a grid of them lines up; a button when it has an `id` | `src`, `text`, `id`, and the picture fields below |
 | `button`, `link` | A button, or a link's words | `id`, `text`, `enabled`, and a button's `icon`, `variant` and `small` |
-| `toggle` | The kit's switch, its label before it | `id`, `text`, `checked` |
+| `toggle` | The kit's switch, its label before it; with a `description`, Settings' own switch row: the label, the description under it, the switch at the row's end, and a click anywhere on the row flips it | `id`, `text`, `checked`, `description` |
+| `setting` | A setting's row as Settings draws one: `text` (15 px) with `description` (13 px, muted) under it at the start, and its `cells`, the controls, at the end, a button among them drawn small | `text`, `description`, `cells` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
 | `dropdown` | The kit's drop-down, its label over it | `id`, `text`, `options`, `value` |
 | `input` | A one-line field | `id`, `text` (its placeholder), `value` |
