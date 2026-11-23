@@ -196,6 +196,13 @@ impl yapfast_iced::Desktop for Shell {
         watch_wayland_drops(window, tell);
     }
 
+    #[cfg(windows)]
+    fn taskbar_unread(&self, window: &dyn yapfast_iced::Window, unread: u8) {
+        if let Some(hwnd) = win32(window) {
+            crate::icon::set_taskbar(hwnd, unread);
+        }
+    }
+
     fn window_place(&self, window: &dyn yapfast_iced::Window) -> Option<[i32; 2]> {
         #[cfg(windows)]
         {
@@ -252,11 +259,18 @@ impl yapfast_iced::Desktop for Shell {
     }
 
     #[cfg(windows)]
-    fn set_window_icon(&self, window: &dyn yapfast_iced::Window, root: &Path, choice: &IconChoice) {
+    fn set_window_icon(
+        &self,
+        window: &dyn yapfast_iced::Window,
+        root: &Path,
+        choice: &IconChoice,
+        unread: u8,
+    ) {
         if let Some(window) = win32(window) {
             crate::icon::set_on(
                 window,
                 &Artwork::load(root, IconTarget::Application, choice),
+                unread,
             );
         }
     }

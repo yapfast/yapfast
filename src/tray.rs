@@ -87,6 +87,41 @@ impl Tray {
     }
 }
 
+/// Yapfast's logo with the Windows taskbar count cut into its corner.
+#[cfg(windows)]
+pub(crate) fn taskbar_badge(size: u32, count: u8) -> Option<crate::icon::Rgba> {
+    let svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg").replacen(
+        r##"fill="#fff" mask"##,
+        r##"fill="#ffbf47" mask"##,
+        1,
+    );
+    // Stroked digits stay readable at small sizes and need no font.
+    const DIGITS: [&str; 9] = [
+        "M2 4L7 0V16M3 16H11",
+        "M1 4Q1 0 6 0Q11 0 11 5Q11 8 1 16H11",
+        "M1 2Q3 0 6 0Q11 0 11 4Q11 8 6 8Q11 8 11 12Q11 16 6 16Q2 16 1 14",
+        "M8 0L1 11H11M8 0V16",
+        "M11 0H2L1 8Q11 5 11 12Q11 16 6 16Q2 16 1 14",
+        "M10 1Q1 -2 1 10Q1 16 6 16Q11 16 11 11Q11 7 6 7Q3 7 1 10",
+        "M1 0H11L4 16",
+        "M6 8C-1 8 -1 0 6 0S13 8 6 8C-1 8 -1 16 6 16S13 8 6 8Z",
+        "M2 15Q11 19 11 6Q11 0 6 0Q1 0 1 5Q1 10 6 10Q9 10 11 7",
+    ];
+    let digit = DIGITS[usize::from(count.min(9) - 1)];
+    let (left, x, plus) = if count > 9 {
+        (47, 52.0, "M16 8H27M21.5 2.5V13.5")
+    } else {
+        (57, 66.5, "")
+    };
+    let badge = format!(
+        r#"<rect x="{left}" y="12" width="{}" height="31" rx="15.5""#,
+        90 - left
+    );
+    let svg = svg.replacen("</mask>", &format!(r##"{badge} stroke="#000" stroke-width="6"/></mask>"##), 1)
+        .replacen("</svg>", &format!(r##"{badge} fill="#d12c43"/><path transform="translate({x} 18) scale(1.18)" d="{digit}{plus}" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"##), 1);
+    crate::icon::rasterize(svg.as_bytes(), size)
+}
+
 #[cfg(target_os = "linux")]
 use linux as platform;
 #[cfg(not(any(target_os = "linux", windows)))]

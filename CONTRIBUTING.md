@@ -132,15 +132,16 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
 toolchain in `rust-toolchain.toml`. Strict Clippy and workspace tests run in
-parallel, each with its own cache. The formatting job (prek, including rustfmt)
-and dependency job (cargo-audit and cargo-machete) are temporarily commented out
+parallel, each with its own cache, and the tests job then runs
+`scripts/test-fake-discord`. The formatting job (prek, including rustfmt) and
+dependency job (cargo-audit and cargo-machete) are temporarily commented out
 until the dependency-update and formatting-baseline PRs are merged. The disabled
 audit command excludes the SQLite advisory `RUSTSEC-2026-0459`.
 
 CI also runs on pushes to `main` and can be started manually; documentation-only
 and listed media-only changes do not trigger automatic runs. Documentation links
 are checked locally by `scripts/check-doc-links`, not by the current workflow.
-Run the Matrix and fake Discord checks above locally when your change needs them.
+Run the Matrix checks above locally when your change needs them.
 
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.

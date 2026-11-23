@@ -61,6 +61,27 @@ pub use open_channel::{Load, OpenChannel};
 
 /// Discord's message length limit without Nitro, in characters.
 pub const MAX_CHARS: usize = 2000;
+
+/// The longest message the linked account may send, in characters, by its
+/// Nitro; see [`yapfast_discord::api::message_limit`].
+fn max_chars(discord: &Discord) -> usize {
+    let premium = discord
+        .snapshots()
+        .borrow()
+        .account
+        .as_ref()
+        .map_or(0, |account| account.premium_type);
+    yapfast_discord::api::message_limit(premium)
+}
+
+/// Why a message can't go: it's empty or over `limit` characters.
+fn too_long(limit: usize) -> &'static str {
+    if limit > MAX_CHARS {
+        "Discord messages must contain text and be at most 4,000 characters."
+    } else {
+        "Discord messages must contain text and be at most 2,000 characters."
+    }
+}
 /// How long someone shows as typing after Discord says they started.
 const TYPING: Duration = Duration::from_secs(10);
 /// How often Discord hears that this account is still typing.

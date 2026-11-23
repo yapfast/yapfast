@@ -20,6 +20,8 @@ pub const PREVIEW_HEIGHT: u32 = 400;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
+/// How many of a channel's newest messages peeking at it shows.
+pub const PEEK_MESSAGES: usize = 6;
 /// The image viewer shows pictures up to this size, so a full-size photo
 /// costs at most about 9 MiB while it's open.
 pub const VIEW_WIDTH: u32 = 1920;
@@ -2049,7 +2051,7 @@ pub struct ChatMessage {
     /// From someone this account ignored: it shows collapsed until revealed.
     pub ignored: bool,
     /// Mentions this account or a group it's in, other than as a reply to
-    /// its message. The timeline highlights it.
+    /// its message, or is its own naming it. The timeline highlights it.
     pub mentions_me: bool,
     /// Replies to this account's message, which the timeline highlights
     /// while it's new; see [`Self::highlighted`].
@@ -2976,6 +2978,13 @@ pub enum DiscordCommand {
     /// A Discord DM's or server channel's pinned messages; [`Event::Pins`]
     /// follows.
     Pins {
+        room: String,
+    },
+    /// A Discord DM's or channel's newest [`PEEK_MESSAGES`], to peek at
+    /// without opening or reading it; [`Event::Peeked`] follows. A channel
+    /// kept in memory and up to date answers from there; any other is asked
+    /// for that many once, and nothing of them is kept.
+    Peek {
         room: String,
     },
     /// A page of a Discord server channel's threads, by its room id, as its
@@ -4248,6 +4257,14 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// Someone's presence in the server their open profile is from, which
+    /// Discord answers apart from the profile.
+    ProfilePresence {
+        user: String,
+        presence: Presence,
+        activity: Option<String>,
+        activities: Activities,
+    },
     /// The layers of the frame of `user`'s profile, which the shop
     /// described after [`Event::Profile`] came.
     ProfileFrame {
@@ -4351,6 +4368,12 @@ pub enum Event {
     JoinSoundSet(Result<(), String>),
     /// [`DiscordCommand::Unlink`] forgot the account.
     DiscordUnlinked,
+    /// [`DiscordCommand::Peek`]'s messages, oldest first, or why they didn't
+    /// come.
+    Peeked {
+        room: String,
+        result: Result<Vec<ChatMessage>, String>,
+    },
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {

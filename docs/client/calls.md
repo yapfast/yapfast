@@ -16,7 +16,15 @@ The call's views and what they do are in `call/`.
   decoding and the large tile fills the stage's height; the pill then sits
   just over the controls (Show Members) to bring it back. Each voice
   channel keeps its choice while Yapfast runs, through leaving and joining
-  again, as Discord's client keeps it. The tiles scroll when there are more than fit. Each tile is a
+  again, as Discord's client keeps it. The stage takes the height left
+  between the line over it and the controls, laid out where it is drawn
+  (`responsive`), so a banner over the call (the preview's line, a notice)
+  never pushes the tiles under the controls; the size it last had is kept
+  (`Call::stage_seen`) for placing the cameras' frames. Everyone fits while
+  tiles stay 120 px wide, and the tiles scroll past that. On a tile under
+  200 px tall the avatar sits above the name's chip, where its neighbours'
+  do, and Watch stream goes on the chip's line opposite it, or as its eye
+  icon alone where both don't fit. Each tile is a
   `tile::Tile`: a camera, a stream or the avatar (a camera shows the
   avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream

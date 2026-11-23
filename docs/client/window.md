@@ -113,6 +113,11 @@ own, which a stream hands to the event loop as messages; nothing polls.
   flashes and a notification shows, as the settings allow. A click on the
   notification opens its conversation, closing Settings, and brings the
   window back.
+  On Windows the taskbar icon counts the mentions and unread DMs that
+  trigger the tray dot. It shows 1–9, or 9+ for ten or more. An unread
+  unmuted DM with no message count contributes one. While the count is
+  visible, the taskbar uses Yapfast's badged logo. The chosen app icon stays
+  in the title bar and returns to the taskbar when the count clears.
 - A later start of Yapfast on the same data folder hands over to the
   running one and ends: the window comes forward with that start's token,
   and a Discord link it brought (a `LINK` on its command line, or a
@@ -132,7 +137,12 @@ own, which a stream hands to the event loop as messages; nothing polls.
   glyphs in 32 px boxes), and minimize,
   maximize and close, drawn as 10 px strokes the way Discord's frame draws
   them; its ground moves the window after a 3 px drag and a
-  double click maximizes it, and its edges resize it. It goes while the
+  double click maximizes it, and its edges resize it. Under the system's
+  title bar, or where the desktop draws none at all (Hyprland, sway), the
+  bar still shows, as Discord's client always has one, with Back, Forward,
+  the place, Inbox and Help but without the window's buttons, and it
+  neither moves nor resizes the window (`Shell::bar_under_frame`; the tests
+  lay the window out without it unless one asks). It goes while the
   window or a video is full screen. The content under it is laid out in
   the room below (`widgets::Below`), so overlays placed by the layout's
   sums or at the pointer needn't know it's there, and `App::window` is

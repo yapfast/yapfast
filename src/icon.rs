@@ -275,25 +275,27 @@ impl Drop for NativeIcon {
     }
 }
 
+#[cfg(windows)]
+type WindowIcons = [NativeIcon; 2];
+#[cfg(windows)]
+const ICON_PROPERTY: windows_sys::core::PCWSTR = windows_sys::w!("YapfastWindowIcons");
+
 /// Gives the running window its own icons at the Windows title bar and
 /// taskbar sizes. The window owns both until they are replaced or it closes.
 #[cfg(windows)]
-pub fn set_on(window: windows_sys::Win32::Foundation::HWND, artwork: &Artwork) {
+pub fn set_on(window: windows_sys::Win32::Foundation::HWND, artwork: &Artwork, unread: u8) {
     use windows_sys::Win32::{
         Foundation::{HWND, LPARAM, LRESULT, WPARAM},
         UI::{
             Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
-                GetPropW, GetSystemMetrics, ICON_BIG, ICON_SMALL, RemovePropW, SM_CXICON,
-                SM_CXSMICON, SendMessageW, SetPropW, WM_NCDESTROY, WM_SETICON,
+                GetPropW, GetSystemMetrics, ICON_SMALL, RemovePropW, SM_CXICON, SM_CXSMICON,
+                SendMessageW, SetPropW, WM_NCDESTROY, WM_SETICON,
             },
         },
     };
 
-    type WindowIcons = [NativeIcon; 2];
     const SUBCLASS_ID: usize = 0;
-    // GetWindowSubclass needs version 6 of the common controls in the manifest.
-    const ICON_PROPERTY: windows_sys::core::PCWSTR = windows_sys::w!("YapfastWindowIcons");
 
     unsafe extern "system" fn dispose(
         window: HWND,
@@ -332,7 +334,7 @@ pub fn set_on(window: windows_sys::Win32::Foundation::HWND, artwork: &Artwork) {
     let (Some(small), Some(big)) = (load(SM_CXSMICON), load(SM_CXICON)) else {
         return;
     };
-    let handles = [small.0, big.0];
+    let small_handle = small.0;
     let icons = Box::into_raw(Box::new([small, big]));
     // SAFETY: the caller owns the live window on this thread. The subclass
     // releases its icon property on destruction. Only the previous box can
@@ -345,12 +347,51 @@ pub fn set_on(window: windows_sys::Win32::Foundation::HWND, artwork: &Artwork) {
             drop(Box::from_raw(icons));
             return;
         }
-        for (which, handle) in [ICON_SMALL, ICON_BIG].into_iter().zip(handles) {
-            SendMessageW(window, WM_SETICON, which as usize, handle as isize);
-        }
+        SendMessageW(
+            window,
+            WM_SETICON,
+            ICON_SMALL as usize,
+            small_handle as isize,
+        );
+        set_taskbar(window, unread);
         if !previous.is_null() {
             drop(Box::from_raw(previous));
         }
+    }
+}
+
+#[cfg(windows)]
+pub fn set_taskbar(window: windows_sys::Win32::Foundation::HWND, unread: u8) {
+    use std::{mem::ManuallyDrop, sync::OnceLock};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetPropW, GetSystemMetrics, ICON_BIG, SM_CXICON, SendMessageW, WM_SETICON,
+    };
+
+    static BADGES: [OnceLock<isize>; 10] = [const { OnceLock::new() }; 10];
+    // SAFETY: calls for this window run on its owning thread. Its icon
+    // property, when present, is the box installed by set_on.
+    let base = unsafe {
+        GetPropW(window, ICON_PROPERTY)
+            .cast::<WindowIcons>()
+            .as_ref()
+    }
+    .map_or(0, |icons| icons[1].0 as isize);
+    let icon = if unread == 0 {
+        base
+    } else {
+        let badge = *BADGES[usize::from(unread.min(10) - 1)].get_or_init(|| {
+            // SAFETY: the metric has no pointer arguments.
+            let size = unsafe { GetSystemMetrics(SM_CXICON) }.clamp(16, ICON_SIZE as i32);
+            crate::tray::taskbar_badge(size as u32, unread)
+                .and_then(NativeIcon::from_rgba)
+                .map_or(0, |icon| ManuallyDrop::new(icon).0 as isize)
+        });
+        if badge == 0 { base } else { badge }
+    };
+    if icon != 0 {
+        // SAFETY: the window is live and the icon is owned by its property
+        // or held in the process-lifetime badge cache.
+        unsafe { SendMessageW(window, WM_SETICON, ICON_BIG as usize, icon) };
     }
 }
 

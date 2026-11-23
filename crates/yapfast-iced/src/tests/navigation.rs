@@ -1,5 +1,6 @@
 //! The rail and the sidebar: servers, folders and DMs opening, their
-//! unread marks, categories folding and the DMs' search.
+//! unread marks, categories folding, and the DMs' search or, with its
+//! setting, Find or start a conversation.
 
 use std::sync::Arc;
 
@@ -173,6 +174,23 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
 }
 
 #[test]
+fn a_middle_click_on_a_server_marks_it_read() {
+    // A Discord server whose #general mentions her.
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    let _ = app.update(Message::Rail(crate::rail::Event::MarkRead(
+        "discord:10".into(),
+    )));
+    let marked: Vec<String> = std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            yapfast_core::chat::Command::MarkRead { room, .. } => Some(room),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(marked, ["discord:10:11"], "its unread channel is read");
+}
+
+#[test]
 fn a_server_on_the_rail_opens_its_channels() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
@@ -243,6 +261,8 @@ fn opening_an_unread_channel_clears_its_mark() {
 fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!app.layout.dm_search_switcher, "the filter by default");
+    assert!(!shows(&app, "Find or start a conversation"));
     assert!(shows(&app, "Sam") && shows(&app, "Friday crew"));
     let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
     assert!(shows(&app, "Friday crew"));
@@ -253,6 +273,20 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     assert!(shows(&app, "looking-for-group"), "the server's channels");
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
     assert!(shows(&app, "Riley"), "every DM again");
+}
+
+#[test]
+fn with_its_setting_the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
+    let (mut app, _folder) = preview();
+    app.layout.dm_search_switcher = true;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(shows(&app, "Find or start a conversation"));
+    interact(&mut app, |ui| {
+        ui.click("Find or start a conversation")
+            .expect("the button");
+    });
+    assert!(app.client.state().switcher.is_some(), "the quick switcher");
+    assert!(shows(&app, "Where would you like to go?"));
 }
 
 #[test]
@@ -688,6 +722,35 @@ fn voice_server(app: &mut App) {
     });
 }
 
+/// A voice channel hidden from this account, listed with Show channels you
+/// can't access, shows who is in it under its lock, as other voice channels
+/// do, and a click on it joins nothing.
+#[test]
+fn a_hidden_voice_channel_lists_who_is_in_it_and_joins_nothing() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    change(&mut app, |state| {
+        let staff = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "staff")
+            .expect("staff");
+        let staff = Arc::make_mut(staff);
+        staff.name = "No Access".into();
+        staff.people[0].name = "Hana".into();
+        staff.people[0].deafened = true;
+    });
+    assert!(shows(&app, "No Access"));
+    assert!(shows(&app, "Hana"), "who is in it shows under it");
+    interact(&mut app, |ui| {
+        ui.click("No Access").expect("the hidden channel");
+    });
+    let _ = app.sync();
+    let state = app.client.state();
+    assert_eq!(state.voice.room, None, "it can't be joined");
+    assert!(!state.voice.active());
+}
+
 #[test]
 fn a_server_with_people_in_voice_shows_a_speaker_as_discords_list_does() {
     use crate::rail::Media;
@@ -950,4 +1013,43 @@ fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
             "slot {index} picture at ({cx}, {cy}) should be green, got [{r}, {g}, {b}]"
         );
     }
+}
+
+#[test]
+fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
+    use crate::{peek, sidebar};
+    let (mut app, _folder) = preview();
+    let open = app.client.state().selected.clone();
+    assert_ne!(open.as_deref(), Some("games"));
+    let hold = |app: &mut App, alt: bool| {
+        let modifiers = if alt {
+            iced::keyboard::Modifiers::ALT
+        } else {
+            iced::keyboard::Modifiers::default()
+        };
+        let _ = app.update(Message::Modifiers(modifiers));
+    };
+    let _ = app.update(Message::Side(sidebar::Event::Point("games".into(), true)));
+    hold(&mut app, true);
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none(), "off, Alt does nothing");
+    hold(&mut app, false);
+
+    app.layout.peek_channels = true;
+    hold(&mut app, true);
+    assert!(app.peek.wanted.is_some(), "the row under the pointer");
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_some());
+    assert!(!app.peek.found.is_empty(), "its messages' cards");
+    assert!(shows(&app, "#games"), "beside the list");
+    assert_eq!(app.client.state().selected, open, "the open channel stays");
+    // Ctrl and Alt together don't peek; letting go closes it.
+    let _ = app.update(Message::Modifiers(
+        iced::keyboard::Modifiers::ALT | iced::keyboard::Modifiers::CTRL,
+    ));
+    assert!(app.client.state().peek.is_none());
+    assert!(app.peek.found.is_empty(), "its cards go with it");
+    // A late timer for a row left asks for nothing.
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none());
 }
