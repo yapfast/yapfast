@@ -24,8 +24,9 @@ disabled until the dependency-update and formatting-baseline PRs are merged.
 
 For automatic checks of staged files, run
 `prek install`. If you previously installed hooks with pre-commit, replace them
-with `prek install -f`. If you use `core.hooksPath=.githooks`, the existing hook
-calls prek directly instead; no installation is needed.
+with `prek install -f`. The hook in `.githooks`, enabled with
+`git config core.hooksPath .githooks`, does not need prek: it only checks Rust
+formatting, inside the Nix shell.
 
 Tools are pinned in `prek.toml`; prek installs their isolated environments on
 the first run for Ruff and clang-format. Other text and syntax checks are built

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Lint staged files; scripts/check --fast covers compilation and tests.
+# Formatting only, so commits stay quick; scripts/check --fast covers the rest.
 # Enable with: git config core.hooksPath .githooks
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-exec prek run --stage pre-commit "$@"
+if [[ -z "${IN_NIX_SHELL:-}" ]]; then
+  exec nix develop path:./nix --command "$0" "$@"
+fi
+cargo fmt --all -- --check || {
+  echo "Formatting differs; run cargo fmt --all inside nix develop path:./nix." >&2
+  exit 1
+}
