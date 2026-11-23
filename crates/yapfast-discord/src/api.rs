@@ -172,12 +172,12 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
 
 /// The longest message this account may send or edit to, in characters, by
 /// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
-/// Nitro or Nitro Classic, as Discord's client allows from its first paid
-/// tier up; 2,000 without, or with Nitro Basic, which doesn't include
-/// longer messages.
+/// Nitro (2) alone, whose perks are the only ones in Discord's client with
+/// `INCREASED_MESSAGE_LENGTH`; 2,000 without, or with Nitro Classic (1) or
+/// Nitro Basic (3).
 pub fn message_limit(premium_type: u8) -> usize {
     match premium_type {
-        1 | 2 => 4000,
+        2 => 4000,
         _ => 2000,
     }
 }
@@ -2881,7 +2881,7 @@ mod tests {
         use super::message_limit;
         assert_eq!(message_limit(0), 2000, "without Nitro");
         assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
-        assert_eq!(message_limit(1), 4000, "Nitro Classic");
+        assert_eq!(message_limit(1), 2000, "nor has Nitro Classic");
         assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
