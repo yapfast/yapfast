@@ -10,7 +10,7 @@ use yapfast_core::chat::{self, Attachment, ChatMessage, Placement};
 use crate::{
     app::Message,
     controls::placed,
-    fonts::{BOLD, MEDIUM},
+    fonts::{BOLD, MEDIUM, REGULAR},
     media::{self, Fit, Gallery, Shot},
     pictures::Icon,
     style::rounded,
@@ -91,11 +91,48 @@ fn cells<'a>(
     for &(at, cell) in &gallery.cells {
         let attachment = &message.attachments[at];
         let covered = covered(ctx, message, at);
-        let shot = ctx.shot(
-            Shot::new(attachment.preview.as_ref(), cell.size())
-                .radius(CELL_RADIUS)
-                .covered(covered),
-        );
+        // A picture smaller than its tile shows at its own size, centred,
+        // not blown up to the tile, as Discord's (a 48 px icon among
+        // photos).
+        let natural = attachment
+            .dimensions
+            .map(|(width, height)| Size::new(width as f32, height as f32))
+            .or_else(|| {
+                attachment
+                    .preview
+                    .as_ref()
+                    .map(|picture| Size::new(picture.width as f32, picture.height as f32))
+            })
+            .filter(|natural| {
+                gallery.cells.len() > 1
+                    && natural.width >= 1.0
+                    && natural.height >= 1.0
+                    && natural.width < cell.width
+                    && natural.height < cell.height
+            });
+        let shot = match natural {
+            Some(natural) => {
+                let ground = ctx.look.theme.raised;
+                container(
+                    ctx.shot(
+                        Shot::new(attachment.preview.as_ref(), natural)
+                            .fit(media::Fit::Contain)
+                            .covered(covered),
+                    ),
+                )
+                .width(cell.width)
+                .height(cell.height)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center)
+                .style(move |_| crate::style::rounded(ground, CELL_RADIUS))
+                .into()
+            }
+            None => ctx.shot(
+                Shot::new(attachment.preview.as_ref(), cell.size())
+                    .radius(CELL_RADIUS)
+                    .covered(covered),
+            ),
+        };
         let mut shot: Element<'a, Message> = if covered {
             pressed(ctx, index, message, at, shot)
         } else if attachment.video && !media::loading(attachment) && !ctx.state.preview {
@@ -326,12 +363,18 @@ pub fn file_card<'a>(
     };
     let mut words = column![
         text(attachment.name.as_str())
-            .font(MEDIUM)
+            .size(theme.type_size("body", 14.0))
+            .font(theme.font("body", MEDIUM))
             .color(theme.text)
             .wrapping(text::Wrapping::None)
     ];
     if !detail.is_empty() {
-        words = words.push(text(detail).size(12).color(theme.muted));
+        words = words.push(
+            text(detail)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", REGULAR))
+                .color(theme.muted),
+        );
     }
     let card = row![
         ctx.look.glyph(Icon::File, FILE_ICON, theme.accent),

@@ -42,6 +42,46 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     app
 }
 
+/// The preview under an installed theme whose dark variant is `variant`
+/// over Yap, with `files` in its package.
+pub(super) fn themed(
+    variant: serde_json::Value,
+    files: &[(&str, &[u8])],
+) -> (App, tempfile::TempDir) {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let source = folder.path().join("variant-theme");
+    std::fs::create_dir_all(&source).expect("theme source");
+    let mut variant = variant;
+    variant["base"] = "yap".into();
+    let manifest = serde_json::json!({
+        "theme_api": 1,
+        "id": "dev.example.variant",
+        "name": "Variant",
+        "version": "1.0.0",
+        "variants": { "dark": variant }
+    });
+    std::fs::write(
+        source.join(yapfast_core::themes::MANIFEST),
+        serde_json::to_vec(&manifest).expect("manifest JSON"),
+    )
+    .expect("theme manifest");
+    for (name, bytes) in files {
+        std::fs::write(source.join(name), bytes).expect("theme file");
+    }
+    let fetched = yapfast_core::themes::install::Fetched::local(&source).expect("local package");
+    yapfast_core::themes::install::Themes::open(folder.path())
+        .install(&fetched)
+        .expect("installed package");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        br#"{"theme":"installed:dev.example.variant"}"#,
+    )
+    .expect("chosen theme");
+    let mut app = start(&folder, true);
+    let _ = app.sync();
+    (app, folder)
+}
+
 /// The window's fonts, once per test run.
 pub(crate) fn install_fonts() {
     static FONTS: Once = Once::new();
@@ -370,6 +410,7 @@ mod shell;
 mod signin;
 mod threads;
 mod timeline;
+mod tree;
 mod widgets;
 mod writing;
 

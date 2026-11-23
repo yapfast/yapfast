@@ -19,7 +19,7 @@ use crate::{
 pub(super) const GAME_NAME: usize = 128;
 
 pub(super) fn game_message(event: GameEvent) -> Message {
-    Message::Settings(Event::Game(event))
+    crate::app::settings(Event::Game(event))
 }
 
 /// Saves a game: both parts needed, without line breaks, the name at most
@@ -125,7 +125,7 @@ impl<'a> Page<'a> {
             switch(
                 "Share the game you play",
                 shown,
-                linked.then(|| Message::Settings(Event::Game(GameEvent::Show(!shown)))),
+                linked.then(|| crate::app::settings(Event::Game(GameEvent::Show(!shown)))),
             )
             .description("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.")
             .locked("Link a Discord account first.")

@@ -7,13 +7,15 @@
 //! Manage Accounts (`accounts`). The dialog sets the custom status: an emoji
 //! from the picker, words, and when it clears.
 
+use std::sync::Arc;
+
 use iced::{
     Alignment, Element, Length, Padding, Point, Task,
     widget::{Space, button, column, container, mouse_area, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
-    chat::{DiscordAccount, Presence},
+    chat::{Activities, DiscordAccount, Presence},
 };
 
 use crate::{
@@ -95,6 +97,8 @@ pub struct AccountPopover {
     expanded: bool,
     /// The list of accounts is open beside the card.
     pub switching: bool,
+    activities: Activities,
+    cards: Vec<crate::profile::look::ActivityLook>,
 }
 
 /// The popover and the dialog, while each is open.
@@ -114,6 +118,40 @@ pub struct Draft {
 }
 
 impl Status {
+    /// Keep the rich cards only while open, rebuilding only on a new set
+    /// of activities; unrelated gateway events keep the existing cards.
+    pub fn sync_activities(&mut self, state: &AppState) {
+        if let Some(popover) = &mut self.popover
+            && !Arc::ptr_eq(&popover.activities, &state.discord_activities)
+        {
+            popover.activities = state.discord_activities.clone();
+            popover.cards = popover
+                .activities
+                .iter()
+                .map(|activity| {
+                    let mut card = crate::profile::look::activity_look(activity);
+                    card.heading = activity.heading();
+                    card
+                })
+                .collect();
+        }
+    }
+
+    /// Only the open popover's activity artwork needs downloading.
+    pub fn activity_pictures(&self) -> impl Iterator<Item = &str> {
+        self.popover.iter().flat_map(|popover| {
+            popover.cards.iter().flat_map(|card| {
+                [
+                    card.large.as_deref(),
+                    card.small.as_deref(),
+                    card.name_emoji.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+            })
+        })
+    }
+
     /// What's done in the popover and the dialog; User Settings and the
     /// emoji's button are the root's (`App::status_event`).
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
@@ -286,7 +324,22 @@ impl<'a> View<'a> {
                 StatusInk::under_name(self.cx.look.theme, 1.0),
             ));
         }
-        if let Some(playing) = &state.discord_playing {
+        if !popover.cards.is_empty() {
+            for activity in &popover.cards {
+                let raised = theme.raised;
+                let activity_inks = crate::profile::look::Inks::new(theme, None, raised);
+                body = body.push(
+                    container(crate::profile::activity::account_activity_view(
+                        self.cx,
+                        activity,
+                        &activity_inks,
+                    ))
+                    .padding(12)
+                    .width(Length::Fill)
+                    .style(move |_| rounded(raised, 8)),
+                );
+            }
+        } else if let Some(playing) = &state.discord_playing {
             body = body.push(self.playing_card(playing));
         }
         let mut first =
@@ -337,21 +390,31 @@ impl<'a> View<'a> {
         ));
         let raised = theme.raised;
         body = body.push(group(first, raised)).push(group(second, raised));
-        let card = container(column![header, body])
-            .width(POPOVER)
-            .style(crate::profile::frame_style(inks, theme.line, 8.0, true));
         let bottom =
             self.cx.look.window.height - crate::account::HEIGHT - crate::account::INSET - 4.0;
+        let card =
+            container(crate::widgets::scroll_view(column![header, body]).height(Length::Shrink))
+                .width(POPOVER)
+                .max_height((bottom - 8.0).max(1.0))
+                .style(crate::profile::frame_style(
+                    inks, theme, theme.line, 8.0, true,
+                ));
         let mut place = Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
             .anchor(Anchor::Bottom);
         if popover.switching && accounts {
             // The list beside the card, its top level with the row's: the
             // row is the second group's first, which comes after the
-            // custom status and the game when the body shows them.
-            let group = usize::from(custom) + usize::from(state.discord_playing.is_some()) + 1;
+            // custom status and the activity cards (or the game) when the body shows
+            // them.
+            let cards = if popover.cards.is_empty() {
+                usize::from(state.discord_playing.is_some())
+            } else {
+                popover.cards.len()
+            };
+            let group = usize::from(custom) + cards + 1;
             place = place.beside(
                 opaque(self.flyout()),
-                vec![0, 1, group, 0, 0],
+                vec![0, 0, 1, group, 0, 0],
                 0.0,
                 FLYOUT_GAP,
             );
@@ -688,7 +751,10 @@ impl<'a> View<'a> {
 /// Whether the popover shows how long a game has run, which the
 /// minute's clock keeps up to date.
 pub fn popover_playing(app: &App) -> bool {
-    app.status.popover.is_some()
+    app.status
+        .popover
+        .as_ref()
+        .is_some_and(|popover| popover.cards.is_empty())
         && app
             .client
             .state()

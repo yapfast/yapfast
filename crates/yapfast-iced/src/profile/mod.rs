@@ -9,7 +9,7 @@
 //! [`editor`] the profile editor, drawn with the card's parts, and
 //! [`name_style`] its Display Name Style window.
 
-mod activity;
+pub(crate) mod activity;
 pub mod body;
 mod cosmetic;
 pub mod editor;
@@ -426,6 +426,7 @@ impl Profiles {
 /// shows, once per tab and person.
 pub fn profile_sync(app: &mut App) -> Task<Message> {
     let state = app.client.state();
+    app.status.sync_activities(state);
     // The card the core closed, or one shown large, goes.
     if app.profiles.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
         app.profiles.card = None;
@@ -498,10 +499,13 @@ fn account_card_sync(app: &mut App, link: u32) {
 /// outline, and the shadow of one that floats.
 pub(crate) fn frame_style(
     inks: look::Inks,
+    theme: &yapfast_iced_kit::theme::Theme,
     edge: iced::Color,
     radius: f32,
     floats: bool,
 ) -> impl Fn(&iced::Theme) -> container::Style {
+    let border = theme.surface_border("card", radius, if inks.themed { 0.0 } else { 1.0 }, edge);
+    let shadow = theme.surface_shadow("card", card_shadow());
     move |_| {
         let background: iced::Background = if inks.themed {
             iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
@@ -513,13 +517,9 @@ pub(crate) fn frame_style(
         };
         container::Style {
             background: Some(background),
-            border: iced::Border {
-                color: edge,
-                width: if inks.themed { 0.0 } else { 1.0 },
-                radius: radius.into(),
-            },
+            border,
             shadow: if floats {
-                card_shadow()
+                shadow
             } else {
                 iced::Shadow::default()
             },
@@ -581,6 +581,19 @@ pub fn card_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         .width(WIDTH)
         .max_height(limit);
     let content = crate::profile::cosmetic::dressed(ctx, shown, Mode::Card, WIDTH, content.into());
+    // A theme's tape pins the card down across its top edge.
+    let themed_inks = inks(ctx, &shown.look, Mode::Card).themed;
+    let content = match (!themed_inks)
+        .then(|| {
+            crate::theme_art::art_pins(ctx, yapfast_core::themes::package::art::ArtSurface::Card)
+        })
+        .flatten()
+    {
+        Some(tape) => iced::widget::Stack::with_children([content])
+            .push(tape)
+            .into(),
+        None => content,
+    };
     let pointer = mouse_area(content)
         .on_enter(Message::Profile(Event::Pointed(true)))
         .on_exit(Message::Profile(Event::Pointed(false)));
@@ -637,7 +650,7 @@ pub fn profile_panel_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Me
         .width(Length::Fill)
         .height(Length::Fill)
         .clip(true)
-        .style(frame_style(inks, theme.edge, 8.0, false));
+        .style(frame_style(inks, theme, theme.edge, 8.0, false));
     let card = crate::profile::cosmetic::dressed(
         ctx,
         shown,
@@ -661,6 +674,16 @@ pub fn profile_panel_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Me
 /// no theme, the avatar's dominant colour once it has arrived, as
 /// Discord tints it.
 pub(crate) fn banner_ground(ctx: crate::ctx::Ctx<'_>, shown: &Shown) -> Option<u32> {
+    let themed = ctx
+        .themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .is_some_and(|c| c.profiles.themes == yapfast_core::themes::content::Follow::Theme);
+    if themed {
+        return None;
+    }
     let profile = shown.look.profile();
     if shown.look.accent.is_some() || profile.banner.is_some() || profile.theme.is_some() {
         return shown.look.accent;
@@ -841,12 +864,20 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
 
 /// The profile's ink, ground and the rest, from its theme or Yapfast's.
 pub fn inks(ctx: crate::ctx::Ctx<'_>, look: &Look, mode: Mode) -> look::Inks {
+    let themed = ctx
+        .themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .is_some_and(|c| c.profiles.themes == yapfast_core::themes::content::Follow::Theme);
     let plain = if mode == Mode::Docked {
         ctx.look.theme.panel
     } else {
         ctx.look.theme.sidebar
     };
-    look::Inks::new(ctx.look.theme, look.profile().theme, plain)
+    let colors = (!themed).then_some(look.profile().theme).flatten();
+    look::Inks::new(ctx.look.theme, colors, plain)
 }
 
 /// Whether the profile panel shows beside the open DM.

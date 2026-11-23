@@ -12,12 +12,15 @@
 //! shaped again only when it, its size or its room changes; operations
 //! that look for text find what shows of it.
 
-use std::borrow::Cow;
+use std::{
+    borrow::Cow,
+    time::{Duration, Instant},
+};
 
 use iced::{
-    Color, Element, Font, Length, Pixels, Rectangle, Size, Theme,
+    Color, Element, Event, Font, Length, Pixels, Rectangle, Size, Theme,
     advanced::{
-        Layout, Widget,
+        Clipboard, Layout, Shell, Widget,
         graphics::text::Paragraph,
         layout, mouse, renderer,
         text::{self, LineHeight, Paragraph as _, Renderer as _, Shaping, Wrapping},
@@ -25,9 +28,22 @@ use iced::{
     },
 };
 
-use crate::fonts::REGULAR;
+use crate::{
+    fonts::REGULAR,
+    piece::{TextLight, draw_light},
+};
 
 type Renderer = iced::Renderer;
+
+/// A one-line text transformation that starts whenever the pointer enters.
+/// The callback keeps the kit independent of the app's theme package types.
+#[derive(Clone, Copy)]
+pub struct HoverTextEffect {
+    pub duration_ms: f32,
+    pub seed: u64,
+    pub every: Duration,
+    pub render: fn(&str, f32, f32, u64) -> (String, bool),
+}
 
 /// What ends a cut line.
 const ELLIPSIS: &str = "…";
@@ -38,6 +54,8 @@ pub struct Elide<'a> {
     size: f32,
     font: Font,
     color: Color,
+    light: TextLight,
+    hover_effect: Option<HoverTextEffect>,
     line_height: Option<f32>,
     width: Length,
     centred: bool,
@@ -50,6 +68,8 @@ pub fn elide<'a>(content: impl Into<Cow<'a, str>>) -> Elide<'a> {
         size: 14.0,
         font: REGULAR,
         color: Color::WHITE,
+        light: TextLight::default(),
+        hover_effect: None,
         line_height: None,
         width: Length::Fill,
         centred: false,
@@ -69,6 +89,21 @@ impl<'a> Elide<'a> {
 
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
+        self
+    }
+
+    /// Draws theme light behind the line without making the duplicate
+    /// glyphs separate text/accessibility operations.
+    pub fn light(mut self, light: TextLight) -> Self {
+        self.light = light;
+        self
+    }
+
+    /// Transforms the line while the pointer is over it, restoring the
+    /// original immediately on exit. Accessibility operations keep reporting
+    /// the original words while the visual effect runs.
+    pub fn hover_effect(mut self, effect: HoverTextEffect) -> Self {
+        self.hover_effect = Some(effect);
         self
     }
 
@@ -105,6 +140,9 @@ struct State {
     /// What shows when it's cut: its start and the ellipsis.
     cut: Option<String>,
     width: f32,
+    hovered: bool,
+    effect_started: Option<Instant>,
+    effect_text: Option<String>,
 }
 
 impl State {
@@ -173,6 +211,9 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             shown: Paragraph::default(),
             cut: None,
             width: 0.0,
+            hovered: false,
+            effect_started: None,
+            effect_text: None,
         })
     }
 
@@ -196,7 +237,9 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             .read()
             .expect("font system")
             .version();
-        let changed = state.content != *self.content
+        let effect_text = state.effect_text.clone();
+        let content = effect_text.as_deref().unwrap_or(&self.content);
+        let changed = state.content != content
             || state.size != self.size
             || state.line_height != line_height
             || state.font != self.font
@@ -204,7 +247,7 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
         if changed || state.room != room {
             if changed {
                 state.content.clear();
-                state.content.push_str(&self.content);
+                state.content.push_str(content);
                 state.size = self.size;
                 state.line_height = line_height;
                 state.font = self.font;
@@ -212,7 +255,7 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             }
             state.room = room;
             let unbounded = Size::new(f32::INFINITY, f32::INFINITY);
-            let whole = Paragraph::with_text(state.text(&self.content, unbounded, line_height));
+            let whole = Paragraph::with_text(state.text(content, unbounded, line_height));
             let natural = whole.min_width();
             state.cut = None;
             state.shown = if natural <= room + 0.5 {
@@ -220,8 +263,8 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             } else {
                 let tail =
                     Paragraph::with_text(state.text(ELLIPSIS, unbounded, line_height)).min_width();
-                let end = self.content.floor_char_boundary(cut_at(&whole, room, tail));
-                let kept = self.content[..end].trim_end();
+                let end = content.floor_char_boundary(cut_at(&whole, room, tail));
+                let kept = content[..end].trim_end();
                 let cut = format!("{kept}{ELLIPSIS}");
                 let shown = Paragraph::with_text(state.text(&cut, unbounded, line_height));
                 state.cut = Some(cut);
@@ -236,6 +279,76 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             state.width
         };
         layout::Node::new(Size::new(width, height))
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, M>,
+        viewport: &Rectangle,
+    ) {
+        let Some(effect) = self.hover_effect else {
+            return;
+        };
+        let state = tree.state.downcast_mut::<State>();
+        let pointed = || {
+            cursor
+                .position_over(layout.bounds())
+                .is_some_and(|at| viewport.contains(at))
+        };
+        match event {
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                let hovered = pointed();
+                if hovered && !state.hovered {
+                    let now = Instant::now();
+                    let (shown, _) =
+                        (effect.render)(&self.content, 0.0, effect.duration_ms, effect.seed);
+                    state.effect_started = Some(now);
+                    state.effect_text = Some(shown);
+                    shell.invalidate_layout();
+                    shell.request_redraw_at(now + effect.every);
+                } else if !hovered && state.hovered {
+                    state.effect_started = None;
+                    state.effect_text = None;
+                    shell.invalidate_layout();
+                    shell.request_redraw();
+                }
+                state.hovered = hovered;
+            }
+            Event::Mouse(mouse::Event::CursorLeft)
+            | Event::Window(iced::window::Event::Unfocused)
+                if state.hovered =>
+            {
+                state.hovered = false;
+                state.effect_started = None;
+                state.effect_text = None;
+                shell.invalidate_layout();
+                shell.request_redraw();
+            }
+            Event::Window(iced::window::Event::RedrawRequested(now))
+                if state.hovered && state.effect_started.is_some() =>
+            {
+                let elapsed = now
+                    .saturating_duration_since(state.effect_started.expect("checked"))
+                    .as_secs_f32()
+                    * 1000.0;
+                let (shown, playing) =
+                    (effect.render)(&self.content, elapsed, effect.duration_ms, effect.seed);
+                if state.effect_text.as_deref() != Some(&shown) {
+                    state.effect_text = Some(shown);
+                    shell.invalidate_layout();
+                }
+                if playing {
+                    shell.request_redraw_at(*now + effect.every);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn draw(
@@ -262,11 +375,19 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
             height: viewport.height,
             ..bounds
         };
+        let viewport = across.intersection(viewport).unwrap_or(bounds);
+        draw_light(
+            renderer,
+            &state.shown,
+            iced::Point::new(x, bounds.y),
+            viewport,
+            self.light,
+        );
         renderer.fill_paragraph(
             &state.shown,
             iced::Point::new(x, bounds.y),
             self.color,
-            across.intersection(viewport).unwrap_or(bounds),
+            viewport,
         );
     }
 
@@ -280,7 +401,11 @@ impl<M> Widget<M, Theme, Renderer> for Elide<'_> {
         operation: &mut dyn Operation,
     ) {
         let state = tree.state.downcast_ref::<State>();
-        let shown = state.cut.as_deref().unwrap_or(&self.content);
+        let shown = if self.hover_effect.is_some() {
+            &self.content
+        } else {
+            state.cut.as_deref().unwrap_or(&self.content)
+        };
         operation.text(None, layout.bounds(), shown);
     }
 }

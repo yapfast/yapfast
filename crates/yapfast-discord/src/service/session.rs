@@ -559,6 +559,31 @@ impl Session<'_> {
                 self.publisher.changed();
                 Ok(())
             }
+            Request::FileServer {
+                server,
+                source_folder,
+                target,
+                folder,
+                before,
+                reply,
+            } => {
+                let change =
+                    self.tracker
+                        .file_server(&server, source_folder, &target, folder, before);
+                if change.is_some() {
+                    self.publisher
+                        .publish(&mut self.tracker, &self.shared.lists);
+                }
+                let _ = reply.send(change);
+                Ok(())
+            }
+            Request::RestoreServerList(change) => {
+                if self.tracker.restore_server_list(change) {
+                    self.publisher
+                        .publish(&mut self.tracker, &self.shared.lists);
+                }
+                Ok(())
+            }
             Request::Status(status) => {
                 self.tracker.status = status;
                 self.publisher.changed();

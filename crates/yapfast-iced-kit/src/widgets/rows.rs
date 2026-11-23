@@ -57,6 +57,10 @@ struct Measure<M> {
 struct RowsState {
     keys: Vec<u64>,
     differ: Vec<(u64, f32)>,
+    /// The rows took less room than they were given: a list shorter than
+    /// its view is held down by room above it worked out from the heights
+    /// given, so the app needs a view built with the heights found.
+    shrank: bool,
 }
 
 impl<'a, M> Rows<'a, M> {
@@ -194,7 +198,9 @@ impl<M> Widget<M, Theme, Renderer> for Rows<'_, M> {
             if !found.is_empty() {
                 measure.found.borrow_mut().extend(found);
             }
-            tree.state.downcast_mut::<RowsState>().differ = differ;
+            let state = tree.state.downcast_mut::<RowsState>();
+            state.differ = differ;
+            state.shrank = grown < -0.5;
             return layout::Node::with_children(Size::new(width, self.total + grown), nodes);
         }
         let nodes = self
@@ -251,8 +257,13 @@ impl<M> Widget<M, Theme, Renderer> for Rows<'_, M> {
         if let Some(measure) = &self.measured
             && let iced::Event::Window(iced::window::Event::RedrawRequested(_)) = event
         {
-            let differ = std::mem::take(&mut tree.state.downcast_mut::<RowsState>().differ);
-            if !differ.is_empty() {
+            let state = tree.state.downcast_mut::<RowsState>();
+            let differ = std::mem::take(&mut state.differ);
+            let shrank = std::mem::take(&mut state.shrank);
+            // Rows that shrank leave a short list held down too little (a
+            // gap over the composer) until the app next updates: a report,
+            // even of nothing, has it take the found heights in now.
+            if !differ.is_empty() || shrank {
                 shell.publish((measure.report)(differ));
             }
         }

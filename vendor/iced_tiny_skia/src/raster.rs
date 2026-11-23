@@ -64,6 +64,7 @@ impl Pipeline {
         transform: tiny_skia::Transform,
         clip_mask: Option<&tiny_skia::Mask>,
         clip_bounds: Rectangle,
+        corners: Rectangle,
         border_radius: [f32; 4],
     ) {
         let mut cache = self.cache.borrow_mut();
@@ -114,10 +115,32 @@ impl Pipeline {
         {
             // Patch 19: whether it's opaque is found once, not row by row
             // for every frame it's drawn in.
-            let opaque = self.opaque.borrow_mut().of(handle.id(), image.data());
+            let opaque = self.opaque.borrow_mut().of(handle.id(), image.data()).opaque;
             let (left, top, right, bottom) = whole_span(bounds, transform);
             let opacity = (opacity.clamp(0.0, 1.0) * 256.0).round() as u32;
-            let radius = border_radius.map(|radius| radius * transform.sx);
+            // The engine hands the radius over in physical pixels already
+            // (scaled by the window's scale factor), as the turned path
+            // below takes it; scaling it again made an 8 px corner 18 px at
+            // 150% (patch 39).
+            let radius = border_radius;
+            // Patch 38: round at the picture's own clip, as iced_wgpu's
+            // image shader does, so a picture larger than its box (art
+            // laid as a cover) takes the box's round corners.
+            // Held to a frame's reach: a clip may be as wide as can be.
+            let corners = border_radius.iter().any(|radius| *radius > 0.0).then(|| {
+                let pixel = |at: f32| at.round().clamp(-16_777_216.0, 16_777_216.0) as i32;
+                let left = pixel(corners.x * transform.sx + transform.tx);
+                let top = pixel(corners.y * transform.sy + transform.ty);
+                // Its corner on the nearest pixel and its size rounded, as
+                // `whole_span` places the picture, so a box the picture's
+                // own size cuts exactly the pixels it covers (patch 39).
+                [
+                    left,
+                    top,
+                    left.saturating_add(pixel(corners.width * transform.sx)),
+                    top.saturating_add(pixel(corners.height * transform.sy)),
+                ]
+            });
             if (right - left, bottom - top) == (image.width() as i32, image.height() as i32) {
                 crate::blit::blit(
                     image.data(),
@@ -126,6 +149,7 @@ impl Pipeline {
                     left,
                     top,
                     clip_bounds,
+                    corners,
                     radius,
                     opacity,
                     opaque,
@@ -144,8 +168,59 @@ impl Pipeline {
                     image,
                 );
                 crate::blit::blit(
-                    copy, width, height, left, top, clip_bounds, radius, opacity, opaque,
+                    copy,
+                    width,
+                    height,
+                    left,
+                    top,
+                    clip_bounds,
+                    corners,
+                    radius,
+                    opacity,
+                    opaque,
                     pixels,
+                );
+            }
+            return;
+        }
+
+        // Yapfast port (patch 42): a turned picture all of one colour (a
+        // leaning card's ground, shadow and edge under Zine) is filled as
+        // its turned rectangle in that colour, covering the pixels
+        // `draw_pixmap` covers, with no picture sampled per pixel. Through
+        // the bilinear pattern a frame of Zine's cards cost 45 ms.
+        if let Some(colour) = self.opaque.borrow_mut().of(handle.id(), image.data()).solid {
+            let alpha = f32::from(colour[3]) / 255.0;
+            let straight = |channel: u8| (f32::from(channel) / 255.0 / alpha).min(1.0);
+            let Some(colour) = tiny_skia::Color::from_rgba(
+                straight(colour[0]),
+                straight(colour[1]),
+                straight(colour[2]),
+                alpha * opacity.clamp(0.0, 1.0),
+            ) else {
+                return;
+            };
+            let mut paint = tiny_skia::Paint::default();
+            paint.set_color(colour);
+            if border_radius.iter().any(|radius| *radius > 0.0) {
+                let scale = transform.sx.abs().max(f32::EPSILON);
+                let path = crate::engine::rounded_rectangle(
+                    bounds,
+                    border_radius.map(|radius| radius / scale),
+                );
+                paint.anti_alias = true;
+                pixels.fill_path(&path, &paint, tiny_skia::FillRule::Winding, transform, clip_mask);
+            } else if let Some(rect) =
+                tiny_skia::Rect::from_xywh(bounds.x, bounds.y, bounds.width, bounds.height)
+            {
+                // As `draw_pixmap` fills: its rectangle, not smoothed.
+                paint.anti_alias = false;
+                pixels.fill_path(
+                    &tiny_skia::PathBuilder::from_rect(rect),
+                    &paint,
+                    tiny_skia::FillRule::Winding,
+                    transform,
+                    clip_mask,
                 );
             }
             return;
@@ -197,11 +272,18 @@ impl Pipeline {
             return;
         }
 
-        let transform = transform.pre_scale(width_scale, height_scale);
+        // Yapfast port (patch 36): placed at the bounds' own position, then
+        // scaled.
+        // Stock, the position was divided by the scale and cut to whole
+        // pixels of the picture, so a small picture stretched far (a
+        // turned card's ground) landed up to a scaled pixel away.
+        let transform = transform
+            .pre_translate(bounds.x, bounds.y)
+            .pre_scale(width_scale, height_scale);
 
         pixels.draw_pixmap(
-            (bounds.x / width_scale) as i32,
-            (bounds.y / height_scale) as i32,
+            0,
+            0,
             image,
             &tiny_skia::PixmapPaint {
                 quality,
@@ -250,22 +332,36 @@ struct Cache {
 }
 
 /// Yapfast port (patch 19): whether each picture drawn in the last frame or
-/// this one is opaque all over, and those drawn in this one.
+/// this one is opaque all over, and those drawn in this one. Patch 42: and
+/// whether it's all one colour.
 #[derive(Debug, Default)]
 struct Opaque {
-    known: FxHashMap<raster::Id, bool>,
+    known: FxHashMap<raster::Id, Look>,
     hits: FxHashSet<raster::Id>,
 }
 
+/// Yapfast port (patches 19, 42): what a picture's pixels are all over.
+#[derive(Debug, Clone, Copy)]
+struct Look {
+    opaque: bool,
+    /// Its one premultiplied colour, in the picture's own byte order, if
+    /// every pixel is that colour and it isn't clear.
+    solid: Option<[u8; 4]>,
+}
+
 impl Opaque {
-    /// Whether the picture `id`, of premultiplied `pixels`, is opaque all
-    /// over: looked at once while it's drawn frame after frame.
-    fn of(&mut self, id: raster::Id, pixels: &[u8]) -> bool {
+    /// What the picture `id`, of premultiplied `pixels`, is all over:
+    /// looked at once while it's drawn frame after frame.
+    fn of(&mut self, id: raster::Id, pixels: &[u8]) -> Look {
         let _ = self.hits.insert(id);
-        *self
-            .known
-            .entry(id)
-            .or_insert_with(|| pixels.chunks_exact(4).all(|pixel| pixel[3] == 255))
+        *self.known.entry(id).or_insert_with(|| {
+            let mut all = pixels.chunks_exact(4);
+            let first = all.next().map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]]);
+            Look {
+                opaque: pixels.chunks_exact(4).all(|pixel| pixel[3] == 255),
+                solid: first.filter(|first| first[3] > 0 && all.all(|pixel| pixel == first)),
+            }
+        })
     }
 
     fn trim(&mut self) {
@@ -414,4 +510,63 @@ struct Entry {
     width: u32,
     height: u32,
     pixels: Vec<u32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A turned picture of one colour fills the pixels the pattern did, in
+    /// that colour (patch 42).
+    #[test]
+    fn a_turned_picture_of_one_colour_fills_as_its_pattern_did() {
+        let size = 120u32;
+        let ground = [0x1c_u8, 0x1d, 0x20, 0xff];
+        let clip = Rectangle::new(crate::core::Point::new(5.0, 5.0), Size::new(100.0, 90.0));
+        let mut mask = tiny_skia::Mask::new(size, size).expect("mask");
+        crate::engine::adjust_clip_mask(&mut mask, clip);
+        // Opaque, half see-through, faint.
+        for colour in [[0x30_u8, 0x80, 0xd0, 0xff], [0x40, 0x20, 0x10, 0x80], [3, 2, 1, 4]] {
+            for (turn, opacity) in [(-0.009_f32, 1.0_f32), (-0.017, 0.6), (0.3, 1.0)] {
+                let pixels = colour.repeat(16);
+                let handle = raster::Handle::from_rgba(4, 4, pixels.clone());
+                let picture = tiny_skia::PixmapRef::from_bytes(&pixels, 4, 4).expect("picture");
+                let bounds = Rectangle::new(crate::core::Point::new(12.3, 17.6), Size::new(82.5, 61.2));
+                let centre = bounds.center();
+                let transform = tiny_skia::Transform::from_rotate_at(turn.to_degrees(), centre.x, centre.y);
+                let mut solid = ground.repeat((size * size) as usize);
+                let mut pattern = solid.clone();
+                Pipeline::new().draw(
+                    &handle,
+                    raster::FilterMethod::Linear,
+                    bounds,
+                    opacity,
+                    &mut tiny_skia::PixmapMut::from_bytes(&mut solid, size, size).expect("frame"),
+                    transform,
+                    Some(&mask),
+                    clip,
+                    clip,
+                    [0.0; 4],
+                );
+                tiny_skia::PixmapMut::from_bytes(&mut pattern, size, size).expect("frame").draw_pixmap(
+                    0,
+                    0,
+                    picture,
+                    &tiny_skia::PixmapPaint {
+                        quality: tiny_skia::FilterQuality::Bilinear,
+                        opacity,
+                        ..Default::default()
+                    },
+                    transform
+                        .pre_translate(bounds.x, bounds.y)
+                        .pre_scale(bounds.width / 4.0, bounds.height / 4.0),
+                    Some(&mask),
+                );
+                let covered = |frame: &[u8]| frame.chunks_exact(4).map(|pixel| pixel != ground).collect::<Vec<_>>();
+                assert_eq!(covered(&solid), covered(&pattern), "{colour:?} turned {turn}, the pixels covered");
+                let most = solid.iter().zip(&pattern).map(|(a, b)| a.abs_diff(*b)).max();
+                assert!(most <= Some(1), "{colour:?} turned {turn}: {most:?} levels apart");
+            }
+        }
+    }
 }

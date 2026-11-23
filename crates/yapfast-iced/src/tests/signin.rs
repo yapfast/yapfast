@@ -229,3 +229,22 @@ fn back_on_the_sign_in_screen_the_matrix_id_takes_the_keys() {
     let again = app.sign_in.sync(app.client.state(), app.client.root());
     assert_eq!(again.units(), 0);
 }
+
+/// Sign-in shows the stock look even with a theme chosen, so no theme can
+/// dress it up with its own logo or faces; the workspace shows the theme.
+#[test]
+fn the_sign_in_screen_shows_the_stock_look_whatever_the_theme() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut themed = start(&folder, true);
+    assert!(themed.choose_theme("nord"));
+    crate::layout::flush(folder.path());
+    drop(themed);
+    let mut app = start(&folder, false);
+    assert!(!crate::signin::workspace(&app));
+    assert_eq!(app.theme.id, crate::themes::stock_theme().id);
+    interact(&mut app, |ui| {
+        ui.click("Explore local preview").expect("the preview");
+    });
+    assert!(crate::signin::workspace(&app));
+    assert_eq!(app.theme.id, "nord");
+}
