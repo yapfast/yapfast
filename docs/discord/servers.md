@@ -226,8 +226,36 @@ to fill in its form, such as accepting its rules, before they may talk.
 Yapfast doesn't show forms or onboarding questions yet, so the dialog says
 so and opens the channel in Discord's web app, where the form waits. A voice
 channel's invite joins the server and opens the channel without joining the
-call. Discord's client also sends `invite_instance_id` from a message's
-invite card, which Yapfast doesn't show yet, so it leaves that out.
+call.
+
+### Invite cards
+
+An invite link in a message shows Discord's invite card under it, one per
+invite, up to ten (`invite::message_codes`): the server's icon, name, how
+many are online and how many members it has, and Join, or Joined for a
+server the account is in, which opens it. Join joins at once, as Discord's
+card does, with the location "Invite Button Embed", and shows the dialog a
+clicked link opens while it joins, for a captcha, a form or Discord's
+refusal; the button says "Joining…" meanwhile. A copy button before Join,
+a Yapfast addition, copies the invite's `https://discord.gg/` link and turns
+to a tick. An invite Discord doesn't know (10006, 50020) shows Discord's
+invalid invite card, which asks the sender for a new one; an invite to a
+group DM or to be friends shows none. Link previews being off doesn't hide
+them, as in Discord, where they aren't embeds. The window finds a message's
+invite codes once, as it lays the message out (`Laid::invites`), and draws
+its cards in `message/invite.rs`.
+
+Each invite is looked up once a session, with the same
+`GET /invites/{code}?with_counts=true&with_expiration=true&with_permissions=true`
+the dialog sends, and only when a message linking it is on or near the
+screen, which the timeline already tells the app for its pictures
+(`application/join.rs`). The answers stay in `AppState::invite_cards`, by
+code, until Yapfast closes: a server's name, icon address, channel and
+counts, a few hundred bytes each. A lookup that fails, Discord being out of
+reach, isn't kept, so the card asks again when it next shows. The counts are
+those of the lookup. Discord's client also sends an `invite_instance_id`
+when joining from a card, which docs.discord.food doesn't describe, so
+Yapfast leaves it out.
 
 ## Event links
 

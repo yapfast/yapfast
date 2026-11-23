@@ -311,6 +311,8 @@ pub enum Icon {
     UserX,
     FolderPlus,
     CopyPlus,
+    /// An outline paperclip, before a file link's name on its pill.
+    Paperclip,
 }
 
 impl Icon {
@@ -370,6 +372,7 @@ impl Icon {
             Icon::Volume => icon!("volume-2.svg"),
             Icon::VolumeOff => icon!("volume-x.svg"),
             Icon::Link => icon!("external-link.svg"),
+            Icon::Paperclip => icon!("paperclip.svg"),
             Icon::Chain => icon!("link.svg"),
             Icon::Eye => icon!("eye.svg"),
             Icon::EyeOff => icon!("eye-off.svg"),

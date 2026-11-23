@@ -244,7 +244,7 @@ impl<'a> View<'a> {
         let face: Element<'a, Message> = match server {
             Some(server) => self
                 .cx
-                .avatar(server.icon.as_deref(), &server.name, 32.0, 16.0, 1.0),
+                .avatar(server.icon.as_deref(), &server.name, 32.0, 10.0, 1.0),
             None if room.direct => {
                 self.cx
                     .avatar(room.avatar.as_deref(), &room.name, 32.0, 16.0, 1.0)

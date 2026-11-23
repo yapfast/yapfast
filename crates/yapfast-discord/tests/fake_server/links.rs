@@ -74,6 +74,43 @@ async fn joins_by_an_invite_as_discords_client_does(
         joins.as_array().unwrap().last().unwrap()["context"]["location"],
         "Desktop Invite Modal"
     );
+
+    // An invite link's card in a message: the server with its counts,
+    // asked for as Discord's client asks; an expired one is refused with
+    // Discord's code for it.
+    let card = discord.invite_card("bikes").await.unwrap().unwrap();
+    assert_eq!(card.name, "Bike Club");
+    assert_eq!((card.members, card.online), (Some(1234), Some(87)));
+    assert!(
+        card.icon
+            .as_deref()
+            .unwrap()
+            .contains("/icons/1400000000000000980/bikeclub")
+    );
+    let lookups: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/invite-lookups", "")).unwrap();
+    let lookup = lookups.as_array().unwrap().last().unwrap();
+    assert_eq!(lookup["code"], "bikes");
+    assert!(
+        lookup["query"]
+            .as_str()
+            .unwrap()
+            .contains("with_counts=true")
+    );
+    let expired = discord.invite_card("expired").await.unwrap_err();
+    assert_eq!(yapfast_discord::api::code(&expired), Some(10006));
+    // Its Join joins from the card, and says why it couldn't.
+    let full = discord
+        .join_invite(&card, JoinFrom::Card, |_| panic!("no captcha"))
+        .await
+        .unwrap_err();
+    assert_eq!(full.to_string(), "This server is full.");
+    let joins: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/invite-joins", "")).unwrap();
+    assert_eq!(
+        joins.as_array().unwrap().last().unwrap()["context"]["location"],
+        "Invite Button Embed"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

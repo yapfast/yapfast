@@ -793,6 +793,9 @@ pub enum Check {
     Box(bool),
     /// It opens a submenu: a chevron at its end.
     Submenu,
+    /// Its submenu folds down under it, inside the menu: the chevron at its
+    /// end turned this many hundredths of the way from right to down.
+    Folds(u8),
 }
 
 /// Which light a menu row shows: under the pointer, or only while the menu
@@ -859,7 +862,7 @@ impl crate::look::Look<'_> {
             51.0
         } else if iconic {
             36.0
-        } else if item.check == Check::Submenu {
+        } else if matches!(item.check, Check::Submenu | Check::Folds(_)) {
             34.0
         } else {
             ITEM
@@ -933,6 +936,13 @@ impl crate::look::Look<'_> {
         }
         if item.check == Check::Submenu {
             face = face.push(self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text));
+        }
+        if let Check::Folds(turned) = item.check {
+            let turned = f32::from(turned.min(100)) / 100.0 * 90.0;
+            face = face.push(
+                self.glyph(Icon::ChevronRight, SUBMENU_ARROW, theme.text)
+                    .turn(turned),
+            );
         }
         let height = if tall { height.max(44.0) } else { height };
         let face = container(face)

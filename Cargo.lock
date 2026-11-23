@@ -10848,6 +10848,7 @@ dependencies = [
  "xkeysym",
  "yapfast-core",
  "yapfast-iced-kit",
+ "zbus",
 ]
 
 [[package]]

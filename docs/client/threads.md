@@ -75,3 +75,12 @@ form), and files alone make one, as in Discord's form; they wait in the
 form (`NewThread::files`) and go with the first message once the thread
 has started. Leaving it with something written or attached asks first
 (`thread::leave_question`).
+
+## A voice channel's chat
+
+A Discord voice channel's chat opens in the thread's panel beside its call
+(`Aside::voice`, `conversation::conversation` puts it beside
+`call::stage::call_view`), headed by a speech bubble, the channel's name
+and Hide chat, with neither More nor Open in full view; the header's
+button reads Show chat and Hide chat (`header::Header::chat_beside`). The
+call's stage takes the room left of it (`conversation::chat_right`).

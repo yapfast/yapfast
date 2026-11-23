@@ -33,7 +33,7 @@ fn the_voice_panels_channel_line_opens_the_call_unless_it_shows() {
         app.dispatch(Action::GoToCall).is_empty(),
         "its chat is beside the same call"
     );
-    assert!(app.state.voice_chat);
+    assert!(app.state.aside.as_ref().is_some_and(|aside| aside.voice));
     // From another channel of the server.
     app.dispatch(Action::SelectRoom("games".into()));
     app.dispatch(Action::GoToCall);
@@ -308,7 +308,12 @@ fn a_voice_channel_whose_chat_mentions_you_opens_its_chat_as_it_joins() {
 
     let effects = app.dispatch(Action::SelectRoom(id.into()));
     assert_eq!(app.state.selected.as_deref(), Some(id));
-    assert!(app.state.voice_chat);
+    assert!(
+        app.state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.voice && aside.room == id)
+    );
     assert!(effects.iter().any(|effect| matches!(
         effect, Effect::Backend(Command::Voice(voice::Command::Join(room))) if room == id
     )));
@@ -341,42 +346,54 @@ fn a_discord_voice_channels_chat_opens_without_joining_it() {
     assert!(app.dispatch(Action::Earlier).is_empty());
     assert!(app.state.menu_choices(id).contains(&MenuChoice::OpenChat));
 
-    // Its chat opens without joining, which its roles don't allow.
+    // Its chat opens beside its call, as Discord's does, without joining,
+    // which its roles don't allow.
+    let beside = |effects: &[Effect]| {
+        effects.iter().any(|effect| {
+            matches!(
+                effect, Effect::Backend(Command::Aside(Some(room))) if room == id
+            )
+        })
+    };
     let effects = app.dispatch(Action::OpenChat(id.into()));
-    assert!(opens(&effects));
+    assert!(!opens(&effects) && beside(&effects));
     assert!(
         !effects
             .iter()
             .any(|effect| matches!(effect, Effect::Backend(Command::Voice(_))))
     );
-    assert!(app.state.voice_chat && !app.state.can_join_voice(id));
+    assert!(!app.state.voice_chat && !app.state.can_join_voice(id));
+    assert!(
+        app.state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.voice && aside.room == id)
+    );
     app.apply(Event::Timeline {
         room: id.into(),
         messages: timeline(vec![]),
     });
-    assert!(app.state.can_write());
-    app.dispatch(Action::SetDraft("Hello from voice chat".into()));
+    assert!(app.state.can_write_in(id));
+    app.dispatch(Action::SetAsideDraft("Hello from voice chat".into()));
     assert!(matches!(
-        send_command(app.dispatch(Action::Send)),
+        send_command(app.dispatch(Action::SendAside)),
         Command::Send { room, body, .. } if room == id && body == "Hello from voice chat"
     ));
-    assert!(app.dispatch(Action::Earlier).iter().any(|effect| matches!(
-        effect, Effect::Backend(Command::Earlier(room)) if room == id
-    )));
 
-    // The header switches back to its call and to its chat again.
+    // The header hides its chat and shows it again.
     let effects = app.dispatch(Action::ShowVoiceChat(false));
     assert!(
         effects
             .iter()
-            .any(|effect| matches!(effect, Effect::Backend(Command::CloseRoom)))
+            .any(|effect| matches!(effect, Effect::Backend(Command::Aside(None))))
     );
-    assert!(!app.state.voice_chat && !app.state.can_write());
-    assert!(opens(&app.dispatch(Action::ShowVoiceChat(true))));
-    assert!(
-        app.state.voice_chat && app.state.room_ready,
-        "its messages stay"
-    );
+    assert!(app.state.aside.is_none() && app.state.selected.as_deref() == Some(id));
+    assert!(beside(&app.dispatch(Action::ShowVoiceChat(true))));
+    app.apply(Event::Timeline {
+        room: id.into(),
+        messages: timeline(vec![]),
+    });
+    assert!(app.state.can_write_in(id));
 
     app.state
         .rooms
@@ -385,7 +402,7 @@ fn a_discord_voice_channels_chat_opens_without_joining_it() {
         .find(|room| room.id == id)
         .unwrap()
         .read_only = true;
-    assert!(!app.state.can_write());
+    assert!(!app.state.can_write_in(id));
 }
 
 #[test]
