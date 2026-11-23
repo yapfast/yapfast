@@ -575,6 +575,7 @@ impl<'a> Page<'a> {
             )
             .view(self.cx.look),
             self.title_bar_switch(),
+            self.menus(),
             column![
                 form::heading(theme, "PROFILES"),
                 profile(
@@ -918,6 +919,36 @@ fn preview<'a>(palette: &palette::Theme, width: f32) -> Element<'a, Message> {
 }
 
 impl<'a> Page<'a> {
+    /// Appearance's Menus: a row's submenu folds down inside the menu (the
+    /// default) or opens beside it, and whether folding slides.
+    fn menus(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let layout = self.cx.layout;
+        let set = |pref: super::pages::Pref| Message::Settings(Box::new(SettingsEvent::Pref(pref)));
+        let mut group = vec![
+            form::heading(theme, "SUBMENUS"),
+            crate::controls::choices(
+                theme,
+                &["Fold down", "Open beside"],
+                usize::from(!crate::menus::folds(layout)),
+                move |index| set(super::pages::Pref::SubmenusBeside(index == 1)),
+            ),
+        ];
+        if crate::menus::folds(layout) {
+            let on = layout.submenus_slide.unwrap_or(true);
+            group.push(
+                switch(
+                    "Slide submenus open",
+                    on,
+                    Some(set(super::pages::Pref::SubmenusSlide(!on))),
+                )
+                .description("Off, a menu's lists open and fold at once.")
+                .view(self.cx.look),
+            );
+        }
+        form::group(group)
+    }
+
     /// Appearance's "Use the system title bar", where Yapfast can draw its
     /// own: the desktop's way until it's chosen.
     pub(super) fn title_bar_switch(self) -> Element<'a, Message> {
