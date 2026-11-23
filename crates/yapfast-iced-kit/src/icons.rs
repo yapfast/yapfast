@@ -171,6 +171,10 @@ pub enum Icon {
     /// To the previous and the next song: a plugin's media buttons.
     SkipBack,
     SkipForward,
+    /// A media player's shuffle and repeat (all, and the one song).
+    Shuffle,
+    Repeat,
+    RepeatOne,
     Volume,
     VolumeOff,
     Link,
@@ -258,6 +262,9 @@ impl Icon {
             Icon::Play => icon!("play.svg"),
             Icon::Pause => icon!("pause.svg"),
             Icon::SkipBack => icon!("skip-back.svg"),
+            Icon::Shuffle => icon!("shuffle.svg"),
+            Icon::Repeat => icon!("repeat.svg"),
+            Icon::RepeatOne => icon!("repeat-one.svg"),
             Icon::SkipForward => icon!("skip-forward.svg"),
             Icon::Volume => icon!("volume-2.svg"),
             Icon::VolumeOff => icon!("volume-x.svg"),

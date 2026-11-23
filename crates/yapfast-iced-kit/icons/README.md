@@ -56,6 +56,10 @@ hand, maximize, minimize, minus, restore, slash, square and x. restore is
 Lucide's copy icon, which the title bar shows for its restore button. forward
 and reply are Lucide's corner-up-right and corner-up-left.
 
+shuffle, repeat and repeat-one are Google's Material Icons (Rounded), under
+the Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0), as
+Vencord's SpotifyControls draws them; repeat-one is repeat with a 1 in it.
+
 discord.svg is Discord's logo from Simple Icons 16.34.0
 (https://simpleicons.org/, CC0 1.0), filled white. It marks Discord servers
 and DMs, and Discord's brand guidelines apply to it rather than the ISC licence.

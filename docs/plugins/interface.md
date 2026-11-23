@@ -308,10 +308,13 @@ is on it, as a list row's Remove), `link` (the accent's words) or `success`. A
 `small` button is 28 px tall rather than 36, as Settings' buttons in a row are.
 
 A button may name one of Yapfast's own icons in `icon` — `previous`, `play`,
+`shuffle`, `repeat`, `repeat-one`,
 `pause`, `next`, `stop`, `volume`, `volume-off`, `music`, `star`, `bell`,
 `pin`, `link`, `download`, `refresh`, `search`, `settings`, `inbox`, `users`, `user`, `message`, `image`, `clock`, `eye`, `eye-off`, `shield`, `file`, `sticker`, `gif`, `trash`, `copy`, `pencil`, `plus`, `check`, `close`, `mic`, `hash`, `palette`, `history`, `ban`, `at`, `calendar`, `globe`, `smile` or `forward` — and is drawn as
 an icon button with its `text` as what the tooltip and a screen reader say, so
-it looks like the buttons beside it; a name this build doesn't have draws the
+it looks like the buttons beside it (28 px, or `width` across with a glyph
+three quarters of that; `selected` sits it on a light wash of its tone, the
+accent's when `normal`, as a player's shuffle and repeat show they're on); a name this build doesn't have draws the
 text. In the voice panel each button is a tile of the panel's own row, its
 tooltip naming the plugin (*Next song · Controls plugin*).
 

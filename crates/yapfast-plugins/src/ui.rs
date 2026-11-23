@@ -44,9 +44,12 @@ pub const COLUMNS: usize = 8;
 
 /// The icons a button may name, which Yapfast draws from its own set so a
 /// plugin's button looks like the ones beside it.
-pub const ICONS: [&str; 44] = [
+pub const ICONS: [&str; 47] = [
     "previous",
     "play",
+    "shuffle",
+    "repeat",
+    "repeat-one",
     "pause",
     "next",
     "stop",

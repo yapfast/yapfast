@@ -315,6 +315,9 @@ pub fn kit_icon(name: &str) -> Option<crate::icons::Icon> {
     use crate::icons::Icon;
     Some(match name {
         "previous" => Icon::SkipBack,
+        "shuffle" => Icon::Shuffle,
+        "repeat" => Icon::Repeat,
+        "repeat-one" => Icon::RepeatOne,
         "play" => Icon::Play,
         "pause" => Icon::Pause,
         "next" => Icon::SkipForward,
@@ -443,14 +446,28 @@ fn cell_body<'a, M: Clone + 'a>(
         // A button that names one of Yapfast's icons draws it, its words the
         // tooltip, so it looks like the icon buttons beside it.
         Kind::Button => match kit_icon(&cell.icon) {
-            Some(icon) => paint
-                .look
-                .icon_button(
+            Some(icon) => {
+                let mut shown = paint.look.icon_button(
                     icon,
                     cell.text.clone(),
                     cell.enabled.then(|| set(cell.id.clone())),
-                )
-                .into(),
+                );
+                // `width` sizes it (its glyph three quarters of that), as a
+                // player's 32 px buttons; chosen, it sits on a wash of its
+                // tone, as a player's shuffle and repeat do while on.
+                if let Some(side) = cell.width {
+                    shown = shown.size(side, (side * 0.75).round() as u32);
+                }
+                if cell.selected {
+                    let tint = if cell.tone == Tone::Normal {
+                        theme.accent
+                    } else {
+                        ink
+                    };
+                    shown = shown.fill(Color { a: 0.16, ..tint });
+                }
+                shown.into()
+            }
             None => action_button(
                 theme,
                 cell,
