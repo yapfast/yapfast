@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn applies_video_display_rotation() {
-        fn first(video: &mut Video, width: u32, height: u32) -> Vec<u8> {
+        fn first(video: &mut Video<'_>, width: u32, height: u32) -> Vec<u8> {
             loop {
                 if matches!(video.decode().unwrap(), Next::Picture(_)) {
                     let mut rgba = vec![0; (width * height * 4) as usize];

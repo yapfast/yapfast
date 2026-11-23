@@ -309,7 +309,10 @@ impl Start<'_> {
     /// Settings neither brings back the theme this start escaped nor stops
     /// watching the theme maker's folder. `--renderer`, `--background` and
     /// a link stay out: a restart follows the setting and shows the window.
-    #[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "desktop"),
+        allow(dead_code, reason = "only the desktop window restarts the application")
+    )]
     fn restart_arguments(&self) -> Vec<String> {
         let mut arguments = Vec::new();
         if self.default_theme {
