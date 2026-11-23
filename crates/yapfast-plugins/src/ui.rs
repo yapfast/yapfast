@@ -1370,6 +1370,9 @@ pub struct Row {
     /// Steps in from the start, 0 to 3.
     #[serde(default)]
     pub indent: u8,
+    /// Its cells centred across its width, as a player's buttons are.
+    #[serde(default)]
+    pub center: bool,
     #[serde(default)]
     pub cells: Vec<Cell>,
 }
@@ -2489,6 +2492,15 @@ mod tests {
             tree.rows[0].cells[1].icon, "",
             "an icon Yapfast doesn't have is dropped"
         );
+    }
+
+    #[test]
+    fn a_row_may_centre_its_cells() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "center": true, "cells": [{ "kind": "button", "id": "play", "icon": "play", "text": "Play" }] }] }"#,
+        )
+        .unwrap();
+        assert!(tree.rows[0].center);
     }
 
     #[test]

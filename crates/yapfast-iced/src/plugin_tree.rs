@@ -214,7 +214,16 @@ fn rows_view<'a, M: Clone + 'a>(
                     cells = cells.push(cell_view(paint, cell, message));
                 }
             }
-            let start: Element<'a, M> = cells.wrap().vertical_spacing(6).into();
+            let start: Element<'a, M> = if line.center {
+                // Centred: the cells' own widths, in the middle of the row.
+                let mut centred = row![].spacing(8).align_y(Alignment::Center);
+                for cell in line.cells.iter().filter(|cell| !cell.end) {
+                    centred = centred.push(cell_view(paint, cell, message));
+                }
+                container(centred).center_x(Length::Fill).into()
+            } else {
+                cells.wrap().vertical_spacing(6).into()
+            };
             if any_end {
                 row![container(start).width(Length::Fill), ends]
                     .spacing(8)

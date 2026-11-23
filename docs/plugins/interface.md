@@ -324,7 +324,8 @@ over a `setting` row, a toggle with a `description` and a row of `end` cells.
 
 A row with `framed` is a card: a light wash over the ground it lies on and a
 hairline round it, so it shows on a settings page, in a dialog and on a toast
-alike; `indent` (0 to 3) steps a row in from the start.
+alike; `indent` (0 to 3) steps a row in from the start, and `center` puts its
+cells in the middle of its width, as a player's buttons sit.
 
 Any cell takes a `tooltip`, plain text shown when the pointer rests on it, and
 `end`: the row's cells with `end` sit together at its end, in their order, and
