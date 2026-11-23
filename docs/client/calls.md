@@ -11,7 +11,12 @@ The call's views and what they do are in `call/`.
   in it)
   lays the tiles out in a grid, or one large with the rest in a row under
   it; a click on a tile makes it large, and a click beside it the grid
-  again. The tiles scroll when there are more than fit. Each tile is a
+  again. While a tile is large beside others, a pill on the strip's top
+  edge (Hide Members) hides the strip under it, so its cameras stop
+  decoding and the large tile fills the stage's height; the pill then sits
+  just over the controls (Show Members) to bring it back. Each voice
+  channel keeps its choice while Yapfast runs, through leaving and joining
+  again, as Discord's client keeps it. The tiles scroll when there are more than fit. Each tile is a
   `tile::Tile`: a camera, a stream or the avatar (a camera shows the
   avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream
