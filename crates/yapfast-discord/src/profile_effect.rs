@@ -113,43 +113,11 @@ pub fn parse(sku: &str, product: &Value, pick: usize) -> Option<Effect> {
     })
 }
 
-/// The effect `sku` names among every effect's description, as
-/// `GET /user-profile-effects` answers: a config whose `id` or `sku_id` it
-/// is, shaped as a product's item.
-pub fn from_configs(sku: &str, configs: &Value, pick: usize) -> Option<Effect> {
-    let config = configs["profile_effect_configs"]
-        .as_array()?
-        .iter()
-        .find(|config| config["id"] == sku || config["sku_id"] == sku)?;
-    parse(sku, &serde_json::json!({ "items": [config] }), pick)
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::*;
-
-    /// An effect the shop doesn't sell, such as a quest's reward, is found
-    /// among every effect's description.
-    #[test]
-    fn finds_an_effect_the_shop_does_not_sell_among_every_effects() {
-        let configs = serde_json::json!({"profile_effect_configs": [
-            {"id": "1", "sku_id": "1", "effects": [{"src": "a.png"}]},
-            {"id": "2", "sku_id": "2", "staticFrameSrc": "still.png",
-             "effects": [{"src": "b.png", "loop": true, "position": {"x": 0, "y": 0}}]},
-        ]});
-        let effect = from_configs("2", &configs, 0).expect("effect 2");
-        assert_eq!(effect.sku, "2");
-        assert_eq!(effect.layers.len(), 1);
-        assert!(effect.layers[0].src.ends_with("/b.png") && effect.layers[0].looped);
-        assert!(
-            effect
-                .still
-                .is_some_and(|still| still.ends_with("/still.png"))
-        );
-        assert_eq!(from_configs("3", &configs, 0), None);
-    }
 
     #[test]
     fn names_the_effect_a_profile_equips_with_the_servers_first() {
