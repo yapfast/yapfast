@@ -300,9 +300,12 @@ impl<'a> View<'a> {
         ));
         let raised = theme.raised;
         body = body.push(group(first, raised)).push(group(second, raised));
-        let card = container(column![header, body])
-            .width(POPOVER)
-            .style(crate::profile::frame_style(inks, theme.line, 8.0, true));
+        let card =
+            container(column![header, body])
+                .width(POPOVER)
+                .style(crate::profile::frame_style(
+                    inks, theme, theme.line, 8.0, true,
+                ));
         let bottom =
             self.cx.look.window.height - crate::account::HEIGHT - crate::account::INSET - 4.0;
         Some(

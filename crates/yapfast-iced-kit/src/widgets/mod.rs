@@ -30,6 +30,20 @@ pub fn draw_picture(
     radius: [f32; 4],
     opacity: f32,
 ) {
+    draw_picture_in(renderer, handle, bounds, bounds, radius, opacity);
+}
+
+/// A picture drawn in `bounds`, scaled to it, and seen through `clip`,
+/// whose corners are round by `radius`: a picture larger than its box
+/// takes the box's corners, with no copy made of it.
+pub fn draw_picture_in(
+    renderer: &mut Renderer,
+    handle: &Handle,
+    bounds: Rectangle,
+    clip: Rectangle,
+    radius: [f32; 4],
+    opacity: f32,
+) {
     use iced::advanced::image::Renderer as _;
     let [top_left, top_right, bottom_right, bottom_left] = radius;
     renderer.draw_image(
@@ -47,7 +61,7 @@ pub fn draw_picture(
             snap: true,
         },
         bounds,
-        bounds,
+        clip,
     );
 }
 
@@ -90,6 +104,7 @@ mod colour;
 mod cosmetic;
 mod drag;
 mod fold;
+mod glass;
 mod layers;
 mod live;
 pub mod motion;
@@ -101,8 +116,20 @@ mod settle;
 mod smooth;
 
 pub use self::{
-    autoscroll::*, colour::*, cosmetic::*, drag::*, fold::*, layers::*, live::*, picture::*,
-    pointer::*, rows::*, select::*, settle::*, smooth::*,
+    autoscroll::*,
+    colour::*,
+    cosmetic::*,
+    drag::*,
+    fold::*,
+    glass::{BlurredWindow, GlassLook, Pane, draw_glass, pane_radii},
+    layers::*,
+    live::*,
+    picture::*,
+    pointer::*,
+    rows::*,
+    select::*,
+    settle::*,
+    smooth::*,
 };
 
 // ---------------------------------------------------------------------------
@@ -120,6 +147,11 @@ pub trait Hooks<M> {
     /// child out in room of its own, [`Hooks::layout`]); else the child's
     /// node is its own.
     const NESTS: bool = false;
+
+    /// Reconciles values held by the hook with its state when a view is
+    /// rebuilt. Most wrappers are stateless across rebuilds; animated ones
+    /// can use this to begin a transition from a changed input before draw.
+    fn diff(&self, _state: &mut Self::State) {}
 
     fn size(&self, child: Size<Length>) -> Size<Length> {
         child
@@ -139,6 +171,15 @@ pub trait Hooks<M> {
     /// the child sees the room it's in as the whole window.
     fn shift(&self) -> Vector {
         Vector::ZERO
+    }
+
+    /// The viewport the child is drawn with, given its bounds and the
+    /// wrapper's: the wrapper's unless the hook narrows it. A hook that
+    /// moves its child narrows it to the room the child moves in, so the
+    /// child's own layers (a stack's upper layers take the whole viewport)
+    /// move as small ones, not the window's size.
+    fn draw_viewport(&self, _child: Rectangle, viewport: Rectangle) -> Rectangle {
+        viewport
     }
 
     /// An event; `child.update` hands it on, when the hook wants it to.
@@ -301,6 +342,7 @@ impl<H: Hooks<M>, M> Widget<M, Theme, Renderer> for Wrap<'_, H, M> {
     }
 
     fn diff(&self, tree: &mut Tree) {
+        self.hooks.diff(tree.state.downcast_mut());
         tree.diff_children(std::slice::from_ref(&self.child));
     }
 
@@ -420,6 +462,7 @@ impl<H: Hooks<M>, M> Widget<M, Theme, Renderer> for Wrap<'_, H, M> {
         use iced::advanced::Renderer as _;
         let shift = self.hooks.shift();
         let child_layout = Self::child_layout(layout);
+        let viewport = &self.hooks.draw_viewport(child_layout.bounds(), *viewport);
         let mut child = |renderer: &mut Renderer| {
             let draw = |renderer: &mut Renderer| {
                 self.child.as_widget().draw(

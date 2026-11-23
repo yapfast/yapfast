@@ -1277,3 +1277,193 @@ fn a_full_profiles_plain_name_selects_and_a_styled_one_doesnt() {
     assert!(copied.is_empty(), "{copied:?}");
     assert_eq!(status, iced::event::Status::Ignored);
 }
+
+/// Gives the open server `count` more members online, "Member 0" on.
+fn crowd(app: &mut App, count: usize) {
+    change(app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            let members = Arc::make_mut(members);
+            let first = members[0].clone();
+            for at in 0..count {
+                let mut member = first.clone();
+                member.id = format!("crowd-{at}");
+                member.name = format!("Member {at}");
+                members.push(member);
+            }
+        }
+    });
+    app.show_roster(false);
+}
+
+/// The names of the member lines whose pictures are asked for.
+fn names_shown(app: &App) -> Vec<String> {
+    crate::members::lines_shown(app)
+        .into_iter()
+        .filter_map(|line| match line {
+            crate::looks::MemberLine::Member(look) => Some(look.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_member_grid_asks_for_the_pictures_of_the_tiles_it_builds() {
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({
+            "layout": { "members_style": "grid", "grid": { "columns": 3, "size": 50 } }
+        }),
+        &[],
+    );
+    crowd(&mut app, 150);
+    app.roster.scroll = crate::sync::Scroll {
+        offset: 1500.0,
+        height: 600.0,
+    };
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut built = Vec::new();
+    let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+        if let iced_test::selector::Candidate::Text { content, .. } = candidate
+            && content.starts_with("Member ")
+        {
+            built.push(content.to_owned());
+        }
+        None::<()>
+    });
+    drop(ui);
+    // Asked for at the room the grid was laid out in.
+    let shown = names_shown(&app);
+    assert!(!built.is_empty(), "the grid builds tiles down the list");
+    for name in &built {
+        assert!(
+            shown.contains(name),
+            "{name}'s tile is built, so their picture is asked for ({shown:?})"
+        );
+    }
+}
+
+#[test]
+fn a_collapsed_strip_builds_and_asks_for_only_the_faces_near_its_view() {
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({ "layout": { "members": "collapsed" } }),
+        &[],
+    );
+    crowd(&mut app, 120);
+    app.roster.strip = crate::sync::Scroll {
+        offset: 1200.0,
+        height: 600.0,
+    };
+    let shown = names_shown(&app);
+    assert!(shown.iter().any(|name| name == "Member 30"), "{shown:?}");
+    assert!(!shown.iter().any(|name| name == "Member 0"), "{shown:?}");
+    assert!(shown.len() < 40, "a screen's worth, not every member");
+}
+
+/// Keeps the open server's first `count` members.
+fn keep_members(app: &mut App, count: usize) {
+    change(app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            Arc::make_mut(members).truncate(count);
+        }
+    });
+    app.show_roster(false);
+}
+
+#[test]
+fn a_collapsed_strip_that_fits_shows_every_face_however_it_was_left() {
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({ "layout": { "members": "collapsed" } }),
+        &[],
+    );
+    // Left far down a big server's strip, then a server whose faces fit:
+    // a strip that fits never reports where it is.
+    crowd(&mut app, 120);
+    app.roster.strip = crate::sync::Scroll {
+        offset: 2000.0,
+        height: 600.0,
+    };
+    keep_members(&mut app, 8);
+    assert_eq!(names_shown(&app).len(), 8, "every face, from the top");
+    // Started 600 px tall, then made taller with 25 faces that fit.
+    app.roster.strip = crate::sync::Scroll {
+        offset: 0.0,
+        height: 600.0,
+    };
+    crowd(&mut app, 17);
+    assert!(names_shown(&app).len() < 25);
+    let _ = app.update(Message::Members(crate::members::Event::StripSized(
+        iced::Size::new(56.0, 1400.0),
+    )));
+    assert_eq!(
+        names_shown(&app).len(),
+        25,
+        "the strip's laid-out height counts"
+    );
+}
+
+#[test]
+fn a_theme_cuts_peoples_names_only_once_let() {
+    let face = |name: &str| {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../yapfast-iced-kit/fonts")
+                .join(name),
+        )
+        .expect("a face")
+    };
+    let (first, second) = (face("DisplayName-8Bit.ttf"), face("DisplayName-Modern.ttf"));
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({
+            "type": { "names": { "style": "ransom", "fonts": ["a.ttf", "b.ttf"],
+                "papers": [["#ffffff", "#000000"]] } }
+        }),
+        &[("a.ttf", &first), ("b.ttf", &second)],
+    );
+    assert!(
+        app.themes.ransom(&app.theme.id).is_some(),
+        "the theme cuts names"
+    );
+    assert!(!crate::theme_chrome::cuts_names(app.ctx()), "not until let");
+    let id = app.theme.id.clone();
+    app.layout.theme_content.insert(id);
+    assert!(crate::theme_chrome::cuts_names(app.ctx()));
+}
+
+#[test]
+fn a_composer_key_is_kept_no_bigger_than_its_drawn_at() {
+    use yapfast_core::themes::package::art::KeySlot;
+    let mut png = Vec::new();
+    image::RgbaImage::new(1024, 1024)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .expect("a key picture");
+    let (app, _folder) = super::themed(
+        serde_json::json!({
+            "art": { "keys": {
+                "gif": { "image": "key.png" },
+                "emoji": { "image": "key.png", "pressed": "key.png", "size": [40, 30] }
+            } }
+        }),
+        &[("key.png", &png)],
+    );
+    let kept = |handle: &iced::advanced::image::Handle| match handle {
+        iced::advanced::image::Handle::Rgba { width, height, .. } => (*width, *height),
+        _ => panic!("decoded"),
+    };
+    let gif = app
+        .themes
+        .composer_key(&app.theme.id, KeySlot::Gif)
+        .expect("the GIF key");
+    // No size: half its picture, at most the largest key, kept at 2x.
+    assert_eq!((gif.size.width, gif.size.height), (96.0, 96.0));
+    assert_eq!(kept(&gif.up), (192, 192));
+    let emoji = app
+        .themes
+        .composer_key(&app.theme.id, KeySlot::Emoji)
+        .expect("the emoji key");
+    assert!(kept(&emoji.up).0 <= 80 && kept(&emoji.up).1 <= 60);
+    assert!(kept(emoji.down.as_ref().expect("pressed")).1 <= 60);
+    assert!(
+        app.themes
+            .composer_key(&app.theme.id, KeySlot::Sticker)
+            .is_none()
+    );
+}

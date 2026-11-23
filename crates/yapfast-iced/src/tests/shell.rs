@@ -79,12 +79,12 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
     );
 }
 
-/// A theme being edited in Appearance, a colour changed: what the window
+/// A theme being edited in Themes, a colour changed: what the window
 /// shows until it's saved or cancelled; and the colour it had.
 fn editing_a_theme(app: &mut App) -> iced::Color {
     use crate::settings::{ThemeEvent, appearance_event};
     let before = app.theme.chat;
-    let _ = app.open_settings(Section::Appearance);
+    let _ = app.open_settings(Section::Themes);
     let _ = app.update(appearance_event(ThemeEvent::New));
     let chat = yapfast_core::theme::Theme::NAMES
         .iter()

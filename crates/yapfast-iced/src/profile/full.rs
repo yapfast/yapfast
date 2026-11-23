@@ -75,30 +75,53 @@ pub(super) fn full_view<'a>(
     let look = &shown.look;
     let inks = crate::profile::inks(ctx, look, Mode::Side);
     let side_width = (width * 0.4 - 8.0).max(340.0);
-    let side = container(
-        scroll_view(crate::profile::body::profile_body(
-            ctx,
-            shown,
-            Mode::Side,
-            side_width,
-            true,
-        ))
-        .height(Length::Fill)
-        .style(scrollbar(ctx.look.theme)),
-    )
-    .width(side_width)
+    let card = yapfast_core::themes::package::art::ArtSurface::Card;
+    let side_body: Element<'a, Message> = scroll_view(crate::profile::body::profile_body(
+        ctx,
+        shown,
+        Mode::Side,
+        side_width,
+        true,
+    ))
     .height(Length::Fill)
-    .clip(true)
-    .style(super::frame_style(inks, ctx.look.theme.edge, 12.0, true));
+    .style(scrollbar(ctx.look.theme))
+    .into();
+    // As Slint's: the spread's left column is the profile card, large, and
+    // a theme's card art (Zine's paper, Bubblegum's holo) lies on it at its
+    // own size, under its words, not on the whole spread.
+    let side_body = match (!inks.themed)
+        .then(|| crate::theme_art::art_under(ctx, card))
+        .flatten()
+    {
+        Some(art) => iced::widget::Stack::with_children([side_body])
+            .push_under(art)
+            .into(),
+        None => side_body,
+    };
+    let side = container(side_body)
+        .width(side_width)
+        .height(Length::Fill)
+        .clip(true)
+        .style(super::frame_style(
+            inks,
+            ctx.look.theme,
+            ctx.look.theme.edge,
+            12.0,
+            true,
+        ));
     let side = mouse_area(crate::profile::cosmetic::dressed(
         ctx,
         shown,
         Mode::Side,
         side_width,
         side.into(),
-    ))
-    .on_enter(Message::Profile(Event::Pointed(true)))
-    .on_exit(Message::Profile(Event::Pointed(false)));
+    ));
+    let side: Element<'a, Message> = side
+        .on_enter(Message::Profile(Event::Pointed(true)))
+        .on_exit(Message::Profile(Event::Pointed(false)))
+        .into();
+    // The spread's own tape holds it down; the card inside it takes none
+    // (it floated as a stray stub over the spread's top).
     let tab = crate::profile::profile_tab(ctx, look);
     let mut tabs = row![].spacing(20).height(40);
     for entry in &look.tabs {
@@ -158,11 +181,33 @@ pub(super) fn full_view<'a>(
         .width(Length::Fill)
         .height(Length::Fill);
     let edge = ctx.look.theme.edge;
-    container(row![side, right].spacing(8).padding(8))
+    // The spread is a dialog, as Slint's `ProfileModal`: a theme's dialog
+    // art on its ground, under its words, and any tape on its top edge.
+    let dialog = yapfast_core::themes::package::art::ArtSurface::Dialog;
+    let body: Element<'a, Message> = row![side, right].spacing(8).padding(8).into();
+    let body = match (!inks.themed)
+        .then(|| crate::theme_art::art_under(ctx, dialog))
+        .flatten()
+    {
+        Some(art) => iced::widget::Stack::with_children([body])
+            .push_under(art)
+            .into(),
+        None => body,
+    };
+    let framed: Element<'a, Message> = container(body)
         .width(width)
         .height(height)
-        .style(super::frame_style(inks, edge, 8.0, true))
-        .into()
+        .style(super::frame_style(inks, ctx.look.theme, edge, 8.0, true))
+        .into();
+    match (!inks.themed)
+        .then(|| crate::theme_art::art_pins(ctx, dialog))
+        .flatten()
+    {
+        Some(tape) => iced::widget::Stack::with_children([framed])
+            .push(tape)
+            .into(),
+        None => framed,
+    }
 }
 
 /// A tab's page: rows the shape of what's coming while Discord hasn't
