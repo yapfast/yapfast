@@ -63,6 +63,12 @@ impl Application {
                 call,
                 request: crate::plugins::state::AppCall::SaveFile { name, bytes },
             }) => self.plugins_save_file(plugin, call, name, bytes),
+            // `files.open` waits on a person too.
+            News::Notice(Notice::Call {
+                plugin,
+                call,
+                request: crate::plugins::state::AppCall::OpenFile(open),
+            }) => self.plugins_open_file(plugin, call, open),
             // A recording answers its call when it ends.
             News::Notice(Notice::Call {
                 plugin,

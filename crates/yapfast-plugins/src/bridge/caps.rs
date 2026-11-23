@@ -31,6 +31,7 @@ pub(super) fn is_app_call(method: &str) -> bool {
             | call::method::AUDIO_PLAY
             | call::method::AUDIO_SPEAK
             | call::method::FILES_SAVE
+            | call::method::FILES_OPEN
             | call::method::MESSAGES_ATTACH
             | call::method::ACTIVITY_SET
             | call::method::ACTIVITY_CLEAR
@@ -80,6 +81,7 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         AppCall::PlaySound { .. } => Some(Capability::AudioPlay),
         AppCall::Speak { .. } => Some(Capability::AudioSpeak),
         AppCall::SaveFile { .. } => Some(Capability::FilesSave),
+        AppCall::OpenFile(_) => Some(Capability::FilesOpen),
         AppCall::SetPluginActivity { .. } => Some(Capability::ActivitySet),
         AppCall::SetProfile(_) => Some(Capability::ProfileWrite),
         AppCall::Search(_) => Some(Capability::MessagesSearch),
@@ -136,6 +138,7 @@ pub(super) fn needs_gesture(call: &AppCall) -> bool {
             | AppCall::Copy { .. }
             | AppCall::Open { .. }
             | AppCall::SaveFile { .. }
+            | AppCall::OpenFile(_)
     )
 }
 

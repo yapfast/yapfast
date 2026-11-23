@@ -40,6 +40,7 @@ audio capabilities, which share one line.
 | `uploads.intercept` | Rename, withhold, read or replace files before upload, or send them to its own host | Can read and change files you upload, or send them somewhere else |
 | `media.read` | Bytes of attachments, avatars and emoji | Reads attachments and pictures |
 | `files.save` | Hand the person a file to save, through the system's save dialog | Saves files where you choose |
+| `files.open` | Read a file the person picks in the system's open dialog, up to 64 MB, copied for it | Reads files you pick for it |
 | `voice.read` | The call: who is in it, who speaks, mute, deafen, screens and cameras; the person's microphone, speakers, volumes and noise suppression | Sees your calls |
 | `voice.control` | Change the microphone and speakers, their volumes and noise suppression, as the Voice & video page does | Changes your microphone, speakers and their volumes |
 | `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
@@ -323,6 +324,7 @@ using another plugin's button, is no gesture for this one.
 | `audio.play` | `audio.play`, whether the sound is carried in the call or is one of the package's assets |
 | `audio.speak` | `audio.speak` |
 | `files.save` | `files.save`, and a recent user gesture; one dialog per plugin at a time, titled with the plugin's name |
+| `files.open` | `files.open`, and a recent user gesture; one file dialog per plugin at a time, titled with the plugin's name and the 64 MB limit |
 | `messages.attach`, and `messages.send` with `attachments` | `messages.send` and `messages.attach`, and the send's own gesture and five in ten seconds |
 | `activity.set`, `activity.clear` | `activity.set` |
 | `profile.set` | `profile.write`, and the person's yes the first time |

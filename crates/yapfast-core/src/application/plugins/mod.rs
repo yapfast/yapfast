@@ -29,6 +29,14 @@ use crate::plugins::state::{Notice, PreSend};
 
 /// Something a person or a plugin asks the plugin system to do.
 pub enum Action {
+    /// The open dialog a plugin's `files.open` opened was closed: the file the
+    /// person picked, copied into the plugin's holding folder, nothing when
+    /// they cancelled, or why it couldn't be copied.
+    Opened {
+        plugin: PluginId,
+        call: u64,
+        opened: Result<Option<OpenedFile>, String>,
+    },
     /// What the person pasted into a plugin's sign-in dialog: the token a
     /// service's own server showed, its JSON, or the address it ended on.
     SignInPasted { plugin: PluginId, text: String },
@@ -142,6 +150,10 @@ pub enum Effect {
     /// save dialog, titled with the plugin's name, writes the bytes where the
     /// person chose, and answers with [`Action::Saved`].
     SaveFile(SaveAsk),
+    /// A plugin asks the person to pick a file: the window opens the system's
+    /// open dialog, titled with the plugin's name and the largest size, copies
+    /// the file into [`OpenAsk::hold`], and answers with [`Action::Opened`].
+    OpenFile(OpenAsk),
     /// A plugin changed the person's volumes or noise suppression
     /// (`voice.set`): the window keeps and plays them as its Voice & video
     /// page does.
@@ -292,6 +304,109 @@ pub struct SaveAsk {
     /// The file name the dialog suggests, already checked to be no path.
     pub name: String,
     pub bytes: Arc<[u8]>,
+}
+
+/// A file a plugin asks the person to pick, waiting for the open dialog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenAsk {
+    pub plugin: PluginId,
+    pub call: u64,
+    /// The manifest's name, which the dialog's title shows.
+    pub plugin_name: String,
+    /// What the plugin says the file is for, checked to be one short line.
+    pub title: Option<String>,
+    pub extensions: Vec<String>,
+    /// Where the copy goes, in the plugin's holding folder.
+    pub hold: std::path::PathBuf,
+    /// The largest file it may be, which the title says.
+    pub max_bytes: u64,
+}
+
+impl OpenAsk {
+    /// The dialog's title: whose file, what for, and how large it may be.
+    pub fn dialog_title(&self) -> String {
+        let size = size_text(self.max_bytes);
+        match &self.title {
+            Some(title) => format!("{}: {title} (up to {size})", self.plugin_name),
+            None => format!("Choose a file for {} (up to {size})", self.plugin_name),
+        }
+    }
+}
+
+/// The file the person picked for a plugin, as copied for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedFile {
+    /// Its name, never its folder.
+    pub name: String,
+    pub bytes: u64,
+    /// Its media type, from its first bytes or its name.
+    pub kind: String,
+    /// The copy, in the plugin's holding folder.
+    pub path: std::path::PathBuf,
+}
+
+/// A size in plain words: `64 MB`, `512 KB`, `900 bytes`.
+pub fn size_text(bytes: u64) -> String {
+    match bytes {
+        0..1024 => format!("{bytes} bytes"),
+        1024..1_048_576 => format!("{} KB", bytes / 1024),
+        _ => {
+            let mb = bytes as f64 / 1_048_576.0;
+            if mb.fract() == 0.0 || mb >= 10.0 {
+                format!("{} MB", mb.round() as u64)
+            } else {
+                format!("{mb:.1} MB")
+            }
+        }
+    }
+}
+
+/// Copies the file the person picked into `hold`, refusing one over
+/// `max_bytes` before any of it is copied, and reads its type. Done off the
+/// window's thread, by the task that ran the dialog.
+pub fn hold_opened(
+    picked: &std::path::Path,
+    hold: &std::path::Path,
+    max_bytes: u64,
+) -> Result<OpenedFile, String> {
+    use std::io::Read as _;
+    let name = picked
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "file".to_owned());
+    let size = std::fs::metadata(picked)
+        .map_err(|error| format!("{name} couldn't be read: {error}"))?
+        .len();
+    if size > max_bytes {
+        return Err(format!(
+            "{name} is {}, and a plugin can open files up to {}",
+            size_text(size),
+            size_text(max_bytes)
+        ));
+    }
+    if let Some(folder) = hold.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
+    let mut source =
+        std::fs::File::open(picked).map_err(|error| format!("{name} couldn't be read: {error}"))?;
+    let mut head = [0u8; 16];
+    let read = source.read(&mut head).map_err(|error| error.to_string())?;
+    let mut copy = std::fs::File::create(hold).map_err(|error| error.to_string())?;
+    std::io::Write::write_all(&mut copy, &head[..read]).map_err(|error| error.to_string())?;
+    // Never more than the cap, though the file grew since it was measured.
+    let copied = std::io::copy(&mut source.take(max_bytes - read as u64 + 1), &mut copy)
+        .map_err(|error| error.to_string())?
+        + read as u64;
+    if copied > max_bytes {
+        let _ = std::fs::remove_file(hold);
+        return Err(format!("{name} grew past the size a plugin can open"));
+    }
+    Ok(OpenedFile {
+        kind: yapfast_plugin_api::call::FileOpened::type_of(&name, &head[..read]).to_owned(),
+        name,
+        bytes: copied,
+        path: hold.to_owned(),
+    })
 }
 
 /// A plugin waiting for the person to say whether it may reach a site.
@@ -533,6 +648,42 @@ impl Application {
                 }
                 vec![AppEffect::Plugin(Effect::Page)]
             }
+            Action::Opened {
+                plugin,
+                call,
+                opened,
+            } => {
+                self.plugin_saves.remove(&plugin);
+                let answer = match opened {
+                    Ok(None) => HostReturn::Ok(serde_json::json!({ "opened": false })),
+                    Ok(Some(file)) => {
+                        let body = self.state.plugins.as_ref().map(|plugins| {
+                            plugins.keep_opened(&plugin, file.path.clone(), file.bytes)
+                        });
+                        match serde_json::to_value(yapfast_plugin_api::call::FileOpened {
+                            opened: body.is_some(),
+                            body,
+                            name: Some(file.name),
+                            bytes: Some(file.bytes),
+                            kind: Some(file.kind),
+                        }) {
+                            Ok(value) => HostReturn::Ok(value),
+                            Err(error) => HostReturn::Error {
+                                message: error.to_string(),
+                            },
+                        }
+                    }
+                    // The person is told too: the size is theirs to see.
+                    Err(message) => {
+                        self.state.notice = Some(message.clone());
+                        HostReturn::Error { message }
+                    }
+                };
+                if let Some(plugins) = self.state.plugins.as_mut() {
+                    plugins.answer_call(&plugin, call, answer);
+                }
+                Vec::new()
+            }
             Action::Saved {
                 plugin,
                 call,
@@ -690,6 +841,47 @@ impl Application {
             plugin_name,
             name,
             bytes: bytes.into(),
+        }))]
+    }
+
+    /// Asks the window to open the system's open dialog for a plugin's
+    /// `files.open`, or answers why not: one dialog per plugin at a time,
+    /// shared with `files.save`'s.
+    pub(super) fn plugins_open_file(
+        &mut self,
+        plugin: PluginId,
+        call: u64,
+        open: yapfast_plugin_api::call::OpenFile,
+    ) -> Vec<AppEffect> {
+        let Some(plugins) = self.state.plugins.as_mut() else {
+            return Vec::new();
+        };
+        if self.plugin_saves.contains(&plugin) {
+            plugins.answer_call(
+                &plugin,
+                call,
+                HostReturn::Denied {
+                    reason: format!(
+                        "{plugin} already has a file dialog open: one at a time, and the \
+                         person answers it first"
+                    ),
+                },
+            );
+            return Vec::new();
+        }
+        let plugin_name = plugins.name(&plugin).unwrap_or_else(|| plugin.to_string());
+        let hold = plugins
+            .open_dir(&plugin)
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        self.plugin_saves.insert(plugin.clone());
+        vec![AppEffect::Plugin(Effect::OpenFile(OpenAsk {
+            plugin,
+            call,
+            plugin_name,
+            title: open.title,
+            extensions: open.extensions,
+            hold,
+            max_bytes: yapfast_plugin_api::limits::MAX_OPENED_FILE_BYTES,
         }))]
     }
 
@@ -1372,6 +1564,36 @@ mod tests {
             matches!(effects.as_slice(), [AppEffect::ConfirmOpen { url, .. }] if url.ends_with("example.com/")),
             "the person is asked before a plugin's link opens"
         );
+    }
+
+    /// A file picked for `files.open` is copied into the holding folder up to
+    /// the cap, refused over it before anything is copied, and typed by its
+    /// first bytes or its name.
+    #[test]
+    fn a_picked_file_is_held_up_to_its_cap_and_typed() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let picked = folder.path().join("shot.png");
+        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        bytes.extend(std::iter::repeat_n(7u8, 5000));
+        std::fs::write(&picked, &bytes).expect("written");
+        let hold = folder
+            .path()
+            .join("plugins-open")
+            .join("dev.local.x")
+            .join("1");
+        let held = hold_opened(&picked, &hold, 64 << 20).expect("held");
+        assert_eq!((held.name.as_str(), held.bytes), ("shot.png", 5008));
+        assert_eq!(held.kind, "image/png");
+        assert_eq!(std::fs::read(&hold).expect("the copy"), bytes);
+        let refused = hold_opened(&picked, &folder.path().join("2"), 4096).unwrap_err();
+        assert!(refused.contains("4 KB"), "{refused}");
+        assert!(!folder.path().join("2").exists(), "nothing copied");
+        assert_eq!(
+            yapfast_plugin_api::call::FileOpened::type_of("notes.JSON", b"{}"),
+            "application/json"
+        );
+        assert_eq!(size_text(64 << 20), "64 MB");
+        assert_eq!(size_text(1536 * 1024), "1.5 MB");
     }
 
     /// A sign-in through a service's own server opens its page through the

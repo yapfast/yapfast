@@ -363,6 +363,12 @@ impl Application {
                     message: "a save is answered by the dialog it opens".to_owned(),
                 },
             ),
+            AppCall::OpenFile(_) => (
+                Vec::new(),
+                HostReturn::Error {
+                    message: "a file is answered by the dialog it opens".to_owned(),
+                },
+            ),
             AppCall::Drafts => (Vec::new(), self.plugins_drafts()),
             // Answered once Discord or Spotify has, by `plugins_ask`; a call
             // that reaches here wasn't routed there.

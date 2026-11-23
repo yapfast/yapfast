@@ -59,6 +59,14 @@ pub enum Message {
     PluginStopRecording,
     /// The save dialog a plugin's `files.save` opened closed: the file name
     /// saved under, nothing for a cancel, or why the write failed.
+    /// The open dialog a plugin's `files.open` opened closed: the copied
+    /// file, nothing for a cancel, or why it couldn't be copied.
+    #[cfg(feature = "plugins")]
+    PluginOpened(
+        yapfast_plugin_api::PluginId,
+        u64,
+        Result<Option<yapfast_core::application::plugins::OpenedFile>, String>,
+    ),
     #[cfg(feature = "plugins")]
     PluginSaved(
         yapfast_plugin_api::PluginId,

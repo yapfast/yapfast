@@ -64,6 +64,9 @@ pub enum Capability {
     /// Save through the native dialog.
     #[serde(rename = "files.save")]
     FilesSave,
+    /// Read a file the person picks in the native dialog, copied for it.
+    #[serde(rename = "files.open")]
+    FilesOpen,
     /// Voice state and who is speaking.
     #[serde(rename = "voice.read")]
     VoiceRead,
@@ -189,7 +192,7 @@ impl Capability {
     /// older version wrote still parses, and the declared list is filtered where
     /// it is read, so a stored name reads back as itself. See
     /// [`Capability::is_implemented`].
-    pub const ALL: [Capability; 51] = [
+    pub const ALL: [Capability; 52] = [
         Capability::Storage,
         Capability::MessagesRead,
         Capability::MessagesIntercept,
@@ -206,6 +209,7 @@ impl Capability {
         Capability::UploadsIntercept,
         Capability::MediaRead,
         Capability::FilesSave,
+        Capability::FilesOpen,
         Capability::VoiceRead,
         Capability::VoiceControl,
         Capability::AudioPlay,
@@ -301,6 +305,7 @@ impl Capability {
             Capability::UploadsIntercept => "uploads.intercept",
             Capability::MediaRead => "media.read",
             Capability::FilesSave => "files.save",
+            Capability::FilesOpen => "files.open",
             Capability::VoiceRead => "voice.read",
             Capability::VoiceControl => "voice.control",
             Capability::AudioPlay => "audio.play",
@@ -366,6 +371,7 @@ impl Capability {
             }
             Capability::MediaRead => "Reads attachments and pictures",
             Capability::FilesSave => "Saves files where you choose",
+            Capability::FilesOpen => "Reads files you pick for it",
             Capability::VoiceRead => "Sees your calls",
             Capability::VoiceControl => "Changes your microphone, speakers and their volumes",
             Capability::AudioPlay => "Plays sounds",

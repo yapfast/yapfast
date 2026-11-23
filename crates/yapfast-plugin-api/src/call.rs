@@ -123,6 +123,7 @@ pub mod method {
     pub const VOICE_SETTINGS: &str = "voice.settings";
     pub const VOICE_SET: &str = "voice.set";
     pub const FILES_SAVE: &str = "files.save";
+    pub const FILES_OPEN: &str = "files.open";
     pub const ASSETS_LIST: &str = "assets.list";
     pub const ASSETS_GET: &str = "assets.get";
 
@@ -201,7 +202,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 120] = [
+    pub const ALL: [&str; 121] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -279,6 +280,7 @@ pub mod method {
         VOICE_SETTINGS,
         VOICE_SET,
         FILES_SAVE,
+        FILES_OPEN,
         ASSETS_LIST,
         ASSETS_GET,
         FS_LIST,
@@ -1259,6 +1261,95 @@ pub struct SaveFile {
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytes_base64: Option<String>,
+}
+
+/// `files.open`: the person picks a file in the system's open dialog, titled
+/// with the plugin's name and the size it may be.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenFile {
+    /// What the dialog's title says the file is for, after the plugin's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// File name extensions the dialog shows, without the dot; any file when
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<String>,
+}
+
+/// `files.open`'s answer, once the person closed the dialog: the file's
+/// name (never its folder), its size, its type, and the kept body that holds
+/// the copy, which `http.read` reads in pieces, `messages.attach` sends and
+/// `http.release` lets go.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileOpened {
+    pub opened: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
+    /// A media type: from the file's first bytes for the kinds that say
+    /// what they are, else from its extension, else
+    /// `application/octet-stream`.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+impl FileOpened {
+    /// The type of a file from its name and its first bytes.
+    pub fn type_of(name: &str, head: &[u8]) -> &'static str {
+        let starts = |magic: &[u8]| head.starts_with(magic);
+        if starts(b"\x89PNG\r\n\x1a\n") {
+            return "image/png";
+        }
+        if starts(&[0xff, 0xd8, 0xff]) {
+            return "image/jpeg";
+        }
+        if starts(b"GIF87a") || starts(b"GIF89a") {
+            return "image/gif";
+        }
+        if starts(b"RIFF") && head.get(8..12) == Some(b"WEBP") {
+            return "image/webp";
+        }
+        if starts(b"RIFF") && head.get(8..12) == Some(b"WAVE") {
+            return "audio/wav";
+        }
+        if starts(b"OggS") {
+            return "audio/ogg";
+        }
+        if starts(b"ID3") || starts(&[0xff, 0xfb]) {
+            return "audio/mpeg";
+        }
+        if starts(b"%PDF-") {
+            return "application/pdf";
+        }
+        if starts(b"PK\x03\x04") {
+            return "application/zip";
+        }
+        if head.get(4..8) == Some(b"ftyp") {
+            return "video/mp4";
+        }
+        let extension = name
+            .rsplit_once('.')
+            .map(|(_, extension)| extension.to_ascii_lowercase())
+            .unwrap_or_default();
+        match extension.as_str() {
+            "txt" | "log" => "text/plain",
+            "md" => "text/markdown",
+            "csv" => "text/csv",
+            "json" => "application/json",
+            "css" => "text/css",
+            "js" => "text/javascript",
+            "html" | "htm" => "text/html",
+            "xml" => "application/xml",
+            "svg" => "image/svg+xml",
+            "toml" => "application/toml",
+            "yaml" | "yml" => "application/yaml",
+            _ => "application/octet-stream",
+        }
+    }
 }
 
 /// `files.save`'s answer, once the person closed the dialog.

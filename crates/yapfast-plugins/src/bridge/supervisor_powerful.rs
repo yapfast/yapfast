@@ -47,6 +47,12 @@ impl Bridge {
         self.shared.oauth_returns.link(plugin.as_str(), query)
     }
 
+    /// Keeps the copy of a file the person picked for a plugin's `files.open`
+    /// as a body of that plugin's, and gives its number.
+    pub fn keep_opened(&self, plugin: &PluginId, path: std::path::PathBuf, bytes: u64) -> u64 {
+        self.shared.keep_opened(plugin, path, bytes)
+    }
+
     /// The person closed a sign-in's dialog before it finished.
     pub fn sign_in_closed(&self, plugin: &PluginId) {
         self.shared.oauth_returns.cancel(plugin.as_str());

@@ -596,6 +596,7 @@ pub fn capability(name: &str) -> (String, Tone) {
         ),
         "media.read" => ("Reads attachments and pictures", Tone::Normal),
         "files.save" => ("Saves files where you choose", Tone::Normal),
+        "files.open" => ("Reads files you pick for it", Tone::Normal),
         "voice.read" => ("Sees your calls", Tone::Normal),
         "voice.control" => (
             "Changes your microphone, speakers, their volumes and noise suppression",

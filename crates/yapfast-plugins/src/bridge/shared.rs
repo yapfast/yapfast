@@ -137,6 +137,8 @@ pub(crate) struct KeptBody {
     /// A recording's length in milliseconds and its waveform, which make it
     /// one `messages.voice` can send.
     pub(super) voice: Option<(u64, String)>,
+    /// A file the person picked for `files.open`, kept for the session.
+    pub(super) held: bool,
 }
 
 /// How long a large answer's body is kept unread.
@@ -151,7 +153,7 @@ impl Shared {
         bodies.retain(|_, kept| {
             // A recording is the plugin's to send for as long as the session
             // lasts; only an answer's body goes after ten minutes.
-            let fresh = kept.voice.is_some() || kept.at.elapsed() < KEEP_BODY;
+            let fresh = kept.voice.is_some() || kept.held || kept.at.elapsed() < KEEP_BODY;
             if !fresh {
                 let _ = std::fs::remove_file(&kept.path);
             }
@@ -165,8 +167,29 @@ impl Shared {
                 bytes,
                 at: Instant::now(),
                 voice: None,
+                held: false,
             },
         );
+        id
+    }
+
+    /// Keeps a file the person picked for `files.open`, for the session, for
+    /// its plugin to read with `http.read` and send with `messages.attach`.
+    pub(super) fn keep_opened(
+        &self,
+        plugin: &PluginId,
+        path: std::path::PathBuf,
+        bytes: u64,
+    ) -> u64 {
+        let id = self.keep_body(plugin, path, bytes);
+        if let Some(kept) = self
+            .bodies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&id)
+        {
+            kept.held = true;
+        }
         id
     }
 

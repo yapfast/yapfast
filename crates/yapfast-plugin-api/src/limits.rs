@@ -75,6 +75,11 @@ pub const MAX_ICON_BYTES: u64 = 64 << 10;
 /// The most one `files.save` writes: the bytes arrive inside one frame, base64.
 pub const MAX_SAVED_FILE_BYTES: usize = 768 << 10;
 
+/// The largest file `files.open` copies for a plugin, which the open dialog's
+/// title says: 64 MiB, a big export or a sound pack, kept on disk and read in
+/// pieces, never whole in memory.
+pub const MAX_OPENED_FILE_BYTES: u64 = 64 << 20;
+
 /// The longest name `files.save` suggests, in characters.
 pub const MAX_SAVED_FILE_NAME_CHARS: usize = 128;
 

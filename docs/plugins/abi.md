@@ -573,6 +573,7 @@ answer says the voice was asked to speak, not that it finished.
 | `voice.settings` | none | `{ input_volume, output_volume, microphone?, speaker?, microphones: [{ id, name }], speakers: [{ id, name }], noise_suppression }`: volumes 0 to 200 as the Voice & video page's sliders, `noise_suppression` one of `deepfilternet`, `rnnoise`, `off` | `voice.read` |
 | `voice.set` | any of `{ input_volume?, output_volume?, microphone?, speaker?, noise_suppression? }`, a device by an id from `voice.settings` | `true`: changed as the person changing it on the page would, kept for next time, shown on the page | `voice.control` |
 | `files.save` | `{ name, text }` or `{ name, bytes_base64 }` | `pending`, then `{ saved, name? }` | `files.save`, and a recent user gesture |
+| `files.open` | `{ title?, extensions? }` | `pending`, then `{ opened, body?, name?, bytes?, type? }` | `files.open`, and a recent user gesture |
 | `window.set_title` | `{ suffix }`, or `{}` to take it away | `true` | `window.title` |
 
 `voice.state` is the call as the call panel shows it, and nothing the panel
@@ -587,6 +588,23 @@ device leaves through it. The `voice_state` event carries the same object.
 title, after a dot: *(3) Yapfast · ready in 1.2 s*. One plugin's words show at
 a time, the first to set them keeping the title until it takes them away or
 stops.
+
+`files.open` asks the person for a file. The system's open dialog opens titled
+with the plugin's name, what `title` says it is for, and the largest file it
+takes, *(up to 64 MB)*; `extensions` (up to 16, letters and digits, no dot)
+filter what it lists. The parent copies the file the person picks into
+`<data>/plugins-open/<plugin>/`, off the window's thread, never more than
+64 MiB of it: a larger one is refused before anything is copied, and the person
+is told its size and the limit. The answer is `{ "opened": false }` for a
+cancel, or `{ "opened": true, "body": 7, "name": "pack.zip", "bytes": 81234,
+"type": "application/zip" }`: its name and never its folder, its size, and its
+type, from its first bytes for pictures, sounds, PDFs, archives and MP4, else
+from its extension, else `application/octet-stream`. `body` is a kept body as a
+large `http.fetch` answer's is: `http.read { body, offset, length }` reads it
+in pieces of up to 512 KiB, `messages.attach` sends it by `body`, and
+`http.release { body }` deletes the copy; otherwise it is kept for the session.
+One file dialog per plugin at a time, `files.save`'s included, and only behind
+a person's click.
 
 `files.save` hands the person a file. The parent writes it, never the plugin: the
 system's save dialog opens titled *Save a file for* and the plugin's name, with

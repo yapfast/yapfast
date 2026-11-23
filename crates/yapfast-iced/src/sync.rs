@@ -461,6 +461,9 @@ impl App {
         for ask in outbox.save {
             tasks.push(save_for_plugin(ask));
         }
+        for ask in outbox.open_file {
+            tasks.push(open_for_plugin(ask));
+        }
         for change in outbox.voice {
             let root = self.client.root().to_owned();
             let voice = &mut self.layout.voice;
@@ -1099,6 +1102,42 @@ impl App {
         self.client.want_pictures(urls);
         self.sync()
     }
+}
+
+/// Opens the system's open dialog for a plugin's `files.open`, titled with
+/// the plugin's name and the largest size it may pick, and copies the file
+/// into the plugin's holding folder off the window's thread. The plugin is
+/// told the file's name and never its folder.
+#[cfg(feature = "plugins")]
+fn open_for_plugin(ask: yapfast_core::application::plugins::OpenAsk) -> Task<Message> {
+    let title = ask.dialog_title();
+    let yapfast_core::application::plugins::OpenAsk {
+        plugin,
+        call,
+        extensions,
+        hold,
+        max_bytes,
+        ..
+    } = ask;
+    Task::perform(
+        async move {
+            let mut dialog = rfd::AsyncFileDialog::new().set_title(title);
+            if !extensions.is_empty() {
+                dialog = dialog.add_filter("Files", &extensions);
+            }
+            let Some(chosen) = dialog.pick_file().await else {
+                return Ok(None);
+            };
+            let picked = chosen.path().to_owned();
+            tokio::task::spawn_blocking(move || {
+                yapfast_core::application::plugins::hold_opened(&picked, &hold, max_bytes)
+            })
+            .await
+            .map_err(|error| error.to_string())?
+            .map(Some)
+        },
+        move |opened| Message::PluginOpened(plugin.clone(), call, opened),
+    )
 }
 
 /// Opens the system's save dialog for a plugin's `files.save`, titled with the

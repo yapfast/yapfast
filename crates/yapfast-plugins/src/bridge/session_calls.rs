@@ -423,6 +423,23 @@ impl Session {
                     }
                 }
             },
+            // The person picks the file; the title and the extensions are only
+            // what the dialog shows.
+            call::method::FILES_OPEN => {
+                request
+                    .parse::<yapfast_plugin_api::call::OpenFile>()
+                    .map(|mut open| {
+                        open.title = open.title.map(|title| {
+                            title.chars().filter(|c| !c.is_control()).take(80).collect()
+                        });
+                        open.extensions.truncate(16);
+                        open.extensions.retain(|extension| {
+                            (1..=12).contains(&extension.len())
+                                && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                        });
+                        AppCall::OpenFile(open)
+                    })
+            }
             _ => return None,
         };
         let mut app = match parsed {
@@ -558,6 +575,8 @@ impl Session {
         if needs_gesture(&app) && !shared.has_gesture(plugin) {
             let what = if matches!(app, AppCall::SaveFile { .. }) {
                 "open a save dialog"
+            } else if matches!(app, AppCall::OpenFile(_)) {
+                "open a file picker"
             } else {
                 "move the window or write the composer"
             };

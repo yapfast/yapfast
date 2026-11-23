@@ -559,6 +559,19 @@ impl App {
                 Task::none()
             }
             #[cfg(feature = "plugins")]
+            Message::PluginOpened(plugin, call, opened) => {
+                self.client
+                    .dispatch(yapfast_core::application::Action::Plugin(
+                        yapfast_core::application::plugins::Action::Opened {
+                            plugin,
+                            call,
+                            opened,
+                        },
+                    ));
+                self.dirty = true;
+                Task::none()
+            }
+            #[cfg(feature = "plugins")]
             Message::PluginSaved(plugin, call, saved) => {
                 self.client
                     .dispatch(yapfast_core::application::Action::Plugin(

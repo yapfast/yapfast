@@ -283,6 +283,7 @@ fn waits_for_answer(name: &str) -> bool {
             | method::PLUGIN_CALL
             | method::SETTINGS_ON_CHANGE
             | method::FILES_SAVE
+            | method::FILES_OPEN
             | method::FS_THUMBNAIL
             | method::NET_LISTEN
             | method::NET_CONNECT
@@ -320,7 +321,7 @@ fn waits_for_answer(name: &str) -> bool {
 /// Every name `call::method` has belongs here: a method left out is one no
 /// guest can reach, and a test compares the two lists to keep that from
 /// happening.
-const FORWARDED: [&str; 120] = [
+const FORWARDED: [&str; 121] = [
     method::APP_VERSION,
     method::APP_NOW,
     method::APP_LOCALE,
@@ -414,6 +415,7 @@ const FORWARDED: [&str; 120] = [
     method::VOICE_SET,
     method::MICROPHONE_PLAY,
     method::FILES_SAVE,
+    method::FILES_OPEN,
     method::ASSETS_LIST,
     method::ASSETS_GET,
     // The powerful tier, each refused by the parent unless the person turned

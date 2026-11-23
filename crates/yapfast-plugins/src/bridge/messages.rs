@@ -317,6 +317,9 @@ pub enum AppCall {
         name: String,
         bytes: Vec<u8>,
     },
+    /// A file for the person to pick in the system's open dialog, copied for
+    /// the plugin to read: `files.open`.
+    OpenFile(yapfast_plugin_api::call::OpenFile),
     /// The activity a plugin shows on the account's presence, or none to take
     /// it away: `activity.set` and `activity.clear`. Already checked against
     /// Discord's limits.

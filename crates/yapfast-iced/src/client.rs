@@ -300,6 +300,7 @@ impl Client {
             | Plugin::Overlay
             | Plugin::Recording => {}
             Plugin::SaveFile(ask) => self.plugin_outbox.save.push(ask),
+            Plugin::OpenFile(ask) => self.plugin_outbox.open_file.push(ask),
             Plugin::VoiceSettings(change) => self.plugin_outbox.voice.push(change),
         }
     }
@@ -399,6 +400,8 @@ pub struct PluginOutbox {
     pub copy: Option<String>,
     /// Files plugins asked the person to save, each in its own dialog.
     pub save: Vec<yapfast_core::application::plugins::SaveAsk>,
+    /// Files plugins asked the person to pick, each in its own dialog.
+    pub open_file: Vec<yapfast_core::application::plugins::OpenAsk>,
     /// Volumes and noise suppression plugins changed, kept and played as the
     /// Voice & video page keeps them.
     pub voice: Vec<yapfast_core::application::plugins::VoiceChange>,

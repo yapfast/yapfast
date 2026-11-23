@@ -329,6 +329,20 @@ impl PluginState {
         self.bridge.sign_in_link(plugin, query)
     }
 
+    /// Keeps the copy of a file the person picked for a plugin's
+    /// `files.open`, and gives the body number it is read by.
+    pub fn keep_opened(&self, plugin: &PluginId, path: std::path::PathBuf, bytes: u64) -> u64 {
+        self.bridge.keep_opened(plugin, path, bytes)
+    }
+
+    /// Where the copies of files people picked for plugins are held:
+    /// `<data>/plugins-open/<plugin>`.
+    pub fn open_dir(&self, plugin: &PluginId) -> std::path::PathBuf {
+        self.attach_dir
+            .with_file_name("plugins-open")
+            .join(plugin.as_str())
+    }
+
     /// A plugin's sign-in dialog was closed before it finished.
     pub fn sign_in_closed(&self, plugin: &PluginId) {
         self.bridge.sign_in_closed(plugin);
