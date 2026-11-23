@@ -1215,6 +1215,21 @@ pub enum Tone {
     Danger,
 }
 
+/// A button's face, as Yapfast's own buttons have them: one main action in
+/// the accent, the neutral face, a red one for what destroys, one with no
+/// face until it is pointed at, the accent's words, and the green one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Variant {
+    Primary,
+    #[default]
+    Secondary,
+    Danger,
+    Ghost,
+    Link,
+    Success,
+}
+
 /// A plugin's widgets for one slot: rows of cells, as Slint can't draw a
 /// tree of any depth.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
@@ -1343,6 +1358,12 @@ pub struct Cell {
     /// doesn't have draws the text instead.
     #[serde(default)]
     pub icon: String,
+    /// A button's face ([`Variant`]); the neutral one when not given.
+    #[serde(default)]
+    pub variant: Variant,
+    /// A button drawn small (28 px tall), as in a row or a list.
+    #[serde(default)]
+    pub small: bool,
     /// A section's rows.
     #[serde(default)]
     pub rows: Vec<Row>,
@@ -1494,6 +1515,8 @@ impl Default for Cell {
             step: 0.0,
             tooltip: String::new(),
             icon: String::new(),
+            variant: Variant::Secondary,
+            small: false,
             rows: Vec::new(),
             cells: Vec::new(),
             columns: 0,
@@ -2170,6 +2193,38 @@ mod tests {
         assert_eq!(overrides.header[0].0.action, "keep");
         let id = UiOverrides::row_id(0, &overrides.rail[0].0.action);
         assert_eq!(overrides.chosen(&id).unwrap().1, "wave");
+    }
+
+    #[test]
+    fn a_button_has_a_face_and_may_be_small() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "button", "id": "go", "text": "Go", "variant": "primary" },
+                { "kind": "button", "id": "bin", "text": "Delete", "variant": "danger", "small": true },
+                { "kind": "button", "id": "plain", "text": "Copy" }
+            ] }] }"#,
+        )
+        .unwrap();
+        let faces: Vec<_> = tree.rows[0]
+            .cells
+            .iter()
+            .map(|cell| (cell.variant, cell.small))
+            .collect();
+        assert_eq!(
+            faces,
+            [
+                (Variant::Primary, false),
+                (Variant::Danger, true),
+                (Variant::Secondary, false)
+            ]
+        );
+        assert!(
+            Tree::parse(
+                r#"{ "rows": [{ "cells": [{ "kind": "button", "id": "x", "variant": "loud" }] }] }"#
+            )
+            .is_err(),
+            "a face Yapfast doesn't have is refused"
+        );
     }
 
     #[test]

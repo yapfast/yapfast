@@ -276,7 +276,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `icon`, `image` | A picture, 16 px square or up to 240 × 135 | `src`, `text` while it isn't there |
 | `settings_form` | The manifest's settings form, drawn and saved as the plugin's page draws it, where this row is: only on the plugin's own settings page (`settings.page`), nothing anywhere else | `options`: the settings' keys it shows, every shown one when empty |
 | `tile` | A picture over its label in one card of a fixed width (96 px unless `width`), so a grid of them lines up; a button when it has an `id` | `src`, `text`, `id`, and the picture fields below |
-| `button`, `link` | A button in the kit's plain style, or a link's words | `id`, `text`, `enabled`, and a button's `icon` |
+| `button`, `link` | A button, or a link's words | `id`, `text`, `enabled`, and a button's `icon`, `variant` and `small` |
 | `toggle` | The kit's switch, its label before it | `id`, `text`, `checked` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
 | `dropdown` | The kit's drop-down, its label over it | `id`, `text`, `options`, `value` |
@@ -293,6 +293,13 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `tabs` | Its tabs' labels, and the chosen tab's rows | `id`, `tabs`: `{ "label", "rows" }` |
 | `section` | A heading that folds its rows open and shut | `id`, `text`, `rows`, `collapsed` |
 | `divider`, `spacer` | A line, or a gap | |
+
+A button's `variant` is its face, as Yapfast's own buttons have them:
+`primary` (the accent, for the one main action of a dialog or page),
+`secondary` (the neutral face, and what a button without one has), `danger`
+(red, for what deletes or can't be undone), `ghost` (no face until the pointer
+is on it, as a list row's Remove), `link` (the accent's words) or `success`. A
+`small` button is 28 px tall rather than 36, as Settings' buttons in a row are.
 
 A button may name one of Yapfast's own icons in `icon` — `previous`, `play`,
 `pause`, `next`, `stop`, `volume`, `volume-off`, `music`, `star`, `bell`,

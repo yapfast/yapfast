@@ -20,7 +20,7 @@ use iced::{
     Alignment, Color, Element, Length, font,
     widget::{Space, button, column, container, image, rich_text, row, text, tooltip},
 };
-use yapfast_core::plugins::ui::{Cell, Kind, Row, Tone, Tree, parse_colour};
+use yapfast_core::plugins::ui::{Cell, Kind, Row, Tone, Tree, Variant, parse_colour};
 
 use crate::{
     controls::{self, Kind as ActionKind},
@@ -350,28 +350,14 @@ fn cell_body<'a, M: Clone + 'a>(
                     cell.enabled.then(|| set(cell.id.clone())),
                 )
                 .into(),
-            None => controls::action(
+            None => action_button(
                 theme,
-                cell.text.clone(),
-                ActionKind::Plain,
+                cell,
+                cell.small,
                 cell.enabled.then(|| set(cell.id.clone())),
-            )
-            .into(),
+            ),
         },
-        Kind::Link => {
-            let accent = theme.accent;
-            let lit = theme.text;
-            button(
-                text(cell.text.clone())
-                    .size(14)
-                    .color(accent)
-                    .wrapping(text::Wrapping::None),
-            )
-            .padding(0)
-            .on_press_maybe(cell.enabled.then(|| set(cell.id.clone())))
-            .style(controls::ink_style(accent, lit))
-            .into()
-        }
+        Kind::Link => link_words(theme, cell, cell.enabled.then(|| set(cell.id.clone()))),
         Kind::Toggle => {
             let checked = paint.local.checked(cell);
             let on = Some(set(if checked { "false" } else { "true" }.to_owned()));
@@ -597,6 +583,51 @@ fn cell_body<'a, M: Clone + 'a>(
             grid.into()
         }
     }
+}
+
+/// A button in its face ([`Variant`]), small when `small` says: the kit's
+/// own, so it reads as Yapfast's buttons beside it.
+fn action_button<'a, M: Clone + 'a>(
+    theme: &Theme,
+    cell: &'a Cell,
+    small: bool,
+    press: Option<M>,
+) -> Element<'a, M> {
+    let kind = match cell.variant {
+        Variant::Link => return link_words(theme, cell, press),
+        Variant::Primary => ActionKind::Primary,
+        Variant::Secondary => ActionKind::Plain,
+        Variant::Danger => ActionKind::Danger,
+        Variant::Ghost => ActionKind::Ghost,
+        Variant::Success => ActionKind::Success,
+    };
+    let action = controls::action(theme, cell.text.clone(), kind, press);
+    if small {
+        action.small().into()
+    } else {
+        action.into()
+    }
+}
+
+/// A link's words, or a button drawn as one: the accent's ink, lit under
+/// the pointer.
+fn link_words<'a, M: Clone + 'a>(
+    theme: &Theme,
+    cell: &'a Cell,
+    press: Option<M>,
+) -> Element<'a, M> {
+    let accent = theme.accent;
+    let lit = theme.text;
+    button(
+        text(cell.text.clone())
+            .size(14)
+            .color(accent)
+            .wrapping(text::Wrapping::None),
+    )
+    .padding(0)
+    .on_press_maybe(press)
+    .style(controls::ink_style(accent, lit))
+    .into()
 }
 
 /// How wide a field, a drop-down or a slider is drawn: wide enough to use,
