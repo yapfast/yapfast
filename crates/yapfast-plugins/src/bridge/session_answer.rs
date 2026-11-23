@@ -437,11 +437,18 @@ impl Session {
                     Err(error) => return wrong_payload(method, error),
                 };
                 let slot = if method == call::method::UI_NOTICE {
+                    if request.room.is_some() || request.id.is_some() {
+                        return HostReturn::Error {
+                            message: "a notice takes no room or id; a toast or notify.send does"
+                                .to_owned(),
+                        };
+                    }
                     Slot::Banner
                 } else {
                     Slot::Toast
                 };
-                self.paint_line(plugin, &entry.manifest.parts, slot, &request.text)
+                let click = crate::ui::Click::asked(request.room, request.id).map(Box::new);
+                self.paint_line(plugin, &entry.manifest.parts, slot, &request.text, click)
             }
             call::method::UI_OPEN_DIALOG => {
                 let request: OpenDialog = match call.parse() {

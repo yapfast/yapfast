@@ -177,6 +177,7 @@ impl Application {
                 {
                     let caller = room.people.first();
                     effects.push(Effect::Notify(chat::Alert {
+                        plugin: None,
                         room: room.id.clone(),
                         title: room.name.clone(),
                         body: match caller {

@@ -1083,9 +1083,17 @@ pub struct InsertText {
 }
 
 /// `notify.send`: a line for the person, as the OS notification shows it.
+///
+/// With `room` or `id`, a click on the notification is the person's: it opens
+/// `room` (a conversation this account can see), counts as their gesture for
+/// the plugin, and hands the plugin a `clicked` input with `id`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotifySend {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// `clipboard.write`: text for the clipboard.
@@ -1528,9 +1536,17 @@ pub struct ClearSlot {
 
 /// `ui.notice` and `ui.toast`: a line for the person, under the plugin's
 /// name. `text` is markdown for a notice and plain text for a toast.
+///
+/// A toast also takes `room` and `id`, as `notify.send` does: a click on it
+/// opens `room`, counts as the person's gesture for the plugin and hands it a
+/// `clicked` input with `id`. A notice takes neither.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Line {
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// `ui.open_dialog`: a widget tree to ask the person something with; the

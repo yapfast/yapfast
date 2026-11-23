@@ -499,7 +499,7 @@ so nothing waits on a person:
 | `composer.get_draft` | `{ room, detail? }` | The person's draft there, as a string; with `detail`, `{ body, caret, selection }`, the caret and the selection `[start, end]` (or null) as byte offsets in the body, as the composer shows them in the open conversation (the end of the draft elsewhere) |
 | `composer.set_draft` | `{ room, body }` | Replaces it, which the composer shows at once |
 | `composer.insert` | `{ room, text }` | Writes after it, never over it |
-| `notify.send` | `{ text }` | One OS notification, titled with the plugin |
+| `notify.send` | `{ text, room?, id? }` | One OS notification, titled with the plugin and tagged with it; with `room` (a conversation this account can see, refused otherwise) or `id`, a click on it opens `room`, is the person's gesture for the plugin, and arrives at `yf_input` as `{ "kind": "clicked", "from": "notification", "id": … }` (`id` empty when only a room was given) |
 | `clipboard.write` | `{ text }` | Puts text on the clipboard |
 | `open.url` | `{ url }` | Opens a page the way a message's link does |
 | `media.get` | `{ url }` | The bytes of an attachment, an avatar or an emoji the picture store already keeps; `{ "bytes": 1234, "bytes_base64": "…" }`, and never a fetch |
@@ -821,7 +821,7 @@ The `ui` calls take a widget tree, the rows of cells
 | `ui.set_slot` | `{ "slot": "banner", "tree": { … } }`, and `"part": "now-playing"` for one of the names the manifest's `parts` gives that slot | `{ "drawn": true }`, or `{ "drawn": false, "reason": … }` for a slot this build has no place for, a tree over its cap, one that isn't a tree, or a part the manifest doesn't give that slot |
 | `ui.clear_slot` | `{ "slot": "banner" }` | `{ "drawn": true }` |
 | `ui.notice` | `{ "text": "…" }`, markdown | `{ "drawn": true }`; an empty line is an error |
-| `ui.toast` | `{ "text": "…" }`, plain text | `{ "drawn": true }` |
+| `ui.toast` | `{ "text": "…", "room"?, "id"? }`, plain text | `{ "drawn": true }`; with `room` or `id`, a click on the toast (not on a widget of its own or Dismiss) opens `room` while this account can see it, takes the toast away, is the person's gesture for the plugin and arrives as `{ "kind": "clicked", "from": "toast", "id": … }`; a `ui.notice` with either is an error |
 | `ui.open_dialog` | `{ "tree": { … }, "subject"? }`, `subject` what the dialog is about (a message or person a menu row asked about), which its widgets' inputs name; the open conversation when left out | `{ "drawn": true }`; a second dialog from one plugin replaces the first |
 | `overlay.set` | `{ sprites: [{ id, image, x, y, width?, height?, crop?, opacity?, clickable? }], fps?, pointer? }`, with `overlay` | `true`; frames arrive at `yf_input` as `overlay_frame` ([the overlay](interface.md#the-overlay)), and with `pointer` also each time the pointer moves, at any pace, 0 included |
 | `overlay.picture` | `{ bytes_base64 }`, with `overlay` | `{ image: "held:<n>" }`, the name a sprite's `image` uses: a PNG, JPEG, GIF or WebP the plugin holds (a sheet the person chose, one it fetched), at most 8 MiB, 16 held and the oldest let go past that |

@@ -247,9 +247,12 @@ impl Session {
                     text: insert.text,
                 })
             }
-            call::method::NOTIFY_SEND => request
-                .parse::<NotifySend>()
-                .map(|notify| AppCall::Notify { text: notify.text }),
+            call::method::NOTIFY_SEND => {
+                request.parse::<NotifySend>().map(|notify| AppCall::Notify {
+                    text: notify.text,
+                    click: crate::ui::Click::asked(notify.room, notify.id).map(Box::new),
+                })
+            }
             call::method::CLIPBOARD_WRITE => request
                 .parse::<CopyText>()
                 .map(|copy| AppCall::Copy { text: copy.text }),

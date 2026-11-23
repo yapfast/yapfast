@@ -298,7 +298,8 @@ limit a plugin meets: it never argues with Discord's own buckets, because it
 never talks to Discord.
 
 A send counts as the person's while it follows something they did. A command
-typed in the composer, a menu row chosen or a widget used records that the
+typed in the composer, a menu row chosen, a widget used, or a click on the
+plugin's own toast or notification that named a room or an id records that the
 person asked that plugin for something, and for five seconds after that
 `messages.send` alone covers what the plugin sends. Past five seconds, or with no
 gesture at all, the send is the plugin acting on its own and needs

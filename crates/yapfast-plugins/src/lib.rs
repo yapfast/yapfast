@@ -94,6 +94,15 @@ pub enum Input {
     Keybind { plugin: String, action: String },
     /// Clicked a sprite of the plugin's overlay that it made clickable.
     OverlayClick { plugin: String, id: String },
+    /// Clicked the plugin's own toast or OS notification that asked for a
+    /// click ([`ui::Click`]): `notification` says which, and `room` is what
+    /// the click opens.
+    Clicked {
+        plugin: String,
+        notification: bool,
+        id: String,
+        room: Option<String>,
+    },
 }
 
 /// The parts of a plugin's manifest the interface reads. The file is strict

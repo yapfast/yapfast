@@ -237,6 +237,10 @@ pub enum InputEvent {
     },
     /// A clickable sprite of the overlay was clicked.
     OverlayClick { id: String },
+    /// The plugin's own toast or notification that named a `room` or an `id`
+    /// was clicked: `from` is `toast` or `notification`, `id` the one given
+    /// (empty for a room alone). It is the person's gesture.
+    Clicked { from: String, id: String },
 }
 
 /// What `yf_event` is given, in one call.

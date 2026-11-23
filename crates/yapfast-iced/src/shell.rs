@@ -93,7 +93,22 @@ pub struct Shell {
     pub own_title_bar: bool,
     /// That the GPU failed to start, until the banner is dismissed.
     pub gpu_notice: bool,
+    /// Plugins' notifications that asked for a click, by the name the
+    /// notifier was handed for each in place of a room ([`PLUGIN_ALERT`]),
+    /// the newest last and at most [`PLUGIN_ALERTS`] of them.
+    pub plugin_alerts: std::collections::VecDeque<(String, yapfast_core::chat::PluginAlert)>,
+    /// The count those names are made from.
+    pub plugin_alerts_made: u64,
 }
+
+/// What a plugin's notification that asked for a click is handed to the
+/// notifier as, in place of its room, with a count after it: its click comes
+/// back as this, and only the shell knows which plugin it is for.
+pub const PLUGIN_ALERT: &str = "yapfast:plugin-alert:";
+
+/// How many plugins' notifications are kept for their clicks; an older one's
+/// click opens the window and nothing more.
+const PLUGIN_ALERTS: usize = 32;
 
 /// Something the desktop or the window's frame did.
 #[derive(Clone, Debug)]
@@ -386,6 +401,36 @@ impl App {
                 }
                 Task::none()
             }
+            Heard::Opened(room) if room.starts_with(PLUGIN_ALERT) => {
+                let open = self.open_window();
+                let Some(at) = self
+                    .shell
+                    .plugin_alerts
+                    .iter()
+                    .position(|(name, _)| *name == room)
+                else {
+                    return open;
+                };
+                let Some((_, alert)) = self.shell.plugin_alerts.remove(at) else {
+                    return open;
+                };
+                let closed = if alert.room.is_some() {
+                    self.close_settings()
+                } else {
+                    Task::none()
+                };
+                #[cfg(feature = "plugins")]
+                self.client
+                    .dispatch(Action::PluginInput(yapfast_core::plugins::Input::Clicked {
+                        plugin: alert.plugin,
+                        notification: true,
+                        id: alert.id,
+                        room: alert.room,
+                    }));
+                #[cfg(not(feature = "plugins"))]
+                let _ = alert;
+                Task::batch([open, closed, self.sync()])
+            }
             Heard::Opened(room) => {
                 let open = self.open_window();
                 // The notification of a newer release opens About.
@@ -675,7 +720,7 @@ impl App {
     /// conversation in front (a call rings instead); while Yapfast isn't in
     /// front, the taskbar flashes and a notification shows, as the settings
     /// allow.
-    fn alert(&self, alert: Alert) -> Task<Message> {
+    fn alert(&mut self, mut alert: Alert) -> Task<Message> {
         let focused = self.shell.focused;
         let reading = focused && self.client.state().selected.as_ref() == Some(&alert.room);
         if !alert.call && !reading {
@@ -697,11 +742,22 @@ impl App {
         {
             task = window::request_user_attention(id, Some(window::UserAttention::Informational));
         }
-        if prefs.notifications.unwrap_or(true)
-            && !focused
-            && let Some(notifier) = &self.shell.notifier
-        {
-            notifier.show(alert, prefs.notification_text.unwrap_or(true));
+        if prefs.notifications.unwrap_or(true) && !focused && self.shell.notifier.is_some() {
+            let text = prefs.notification_text.unwrap_or(true);
+            // A plugin's notification that asked for a click goes under a name
+            // of its own, so its click reaches the plugin and not the room.
+            if let Some(from) = alert.plugin.take_if(|from| from.click) {
+                self.shell.plugin_alerts_made += 1;
+                let name = format!("{PLUGIN_ALERT}{}", self.shell.plugin_alerts_made);
+                if self.shell.plugin_alerts.len() == PLUGIN_ALERTS {
+                    self.shell.plugin_alerts.pop_front();
+                }
+                self.shell.plugin_alerts.push_back((name.clone(), from));
+                alert.room = name;
+            }
+            if let Some(notifier) = &self.shell.notifier {
+                notifier.show(alert, text);
+            }
         }
         task
     }

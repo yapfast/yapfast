@@ -289,6 +289,10 @@ pub struct ConsentAsk {
 
 /// What the plugin system tells the application, arriving as
 /// [`crate::chat::Event::Plugin`] by the same path as every other event.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "nearly every one is a notice, so boxing it would only add an allocation each"
+)]
 pub enum News {
     /// From the bridge: a hook's answer, or a plugin's state.
     Notice(Notice),
@@ -2018,6 +2022,57 @@ mod tests {
             },
         );
         assert!(matches!(answer, HostReturn::Error { .. }));
+    }
+
+    /// A plugin's notification names its plugin and the room a click opens,
+    /// refuses a room nobody can see, and the click opens that room.
+    #[test]
+    fn a_click_on_a_plugins_notification_opens_its_room() {
+        let mut app = unread_and_a_discord_dm();
+        let click = |room: &str| {
+            crate::plugins::ui::Click::asked(Some(room.into()), Some("r1".into())).map(Box::new)
+        };
+        let (effects, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::Notify {
+                text: "time to go".into(),
+                click: click("discord:@me:7"),
+            },
+        );
+        assert!(matches!(answer, HostReturn::Ok(_)));
+        let [AppEffect::Notify(alert)] = effects.as_slice() else {
+            panic!("one notification, not {}", effects.len());
+        };
+        assert_eq!(alert.room, "discord:@me:7");
+        assert!(alert.title.ends_with(" plugin"), "{}", alert.title);
+        assert_eq!(
+            alert.plugin,
+            Some(crate::chat::PluginAlert {
+                plugin: plugin().to_string(),
+                click: true,
+                id: "r1".into(),
+                room: Some("discord:@me:7".into()),
+            })
+        );
+
+        let (effects, answer) = app.plugins_call(
+            &plugin(),
+            crate::plugins::state::AppCall::Notify {
+                text: "time to go".into(),
+                click: click("nowhere"),
+            },
+        );
+        assert!(effects.is_empty());
+        assert!(matches!(answer, HostReturn::Error { .. }));
+
+        assert_ne!(app.state.selected.as_deref(), Some("discord:@me:7"));
+        app.dispatch(AppAction::PluginInput(crate::plugins::Input::Clicked {
+            plugin: plugin().to_string(),
+            notification: true,
+            id: "r1".into(),
+            room: Some("discord:@me:7".into()),
+        }));
+        assert_eq!(app.state.selected.as_deref(), Some("discord:@me:7"));
     }
 
     /// §17.2's navigation group, which writes nothing itself: it leaves the

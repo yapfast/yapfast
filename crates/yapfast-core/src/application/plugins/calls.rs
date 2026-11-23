@@ -173,17 +173,46 @@ impl Application {
                 draft.push_str(&text);
                 (self.set_draft_in(room, draft), done)
             }
-            AppCall::Notify { text } => (
-                vec![AppEffect::Notify(crate::chat::Alert {
-                    room: self.state.selected.clone().unwrap_or_default(),
-                    title: plugin.to_string(),
-                    body: text,
-                    picture: None,
-                    call: false,
-                    mention: false,
-                })],
-                done,
-            ),
+            AppCall::Notify { text, click } => {
+                if let Some(room) = click.as_ref().and_then(|click| click.room.as_deref())
+                    && !self.listed_place(room)
+                {
+                    return (Vec::new(), not_listed(room));
+                }
+                // Titled with the plugin's name, as everything it shows is, and
+                // tagged with it, so a click on it can only be this plugin's.
+                let name = self
+                    .state
+                    .plugins
+                    .as_ref()
+                    .and_then(|plugins| plugins.name(plugin))
+                    .unwrap_or_else(|| plugin.to_string());
+                let room = click
+                    .as_ref()
+                    .and_then(|click| click.room.clone())
+                    .or_else(|| self.state.selected.clone())
+                    .unwrap_or_default();
+                (
+                    vec![AppEffect::Notify(crate::chat::Alert {
+                        room,
+                        title: format!("{name} plugin"),
+                        body: text,
+                        picture: None,
+                        call: false,
+                        mention: false,
+                        plugin: Some(crate::chat::PluginAlert {
+                            plugin: plugin.to_string(),
+                            click: click.is_some(),
+                            id: click
+                                .as_ref()
+                                .map(|click| click.id.clone())
+                                .unwrap_or_default(),
+                            room: click.and_then(|click| click.room),
+                        }),
+                    })],
+                    done,
+                )
+            }
             AppCall::Copy { text } => (vec![AppEffect::CopyText(text)], done),
             // The link goes through the leaving dialog a masked message link
             // does: a plugin asks, and the person sees where it goes and
@@ -499,7 +528,7 @@ impl Application {
     /// Whether an id names something the sidebar lists: a conversation, a
     /// server, a folder or a category. A plugin can only act on a place the
     /// person can see.
-    pub(super) fn listed_place(&self, place: &str) -> bool {
+    pub(crate) fn listed_place(&self, place: &str) -> bool {
         self.state.rooms.iter().any(|room| room.id == place)
             || self.state.servers.iter().any(|server| server.id == place)
             || self.state.is_folder(place)

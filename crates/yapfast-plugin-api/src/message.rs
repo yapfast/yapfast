@@ -262,6 +262,7 @@ pub enum ToHelper {
 /// { "kind": "menu", "action": "wave", "target": "com.example.someone" }
 /// { "kind": "widget", "slot": "composer", "id": "shout", "value": "", "subject": "1234" }
 /// { "kind": "dismissed", "slot": "toast" }
+/// { "kind": "clicked", "from": "notification", "id": "reminder-4" }
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -311,6 +312,11 @@ pub enum InputEvent {
     },
     /// A sprite of its overlay that it made `clickable` was clicked.
     OverlayClick { id: String },
+    /// The person clicked the plugin's own toast or OS notification that
+    /// named a `room` or an `id`: `from` is `toast` or `notification`, and
+    /// `id` is the one it was given (empty when it named only a room). The
+    /// click is the person's gesture for the plugin.
+    Clicked { from: String, id: String },
 }
 
 /// What `yf_decorate` may answer: what to draw under a message, a line beside

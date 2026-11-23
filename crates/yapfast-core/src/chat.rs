@@ -5402,6 +5402,21 @@ pub struct Alert {
     pub call: bool,
     /// A message mentioning this account.
     pub mention: bool,
+    /// The plugin that sent it with `notify.send`, which a click on it may
+    /// be for.
+    pub plugin: Option<PluginAlert>,
+}
+
+/// A plugin's own notification: which plugin, and what a click on it does
+/// when the plugin asked for one with a room or an id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginAlert {
+    pub plugin: String,
+    /// The click hands the plugin a `clicked` input with `id`, and opens
+    /// `room` when it names one.
+    pub click: bool,
+    pub id: String,
+    pub room: Option<String>,
 }
 
 /// What woke the actor. Each network's own events are handled by its module.

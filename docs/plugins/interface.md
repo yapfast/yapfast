@@ -649,7 +649,14 @@ slot and the part around it can share one.
 
 A guest asks with `ui.set_slot` and `ui.clear_slot`; `ui.notice` and
 `ui.toast` are the same thing in one line, and `ui.open_dialog` is
-`ui.set_slot` on the `dialog` slot. None of them needs a capability: a slot is a
+`ui.set_slot` on the `dialog` slot. A toast that names a `room` or an `id`
+(`ui::Click` on its tree, set by the bridge) takes a click anywhere its own
+widgets and Dismiss don't: the card is a `mouse_area` sending
+`Input::Clicked`, which opens the room, clears the toast and hands the plugin
+`clicked`. `notify.send` takes the same two; its `Alert` carries a
+`PluginAlert`, and the shell hands the notifier a name of its own
+(`yapfast:plugin-alert:<n>`) in place of the room, so the click comes back to
+the plugin that sent it and to no other. None of them needs a capability: a slot is a
 plugin's own surface, and only changes to Yapfast's own interface need
 `ui.modify`.
 

@@ -10,7 +10,15 @@ fn a_line_is_drawn_in_the_banner_or_the_toast_and_an_empty_one_is_an_error() {
     let shared = shared(directory.path(), wake);
     let (_session_directory, mut session, _written, _inbound) = session_stub();
 
-    let empty = HostCall::new(call::method::UI_NOTICE, Line { text: "  ".into() }).expect("a call");
+    let empty = HostCall::new(
+        call::method::UI_NOTICE,
+        Line {
+            text: "  ".into(),
+            room: None,
+            id: None,
+        },
+    )
+    .expect("a call");
     assert!(matches!(
         session.answer(&shared, &plugin, empty),
         HostReturn::Error { .. }
@@ -20,6 +28,8 @@ fn a_line_is_drawn_in_the_banner_or_the_toast_and_an_empty_one_is_an_error() {
         call::method::UI_NOTICE,
         Line {
             text: "**hi** there".into(),
+            room: None,
+            id: None,
         },
     )
     .expect("a call");
@@ -27,10 +37,28 @@ fn a_line_is_drawn_in_the_banner_or_the_toast_and_an_empty_one_is_an_error() {
         session.answer(&shared, &plugin, notice),
         answered(SlotDrawn::yes())
     );
+    let roomy = HostCall::new(
+        call::method::UI_NOTICE,
+        Line {
+            text: "hi".into(),
+            room: Some("dm".into()),
+            id: None,
+        },
+    )
+    .expect("a call");
+    assert!(
+        matches!(
+            session.answer(&shared, &plugin, roomy),
+            HostReturn::Error { .. }
+        ),
+        "a notice takes no room"
+    );
     let toast = HostCall::new(
         call::method::UI_TOAST,
         Line {
             text: "done".into(),
+            room: None,
+            id: Some("t1".into()),
         },
     )
     .expect("a call");
@@ -39,13 +67,23 @@ fn a_line_is_drawn_in_the_banner_or_the_toast_and_an_empty_one_is_an_error() {
         answered(SlotDrawn::yes())
     );
     session.paint(&shared, Instant::now());
-    let slots: Vec<Slot> = std::iter::from_fn(|| notices.try_recv().ok())
-        .filter_map(|notice| match notice {
-            Notice::Slot(slots::Output::SetSlot { slot, .. }) => Some(slot),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(slots, [Slot::Banner, Slot::Toast]);
+    let slots: Vec<(Slot, Option<Box<crate::ui::Click>>)> =
+        std::iter::from_fn(|| notices.try_recv().ok())
+            .filter_map(|notice| match notice {
+                Notice::Slot(slots::Output::SetSlot { slot, tree, .. }) => {
+                    Some((slot, tree.click.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+    let click = crate::ui::Click {
+        room: None,
+        id: "t1".into(),
+    };
+    assert_eq!(
+        slots,
+        [(Slot::Banner, None), (Slot::Toast, Some(Box::new(click)))]
+    );
 }
 
 #[test]
@@ -134,6 +172,8 @@ fn a_tree_is_drawn_as_a_part_its_manifest_names() {
         call::method::UI_TOAST,
         Line {
             text: "done".into(),
+            room: None,
+            id: None,
         },
     )
     .expect("a call");

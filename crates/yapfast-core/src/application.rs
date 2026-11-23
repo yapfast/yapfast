@@ -3264,6 +3264,28 @@ impl Application {
         // The interface changed when the person clicked, so this is delivered
         // here rather than handed back to the interface to deliver: the runtime
         // that would take it is the one this application owns.
+        // A click on the plugin's own toast or notification opens the room it
+        // named, as a click in the sidebar would, while that room is still one
+        // this account sees; the toast leaves the screen as a notification does.
+        if let crate::plugins::Input::Clicked {
+            plugin,
+            notification,
+            room,
+            ..
+        } = &input
+        {
+            if let Some(room) = room
+                && self.listed_place(room)
+            {
+                effects.extend(self.dispatch(Action::Open(room.clone())));
+            }
+            if !notification
+                && let Some(slots) = &mut self.state.plugin_slots
+                && slots.clear(plugin, crate::plugins::slots::Slot::Toast)
+            {
+                effects.push(Effect::Plugin(crate::application::plugins::Effect::Slots));
+            }
+        }
         if let Some(plugins) = self.state.plugins.as_mut() {
             plugins.deliver(&input);
         }
@@ -4611,6 +4633,7 @@ impl Application {
             picture,
             call: false,
             mention,
+            plugin: None,
         }
     }
 

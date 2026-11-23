@@ -1226,6 +1226,33 @@ pub struct Tree {
     /// bridge from `ui.open_dialog`'s `subject`.
     #[serde(skip)]
     pub subject: Option<String>,
+    /// What a click on a toast does, when `ui.toast` named a room or an id:
+    /// set by the bridge, never by the tree's JSON.
+    #[serde(skip)]
+    pub click: Option<Box<Click>>,
+}
+
+/// A click a plugin asked for on its own toast or notification: the room it
+/// opens, and the id its `clicked` input carries (empty when it gave none).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Click {
+    pub room: Option<String>,
+    pub id: String,
+}
+
+impl Click {
+    /// The click `room` and `id` ask for, or none when they name neither: a
+    /// toast or notification without them is only a line.
+    pub fn asked(room: Option<String>, id: Option<String>) -> Option<Self> {
+        let room = room.filter(|room| !room.trim().is_empty());
+        if room.is_none() && id.is_none() {
+            return None;
+        }
+        Some(Self {
+            room,
+            id: id.unwrap_or_default(),
+        })
+    }
 }
 
 /// The part a plugin's tree in `slot` is drawn as: `asked`, which the

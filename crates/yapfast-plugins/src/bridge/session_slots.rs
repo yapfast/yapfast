@@ -132,6 +132,7 @@ impl Session {
         parts: &[PartDecl],
         slot: Slot,
         text: &str,
+        click: Option<Box<crate::ui::Click>>,
     ) -> HostReturn {
         if text.trim().is_empty() {
             return HostReturn::Error {
@@ -151,6 +152,7 @@ impl Session {
         };
         // A line names no part, so it is the first its slot has, if any.
         tree.part = crate::ui::part_id(plugin.as_str(), parts, slot, None).unwrap_or_default();
+        tree.click = click;
         self.painting.queue(
             Instant::now(),
             slots::Output::SetSlot {

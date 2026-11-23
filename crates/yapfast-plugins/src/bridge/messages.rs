@@ -221,6 +221,8 @@ pub enum AppCall {
     },
     Notify {
         text: String,
+        /// What a click on it does, when the plugin asked for one.
+        click: Option<Box<crate::ui::Click>>,
     },
     Copy {
         text: String,

@@ -110,6 +110,23 @@ impl Bridge {
                 plugin.clone(),
                 yapfast_plugin_api::message::InputEvent::OverlayClick { id: id.clone() },
             ),
+            crate::Input::Clicked {
+                plugin,
+                notification,
+                id,
+                ..
+            } => (
+                plugin.clone(),
+                yapfast_plugin_api::message::InputEvent::Clicked {
+                    from: if *notification {
+                        "notification"
+                    } else {
+                        "toast"
+                    }
+                    .to_owned(),
+                    id: id.clone(),
+                },
+            ),
         };
         let Ok(plugin) = PluginId::parse(&plugin) else {
             // A slot drawn by something that isn't a plugin id can't be handed

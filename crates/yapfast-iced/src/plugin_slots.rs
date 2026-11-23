@@ -451,7 +451,21 @@ pub fn toasts<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let mut any = false;
     for (drawn, plugin) in shown(ctx, Slot::Toast) {
         let body = draw(ctx, drawn, plugin, "");
-        cards = cards.push(notice_card(theme, plugin, Slot::Toast, body));
+        let card = notice_card(theme, plugin, Slot::Toast, body);
+        // A toast that named a room or an id takes a click anywhere a widget
+        // of its own or Dismiss doesn't, which those capture first.
+        cards = cards.push(match &drawn.tree.click {
+            Some(click) => iced::widget::mouse_area(card)
+                .on_press(Message::Plugin(yapfast_core::plugins::Input::Clicked {
+                    plugin: plugin.id.clone(),
+                    notification: false,
+                    id: click.id.clone(),
+                    room: click.room.clone(),
+                }))
+                .interaction(iced::mouse::Interaction::Pointer)
+                .into(),
+            None => card,
+        });
         any = true;
     }
     any.then(|| cards.into())
