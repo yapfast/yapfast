@@ -799,35 +799,77 @@ fn item<'a, M: Clone + 'a>(
     message: &Sender<'a, M>,
 ) -> Element<'a, M> {
     let theme = paint.look.theme;
-    let side = if cell.description.is_empty() {
+    // `small` is a player's compact row: 14 px semibold over 12 px lines,
+    // on one line each and cut short, as Vencord's and Discord's are.
+    let compact = cell.small;
+    let side = cell.width.unwrap_or(if cell.description.is_empty() {
         24.0
     } else {
         32.0
+    });
+    let (name_size, line_size) = if compact { (14, 12) } else { (15, 13) };
+    let one_line = if compact {
+        text::Wrapping::None
+    } else {
+        text::Wrapping::WordOrGlyph
     };
     let mut words = column![
         text(cell.text.clone())
-            .size(15)
+            .size(name_size)
+            .font(if compact {
+                crate::fonts::SEMIBOLD
+            } else {
+                REGULAR
+            })
             .color(if cell.enabled {
                 theme.text
             } else {
                 theme.muted
             })
-            .wrapping(text::Wrapping::WordOrGlyph)
+            .wrapping(one_line)
     ]
-    .spacing(2)
-    .width(Length::Fill);
-    if !cell.description.is_empty() {
+    .spacing(if compact { 0 } else { 2 })
+    .width(Length::Fill)
+    .clip(compact);
+    // Each line of the description is a line of its own.
+    for line in cell
+        .description
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+    {
         words = words.push(
-            text(cell.description.clone())
-                .size(13)
-                .color(theme.muted)
-                .wrapping(text::Wrapping::WordOrGlyph),
+            text(line.to_owned())
+                .size(line_size)
+                .color(if compact {
+                    theme.secondary
+                } else {
+                    theme.muted
+                })
+                .wrapping(one_line),
         );
     }
-    let mut line = row![].spacing(12).align_y(Alignment::Center);
+    let mut line = row![]
+        .spacing(if compact { 8 } else { 12 })
+        .align_y(Alignment::Center);
     if !cell.src.is_empty() {
-        let shown = drawn(paint, cell, &cell.src, cell.crop, (side, side));
-        line = line.push(shown.unwrap_or_else(|| initial(theme, cell, side)));
+        let shown = drawn(paint, cell, &cell.src, cell.crop, (side, side))
+            .unwrap_or_else(|| initial(theme, cell, side));
+        // `hover_src`: the picture shown large while the pointer rests on
+        // the small one, as a player's album art.
+        let large = (!cell.hover_src.is_empty())
+            .then(|| drawn(paint, cell, &cell.hover_src, None, (LARGE, LARGE)))
+            .flatten();
+        line = line.push(match large {
+            Some(large) => tooltip(
+                shown,
+                container(large)
+                    .padding(4)
+                    .style(controls::menu_panel(theme)),
+                tooltip::Position::Top,
+            )
+            .into(),
+            None => shown,
+        });
     }
     line = line.push(words);
     let mut controls = row![].spacing(4).align_y(Alignment::Center);
@@ -868,6 +910,9 @@ fn item<'a, M: Clone + 'a>(
         })
         .into()
 }
+
+/// How large a list row's picture shows while the pointer rests on it.
+const LARGE: f32 = 220.0;
 
 /// A list row's picture until it comes (or when it never will): its name's
 /// first letter on a faint ground, round when the picture would be, as
@@ -1265,7 +1310,7 @@ fn drawn<'a, M: 'a>(
     if cell.round {
         shown = shown.border_radius(width.min(height) / 2.0);
     } else if cell.kind == Kind::Item {
-        shown = shown.border_radius(8.0);
+        shown = shown.border_radius(if cell.small { 4.0 } else { 8.0 });
     }
     if let Some([x, y, width, height]) = crop {
         shown = shown.crop(iced::Rectangle {
