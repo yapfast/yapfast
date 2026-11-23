@@ -688,6 +688,35 @@ fn voice_server(app: &mut App) {
     });
 }
 
+/// A voice channel hidden from this account, listed with Show channels you
+/// can't access, shows who is in it under its lock, as other voice channels
+/// do, and a click on it joins nothing.
+#[test]
+fn a_hidden_voice_channel_lists_who_is_in_it_and_joins_nothing() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    change(&mut app, |state| {
+        let staff = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "staff")
+            .expect("staff");
+        let staff = Arc::make_mut(staff);
+        staff.name = "No Access".into();
+        staff.people[0].name = "Hana".into();
+        staff.people[0].deafened = true;
+    });
+    assert!(shows(&app, "No Access"));
+    assert!(shows(&app, "Hana"), "who is in it shows under it");
+    interact(&mut app, |ui| {
+        ui.click("No Access").expect("the hidden channel");
+    });
+    let _ = app.sync();
+    let state = app.client.state();
+    assert_eq!(state.voice.room, None, "it can't be joined");
+    assert!(!state.voice.active());
+}
+
 #[test]
 fn a_server_with_people_in_voice_shows_a_speaker_as_discords_list_does() {
     use crate::rail::Media;

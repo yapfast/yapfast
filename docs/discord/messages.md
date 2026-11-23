@@ -7,7 +7,12 @@ Yapfast lists the linked account's Discord servers in the rail with their
 channels. Channels the account's roles and channel overwrites keep it out of
 show greyed out with a lock, as in Discord; channels hidden from it appear the
 same way only with the "Show channels you can't access" setting, which is off
-by default. Server text channels are listed under their Discord categories and
+by default. Discord sends a hidden channel with the `OBFUSCATED` flag
+(`1 << 17`) and its name and topic as `___hidden___`, so such a channel, or
+category, is named "No Access", as Discord's client names it, has no topic,
+and counts as hidden whatever its overwrites say. A hidden voice channel
+still lists who is in it, from the voice states Discord sends for every
+voice channel, as any voice channel does; a click on it joins nothing. Server text channels are listed under their Discord categories and
 open in Yapfast's timeline. Clicking a category's heading collapses it, leaving
 the open channel, unread ones and voice channels with people in them, as in
 Discord; Yapfast remembers which categories are collapsed, per server. History
