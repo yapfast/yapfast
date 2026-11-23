@@ -3,8 +3,9 @@
 use std::{path::Path, sync::Arc};
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Task,
-    widget::{self, button, column, container, image, row, stack, text, tooltip},
+    Alignment, Border, Color, Element, Length, Rectangle, Size, Task,
+    advanced::{Layout, Widget, layout, mouse, renderer, widget::Tree},
+    widget::{self, button, column, container, image, row, stack, tooltip},
 };
 use yapfast_core::theme::BUILT_IN;
 
@@ -18,10 +19,11 @@ use crate::{
     form,
     layout::Prefs,
     pictures::Icon,
+    widgets::Hover,
 };
 
 const MIN_TILE_WIDTH: f32 = 88.0;
-const MAX_COLUMNS: usize = 5;
+const MAX_COLUMNS: usize = 6;
 const TILE_HEIGHT: f32 = 86.0;
 const TILE_GAP: f32 = 8.0;
 const PREVIEW: u32 = 46;
@@ -207,9 +209,11 @@ impl<'a> Page<'a> {
             return widget::Space::new().into();
         };
         let prefs = &self.cx.layout.prefs;
+        let theme = self.cx.look.theme;
         let follows = prefs.tray_uses_application_icon();
         let enabled = icons.picker.is_none();
         let mut parts = vec![
+            form::rule(theme),
             self.icon_picker(
                 "APPLICATION ICON",
                 IconTarget::Application,
@@ -217,11 +221,13 @@ impl<'a> Page<'a> {
                 &icons.application,
                 icons,
             ),
+            form::rule(theme),
             form::switch(
                 "Use the application icon in the tray",
                 follows,
                 enabled.then(|| message(Event::FollowApplication(!follows))),
             )
+            .description("Show the application icon in the notification area. Turn this off to choose a separate tray icon.")
             .view(self.cx.look),
         ];
         if let Some(grid) = &icons.tray {
@@ -233,7 +239,8 @@ impl<'a> Page<'a> {
                 icons,
             ));
         }
-        form::group(parts)
+        parts.push(form::rule(theme));
+        column(parts).spacing(16).width(Length::Fill).into()
     }
 
     fn icon_picker(
@@ -249,31 +256,45 @@ impl<'a> Page<'a> {
             IconChoice::Theme(id) if id == YAP || yapfast_core::theme::find(id).is_none() => {
                 &IconChoice::Default
             }
+            IconChoice::Custom if grid.custom.is_none() => &IconChoice::Default,
             _ => choice,
         };
         let enabled = icons.picker.is_none();
-        let presets = widget::responsive(move |size| {
+        let tiles = widget::responsive(move |size| {
             let fit = ((size.width + TILE_GAP) / (MIN_TILE_WIDTH + TILE_GAP)).floor() as usize;
             let columns = fit.clamp(1, MAX_COLUMNS);
             let width = (size.width - (columns - 1) as f32 * TILE_GAP) / columns as f32;
-            column(grid.presets.chunks(columns).map(|tiles| {
-                row(tiles
-                    .iter()
-                    .map(|tile| self.icon_tile(target, tile, tile.icon == *chosen, enabled, width)))
-                .spacing(TILE_GAP)
-                .into()
-            }))
-            .spacing(TILE_GAP)
-            .into()
+            let mut tiles = grid
+                .presets
+                .iter()
+                .map(|tile| self.icon_tile(target, tile, tile.icon == *chosen, enabled, width))
+                .chain(std::iter::once_with(|| {
+                    self.custom_icon(
+                        target,
+                        grid.custom.as_ref(),
+                        *chosen == IconChoice::Custom,
+                        enabled,
+                        width,
+                    )
+                }));
+            // On a wide page the second row holds five presets and Custom.
+            let first_row = if columns == MAX_COLUMNS {
+                columns - 1
+            } else {
+                columns
+            };
+            let mut rows =
+                column![row(tiles.by_ref().take(first_row)).spacing(TILE_GAP)].spacing(TILE_GAP);
+            while let Some(tile) = tiles.next() {
+                rows = rows.push(
+                    row(std::iter::once(tile).chain(tiles.by_ref().take(columns - 1)))
+                        .spacing(TILE_GAP),
+                );
+            }
+            rows.into()
         })
         .height(Length::Shrink);
-        let mut parts = vec![form::heading(look.theme, label), presets.into()];
-        parts.push(self.custom_icon(
-            target,
-            grid.custom.as_ref(),
-            *chosen == IconChoice::Custom,
-            enabled,
-        ));
+        let mut parts = vec![form::heading(look.theme, label), tiles.into()];
         if let Some((_, error)) = icons.error.as_ref().filter(|(which, _)| *which == target) {
             parts.push(form::error(look.theme, error.as_str()).into());
         }
@@ -286,40 +307,47 @@ impl<'a> Page<'a> {
         preview: Option<&image::Handle>,
         current: bool,
         enabled: bool,
+        width: f32,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let upload = action(
-            theme,
-            if preview.is_some() {
-                "Replace image…"
-            } else {
-                "Upload custom image…"
-            },
-            Kind::Plain,
-            enabled.then(|| message(Event::Pick(target))),
-        )
-        .small();
-        let Some(preview) = preview else {
-            return upload.into();
-        };
-        let image = image(preview.clone()).width(30).height(30);
-        let mut custom = row![image].spacing(8).align_y(Alignment::Center);
-        if current {
-            custom = custom
-                .push(text("Custom image").size(13).color(theme.text))
-                .push(self.icon_check());
+        let saved = preview.is_some();
+        let label = if saved {
+            "Custom image"
         } else {
-            custom = custom.push(
-                action(
-                    theme,
-                    "Use saved image",
-                    Kind::Ghost,
-                    enabled.then(|| message(Event::Choose(target, IconChoice::Custom))),
-                )
-                .small(),
-            );
+            "Upload image…"
+        };
+        let face = self
+            .icon_face(label, preview, current, width)
+            .on_press_maybe(enabled.then(|| {
+                message(if saved {
+                    Event::Choose(target, IconChoice::Custom)
+                } else {
+                    Event::Pick(target)
+                })
+            }))
+            .style(icon_tile_style(theme, current, true));
+        let outline = Element::new(DashedOutline {
+            color: if current { theme.accent } else { theme.faint },
+            thickness: if current { 3.0 } else { 1.0 },
+        });
+        let tile = stack![face, outline].width(width).height(TILE_HEIGHT);
+        if !saved || !enabled {
+            return tile.into();
         }
-        form::beside(custom, upload)
+        let replace = action(
+            theme,
+            "Replace",
+            Kind::Plain,
+            Some(message(Event::Pick(target))),
+        )
+        .small()
+        .wide(24.0);
+        let replace = container(replace)
+            .align_y(Alignment::End)
+            .width(width)
+            .height(TILE_HEIGHT)
+            .padding(6);
+        Hover::new(tile, replace).into()
     }
 
     fn icon_check(self) -> Element<'a, Message> {
@@ -340,9 +368,24 @@ impl<'a> Page<'a> {
         enabled: bool,
         width: f32,
     ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let face = self
+            .icon_face(tile.name, tile.preview.as_ref(), current, width)
+            .on_press_maybe(enabled.then(|| message(Event::Choose(target, tile.icon.clone()))))
+            .style(icon_tile_style(theme, current, false));
+        tooltip(face, tip(theme, tile.name), tooltip::Position::Top).into()
+    }
+
+    fn icon_face(
+        self,
+        label: &'static str,
+        preview: Option<&image::Handle>,
+        current: bool,
+        width: f32,
+    ) -> button::Button<'a, Message> {
         let look = self.cx.look;
         let theme = look.theme;
-        let preview: Element<'a, Message> = match &tile.preview {
+        let preview: Element<'a, Message> = match preview {
             Some(handle) => image(handle.clone()).width(PREVIEW).height(PREVIEW).into(),
             None => look.glyph(Icon::Image, 22, theme.secondary).into(),
         };
@@ -355,10 +398,10 @@ impl<'a> Page<'a> {
                     .width(Length::Fill),
             );
         }
-        let face = button(
+        button(
             column![
                 face,
-                elide(tile.name).size(12).centred().color(if current {
+                elide(label).size(12).centred().color(if current {
                     theme.text
                 } else {
                     theme.secondary
@@ -369,15 +412,13 @@ impl<'a> Page<'a> {
         .padding(8)
         .width(width)
         .height(TILE_HEIGHT)
-        .on_press_maybe(enabled.then(|| message(Event::Choose(target, tile.icon.clone()))))
-        .style(icon_tile_style(theme, current));
-        tooltip(face, tip(theme, tile.name), tooltip::Position::Top).into()
     }
 }
 
 fn icon_tile_style(
     theme: &crate::theme::Theme,
     current: bool,
+    custom: bool,
 ) -> impl Fn(&iced::Theme, button::Status) -> button::Style + use<> {
     let (accent, faint, line, hover) = (theme.accent, theme.faint, theme.line, theme.hover);
     move |_, status| {
@@ -402,10 +443,87 @@ fn icon_tile_style(
                 } else {
                     line
                 },
-                width: if current { 3.0 } else { 1.0 },
+                width: if custom {
+                    0.0
+                } else if current {
+                    3.0
+                } else {
+                    1.0
+                },
                 radius: 10.0.into(),
             },
             ..Default::default()
+        }
+    }
+}
+
+/// The custom tile's dashes follow its layout without a separate widget per dash.
+struct DashedOutline {
+    color: Color,
+    thickness: f32,
+}
+
+impl Widget<Message, iced::Theme, iced::Renderer> for DashedOutline {
+    fn size(&self) -> Size<Length> {
+        Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _: &mut Tree,
+        _: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        layout::Node::new(limits.resolve(Length::Fill, Length::Fill, Size::ZERO))
+    }
+
+    fn draw(
+        &self,
+        _: &Tree,
+        renderer: &mut iced::Renderer,
+        _: &iced::Theme,
+        _: &renderer::Style,
+        layout: Layout<'_>,
+        _: mouse::Cursor,
+        _: &Rectangle,
+    ) {
+        use iced::advanced::Renderer as _;
+        let area = layout.bounds();
+        let thickness = self.thickness;
+        let mut paint = |bounds| {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds,
+                    ..Default::default()
+                },
+                self.color,
+            );
+        };
+        let dashes = |length: f32| {
+            let available = (length - 14.0).max(0.0);
+            let count = ((available + 3.0) / 8.0) as u32;
+            let start = (length - (count as f32 * 8.0 - 3.0)) / 2.0;
+            (0..count).map(move |index| start + index as f32 * 8.0)
+        };
+        for x in dashes(area.width) {
+            for y in [area.y, area.y + area.height - thickness] {
+                paint(Rectangle {
+                    x: area.x + x,
+                    y,
+                    width: 5.0,
+                    height: thickness,
+                });
+            }
+        }
+        for y in dashes(area.height) {
+            for x in [area.x, area.x + area.width - thickness] {
+                paint(Rectangle {
+                    x,
+                    y: area.y + y,
+                    width: thickness,
+                    height: 5.0,
+                });
+            }
         }
     }
 }
