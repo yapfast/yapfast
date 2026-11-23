@@ -31,6 +31,10 @@ pub(super) struct Socket {
 }
 
 impl Socket {
+    #[expect(
+        clippy::needless_pass_by_ref_mut,
+        reason = "the Windows accept() replaces its pipe instance, and serve() calls both alike"
+    )]
     pub(super) async fn accept(&mut self) -> Result<UnixStream> {
         let (stream, _) = self.listener.accept().await?;
         ensure!(
