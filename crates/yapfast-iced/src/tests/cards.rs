@@ -204,6 +204,81 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
     assert!(app.win.settings.is_open(), "Game Activity's settings");
 }
 
+/// A report, 2026-11-22: an open card kept the activity it
+/// opened with, so a song's line of lyrics froze until it was opened
+/// again. The core copies presence into the profile as it opens; the
+/// card now follows the member list, and is made again only when the
+/// activities change.
+#[test]
+fn an_open_card_follows_the_persons_activity_as_it_changes() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{Activity, ActivityKind};
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user.clone(), Point::new(500.0, 200.0));
+    let song = |line: &str| Activity {
+        details: Some(line.into()),
+        state: Some("Artist".into()),
+        application_id: Some("1".into()),
+        ..Activity::new(ActivityKind::Listening, "Lyrics")
+    };
+    let sing = |app: &mut crate::app::App, line: &str| {
+        super::change(app, |state| {
+            let members = state
+                .members
+                .as_mut()
+                .and_then(|members| members.as_mut().ok());
+            for member in Arc::make_mut(members.expect("members")) {
+                if member.id == user {
+                    member.activities = Arc::from([song(line)]);
+                }
+            }
+        });
+    };
+    let title = |app: &crate::app::App| {
+        let shown = app.profiles.shown.as_ref().expect("shown");
+        shown.look.activities.first().map(|look| look.name.clone())
+    };
+    sing(&mut app, "First line");
+    assert_eq!(title(&app).as_deref(), Some("First line"));
+    let before = Arc::as_ptr(&app.profiles.shown.as_ref().expect("shown").look.view);
+    sing(&mut app, "Second line");
+    assert_eq!(
+        title(&app).as_deref(),
+        Some("Second line"),
+        "follows the song"
+    );
+    assert!(shows(&app, "Second line"));
+    let made = app
+        .profiles
+        .shown
+        .as_ref()
+        .expect("shown")
+        .look
+        .activities
+        .clone();
+    let _ = app.sync();
+    assert_eq!(
+        app.profiles.shown.as_ref().expect("shown").look.activities,
+        made,
+        "the same activities make nothing new"
+    );
+    assert_eq!(
+        Arc::as_ptr(&app.profiles.shown.as_ref().expect("shown").look.view),
+        before,
+        "the core's view is the same one"
+    );
+}
+
 #[test]
 fn a_profile_without_a_banner_takes_its_avatars_colour() {
     use std::sync::Arc;
@@ -252,7 +327,8 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
     let shown = app.profiles.shown.as_ref().expect("shown");
     assert_eq!(
         crate::profile::banner_ground(app.ctx(), shown),
-        Some(0xC8_14_14)
+        Some(0xCC_14_14),
+        "color-thief's, from the middle of its 5-bit cell, as Discord's"
     );
 }
 
@@ -434,4 +510,271 @@ fn an_authors_card_is_theirs_by_their_discord_id() {
     )));
     let card = app.profiles.card.as_ref().expect("their card");
     assert_eq!(card.user, "1450000000000000000");
+}
+
+/// The full profile's Activity tab starts with the call they're in, as
+/// Discord's: "In voice", the channel and its server, and Join.
+#[test]
+fn the_activity_tab_shows_the_call_theyre_in_with_join() {
+    use std::sync::Arc;
+    use yapfast_core::chat::VoicePerson;
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    super::change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: user.clone(),
+            name: "Riley".into(),
+            ..Default::default()
+        }];
+    });
+    let _ = app.open_card(user, Point::new(500.0, 200.0));
+    let _ = app.update(Message::Profile(crate::profile::Event::Enlarge(
+        Some(crate::profile::look::Tab::Activity),
+        false,
+    )));
+    let _ = app.sync();
+    assert!(shows(&app, "In voice"));
+    assert!(shows(&app, "Party"));
+    assert!(shows(&app, "in Co-op crew"));
+    assert!(shows(&app, "Join"));
+}
+
+/// A full profile with many mutual friends can be searched by name.
+#[test]
+fn a_long_list_of_mutual_friends_is_searched_by_name() {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::ProfileView,
+        chat::{Profile, ProfileFriend},
+    };
+    let (mut app, _folder) = preview();
+    let friends: Vec<ProfileFriend> = [
+        "Ann", "Bob", "Cat", "Dan", "Eve", "Fay", "Gus", "Hal", "Ivy", "Jo",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(at, name)| ProfileFriend {
+        id: format!("10{at}"),
+        name: (*name).into(),
+        avatar: None,
+    })
+    .collect();
+    super::change(&mut app, |state| {
+        state.profile = Some(Arc::new(ProfileView {
+            profile: Profile {
+                id: "123456789".into(),
+                name: "Zed".into(),
+                handle: "zed".into(),
+                friends,
+                ..Default::default()
+            },
+            large: true,
+            kept: true,
+            ..Default::default()
+        }));
+    });
+    app.profiles.tab = Some(crate::profile::look::Tab::Friends);
+    let _ = app.sync();
+    assert!(shows(&app, "Ann") && shows(&app, "Jo"));
+    let _ = app.update(Message::Profile(crate::profile::Event::FriendSearch(
+        "iv".into(),
+    )));
+    assert!(shows(&app, "Ivy"));
+    assert!(!shows(&app, "Ann"), "the others are left out");
+}
+
+/// A card with nothing else going on shows the call they're in, as
+/// Discord's popout does.
+#[test]
+fn a_card_shows_the_call_theyre_in() {
+    use std::sync::Arc;
+    use yapfast_core::chat::VoicePerson;
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    super::change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: user.clone(),
+            name: "Riley".into(),
+            ..Default::default()
+        }];
+    });
+    let _ = app.open_card(user, Point::new(500.0, 200.0));
+    let _ = app.sync();
+    assert!(shows(&app, "In voice"));
+    assert!(shows(&app, "Join"));
+}
+
+/// A mutual tab asks only for the pictures of the rows on screen and
+/// ten either side, however long the list.
+#[test]
+fn a_mutual_tab_asks_only_for_the_rows_shown() {
+    use crate::profile::rows_shown;
+    assert_eq!(rows_shown((0.0, 400.0), 40.0), (0, 30));
+    assert_eq!(rows_shown((4000.0, 400.0), 40.0), (90, 30));
+    assert_eq!(
+        rows_shown((0.0, 0.0), 40.0),
+        (0, 43),
+        "a screenful before it scrolls"
+    );
+}
+
+/// A game on the Activity tab shows a controller and its streak of days,
+/// as Discord's row does.
+#[test]
+fn a_recent_game_shows_its_streak() {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::ProfileView,
+        chat::{Profile, RecentActivity},
+    };
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.profile = Some(Arc::new(ProfileView {
+            profile: Profile {
+                id: "123456789".into(),
+                name: "Zed".into(),
+                handle: "zed".into(),
+                recent: vec![RecentActivity {
+                    title: "Factorio".into(),
+                    at: Some(yapfast_core::clock::now_ms() - 3_600_000),
+                    game: true,
+                    streak: Some(13),
+                    ..Default::default()
+                }],
+                recent_came: true,
+                ..Default::default()
+            },
+            large: true,
+            kept: true,
+            ..Default::default()
+        }));
+    });
+    app.profiles.tab = Some(crate::profile::look::Tab::Activity);
+    let _ = app.sync();
+    assert!(shows(&app, "Factorio"));
+    assert!(shows(&app, "\u{26a1} 13x Streak"));
+}
+
+/// A game on the board shows how they play it, Discord's tags as pills in
+/// sentence case.
+#[test]
+fn a_board_games_tags_show_as_pills() {
+    use std::sync::Arc;
+    use yapfast_core::{
+        application::ProfileView,
+        chat::{Profile, ProfileGame, ProfileWidget},
+    };
+    assert_eq!(
+        crate::profile::full::game_tag("looking_for_tips"),
+        "Looking for tips"
+    );
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.profile = Some(Arc::new(ProfileView {
+            profile: Profile {
+                id: "123456789".into(),
+                name: "Zed".into(),
+                handle: "zed".into(),
+                widgets: vec![ProfileWidget {
+                    title: "Games in Rotation".into(),
+                    lists_games: true,
+                    games: vec![ProfileGame {
+                        id: "1".into(),
+                        name: "Factorio".into(),
+                        tags: vec!["obsessed".into(), "looking_for_tips".into()],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            large: true,
+            kept: true,
+            ..Default::default()
+        }));
+    });
+    app.profiles.tab = Some(crate::profile::look::Tab::Board);
+    let _ = app.sync();
+    assert!(shows(&app, "Factorio"));
+    assert!(shows(&app, "Obsessed") && shows(&app, "Looking for tips"));
+}
+
+/// The badge window lists the badges, the one clicked first, with their
+/// level, rarity and when they were had; Escape closes it.
+#[test]
+fn the_badge_window_lists_badges_with_their_levels() {
+    use yapfast_core::chat::{BadgeWindow, DirectoryBadge, DirectoryLevel};
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.badge_window = Some(BadgeWindow {
+            user: "4242".into(),
+            name: "Nia".into(),
+            badge: Some(20),
+            badges: Some(vec![
+                DirectoryBadge {
+                    id: 14,
+                    name: "Quests".into(),
+                    owned: true,
+                    rarity: 1,
+                    ..Default::default()
+                },
+                DirectoryBadge {
+                    id: 20,
+                    name: "Game Time".into(),
+                    owned: true,
+                    rarity: 1,
+                    level: Some("Ironclad".into()),
+                    level_rarity: 3,
+                    unlocked: Some("Oct 27, 2026".into()),
+                    levels: vec![DirectoryLevel {
+                        name: "Casual".into(),
+                        owned: true,
+                        milestone: "1 hour".into(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ]),
+            error: None,
+        });
+    });
+    assert!(shows(&app, "Nia's Badges"));
+    assert!(shows(&app, "Game Time") && shows(&app, "Ironclad") && shows(&app, "Epic"));
+    assert!(shows(&app, "Unlocked Oct 27, 2026"));
+    let window = app.client.state().badge_window.clone().unwrap();
+    let order: Vec<u64> = crate::profile::badges::ordered(&window)
+        .iter()
+        .map(|badge| badge.id)
+        .collect();
+    assert_eq!(order, [20, 14], "the one clicked first");
+    escape(&mut app);
+    assert!(app.client.state().badge_window.is_none());
 }

@@ -1819,6 +1819,7 @@ impl OpenChannel {
                 .style(Some(&self.guild), &message.author_id)
                 .map(|style| Arc::new(style.into())),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
+            color_end: server.and_then(|server| discord.gradient(server, &message.author_id)),
             bot: message.bot,
             tag: discord::server_tag(discord.server_tag(&message.author_id)),
             // Discord's client marks a person, not a bot, who joined in the

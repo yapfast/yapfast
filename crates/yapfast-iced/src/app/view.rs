@@ -482,6 +482,10 @@ impl App {
                     .map(|layer| self.popup(L(Layer::ExpressionCard), layer)),
             );
         }
+        // A badge window, over the profile it opened from.
+        if let Some(window) = crate::profile::badges::view(self.ctx()) {
+            layers = layers.push(self.popup(L(Layer::BadgeWindow), window));
+        }
         // A server tag's, over the profile or the messages it's on.
         if let Some(card) = self.win.tag_card.get().or(self.win.tag_card.leaving()) {
             layers = layers.extend(

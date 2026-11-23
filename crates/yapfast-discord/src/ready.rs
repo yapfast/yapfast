@@ -158,6 +158,11 @@ pub struct Server {
     pub role_names: Arc<HashMap<String, String>>,
     /// The position and RGB colour of each coloured role, by id.
     pub role_colors: Arc<HashMap<String, (i64, u32)>>,
+    /// The second colour of each role whose name is a gradient (its
+    /// `colors.secondary_color`), by id: names run from the role's colour
+    /// to this one.
+    #[serde(default)]
+    pub role_gradients: Arc<HashMap<String, (u32, Option<u32>)>>,
     /// The address of the picture of each role that has one, which a member
     /// list draws by the role's name.
     #[serde(default)]
@@ -1263,6 +1268,19 @@ impl Server {
                     Arc::make_mut(&mut self.role_colors).remove(&id);
                 }
             }
+            match value["colors"]["secondary_color"].as_u64() {
+                Some(color) => {
+                    // A third colour makes it holographic, as Discord calls it.
+                    let third = value["colors"]["tertiary_color"]
+                        .as_u64()
+                        .map(|third| third as u32);
+                    Arc::make_mut(&mut self.role_gradients)
+                        .insert(id.clone(), (color as u32, third));
+                }
+                None => {
+                    Arc::make_mut(&mut self.role_gradients).remove(&id);
+                }
+            }
             Arc::make_mut(&mut self.roles).insert(id, permissions);
         }
     }
@@ -1272,6 +1290,7 @@ impl Server {
         Arc::make_mut(&mut self.roles).remove(id);
         Arc::make_mut(&mut self.role_names).remove(id);
         Arc::make_mut(&mut self.role_colors).remove(id);
+        Arc::make_mut(&mut self.role_gradients).remove(id);
         Arc::make_mut(&mut self.role_icons).remove(id);
         Arc::make_mut(&mut self.role_positions).remove(id);
         Arc::make_mut(&mut self.mentionable_roles).remove(id);
@@ -1352,6 +1371,18 @@ impl Server {
             .filter_map(|role| self.role_colors.get(role))
             .max_by_key(|(position, _)| *position)
             .map(|(_, color)| *color)
+    }
+
+    /// Where a member's name's gradient ends: the second colour of the
+    /// highest coloured role they have, when that role's name is a
+    /// gradient, as Discord's enhanced role colours draw it.
+    pub fn gradient(&self, roles: &[String]) -> Option<(u32, Option<u32>)> {
+        let top = roles
+            .iter()
+            .filter_map(|role| Some((role, self.role_colors.get(role)?)))
+            .max_by_key(|(_, (position, _))| *position)?
+            .0;
+        self.role_gradients.get(top).copied()
     }
 }
 
@@ -1881,6 +1912,46 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(names, ["Lounge", "Second"]);
+    }
+
+    /// A role whose name is a gradient gives its members' names the
+    /// second colour too, from the highest coloured role only.
+    #[test]
+    fn a_gradient_roles_second_colour_ends_its_members_names() {
+        let mut server = Server::default();
+        server.put_role(&json!({"id": "1", "name": "Fade", "position": 5, "color": 0xff0000,
+            "colors": {"primary_color": 0xff0000, "secondary_color": 0x0000ff, "tertiary_color": null}}));
+        server.put_role(
+            &json!({"id": "2", "name": "Plain", "position": 9, "color": 0x00ff00,
+            "colors": {"primary_color": 0x00ff00, "secondary_color": null}}),
+        );
+        server.put_role(
+            &json!({"id": "3", "name": "Low", "position": 1, "color": 0x111111,
+            "colors": {"primary_color": 0x111111, "secondary_color": 0x222222}}),
+        );
+        let has = |roles: &[&str]| {
+            roles
+                .iter()
+                .map(|role| (*role).to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(server.gradient(&has(&["1"])), Some((0x0000ff, None)));
+        assert_eq!(server.color(&has(&["1"])), Some(0xff0000));
+        assert_eq!(
+            server.gradient(&has(&["1", "2"])),
+            None,
+            "the plain role is higher"
+        );
+        assert_eq!(server.gradient(&has(&["1", "3"])), Some((0x0000ff, None)));
+        server.put_role(&json!({"id": "4", "name": "Holo", "position": 20, "color": 0xa9c9ff,
+            "colors": {"primary_color": 0xa9c9ff, "secondary_color": 0xffbbec, "tertiary_color": 0xffc3a0}}));
+        assert_eq!(
+            server.gradient(&has(&["4"])),
+            Some((0xffbbec, Some(0xffc3a0))),
+            "holographic: a third colour"
+        );
+        server.put_role(&json!({"id": "1", "name": "Fade", "position": 5, "color": 0xff0000}));
+        assert_eq!(server.gradient(&has(&["1"])), None, "made plain again");
     }
 
     #[test]

@@ -203,7 +203,7 @@ pub(super) fn profile_body<'a>(
                     ctx,
                     profile.name.as_str(),
                     metrics.name,
-                    theme.font("names", BOLD),
+                    plain_name_font(ctx, shown),
                     inks.ink,
                 )
             })
@@ -233,15 +233,28 @@ pub(super) fn profile_body<'a>(
     if !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
-    if !mode.large() && !look.activities.is_empty() {
-        let mut activities = column![].spacing(12);
-        for activity in &look.activities {
-            let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
-            activities = activities.push(crate::profile::activity::activity_card_view(
-                ctx, activity, &inks, menu,
-            ));
-        }
-        body = body.push(activities);
+    // Discord's card shows the first activity on its own tile, with the
+    // edge of the next behind it when there are more; that edge opens the
+    // full profile's Activity tab.
+    if !mode.large()
+        && let Some(first) = look.activities.first()
+    {
+        let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
+        let card =
+            crate::profile::activity::activity_card_view(ctx, first, &inks, menu, false, look.bot);
+        // The voice card is the last of Discord's cards: one more behind.
+        let voice = crate::people::voice_spots(ctx.state).contains_key(profile.id.as_str());
+        body = body.push(activity_tiles(
+            card,
+            look.activities.len() > 1 || voice,
+            &inks,
+            mode,
+        ));
+    } else if !mode.large()
+        && let Some(card) = crate::profile::activity::voice_card(ctx, &profile.id, &inks)
+    {
+        // With nothing else going on, the call they're in is the card.
+        body = body.push(activity_tiles(card, false, &inks, mode));
     }
     if !mode.large() && !look.own && (!profile.friends.is_empty() || !profile.servers.is_empty()) {
         body = body.push(mutual_line(ctx, shown, &inks, mode));
@@ -607,6 +620,9 @@ fn thought_bubble<'a>(
     let room = width - at.x - 12.0;
     let room = if large { room.min(180.0) } else { room };
     let status = &shown.look.thought;
+    // A status of emoji alone shows big, 32 px, in a bubble that fits
+    // it, as Discord's (`.statusEmoji_rmCN9_` with no text after it).
+    let size = if emoji_alone(status) { 29.0 } else { size };
     let mut words = row![].spacing(4);
     if let Some(emoji) = &status.emoji {
         let side = (size + 3.0_f32).round();
@@ -628,6 +644,22 @@ fn thought_bubble<'a>(
         .on_enter(Message::Profile(Event::Bubble(true)))
         .on_exit(Message::Profile(Event::Bubble(false)));
     thought(inks, dots, at, bubble_box.into())
+}
+
+/// Whether a status is emoji alone: a custom emoji with no words, or a
+/// few characters none of which is a letter, digit or ASCII.
+pub(crate) fn emoji_alone(status: &crate::looks::Status) -> bool {
+    let words = status.words.trim();
+    match &status.emoji {
+        Some(_) => words.is_empty(),
+        None => {
+            !words.is_empty()
+                && words.chars().count() <= 12
+                && words
+                    .chars()
+                    .all(|c| !c.is_ascii() && !c.is_alphanumeric() || c == ' ')
+        }
+    }
 }
 
 /// The friend request and the person's menu, over the banner's top
@@ -713,7 +745,7 @@ pub(crate) fn profile_name<'a>(
         .unwrap_or_else(|| {
             text(shown.look.profile().name.clone())
                 .size(theme_size(ctx, size))
-                .font(ctx.look.theme.font("names", BOLD))
+                .font(plain_name_font(ctx, shown))
                 .color(ink)
                 .into()
         });
@@ -738,8 +770,10 @@ fn styled_name<'a>(
     let state = ctx.state;
     let profile = shown.look.profile();
     let style = state.cosmetics.style(profile.style.as_deref());
-    let dark = ctx.look.theme.dark;
-    let style = looks::name_look(style, &profile.name, false, dark)?;
+    let dark = name_on_dark(ctx.look.theme, profile.theme);
+    // A style without colours is its font alone: [`plain_name_font`].
+    let style = looks::name_look(style, &profile.name, false, dark)
+        .filter(|style| !style.colors.is_empty())?;
     let key = (
         profile
             .style
@@ -761,6 +795,33 @@ fn styled_name<'a>(
         });
     }
     Some(cached.as_ref().expect("made above").picture.view())
+}
+
+/// The font of a name drawn as text: its style's font when the style
+/// has no colours, as Discord draws it, else the usual bold.
+fn plain_name_font(ctx: crate::ctx::Ctx<'_>, shown: &Shown) -> iced::Font {
+    let profile = shown.look.profile();
+    let font = ctx
+        .state
+        .cosmetics
+        .style(profile.style.as_deref())
+        .and_then(|style| looks::name_look(Some(style), &profile.name, true, true))
+        .and_then(|look| look.font());
+    // No style font: the theme's names face, as a plain name takes it.
+    match font {
+        Some(_) => crate::fonts::style_font(font, 700),
+        None => ctx.look.theme.font("names", crate::fonts::BOLD),
+    }
+}
+
+/// Whether a styled name lies on a dark ground: a profile's own theme
+/// decides that, as its card is drawn in it, and the app's theme only
+/// without one. Taking the app's on a light profile theme drew a white
+/// name's style for a dark ground, white on the white card: that
+/// card showed no name.
+pub(crate) fn name_on_dark(theme: &crate::theme::Theme, colors: Option<[u32; 2]>) -> bool {
+    let inks = Inks::new(theme, colors, theme.sidebar);
+    if inks.themed { !inks.light } else { theme.dark }
 }
 
 /// Text on a profile that selects, to copy, as its plain name and its
@@ -956,13 +1017,26 @@ pub(crate) fn badge_rows<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Elem
                     Some(picture) => Pic::square(picture, 20.0).into(),
                     None => Space::new().width(20).height(20).into(),
                 };
-            let face: Element<'a, Message> = match &badge.link {
-                Some(link) => button(picture)
+            // A badge Discord's window knows opens it on that badge, as
+            // Discord's client does; a bot's keep their links.
+            let window = badge
+                .directory
+                .filter(|_| !shown.look.bot && !profile.id.is_empty() && !ctx.state.preview);
+            let face: Element<'a, Message> = match (window, &badge.link) {
+                (Some(number), _) => button(picture)
+                    .padding(0)
+                    .on_press(Message::Profile(Event::ShowBadges(
+                        profile.id.clone(),
+                        Some(number),
+                    )))
+                    .style(|_, _| iced::widget::button::Style::default())
+                    .into(),
+                (None, Some(link)) => button(picture)
                     .padding(0)
                     .on_press(Message::Link(link.clone(), Point::ORIGIN))
                     .style(|_, _| iced::widget::button::Style::default())
                     .into(),
-                None => picture,
+                (None, None) => picture,
             };
             // A badge that levels up has Discord's card for a tooltip,
             // after the pointer rests on it, as Discord's waits.
@@ -1086,10 +1160,18 @@ fn mutual_line<'a>(
                 .height(18)
         ];
         for (index, friend) in profile.friends.iter().take(3).enumerate() {
-            faces = faces.push(placed(
+            // Yapfast's own: a face names its person when pointed at.
+            let face =
                 container(ctx.avatar(friend.avatar.as_deref(), &friend.name, 16.0, 8.0, 1.0))
                     .padding(1)
-                    .style(move |_| rounded(ground, 9)),
+                    .style(move |_| rounded(ground, 9));
+            faces = faces.push(placed(
+                tooltip(
+                    face,
+                    controls::tip(ctx.look.theme, friend.name.as_str()),
+                    tooltip::Position::Top,
+                )
+                .gap(6),
                 index as f32 * 12.0,
                 0.0,
             ));
@@ -1124,7 +1206,12 @@ fn mutual_line<'a>(
             ];
             for (index, server) in profile.servers.iter().take(3).enumerate() {
                 icons = icons.push(placed(
-                    ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+                    tooltip(
+                        ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+                        controls::tip(ctx.look.theme, server.name.as_str()),
+                        tooltip::Position::Top,
+                    )
+                    .gap(6),
                     index as f32 * 12.0,
                     0.0,
                 ));
@@ -1387,4 +1474,60 @@ fn message_box<'a>(
             .padding([0, 10]),
     ]
     .into()
+}
+
+/// The first activity's card on its tile, as Discord's popout stacks it:
+/// with more, a sliver of the next tile shows under it, which opens the
+/// full profile's Activity tab.
+fn activity_tiles<'a>(
+    card: Element<'a, Message>,
+    more: bool,
+    inks: &Inks,
+    mode: Mode,
+) -> Element<'a, Message> {
+    let (tile, hover) = (inks.tile, inks.hover);
+    let tile_style = move |_: &iced::Theme| container::Style {
+        background: Some(tile.into()),
+        border: Border {
+            radius: 8.0.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    };
+    let front = container(card)
+        .padding(8)
+        .width(Length::Fill)
+        .style(tile_style);
+    if !more {
+        return front.into();
+    }
+    let behind = button(Space::new().width(Length::Fill).height(6))
+        .padding(0)
+        .on_press(Message::Profile(Event::Enlarge(
+            Some(Tab::Activity),
+            mode == Mode::Docked,
+        )))
+        .style(move |_, status| button::Style {
+            background: Some(
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => mix_tile(tile, hover),
+                    _ => Color {
+                        a: tile.a * 0.6,
+                        ..tile
+                    },
+                }
+                .into(),
+            ),
+            border: Border {
+                radius: corners([0.0, 0.0, 8.0, 8.0]),
+                ..Border::default()
+            },
+            ..Default::default()
+        });
+    column![front, container(behind).padding([0.0, 8.0])].into()
+}
+
+/// A tile's colour with the pointer's wash over it.
+fn mix_tile(tile: Color, hover: Color) -> Color {
+    crate::theme::mix(tile, Color { a: 1.0, ..hover }, hover.a)
 }

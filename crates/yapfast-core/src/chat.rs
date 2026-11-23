@@ -297,6 +297,8 @@ pub struct Friend {
     /// When they became friends, in Unix milliseconds; written out only for
     /// the profile on screen.
     pub since: Option<u64>,
+    /// How they draw their name, on Discord.
+    pub style: Option<Arc<NameStyle>>,
 }
 
 /// A file waiting in the composer to go with the next message.
@@ -501,6 +503,10 @@ pub struct VoicePerson {
     /// This account, in the call on another client, as Discord shows it:
     /// dimmed, without its icons.
     pub elsewhere: bool,
+    /// How they draw their name in the call's server, or everywhere, and
+    /// the server tag they wear by it, on Discord.
+    pub style: Option<Arc<NameStyle>>,
+    pub tag: Option<ServerTag>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
@@ -987,6 +993,9 @@ pub struct RecentActivity {
     pub music: bool,
     /// When it ended, in Unix milliseconds.
     pub at: Option<u64>,
+    /// A game played, and how many days in a row, "13x Streak".
+    pub game: bool,
+    pub streak: Option<u32>,
 }
 
 /// A widget on a Discord board.
@@ -1009,6 +1018,8 @@ pub struct ProfileGame {
     pub icon: Option<String>,
     /// What they said about it.
     pub comment: Option<String>,
+    /// How they play it, in Discord's words: `intermediate`, `obsessed`.
+    pub tags: Vec<String>,
 }
 
 /// Where a Discord wishlist is.
@@ -1066,6 +1077,92 @@ pub struct ProfileBadge {
     pub link: Option<String>,
     /// What its tooltip shows when it levels up.
     pub level: Option<ProfileBadgeLevel>,
+    /// The number Discord's badge window knows it by, when it knows it: a
+    /// click opens the window on it.
+    pub directory: Option<u64>,
+}
+
+/// A level of a badge that levels up; see [`DirectoryBadge`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryLevel {
+    pub name: String,
+    pub icon: String,
+    pub owned: bool,
+    pub milestone: String,
+}
+
+/// A badge in a badge window, the account's own or someone's; see
+/// `yapfast_discord::profile::DirectoryBadge` for its fields.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DirectoryBadge {
+    pub id: u64,
+    pub name: String,
+    pub owned: bool,
+    pub earnable: bool,
+    pub description: String,
+    pub info: String,
+    /// 1 common, 2 rare, 3 epic, 5 mythic.
+    pub rarity: u8,
+    pub icon: String,
+    pub unlocked: Option<String>,
+    pub next_name: Option<String>,
+    pub next_icon: Option<String>,
+    pub done: u64,
+    pub span: u64,
+    pub helper: String,
+    pub levels: Vec<DirectoryLevel>,
+    /// The level the client shows it at, and that level's rarity and
+    /// picture.
+    pub level: Option<String>,
+    pub level_rarity: u8,
+    pub level_art: String,
+}
+
+#[cfg(feature = "discord")]
+impl From<yapfast_discord::profile::DirectoryBadge> for DirectoryBadge {
+    fn from(badge: yapfast_discord::profile::DirectoryBadge) -> Self {
+        Self {
+            id: badge.id,
+            name: badge.name,
+            owned: badge.owned,
+            earnable: badge.earnable,
+            description: badge.description,
+            info: badge.info,
+            rarity: badge.rarity,
+            icon: badge.icon,
+            unlocked: badge.unlocked,
+            next_name: badge.next_name,
+            next_icon: badge.next_icon,
+            done: badge.done,
+            span: badge.span,
+            helper: badge.helper,
+            level: badge.level,
+            level_rarity: badge.level_rarity,
+            level_art: badge.level_art,
+            levels: badge
+                .levels
+                .into_iter()
+                .map(|level| DirectoryLevel {
+                    name: level.name,
+                    icon: level.icon,
+                    owned: level.owned,
+                    milestone: level.milestone,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Someone's badge window: whose, the badge it opened on, and their badges
+/// once Discord answers, or why it failed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BadgeWindow {
+    /// Their Discord id, or `@me` for this account's own.
+    pub user: String,
+    pub name: String,
+    pub badge: Option<u64>,
+    pub badges: Option<Vec<DirectoryBadge>>,
+    pub error: Option<String>,
 }
 
 /// The level a badge has reached, as its tooltip shows it.
@@ -1142,8 +1239,10 @@ pub struct ChatMember {
     pub role_icon: Option<Arc<str>>,
     /// Whether they're around; Matrix members have no presence here.
     pub presence: Option<Presence>,
-    /// The RGB colour of their name, from their highest coloured Discord role.
+    /// The RGB colour of their name, from their highest coloured Discord role,
+    /// and where its gradient ends when that role's name is one.
     pub color: Option<u32>,
+    pub color_end: Option<(u32, Option<u32>)>,
     /// Their custom status, else what they're doing, from Discord, and
     /// what they're doing in full.
     pub activity: Option<String>,
@@ -2026,6 +2125,9 @@ pub struct ChatMessage {
     /// The RGB colour of the author's name, from their highest coloured
     /// Discord role.
     pub color: Option<u32>,
+    /// The author's role colour's second colour, and its third for a
+    /// holographic one, when it is a gradient.
+    pub color_end: Option<(u32, Option<u32>)>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
     /// The server tag the author wears by their name, on Discord.
@@ -2626,6 +2728,14 @@ pub struct TagServer {
     pub online: Option<u64>,
     /// When it was made, from its id, in Unix milliseconds.
     pub created_ms: u64,
+    /// The picture across its card's top, when it has one, and its accent
+    /// colour, which fills the top without one.
+    pub banner: Option<String>,
+    pub color: Option<u32>,
+    /// The words it describes itself with, each with its emoji, if any.
+    pub traits: Vec<(String, String)>,
+    /// Anyone may join it, which its card offers.
+    pub joinable: bool,
 }
 
 /// What Discord answered for a server tag's card: the server's profile, none
@@ -3418,6 +3528,16 @@ pub enum DiscordCommand {
     /// The profile of the server a server tag is from, for the tag's card.
     /// [`Event::TagServer`] follows.
     TagServer {
+        server: String,
+    },
+    /// Someone's badges for their badge window, or `@me` for this
+    /// account's own; [`Event::Badges`] follows.
+    Badges {
+        user: String,
+    },
+    /// Join the server a tag's card shows, one anyone may join.
+    /// [`Event::TagServerJoined`] follows.
+    JoinTagServer {
         server: String,
     },
     /// What Stickers asks of Discord; [`Event::StickersChanged`] follows.
@@ -4248,6 +4368,14 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// Someone's presence in the server their open profile is from, which
+    /// Discord answers apart from the profile.
+    ProfilePresence {
+        user: String,
+        presence: Presence,
+        activity: Option<String>,
+        activities: Activities,
+    },
     /// The layers of the frame of `user`'s profile, which the shop
     /// described after [`Event::Profile`] came.
     ProfileFrame {
@@ -4554,6 +4682,16 @@ pub enum Event {
     TagServer {
         server: String,
         result: TagServerAnswer,
+    },
+    /// The badges a badge window asked for, or why they didn't come.
+    Badges {
+        user: String,
+        result: Result<Vec<DirectoryBadge>, String>,
+    },
+    /// Whether [`DiscordCommand::JoinTagServer`] joined the server.
+    TagServerJoined {
+        server: String,
+        result: Result<(), String>,
     },
     /// Whether what Emoji asked of Discord went, uploading or not, and the
     /// server's emoji after it, when Discord sent them.

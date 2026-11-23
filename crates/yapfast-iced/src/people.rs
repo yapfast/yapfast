@@ -242,6 +242,8 @@ pub struct NameInk<'a> {
     /// A theme list's own name ink, which beats the theme's content
     /// colours and a name style's, as Slint's `MemberLists.name-ink`.
     pub fixed: bool,
+    /// The style's font alone, in `color`: a row at rest.
+    pub plain: bool,
 }
 
 impl NameInk<'_> {
@@ -254,6 +256,7 @@ impl NameInk<'_> {
             style: None,
             key: None,
             fixed: false,
+            plain: false,
         }
     }
 }
@@ -276,6 +279,13 @@ impl<'a> NameInk<'a> {
 
     pub fn fixed(mut self, fixed: bool) -> Self {
         self.fixed = fixed;
+        self
+    }
+
+    /// The style's font alone, in the row's own colour, as a row at rest
+    /// shows it; `false` keeps the style's colours.
+    pub fn plain(mut self, plain: bool) -> Self {
+        self.plain = plain;
         self
     }
 }
@@ -327,13 +337,19 @@ impl<'a> crate::ctx::Ctx<'a> {
         if look.icon
             && let Some(icon) = Icon::activity(status.icon)
         {
-            let color = rgb(if icon == Icon::Gamepad {
-                theme.live
-            } else {
-                theme.muted
-            });
-            let icon = self.look.icons.coloured(icon, side as u32, color);
+            // Discord draws every activity's icon in the online green.
+            let icon = self.look.icons.coloured(icon, side as u32, rgb(theme.live));
             line = line.push(Pic::square(icon, side).opacity(look.opacity));
+            // The rest of their activities, "+2": green before a custom
+            // status, as Discord's.
+            if status.more > 0 && status.bullet {
+                line = line.push(
+                    text(format!("+{}", status.more))
+                        .size(look.size)
+                        .font(look.font)
+                        .color(faded(theme.live, look.opacity)),
+                );
+            }
             if status.bullet {
                 line = line.push(text("\u{2022}").size(look.size).color(ink));
             }
@@ -344,12 +360,22 @@ impl<'a> crate::ctx::Ctx<'a> {
                 None => Space::new().width(side).height(side).into(),
             });
         }
+        let more = (look.icon && status.more > 0 && !status.bullet && status.icon > 0)
+            .then_some(status.more);
         if !status.words.is_empty() {
             let words: Cow<'a, str> = match status {
                 Cow::Borrowed(status) => Cow::Borrowed(status.words.as_str()),
                 Cow::Owned(status) => Cow::Owned(status.words),
             };
             line = line.push(elide(words).size(look.size).font(look.font).color(ink));
+        }
+        if let Some(more) = more {
+            line = line.push(
+                text(format!("+{more}"))
+                    .size(look.size)
+                    .font(look.font)
+                    .color(ink),
+            );
         }
         line.into()
     }
@@ -395,7 +421,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             ink.style
         };
         let own = match style {
-            Some(style) if !style.colors.is_empty() => {
+            Some(style) if !style.colors.is_empty() && !ink.plain => {
                 crate::style::hex(style.main).scale_alpha(ink.color.a)
             }
             _ => ink.color,

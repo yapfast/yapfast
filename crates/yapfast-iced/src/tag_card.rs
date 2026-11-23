@@ -34,6 +34,9 @@ use crate::{
 };
 
 /// The card's width, as Discord's, and the server's icon.
+/// The banner's height across the card's top.
+const BANNER: f32 = 92.0;
+
 const WIDTH: f32 = 300.0;
 const ICON: f32 = 64.0;
 
@@ -49,6 +52,8 @@ pub enum Event {
     Retry,
     /// Go to Server, or the server's name.
     Go,
+    /// Join, for a server anyone may join.
+    Join,
     Close,
 }
 
@@ -85,6 +90,13 @@ pub struct Card {
     pub failed: bool,
     /// This account is in the server, which Go to Server opens.
     pub joined: bool,
+    /// The picture across the card's top, its colour without one, and the
+    /// words the server describes itself with, each with its emoji.
+    pub banner: Option<String>,
+    pub color: Option<u32>,
+    pub traits: Vec<(String, String)>,
+    /// Anyone may join it, and this account isn't in it: Join shows.
+    pub can_join: bool,
 }
 
 /// The card for `shown` as the core's state has it.
@@ -156,6 +168,22 @@ pub fn card(shown: &Shown, state: &AppState) -> Card {
         limited,
         failed,
         joined: joined.is_some(),
+        banner: profile.and_then(|profile| profile.banner.clone()),
+        color: profile.and_then(|profile| profile.color),
+        // Discord names a trait's emoji by its shortcode, such as
+        // `speech_balloon`, where messages carry the emoji itself.
+        traits: profile.map_or_else(Vec::new, |profile| {
+            profile
+                .traits
+                .iter()
+                .map(|(emoji, label)| {
+                    let emoji = emojis::get_by_shortcode(emoji.trim_matches(':'))
+                        .map_or(emoji.as_str(), emojis::Emoji::as_str);
+                    (emoji.to_owned(), label.clone())
+                })
+                .collect()
+        }),
+        can_join: joined.is_none() && profile.is_some_and(|profile| profile.joinable),
     }
 }
 
@@ -204,6 +232,10 @@ impl Shown {
                 cx.dispatch(Action::Navigate(Navigation::Server(self.server.clone())));
                 cx.request(Request::Close(Screen::TagCard));
             }
+            Event::Join => {
+                cx.dispatch(Action::JoinTagServer(self.server.clone()));
+                cx.request(Request::Close(Screen::TagCard));
+            }
             Event::Close => cx.request(Request::Close(Screen::TagCard)),
             Event::Open { .. } => {}
         }
@@ -212,9 +244,10 @@ impl Shown {
 
     /// The pictures the card shows: the server's icon and the tag's badge.
     pub fn pictures(&self, state: &AppState) -> Vec<String> {
-        card(self, state)
-            .icon
+        let card = card(self, state);
+        card.icon
             .into_iter()
+            .chain(card.banner)
             .chain(self.badge.clone())
             .collect()
     }
@@ -323,6 +356,32 @@ fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Element<'a, Message> {
     let mut body = column![row![icon, names].spacing(12).align_y(Alignment::Center)]
         .spacing(12)
         .padding(16);
+    // Discord's card: the server's banner, or its colour, across the top.
+    let banner_picture = card
+        .banner
+        .as_deref()
+        .and_then(|url| cx.state.pictures.get(url));
+    let banner: Option<Element<'a, Message>> = match (banner_picture, card.color) {
+        (Some(picture), _) => Some(cx.shot(Shot {
+            picture: Some(picture),
+            size: Size::new(WIDTH, BANNER),
+            fit: Fit::Cover,
+            radius: 0.0,
+            covered: false,
+            ground: true,
+        })),
+        (None, Some(color)) => {
+            let fill = crate::style::hex(color);
+            Some(
+                container(iced::widget::Space::new())
+                    .width(Length::Fill)
+                    .height(BANNER)
+                    .style(move |_| rounded(fill, 0))
+                    .into(),
+            )
+        }
+        (None, None) => None,
+    };
     let count = |dot: iced::Color, words: String| {
         row![
             controls::bar(dot, 8, 8).style(move |_| rounded(dot, 4)),
@@ -351,6 +410,23 @@ fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Element<'a, Message> {
     if !card.description.is_empty() {
         body = body.push(text(card.description.clone()).size(14).color(theme.text));
     }
+    // The words it describes itself with, as pills.
+    if !card.traits.is_empty() {
+        let mut pills = row![].spacing(6);
+        for (emoji, label) in &card.traits {
+            let words = if emoji.is_empty() {
+                label.clone()
+            } else {
+                format!("{emoji} {label}")
+            };
+            pills = pills.push(
+                container(text(words).size(12).color(theme.text))
+                    .padding([3, 8])
+                    .style(move |_| rounded(raised, 10)),
+            );
+        }
+        body = body.push(pills.wrap().vertical_spacing(6));
+    }
     if card.failed {
         // A failure's note tries again when clicked, as in Discord's client.
         let (rest, lit) = (theme.muted, theme.text);
@@ -376,8 +452,22 @@ fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Element<'a, Message> {
             )
             .wide(36.0),
         );
+    } else if card.can_join {
+        body = body.push(
+            controls::action(
+                theme,
+                "Join",
+                Kind::Primary,
+                Some(Message::TagCard(Event::Join)),
+            )
+            .wide(36.0),
+        );
     }
-    frame(cx, theme.sidebar, WIDTH, 12.0, body).into()
+    let inside: Element<'a, Message> = match banner {
+        Some(banner) => column![banner, body].into(),
+        None => body.into(),
+    };
+    frame(cx, theme.sidebar, WIDTH, 12.0, inside).into()
 }
 
 #[cfg(test)]
@@ -421,8 +511,26 @@ mod tests {
             online: Some(1),
             // 2026-11-05, as the server's id says.
             created_ms: 1_793_880_000_000,
+            banner: Some("https://cdn.discordapp.com/discovery-splashes/10/b.png".into()),
+            color: Some(0x7cf895),
+            traits: vec![
+                ("speech_balloon".into(), "chatty".into()),
+                (String::new(), "friendly".into()),
+            ],
+            joinable: true,
         })));
         let answered = card(&tag, &state);
+        // Discord's card: the banner and colour, the words as pills with
+        // their emoji from the shortcode, and Join for a public server.
+        assert!(answered.banner.is_some() && answered.color == Some(0x7cf895));
+        assert_eq!(
+            answered.traits,
+            [
+                ("💬".to_owned(), "chatty".to_owned()),
+                (String::new(), "friendly".to_owned())
+            ]
+        );
+        assert!(answered.can_join, "anyone may join it");
         assert_eq!(
             (answered.name.as_str(), answered.initial.as_str()),
             ("Aliens", "A")

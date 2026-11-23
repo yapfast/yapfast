@@ -1296,6 +1296,7 @@ impl Tracker {
                     group_icon: None,
                     role_icon: None,
                     boosting_since: None,
+                    color_end: None,
                 }
             })
             .collect();
@@ -1675,6 +1676,7 @@ impl Tracker {
                     activities: known
                         .map(|known| known.activities.clone())
                         .unwrap_or_default(),
+                    style: names.style(None, user),
                 }
             })
             .collect();
@@ -1826,6 +1828,8 @@ impl Tracker {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: names.style(None, user),
+                tag: names.server_tag(user).cloned(),
             })
             .collect();
         let preview = private
@@ -1974,6 +1978,8 @@ impl Tracker {
                     streaming: entry.streaming,
                     video: entry.video,
                     elsewhere: *user == self.me && self.elsewhere(entry),
+                    style: names.style(server(guild), user),
+                    tag: names.server_tag(user).cloned(),
                 });
         }
         for members in voice.values_mut() {
@@ -2103,6 +2109,48 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// Voice states carry no name style or tag: people in voice take
+    /// theirs from what the member list learned, a server's own style
+    /// over the account's, as their member rows do.
+    #[test]
+    fn voice_members_wear_their_tag_and_name_style() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "channels": [
+                {"id": "11", "name": "Lounge", "type": 2, "position": 0},
+            ]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        tracker.apply(
+            &Event::ReadySupplemental,
+            &json!({
+                "guilds": [{"id": "10", "voice_states": [
+                    {"user_id": "2", "channel_id": "11"},
+                    {"user_id": "3", "channel_id": "11"},
+                ]}],
+                "merged_members": [[
+                    {"user_id": "2", "user": {
+                        "id": "2", "username": "ann", "global_name": "Ann",
+                        "primary_guild": {"identity_guild_id": "99", "identity_enabled": true, "tag": "GUYS"},
+                        "display_name_styles": {"font_id": 3, "effect_id": 2, "colors": [255]},
+                    }},
+                    {"user_id": "3", "user": {
+                        "id": "3", "username": "bob", "global_name": "Bob",
+                        "display_name_styles": {"font_id": 4, "effect_id": 1, "colors": [255]},
+                    }, "display_name_styles": {"font_id": 8, "effect_id": 3, "colors": [65280]}},
+                ]],
+            }),
+        );
+        let snapshot = tracker.snapshot();
+        let (ann, bob) = (&snapshot.voice["11"][0], &snapshot.voice["11"][1]);
+        assert_eq!(ann.tag.as_ref().map(|tag| &*tag.text), Some("GUYS"));
+        let style = ann.style.as_ref().expect("a name style");
+        assert_eq!((style.font, style.effect), (3, 2));
+        assert_eq!(bob.tag, None);
+        let style = bob.style.as_ref().expect("the server's style");
+        assert_eq!((style.font, style.effect), (8, 3), "the server's own wins");
+    }
 
     #[test]
     fn tracks_voice_channels_and_names() {

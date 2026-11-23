@@ -221,7 +221,11 @@ pub(super) fn tab_page<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let blank = match tab {
-        Tab::Activity => look.activities.is_empty() && profile.recent.is_empty(),
+        Tab::Activity => {
+            look.activities.is_empty()
+                && profile.recent.is_empty()
+                && !crate::people::voice_spots(ctx.state).contains_key(profile.id.as_str())
+        }
         Tab::Friends => profile.friends.is_empty(),
         Tab::Servers => profile.servers.is_empty(),
         Tab::Board | Tab::Wishlist => false,
@@ -243,8 +247,31 @@ pub(super) fn tab_page<'a>(
         Tab::Board => board_tab(ctx, shown, inks),
         Tab::Wishlist => wishlist_tab(ctx, shown, inks),
         Tab::Friends => {
+            // Yapfast's own: a search over a long list of mutual friends,
+            // by name; a right click opens someone's menu, as anywhere.
+            let search = ctx.profiles.friend_search.trim().to_lowercase();
             let mut list = column![];
+            if profile.friends.len() > 8 {
+                list = list.push(
+                    container(
+                        iced::widget::text_input(
+                            "Search mutual friends",
+                            &ctx.profiles.friend_search,
+                        )
+                        .on_input(|words| Message::Profile(Event::FriendSearch(words)))
+                        .size(14)
+                        .padding([6, 10]),
+                    )
+                    .padding(Padding {
+                        bottom: 8.0,
+                        ..Padding::ZERO
+                    }),
+                );
+            }
             for (index, friend) in profile.friends.iter().enumerate() {
+                if !search.is_empty() && !friend.name.to_lowercase().contains(&search) {
+                    continue;
+                }
                 let presence = look.presences.get(index).copied();
                 let face = list_face(
                     ctx,
@@ -254,12 +281,16 @@ pub(super) fn tab_page<'a>(
                     presence,
                     inks,
                 );
-                list = list.push(list_row(
-                    face,
-                    &friend.name,
-                    None,
-                    inks,
-                    Message::Profile(Event::Friend(friend.id.clone())),
+                let id = friend.id.clone();
+                list = list.push(crate::widgets::RightPress::new(
+                    list_row(
+                        face,
+                        &friend.name,
+                        None,
+                        inks,
+                        Message::Profile(Event::Friend(friend.id.clone())),
+                    ),
+                    move |at| Message::PersonMenu(id.clone(), at),
                 ));
             }
             list.into()
@@ -281,6 +312,12 @@ pub(super) fn tab_page<'a>(
     };
     scroll_view(content)
         .height(Length::Fill)
+        .on_scroll(|viewport| {
+            Message::Profile(Event::TabScrolled(
+                viewport.absolute_offset().y,
+                viewport.bounds().height,
+            ))
+        })
         .style(scrollbar(ctx.look.theme))
         .into()
 }
@@ -395,9 +432,14 @@ fn activity_tab<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let mut list = column![].spacing(8);
+    // The call they're in comes first, as Discord's Activity tab has it.
+    if let Some(card) = crate::profile::activity::voice_card(ctx, &profile.id, inks) {
+        list = list.push(activity_tile(card, inks));
+    }
     for activity in &look.activities {
-        list = list.push(crate::profile::activity::activity_card_view(
-            ctx, activity, inks, None,
+        list = list.push(activity_tile(
+            crate::profile::activity::activity_card_view(ctx, activity, inks, None, true, look.bot),
+            inks,
         ));
     }
     if !profile.recent.is_empty() {
@@ -429,11 +471,25 @@ fn activity_tab<'a>(
         }
         if let Some(at) = entry.at {
             let music = if entry.music { "\u{266b} " } else { "" };
-            lines = lines.push(
+            // A game: a controller before when, and its streak of days, as
+            // Discord's row.
+            let mut when = row![].spacing(4).align_y(Alignment::Center);
+            if entry.game {
+                when = when.push(ctx.look.glyph(Icon::Gamepad, 12, inks.ink3));
+            }
+            when = when.push(
                 text(format!("{music}{}", time_ago(at)))
                     .size(12)
                     .color(inks.ink3),
             );
+            if let Some(days) = entry.streak {
+                when = when.push(
+                    text(format!("\u{26a1} {days}x Streak"))
+                        .size(12)
+                        .color(inks.ink3),
+                );
+            }
+            lines = lines.push(when);
         }
         list = list.push(
             container(
@@ -474,6 +530,17 @@ fn board_tab<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> Ele
     board_cards(ctx, shown, inks, column![].spacing(12)).into()
 }
 
+/// A game's tag in sentence case, as Discord's pills: `looking_for_tips`
+/// reads "Looking for tips".
+pub(crate) fn game_tag(tag: &str) -> String {
+    let words = tag.replace('_', " ");
+    let mut letters = words.chars();
+    letters
+        .next()
+        .map(|first| first.to_uppercase().chain(letters).collect())
+        .unwrap_or_default()
+}
+
 /// The board's widgets, each with its games, after what `list` holds.
 fn board_cards<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -503,6 +570,20 @@ fn board_cards<'a>(
             .spacing(2);
             if let Some(comment) = &game.comment {
                 words = words.push(text(comment.as_str()).size(12).color(inks.ink2));
+            }
+            // How they play it, in Discord's words, as small pills in
+            // sentence case.
+            if !game.tags.is_empty() {
+                let pill = inks.tile;
+                let mut tags = row![].spacing(4);
+                for tag in &game.tags {
+                    tags = tags.push(
+                        container(text(game_tag(tag)).size(11).color(inks.ink2))
+                            .padding([2, 6])
+                            .style(move |_| rounded(pill, 8)),
+                    );
+                }
+                words = words.push(tags.wrap().vertical_spacing(4));
             }
             card = card.push(
                 row![
@@ -633,12 +714,19 @@ pub(super) fn editor_tab_page<'a>(
     let page = match tab {
         Tab::Activity => {
             let mut list = column![heading("Current activity".to_owned())].spacing(10);
-            if look.activities.is_empty() {
+            let voice = crate::profile::activity::voice_card(ctx, &profile.id, inks);
+            if look.activities.is_empty() && voice.is_none() {
                 list = list.push(note(inks.ink3, "Nothing going on right now."));
             }
+            if let Some(card) = voice {
+                list = list.push(activity_tile(card, inks));
+            }
             for activity in &look.activities {
-                list = list.push(crate::profile::activity::activity_card_view(
-                    ctx, activity, inks, None,
+                list = list.push(activity_tile(
+                    crate::profile::activity::activity_card_view(
+                        ctx, activity, inks, None, true, look.bot,
+                    ),
+                    inks,
                 ));
             }
             list
@@ -736,5 +824,22 @@ fn list_face<'a>(
     stack![face, placed(Pic::square(dot, 16.0), 20.0, 20.0)]
         .width(36)
         .height(36)
+        .into()
+}
+
+/// An activity's card on its tile, 12 px in, as the full profile's are.
+fn activity_tile<'a>(card: Element<'a, Message>, inks: &Inks) -> Element<'a, Message> {
+    let tile = inks.tile;
+    container(card)
+        .padding(12)
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(tile.into()),
+            border: iced::Border {
+                radius: 8.0.into(),
+                ..iced::Border::default()
+            },
+            ..Default::default()
+        })
         .into()
 }

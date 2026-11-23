@@ -34,6 +34,11 @@ pub struct WidgetGame {
     pub name: String,
     /// The address of its picture, once [`name_games`] has it.
     pub icon: Option<String>,
+    /// How they play it, as a Favorite Game and Games in Rotation show it
+    /// under its name: Discord's words, such as `intermediate`,
+    /// `obsessed` and `looking_for_tips`.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// A game as `GET /games` describes it.
@@ -83,6 +88,13 @@ fn widget(value: &Value) -> Option<Widget> {
                     .map(str::to_owned),
                 name: UNKNOWN_GAME.to_owned(),
                 icon: None,
+                tags: game["tags"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect(),
             })
         })
         .collect();
@@ -164,7 +176,7 @@ mod tests {
     fn game_lists_are_read_as_the_client_reads_them() {
         let profile = json!({"widgets": [
             {"id": "w1", "data": {"type": "favorite_games", "games": [
-                {"game_id": "10", "comment": "The best", "tags": ["rpg"]},
+                {"game_id": "10", "comment": "The best", "tags": ["expert", "open_to_teach"]},
             ]}},
             {"id": "w2", "data": {"type": "current_games", "games": [
                 {"game_id": "11", "comment": ""},
@@ -188,6 +200,7 @@ mod tests {
         assert!(widgets.iter().all(|widget| widget.lists_games));
         assert_eq!(widgets[0].games[0].id, "10");
         assert_eq!(widgets[0].games[0].comment.as_deref(), Some("The best"));
+        assert_eq!(widgets[0].games[0].tags, ["expert", "open_to_teach"]);
         let rotation: Vec<_> = widgets[1].games.iter().map(|game| &game.id).collect();
         assert_eq!(rotation, ["11", "12"], "a game listed twice shows once");
         assert_eq!(widgets[1].games[0].comment, None);

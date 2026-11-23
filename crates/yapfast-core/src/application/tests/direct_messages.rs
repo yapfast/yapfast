@@ -282,6 +282,7 @@ fn discord_friends_are_listed_and_messaged() {
         presence,
         activity: None,
         activities: Default::default(),
+        style: None,
     };
     let snapshot = |dms: &[(&str, &str)]| Snapshot {
         status: Status::Online,
@@ -326,6 +327,7 @@ fn discord_friends_are_listed_and_messaged() {
             activity: Some("making tea".into()),
             activities: Default::default(),
             since: Some(1_788_253_200_000),
+            style: None,
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -534,6 +536,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         presence: None,
         activity: None,
         activities: Default::default(),
+        style: None,
     };
     let mut conversations = vec![
         Conversation {

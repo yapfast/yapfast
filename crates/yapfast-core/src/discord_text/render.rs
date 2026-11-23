@@ -108,6 +108,7 @@ pub(super) fn found(
             .style(guild, &message.author_id)
             .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
+        color_end: server.and_then(|server| discord.gradient(server, &message.author_id)),
         bot: message.bot,
         body,
         author,
@@ -634,6 +635,7 @@ pub(super) fn chat_badges(badges: Vec<yapfast_discord::profile::Badge>) -> Vec<P
     badges
         .into_iter()
         .map(|badge| ProfileBadge {
+            directory: yapfast_discord::profile::directory_id(&badge.id),
             description: badge.description,
             icon: badge.icon,
             link: badge.link,
@@ -756,6 +758,7 @@ pub(super) fn chat_profile(
                         name: game.name,
                         icon: game.icon,
                         comment: game.comment,
+                        tags: game.tags,
                     })
                     .collect(),
             })
@@ -938,6 +941,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
+        color_end: member.color_end,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,
