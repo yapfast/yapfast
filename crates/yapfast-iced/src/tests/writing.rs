@@ -450,6 +450,7 @@ fn push_to_talks_own_key_types_nothing_in_a_call_and_the_others_do() {
             keyboard::Key::Character(text.into()),
             keyboard::Modifiers::default(),
             key::Physical::Code(code),
+            Some(yapfast_iced_kit::field::Typed::Text(text.into())),
         ));
     };
     // Other keys type while it's held; its own press doesn't.

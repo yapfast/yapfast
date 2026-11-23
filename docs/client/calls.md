@@ -89,7 +89,15 @@ The call's views and what they do are in `call/`.
 - While the call isn't on screen, the stream watched, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a
-  drag moves it to the nearest corner.
+  drag moves it to the nearest corner. A drag at its grip, the corner of
+  it away from the window's, where the pointer takes the shape that
+  resizes, makes it larger or smaller, its 16:9 shape kept, as Discord's
+  picture in picture: the width follows the pointer across only, 320 px
+  at first, between 200 and 960 px (20 past while dragged) and within the
+  window's room, and settles on the nearest 40 px when let go. The grip
+  takes its press before the stop button under it (the picture sat top
+  left). The width is kept in `layout.json` (`corner_width`), narrowed
+  while the window has less room, and its frames are made at it.
 - Sounds play as the core says (joining, leaving, muting, someone
   streaming), and a DM's call rings while it's incoming.
 - Push to talk and the other keybinds (the root `src/keybinds.rs`,

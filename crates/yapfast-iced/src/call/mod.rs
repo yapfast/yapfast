@@ -80,6 +80,9 @@ pub struct Call {
     pub drag: Option<Vector>,
     /// The corner picture is held, and where the pointer first moved.
     pub grab: Option<Option<Point>>,
+    /// Its grip is held, and where the pointer took it: the corner picture
+    /// is resized while it is.
+    pub resize: Option<Resize>,
     /// The call was connected as the window last looked: it unmutes or
     /// deafens on joining once.
     pub ready: bool,
@@ -100,6 +103,14 @@ pub struct Call {
     /// whether the desktop had it so already, in which case leaving keeps
     /// it so.
     pub screen: Option<(iced::window::Id, bool)>,
+}
+
+/// The corner picture's grip held: where the pointer took it, and how wide
+/// the picture was then, which the drag adds to.
+#[derive(Clone, Copy, Debug)]
+pub struct Resize {
+    pub from: Point,
+    pub width: f32,
 }
 
 /// What opens from a control, above it.
@@ -176,8 +187,8 @@ pub enum Event {
     Start(bool),
     /// Switching calls confirmed, or not.
     Switch(bool),
-    /// The corner picture pressed, the pointer moved to here in the window
-    /// while it's held, and let go.
+    /// The corner picture pressed, its grip's or elsewhere; the pointer
+    /// moved to here in the window while it's held, and let go.
     Grab,
     DragTo(Point),
     Drop,
@@ -331,10 +342,21 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Switch(true) => Action::ConfirmVoiceSwitch,
         Event::Switch(false) => Action::CancelVoiceSwitch,
         Event::Grab => {
-            app.call.grab = Some(None);
+            // Its grip makes it larger or smaller; anywhere else, it moves.
+            let at = app.pressed.get();
+            if crate::call::corner::on_grip(app, at) {
+                let width = crate::call::corner::corner_size(app).width;
+                app.call.resize = Some(Resize { from: at, width });
+            } else {
+                app.call.grab = Some(None);
+            }
             return Task::none();
         }
         Event::DragTo(at) => {
+            if app.call.resize.is_some() {
+                crate::call::corner::resize_to(app, at);
+                return Task::none();
+            }
             match app.call.grab {
                 Some(None) => app.call.grab = Some(Some(at)),
                 Some(Some(from)) => {
@@ -349,6 +371,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Drop => {
+            if app.call.resize.is_some() {
+                crate::call::corner::let_go(app);
+                return Task::none();
+            }
             let dragged = app.call.drag.is_some();
             app.call.grab = None;
             if !dragged {

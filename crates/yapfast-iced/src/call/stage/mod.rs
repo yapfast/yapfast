@@ -189,10 +189,13 @@ pub fn place_videos(app: &mut App) {
     }
     // In the window's pixels.
     let scale = app.device_scale();
-    let corner_pixels = (
-        (CORNER.width * scale).round() as u32,
-        (CORNER.height * scale).round() as u32,
-    );
+    let corner_pixels = {
+        let size = crate::call::corner::corner_size(app);
+        (
+            (size.width * scale).round() as u32,
+            (size.height * scale).round() as u32,
+        )
+    };
     for (place, slot) in slots.iter().enumerate() {
         let Slot::Person(index) = *slot else {
             continue;
