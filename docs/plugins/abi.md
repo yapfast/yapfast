@@ -225,6 +225,7 @@ one call with several events rather than one call each.
 | `typing` | `{ "name": … }` | Discord's gateway, for any channel the account may read |
 | `presence` | `{ "person": …, "name": …, "presence": "online"\|"idle"\|"dnd"\|"offline", "friend"? }` | The open room's member list, once per person whose presence moved; the first list of a conversation says nothing, and someone who left is not reported. A friend's presence comes too, wherever they are, with no room and `"friend": true`, from the friends list Yapfast keeps |
 | `speaking` | `{ "person": …, "speaking": true\|false }` | The call's own voice state, once per person whose voice started or stopped, which is what `discord_audio` hears in its frames |
+| `profile_open` | `{ "person": …, "server"?: …, "large": …, "beside_dm": … }` | A person's profile opened: the card, the full profile (`large`) or the one beside a DM (`beside_dm`), with the server it shows them in; once each time it opens, with `people.read`. Draw `profile.badges` and `profile.section` for them with `ui.set_slot`'s `person` |
 | `member_join` | `{ "person": …, "name": … }` | The open room's member list, once per person who appeared in it since its last list; the first list of a conversation says nothing |
 | `member_leave` | `{ "person": … }` | The same list, once per person who left it |
 | `spotify_state` | `spotify.now`'s answer, or `{ "playing": false }` | The song the session shares for the linked Spotify, once per change |
@@ -881,6 +882,7 @@ The `ui` calls take a widget tree, the rows of cells
 | `overlay.set` | `{ sprites: [{ id, image, x, y, width?, height?, crop?, opacity?, clickable? }], fps?, pointer? }`, with `overlay` | `true`; frames arrive at `yf_input` as `overlay_frame` ([the overlay](interface.md#the-overlay)), and with `pointer` also each time the pointer moves, at any pace, 0 included |
 | `overlay.picture` | `{ bytes_base64 }`, with `overlay` | `{ image: "held:<n>" }`, the name a sprite's `image` uses: a PNG, JPEG, GIF or WebP the plugin holds (a sheet the person chose, one it fetched), at most 8 MiB, 16 held and the oldest let go past that |
 | `overlay.clear` | `{}` | `true` |
+| `ui.set_slot` on `profile.badges` or `profile.section` | `{ slot, tree, part?, person? }` | With `person`, the tree is that person's alone: each plugin keeps one drawing per person (the last 32) and one without `person` for every other profile; `ui.clear_slot { slot, person? }` takes one person's away, or all of them |
 | `ui.redecorate` | `{}` | `true`: what this plugin drew under messages is forgotten and the rows on screen are asked again, for an answer that changed (a review that loaded, a setting of its own) |
 | `identity.refresh` | `{ person? }` | `true`: what plugins said about that person, or everyone, is forgotten, and a card showing them asks again |
 

@@ -138,9 +138,10 @@ pub fn event_capability(kind: EventKind) -> Option<Capability> {
         EventKind::GameStart | EventKind::GameStop => Some(Capability::ActivityRead),
         EventKind::ComposerChange => Some(Capability::DraftsRead),
         EventKind::VoiceState | EventKind::Speaking => Some(Capability::VoiceRead),
-        EventKind::Presence | EventKind::MemberJoin | EventKind::MemberLeave => {
-            Some(Capability::PeopleRead)
-        }
+        EventKind::Presence
+        | EventKind::MemberJoin
+        | EventKind::MemberLeave
+        | EventKind::ProfileOpen => Some(Capability::PeopleRead),
         EventKind::SpotifyState => Some(Capability::SpotifyControl),
         EventKind::StartupTiming => Some(Capability::AppTiming),
         EventKind::RelationshipAdd
@@ -450,6 +451,7 @@ mod tests {
         let filter = SubscriptionFilter::default();
         for (kind, needs) in [
             (EventKind::MemberJoin, Capability::PeopleRead),
+            (EventKind::ProfileOpen, Capability::PeopleRead),
             (EventKind::MemberLeave, Capability::PeopleRead),
             (EventKind::Typing, Capability::MessagesRead),
             (EventKind::ReactionAdd, Capability::MessagesRead),

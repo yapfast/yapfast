@@ -26,27 +26,10 @@ pub(super) struct Painting {
 /// Whether two drawings go in the same place: one plugin's tree in one slot,
 /// or what it draws under one message.
 pub(super) fn same_place(one: &slots::Output, other: &slots::Output) -> bool {
+    if let (Some(one), Some(other)) = (slot_place(one), slot_place(other)) {
+        return one == other;
+    }
     match (one, other) {
-        (
-            slots::Output::SetSlot {
-                plugin: one,
-                slot: one_slot,
-                ..
-            }
-            | slots::Output::ClearSlot {
-                plugin: one,
-                slot: one_slot,
-            },
-            slots::Output::SetSlot {
-                plugin: other,
-                slot: other_slot,
-                ..
-            }
-            | slots::Output::ClearSlot {
-                plugin: other,
-                slot: other_slot,
-            },
-        ) => one == other && one_slot == other_slot,
         (
             slots::Output::Decorate {
                 plugin: one,
@@ -61,6 +44,21 @@ pub(super) fn same_place(one: &slots::Output, other: &slots::Output) -> bool {
         ) => one == other && one_message == other_message,
         _ => false,
     }
+}
+
+/// The plugin, the slot and, in a profile slot, the person a slot drawing
+/// is for; none for a decoration.
+fn slot_place(output: &slots::Output) -> Option<(&str, slots::Slot, Option<&str>)> {
+    let (plugin, slot, subject) = match output {
+        slots::Output::SetSlot { plugin, slot, tree } => (plugin, *slot, tree.subject.as_deref()),
+        slots::Output::ClearSlot {
+            plugin,
+            slot,
+            subject,
+        } => (plugin, *slot, subject.as_deref()),
+        _ => return None,
+    };
+    Some((plugin, slot, subject.filter(|_| slot.per_person())))
 }
 
 impl Painting {

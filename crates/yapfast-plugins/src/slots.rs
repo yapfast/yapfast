@@ -121,6 +121,12 @@ impl Slot {
         Self::ALL.into_iter().find(|slot| slot.id() == id)
     }
 
+    /// A person's profile shows it: each plugin keeps one drawing per person
+    /// (`Tree::subject`), and one with no person for everyone else.
+    pub const fn per_person(self) -> bool {
+        matches!(self, Self::ProfileBadges | Self::ProfileSection)
+    }
+
     /// It draws only a plugin's buttons, in a row (or a menu) of Yapfast's
     /// own.
     pub const fn buttons_only(self) -> bool {
@@ -187,6 +193,8 @@ pub enum Output {
     ClearSlot {
         plugin: String,
         slot: Slot,
+        /// A profile slot's person, or all of the plugin's drawings there.
+        subject: Option<String>,
     },
     /// What a plugin draws under a message, by the message's id; `None`
     /// takes it away. The runtime decorates again a message that's edited.
@@ -416,21 +424,84 @@ impl Slots {
             }
             tree.rows.retain(|row| !row.cells.is_empty());
         }
-        let place = self
-            .drawn
-            .iter()
-            .position(|drawn| drawn.plugin == plugin && drawn.slot == slot);
+        let place = self.drawn.iter().position(|drawn| {
+            drawn.plugin == plugin
+                && drawn.slot == slot
+                && (!slot.per_person() || drawn.tree.subject == tree.subject)
+        });
         match place {
             Some(place) if *self.drawn[place].tree == tree => return false,
             Some(place) => self.drawn[place].tree = Arc::new(tree),
-            None => self.drawn.push(Drawn {
-                plugin,
-                slot,
-                tree: Arc::new(tree),
-            }),
+            None => {
+                self.drawn.push(Drawn {
+                    plugin,
+                    slot,
+                    tree: Arc::new(tree),
+                });
+                // A plugin keeps the people it drew for last; the one with
+                // no person, its drawing for everyone else, always stays.
+                if slot.per_person() {
+                    let mine = |drawn: &Drawn| {
+                        drawn.plugin == plugin && drawn.slot == slot && drawn.tree.subject.is_some()
+                    };
+                    if self.drawn.iter().filter(|drawn| mine(drawn)).count()
+                        > yapfast_plugin_api::call::SetSlot::PEOPLE
+                        && let Some(oldest) = self.drawn.iter().position(mine)
+                    {
+                        self.drawn.remove(oldest);
+                    }
+                }
+            }
         }
         self.changes[slot as usize] += 1;
         true
+    }
+
+    /// [`Self::clear`], or for a profile slot one person's drawing alone.
+    pub fn clear_for(&mut self, plugin: &str, slot: Slot, subject: Option<&str>) -> bool {
+        let Some(subject) = subject.filter(|_| slot.per_person()) else {
+            return self.clear(plugin, slot);
+        };
+        let Some(plugin) = self.index(plugin) else {
+            return false;
+        };
+        let before = self.drawn.len();
+        self.drawn.retain(|drawn| {
+            !(drawn.plugin == plugin
+                && drawn.slot == slot
+                && drawn.tree.subject.as_deref() == Some(subject))
+        });
+        let cleared = self.drawn.len() != before;
+        if cleared {
+            self.changes[slot as usize] += 1;
+        }
+        cleared
+    }
+
+    /// What plugins draw on one person's profile in a profile slot: each
+    /// plugin's drawing for them, else its drawing with no person, in the order
+    /// the plugins first drew there, as many as the slot shows.
+    pub fn drawn_for<'a>(&'a self, slot: Slot, person: &str) -> Vec<&'a Drawn> {
+        let mut plugins: Vec<usize> = Vec::new();
+        for drawn in self.drawn.iter().filter(|drawn| drawn.slot == slot) {
+            if !plugins.contains(&drawn.plugin) {
+                plugins.push(drawn.plugin);
+            }
+        }
+        plugins
+            .into_iter()
+            .filter_map(|plugin| {
+                let theirs = self
+                    .drawn
+                    .iter()
+                    .filter(|drawn| drawn.plugin == plugin && drawn.slot == slot);
+                theirs
+                    .clone()
+                    .find(|drawn| drawn.tree.subject.as_deref() == Some(person))
+                    .or_else(|| theirs.clone().find(|drawn| drawn.tree.subject.is_none()))
+            })
+            .take(slot.most_plugins())
+            .collect()
     }
 
     /// Takes a plugin's tree out of a slot; false when it had none there.
@@ -853,7 +924,11 @@ impl Slots {
     pub fn apply(&mut self, output: Output) -> bool {
         match output {
             Output::SetSlot { plugin, slot, tree } => self.set(&plugin, slot, tree),
-            Output::ClearSlot { plugin, slot } => self.clear(&plugin, slot),
+            Output::ClearSlot {
+                plugin,
+                slot,
+                subject,
+            } => self.clear_for(&plugin, slot, subject.as_deref()),
             Output::Decorate {
                 plugin,
                 message,
@@ -1232,5 +1307,56 @@ mod tests {
         // One that shows goes, and the next waiting one shows.
         assert!(slots.clear("a.p0", Slot::HoverBar));
         assert!(slots.drawn(Slot::HoverBar).any(|drawn| drawn.plugin == 2));
+    }
+
+    #[test]
+    fn a_profile_slot_keeps_one_drawing_per_person() {
+        let mut slots = slots();
+        let for_person = |text: &str, person: Option<&str>| {
+            let mut drawn = tree(&format!(
+                r#"{{ "rows": [{{ "cells": [{{ "text": "{text}" }}] }}] }}"#
+            ));
+            drawn.subject = person.map(str::to_owned);
+            drawn
+        };
+        let words = |slots: &Slots, person: &str| -> Vec<String> {
+            slots
+                .drawn_for(Slot::ProfileSection, person)
+                .iter()
+                .map(|drawn| drawn.tree.rows[0].cells[0].text.clone())
+                .collect()
+        };
+        assert!(slots.set(
+            "a.one",
+            Slot::ProfileSection,
+            for_person("Ann's", Some("1"))
+        ));
+        assert!(slots.set("a.one", Slot::ProfileSection, for_person("Bo's", Some("2"))));
+        assert!(slots.set("a.one", Slot::ProfileSection, for_person("anyone's", None)));
+        assert_eq!(words(&slots, "1"), ["Ann's"]);
+        assert_eq!(words(&slots, "2"), ["Bo's"], "not the last one drawn");
+        assert_eq!(words(&slots, "3"), ["anyone's"]);
+        assert!(slots.clear_for("a.one", Slot::ProfileSection, Some("2")));
+        assert_eq!(words(&slots, "2"), ["anyone's"]);
+        assert_eq!(words(&slots, "1"), ["Ann's"], "the others stay");
+        for person in 0..40 {
+            let person = person.to_string();
+            slots.set(
+                "a.one",
+                Slot::ProfileSection,
+                for_person("x", Some(&person)),
+            );
+        }
+        let kept = slots
+            .all_drawn()
+            .iter()
+            .filter(|drawn| drawn.tree.subject.is_some())
+            .count();
+        assert_eq!(kept, yapfast_plugin_api::call::SetSlot::PEOPLE);
+        assert_eq!(
+            words(&slots, "77"),
+            ["anyone's"],
+            "the one for everyone stays"
+        );
     }
 }

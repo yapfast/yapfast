@@ -2714,6 +2714,10 @@ pub struct Application {
     /// `None` asks again for everything in sight, which a new snapshot does.
     #[cfg(feature = "plugins")]
     badges_rooms: Option<String>,
+    /// The people whose open profiles (the card or full one, and the one
+    /// beside a DM) plugins were last told of with `profile_open`.
+    #[cfg(feature = "plugins")]
+    plugin_profiles_told: Vec<String>,
     /// The enabled plugins' [`crate::plugins::PluginState::interface_key`]
     /// when the interface last built their changes, so a status that changes
     /// nothing it draws rebuilds nothing.

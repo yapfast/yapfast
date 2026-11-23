@@ -478,6 +478,7 @@ impl Application {
         if !self.plugins_on() {
             return;
         }
+        self.plugins_profile_open();
         if !self.plugin_sent_pending.is_empty() {
             self.plugins_attribute_sent();
         }
@@ -1527,6 +1528,57 @@ impl Application {
         }
         if let Some(plugins) = self.state.plugins.as_mut() {
             plugins.observe(envelope);
+        }
+    }
+
+    /// A profile opened, as a card or full, or beside a DM: the plugins with
+    /// `people.read` are told whose, once each time it opens, with the server
+    /// it shows them in, so they draw `profile.badges` and `profile.section`
+    /// for that person.
+    pub(in crate::application) fn plugins_profile_open(&mut self) {
+        let open: Vec<(String, bool, bool)> = [
+            (&self.state.profile, false),
+            (&self.state.panel_profile, true),
+        ]
+        .into_iter()
+        .filter_map(|(view, panel)| {
+            view.as_ref()
+                .map(|view| (view.profile.id.clone(), view.large, panel))
+        })
+        .collect();
+        let ids: Vec<String> = open.iter().map(|(id, ..)| id.clone()).collect();
+        if ids == self.plugin_profiles_told {
+            return;
+        }
+        let told = std::mem::replace(&mut self.plugin_profiles_told, ids);
+        if !self.plugins_want(EventKind::ProfileOpen) {
+            return;
+        }
+        let selected = self.state.selected.clone();
+        let server = selected
+            .as_deref()
+            .and_then(crate::discord::parse_room)
+            .map(|(guild, _)| guild.to_owned())
+            .filter(|guild| guild != crate::discord::DM_GUILD);
+        let network = self.on_screen_network();
+        for (person, large, panel) in open {
+            if told.contains(&person) {
+                continue;
+            }
+            let payload = serde_json::json!({
+                "person": person,
+                "server": if panel { None } else { server.clone() },
+                "large": large,
+                "beside_dm": panel,
+            });
+            self.plugins_observe(envelope(
+                EventKind::ProfileOpen,
+                network,
+                selected.clone(),
+                None,
+                false,
+                payload,
+            ));
         }
     }
 

@@ -173,7 +173,7 @@ kinds of trigger are read:
 The event kinds are `message_create`, `message_update`, `message_delete`,
 `reaction_add`, `reaction_remove`, `room_selected`, `voice_state`, `app_focus`,
 `account_ready`, `spotify_state`, and the opt-in coalesced ones, `typing`,
-`presence`, `speaking`, `member_join` and `member_leave`. A plugin that holds `messages.intercept` is activated at startup
+`presence`, `speaking`, `member_join`, `member_leave` and `profile_open`. A plugin that holds `messages.intercept` is activated at startup
 whether or not it says so, because the first message must not go out before it
 is ready.
 

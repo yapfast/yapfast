@@ -68,11 +68,15 @@ pub enum EventKind {
     GameStop,
     /// The text in a composer changed: `drafts.read`. Opt-in and coalesced.
     ComposerChange,
+    /// A person's profile opened, as a card or full: whose, and in which
+    /// server, so a plugin draws its `profile.badges` and `profile.section`
+    /// for them: `people.read`.
+    ProfileOpen,
 }
 
 impl EventKind {
     /// Every kind a manifest may name after `event:`.
-    pub const ALL: [EventKind; 25] = [
+    pub const ALL: [EventKind; 26] = [
         EventKind::MessageCreate,
         EventKind::MessageUpdate,
         EventKind::MessageDelete,
@@ -98,6 +102,7 @@ impl EventKind {
         EventKind::GameStart,
         EventKind::GameStop,
         EventKind::ComposerChange,
+        EventKind::ProfileOpen,
     ];
 
     /// The name written after `event:` in a manifest.
@@ -128,6 +133,7 @@ impl EventKind {
             EventKind::GameStart => "game_start",
             EventKind::GameStop => "game_stop",
             EventKind::ComposerChange => "composer_change",
+            EventKind::ProfileOpen => "profile_open",
         }
     }
 

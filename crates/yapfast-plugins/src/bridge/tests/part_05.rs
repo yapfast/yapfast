@@ -147,6 +147,7 @@ fn a_tree_is_drawn_as_a_part_its_manifest_names() {
                 slot: slot.to_owned(),
                 tree: text_tree("hi"),
                 part: part.map(str::to_owned),
+                person: None,
             },
         )
         .expect("a call")

@@ -421,6 +421,19 @@ fn draw_inline<'a>(
 }
 
 /// The plugins drawing in `slot`, with their names; empty without any.
+/// [`shown`] on one person's profile: each plugin's drawing for them, else
+/// its drawing for everyone.
+fn shown_for<'a>(ctx: Ctx<'a>, slot: Slot, person: &str) -> Vec<(&'a Drawn, &'a PluginName)> {
+    let Some(slots) = ctx.state.plugin_slots.as_deref() else {
+        return Vec::new();
+    };
+    slots
+        .drawn_for(slot, person)
+        .into_iter()
+        .filter_map(|drawn| Some((drawn, slots.names().get(drawn.plugin)?)))
+        .collect()
+}
+
 fn shown<'a>(ctx: Ctx<'a>, slot: Slot) -> Vec<(&'a Drawn, &'a PluginName)> {
     let Some(slots) = ctx.state.plugin_slots.as_deref() else {
         return Vec::new();
@@ -1000,7 +1013,7 @@ pub fn badges<'a>(ctx: Ctx<'a>, person: &'a str) -> Option<Element<'a, Message>>
     let theme = ctx.look.theme;
     let mut cards = column![].spacing(4).width(Length::Fill);
     let mut any = false;
-    for (drawn, plugin) in shown(ctx, Slot::ProfileBadges) {
+    for (drawn, plugin) in shown_for(ctx, Slot::ProfileBadges, person) {
         // Each plugin's badges sit under its name, so a badge that says
         // "Staff" reads as that plugin's word and not Yapfast's or Discord's.
         cards = cards.push(
@@ -1024,7 +1037,7 @@ pub fn profile_sections<'a>(ctx: Ctx<'a>, person: &'a str) -> Option<Element<'a,
     let theme = ctx.look.theme;
     let mut sections = column![].spacing(12).width(Length::Fill);
     let mut any = false;
-    for (drawn, plugin) in shown(ctx, Slot::ProfileSection) {
+    for (drawn, plugin) in shown_for(ctx, Slot::ProfileSection, person) {
         sections = sections.push(
             column![
                 text(plugin.name.to_uppercase())

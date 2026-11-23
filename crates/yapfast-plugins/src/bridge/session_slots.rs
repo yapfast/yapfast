@@ -88,7 +88,23 @@ impl Session {
                 };
             }
         };
-        tree.subject = subject.filter(|subject| !subject.is_empty() && subject.len() <= 512);
+        let person = request
+            .person
+            .filter(|person| !person.is_empty() && person.len() <= 512);
+        if person.is_some() && !slot.per_person() {
+            return HostReturn::Denied {
+                reason: format!(
+                    "`person` names whose profile a tree is for, in `profile.badges` and \
+                     `profile.section`; `{}` is drawn once for everyone",
+                    slot.id()
+                ),
+            };
+        }
+        tree.subject = if slot.per_person() {
+            person
+        } else {
+            subject.filter(|subject| !subject.is_empty() && subject.len() <= 512)
+        };
         self.painting.queue(
             Instant::now(),
             slots::Output::SetSlot {
@@ -101,7 +117,12 @@ impl Session {
     }
 
     /// Takes a plugin's tree out of a slot.
-    pub(super) fn clear_paint(&mut self, plugin: &PluginId, slot: &str) -> HostReturn {
+    pub(super) fn clear_paint(
+        &mut self,
+        plugin: &PluginId,
+        slot: &str,
+        person: Option<String>,
+    ) -> HostReturn {
         let Some(slot) = Slot::from_id(slot) else {
             return HostReturn::Denied {
                 reason: format!("Yapfast has no slot called `{slot}`"),
@@ -119,6 +140,7 @@ impl Session {
             slots::Output::ClearSlot {
                 plugin: plugin.to_string(),
                 slot,
+                subject: person.filter(|_| slot.per_person()),
             },
         );
         answered(SlotDrawn::yes())

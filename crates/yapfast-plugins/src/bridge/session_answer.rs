@@ -429,7 +429,7 @@ impl Session {
                     Ok(request) => request,
                     Err(error) => return wrong_payload(method, error),
                 };
-                self.clear_paint(plugin, &request.slot)
+                self.clear_paint(plugin, &request.slot, request.person)
             }
             call::method::UI_NOTICE | call::method::UI_TOAST => {
                 let request: Line = match call.parse() {
@@ -462,6 +462,7 @@ impl Session {
                         slot: Slot::Dialog.id().to_owned(),
                         tree: request.tree,
                         part: None,
+                        person: None,
                     },
                     request.subject,
                 )

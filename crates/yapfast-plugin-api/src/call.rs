@@ -1599,6 +1599,17 @@ pub struct SetSlot {
     pub tree: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part: Option<String>,
+    /// For `profile.badges` and `profile.section`: whose profile the tree is
+    /// for, as `profile_open` named them. Each person keeps their own drawing
+    /// (the last [`SetSlot::PEOPLE`] people per plugin and slot); without it
+    /// the tree is the plugin's drawing for every profile with none of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
+}
+
+impl SetSlot {
+    /// How many people's profile drawings one plugin keeps in a slot.
+    pub const PEOPLE: usize = 32;
 }
 
 /// `ui.set_slot` and `ui.clear_slot`'s answer: whether the interface drew
@@ -1632,6 +1643,10 @@ impl SlotDrawn {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClearSlot {
     pub slot: String,
+    /// For a profile slot: only that person's drawing goes; without it, all
+    /// of the plugin's in the slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person: Option<String>,
 }
 
 /// `ui.notice` and `ui.toast`: a line for the person, under the plugin's
