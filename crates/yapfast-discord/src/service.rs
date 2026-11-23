@@ -75,6 +75,11 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// The display name style they draw their name with in the call's
+    /// server, or everywhere, and the server tag they wear by it, as their
+    /// member row has them: voice states carry neither.
+    pub style: Option<crate::collectibles::Style>,
+    pub tag: Option<crate::message::Tag>,
 }
 
 /// The linked account, as Discord shows it outside any server.
@@ -239,6 +244,9 @@ pub struct Friend {
     pub activity: Option<String>,
     #[serde(skip)]
     pub activities: crate::activity::Activities,
+    /// Their display name style, as `Names` knows it.
+    #[serde(skip)]
+    pub style: Option<crate::collectibles::Style>,
 }
 
 /// Someone this account can start a DM with.
@@ -670,6 +678,15 @@ pub enum Live {
     FavoriteSounds(Vec<String>),
 }
 
+/// Someone's presence in a server, as [`Discord::member_presence`] asks for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberPresence {
+    pub presence: Presence,
+    /// Their custom status, else what they're doing, on one line.
+    pub activity: Option<String>,
+    pub activities: crate::activity::Activities,
+}
+
 /// What a call needs to open the voice connection Discord assigned.
 #[derive(Clone)]
 pub struct VoiceServer {
@@ -738,6 +755,12 @@ enum Request {
     View {
         guild: String,
         channel: Option<String>,
+    },
+    /// Asks for someone's presence in a server; `reply` hears it, or none.
+    Presence {
+        guild: String,
+        user: String,
+        reply: oneshot::Sender<Option<Value>>,
     },
     /// Asks for these members' server profiles; with `reply`, says when
     /// they arrived.
@@ -2085,6 +2108,12 @@ impl Discord {
     /// a server it lists publicly; none for a server it keeps private. An
     /// answer, or that refusal, from the last minute is given again rather
     /// than asked for, as Discord's client does; a failure is not kept.
+    /// Joins a server its tag's card offers to, one anyone may join; it
+    /// lists once GUILD_CREATE comes.
+    pub async fn join_public_server(&self, guild: &str) -> Result<()> {
+        self.api.join_public_guild(guild).await
+    }
+
     pub async fn tag_server(&self, guild: &str) -> Result<Option<guild::Profile>> {
         let kept = {
             let servers = self.lock_tag_servers();
@@ -4070,8 +4099,39 @@ impl Discord {
 
     /// The RGB colour of a member's name in a server: their highest coloured
     /// role's, once their roles are known.
+    /// Someone's presence in server `guild`, as Discord's client asks for
+    /// it when it opens their profile there: the member list has it only for
+    /// the rows it has loaded, so a card opened from a message had no
+    /// status. Asked over the gateway with the member (Request Guild
+    /// Members with `presences`), waiting a while; none in a DM, or when
+    /// Discord doesn't say.
+    pub async fn member_presence(&self, guild: &str, user: &str) -> Option<MemberPresence> {
+        let guild = server(guild)?;
+        let (reply, answer) = oneshot::channel();
+        let _ = self.requests.send(Request::Presence {
+            guild: guild.into(),
+            user: user.into(),
+            reply,
+        });
+        let presence = tokio::time::timeout(SEARCH_TIMEOUT, answer)
+            .await
+            .ok()?
+            .ok()??;
+        Some(MemberPresence {
+            presence: Presence::parse(&presence),
+            activity: crate::member_list::activity(&presence["activities"]),
+            activities: crate::activity::activities(&presence["activities"]),
+        })
+    }
+
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
+    }
+
+    /// Where a member's name's gradient ends in a server, when their
+    /// highest coloured role's name is one; see [`Server::gradient`].
+    pub fn gradient(&self, server: &Server, user: &str) -> Option<(u32, Option<u32>)> {
+        server.gradient(self.read_names().roles(&server.id, user))
     }
 
     /// [`Discord::render`], with the users and roles the message mentions and

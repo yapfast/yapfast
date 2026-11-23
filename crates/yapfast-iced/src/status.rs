@@ -114,11 +114,9 @@ impl Status {
             popover.cards = popover
                 .activities
                 .iter()
-                .map(|activity| {
-                    let mut card = crate::profile::look::activity_look(activity);
-                    card.heading = activity.heading();
-                    card
-                })
+                // Discord's lines in Discord's places, as on a profile; a
+                // Hang status has no card.
+                .filter_map(crate::profile::look::activity_look)
                 .collect();
         }
     }
@@ -291,10 +289,13 @@ impl<'a> View<'a> {
         });
         let custom = state.custom_status.is_some();
         if custom {
-            body = body.push(self.cx.status_line(
-                &account.status,
-                StatusInk::under_name(self.cx.look.theme, 1.0),
-            ));
+            // A status of emoji alone shows big, as the profile card's.
+            let ink = if crate::profile::body::emoji_alone(&account.status) {
+                StatusInk::words(29.0, crate::fonts::REGULAR, theme.text)
+            } else {
+                StatusInk::under_name(self.cx.look.theme, 1.0)
+            };
+            body = body.push(self.cx.status_line(&account.status, ink));
         }
         if !popover.cards.is_empty() {
             for activity in &popover.cards {

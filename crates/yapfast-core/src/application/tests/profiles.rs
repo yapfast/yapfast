@@ -41,6 +41,40 @@ fn a_linked_discord_profile_loads_for_someone_not_listed() {
     assert_eq!(view.profile.handle, "nia");
 }
 
+/// Someone whose card opens off the member list's loaded rows gets their
+/// status from the presence Discord answers for the profile's server.
+#[test]
+fn a_profiles_presence_comes_from_its_server() {
+    let mut app = discord_server();
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::Open("discord:10:11".into()));
+    app.dispatch(Action::ShowProfile {
+        user: "4242".into(),
+        large: false,
+    });
+    assert_eq!(app.state.profile.as_ref().unwrap().profile.presence, None);
+    app.apply(Event::ProfilePresence {
+        user: "4242".into(),
+        presence: chat::Presence::Idle,
+        activity: Some("brb".into()),
+        activities: Default::default(),
+    });
+    let profile = &app.state.profile.as_ref().unwrap().profile;
+    assert_eq!(profile.presence, Some(chat::Presence::Idle));
+    assert_eq!(profile.activity.as_deref(), Some("brb"));
+    app.apply(Event::ProfilePresence {
+        user: "1".into(),
+        presence: chat::Presence::Online,
+        activity: None,
+        activities: Default::default(),
+    });
+    assert_eq!(
+        app.state.profile.as_ref().unwrap().profile.presence,
+        Some(chat::Presence::Idle),
+        "someone else's goes nowhere"
+    );
+}
+
 #[test]
 fn matrix_profiles_show_what_the_member_list_knows() {
     let mut app = connected();
@@ -69,6 +103,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -1021,5 +1056,46 @@ fn a_profile_without_a_wishlist_has_an_empty_one() {
     assert_eq!(
         app.state.profile_editor.as_ref().unwrap().wishlist,
         chat::Wishlist::Loaded(Vec::new())
+    );
+}
+
+/// Join on a tag's card asks Discord to join only a server anyone may.
+#[test]
+fn a_tags_card_joins_a_public_server() {
+    let mut app = discord_server();
+    let profile = |joinable| chat::TagServer {
+        name: "Aliens".into(),
+        icon: None,
+        description: String::new(),
+        members: None,
+        online: None,
+        created_ms: 0,
+        banner: None,
+        color: None,
+        traits: Vec::new(),
+        joinable,
+    };
+    let join = |app: &mut Application| {
+        app.dispatch(Action::JoinTagServer("discord:99".into()))
+            .iter()
+            .any(|effect| {
+                matches!(
+                    effect,
+                    Effect::Backend(Command::Discord(DiscordCommand::JoinTagServer { server }))
+                        if server == "discord:99"
+                )
+            })
+    };
+    app.state.tag_server = Some(("discord:99".into(), Ok(Some(profile(false)))));
+    assert!(!join(&mut app), "one that takes an invite");
+    app.state.tag_server = Some(("discord:99".into(), Ok(Some(profile(true)))));
+    assert!(join(&mut app));
+    app.apply(Event::TagServerJoined {
+        server: "discord:99".into(),
+        result: Err("Couldn't join the server: no".into()),
+    });
+    assert_eq!(
+        app.state.notice.as_deref(),
+        Some("Couldn't join the server: no")
     );
 }

@@ -1454,6 +1454,15 @@ impl Api {
             .await
     }
 
+    /// Joins a server anyone may join, as the Join of Discord's client's
+    /// server cards does: `PUT /guilds/{id}/members/@me`, without lurking.
+    /// GUILD_CREATE follows.
+    pub async fn join_public_guild(&self, guild: &str) -> Result<()> {
+        let path = format!("/guilds/{guild}/members/@me?lurker=false");
+        self.empty(with_json(self.request(Method::PUT, &path), &json!({})))
+            .await
+    }
+
     /// Changes this account's member object in a server: its nickname and
     /// server avatar, as Discord's per-server profile editor sends them.
     /// Discord answers with the member, and GUILD_MEMBER_UPDATE.

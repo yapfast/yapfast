@@ -375,6 +375,45 @@ impl Application {
         ))]
     }
 
+    /// Joins the server a tag's card shows, when Discord said anyone may.
+    pub(super) fn join_tag_server(&self, server: String) -> Vec<Effect> {
+        let joinable = self
+            .state
+            .tag_server
+            .as_ref()
+            .is_some_and(|(shown, answer)| {
+                *shown == server
+                    && answer
+                        .as_ref()
+                        .is_ok_and(|known| known.as_ref().is_some_and(|known| known.joinable))
+            });
+        if self.state.preview || !self.state.discord_online || !joinable {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::JoinTagServer { server },
+        ))]
+    }
+
+    /// The tag's server was joined: it opens, once Discord has listed it;
+    /// a failure says why.
+    pub(super) fn tag_server_joined(
+        &mut self,
+        server: String,
+        result: Result<(), String>,
+    ) -> Vec<Effect> {
+        match result {
+            Ok(()) if self.state.servers.iter().any(|known| known.id == server) => {
+                self.dispatch(Action::Navigate(Navigation::Server(server)))
+            }
+            Ok(()) => vec![],
+            Err(error) => {
+                self.state.notice = Some(error);
+                vec![]
+            }
+        }
+    }
+
     /// Keeps what Discord said of a tag's server, for its card. A failure
     /// leaves what an earlier answer for the same server said.
     pub(super) fn show_tag_server(&mut self, server: String, result: TagServerAnswer) {

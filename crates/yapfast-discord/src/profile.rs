@@ -139,7 +139,16 @@ pub struct RecentEntry {
     pub music: bool,
     /// When it ended, in milliseconds.
     pub at: Option<u64>,
+    /// A game played, marked with a controller.
+    pub game: bool,
+    /// How many days in a row they've played a game, which Discord's
+    /// client shows as "13x Streak".
+    pub streak: Option<u32>,
 }
+
+/// A trait's `type` counting the days in a row of a game, with
+/// `streak_count_days`, as Discord's client reads it.
+const STREAK_DAYS: u64 = 8;
 
 /// What's in someone's outbox that this shows: music, what they watched and
 /// games they played, by the client's numbers for `content_type`.
@@ -171,6 +180,7 @@ pub fn recent_entries(value: &Value) -> Vec<RecentEntry> {
                         picture: text(&media["image_url"]).map(str::to_owned),
                         music: true,
                         at,
+                        ..Default::default()
                     })
                 }
                 WATCHED_MEDIA => Some(RecentEntry {
@@ -178,9 +188,24 @@ pub fn recent_entries(value: &Value) -> Vec<RecentEntry> {
                     at,
                     ..Default::default()
                 }),
+                // A game shows its application's icon, as the client's row,
+                // and the streak of days they've played it.
                 PLAYED_GAME | TOP_GAME => Some(RecentEntry {
                     title: text(&extra["game_name"])?.to_owned(),
                     at,
+                    game: true,
+                    picture: extra["application_id"]
+                        .as_str()
+                        .and_then(crate::activity::application_icon)
+                        .map(String::from),
+                    streak: entry["traits"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|found| found["type"].as_u64() == Some(STREAK_DAYS))
+                        .and_then(|found| found["streak_count_days"].as_u64())
+                        .filter(|days| *days > 1)
+                        .map(|days| u32::try_from(days).unwrap_or(u32::MAX)),
                     ..Default::default()
                 }),
                 _ => None,
@@ -572,13 +597,21 @@ mod tests {
             {"content_type": 5, "ended_at": "2026-10-27T00:00:00+00:00", "extra": {"entries": [{"media": {
                 "title": "A song", "artists": [{"name": "A band"}], "image_url": "https://art",
             }}]}},
-            {"content_type": 1, "extra": {"game_name": "A game"}},
+            {"content_type": 1, "extra": {"game_name": "A game", "application_id": "42"},
+             "traits": [{"type": 2, "duration_seconds": 600}, {"type": 8, "streak_count_days": 13}]},
             {"content_type": 7, "extra": {}},
         ]}));
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].subtitle, "A band");
         assert!(entries[0].music && entries[0].at.is_some());
+        assert_eq!(entries[0].streak, None);
         assert_eq!(entries[1].title, "A game");
+        assert!(entries[1].game);
+        assert_eq!(entries[1].streak, Some(13));
+        assert_eq!(
+            entries[1].picture.as_deref(),
+            crate::activity::application_icon("42").as_deref()
+        );
     }
 
     #[test]

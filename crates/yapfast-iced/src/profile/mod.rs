@@ -13,7 +13,7 @@ pub(crate) mod activity;
 pub mod body;
 mod cosmetic;
 pub mod editor;
-mod full;
+pub(crate) mod full;
 pub mod look;
 pub mod name_style;
 
@@ -93,6 +93,10 @@ pub enum Event {
     /// The full profile, on a tab or the first: from the card, or from the
     /// DM's panel.
     Enlarge(Option<Tab>, bool),
+    /// The full profile's Mutual Friends search changed.
+    FriendSearch(String),
+    /// A mutual tab scrolled: its offset and the height it shows.
+    TabScrolled(f32, f32),
     Close,
     Befriend(String),
     /// What a one-to-one DM's opening does about its person, by their id.
@@ -198,6 +202,11 @@ pub struct Profiles {
     pub field: String,
     pub note: String,
     note_of: String,
+    /// What the full profile's Mutual Friends tab is searched for.
+    pub friend_search: String,
+    /// How far a mutual tab is scrolled and how tall it shows: only the
+    /// rows there ask for their pictures.
+    pub tab_scroll: (f32, f32),
     pub pointed: bool,
     pub panel_pointed: bool,
     pub bubble: bool,
@@ -292,6 +301,8 @@ impl Profiles {
             Event::Enlarge(tab, panel) => {
                 self.save_note(cx);
                 self.tab = tab;
+                self.friend_search.clear();
+                self.tab_scroll = (0.0, 0.0);
                 if panel {
                     let Some(room) = cx.state().selected.clone() else {
                         return Task::none();
@@ -397,6 +408,15 @@ impl Profiles {
                 return self.point_effect(true, pointed, cx.state());
             }
             Event::EffectTick(generation) => return self.effect_tick(generation, cx.state()),
+            Event::FriendSearch(words) => {
+                self.friend_search = words;
+                return Task::none();
+            }
+            Event::TabScrolled(offset, height) => {
+                self.tab_scroll = (offset, height);
+                cx.request(Request::Ask);
+                return Task::none();
+            }
             Event::Bubble(pointed) => {
                 self.bubble = pointed;
                 return Task::none();
@@ -436,7 +456,13 @@ pub fn profile_sync(app: &mut App) -> Task<Message> {
     let core = &app.client.app;
     let state = &core.state;
     let panel_view = state.panel_profile.as_ref().filter(|_| state.profile_panel);
-    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), None, link);
+    // An open card follows the person's presence as it changes: the core
+    // copied it into the profile as it opened.
+    let shown_live = state
+        .profile
+        .as_ref()
+        .and_then(|view| live_of(state, &view.profile.id));
+    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), shown_live, link);
     let live = panel_view
         .and(state.selected_room())
         .map(|room| look::Live {
@@ -482,8 +508,12 @@ fn account_card_sync(app: &mut App, link: u32) {
         app.profiles.account = None;
         return;
     };
-    if let Some((kept, _)) = &app.profiles.account
+    // One's own activities change as this account shares them, such as a
+    // song's line: the card follows them too.
+    let live = live_of(state, &profile.id);
+    if let Some((kept, shown)) = &app.profiles.account
         && Arc::ptr_eq(kept, profile)
+        && shown.look.live == live
     {
         return;
     }
@@ -491,8 +521,63 @@ fn account_card_sync(app: &mut App, link: u32) {
         profile: chat::Profile::clone(profile),
         ..Default::default()
     });
-    let look = Look::new(state, &view, None, &[], link);
+    let look = Look::new(state, &view, live, &[], link);
     app.profiles.account = Some((profile.clone(), Shown::new(look)));
+}
+
+/// What the core knows of person `id` now, for an open card: one's own
+/// activities as this account shares them, else the member list's, a
+/// friend's or their DM's presence and activities. None when nothing
+/// lists them, and the card keeps what it opened with.
+pub(crate) fn live_of(state: &yapfast_core::application::AppState, id: &str) -> Option<look::Live> {
+    if id.is_empty() {
+        return None;
+    }
+    if state.discord_user.as_deref() == Some(id) {
+        return Some(look::Live {
+            presence: None,
+            activity: None,
+            activities: state.discord_activities.clone(),
+        });
+    }
+    let members = state
+        .members
+        .as_ref()
+        .and_then(|members| members.as_ref().ok());
+    if let Some(member) = members.and_then(|members| members.iter().find(|member| member.id == id))
+    {
+        return Some(look::Live {
+            presence: member.presence,
+            activity: member.activity.clone(),
+            activities: member.activities.clone(),
+        });
+    }
+    if let Some(friend) = state.friends.iter().find(|friend| friend.id == id) {
+        return Some(look::Live {
+            presence: friend.presence,
+            activity: friend.activity.clone(),
+            activities: friend.activities.clone(),
+        });
+    }
+    state
+        .rooms
+        .iter()
+        .find(|room| room.direct && room.person.as_deref() == Some(id))
+        .map(|room| look::Live {
+            presence: room.presence,
+            activity: room.activity.clone(),
+            activities: room.activities.clone(),
+        })
+}
+
+/// The rows of a list `row` px each that show at `(offset, height)`, and
+/// ten either side: the first and how many. Before it has scrolled, the
+/// first screenful.
+pub(crate) fn rows_shown((offset, height): (f32, f32), row: f32) -> (usize, usize) {
+    let height = if height > 0.0 { height } else { 900.0 };
+    let first = (offset / row).floor().max(0.0) as usize;
+    let first = first.saturating_sub(10);
+    (first, (height / row).ceil() as usize + 20)
 }
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and
@@ -823,19 +908,27 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
             continue;
         }
         match profile_tab(ctx, &shown.look) {
+            // Only the rows on screen, and a few either side: a long list
+            // asked for every picture as it opened, and lagged.
             Tab::Friends => {
+                let (first, count) = rows_shown(ctx.profiles.tab_scroll, 40.0);
                 urls.extend(
                     profile
                         .friends
                         .iter()
+                        .skip(first)
+                        .take(count)
                         .filter_map(|friend| friend.avatar.clone()),
                 );
             }
             Tab::Servers => {
+                let (first, count) = rows_shown(ctx.profiles.tab_scroll, 40.0);
                 urls.extend(
                     profile
                         .servers
                         .iter()
+                        .skip(first)
+                        .take(count)
                         .filter_map(|server| server.icon.clone()),
                 );
             }

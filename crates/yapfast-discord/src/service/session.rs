@@ -605,9 +605,12 @@ impl Session<'_> {
                     self.searches.members(gateway, &guild, users, reply).await?;
                 }
                 for users in chunks {
-                    gateway.request_members(&guild, users, None).await?;
+                    gateway.request_members(&guild, users, None, false).await?;
                 }
                 Ok(())
+            }
+            Request::Presence { guild, user, reply } => {
+                self.searches.presence(gateway, &guild, &user, reply).await
             }
         }
     }
