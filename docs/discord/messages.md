@@ -529,7 +529,9 @@ Yapfast is back, rather than showing an error.
   member request with a query, as Discord's client does), then the roles
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's
-  `<@id>` or `<@&id>`.
+  `<@id>` or `<@&id>`. Saving an edit also turns the `@Name` of anyone the
+  message mentioned into their `<@id>`, even someone no longer suggested; a
+  name two of them share stays text.
 - Typing `#` in a server channel suggests the server's text and voice
   channels this account can see, in Discord's order, under CHANNELS, voice
   channels with a speaker. Sending turns each `#name` into Discord's `<#id>`;
