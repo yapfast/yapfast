@@ -283,7 +283,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `setting` | A setting's row as Settings draws one: `text` (15 px) with `description` (13 px, muted) under it at the start, and its `cells`, the controls, at the end, a button among them drawn small | `text`, `description`, `cells` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
 | `segmented` | Settings' own row of choices: its options side by side on the sunken ground, the chosen one raised and bold, for two to four short options worth seeing at once; its label over it when `text` has one | `id`, `options`, `value`, `text` |
-| `dropdown` | The kit's drop-down, its label over it | `id`, `text`, `options`, `value` |
+| `dropdown` | The kit's drop-down, its label over it; with `icons`, a round picture before each option's name (a server's icon, a person's avatar), one `src` per option by its place, an empty one none | `id`, `text`, `options`, `value`, `icons` |
 | `input` | A one-line field | `id`, `text` (its placeholder), `value` |
 | `textarea` | A field of four lines, its label over it | `id`, `text`, `value` |
 | `number` | A field with − and + beside it | `id`, `text`, `value`, `min`, `max`, `step` |

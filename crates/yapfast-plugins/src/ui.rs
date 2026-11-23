@@ -1365,6 +1365,10 @@ pub struct Cell {
     pub src: String,
     #[serde(default)]
     pub options: Vec<String>,
+    /// A drop-down's pictures, one per option by its place (a server's icon,
+    /// a person's avatar), each as an image's `src`; an empty one has none.
+    #[serde(default)]
+    pub icons: Vec<String>,
     /// A slider's or progress bar's range.
     #[serde(default)]
     pub min: f32,
@@ -1444,6 +1448,23 @@ pub struct Cell {
 pub const PICTURE_SIDE: f32 = 512.0;
 
 impl Cell {
+    /// The pictures this cell shows: an image's, an icon's or a tile's own
+    /// and the one it shows while pointed at, or a drop-down's options'.
+    pub fn pictures(&self) -> impl Iterator<Item = &str> {
+        let own = matches!(self.kind, Kind::Image | Kind::Icon | Kind::Tile);
+        let options = self.kind == Kind::Dropdown;
+        [self.src.as_str(), self.hover_src.as_str()]
+            .into_iter()
+            .filter(move |_| own)
+            .chain(
+                self.icons
+                    .iter()
+                    .map(String::as_str)
+                    .filter(move |_| options),
+            )
+            .filter(|src| !src.is_empty())
+    }
+
     /// A picture that is a button: an image or a tile with an id.
     pub fn pressable(&self) -> bool {
         matches!(self.kind, Kind::Image | Kind::Tile) && !self.id.is_empty()
@@ -1538,6 +1559,7 @@ impl Default for Cell {
             enabled: true,
             src: String::new(),
             options: Vec::new(),
+            icons: Vec::new(),
             min: 0.0,
             max: 1.0,
             step: 0.0,
@@ -1706,6 +1728,18 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
     }
     for option in &mut cell.options {
         *option = line(option, LABEL_CHARS);
+    }
+    // A picture for each option at most, each one a picture's address or
+    // none; only a drop-down draws them.
+    if cell.kind == Kind::Dropdown {
+        cell.icons.truncate(cell.options.len());
+        for icon in &mut cell.icons {
+            if source(icon).is_none() {
+                icon.clear();
+            }
+        }
+    } else {
+        cell.icons.clear();
     }
     if !(cell.min.is_finite() && cell.max.is_finite() && cell.min < cell.max) {
         cell.min = 0.0;
@@ -2334,6 +2368,32 @@ mod tests {
             )
             .is_err(),
             "it needs an id"
+        );
+    }
+
+    #[test]
+    fn a_dropdowns_options_may_have_pictures() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "dropdown", "id": "server", "options": ["Cool", "Quiet"], "value": "Cool",
+                  "icons": ["https://cdn.discordapp.com/icons/1/a.png", "javascript:alert(1)", "asset:x.png"] },
+                { "kind": "input", "id": "find", "icons": ["asset:y.png"] }
+            ] }] }"#,
+        )
+        .unwrap();
+        let dropdown = &tree.rows[0].cells[0];
+        assert_eq!(
+            dropdown.icons,
+            ["https://cdn.discordapp.com/icons/1/a.png", ""],
+            "one per option, anything that isn't a picture's address cleared"
+        );
+        assert_eq!(
+            dropdown.pictures().collect::<Vec<_>>(),
+            ["https://cdn.discordapp.com/icons/1/a.png"]
+        );
+        assert!(
+            tree.rows[0].cells[1].icons.is_empty(),
+            "only a drop-down has them"
         );
     }
 

@@ -428,6 +428,9 @@ pub struct Dropdown<'a, M> {
     width: Length,
     height: f32,
     enabled: bool,
+    /// A picture before each option's name, by its place (a server's icon,
+    /// a person's avatar), when any is given.
+    pictures: Vec<Option<iced::widget::image::Handle>>,
 }
 
 pub fn dropdown<'a, M: Clone + 'a>(
@@ -446,8 +449,12 @@ pub fn dropdown<'a, M: Clone + 'a>(
         width: Length::Fill,
         height: DROPDOWN,
         enabled: true,
+        pictures: Vec::new(),
     }
 }
+
+/// How large a dropdown's pictures are drawn, and how round.
+const PICTURE: f32 = 20.0;
 
 impl<'a, M: Clone + 'a> Dropdown<'a, M> {
     /// Taller than [`DROPDOWN`], as one a row's field stretches.
@@ -467,6 +474,13 @@ impl<'a, M: Clone + 'a> Dropdown<'a, M> {
         self
     }
 
+    /// A picture before each option's name, by its place; `None` keeps the
+    /// picture's room, so the names line up.
+    pub fn pictures(mut self, pictures: Vec<Option<iced::widget::image::Handle>>) -> Self {
+        self.pictures = pictures;
+        self
+    }
+
     pub fn view(self, look: Look<'a>) -> Element<'a, M> {
         let theme = look.theme;
         let enabled = self.enabled && !self.options.is_empty();
@@ -476,13 +490,34 @@ impl<'a, M: Clone + 'a> Dropdown<'a, M> {
             .cloned()
             .unwrap_or_default();
         let ink = if enabled { theme.text } else { theme.faint };
+        let pictured = self.pictures.iter().any(Option::is_some);
+        let picture_of = |index: Option<usize>| -> Option<Element<'a, M>> {
+            if !pictured {
+                return None;
+            }
+            let handle = index.and_then(|index| self.pictures.get(index).cloned().flatten());
+            Some(match handle {
+                Some(handle) => iced::widget::image(handle)
+                    .width(PICTURE)
+                    .height(PICTURE)
+                    .border_radius(PICTURE / 2.0)
+                    .into(),
+                None => Space::new().width(PICTURE).height(PICTURE).into(),
+            })
+        };
         // The chevron keeps its place however long the choice's name.
         let face = row![
             container(
-                text(shown)
-                    .size(14)
-                    .color(ink)
-                    .wrapping(text::Wrapping::None)
+                row![]
+                    .push(picture_of(self.current))
+                    .push(
+                        text(shown)
+                            .size(14)
+                            .color(ink)
+                            .wrapping(text::Wrapping::None)
+                    )
+                    .spacing(8)
+                    .align_y(Alignment::Center)
             )
             .width(Length::Fill)
             .clip(true),
@@ -527,6 +562,35 @@ impl<'a, M: Clone + 'a> Dropdown<'a, M> {
         let list = (self.open && enabled).then(|| {
             let mut rows = column![].spacing(2);
             for (index, option) in self.options.iter().enumerate() {
+                if pictured {
+                    // A picture before the name: the menu's row, drawn here
+                    // so the picture sits inside its lit face.
+                    let chosen = Some(index) == self.current;
+                    let (hover, text_ink) = (theme.hover, theme.text);
+                    let line = row![]
+                        .push(picture_of(Some(index)))
+                        .push(
+                            text(option.clone())
+                                .size(14)
+                                .font(if chosen { BOLD } else { iced::Font::default() })
+                                .color(text_ink)
+                                .wrapping(text::Wrapping::None),
+                        )
+                        .spacing(8)
+                        .align_y(Alignment::Center);
+                    rows = rows.push(
+                        button(line)
+                            .padding([6, 8])
+                            .width(Length::Fill)
+                            .on_press((self.pick)(index))
+                            .style(move |_, status| button::Style {
+                                background: (chosen || lights(status)).then(|| hover.into()),
+                                border: Border::default().rounded(4),
+                                ..Default::default()
+                            }),
+                    );
+                    continue;
+                }
                 let item = Item {
                     label: option.clone().into(),
                     icon: None,

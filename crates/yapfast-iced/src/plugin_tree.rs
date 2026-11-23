@@ -474,9 +474,26 @@ fn cell_body<'a, M: Clone + 'a>(
                 let options = options.clone();
                 move |index: usize| set(options.get(index).cloned().unwrap_or_default())
             };
+            // Each option's picture, once the window has it.
+            let pictures = cell
+                .icons
+                .iter()
+                .map(|src| {
+                    paint
+                        .images
+                        .get(&image_key(paint.plugin, src))
+                        .cloned()
+                        .flatten()
+                })
+                .collect();
             let list = form::dropdown(options, current, open, toggle, pick)
-                .width(Length::Fixed(FIELD_WIDTH))
+                .width(Length::Fixed(if cell.icons.is_empty() {
+                    FIELD_WIDTH
+                } else {
+                    PICTURED_FIELD_WIDTH
+                }))
                 .enabled(cell.enabled)
+                .pictures(pictures)
                 .view(paint.look);
             labelled_above(theme, &cell.text, list)
         }
@@ -789,6 +806,8 @@ fn value_of(options: &[String], index: usize) -> String {
     options.get(index).cloned().unwrap_or_default()
 }
 const FIELD_WIDTH: f32 = 200.0;
+/// A drop-down with pictures, whose names start further in.
+const PICTURED_FIELD_WIDTH: f32 = 260.0;
 
 /// A small mark in its tone on the raised ground.
 fn badge<'a, M: Clone + 'a>(theme: &Theme, words: &str, ink: Color) -> Element<'a, M> {

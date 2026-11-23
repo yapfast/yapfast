@@ -23,7 +23,7 @@ use iced::{
     widget::{column, container, row, scrollable, text, tooltip},
 };
 use yapfast_core::plugins::slots::{Drawn, Slot, Slots};
-use yapfast_core::plugins::ui::{self, Kind, PluginName, Source, Tree};
+use yapfast_core::plugins::ui::{self, Cell, Kind, PluginName, Source, Tree};
 
 use crate::{
     app::{App, Message},
@@ -242,12 +242,7 @@ fn read_pictures(
     tree: &Tree,
     picture: &impl Fn(&str, &str) -> Option<iced::widget::image::Handle>,
 ) {
-    for src in tree
-        .cells()
-        .into_iter()
-        .filter(|cell| matches!(cell.kind, Kind::Image | Kind::Icon | Kind::Tile))
-        .flat_map(|cell| [&cell.src, &cell.hover_src])
-    {
+    for src in tree.cells().into_iter().flat_map(Cell::pictures) {
         let Some(Source::Asset(path)) = ui::source(src) else {
             continue;
         };
@@ -287,9 +282,7 @@ fn web_sources(slots: &Slots) -> impl Iterator<Item = (&PluginName, &str)> {
         .flat_map(|(plugin, tree)| {
             tree.cells()
                 .into_iter()
-                .filter(|cell| matches!(cell.kind, Kind::Image | Kind::Icon | Kind::Tile))
-                .flat_map(|cell| [cell.src.as_str(), cell.hover_src.as_str()])
-                .filter(|src| !src.is_empty())
+                .flat_map(Cell::pictures)
                 .map(move |src| (plugin, src))
         })
 }
