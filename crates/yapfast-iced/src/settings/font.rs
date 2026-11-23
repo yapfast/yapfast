@@ -33,7 +33,7 @@ pub enum FontEvent {
 }
 
 fn font_message(event: FontEvent) -> Message {
-    Message::Settings(Event::Font(event))
+    crate::app::settings(Event::Font(event))
 }
 
 impl Settings {

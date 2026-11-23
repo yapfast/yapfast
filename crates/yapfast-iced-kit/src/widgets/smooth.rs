@@ -55,7 +55,8 @@ pub fn set_pixel_scale(scale: f32) {
     }
 }
 
-fn pixel_scale() -> f32 {
+/// How many of the window's pixels make one of the view's, as last set.
+pub fn pixel_scale() -> f32 {
     f32::from_bits(PIXEL_SCALE.load(Ordering::Relaxed))
 }
 

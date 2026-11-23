@@ -523,6 +523,7 @@ fn messages_render_again_once_what_they_show_changes() {
         names,
         me: "1".into(),
         blocked: vec![].into(),
+        ignored: Default::default(),
         server,
         may_pin: false,
         may_forward: false,

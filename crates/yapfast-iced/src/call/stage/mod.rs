@@ -18,7 +18,7 @@ use crate::{
     controls::{self, ROUND, ROUND_GLYPH, bar},
     header,
     pictures::Icon,
-    style::{faded, fill, rounded},
+    style::{faded, fill, hex, rounded},
     theme::rgb,
     tile::{self, GLASS, NOTE, Tile},
     video::{self, Video},
@@ -35,6 +35,15 @@ pub use layout::{
 pub const CONTROLS: f32 = 111.0;
 /// The controls' row under the stage: 8 px over the buttons, 16 under.
 const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
+/// The Hide/Show Members capsule (`60 × 32`), 8 px into the strip's top
+/// when shown, and 6 px above the bottom of the stage (14 px over the
+/// controls' buttons) when hidden.
+pub const MEMBERS_TOGGLE: &str = "stage-members-toggle";
+const MEMBERS_WIDTH: f32 = 60.0;
+const MEMBERS_HEIGHT: f32 = 32.0;
+const MEMBERS_GLYPH: u32 = 24;
+const MEMBERS_STRIP_OFFSET: f32 = 8.0;
+const MEMBERS_BOTTOM_GAP: f32 = 6.0;
 
 /// The open room is a voice channel: the window shows its call.
 pub fn voice_selected(app: &App) -> bool {
@@ -77,7 +86,10 @@ pub fn stage_size(app: &App) -> Size {
     if full_shown(app) {
         return app.window;
     }
-    let below_header = app.window.height - header::HEIGHT - 1.0;
+    // A theme's floating panes stand `gap` in from the window's top and
+    // foot.
+    let below_header =
+        app.window.height - header::HEIGHT - 1.0 - 2.0 * app.themes.glass_gap(&app.theme.id);
     let (right, height) = if voice_panel(app) {
         (app.window.width, below_header)
     } else {
@@ -98,7 +110,14 @@ pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
     let stage = Stage::of(voice);
     let slots = stage.slots();
     let focused = app.call.focus.as_ref().and_then(|focus| stage.slot(focus));
-    let (tiles, content) = tiles(slots.len(), focused, stage_size(app), full_shown(app));
+    let full = full_shown(app);
+    let (tiles, content) = tiles(
+        slots.len(),
+        focused,
+        stage_size(app),
+        full,
+        !full && crate::call::members_hidden(app),
+    );
     (slots, focused, tiles, content)
 }
 
@@ -152,8 +171,13 @@ pub fn keep_focus(app: &mut App) {
 /// video. With the call off screen, the corner's shows there.
 pub fn place_videos(app: &mut App) {
     let shown = stage_shown(app);
-    let (slots, focused, tiles, _) = stage(app);
+    let (slots, focused, tiles, content) = stage(app);
     let height = stage_size(app).height;
+    let scrolled = if content <= height + 0.5 {
+        0.0
+    } else {
+        app.call.scrolled
+    };
     let corner = corner(app);
     let voice = &app.client.state().voice;
     let mut sources = video::Sources::default();
@@ -182,7 +206,7 @@ pub fn place_videos(app: &mut App) {
             Some(corner_pixels)
         } else {
             shown
-                .then(|| shown_at(tiles[place], app.call.scrolled, height, scale))
+                .then(|| shown_at(tiles[place], scrolled, height, scale))
                 .flatten()
         };
         feed.show_at(at);
@@ -268,19 +292,48 @@ pub fn call_view(app: &App) -> Element<'_, Message> {
     } else {
         join_view(app)
     };
-    // The window's ground is the chat's; the stage paints its own only
-    // where a theme gives it another (none built in does), as a ground
-    // under the video is drawn again with every frame shown.
+    // As Slint: the header and the banners stay the conversation's; the
+    // stage under them takes the theme's `call` ground, art and glass
+    // (the stock stage paints its own only where it differs from the
+    // chat's, as a ground under the video is drawn again every frame).
     let theme = &app.theme;
-    let stage = (theme.stage != theme.chat).then_some(theme.stage);
-    // The banners show over the call too, under the header.
-    let column = column![crate::header::view(app.ctx()), line]
-        .extend(crate::banners::view(app.ctx()))
-        .push(body);
-    container(column)
+    let body = if app.theme.packaged() {
+        crate::theme_art::surface(
+            body,
+            app.ctx(),
+            yapfast_core::themes::package::art::ArtSurface::Call,
+        )
+    } else {
+        let stage = (theme.stage != theme.chat).then_some(theme.stage);
+        container(body)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| stage.map(fill).unwrap_or_default())
+            .into()
+    };
+    // A theme's box frame round the conversation frames the call too, as
+    // Slint's chat column holds the stage.
+    let header = app.ctx().header;
+    let box_name = if header.direct {
+        header.name.clone()
+    } else {
+        format!("#{}", header.name)
+    };
+    let below = crate::theme_chrome::boxed(
+        column![]
+            .extend(crate::banners::view(app.ctx()))
+            .push(body)
+            .width(Length::Fill)
+            .height(Length::Fill),
+        app.ctx(),
+        yapfast_core::themes::chrome::Pane::Chat,
+        &box_name,
+        None,
+    );
+    column![crate::header::view(app.ctx()), line]
+        .push(below)
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(move |_| stage.map(fill).unwrap_or_default())
         .into()
 }
 
@@ -307,6 +360,28 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
         Space::new().width(size.width).height(size.height).into()
     } else {
         stage_view(app)
+    };
+    // The stage takes what's left, so the controls always show (the
+    // banners over the call take room the stage's size doesn't know).
+    let stage = container(stage).height(Length::Fill).clip(true);
+    // With the strip hidden, Show Members sits 6 px over the stage's foot,
+    // whatever room the banners leave the stage.
+    let stage: Element<'_, Message> = if has_strip(app) && crate::call::members_hidden(app) {
+        stack![
+            stage,
+            container(members_toggle(app))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::End)
+                .padding(Padding {
+                    bottom: MEMBERS_BOTTOM_GAP,
+                    ..Padding::ZERO
+                })
+        ]
+        .into()
+    } else {
+        stage.into()
     };
     column![line, stage, call_controls(app)].into()
 }
@@ -414,11 +489,13 @@ fn join_view(app: &App) -> Element<'_, Message> {
 }
 
 /// The stage: the tiles where they go, scrolled when they're taller
-/// than it.
+/// than it, with the Hide/Show Members toggle when a tile is focused
+/// beside others.
 pub fn stage_view(app: &App) -> Element<'_, Message> {
     let size = stage_size(app);
     let full = full_shown(app);
     let (slots, focused, tiles, content) = stage(app);
+    let has_strip = has_strip(app);
     // A click beside the large tile shows the grid again.
     let beside = if focused.is_some() && !full {
         Message::Call(Event::Focus(None))
@@ -434,19 +511,86 @@ pub fn stage_view(app: &App) -> Element<'_, Message> {
         let tile = stage_tile(app, place, *slot, *bounds, focused == Some(place), full);
         layers = layers.push(pin(tile).x(bounds.x).y(bounds.y));
     }
+    let toggle_x = ((size.width - MEMBERS_WIDTH) / 2.0).max(0.0);
+    if has_strip
+        && !crate::call::members_hidden(app)
+        && let Some(strip_top) = tiles
+            .iter()
+            .enumerate()
+            .find(|&(place, _)| focused != Some(place))
+            .map(|(_, bounds)| bounds.y)
+    {
+        let y = (strip_top + MEMBERS_STRIP_OFFSET).clamp(0.0, (content - MEMBERS_HEIGHT).max(0.0));
+        layers = layers.push(pin(members_toggle(app)).x(toggle_x).y(y));
+    }
     let grid = layers.width(size.width).height(content);
-    if content <= size.height + 0.5 {
-        return container(grid)
+    let panel: Element<'_, Message> = if content <= size.height + 0.5 {
+        container(grid)
             .width(size.width)
             .height(size.height)
             .clip(true)
-            .into();
-    }
-    scroll_view(grid)
-        .width(size.width)
-        .height(size.height)
-        .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
-        .into()
+            .into()
+    } else {
+        scroll_view(grid)
+            .width(size.width)
+            .height(size.height)
+            .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
+            .into()
+    };
+    panel
+}
+
+/// Whether the Hide/Show Members pill shows: a tile is large beside
+/// others, not full screen.
+fn has_strip(app: &App) -> bool {
+    let (slots, focused, _, _) = stage(app);
+    focused.is_some_and(|place| place < slots.len()) && !full_shown(app) && slots.len() > 1
+}
+
+/// The pill toggling the bottom participant strip under a large tile: a
+/// chevron and the users icon on a 60×32 capsule, with its tooltip above.
+fn members_toggle(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let (icon, label) = if crate::call::members_hidden(app) {
+        (Icon::ChevronUp, "Show Members")
+    } else {
+        (Icon::ChevronDown, "Hide Members")
+    };
+    let (rest, lit) = if theme.bonfire {
+        (hex(0x2c2d32), hex(0x38393b))
+    } else {
+        (theme.button_default, theme.button_default_hover)
+    };
+    let face = container(
+        row![
+            app.look().glyph(icon, MEMBERS_GLYPH, theme.text),
+            app.look().glyph(Icon::Users, MEMBERS_GLYPH, theme.text),
+        ]
+        .spacing(0)
+        .align_y(Alignment::Center),
+    )
+    .id(iced::widget::Id::new(MEMBERS_TOGGLE))
+    .width(MEMBERS_WIDTH)
+    .height(MEMBERS_HEIGHT)
+    .padding(Padding {
+        left: 4.0,
+        right: 8.0,
+        ..Padding::ZERO
+    })
+    .align_y(Alignment::Center);
+    let toggle = button(face)
+        .padding(0)
+        .width(MEMBERS_WIDTH)
+        .height(MEMBERS_HEIGHT)
+        .on_press(Message::Call(Event::ToggleMembers))
+        .style(controls::lit_style(Some(rest), lit, MEMBERS_HEIGHT / 2.0));
+    iced::widget::tooltip(
+        toggle,
+        controls::tip(theme, label),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
 }
 
 /// One tile on the stage.
@@ -588,6 +732,7 @@ fn stage_tile(
             tile
         }
     };
+    tile = tile.surface(theme, "call");
     if full {
         tile = tile.square();
     }
@@ -673,6 +818,114 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
     let when = |message: Message| ready.then_some(message);
+    // A gel theme's call buttons are glossy gel buttons (as asked):
+    // plain at rest, lit while on, the danger gel while muted and to leave.
+    if crate::theme_art::has_gel(app.ctx()) {
+        use crate::theme_art::{GelTone, gel_call_button};
+        let ctx = app.ctx();
+        let round = (ROUND, ROUND);
+        let gel = |icon, label: &'static str, tone, message| {
+            gel_call_button(ctx, icon, ROUND_GLYPH, label, tone, round, message)
+        };
+        let mut row_of = row![].spacing(12).align_y(Alignment::Center);
+        row_of = row_of.extend(gel(
+            if voice.muted { Icon::MicOff } else { Icon::Mic },
+            if voice.muted { "Unmute" } else { "Mute" },
+            if voice.muted {
+                GelTone::Danger
+            } else {
+                GelTone::Plain
+            },
+            when(Message::Call(Event::Mute)),
+        ));
+        row_of = row_of.extend(gel(
+            if voice.deafened {
+                Icon::HeadphoneOff
+            } else {
+                Icon::Headphones
+            },
+            if voice.deafened { "Undeafen" } else { "Deafen" },
+            if voice.deafened {
+                GelTone::Danger
+            } else {
+                GelTone::Plain
+            },
+            when(Message::Call(Event::Deafen)),
+        ));
+        if voice.soundboard.is_some()
+            && let Some(button) = gel(
+                Icon::Soundboard,
+                "Open Soundboard",
+                GelTone::Plain,
+                when(Message::Call(Event::Open(Popup::Soundboard))),
+            )
+        {
+            row_of = row_of.push(ctx.spot(button));
+        }
+        if voice.can_film {
+            let on = voice.camera_phase != voice::CameraPhase::Off;
+            let starting = voice.camera_phase == voice::CameraPhase::Starting;
+            row_of = row_of.extend(gel(
+                if on { Icon::Video } else { Icon::VideoOff },
+                if starting {
+                    "Starting camera..."
+                } else if on {
+                    "Turn off camera"
+                } else {
+                    "Turn on camera"
+                },
+                if on { GelTone::Lit } else { GelTone::Plain },
+                when(Message::Call(Event::Camera)),
+            ));
+        }
+        let sharing = voice.sharing.is_some();
+        if (can_share(ctx) || sharing)
+            && let Some(button) = gel(
+                if sharing {
+                    Icon::ScreenShareOff
+                } else {
+                    Icon::ScreenShare
+                },
+                if sharing {
+                    "Stop sharing"
+                } else {
+                    "Share your screen"
+                },
+                if sharing {
+                    GelTone::Lit
+                } else {
+                    GelTone::Plain
+                },
+                when(Message::Call(if sharing {
+                    Event::StopSharing
+                } else {
+                    Event::Open(Popup::Share)
+                })),
+            )
+        {
+            row_of = row_of.push(ctx.spot(button));
+        }
+        let leaving = voice.phase == voice::Phase::Leaving;
+        row_of = row_of.extend(gel_call_button(
+            ctx,
+            Icon::PhoneOff,
+            ROUND_GLYPH,
+            "Leave voice",
+            GelTone::Danger,
+            (76.0, ROUND),
+            (!leaving).then_some(Message::Call(Event::Leave)),
+        ));
+        return container(row_of)
+            .padding(Padding {
+                top: 8.0,
+                bottom: 16.0,
+                left: 16.0,
+                right: 16.0,
+            })
+            .center_x(Length::Fill)
+            .height(CONTROLS_HEIGHT)
+            .into();
+    }
     let alert = faded(theme.danger, 0.18);
     let face = |icon| app.look().glyph(icon, ROUND_GLYPH, theme.text);
     let mut controls = row![
@@ -766,10 +1019,12 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     .height(ROUND)
     .padding(0)
     .on_press_maybe((!leaving).then_some(Message::Call(Event::Leave)))
+    // In the theme's corners, as Slint's `Look.radius(26px)`: a pill
+    // stock, a square box in Zine's.
     .style(controls::lit_style(
         Some(faded(danger, opacity)),
         faded(danger_hover, opacity),
-        ROUND / 2.0,
+        theme.radius(ROUND / 2.0),
     ));
     let leave = iced::widget::tooltip(
         leave,

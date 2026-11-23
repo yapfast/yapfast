@@ -93,18 +93,25 @@ what costs is kept out of the view:
   code, and the display-name fonts on first use. DM Sans then Twemoji are
   the fallbacks every text tries. A script DM Sans lacks loads the system's
   font for its language (fontconfig's `:lang=`, on Windows a table of the
-  fonts it ships) the first time a script is shaped. A character none of
+  fonts it ships) the first time a script is shaped; Han goes by the
+  locale's language, from `LC_ALL`, `LC_CTYPE` or `LANG`, else the
+  system's. A character none of
   those has, whatever its script (𝔟, ⓒ, ⠃, ᐊ, z̷), is handed over by the
   shaper (`vendor/cosmic-text` patch 1); the system's font for that
   character (fontconfig's `:charset=`, on Windows the first of a list of
-  symbol and script fonts whose character map has it) is loaded once and
+  symbol and script fonts whose character map has it, led by the CJK fonts
+  for an ideograph, kana or hangul) is loaded once and
   named for that character from then on, and a face already chosen for a
   character in the same block of
   128 code points is used when it has it. Each character is looked up
-  once, found or not. The lookups and loads run on a blocking thread
-  (`wakes`), the font system's version moves so iced shapes text again,
-  and `Message::FontsLoaded` lays the window out again. Fallback faces are
-  mapped from their files and kept upright and italic at any weight: the
+  once, found or not. fontconfig is asked through `fc-match`, started
+  without `LD_LIBRARY_PATH`, whose libraries from the dev shell or the Nix
+  wrapper the system's `fc-match` can't link against; one that can't run
+  is reported once and not started again. The lookups and loads run on a
+  blocking thread (`wakes`), the font system's version moves so iced
+  shapes text again, and `Message::FontsLoaded` lays the window out
+  again. Fallback faces are mapped from their files and kept upright and
+  italic at any weight: the
   shaper takes a family's face at the weight nearest the text's (patch 2),
   so semibold names take DM Sans and Twemoji as regular text does.
   The person's own font files (`custom_font.rs`, `woff.rs`; Settings'

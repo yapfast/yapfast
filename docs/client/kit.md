@@ -86,7 +86,9 @@ and the app uses them with its one `Message`, so nothing is mapped:
   scrollable takes the wheel's events a `Claim` round what it holds
   marks as nobody's, and moves the scrollable on the window's frames
   through an operation (`scroll_by`), so the scrollable's own reports go
-  on as they did; `swipe` is a touchpad's move for tests.
+  on as they did; `swipe` is a touchpad's move for tests. On the CPU a
+  moving list asks for at most 60 frames a second (the display's own rate
+  on the GPU): each frame draws the whole list again.
 - `widgets::Autoscroll`: round the whole window, a middle click's
   autoscroll of the list under it (see Autoscroll in
   [the window](window.md#the-window-and-the-desktop)).

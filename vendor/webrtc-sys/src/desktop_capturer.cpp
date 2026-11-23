@@ -17,6 +17,9 @@
 #include "livekit/desktop_capturer.h"
 
 #include "modules/desktop_capture/desktop_capture_options.h"
+#ifdef _WIN64
+#include "modules/desktop_capture/desktop_and_cursor_composer.h"
+#endif
 
 using SourceList = webrtc::DesktopCapturer::SourceList;
 
@@ -26,6 +29,7 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
     DesktopCapturerOptions options) {
   webrtc::DesktopCaptureOptions webrtc_options =
       webrtc::DesktopCaptureOptions::CreateDefault();
+  bool embed_cursor = options.include_cursor;
 #if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
   webrtc_options.set_allow_sck_capturer(true);
   webrtc_options.set_allow_sck_system_picker(options.allow_sck_system_picker);
@@ -34,6 +38,8 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   switch (options.source_type) {
     case SourceType::Screen:
       webrtc_options.set_allow_wgc_screen_capturer(true);
+      // Monitor capture can omit the native cursor. Compose it explicitly.
+      embed_cursor = false;
       break;
     case SourceType::Window:
       webrtc_options.set_allow_wgc_window_capturer(true);
@@ -49,9 +55,7 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   webrtc_options.set_allow_pipewire(true);
 #endif /* WEBRTC_USE_PIPEWIRE */
 
-  // prefer_cursor_embedded indicate that the capturer should try to include the
-  // cursor in the frame
-  webrtc_options.set_prefer_cursor_embedded(options.include_cursor);
+  webrtc_options.set_prefer_cursor_embedded(embed_cursor);
 
   std::unique_ptr<webrtc::DesktopCapturer> capturer = nullptr;
   switch (options.source_type) {
@@ -71,6 +75,12 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   if (!capturer) {
     return nullptr;
   }
+#ifdef _WIN64
+  if (options.source_type == SourceType::Screen && options.include_cursor) {
+    capturer = std::make_unique<webrtc::DesktopAndCursorComposer>(
+        std::move(capturer), webrtc_options);
+  }
+#endif
   return std::make_unique<DesktopCapturer>(std::move(capturer));
 }
 

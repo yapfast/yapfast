@@ -23,6 +23,7 @@ use yapfast_core::{
     chat::Sticker,
     keybinds::{Binding, Shortcut},
     theme::Custom,
+    themes::Performance,
 };
 
 pub use yapfast_core::layout_file::LAYOUT;
@@ -36,12 +37,43 @@ pub struct Layout {
     pub first_version: Option<String>,
     pub seen_new: Vec<String>,
     pub theme: Option<String>,
+    /// The theme shown before [`theme`](Self::theme), for Settings →
+    /// Themes' Back action. Turning a theme off keeps the one it replaced
+    /// here too.
+    pub previous_theme: Option<String>,
     pub custom_themes: Vec<Custom>,
+    /// Each installed theme's option values, by its `installed:` id. An
+    /// absent option keeps the package's default.
+    pub theme_options: BTreeMap<String, yapfast_core::themes::options::Choices>,
+    /// Installed themes allowed to restyle people's profiles and media.
+    /// This is opt-in per package, matching the Slint build's theme behaviour.
+    pub theme_content: BTreeSet<String>,
+    /// Per-installed-theme sound permissions where they differ from the
+    /// Slint build's defaults: notification replacements on, interface cues off,
+    /// interface volume 50%.
+    pub theme_sounds: BTreeMap<String, crate::themes::SoundPrefs>,
+    /// How much of an installed theme runs, and whether its motion stays
+    /// still. Colours and fonts apply at every setting.
+    pub theme_performance: Performance,
+    pub reduce_motion: bool,
+    /// Whether an installed theme's channel transition is allowed. Off by
+    /// default, matching the Slint build.
+    pub theme_transitions: bool,
+    /// Settings → Appearance → Readable text: reading roles use Wired's
+    /// stock face and weight while the rest of an installed theme remains.
+    pub readable_text: bool,
     /// The rail's open folders, by folder id.
     pub open_folders: BTreeSet<String>,
+    /// The one folder open in a theme's server tree that opens one at a
+    /// time (`expand: "one"`), kept apart so the rail's stay as they were.
+    pub tree_folder: Option<String>,
     /// Each server's collapsed categories, by server id: a Discord category
     /// by its room id, any other by its heading.
     pub collapsed: HashMap<String, BTreeSet<String>>,
+    /// A server tree's open and closed places where they differ from its
+    /// default (the open place open, the rest closed), by server id, or
+    /// [`crate::sidebar::tree::DMS`] for the direct messages.
+    pub tree_open: BTreeMap<String, bool>,
     pub members_hidden: bool,
     /// Copy ID shows in menus, as Discord's Developer Mode.
     pub developer_mode: bool,

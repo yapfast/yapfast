@@ -1544,6 +1544,7 @@ impl OpenChannel {
             names: discord.names_version(),
             me: me.clone(),
             blocked: snapshot.blocked.clone(),
+            ignored: snapshot.ignored.clone(),
             server: server.clone(),
             may_pin,
             may_forward,
@@ -1839,6 +1840,7 @@ impl OpenChannel {
             edited: message.edited,
             deleted: false,
             blocked: snapshot.blocked.contains(&message.author_id),
+            ignored: snapshot.ignored.contains(&message.author_id),
             mentions_me: message.names_me(me, marks),
             replies_to_me: message.replies_to(me),
             delivery: Delivery::Sent,
@@ -1871,11 +1873,16 @@ impl OpenChannel {
         }
     }
 
-    /// The thread a message leads to, as Yapfast knows it now if it does: its
-    /// name and count change after the message.
-    /// Whether a thread a shown message leads to changed apart from it: its
-    /// name, its count or whether it's archived, which its link shows.
-    pub(super) fn links_changed(&self, snapshot: &yapfast_discord::service::Snapshot) -> bool {
+    /// Whether the list of accounts whose messages are collapsed changed.
+    pub(super) fn message_visibility_changed(&self, snapshot: &Snapshot) -> bool {
+        let previous = &self.rendered_with;
+        (!Arc::ptr_eq(&previous.ignored, &snapshot.ignored) && previous.ignored != snapshot.ignored)
+            || (!Arc::ptr_eq(&previous.blocked, &snapshot.blocked)
+                && previous.blocked != snapshot.blocked)
+    }
+
+    /// Whether a thread link's name, count, or archived state changed.
+    pub(super) fn links_changed(&self, snapshot: &Snapshot) -> bool {
         let server = snapshot
             .servers
             .iter()
@@ -1943,6 +1950,7 @@ pub(super) struct Rendering {
     pub(super) names: u64,
     pub(super) me: String,
     pub(super) blocked: Arc<[String]>,
+    pub(super) ignored: Arc<[String]>,
     pub(super) server: Option<MarkedServer>,
     /// This account may pin messages here: anyone may in a DM.
     pub(super) may_pin: bool,
@@ -1982,6 +1990,7 @@ impl Rendering {
         self.names == other.names
             && self.me == other.me
             && self.blocked == other.blocked
+            && self.ignored == other.ignored
             && self.may_pin == other.may_pin
             && self.may_forward == other.may_forward
             && self.deletes == other.deletes
