@@ -38,3 +38,9 @@ unicode-segmentation = "1.13"
 [dev-dependencies]
 # The headless simulator for the widgets' tests.
 iced_test = "=0.14.0"
+
+# macOS has no fontconfig: Core Text names the system's font for a character
+# (`fonts/macos.rs`). The versions the lock file already holds.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFString", "CFURL"] }
+objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont", "CTFontDescriptor"] }

@@ -11005,6 +11005,8 @@ dependencies = [
  "iced_test",
  "iced_tiny_skia",
  "iced_wgpu",
+ "objc2-core-foundation",
+ "objc2-core-text",
  "resvg",
  "tokio",
  "tracing",
