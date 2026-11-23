@@ -44,7 +44,11 @@ the voice server didn't answer address discovery, asked 5 times over 5 s.",
 where address discovery is the UDP exchange a firewall or VPN may block. The log has a warning at the
 default level with the whole chain of causes, whether it was a server's
 channel or a DM, and the step: asking Discord, or connecting to its voice
-server. A stream that can't start or be watched logs its chain the same way.
+server. A join that times out (Discord sent no complete answer in 15 s) also
+logs, without ids, which half of the answer came (this session's voice state in
+the channel, the voice server), this session's voice states for no channel or
+another, other sessions' voice states, and voice servers still being allocated.
+A stream that can't start or be watched logs its chain the same way.
 `a_call_that_cant_connect_says_why` checks it, with the fake's voice server
 ignoring address discovery (`POST /_control/voice-discovery?off`).
 
