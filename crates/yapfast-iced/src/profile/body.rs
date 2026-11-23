@@ -233,15 +233,16 @@ pub(super) fn profile_body<'a>(
     if !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
-    if !mode.large() && !look.activities.is_empty() {
-        let mut activities = column![].spacing(12);
-        for activity in &look.activities {
-            let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
-            activities = activities.push(crate::profile::activity::activity_card_view(
-                ctx, activity, &inks, menu,
-            ));
-        }
-        body = body.push(activities);
+    // Discord's card shows the first activity on its own tile, with the
+    // edge of the next behind it when there are more; that edge opens the
+    // full profile's Activity tab.
+    if !mode.large()
+        && let Some(first) = look.activities.first()
+    {
+        let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
+        let card =
+            crate::profile::activity::activity_card_view(ctx, first, &inks, menu, false, look.bot);
+        body = body.push(activity_tiles(card, look.activities.len() > 1, &inks, mode));
     }
     if !mode.large() && !look.own && (!profile.friends.is_empty() || !profile.servers.is_empty()) {
         body = body.push(mutual_line(ctx, shown, &inks, mode));
@@ -1387,4 +1388,60 @@ fn message_box<'a>(
             .padding([0, 10]),
     ]
     .into()
+}
+
+/// The first activity's card on its tile, as Discord's popout stacks it:
+/// with more, a sliver of the next tile shows under it, which opens the
+/// full profile's Activity tab.
+fn activity_tiles<'a>(
+    card: Element<'a, Message>,
+    more: bool,
+    inks: &Inks,
+    mode: Mode,
+) -> Element<'a, Message> {
+    let (tile, hover) = (inks.tile, inks.hover);
+    let tile_style = move |_: &iced::Theme| container::Style {
+        background: Some(tile.into()),
+        border: Border {
+            radius: 8.0.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    };
+    let front = container(card)
+        .padding(8)
+        .width(Length::Fill)
+        .style(tile_style);
+    if !more {
+        return front.into();
+    }
+    let behind = button(Space::new().width(Length::Fill).height(6))
+        .padding(0)
+        .on_press(Message::Profile(Event::Enlarge(
+            Some(Tab::Activity),
+            mode == Mode::Docked,
+        )))
+        .style(move |_, status| button::Style {
+            background: Some(
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => mix_tile(tile, hover),
+                    _ => Color {
+                        a: tile.a * 0.6,
+                        ..tile
+                    },
+                }
+                .into(),
+            ),
+            border: Border {
+                radius: corners([0.0, 0.0, 8.0, 8.0]),
+                ..Border::default()
+            },
+            ..Default::default()
+        });
+    column![front, container(behind).padding([0.0, 8.0])].into()
+}
+
+/// A tile's colour with the pointer's wash over it.
+fn mix_tile(tile: Color, hover: Color) -> Color {
+    crate::theme::mix(tile, Color { a: 1.0, ..hover }, hover.a)
 }

@@ -112,8 +112,19 @@ pub fn account(state: &AppState) -> Account {
         .discord_playing
         .as_ref()
         .filter(|_| live && state.discord_show_game);
+    // What this account shares, as Discord's panel writes it: the first
+    // activity's icon and words, or its icon, a bullet and the custom
+    // status.
+    let shared = (live && !state.discord_activities.is_empty()).then(|| {
+        crate::looks::Status::activity(
+            &state.discord_activities,
+            custom.as_ref().map(|(words, _)| words.as_str()),
+        )
+    });
     let words = if state.preview {
         "Local only".to_owned()
+    } else if let Some(shared) = shared.as_ref().filter(|shared| !shared.bullet) {
+        shared.words.clone()
     } else if let Some((words, _)) = &custom {
         words.clone()
     } else if let Some(playing) = playing {
@@ -142,11 +153,25 @@ pub fn account(state: &AppState) -> Account {
         username: state.account_username.clone().unwrap_or_default(),
         avatar: state.account_avatar.clone(),
         presence,
-        status: Status {
-            words,
-            emoji: custom.and_then(|(_, emoji)| emoji),
-            icon: u8::from(playing.is_some()),
-            bullet: playing.is_some() && state.custom_status.is_some(),
+        status: match &shared {
+            Some(shared) => Status {
+                words,
+                emoji: if shared.bullet {
+                    custom.and_then(|(_, emoji)| emoji)
+                } else {
+                    None
+                },
+                icon: shared.icon,
+                bullet: shared.bullet,
+                more: shared.more,
+            },
+            None => Status {
+                words,
+                emoji: custom.and_then(|(_, emoji)| emoji),
+                icon: u8::from(playing.is_some()),
+                bullet: playing.is_some() && state.custom_status.is_some(),
+                more: 0,
+            },
         },
         in_call: state.voice.active(),
         muted: state.voice.muted,
