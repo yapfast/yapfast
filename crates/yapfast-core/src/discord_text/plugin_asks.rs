@@ -698,6 +698,7 @@ fn profile_view(
                 start_ms: activity.start,
                 end_ms: activity.end,
                 url: text(&activity.url),
+                link: text(&activity.link),
                 large_image: text(&activity.large_image),
                 application_id: text(&activity.application_id),
             })

@@ -264,6 +264,16 @@ pub enum AppCall {
     OpenRoom {
         room: String,
     },
+    /// `ui.open_profile`.
+    OpenProfile {
+        person: String,
+        server: Option<String>,
+    },
+    /// `ui.open_role_settings`.
+    OpenRoleSettings {
+        server: String,
+        role: String,
+    },
     StartReply {
         room: String,
         message: String,

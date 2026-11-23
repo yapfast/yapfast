@@ -292,6 +292,22 @@ impl Session {
             call::method::DISCORD_OPEN_ROOM => request
                 .parse::<RoomGet>()
                 .map(|room| AppCall::OpenRoom { room: room.room }),
+            call::method::UI_OPEN_PROFILE => {
+                request
+                    .parse::<call::OpenProfile>()
+                    .map(|asked| AppCall::OpenProfile {
+                        person: asked.person,
+                        server: asked.server,
+                    })
+            }
+            call::method::UI_OPEN_ROLE_SETTINGS => {
+                request
+                    .parse::<call::OpenRoleSettings>()
+                    .map(|asked| AppCall::OpenRoleSettings {
+                        server: asked.server,
+                        role: asked.role,
+                    })
+            }
             call::method::DISCORD_START_REPLY => {
                 request
                     .parse::<MessageRef>()

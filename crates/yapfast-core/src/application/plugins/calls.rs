@@ -272,6 +272,49 @@ impl Application {
                 true => (self.dispatch(AppAction::Open(room)), done),
                 false => (Vec::new(), not_listed(&room)),
             },
+            AppCall::OpenProfile { person, server } => {
+                if let Some(server) = server.as_deref()
+                    && self.plugin_server(server).is_none()
+                {
+                    return (Vec::new(), not_listed(server));
+                }
+                let person = person
+                    .strip_prefix("discord:")
+                    .unwrap_or(&person)
+                    .to_owned();
+                (
+                    self.dispatch(AppAction::ShowProfile {
+                        user: person,
+                        large: true,
+                    }),
+                    done,
+                )
+            }
+            AppCall::OpenRoleSettings { server, role } => {
+                let Some(guild) = self.plugin_server(&server) else {
+                    return (Vec::new(), not_listed(&server));
+                };
+                let mut effects = self.dispatch(AppAction::OpenServerSettings(
+                    crate::discord::server_id(&guild),
+                ));
+                if self.state.server_settings.is_none() {
+                    return (
+                        effects,
+                        HostReturn::Error {
+                            message: format!(
+                                "this account can't open the settings of server {guild}"
+                            ),
+                        },
+                    );
+                }
+                effects.extend(self.dispatch(AppAction::ServerSettingsSection(
+                    crate::chat::SettingsSection::Roles,
+                )));
+                effects.extend(self.dispatch(AppAction::Roles(
+                    crate::application::RoleInput::Open(Some(role)),
+                )));
+                (effects, done)
+            }
             AppCall::StartReply { room, message } => {
                 answered(self.plugin_compose(&room, &message, false))
             }
@@ -534,6 +577,18 @@ impl Application {
     /// Whether an id names something the sidebar lists: a conversation, a
     /// server, a folder or a category. A plugin can only act on a place the
     /// person can see.
+    /// A Discord server the account is in, by its id or its place
+    /// (`discord:<id>`), as its raw id; none for one it isn't in.
+    pub(super) fn plugin_server(&self, server: &str) -> Option<String> {
+        let guild = crate::discord::parse_server(server).unwrap_or(server);
+        let place = crate::discord::server_id(guild);
+        self.state
+            .servers
+            .iter()
+            .any(|known| known.id == place)
+            .then(|| guild.to_owned())
+    }
+
     pub(crate) fn listed_place(&self, place: &str) -> bool {
         self.state.rooms.iter().any(|room| room.id == place)
             || self.state.servers.iter().any(|server| server.id == place)

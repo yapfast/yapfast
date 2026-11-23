@@ -22,6 +22,8 @@ pub(super) fn is_app_call(method: &str) -> bool {
             | call::method::DISCORD_MARK_READ
             | call::method::DISCORD_SET_MUTE
             | call::method::DISCORD_OPEN_ROOM
+            | call::method::UI_OPEN_PROFILE
+            | call::method::UI_OPEN_ROLE_SETTINGS
             | call::method::DISCORD_START_REPLY
             | call::method::DISCORD_START_EDIT
             | call::method::DISCORD_REACTORS
@@ -112,6 +114,8 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         | AppCall::SetDraft { .. }
         | AppCall::Insert { .. }
         | AppCall::OpenRoom { .. }
+        | AppCall::OpenProfile { .. }
+        | AppCall::OpenRoleSettings { .. }
         | AppCall::StartReply { .. }
         | AppCall::StartEdit { .. } => None,
     }
@@ -130,6 +134,8 @@ pub(super) fn needs_gesture(call: &AppCall) -> bool {
     matches!(
         call,
         AppCall::OpenRoom { .. }
+            | AppCall::OpenProfile { .. }
+            | AppCall::OpenRoleSettings { .. }
             | AppCall::JumpTo { .. }
             | AppCall::StartReply { .. }
             | AppCall::StartEdit { .. }

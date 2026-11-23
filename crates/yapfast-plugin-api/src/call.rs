@@ -110,6 +110,10 @@ pub mod method {
     pub const DISCORD_MARK_READ: &str = "discord.mark_read";
     pub const DISCORD_SET_MUTE: &str = "discord.set_mute";
     pub const DISCORD_OPEN_ROOM: &str = "discord.open_room";
+    /// Open a person's full profile, behind a click.
+    pub const UI_OPEN_PROFILE: &str = "ui.open_profile";
+    /// Open a role in its server's settings, behind a click.
+    pub const UI_OPEN_ROLE_SETTINGS: &str = "ui.open_role_settings";
     pub const DISCORD_START_REPLY: &str = "discord.start_reply";
     pub const DISCORD_START_EDIT: &str = "discord.start_edit";
     pub const DISCORD_REACTORS: &str = "discord.reactors";
@@ -205,7 +209,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 122] = [
+    pub const ALL: [&str; 124] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -272,6 +276,8 @@ pub mod method {
         DISCORD_MARK_READ,
         DISCORD_SET_MUTE,
         DISCORD_OPEN_ROOM,
+        UI_OPEN_PROFILE,
+        UI_OPEN_ROLE_SETTINGS,
         DISCORD_START_REPLY,
         DISCORD_START_EDIT,
         DISCORD_REACTORS,
@@ -1842,6 +1848,11 @@ pub struct ActivityView {
     /// A stream's address.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// What its title opens, where Discord's client has one: a Spotify
+    /// song's page (`https://open.spotify.com/track/<id>`). Discord never
+    /// sends other people's activity buttons' addresses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub large_image: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1978,6 +1989,24 @@ pub struct BadgeView {
     pub icon: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+}
+
+/// `ui.open_profile`: a person's full profile, as a click on their name opens
+/// it, optionally in a server the account is in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenProfile {
+    pub person: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+}
+
+/// `ui.open_role_settings`: one role in its server's settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenRoleSettings {
+    pub server: String,
+    pub role: String,
 }
 
 /// `people.get`: one person the application knows of.

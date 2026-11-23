@@ -416,6 +416,8 @@ pub mod method {
     pub const DISCORD_MARK_READ: &str = "discord.mark_read";
     pub const DISCORD_SET_MUTE: &str = "discord.set_mute";
     pub const DISCORD_OPEN_ROOM: &str = "discord.open_room";
+    pub const UI_OPEN_PROFILE: &str = "ui.open_profile";
+    pub const UI_OPEN_ROLE_SETTINGS: &str = "ui.open_role_settings";
     pub const DISCORD_START_REPLY: &str = "discord.start_reply";
     pub const DISCORD_START_EDIT: &str = "discord.start_edit";
     pub const DISCORD_REACTORS: &str = "discord.reactors";

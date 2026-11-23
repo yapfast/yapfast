@@ -2337,6 +2337,40 @@ mod tests {
         assert!(matches!(answer, HostReturn::Error { .. }));
     }
 
+    /// `ui.open_profile` and `ui.open_role_settings` refuse a server the
+    /// account isn't in, and the profile opens for a person it can see.
+    #[test]
+    fn a_plugin_opens_a_profile_or_a_roles_settings_only_where_the_account_is() {
+        use crate::plugins::state::AppCall;
+        let mut app = unread_and_a_discord_dm();
+        for call in [
+            AppCall::OpenProfile {
+                person: "7".into(),
+                server: Some("404".into()),
+            },
+            AppCall::OpenRoleSettings {
+                server: "404".into(),
+                role: "1".into(),
+            },
+        ] {
+            let (effects, answer) = app.plugins_call(&plugin(), call);
+            assert!(effects.is_empty());
+            assert!(
+                matches!(answer, HostReturn::Error { .. }),
+                "a server this account isn't in is refused"
+            );
+        }
+        assert!(app.state.profile.is_none() && app.state.server_settings.is_none());
+        let (_, answer) = app.plugins_call(
+            &plugin(),
+            AppCall::OpenProfile {
+                person: "discord:7".into(),
+                server: None,
+            },
+        );
+        assert!(matches!(answer, HostReturn::Ok(_)));
+    }
+
     /// A plugin's notification names its plugin and the room a click opens,
     /// refuses a room nobody can see, and the click opens that room.
     #[test]

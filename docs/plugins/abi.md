@@ -531,6 +531,8 @@ reaches REST.
 | `discord.mark_read` | `{ room }` | `true` | Marks a conversation, server, category or folder read, as its menu does |
 | `discord.set_mute` | `{ room, muting }` | `true` | Mutes a conversation, channel or server; `muting` is `"off"`, `"always"` or `{ "minutes": n }` |
 | `discord.open_room` | `{ room }` | `true` | Opens it where a click in the sidebar does |
+| `ui.open_profile` | `{ person, server? }` | `true` | Opens the person's full profile as a click on their name does, as the open conversation shows them; `server`, when given, must be one the account is in |
+| `ui.open_role_settings` | `{ server, role }` | `true` | Opens the server's settings on Roles with that role in the editor, as Server Settings → Roles does; an error when the account can't open that server's settings |
 | `discord.start_reply` | `{ room, message }` | `true` | Puts the composer in reply to a message of the room on screen |
 | `discord.start_edit` | `{ room, message }` | `true` | The same for an edit, when it's this account's to edit |
 | `discord.reactors` | `{ room, message }` | `[{ emoji, count, me }]` | The reactions the open timeline holds for a message, and how many gave each |
@@ -543,7 +545,7 @@ nothing: Yapfast answers about what it holds. A server action the person has no
 permission for is an `error` too — `servers.manage` is what lets a plugin ask,
 and the person's own roles are what lets it happen.
 
-`discord.open_room`, `start_reply` and `start_edit` need no capability and do
+`discord.open_room`, `ui.open_profile`, `ui.open_role_settings`, `start_reply` and `start_edit` need no capability and do
 need a recent user gesture: a plugin can't move the window or write the composer
 while nobody is there. Without one they answer `denied`.
 
