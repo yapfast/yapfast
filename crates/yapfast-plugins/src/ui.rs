@@ -1123,6 +1123,9 @@ pub enum Kind {
     Link,
     Toggle,
     Select,
+    /// A few choices side by side on a sunken track, the chosen one raised:
+    /// Settings' own row of choices.
+    Segmented,
     Input,
     Slider,
     Progress,
@@ -1168,6 +1171,7 @@ impl Kind {
                 | Self::Link
                 | Self::Toggle
                 | Self::Select
+                | Self::Segmented
                 | Self::Input
                 | Self::Slider
                 | Self::Dropdown
@@ -2312,6 +2316,24 @@ mod tests {
             )
             .is_err(),
             "its controls need ids"
+        );
+    }
+
+    #[test]
+    fn a_segmented_cell_is_a_control() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "segmented", "id": "size", "options": ["Small", "Large"], "value": "Large" }
+            ] }] }"#,
+        )
+        .unwrap();
+        assert_eq!(tree.rows[0].cells[0].options, ["Small", "Large"]);
+        assert!(
+            Tree::parse(
+                r#"{ "rows": [{ "cells": [{ "kind": "segmented", "options": ["A"] }] }] }"#
+            )
+            .is_err(),
+            "it needs an id"
         );
     }
 

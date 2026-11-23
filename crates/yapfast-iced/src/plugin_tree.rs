@@ -429,6 +429,37 @@ fn cell_body<'a, M: Clone + 'a>(
             }
             choices.into()
         }
+        Kind::Segmented => {
+            // Settings' row of choices: as wide as its options' words need,
+            // never more than the kit's widest.
+            let value = paint.local.value(cell);
+            let current = cell
+                .options
+                .iter()
+                .position(|option| option == value)
+                .unwrap_or(usize::MAX);
+            let options: Vec<&str> = cell.options.iter().map(String::as_str).collect();
+            let width = cell
+                .options
+                .iter()
+                .map(|option| option.chars().count() as f32 * 8.0 + 32.0)
+                .sum::<f32>()
+                .clamp(120.0, SEGMENTED_WIDTH);
+            let names = cell.options.clone();
+            let enabled = cell.enabled;
+            let choices = controls::choices_within(theme, &options, current, width, move |index| {
+                set(if enabled {
+                    names.get(index).cloned().unwrap_or_default()
+                } else {
+                    value_of(&names, current)
+                })
+            });
+            labelled_above(
+                theme,
+                &cell.text,
+                container(choices).width(Length::Fixed(width)).into(),
+            )
+        }
         Kind::Dropdown => {
             let key = format!("open:{}", cell.id);
             let open = paint.local.shown(&key) == Some(1);
@@ -749,6 +780,14 @@ fn link_words<'a, M: Clone + 'a>(
 /// How wide a field, a drop-down or a slider is drawn: wide enough to use,
 /// narrow enough to sit beside another cell.
 const SLIDER_WIDTH: f32 = 200.0;
+/// The widest a row of choices draws.
+const SEGMENTED_WIDTH: f32 = 420.0;
+
+/// The option at `index`, or nothing: what a disabled row of choices sends
+/// when pressed, which changes nothing.
+fn value_of(options: &[String], index: usize) -> String {
+    options.get(index).cloned().unwrap_or_default()
+}
 const FIELD_WIDTH: f32 = 200.0;
 
 /// A small mark in its tone on the raised ground.
