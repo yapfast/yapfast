@@ -771,6 +771,10 @@ pub struct PersonView {
     pub own: bool,
     #[serde(default)]
     pub bot: bool,
+    /// The address of their avatar, a Discord CDN `https` address an image
+    /// cell can show as it is, when Yapfast has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
 }
 
 /// A file attached to a message.

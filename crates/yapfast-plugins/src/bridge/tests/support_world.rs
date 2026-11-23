@@ -145,6 +145,7 @@ impl super::World for StubWorld {
             display_name: None,
             own: true,
             bot: false,
+            avatar: None,
         })
     }
 

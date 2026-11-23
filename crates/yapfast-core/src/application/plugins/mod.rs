@@ -1168,6 +1168,7 @@ pub(crate) fn message_view(
         display_name: None,
         own,
         bot: message.bot,
+        avatar: None,
     };
     // The message as the timeline names it, `d:<id>`, which is what
     // `messages.get`, a decoration, a menu row and every call about a message

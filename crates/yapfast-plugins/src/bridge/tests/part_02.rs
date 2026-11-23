@@ -169,6 +169,7 @@ fn a_read_is_answered_from_what_the_application_published() {
                 display_name: None,
                 own: false,
                 bot: false,
+                avatar: None,
             },
             body: "hello".to_owned(),
             at: 1_700_000_000_000,

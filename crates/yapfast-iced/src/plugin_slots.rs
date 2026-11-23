@@ -80,53 +80,56 @@ impl Kept {
         &mut self,
         slots: &Slots,
         plugins: Option<&yapfast_core::plugins::PluginState>,
+        store: &std::collections::HashMap<String, Arc<yapfast_core::chat::Picture>>,
     ) -> Vec<(String, String)> {
         use yapfast_core::plugins::state::WebPictureState;
         let Some(plugins) = plugins else {
             return Vec::new();
         };
-        let names = slots.names();
-        let trees = slots
-            .all_drawn()
-            .iter()
-            .filter_map(|drawn| Some((names.get(drawn.plugin)?, drawn.tree.as_ref())))
-            .chain(slots.all_decorations().filter_map(|decoration| {
-                Some((names.get(decoration.plugin)?, decoration.tree.as_deref()?))
-            }));
         let mut wanted = Vec::new();
-        for (plugin, tree) in trees {
-            for src in tree
-                .cells()
-                .into_iter()
-                .filter(|cell| matches!(cell.kind, Kind::Image | Kind::Icon | Kind::Tile))
-                .flat_map(|cell| [&cell.src, &cell.hover_src])
-            {
-                let Some(Source::Web { url, .. }) = ui::source(src) else {
-                    continue;
-                };
-                let at = plugin_tree::image_key(&plugin.id, src);
-                match plugins.web_pictures.get(&plugin.id, url) {
-                    None => wanted.push((plugin.id.clone(), url.to_owned())),
-                    Some(WebPictureState::Loading) => {}
-                    Some(WebPictureState::Failed) => {
-                        self.images.entry(at).or_insert(None);
-                    }
-                    Some(WebPictureState::Ready(picture)) => {
+        for (plugin, src) in web_sources(slots) {
+            let Some(source @ Source::Web { url, .. }) = ui::source(src) else {
+                continue;
+            };
+            let at = plugin_tree::image_key(&plugin.id, src);
+            // A Discord CDN picture is Yapfast's own: the window asks the
+            // core's picture store for it, as it does avatars
+            // ([`cdn_pictures`]), and shows it while the store holds it.
+            if source.discord_cdn() {
+                match store.get(url) {
+                    Some(picture) => {
                         if !matches!(self.images.get(&at), Some(Some(_))) {
-                            // The decode is straight RGBA; an `Rgba` handle
-                            // is the renderer's format, as every other
-                            // picture's is: on the CPU premultiplied BGRA.
-                            let mut pixels = picture.rgba.clone();
-                            crate::paint::to_native(&mut pixels);
-                            self.images.insert(
-                                at,
-                                Some(iced::widget::image::Handle::from_rgba(
-                                    picture.width,
-                                    picture.height,
-                                    pixels,
-                                )),
-                            );
+                            self.images
+                                .insert(at, Some(crate::pictures::shared(picture)));
                         }
+                    }
+                    None => {
+                        self.images.remove(&at);
+                    }
+                }
+                continue;
+            }
+            match plugins.web_pictures.get(&plugin.id, url) {
+                None => wanted.push((plugin.id.clone(), url.to_owned())),
+                Some(WebPictureState::Loading) => {}
+                Some(WebPictureState::Failed) => {
+                    self.images.entry(at).or_insert(None);
+                }
+                Some(WebPictureState::Ready(picture)) => {
+                    if !matches!(self.images.get(&at), Some(Some(_))) {
+                        // The decode is straight RGBA; an `Rgba` handle
+                        // is the renderer's format, as every other
+                        // picture's is: on the CPU premultiplied BGRA.
+                        let mut pixels = picture.rgba.clone();
+                        crate::paint::to_native(&mut pixels);
+                        self.images.insert(
+                            at,
+                            Some(iced::widget::image::Handle::from_rgba(
+                                picture.width,
+                                picture.height,
+                                pixels,
+                            )),
+                        );
                     }
                 }
             }
@@ -270,6 +273,39 @@ fn read_picture(root: &Path, path: &str) -> Option<iced::widget::image::Handle> 
     ))
 }
 
+/// Every picture source plugins' image, icon and tile cells name, in slots and
+/// under messages, with the plugin that drew it.
+fn web_sources(slots: &Slots) -> impl Iterator<Item = (&PluginName, &str)> {
+    let names = slots.names();
+    slots
+        .all_drawn()
+        .iter()
+        .filter_map(|drawn| Some((names.get(drawn.plugin)?, drawn.tree.as_ref())))
+        .chain(slots.all_decorations().filter_map(|decoration| {
+            Some((names.get(decoration.plugin)?, decoration.tree.as_deref()?))
+        }))
+        .flat_map(|(plugin, tree)| {
+            tree.cells()
+                .into_iter()
+                .filter(|cell| matches!(cell.kind, Kind::Image | Kind::Icon | Kind::Tile))
+                .flat_map(|cell| [cell.src.as_str(), cell.hover_src.as_str()])
+                .filter(|src| !src.is_empty())
+                .map(move |src| (plugin, src))
+        })
+}
+
+/// The Discord CDN pictures plugins' cells show (an avatar `people.get`
+/// gave, a server's icon), which the window asks the core's picture store
+/// for with the avatars on screen, through Yapfast's own session.
+pub fn cdn_pictures(slots: &Slots) -> Vec<String> {
+    web_sources(slots)
+        .filter_map(|(_, src)| match ui::source(src) {
+            Some(source @ Source::Web { url, .. }) if source.discord_cdn() => Some(url.to_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Brings what the window keeps up to what the plugins drew; called as the
 /// window syncs, and nothing while no plugin draws.
 pub fn follow(app: &mut App) {
@@ -300,9 +336,11 @@ pub fn follow(app: &mut App) {
     app.plugin_kept.follow(slots, picture);
     // Pictures from the web: asked for once each, through the plugin's gate,
     // and shown as they arrive; a cell shows its placeholder meanwhile.
-    let wanted = app
-        .plugin_kept
-        .web_pictures(slots, plugins.map(|plugins| &**plugins));
+    let wanted = app.plugin_kept.web_pictures(
+        slots,
+        plugins.map(|plugins| &**plugins),
+        &app.client.app.state.pictures,
+    );
     if !wanted.is_empty() {
         app.client
             .dispatch(yapfast_core::application::Action::Plugin(

@@ -533,6 +533,7 @@ impl World {
                 display_name: me.username.clone(),
                 own: true,
                 bot: false,
+                avatar: web_avatar(me.avatar.as_deref()),
             });
         }
         let member = held.members.as_ref().and_then(|members| {
@@ -635,7 +636,17 @@ fn person(member: &ChatMember) -> PersonView {
         display_name: member.username.clone(),
         own: false,
         bot: member.bot,
+        avatar: web_avatar(member.avatar.as_deref()),
     }
+}
+
+/// An avatar's address as a plugin is given it: an `https` one only (a
+/// Discord CDN address, which an image cell shows through Yapfast's own
+/// session), never a Matrix `mxc://` or a local path.
+pub fn web_avatar(avatar: Option<&str>) -> Option<String> {
+    avatar
+        .filter(|url| url.starts_with("https://"))
+        .map(str::to_owned)
 }
 
 /// A message of the open room as a plugin sees it.
@@ -653,6 +664,7 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
             display_name: None,
             own: message.own,
             bot: message.bot,
+            avatar: web_avatar(message.avatar.as_deref()),
         },
         body: message.body.clone(),
         at: message.timestamp * 1000,
@@ -952,7 +964,7 @@ mod tests {
             name: "Bo".to_owned(),
             username: Some("bo".to_owned()),
             role: crate::chat::Role::Member,
-            avatar: None,
+            avatar: Some("https://cdn.discordapp.com/avatars/2/a.png".to_owned()),
             decoration: None,
             nameplate: None,
             style: None,
@@ -975,6 +987,11 @@ mod tests {
             .expect("the server is open")
             .expect("the member");
         assert_eq!(found.person.name, "Bo");
+        assert_eq!(
+            found.person.avatar.as_deref(),
+            Some("https://cdn.discordapp.com/avatars/2/a.png"),
+            "with the avatar an image cell can show"
+        );
         assert_eq!(found.roles, ["7"]);
         assert_eq!(found.presence.as_deref(), Some("dnd"));
         assert_eq!(found.colour, Some(0x00ff00));

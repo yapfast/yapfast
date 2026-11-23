@@ -738,6 +738,12 @@ blocking thread to at most 512 px a side. The core keeps the last 48 pictures
 cell shows *Loading picture…*, or its own words, until it arrives, and its
 words if it never does.
 
+A `src` on Discord's own CDN (`cdn.discordapp.com`, `media.discordapp.net`: an
+avatar `people.get` gave, a server's icon) needs neither: the window asks the
+core's picture store for it with the avatars on screen (`plugin_slots::cdn_pictures`),
+through Yapfast's own session, and shows it while the store holds it
+(`Source::discord_cdn`).
+
 What the person does goes back as `Message::PluginAct`, which keeps what only
 the window keeps ([What the window keeps](#widget-trees)) and hands the rest to
 the runtime as `Input::Widget`: the plugin, the slot, the cell's id, its value

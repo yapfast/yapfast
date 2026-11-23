@@ -531,6 +531,7 @@ impl Application {
                         display_name: friend.nickname.clone(),
                         own: false,
                         bot: false,
+                        avatar: crate::plugins::world::web_avatar(friend.avatar.as_deref()),
                     })
                     .collect(),
             );

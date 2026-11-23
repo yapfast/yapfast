@@ -808,6 +808,50 @@ fn message_actions_and_menu_rows_name_the_message_by_its_timeline_id() {
     assert_eq!(subjects, vec![ITEM], "the menu's row names it by d:<id>");
 }
 
+/// An image cell on Discord's CDN (an avatar `people.get` gave) is asked of
+/// the core's picture store with the avatars on screen, needing no
+/// `images.web`, and shows once the store holds it.
+#[test]
+fn a_discord_cdn_picture_in_a_cell_comes_through_the_picture_store() {
+    const AVATAR: &str = "https://cdn.discordapp.com/avatars/2/a.png";
+    let (mut app, _data) = super::preview();
+    let source = folder_plugin();
+    load(&mut app, source.path());
+    draw(
+        &mut app,
+        Slot::Banner,
+        &format!(r#"{{ "rows": [{{ "cells": [{{ "kind": "image", "src": "{AVATAR}" }}] }}] }}"#),
+    );
+    assert!(
+        app.pictures_shown(false).iter().any(|url| url == AVATAR),
+        "the window wants it as it wants an avatar"
+    );
+    let key = crate::plugin_tree::image_key(PLUGIN, AVATAR);
+    assert!(!matches!(app.plugin_kept.images.get(&key), Some(Some(_))));
+    super::change(&mut app, |state| {
+        state.pictures.insert(
+            AVATAR.to_owned(),
+            std::sync::Arc::new(yapfast_core::chat::Picture {
+                width: 4,
+                height: 4,
+                rgba: yapfast_core::chat::Pixels::new(4, 4, vec![200; 64]),
+                ..Default::default()
+            }),
+        );
+    });
+    assert!(
+        matches!(app.plugin_kept.images.get(&key), Some(Some(_))),
+        "the cell shows the store's picture"
+    );
+    super::change(&mut app, |state| {
+        state.pictures.remove(AVATAR);
+    });
+    assert!(
+        !app.plugin_kept.images.contains_key(&key),
+        "and lets go of it with the store"
+    );
+}
+
 /// A decoration's `hide` takes its row out of the timeline, and `hide_media`
 /// takes a row's pictures and files out of it, the text staying; turning the
 /// plugin off brings both back.

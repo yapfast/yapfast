@@ -864,7 +864,7 @@ call this account is in says who talks); `messages.get` and `messages.history` t
 conversation on screen from the timeline Yapfast keeps, and any other Discord
 conversation the account can read by asking Discord as its client asks (a page
 of at most 100, `before` a message's id), answered later; and
-`people.get` and `people.member` the account, the open room's members and, for `people.get`, the friends. `rooms.selected` names the conversation that is open. Each read needs the capability
+`people.get` and `people.member` the account, the open room's members and, for `people.get`, the friends. A person (`PersonView`, in these answers, `people.members` and a message's `author`) carries `avatar`, their avatar's Discord CDN `https` address when Yapfast has one, which an image cell shows as it is. `rooms.selected` names the conversation that is open. Each read needs the capability
 [`permissions.md`](permissions.md) gives it, and one answer is one frame: a page
 stops at 1 MiB rather than being cut.
 

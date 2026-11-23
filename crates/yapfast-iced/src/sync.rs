@@ -1062,6 +1062,12 @@ impl App {
         for url in crate::reactions::pictures(self.client.state()) {
             want(Some(&url));
         }
+        #[cfg(feature = "plugins")]
+        if let Some(slots) = self.client.state().plugin_slots.as_deref() {
+            for url in crate::plugin_slots::cdn_pictures(slots) {
+                want(Some(&url));
+            }
+        }
         let server_settings = self
             .server_screen
             .get()

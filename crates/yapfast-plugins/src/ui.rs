@@ -1424,6 +1424,20 @@ pub enum Source<'a> {
 /// The picture kinds a plugin's image may be.
 const PICTURES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 
+impl Source<'_> {
+    /// A picture on Discord's own CDN (`cdn.discordapp.com`,
+    /// `media.discordapp.net`): an avatar, an icon, an emoji. The window shows
+    /// it through Yapfast's own picture store, as it shows avatars, so it
+    /// needs no `images.web` and no host in the manifest.
+    pub fn discord_cdn(&self) -> bool {
+        matches!(self, Source::Web { host, .. }
+            if DISCORD_CDN.iter().any(|cdn| host.eq_ignore_ascii_case(cdn)))
+    }
+}
+
+/// The hosts [`Source::discord_cdn`] names.
+pub const DISCORD_CDN: [&str; 2] = ["cdn.discordapp.com", "media.discordapp.net"];
+
 /// What an image's `src` names, or `None` for anything else: a path that
 /// climbs out of the package, an absolute one, another scheme, another kind
 /// of file.
