@@ -134,14 +134,14 @@ pub fn message_content<'a>(
     let Some(message) = ctx.row_message(index) else {
         return Space::new().into();
     };
-    if message.blocked
+    if (message.blocked || message.ignored)
         && !ctx
             .lanes
             .timeline
             .revealed
             .contains(&blocked_key(&message.item))
     {
-        return blocked_row(ctx, look);
+        return hidden_row(ctx, look, message.blocked);
     }
     let theme = ctx.look.theme;
     let package_layout = ctx.themes.package_layout(&theme.id);
@@ -839,10 +839,13 @@ pub fn message_content<'a>(
     .into()
 }
 
-/// A message from someone this account blocked, as Discord shows it
-/// until asked: "Blocked user" by a blank face, and "Blocked message."
-/// with Show it.
-fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Message> {
+/// A collapsed message from a blocked or ignored account.
+fn hidden_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook, blocked: bool) -> Element<'a, Message> {
+    let (author, message, show) = if blocked {
+        ("Blocked user", "Blocked message.", "Show it")
+    } else {
+        ("Ignored user", "Ignored message.", "Show")
+    };
     let theme = ctx.look.theme;
     let avatar = crate::timeline::avatar(theme);
     let gutter_width = crate::timeline::gutter(theme);
@@ -856,7 +859,7 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
     if look.first {
         content = content.push(
             container(
-                text("Blocked user")
+                text(author)
                     .size(text_size(ctx))
                     .font(MEDIUM)
                     .color(theme.text)
@@ -872,11 +875,11 @@ fn blocked_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook) -> Element<'a, Mess
     }
     content = content.push(
         row![
-            text("Blocked message.")
+            text(message)
                 .size(text_size(ctx))
                 .font(ITALIC)
                 .color(theme.text),
-            button(text("Show it").size(text_size(ctx)))
+            button(text(show).size(text_size(ctx)))
                 .padding(0)
                 .on_press(Message::Timeline(crate::timeline::Event::ShowBlocked(
                     look.item.clone()
