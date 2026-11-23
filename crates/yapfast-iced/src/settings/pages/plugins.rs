@@ -1774,15 +1774,29 @@ impl<'a> Page<'a> {
                     else {
                         continue;
                     };
-                    if start < at {
+                    // A caption right over the form heads the form's card,
+                    // never ends the card before it on its own.
+                    let captioned = at > start
+                        && rows[at - 1].cells.len() == 1
+                        && rows[at - 1].cells[0].kind == yapfast_core::plugins::ui::Kind::Caption;
+                    let end = if captioned { at - 1 } else { at };
+                    if start < end {
                         parts.push(form::card(
                             theme,
-                            plugin_tree::draw_rows(paint, &rows[start..at], |act| {
+                            plugin_tree::draw_rows(paint, &rows[start..end], |act| {
                                 plugin_message(PluginEvent::Act { key: None, act })
                             }),
                         ));
                     }
-                    let shown = self.setting_rows(theme, &embedded.options);
+                    let mut shown = self.setting_rows(theme, &embedded.options);
+                    if captioned {
+                        shown.insert(
+                            0,
+                            plugin_tree::draw_rows(paint, &rows[end..at], |act| {
+                                plugin_message(PluginEvent::Act { key: None, act })
+                            }),
+                        );
+                    }
                     if !shown.is_empty() {
                         parts.push(form::card(theme, form::page(shown)));
                     }
