@@ -280,7 +280,7 @@ impl Session {
                 body_upload: None,
             };
             let fetched = gate
-                .fetch_reaching(&plugin, request, crate::web_picture::MAX_BYTES, false)
+                .fetch_picture(&plugin, request, crate::web_picture::MAX_BYTES)
                 .await;
             let bytes = match fetched {
                 Ok(crate::network::Outcome::Done(answer)) => {

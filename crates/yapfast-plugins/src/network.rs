@@ -781,6 +781,22 @@ impl NetworkGate {
             .await
     }
 
+    /// A picture an image cell shows from the web: the caller has checked
+    /// `images.web` and that the host is one the manifest lists, so the
+    /// plugin needs no `network` of its own (a player showing album art
+    /// makes no request of its own). Everything else stands, as for
+    /// [`Self::fetch`]: a listed host only, HTTPS, no address that isn't
+    /// public, the caps.
+    pub async fn fetch_picture(
+        &self,
+        plugin: &PluginId,
+        request: HttpRequest,
+        response_cap: u64,
+    ) -> Result<Outcome> {
+        self.fetch_as(plugin, request, response_cap, Reach::Picture, None)
+            .await
+    }
+
     /// [`Self::fetch`], where `any_host` says the plugin holds `net.any` and
     /// the person allowed it: any public host is reachable without being
     /// listed or asked about. Everything else stands — HTTPS only, Discord's
@@ -806,6 +822,23 @@ impl NetworkGate {
         any_host: bool,
         file: Option<Arc<FileBody>>,
     ) -> Result<Outcome> {
+        let reach = if any_host {
+            Reach::AnyHost
+        } else {
+            Reach::Listed
+        };
+        self.fetch_as(plugin, request, response_cap, reach, file)
+            .await
+    }
+
+    async fn fetch_as(
+        &self,
+        plugin: &PluginId,
+        request: HttpRequest,
+        response_cap: u64,
+        reach: Reach,
+        file: Option<Arc<FileBody>>,
+    ) -> Result<Outcome> {
         let permissions = self.declared(plugin)?;
         let cap = read_cap(response_cap);
         let mut method = checked_method(&request.method)?;
@@ -821,7 +854,7 @@ impl NetworkGate {
         let mut hops = 0;
         loop {
             let addresses = match self
-                .check_target(plugin, &permissions, &target, any_host)
+                .check_target(plugin, &permissions, &target, reach)
                 .await?
             {
                 Checked::Go(addresses) => addresses,
@@ -920,8 +953,9 @@ impl NetworkGate {
         plugin: &PluginId,
         permissions: &Permissions,
         target: &Target,
-        any_host: bool,
+        reach: Reach,
     ) -> Result<Checked, Denial> {
+        let any_host = reach == Reach::AnyHost;
         let host = target.host();
         if is_discord_host(host) {
             return Err(Denial::new(format!(
@@ -932,7 +966,7 @@ impl NetworkGate {
         if is_loopback_host(host) {
             return self.check_local(permissions, target).await;
         }
-        if !any_host {
+        if reach == Reach::Listed {
             check(permissions, Capability::Network)?;
         }
         let declared = any_host
@@ -1109,6 +1143,16 @@ enum Checked {
     /// Somebody has to answer for this host first, and what is on screen about
     /// it already.
     Awaiting(String, Asking),
+}
+
+/// What a request may reach: the hosts the manifest lists (with `network`),
+/// any public host (`net.any`, allowed), or a listed host for a picture
+/// (`images.web`, checked by the caller).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reach {
+    Listed,
+    AnyHost,
+    Picture,
 }
 
 /// Whether a status asks the client to fetch somewhere else.
