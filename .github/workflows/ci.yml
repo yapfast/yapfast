@@ -69,7 +69,7 @@ jobs:
   linux:
     name: ${{ matrix.name }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 15
+    timeout-minutes: 40 # a cold build must finish, or main never saves a cache
     strategy:
       fail-fast: false # let both report even if one fails
       matrix:
@@ -92,11 +92,43 @@ jobs:
             libx11-dev libxcursor-dev libxi-dev libxrandr-dev libxcb1-dev \
             libpipewire-0.3-dev libdrm-dev libgbm-dev libxfixes-dev \
             libxdamage-dev libxcomposite-dev libxext-dev
-      - uses: Swatinem/rust-cache@v2.9.3
+      # kache caches every crate's compile, ours included, so a PR rebuilds
+      # only the crates it changes. Its files live in one directory, saved
+      # with actions/cache below.
+      - uses: kunobi-ninja/kache-action@061011817fd04b0e460f79d6bb3c115b1fc8f029 # v1
         with:
-          shared-key: ci-linux-${{ matrix.name }} # separate cache per task
-          cache-on-failure: true
-          # Only main writes the cache; PRs just read it (avoids cache churn).
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          version: 2.3.0
+          cache-dir: ${{ runner.temp }}/kache
+          max-size: 6GiB
+          # The action's own cache keeps one entry per Cargo.lock and never
+          # replaces it, so main's later builds would never reach PRs.
+          github-cache: false
+          pr-comment: false # needs pull-requests: write
+      - id: restore
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/kache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: kache-${{ matrix.name }}-${{ hashFiles('rust-toolchain.toml') }}-${{ github.run_id }}
+          restore-keys: kache-${{ matrix.name }}-${{ hashFiles('rust-toolchain.toml') }}-
       - name: cargo ${{ matrix.name }}
         run: ${{ matrix.run }}
+      # Only main writes the cache; PRs just read it. Each run saves a new
+      # entry and GitHub drops the oldest past the repo's 10 GB.
+      - name: trim the kache store to max-size and stop writing to it
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        run: |
+          kache gc
+          kache daemon stop || true
+      - uses: actions/cache/save@v6.1.0
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        with:
+          path: |
+            ${{ runner.temp }}/kache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ steps.restore.outputs.cache-primary-key }}
