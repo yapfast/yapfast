@@ -19,6 +19,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use macos::{char_fonts, language_font, monospace_file};
+
 use iced::{
     Font,
     advanced::graphics::text::{cosmic_text, font_system},
@@ -119,7 +124,7 @@ pub fn install(twemoji: &'static [u8]) {
 }
 
 /// The system's monospace face, as fontconfig ranks them.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn monospace_file() -> Option<String> {
     fc_match(&["-f", "%{file}", "monospace"]).filter(|path| !path.is_empty())
 }
@@ -370,7 +375,7 @@ fn han_language(locale: &str) -> &'static str {
 
 /// The system's font for a language, as fontconfig ranks them, if it covers
 /// the language: its file and face index.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn language_font(language: &str) -> Option<(String, u32)> {
     let output = fc_match(&[
         "-f",
@@ -632,7 +637,7 @@ fn has_chars(
 
 /// The system's fonts that may have `chars`, best first: fontconfig's
 /// best match for them.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
     let charset: Vec<String> = chars
         .iter()

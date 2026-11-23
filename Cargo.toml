@@ -59,7 +59,7 @@ discord = ["yapfast-core/discord", "yapfast-core/default"]
 # links, starting at sign-in, updates, the icon, pasted and copied pictures
 # and keybinds. Without it the program has only the commands that need no
 # window.
-desktop = ["discord", "dep:yapfast-iced", "dep:raw-window-handle", "dep:resvg", "dep:ksni", "dep:zbus", "dep:windows-sys", "dep:windows", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:x11rb", "dep:futures-util", "dep:winit"]
+desktop = ["discord", "dep:yapfast-iced", "dep:raw-window-handle", "dep:resvg", "dep:ksni", "dep:zbus", "dep:windows-sys", "dep:windows", "dep:reqwest", "dep:rustls", "dep:sha2", "dep:minisign-verify", "dep:wayland-client", "dep:wayland-backend", "dep:wayland-protocols", "dep:arboard", "dep:image", "dep:tempfile", "dep:wl-clipboard-rs", "dep:x11rb", "dep:futures-util", "dep:winit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-user-notifications", "dep:objc2-service-management", "dep:block2", "dep:objc2-core-foundation", "dep:objc2-core-graphics"]
 
 [dependencies]
 anyhow.workspace = true
@@ -120,6 +120,22 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphic
 winit = { version = "0.30.13", default-features = false, optional = true }
 # Toasts, through WinRT, in the version yapfast-core already builds.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
+
+# macOS: notifications through UNUserNotificationCenter, the menu bar item and
+# the Dock badge through AppKit, starting at sign-in through SMAppService and
+# discord:// links as Apple Events. All but ServiceManagement's are in the tree
+# through winit and iced.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6.5", optional = true }
+objc2-foundation = { version = "0.3.2", optional = true }
+objc2-app-kit = { version = "0.3.2", optional = true }
+objc2-user-notifications = { version = "0.3.2", optional = true }
+objc2-service-management = { version = "0.3.2", optional = true }
+# Keybinds' event tap: Quartz's listen-only tap on the keyboard and its Core
+# Foundation run loop. Both versions are already in the tree through winit.
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFMachPort", "CFRunLoop"], optional = true }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventTypes"], optional = true }
+block2 = { version = "0.6.2", optional = true }
 
 [dev-dependencies]
 yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["test-fixtures"] }

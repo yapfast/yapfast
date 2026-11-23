@@ -25,6 +25,8 @@ mod keybinds;
 mod notify;
 #[cfg(feature = "desktop")]
 mod paste;
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+mod permissions;
 #[cfg(feature = "desktop")]
 mod protocol;
 
@@ -423,8 +425,13 @@ fn launch(
             protocol::refresh(&root);
         }
         autostart::refresh();
+        #[cfg(target_os = "macos")]
+        permissions::ask_once(&root);
     }
     yapfast_core::keep_discord_files(&root);
+    // Before the event loop starts, which a link may have started Yapfast for.
+    #[cfg(target_os = "macos")]
+    protocol::apple_event::install();
     let runtime = std::sync::Arc::new(runtime);
     let shell = desktop::Shell::new(runtime.clone(), preview, instance);
     let ran = yapfast_iced::run(

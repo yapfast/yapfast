@@ -1,5 +1,6 @@
 //! Decoding a watched Go Live stream: VP8 with libvpx and H264 with FFmpeg,
-//! both inside libwebrtc, through native/decode.c; AV1 with libwebrtc's
+//! both inside libwebrtc (on macOS, whose FFmpeg has no H264 decoder,
+//! H264 goes to VideoToolbox through native/vtdec.c), through native/decode.c; AV1 with libwebrtc's
 //! dav1d, through native/av1.c; and H265 with the HEVC decoder of
 //! vendor/ffmpeg-src's FFmpeg, through native/hevc.c, where it's built.
 

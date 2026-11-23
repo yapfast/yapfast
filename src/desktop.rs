@@ -109,6 +109,10 @@ impl yapfast_iced::Tray for Tray {
     fn show(&self, unread: bool, call: bool) {
         self.0.show(crate::tray::Shown { unread, call });
     }
+
+    fn badge(&self, count: u64) {
+        self.0.badge(count);
+    }
 }
 
 struct Notifier(crate::notify::Notifier);
@@ -126,6 +130,8 @@ impl yapfast_iced::Desktop for Shell {
 
     fn start(&self, tell: Tell) {
         let _ = self.tell.set(tell.clone());
+        #[cfg(target_os = "macos")]
+        forward_apple_event_links(tell.clone());
         self.instance
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -250,7 +256,7 @@ impl yapfast_iced::Desktop for Shell {
     }
 
     fn autostart(&self) -> Option<bool> {
-        (crate::autostart::SUPPORTED && !self.preview).then(crate::autostart::enabled)
+        (crate::autostart::available() && !self.preview).then(crate::autostart::enabled)
     }
 
     fn set_autostart(&self, on: bool) -> Result<(), String> {
@@ -307,6 +313,24 @@ impl yapfast_iced::Desktop for Shell {
     fn updates(&self) -> Option<&dyn yapfast_iced::Updates> {
         Some(self)
     }
+}
+
+/// Links LaunchServices hands this running Yapfast, as Apple Events, go to
+/// the window like those a later start hands on through the instance socket.
+#[cfg(target_os = "macos")]
+fn forward_apple_event_links(tell: Tell) {
+    // Again, in case the event loop's start took the handler over.
+    crate::protocol::apple_event::install();
+    crate::protocol::apple_event::forward_to(Box::new(move |link| {
+        let Some(link) = yapfast_core::discord::discord_link(&link) else {
+            tracing::info!("Yapfast has no place for the link macOS handed it");
+            return;
+        };
+        tell(Heard::Launched {
+            token: None,
+            link: Some(link),
+        });
+    }));
 }
 
 /// The window's Win32 handle.

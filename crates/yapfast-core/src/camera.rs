@@ -1,7 +1,8 @@
 //! Cameras: listing them, and capturing one for a call or a Go Live stream.
 //! Linux and Windows capture with libwebrtc's capture module
 //! (`native/camera.cc`), through V4L2 and DirectShow, which converts each
-//! frame into the same two I420 buffers.
+//! frame into the same two I420 buffers. macOS has no such backend in
+//! libwebrtc, so it captures through AVFoundation (`camera/avfoundation.rs`).
 //!
 //! `YAPFAST_CAMERA_TEST_PATTERN=1` adds a camera that films moving colour bars,
 //! for tests and screenshots on machines without a camera, and
@@ -67,8 +68,14 @@ pub fn list() -> Vec<Device> {
     }
     #[cfg(any(target_os = "linux", windows))]
     native::list(&mut devices);
+    #[cfg(target_os = "macos")]
+    avfoundation::list(&mut devices);
     devices
 }
+
+/// AVFoundation's capture session.
+#[cfg(target_os = "macos")]
+mod avfoundation;
 
 /// libwebrtc's capture module, through `native/camera.cc`.
 #[cfg(any(target_os = "linux", windows))]
@@ -187,6 +194,8 @@ mod native {
 pub struct Camera {
     #[cfg(target_os = "linux")]
     _native: Option<native::Camera>,
+    #[cfg(target_os = "macos")]
+    _native: Option<avfoundation::Camera>,
     /// The thread that films, told to stop through the flag: the test
     /// pattern's, or on Windows the one holding the native camera.
     thread: Option<(Arc<AtomicBool>, JoinHandle<()>)>,
@@ -281,9 +290,18 @@ impl Camera {
         }
     }
 
-    #[cfg(not(any(target_os = "linux", windows)))]
+    /// AVFoundation films on its own queue, so no thread of ours holds it.
+    #[cfg(target_os = "macos")]
+    fn native(id: &str, size: Size, sink: Sink) -> Result<Self> {
+        Ok(Self {
+            _native: Some(avfoundation::Camera::open(id, size, sink)?),
+            thread: None,
+        })
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     fn native(_: &str, _: Size, _: Sink) -> Result<Self> {
-        bail!("Cameras work on Linux and Windows for now.")
+        bail!("Cameras work on Linux, macOS and Windows for now.")
     }
 
     /// Runs `film` on the camera's thread until it returns; it's told to
@@ -295,7 +313,7 @@ impl Camera {
             .name("yapfast-camera".into())
             .spawn(move || film(&stopped))?;
         Ok(Self {
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             _native: None,
             thread: Some((stop, thread)),
         })
@@ -439,5 +457,48 @@ mod tests {
         drop(camera);
         println!("{count} frames in a second");
         assert!(count >= 10);
+    }
+
+    /// Films the first real camera for 30 frames and reports the picture's
+    /// size and the rate frames arrived at. On macOS the camera permission
+    /// belongs to the process running the test.
+    #[test]
+    #[ignore = "needs a camera"]
+    fn captures_thirty_frames_from_the_first_camera() {
+        const FRAMES: u32 = 30;
+        const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
+        let devices: Vec<Device> = list()
+            .into_iter()
+            .filter(|device| device.id != TEST_PATTERN)
+            .collect();
+        println!("cameras: {devices:?}");
+        let first = devices.first().expect("no camera listed");
+        let (frames, received) = std::sync::mpsc::channel();
+        let camera = Camera::open(
+            Some(first.id.as_str()),
+            Box::new(move |picture| {
+                let _ = frames.send((picture.width, picture.height, Instant::now()));
+            }),
+        )
+        .unwrap();
+        let mut size = (0, 0);
+        let mut first_at = None;
+        let mut last_at = Instant::now();
+        for _ in 0..FRAMES {
+            let (width, height, at) = received.recv_timeout(FRAME_TIMEOUT).expect("a frame");
+            size = (width, height);
+            first_at.get_or_insert(at);
+            last_at = at;
+        }
+        drop(camera);
+        let seconds = last_at.duration_since(first_at.unwrap()).as_secs_f64();
+        println!(
+            "{} {}x{}, {FRAMES} frames, {:.1} fps",
+            first.name,
+            size.0,
+            size.1,
+            f64::from(FRAMES - 1) / seconds
+        );
+        assert!(size.0 <= WIDTH && size.1 <= HEIGHT, "{size:?}");
     }
 }

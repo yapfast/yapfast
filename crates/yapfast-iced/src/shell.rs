@@ -687,6 +687,13 @@ impl App {
                 .any(|room| room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)),
             state.voice.active(),
         );
+        tray.badge(
+            state
+                .rooms
+                .iter()
+                .map(|room| room_badge(room.mentions, room.unread, room.direct, room.muted))
+                .sum(),
+        );
     }
 
     /// After each change: the tray's icon, the alerts the core raised, and a
@@ -915,5 +922,33 @@ impl App {
             }
             _ => None,
         })
+    }
+}
+
+/// What a conversation adds to the unread count on the Dock icon: all of a
+/// direct conversation's unread messages unless it's muted, else only the
+/// mentions, as Discord counts them.
+fn room_badge(mentions: u64, unread: u64, direct: bool, muted: bool) -> u64 {
+    if direct && !muted {
+        unread.max(mentions)
+    } else {
+        mentions
+    }
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::room_badge;
+
+    #[test]
+    fn a_direct_conversation_counts_its_unread_messages() {
+        assert_eq!(room_badge(0, 4, true, false), 4);
+        assert_eq!(room_badge(2, 1, true, false), 2);
+    }
+
+    #[test]
+    fn a_channel_or_a_muted_conversation_counts_only_mentions() {
+        assert_eq!(room_badge(3, 40, false, false), 3);
+        assert_eq!(room_badge(0, 9, true, true), 0);
     }
 }

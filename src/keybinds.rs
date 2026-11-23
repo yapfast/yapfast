@@ -1,7 +1,8 @@
 //! Keybinds, as Discord's: keys held together that do something in any app,
 //! such as push to talk or toggling mute. One [`Watcher`] watches them all:
 //! through the GlobalShortcuts portal on Wayland, XInput 2's raw key events on
-//! X11, and low-level keyboard and mouse hooks on Windows. Where none of these
+//! X11, low-level keyboard and mouse hooks on Windows, and a listen-only
+//! Quartz event tap on macOS. Where none of these
 //! works, they work while Yapfast's window has the focus, and settings say so.
 //!
 //! Holding keybinds (push to talk, push to mute) set
@@ -316,6 +317,8 @@ pub struct Watcher {
     global: Option<linux::Global>,
     #[cfg(windows)]
     global: Option<windows::Hook>,
+    #[cfg(target_os = "macos")]
+    global: Option<macos::Tap>,
 }
 
 impl Watcher {
@@ -351,16 +354,21 @@ impl Watcher {
             let _ = runtime;
             windows::Hook::start(Matcher::new(&watched), sink, report)
         };
-        #[cfg(not(any(target_os = "linux", windows)))]
+        #[cfg(target_os = "macos")]
+        let global = {
+            let _ = runtime;
+            macos::Tap::start(Matcher::new(&watched), sink, report)
+        };
+        #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         {
             let _ = (runtime, sink);
             report(Status {
                 reach: Reach::Focused("Yapfast can't watch keys in other apps on this system yet"),
-                given: HashMap::new(),
+                given: std::collections::HashMap::new(),
             });
         }
         Self {
-            #[cfg(any(target_os = "linux", windows))]
+            #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
             global,
         }
     }
@@ -369,7 +377,7 @@ impl Watcher {
 impl Drop for Watcher {
     fn drop(&mut self) {
         // What hears keys stops first, so nothing holds a key after this.
-        #[cfg(any(target_os = "linux", windows))]
+        #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
         drop(self.global.take());
         FOCUSED_ON.store(false, Ordering::Relaxed);
         let taken = focused().take();
@@ -380,6 +388,9 @@ impl Drop for Watcher {
         yapfast_core::push_to_talk::hold_mute(false);
     }
 }
+
+#[cfg(target_os = "macos")]
+mod macos;
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -2013,6 +2024,12 @@ mod tests {
     const RIGHT_CTRL: u32 = 0xE01D;
     #[cfg(windows)]
     const SHIFT: u32 = 0x2A;
+    #[cfg(target_os = "macos")]
+    const LEFT_CTRL: u32 = 0x3B;
+    #[cfg(target_os = "macos")]
+    const RIGHT_CTRL: u32 = 0x3E;
+    #[cfg(target_os = "macos")]
+    const SHIFT: u32 = 0x38;
 
     #[test]
     fn a_key_holds_while_down_and_repeats_change_nothing() {
@@ -2046,7 +2063,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     fn a_combination_needs_its_keys_held_together_and_either_ctrl() {
         let keybinds = [watched(Action::ToggleMute, &[LEFT_CTRL, M])];
         assert_eq!(run(&keybinds, &[(M, true), (M, false)]), []);
@@ -2065,7 +2082,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     fn push_to_talk_holds_while_other_keys_go_down_too() {
         // Talking while moving in a game: other keys don't stop it, and a
         // combination holds while its keys do.
@@ -2088,7 +2105,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(target_os = "linux", windows))]
+    #[cfg(any(target_os = "linux", windows, target_os = "macos"))]
     fn a_shorter_toggle_gives_way_to_a_longer_one_its_keys_complete() {
         let keybinds = [
             watched(Action::ToggleMute, &[LEFT_CTRL, D]),
