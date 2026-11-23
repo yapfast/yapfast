@@ -42,7 +42,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the focus again. A keyboard layout without Latin letters uses the key in
   K's place. Before a search it lists the last eight conversations opened
   this session, of either network, then the Discord places this account
-  uses most, fifteen at most and not the one open. A search lists up to 50
+  uses most, fifteen at most and not the one open, headed "Previous
+  Channels"; then, under "Mentions", the conversations that mention this
+  account and aren't listed already, most mentions first
+  (`AppState::switcher_mentions`). With "Search DMs with the quick
+  switcher" on (Settings > Messages, `dm_search_switcher`, off by default),
+  the DM list's box at its top is Discord's "Find or start a conversation",
+  a button that opens it, rather than a filter. A search lists up to 50
   conversations and servers, ranked as Forward To ranks them
   ([Forwarding](discord/messages.md#forwarding)), and those as good by name;
   `@` finds people, `#` text channels, `!` voice channels and `*` servers.
@@ -57,6 +63,20 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   what's typed. Escape in the box clears it and ends the search, keeping the
   focus there; in an empty box it lets go. A keyboard layout without Latin
   letters uses the key in F's place.
+- Peek at a channel or DM without opening it, a Yapfast addition that
+  Discord doesn't have. With "Peek at channels" on in Settings > Messages
+  (`peek_channels` in `layout.json`, off by default), holding Alt alone over
+  a row of the channel list or the DM list shows its newest six messages
+  beside the row, as the pins show them, newest at the bottom. Letting go
+  of Alt, or leaving the row, closes it, and its rows go. A channel Yapfast
+  keeps in memory and that's up to date answers from there; any other asks
+  Discord once for six (`GET /channels/{id}/messages?limit=6`), which aren't
+  kept, and its pictures show only if they're kept already. Nothing is
+  opened and no read goes to Discord: the peek reads no channel, so it stays
+  unread with its mentions. Not over the open channel, a locked one, a
+  voice channel without a chat, a forum or a Matrix room. Alt is read from the
+  window's modifier keys wherever the focus is, and counts as let go when
+  the window loses the focus.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -654,7 +674,7 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
+  theme, audio devices, message text size, clock, link previews, folding long messages and peeking, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in
