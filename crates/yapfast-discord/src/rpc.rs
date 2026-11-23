@@ -316,17 +316,18 @@ async fn connection(
         let result = loop {
             tokio::select! {
                 // Read disconnects/CLOSE even while Discord resolves images
-                // or holds the HTTP request back behind a rate limit.
-                received = packets.read(&mut input) => {
+                // or holds the HTTP request back behind a rate limit. With
+                // the queue full, stop reading: the app waits, as before,
+                // rather than losing its connection and its activity.
+                received = packets.read(&mut input),
+                    if pending.len() < MAX_PENDING && pending_bytes < MAX_PACKET =>
+                {
                     let (opcode, payload) = received?;
                     match opcode {
                         2 => return Ok(()),
                         3 => write(&mut output, 4, &payload).await?,
                         4 => {},
                         1 => {
-                            ensure!(pending.len() < MAX_PENDING
-                                && pending_bytes + payload.len() <= MAX_PACKET,
-                                "too many pending RPC requests");
                             pending_bytes += payload.len();
                             pending.push_back((opcode, payload));
                         }
@@ -823,5 +824,112 @@ mod tests {
             packets.read(&mut stream).await.unwrap(),
             (1, b"test".to_vec())
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_busy_app_waits_for_a_slow_image_lookup_instead_of_losing_its_connection() {
+        use tokio::net::{TcpListener, UnixStream};
+
+        let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut api = Api::anonymous().unwrap();
+        api.base = format!("http://{}", http.local_addr().unwrap());
+        let (looking_up, mut lookup_started) = watch::channel(false);
+        let (release, released) = watch::channel(false);
+        let http_worker = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = http.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                }
+                let body = if request.starts_with(b"POST /applications/22/external-assets ") {
+                    // Discord holds the image lookup back, as behind a rate limit.
+                    looking_up.send_replace(true);
+                    released.clone().wait_for(|go| *go).await.unwrap();
+                    r#"[{"url":"https://example.com/cover.png","external_asset_path":"external/cover"}]"#
+                } else {
+                    r#"{"name":"Fixture"}"#
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(body.as_bytes()).await.unwrap();
+            }
+        });
+        let (_snapshots, snapshots) = watch::channel(Arc::new(Snapshot {
+            status: Status::Online,
+            user_id: Some("42".into()),
+            ..Default::default()
+        }));
+        let (updates, mut published) = mpsc::channel(32);
+        let (mut app, served) = UnixStream::pair().unwrap();
+        let server = tokio::spawn(connection(served, Arc::new(api), snapshots, updates, 1));
+
+        let handshake = serde_json::to_vec(&json!({"v":1,"client_id":"22"})).unwrap();
+        write(&mut app, 0, &handshake).await.unwrap();
+        let (_, ready) = read(&mut app).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&ready).unwrap()["evt"],
+            "READY"
+        );
+        let set = |nonce: &str, assets: Value| {
+            serde_json::to_vec(&json!({"cmd":"SET_ACTIVITY","nonce":nonce,
+                "args":{"pid":2,"activity":{"details":nonce,"assets":assets}}}))
+            .unwrap()
+        };
+        write(
+            &mut app,
+            1,
+            &set(
+                "cover",
+                json!({"large_image":"https://example.com/cover.png"}),
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            lookup_started.wait_for(|started| *started),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // More updates than the queue holds while the lookup is stuck.
+        let nonces: Vec<String> = (0..=MAX_PENDING + 1)
+            .map(|n| format!("update-{n}"))
+            .collect();
+        for nonce in &nonces {
+            write(&mut app, 1, &set(nonce, json!({}))).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        release.send_replace(true);
+
+        for nonce in std::iter::once("cover").chain(nonces.iter().map(String::as_str)) {
+            let (opcode, payload) = tokio::time::timeout(Duration::from_secs(2), read(&mut app))
+                .await
+                .expect("the app gets an answer")
+                .expect("the connection stays open");
+            assert_eq!(opcode, 1);
+            let answer: Value = serde_json::from_slice(&payload).unwrap();
+            assert_eq!(answer["nonce"], nonce);
+            assert!(answer["evt"].is_null(), "{answer}");
+            assert_eq!(answer["data"]["details"], nonce);
+        }
+        let mut shown = Vec::new();
+        while let Ok((_, Some(activity))) = published.try_recv() {
+            shown.push(activity["details"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(shown.len(), nonces.len() + 1);
+        assert_eq!(shown.last(), nonces.last());
+        drop(app);
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .ok();
+        http_worker.abort();
     }
 }
