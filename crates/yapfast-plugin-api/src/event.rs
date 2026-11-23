@@ -357,6 +357,11 @@ pub struct RoomView {
     /// Age-restricted: Discord's NSFW channel.
     #[serde(default)]
     pub nsfw: bool,
+    /// Who is in it now, for a voice channel or a DM's call, as the sidebar
+    /// shows them without joining: no one speaks here, since only the call
+    /// this account is in says who talks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub voice: Vec<crate::call::VoicePerson>,
 }
 
 #[cfg(test)]

@@ -100,6 +100,28 @@ impl Session {
                 }
             }
             call::method::MICROPHONE_STOP => Ok(AppCall::RecordStop),
+            call::method::VOICE_SETTINGS => Ok(AppCall::VoiceSettings),
+            call::method::VOICE_SET => match request.parse::<call::VoiceSet>() {
+                Ok(set) => match set.check() {
+                    Ok(()) => Ok(AppCall::VoiceSet(set)),
+                    Err(message) => return Some(HostReturn::Error { message }),
+                },
+                Err(error) => Err(error),
+            },
+            call::method::MICROPHONE_PLAY => match request.parse::<call::MicrophonePlay>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(play) if play.stop || play.recording.is_none() => Ok(AppCall::PlayRecording {
+                    path: None,
+                    volume: None,
+                }),
+                Ok(play) => match shared.recording(plugin, play.recording.unwrap_or_default()) {
+                    Ok((path, _, _)) => Ok(AppCall::PlayRecording {
+                        path: Some(path),
+                        volume: play.volume.map(|volume| volume.min(100)),
+                    }),
+                    Err(message) => return Some(HostReturn::Error { message }),
+                },
+            },
             call::method::SERVERS_DETAILS => {
                 request
                     .parse::<call::ServerDetails>()

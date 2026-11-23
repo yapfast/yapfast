@@ -387,6 +387,17 @@ pub enum AppCall {
         duration_ms: u64,
         waveform: String,
     },
+    /// The person's microphone, speakers, volumes and noise suppression:
+    /// `voice.settings`.
+    VoiceSettings,
+    /// Change some of them, as the Voice & video page does: `voice.set`.
+    VoiceSet(yapfast_plugin_api::call::VoiceSet),
+    /// Play one of the plugin's recordings here, or stop the one playing
+    /// (`path` none): `microphone.play`.
+    PlayRecording {
+        path: Option<std::path::PathBuf>,
+        volume: Option<u8>,
+    },
 }
 
 /// A file a plugin sends that it made, or that its package carries: a name,

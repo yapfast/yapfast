@@ -500,7 +500,9 @@ impl Application {
                 state
                     .rooms
                     .iter()
-                    .map(|room| crate::plugins::world::room_view(room))
+                    .map(|room| {
+                        crate::plugins::world::room_view(room, state.discord_user.as_deref())
+                    })
                     .collect(),
             );
         }
@@ -1513,6 +1515,7 @@ impl Application {
             server,
             dm: listed.direct,
             nsfw: listed.mark.age_restricted,
+            voice: crate::plugins::world::voice_people(listed, self.state.discord_user.as_deref()),
         };
         self.plugins_observe(envelope(
             EventKind::RoomSelected,

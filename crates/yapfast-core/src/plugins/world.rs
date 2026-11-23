@@ -590,7 +590,7 @@ fn room_server(room: &str) -> Option<String> {
 
 /// A room as a plugin sees it: what the sidebar shows of it, and the server it
 /// belongs to, which is how a plugin tells a channel from a conversation.
-pub fn room_view(room: &ChatRoom) -> RoomView {
+pub fn room_view(room: &ChatRoom, account: Option<&str>) -> RoomView {
     RoomView {
         id: room.id.clone(),
         name: room.name.clone(),
@@ -601,7 +601,30 @@ pub fn room_view(room: &ChatRoom) -> RoomView {
         server: room_server(&room.id),
         dm: room.direct,
         nsfw: room.mark.age_restricted,
+        voice: voice_people(room, account),
     }
+}
+
+/// Who is in a voice channel or a DM's call, as the sidebar lists them.
+pub fn voice_people(
+    room: &ChatRoom,
+    account: Option<&str>,
+) -> Vec<yapfast_plugin_api::call::VoicePerson> {
+    room.people
+        .iter()
+        .take(yapfast_plugin_api::call::VoiceView::MAX_PEOPLE)
+        .map(|person| yapfast_plugin_api::call::VoicePerson {
+            id: person.id.clone(),
+            name: person.name.clone(),
+            own: person.elsewhere || account == Some(person.id.as_str()),
+            muted: person.muted,
+            deafened: person.deafened,
+            server_muted: person.server_muted || person.server_deafened,
+            speaking: false,
+            streaming: person.streaming,
+            video: person.video,
+        })
+        .collect()
 }
 
 /// A member as a plugin sees them.
@@ -791,6 +814,7 @@ mod tests {
             server: room_server(id),
             dm: false,
             nsfw: false,
+            voice: Vec::new(),
         }
     }
 

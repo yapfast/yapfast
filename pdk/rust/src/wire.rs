@@ -325,6 +325,8 @@ pub mod method {
     pub const GIFS_FAVOURITES: &str = "gifs.favourites";
     // The calls the PDK has no wrapper for yet, named for `call::call`.
     pub const VOICE_STATE: &str = "voice.state";
+    pub const VOICE_SETTINGS: &str = "voice.settings";
+    pub const VOICE_SET: &str = "voice.set";
     pub const FILES_SAVE: &str = "files.save";
     pub const ASSETS_LIST: &str = "assets.list";
     pub const FS_LIST: &str = "fs.list";
@@ -343,6 +345,7 @@ pub mod method {
     pub const MICROPHONE_STOP: &str = "microphone.stop";
     pub const MICROPHONE_READ: &str = "microphone.read";
     pub const MESSAGES_VOICE: &str = "messages.voice";
+    pub const MICROPHONE_PLAY: &str = "microphone.play";
     pub const OVERLAY_CLEAR: &str = "overlay.clear";
     pub const HTTP_READ: &str = "http.read";
     pub const HTTP_RELEASE: &str = "http.release";

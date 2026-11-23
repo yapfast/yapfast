@@ -118,6 +118,10 @@ pub mod method {
 
     // Reads of the call, the save dialog, and the package's own assets.
     pub const VOICE_STATE: &str = "voice.state";
+    // The person's own voice settings: read under `voice.read`, changed
+    // under `voice.control`, as the Voice & video page changes them.
+    pub const VOICE_SETTINGS: &str = "voice.settings";
+    pub const VOICE_SET: &str = "voice.set";
     pub const FILES_SAVE: &str = "files.save";
     pub const ASSETS_LIST: &str = "assets.list";
     pub const ASSETS_GET: &str = "assets.get";
@@ -166,6 +170,9 @@ pub mod method {
     pub const MICROPHONE_STOP: &str = "microphone.stop";
     pub const MICROPHONE_READ: &str = "microphone.read";
     pub const MESSAGES_VOICE: &str = "messages.voice";
+    // Plays one of its recordings here, so the person hears it before it
+    // goes, or stops it.
+    pub const MICROPHONE_PLAY: &str = "microphone.play";
 
     // A free-floating layer over the window: `overlay`.
     pub const OVERLAY_SET: &str = "overlay.set";
@@ -194,7 +201,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 117] = [
+    pub const ALL: [&str; 120] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -269,6 +276,8 @@ pub mod method {
         AUDIO_PLAY,
         AUDIO_SPEAK,
         VOICE_STATE,
+        VOICE_SETTINGS,
+        VOICE_SET,
         FILES_SAVE,
         ASSETS_LIST,
         ASSETS_GET,
@@ -306,6 +315,7 @@ pub mod method {
         MICROPHONE_STOP,
         MICROPHONE_READ,
         MESSAGES_VOICE,
+        MICROPHONE_PLAY,
         UPLOADS_READ,
         UPLOADS_WRITE,
         UPLOADS_FINISH,
@@ -1294,6 +1304,128 @@ impl VoiceView {
     /// The most people one answer lists: a stage of thousands is a list no
     /// plugin needs whole, and the answer stays far under a frame.
     pub const MAX_PEOPLE: usize = 99;
+}
+
+/// `voice.settings`'s answer: the person's microphone and speakers, their
+/// volumes and noise suppression, as the Voice & video page shows them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceSettings {
+    /// The microphone's volume, 0 to 200, where 100 is as it comes.
+    pub input_volume: u8,
+    /// The call's volume through the speakers, 0 to 200.
+    pub output_volume: u8,
+    /// The microphone chosen, by device id; none is the system's default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub microphone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
+    /// Every microphone and speaker the system has, as the page lists them.
+    pub microphones: Vec<VoiceDevice>,
+    pub speakers: Vec<VoiceDevice>,
+    /// `deepfilternet`, `rnnoise` or `off`.
+    pub noise_suppression: String,
+}
+
+/// A microphone or a speaker.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceDevice {
+    pub id: String,
+    pub name: String,
+}
+
+/// `voice.set`: any of the settings `voice.settings` reads, the rest left as
+/// they are. Each is what the person picking it on the Voice & video page
+/// does, kept for next time the same way.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VoiceSet {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_volume: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_volume: Option<u8>,
+    /// A device id from `voice.settings`' lists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub microphone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
+    /// `deepfilternet`, `rnnoise` or `off`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise_suppression: Option<String>,
+}
+
+impl VoiceSet {
+    /// The loudest a volume goes, as the page's sliders do.
+    pub const MAX_VOLUME: u8 = 200;
+    /// The noise suppressors, by the names `noise_suppression` takes.
+    pub const SUPPRESSORS: [&str; 3] = ["deepfilternet", "rnnoise", "off"];
+
+    /// What's wrong with it, if anything.
+    pub fn check(&self) -> Result<(), String> {
+        for volume in [self.input_volume, self.output_volume]
+            .into_iter()
+            .flatten()
+        {
+            if volume > Self::MAX_VOLUME {
+                return Err(format!("a volume is 0 to {}", Self::MAX_VOLUME));
+            }
+        }
+        if let Some(name) = &self.noise_suppression
+            && !Self::SUPPRESSORS.contains(&name.as_str())
+        {
+            return Err(format!(
+                "noise_suppression is one of {}",
+                Self::SUPPRESSORS.join(", ")
+            ));
+        }
+        if *self == VoiceSet::default() {
+            return Err("voice.set names nothing to change".to_owned());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod voice_set_tests {
+    use super::VoiceSet;
+
+    #[test]
+    fn a_voice_set_names_something_within_the_sliders() {
+        let set = |value: serde_json::Value| serde_json::from_value::<VoiceSet>(value).unwrap();
+        assert!(
+            set(serde_json::json!({ "input_volume": 150 }))
+                .check()
+                .is_ok()
+        );
+        assert!(
+            set(serde_json::json!({ "output_volume": 201 }))
+                .check()
+                .is_err()
+        );
+        assert!(
+            set(serde_json::json!({ "noise_suppression": "krisp" }))
+                .check()
+                .is_err()
+        );
+        assert!(
+            set(serde_json::json!({})).check().is_err(),
+            "nothing to change"
+        );
+        assert!(serde_json::from_value::<VoiceSet>(serde_json::json!({ "gain": 1 })).is_err());
+    }
+}
+
+/// `microphone.play`: one of the plugin's recordings played here, at a volume
+/// from 0 to 100, so the person hears it before `messages.voice` sends it; or
+/// `{ "stop": true }`, which stops it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MicrophonePlay {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<u8>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stop: bool,
 }
 
 /// One person in the call.

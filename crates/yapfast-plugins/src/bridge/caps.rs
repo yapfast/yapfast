@@ -51,6 +51,9 @@ pub(super) fn is_app_call(method: &str) -> bool {
             | call::method::PEOPLE_BLOCKED
             | call::method::PEOPLE_PROFILE
             | call::method::GIFS_FAVOURITES
+            | call::method::VOICE_SETTINGS
+            | call::method::VOICE_SET
+            | call::method::MICROPHONE_PLAY
     ) || call::method::SPOTIFY.contains(&method)
 }
 
@@ -97,6 +100,9 @@ pub(super) fn app_capability(call: &AppCall) -> Option<Capability> {
         AppCall::Relations { .. } => Some(Capability::PeopleRead),
         AppCall::FavouriteGifs => Some(Capability::MediaRead),
         AppCall::Spotify(_) => Some(Capability::SpotifyControl),
+        AppCall::VoiceSettings => Some(Capability::VoiceRead),
+        AppCall::VoiceSet(_) => Some(Capability::VoiceControl),
+        AppCall::PlayRecording { .. } => Some(Capability::Microphone),
         // Navigation and the composer need no capability; the plan gives them
         // a recent gesture instead, and the composer is the person's own text.
         AppCall::JumpTo { .. }

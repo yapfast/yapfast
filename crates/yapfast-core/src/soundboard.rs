@@ -444,27 +444,43 @@ impl Files {
 
 /// A sound's file, MP3 or Ogg, as 48 kHz interleaved stereo.
 pub(crate) fn decode(data: &[u8]) -> Result<Vec<i16>> {
-    let mut file = Video::open_sound(Cursor::new(data)).context("not a sound Yapfast can play")?;
-    let (rate, channels) = file.sound.context("the file has no sound")?;
-    let mut resampler = Resampler::new(rate, channels);
     let longest = LONGEST_SECONDS * crate::audio_io::RATE as usize * 2;
     let mut samples = Vec::new();
-    while samples.len() < longest && file.decode_sound()?.is_some() {
-        let sound = file.sound();
-        resampler.follow(sound.rate, sound.channels);
-        samples.extend(
-            resampler
-                .run(sound.samples)
-                .into_iter()
-                .map(|sample| (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16),
-        );
-    }
+    stream(data, |piece| {
+        samples.extend_from_slice(piece);
+        samples.len() < longest
+    })?;
     if samples.is_empty() {
         bail!("the sound is empty");
     }
     samples.truncate(longest);
     samples.shrink_to_fit();
     Ok(samples)
+}
+
+/// A sound's file decoded a piece at a time, each piece as 48 kHz interleaved
+/// stereo handed to `each`, until the file ends or `each` says stop: what a
+/// long sound plays from without being held whole.
+pub(crate) fn stream(data: &[u8], mut each: impl FnMut(&[i16]) -> bool) -> Result<()> {
+    let mut file = Video::open_sound(Cursor::new(data)).context("not a sound Yapfast can play")?;
+    let (rate, channels) = file.sound.context("the file has no sound")?;
+    let mut resampler = Resampler::new(rate, channels);
+    let mut piece = Vec::new();
+    while file.decode_sound()?.is_some() {
+        let sound = file.sound();
+        resampler.follow(sound.rate, sound.channels);
+        piece.clear();
+        piece.extend(
+            resampler
+                .run(sound.samples)
+                .into_iter()
+                .map(|sample| (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16),
+        );
+        if !each(&piece) {
+            break;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

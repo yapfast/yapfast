@@ -134,6 +134,19 @@ pub enum Effect {
     /// save dialog, titled with the plugin's name, writes the bytes where the
     /// person chose, and answers with [`Action::Saved`].
     SaveFile(SaveAsk),
+    /// A plugin changed the person's volumes or noise suppression
+    /// (`voice.set`): the window keeps and plays them as its Voice & video
+    /// page does.
+    VoiceSettings(VoiceChange),
+}
+
+/// What `voice.set` changed that the window keeps: each named one, the rest
+/// as they are.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VoiceChange {
+    pub input_volume: Option<u8>,
+    pub output_volume: Option<u8>,
+    pub suppressor: Option<crate::noise::Suppressor>,
 }
 
 /// A powerful capability's first use, waiting for the person's answer in a red

@@ -569,6 +569,8 @@ answer says the voice was asked to speak, not that it finished.
 | Call | Payload | Answer | Needs |
 | --- | --- | --- | --- |
 | `voice.state` | none | `VoiceView`, or `null` outside a call | `voice.read` |
+| `voice.settings` | none | `{ input_volume, output_volume, microphone?, speaker?, microphones: [{ id, name }], speakers: [{ id, name }], noise_suppression }`: volumes 0 to 200 as the Voice & video page's sliders, `noise_suppression` one of `deepfilternet`, `rnnoise`, `off` | `voice.read` |
+| `voice.set` | any of `{ input_volume?, output_volume?, microphone?, speaker?, noise_suppression? }`, a device by an id from `voice.settings` | `true`: changed as the person changing it on the page would, kept for next time, shown on the page | `voice.control` |
 | `files.save` | `{ name, text }` or `{ name, bytes_base64 }` | `pending`, then `{ saved, name? }` | `files.save`, and a recent user gesture |
 | `window.set_title` | `{ suffix }`, or `{}` to take it away | `true` | `window.title` |
 
@@ -630,6 +632,7 @@ Yapfast's own, over everything a plugin draws; no `ui.modify` reaches it.
 | `microphone.stop` | none | `true` |
 | `microphone.read` | `{ body, offset?, length? }`, `body` the `recording` | `{ data_base64, offset, bytes, eof }`, 512 KiB at most, as `http.read` |
 | `messages.voice` | `{ room, recording }` | `pending`, then `true` once Discord took the voice message |
+| `microphone.play` | `{ recording, volume? }` (0 to 100), or `{ stop: true }` | `true` once it starts: the recording plays here, whole and a piece at a time, so the person hears it before `messages.voice` sends it; a new one stops the last |
 
 One recording runs at a time, from the microphone chosen for calls, on a
 thread of its own that writes the file as it goes, 20 ms at a time: `opus` is
@@ -799,7 +802,10 @@ network: `app.version`, `app.locale` and `app.theme_mode` give one object
 (`version`, `locale`, `theme_mode`, the system's `time_zone` by its IANA name
 when it says, and `utc_offset_minutes`, east of UTC now, for local times);
 `account.me` the account signed in; `rooms.selected`, `rooms.get` and
-`rooms.list` the sidebar's own list; `messages.get` and `messages.history` the
+`rooms.list` the sidebar's own list, each room with `voice`, who is in a voice
+channel or a DM's call now as the sidebar shows them without joining (the
+`VoicePerson` of `voice.state`, with `speaking` always false, since only the
+call this account is in says who talks); `messages.get` and `messages.history` the
 conversation on screen from the timeline Yapfast keeps, and any other Discord
 conversation the account can read by asking Discord as its client asks (a page
 of at most 100, `before` a message's id), answered later; and

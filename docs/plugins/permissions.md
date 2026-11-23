@@ -40,7 +40,8 @@ audio capabilities, which share one line.
 | `uploads.intercept` | Rename, withhold, read or replace files before upload, or send them to its own host | Can read and change files you upload, or send them somewhere else |
 | `media.read` | Bytes of attachments, avatars and emoji | Reads attachments and pictures |
 | `files.save` | Hand the person a file to save, through the system's save dialog | Saves files where you choose |
-| `voice.read` | The call: who is in it, who speaks, mute, deafen, screens and cameras | Sees your calls |
+| `voice.read` | The call: who is in it, who speaks, mute, deafen, screens and cameras; the person's microphone, speakers, volumes and noise suppression | Sees your calls |
+| `voice.control` | Change the microphone and speakers, their volumes and noise suppression, as the Voice & video page does | Changes your microphone, speakers and their volumes |
 | `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
 | `microphone` | Record the microphone as Ogg Opus or PCM, asked about the first time, with a red bar while it does | Records your microphone when it asks: you're asked the first time, and a red bar shows while it does, with Stop |
 | `notifications` | OS notifications | Shows notifications |
@@ -265,7 +266,9 @@ A read is the same: what it answers is what the capability names.
 | `messages.get`, `messages.history` | `messages.read` |
 | `people.get`, `people.member` | `people.read` |
 | `media.get` | `media.read` |
-| `voice.state` | `voice.read` |
+| `voice.state`, `voice.settings` | `voice.read` |
+| `voice.set` | `voice.control` |
+| `microphone.play` | `microphone` |
 | `assets.list`, `assets.get` | Nothing: they read what the plugin's own package carries, which the review listed |
 | The `decorate` reply's `annotation` and `marks` | `messages.read`: they are about what the message says, and without it there is no text to style |
 | The `decorate` reply's `hide` and `hide_media` | `messages.filter` |

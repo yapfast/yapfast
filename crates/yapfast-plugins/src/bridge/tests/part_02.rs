@@ -154,6 +154,7 @@ fn a_read_is_answered_from_what_the_application_published() {
             server: Some("1".to_owned()),
             dm: false,
             nsfw: false,
+            voice: Vec::new(),
         }],
     );
     world.publish_selected(Some("discord:1:2"));

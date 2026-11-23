@@ -461,6 +461,24 @@ impl App {
         for ask in outbox.save {
             tasks.push(save_for_plugin(ask));
         }
+        for change in outbox.voice {
+            let root = self.client.root().to_owned();
+            let voice = &mut self.layout.voice;
+            if let Some(value) = change.input_volume {
+                voice.microphone_volume = Some(value.min(200));
+                crate::layout::store(&root, "microphone_volume", value.min(200));
+            }
+            if let Some(value) = change.output_volume {
+                voice.speaker_volume = Some(value.min(200));
+                crate::layout::store(&root, "speaker_volume", value.min(200));
+            }
+            voice.play_volumes();
+            if let Some(suppressor) = change.suppressor {
+                voice.noise_suppression = suppressor;
+                yapfast_core::noise::set(suppressor);
+                crate::layout::store(&root, "noise_suppression", suppressor);
+            }
+        }
         Task::batch(tasks)
     }
 

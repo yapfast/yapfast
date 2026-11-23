@@ -375,6 +375,26 @@ impl Application {
                     message: "this call is answered by Discord, later".to_owned(),
                 },
             ),
+            AppCall::VoiceSettings => (Vec::new(), HostReturn::Ok(self.plugin_voice_settings())),
+            AppCall::VoiceSet(set) => self.plugin_voice_set(set),
+            AppCall::PlayRecording { path, volume } => {
+                let played = match path {
+                    Some(path) => crate::plugins::audio::play_recording(&path, volume),
+                    None => {
+                        crate::plugins::audio::stop_recording_playback();
+                        Ok(())
+                    }
+                };
+                match played {
+                    Ok(()) => (Vec::new(), done),
+                    Err(error) => (
+                        Vec::new(),
+                        HostReturn::Error {
+                            message: format!("{error:#}"),
+                        },
+                    ),
+                }
+            }
             AppCall::Speak {
                 text,
                 voice,
@@ -397,6 +417,83 @@ impl Application {
                 ),
             },
         }
+    }
+
+    /// `voice.settings`: the microphone and speakers chosen and listed, their
+    /// volumes as the page's sliders show them, and the noise suppressor.
+    fn plugin_voice_settings(&self) -> serde_json::Value {
+        use yapfast_plugin_api::call::{VoiceDevice, VoiceSettings};
+        let voice = &self.state.voice;
+        let devices = |list: &[crate::voice::Device]| {
+            list.iter()
+                .map(|device| VoiceDevice {
+                    id: device.id.clone(),
+                    name: device.name.clone(),
+                })
+                .collect()
+        };
+        let slider = |gain: f32| crate::volume::to_slider(gain).round().clamp(0.0, 200.0) as u8;
+        let settings = VoiceSettings {
+            input_volume: slider(crate::volume::microphone()),
+            output_volume: slider(crate::volume::speakers()),
+            microphone: voice.microphone.clone(),
+            speaker: voice.speaker.clone(),
+            microphones: devices(&voice.microphones),
+            speakers: devices(&voice.speakers),
+            noise_suppression: suppressor_name(crate::noise::chosen()).to_owned(),
+        };
+        serde_json::to_value(settings).unwrap_or_default()
+    }
+
+    /// `voice.set`: a device picked as the person picks one, and the volumes
+    /// and the suppressor handed to the window, which keeps them as its page
+    /// does and plays them.
+    fn plugin_voice_set(
+        &mut self,
+        set: yapfast_plugin_api::call::VoiceSet,
+    ) -> (Vec<AppEffect>, HostReturn) {
+        let listed =
+            |list: &[crate::voice::Device], id: &str| list.iter().any(|device| device.id == id);
+        if let Some(id) = &set.microphone
+            && !listed(&self.state.voice.microphones, id)
+        {
+            return (
+                Vec::new(),
+                HostReturn::Error {
+                    message: format!("no microphone has the id {id}"),
+                },
+            );
+        }
+        if let Some(id) = &set.speaker
+            && !listed(&self.state.voice.speakers, id)
+        {
+            return (
+                Vec::new(),
+                HostReturn::Error {
+                    message: format!("no speaker has the id {id}"),
+                },
+            );
+        }
+        let mut effects = Vec::new();
+        if let Some(id) = set.microphone {
+            effects.extend(self.dispatch(AppAction::Voice(crate::voice::Command::Microphone(id))));
+        }
+        if let Some(id) = set.speaker {
+            effects.extend(self.dispatch(AppAction::Voice(crate::voice::Command::Speaker(id))));
+        }
+        let suppressor = set.noise_suppression.as_deref().map(|name| match name {
+            "rnnoise" => crate::noise::Suppressor::RNNoise,
+            "off" => crate::noise::Suppressor::Off,
+            _ => crate::noise::Suppressor::DeepFilterNet,
+        });
+        if set.input_volume.is_some() || set.output_volume.is_some() || suppressor.is_some() {
+            effects.push(AppEffect::Plugin(Effect::VoiceSettings(VoiceChange {
+                input_volume: set.input_volume,
+                output_volume: set.output_volume,
+                suppressor,
+            })));
+        }
+        (effects, HostReturn::Ok(serde_json::Value::Bool(true)))
     }
 
     /// Whether an id names something the sidebar lists: a conversation, a
@@ -769,5 +866,14 @@ fn with_items(request: crate::plugins::state::AppCall) -> crate::plugins::state:
             room,
         },
         other => other,
+    }
+}
+
+/// A noise suppressor by the name `voice.settings` and `voice.set` use.
+fn suppressor_name(suppressor: crate::noise::Suppressor) -> &'static str {
+    match suppressor {
+        crate::noise::Suppressor::DeepFilterNet => "deepfilternet",
+        crate::noise::Suppressor::RNNoise => "rnnoise",
+        crate::noise::Suppressor::Off => "off",
     }
 }

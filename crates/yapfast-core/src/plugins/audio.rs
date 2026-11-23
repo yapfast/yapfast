@@ -91,6 +91,92 @@ pub fn play(data: Vec<u8>, volume: Option<u8>) -> Result<()> {
     Ok(())
 }
 
+/// Which listen-back plays now: each new one, and each stop, counts it on,
+/// and a playing one that sees it move stops at its next piece.
+static LISTENING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Plays one of a plugin's recordings to its end on the default output, so
+/// the person hears it before it is sent (`microphone.play`), at `volume`
+/// from 0 to 100. One plays at a time: a new one stops the last.
+///
+/// Unlike a plugin's sound it isn't cut at [`LONGEST_SECONDS`], and it isn't
+/// held whole: an Opus recording is decoded a piece at a time as it plays,
+/// and a WAV one is read a piece at a time from what Yapfast wrote.
+pub fn play_recording(path: &std::path::Path, volume: Option<u8>) -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let data = std::fs::read(path).context("the recording is gone")?;
+    let gain = crate::sounds::gain(volume.unwrap_or(100));
+    let turn = LISTENING.fetch_add(1, Ordering::Relaxed) + 1;
+    if !data.starts_with(b"RIFF") && !cfg!(feature = "discord") {
+        bail!("this build plays back only WAV recordings: it carries no Opus decoder");
+    }
+    std::thread::Builder::new()
+        .name("yapfast-plugin-listen".into())
+        .spawn(move || {
+            let played = (|| -> Result<()> {
+                let mut output = Output::<i16>::open(None, "Plugin recording", RATE, 2, None)
+                    .context("no speakers")?;
+                let mut write = |piece: &[i16]| -> bool {
+                    if LISTENING.load(Ordering::Relaxed) != turn {
+                        return false;
+                    }
+                    let loud: Vec<i16> = piece
+                        .iter()
+                        .map(|sample| (f32::from(*sample) * gain) as i16)
+                        .collect();
+                    output.write(&loud).is_ok()
+                };
+                if data.starts_with(b"RIFF") {
+                    // Yapfast's own 16-bit mono WAV: past its header, each
+                    // sample twice for the two channels.
+                    for frame in data
+                        .get(44..)
+                        .unwrap_or_default()
+                        .chunks(RATE as usize / 50 * 2)
+                    {
+                        let stereo: Vec<i16> = frame
+                            .chunks_exact(2)
+                            .flat_map(|pair| {
+                                let sample = i16::from_le_bytes([pair[0], pair[1]]);
+                                [sample, sample]
+                            })
+                            .collect();
+                        if !write(&stereo) {
+                            break;
+                        }
+                    }
+                } else {
+                    stream_other(&data, &mut write)?;
+                }
+                output.drain().context("could not finish playing")?;
+                Ok(())
+            })();
+            if let Err(error) = played {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not play a plugin's recording"
+                );
+            }
+        })
+        .context("could not start the recording's thread")?;
+    Ok(())
+}
+
+/// Stops the recording `play_recording` plays, if one does.
+pub fn stop_recording_playback() {
+    LISTENING.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(feature = "discord")]
+fn stream_other(data: &[u8], each: &mut impl FnMut(&[i16]) -> bool) -> Result<()> {
+    crate::soundboard::stream(data, each)
+}
+
+#[cfg(not(feature = "discord"))]
+fn stream_other(_data: &[u8], _each: &mut impl FnMut(&[i16]) -> bool) -> Result<()> {
+    bail!("this build reads only WAV files: it carries no other sound decoder")
+}
+
 /// Says `text` in the operating system's own voice.
 ///
 /// The text is never handed to a shell: it is one argument of the program, or,
