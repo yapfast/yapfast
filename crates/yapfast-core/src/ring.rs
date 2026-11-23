@@ -60,6 +60,36 @@ fn pattern(tone: Tone) -> Vec<f32> {
     samples
 }
 
+/// A theme's own ring and ringback, as 48 kHz interleaved stereo, in place
+/// of the tones; none plays the tone.
+static THEMED: std::sync::RwLock<[Option<Arc<[i16]>>; 2]> = std::sync::RwLock::new([None, None]);
+
+/// Rings with a theme's sound for `tone` from the next ring on, or with the
+/// tone again for none.
+pub fn set_themed(tone: Tone, samples: Option<Arc<[i16]>>) {
+    if let Ok(mut themed) = THEMED.write() {
+        themed[tone as usize] = samples;
+    }
+}
+
+/// One repetition of what rings for `tone`, mono, as [`pattern`] gives it:
+/// a theme's sound, or the tone.
+fn repetition(tone: Tone) -> Vec<f32> {
+    let themed = THEMED
+        .read()
+        .ok()
+        .and_then(|themed| themed[tone as usize].clone());
+    match themed {
+        Some(samples) => samples
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| (f32::from(pair[0]) + f32::from(pair[1])) / 2.0 / f32::from(i16::MAX))
+            .collect(),
+        None => pattern(tone),
+    }
+}
+
 /// Plays a tone over and over until dropped.
 pub struct Ringer {
     stop: Arc<AtomicBool>,
@@ -84,7 +114,7 @@ impl Ringer {
                     Some(Duration::from_millis(100)),
                 );
                 match output {
-                    Ok(output) => play(&pattern(tone), output, &stopped),
+                    Ok(output) => play(&repetition(tone), output, &stopped),
                     Err(error) => tracing::warn!(
                         error = format!("{error:#}"),
                         "could not open the speakers to ring"

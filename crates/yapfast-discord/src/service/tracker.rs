@@ -1332,7 +1332,11 @@ impl Tracker {
             .filter(|known| known.thread.is_none())
             .and_then(|known| known.parent.as_deref());
         let author = message["author"]["id"].as_str().unwrap_or_default();
-        let unwanted = self.blocked.iter().any(|blocked| blocked == author)
+        let unwanted = self
+            .blocked
+            .iter()
+            .chain(&self.ignored)
+            .any(|id| id == author)
             || self
                 .private
                 .iter()

@@ -35,4 +35,12 @@ calling thread; Yapfast asks for it right after making one. `release_buffers`
 empties the pool while the camera is off. Both are in
 src/video_track.cpp and include/livekit/video_track.h.
 
+## Pointer in Windows screen shares
+
+Windows Graphics Capture leaves the pointer out of some monitor captures, and
+DXGI and GDI never draw it. On Windows, src/desktop_capturer.cpp asks a screen
+capturer for frames without the pointer and wraps it in libwebrtc's
+`DesktopAndCursorComposer`, which draws the pointer once, where Windows says
+it is. Window captures are as upstream.
+
 The matching native archive is `webrtc-a545de4`, shared by the Nix and Windows environments.

@@ -183,9 +183,9 @@ checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
 name = "apple-native-keyring-store"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b350bfd03649e07aa05c0a81b3e15934374e585c98204a57e20b9d49f49bb9a"
+checksum = "02e465454e78fda6f7cd9dab7eb47518ca28c59b1bc392ca865af61452741dd3"
 dependencies = [
  "keyring-core",
  "log",
@@ -10883,6 +10883,7 @@ dependencies = [
  "directories",
  "emojis",
  "ffmpeg-src",
+ "flate2",
  "futures-util",
  "gif",
  "image",
@@ -10910,11 +10911,14 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "thorvg-sys",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "ttf-parser",
  "url",
  "uuid",
  "webrtc-sys",
@@ -10979,7 +10983,9 @@ dependencies = [
  "png",
  "pulldown-cmark",
  "qrcode",
+ "reqwest 0.13.5",
  "rfd",
+ "rustls",
  "serde",
  "serde_json",
  "tempfile",
@@ -11001,6 +11007,7 @@ dependencies = [
  "iced_tiny_skia",
  "iced_wgpu",
  "resvg 0.49.0",
+ "sys-locale",
  "tokio",
  "tracing",
  "ttf-parser",

@@ -72,7 +72,13 @@ thread_local! {
 /// Discord's and browsers' do; a microphone's joins "Audio", the category
 /// below, which is still above every ordinary thread. Says how it raised
 /// the calling thread, or why it couldn't.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(
+        dead_code,
+        reason = "only Discord raises the WASAPI audio thread priority"
+    )
+)]
 pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
     let (name, how) = match priority {
         super::Priority::Playback => (w!("Pro Audio"), "MMCSS Pro Audio"),

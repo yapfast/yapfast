@@ -112,6 +112,24 @@ it takes `--bin` for a saved build. The other `testing/measure_*.py` harnesses
 and `testing/join_voice.py` cover cameras, scrolling, the network builds and
 joining a call.
 
+The Matrix screenshot harnesses locate the rail in the current default
+Bonfire theme or in Yap, which older fixtures can keep. The network harness
+uses the same locator and reads the screenshot's actual dimensions.
+It compares Discord alone with Discord plus Matrix; `desktop` includes
+Discord, so a Matrix-only window is not a supported comparison. Prepare
+the two binaries on Linux before starting the harness:
+
+```sh
+nix develop path:./nix --command cargo build --locked --profile measure --bin yapfast
+mkdir -p target/networks
+cp target/measure/yapfast target/networks/yapfast-discord
+nix develop path:./nix --command cargo build --locked --profile measure --bin yapfast --features matrix
+cp target/measure/yapfast target/networks/yapfast-combined
+```
+
+The harness runs both builds against test services, including during the
+Matrix warm-up, so the combined build does not use a real Discord account.
+
 Alternate the builds over several runs and give the spread between runs of
 one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
