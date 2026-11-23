@@ -50,7 +50,7 @@ audio capabilities, which share one line.
 | `network` | HTTPS to the hosts the manifest lists, and to no other | Uses network |
 | `network.local` | One exact loopback port, which the manifest names | Connects to an app on this computer |
 | `open.app` | Open other applications through listed URI schemes | Opens other apps |
-| `messages.attach` | Send files it made, or its own assets, with the messages it sends | Sends files it makes with the messages it sends, as you |
+| `messages.attach` | Send files it made, fetched, or its own assets, with the messages it sends | Sends files it makes with the messages it sends, as you |
 | `activity.set` | An activity of its own on the account's presence | Shows an activity of its own on your profile, which everyone who sees you on Discord sees |
 | `profile.write` | The bio, the pronouns and the custom status, asked about the first time | Can change your bio, pronouns and custom status; you're asked the first time |
 | `keybinds` | Named actions the person binds to keys in Settings → Keybinds | Offers actions you can bind to keys; it never sees your keys |
@@ -134,8 +134,8 @@ and nothing powerful is allowed. The marketplace lists no powerful plugin as
 | `messages.send.agent` | Sending without a keystroke, at `agent-per-minute` (1 to 20, six unsaid) | Sends messages as you without you pressing a key |
 | `net.socket` | Raw TCP, TLS over it, or a WebSocket, out; with `"socket-local": true` this computer and its network too | Can open raw connections to any server |
 
-`messages.attach` is not powerful: it sends files the plugin made, or its own
-assets, with a message, on the rails every send takes
+`messages.attach` is not powerful: it sends files the plugin made, fetched
+(with `http.fetch`) or its own assets, with a message, on the rails every send takes
 ([the account's own calls](#the-accounts-own-calls)). Sending a file from a
 folder by its path (`files`) needs `fs.folder` or `fs.full` as well, which is
 the tier.

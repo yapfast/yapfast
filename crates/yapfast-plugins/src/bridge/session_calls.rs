@@ -720,10 +720,12 @@ pub(super) fn carried(
     Ok(bytes)
 }
 
-/// The files a plugin made, or that its package carries, for a send: each a
-/// file name and no path, bytes or an asset and never both. Bytes come inside
-/// the call's one frame, so the frame is their cap; an asset is read from the
-/// store, checked again as it is read.
+/// The files a plugin made, that its package carries or that it fetched, for
+/// a send: each a file name and no path, and one of bytes, an asset or a kept
+/// body. Bytes come inside the call's one frame, so the frame is their cap; an
+/// asset is read from the store, checked again as it is read; a body is read
+/// from where `http.fetch` kept it, the plugin's own and at most a plugin's
+/// largest file.
 fn made_files(
     shared: &Shared,
     plugin: &PluginId,
@@ -735,11 +737,14 @@ fn made_files(
             let name = saved_name(&attachment.name).map_err(|message| HostReturn::Error {
                 message: message.replace("`files.save` suggests", "an attachment has"),
             })?;
-            let bytes = match (&attachment.bytes_base64, &attachment.asset) {
-                (Some(encoded), None) => brought(encoded, frame::MAX_FRAME),
-                (None, Some(asset)) => shared.asset(plugin, asset).map(|(_, bytes)| bytes),
+            let bytes = match (&attachment.bytes_base64, &attachment.asset, attachment.body) {
+                (Some(encoded), None, None) => brought(encoded, frame::MAX_FRAME),
+                (None, Some(asset), None) => shared.asset(plugin, asset).map(|(_, bytes)| bytes),
+                (None, None, Some(body)) => {
+                    shared.body_bytes(plugin, body, SendMessage::MAX_FILE_BYTES)
+                }
                 _ => Err(format!(
-                    "the attachment `{name}` takes `bytes_base64` or `asset`, and one of them"
+                    "the attachment `{name}` takes `bytes_base64`, `asset` or `body`, and one of them"
                 )),
             }
             .map_err(|message| HostReturn::Error { message })?;

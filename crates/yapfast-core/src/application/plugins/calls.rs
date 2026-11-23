@@ -10,7 +10,7 @@ use super::*;
 
 /// The largest file a plugin sends with a message: Discord's own cap for an
 /// account without Nitro, so what goes is what Discord takes.
-const PLUGIN_FILE_LIMIT: u64 = 10 << 20;
+const PLUGIN_FILE_LIMIT: u64 = yapfast_plugin_api::call::SendMessage::MAX_FILE_BYTES;
 
 impl Application {
     /// Carries out a call only the application can, and says what it answered.

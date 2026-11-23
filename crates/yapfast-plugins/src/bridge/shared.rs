@@ -239,6 +239,30 @@ impl Shared {
         Ok((piece, bytes, eof))
     }
 
+    /// The whole of a kept body of this plugin's, for a send that attaches
+    /// it: refused over `cap` before anything is read.
+    pub(super) fn body_bytes(
+        &self,
+        plugin: &PluginId,
+        body: u64,
+        cap: u64,
+    ) -> Result<Vec<u8>, String> {
+        let (path, bytes) = {
+            let bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);
+            let kept = bodies
+                .get(&body)
+                .filter(|kept| kept.plugin == *plugin)
+                .ok_or_else(|| format!("no answer is kept as body {body}"))?;
+            (kept.path.clone(), kept.bytes)
+        };
+        if bytes > cap {
+            return Err(format!(
+                "body {body} is {bytes} bytes, and a plugin's file is at most {cap}"
+            ));
+        }
+        std::fs::read(&path).map_err(|error| format!("body {body} can't be read: {error}"))
+    }
+
     /// Lets a kept body go: its file is removed.
     pub(super) fn release_body(&self, plugin: &PluginId, body: u64) -> bool {
         let mut bodies = self.bodies.lock().unwrap_or_else(PoisonError::into_inner);

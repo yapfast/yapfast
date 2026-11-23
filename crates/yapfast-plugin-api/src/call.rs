@@ -838,11 +838,14 @@ pub struct SendMessage {
 impl SendMessage {
     /// The most files one message carries, as Discord's own limit.
     pub const MAX_FILES: usize = 10;
+    /// The largest file a plugin sends, by whatever path it comes.
+    pub const MAX_FILE_BYTES: u64 = 10 << 20;
 }
 
-/// One file a plugin sends with a message: bytes it made, base64, or one of
-/// its own assets by name, and never both. The name is what Discord shows,
-/// a file name and no path.
+/// One file a plugin sends with a message: bytes it made, base64, one of its
+/// own assets by name, or a body `http.fetch` kept for `http.read` by its
+/// `body_id`, and exactly one of them. The name is what Discord shows, a file
+/// name and no path.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Attachment {
@@ -851,6 +854,12 @@ pub struct Attachment {
     pub bytes_base64: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset: Option<String>,
+    /// A fetched file too large for one answer, as `http.fetch` named it
+    /// (`body_id`): sent from where it is kept, never through the plugin, at
+    /// most [`SendMessage::MAX_FILE_BYTES`]. The body stays kept for
+    /// `http.read` afterwards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<u64>,
     /// Covered until clicked, as a person's spoiler is.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spoiler: bool,

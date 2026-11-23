@@ -28,7 +28,8 @@ fn ask(method: &str, payload: impl Serialize) -> Result<Pending> {
     }
 }
 
-/// One file a plugin sends: bytes it made, or one of its assets by name.
+/// One file a plugin sends: bytes it made, one of its assets by name, or a
+/// file `http.fetch` kept for `http.read` by its body id.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
     pub name: String,
@@ -36,6 +37,8 @@ pub struct Attachment {
     pub bytes_base64: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<u64>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spoiler: bool,
 }
@@ -46,6 +49,16 @@ impl Attachment {
         Attachment {
             name: name.into(),
             bytes_base64: Some(crate::wire::base64::encode(bytes)),
+            ..Attachment::default()
+        }
+    }
+
+    /// A file the plugin fetched that was too large for one answer: the
+    /// response's `body_id`, sent from where Yapfast keeps it, at most 10 MiB.
+    pub fn fetched(name: impl Into<String>, body: u64) -> Self {
+        Attachment {
+            name: name.into(),
+            body: Some(body),
             ..Attachment::default()
         }
     }

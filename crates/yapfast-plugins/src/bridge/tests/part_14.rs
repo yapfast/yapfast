@@ -226,6 +226,72 @@ fn a_plugins_own_files_go_with_a_send_on_the_sends_own_rails() {
     assert!(message.contains("10"), "{message}");
 }
 
+/// A file `http.fetch` kept for `http.read` goes with a send by its body id:
+/// the plugin's own body only, whole, and never one over a plugin's file cap.
+#[test]
+fn a_fetched_body_goes_with_a_send_by_its_id() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = account_plugin(directory.path(), &["messages.send", "messages.attach"]);
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let path = directory.path().join("cat.body");
+    std::fs::write(&path, b"GIF89a cat").expect("a body");
+    let body = shared.keep_body(&plugin, path, 10);
+    let other = PluginId::parse("com.example.other").unwrap();
+    let theirs = directory.path().join("theirs.body");
+    std::fs::write(&theirs, b"theirs").expect("a body");
+    let theirs = shared.keep_body(&other, theirs, 6);
+    let huge = directory.path().join("huge.body");
+    std::fs::write(&huge, b"x").expect("a body");
+    let huge = shared.keep_body(&plugin, huge, call::SendMessage::MAX_FILE_BYTES + 1);
+
+    shared.gesture(&plugin);
+    let answer = ask_with(
+        &shared,
+        &plugin,
+        call::method::MESSAGES_ATTACH,
+        serde_json::json!({ "room": "room-1", "body": "",
+            "attachments": [{ "name": "cat.gif", "body": body }] }),
+    );
+    assert!(matches!(answer, HostReturn::Pending { .. }), "{answer:?}");
+    let AppCall::Send { made, .. } = handed(&notices) else {
+        panic!("a send");
+    };
+    assert_eq!(made.len(), 1);
+    assert_eq!(made[0].name, "cat.gif");
+    assert_eq!(made[0].bytes, b"GIF89a cat");
+    assert!(
+        shared
+            .read_body(
+                &plugin,
+                &call::BodyRead {
+                    body,
+                    offset: 0,
+                    length: None
+                }
+            )
+            .is_ok()
+    );
+
+    for wrong in [
+        serde_json::json!([{ "name": "x.gif", "body": theirs }]),
+        serde_json::json!([{ "name": "x.gif", "body": huge }]),
+        serde_json::json!([{ "name": "x.gif", "body": 999 }]),
+        serde_json::json!([{ "name": "x.gif", "body": body, "asset": "logo" }]),
+    ] {
+        let answer = ask_with(
+            &shared,
+            &plugin,
+            call::method::MESSAGES_SEND,
+            serde_json::json!({ "room": "room-1", "body": "", "attachments": wrong }),
+        );
+        assert!(
+            matches!(answer, HostReturn::Error { .. }),
+            "{wrong}: {answer:?}"
+        );
+    }
+}
+
 #[test]
 fn an_activity_search_sessions_drafts_and_spotify_reach_the_application() {
     let directory = tempfile::tempdir().expect("a temporary directory");

@@ -717,8 +717,12 @@ the services' own, and the sources).
 | `spotify.shuffle` | `{ on }` | `true` |
 | `spotify.repeat` | `{ mode }`: `off`, `track` or `context` | `true` |
 
-An attachment is `{ name, bytes_base64 }` or `{ name, asset }`, never both, and
-`spoiler: true` covers it until clicked. `messages.send` takes `attachments` as
+An attachment is `{ name, bytes_base64 }`, `{ name, asset }` or `{ name, body }`,
+exactly one of them, and `spoiler: true` covers it until clicked. `body` is the
+`body_id` `http.fetch` answered for a file too large for one answer: it goes from
+where Yapfast keeps it, never through the plugin, the plugin's own body only and
+at most 10 MiB, and stays kept for `http.read` after. A fetched file small
+enough to come back as `body_base64` goes as `bytes_base64`. `messages.send` takes `attachments` as
 well, with `messages.attach` declared. `place` is a room's id or a server's, and
 `query` takes the search box's filters. A Spotify call that fails says why: no
 Spotify linked, Premium needed, nothing playing on any device, or Spotify's own
