@@ -363,8 +363,41 @@ pub enum Report {
     Ended { error: Option<String> },
 }
 
+/// Tells Windows this process works in the displays' own pixels. Windows
+/// gives a process that doesn't say so the pointer's place, and the screens'
+/// places, scaled down by the display's scale, while a shared screen's
+/// pictures come at full size: at 150 % libwebrtc would draw the pointer two
+/// thirds of the way to where it is. Yapfast's window says so through winit;
+/// the worker has no window. Windows 10 before 1703 lacks the call, so it's
+/// looked up rather than linked.
+#[cfg(windows)]
+fn see_real_pixels() {
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use windows::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
+    use windows::core::{s, w};
+    type SetProcessDpiAwarenessContext = unsafe extern "system" fn(DPI_AWARENESS_CONTEXT) -> i32;
+    // SAFETY: user32 stays loaded while the process runs, and the function
+    // by that name has that signature.
+    unsafe {
+        let Ok(user32) = GetModuleHandleW(w!("user32.dll")) else {
+            return;
+        };
+        let Some(set) = GetProcAddress(user32, s!("SetProcessDpiAwarenessContext")) else {
+            return;
+        };
+        let set: SetProcessDpiAwarenessContext = std::mem::transmute(set);
+        if set(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == 0 {
+            tracing::warn!("the stream worker works in scaled pixels");
+        }
+    }
+}
+
 /// Runs this process as a stream worker until its job ends.
 pub fn run() -> Result<()> {
+    #[cfg(windows)]
+    see_real_pixels();
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
     let mut output = std::io::stdout();

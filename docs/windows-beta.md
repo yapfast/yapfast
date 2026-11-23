@@ -132,7 +132,9 @@ only until they're in. A window closed after it was listed ends sharing with
 screen.
 
 When sharing an entire screen, libwebrtc draws the Windows pointer into the
-captured frames before Yapfast previews or encodes them.
+captured frames before Yapfast previews or encodes them. The worker works in
+the displays' own pixels (per-monitor DPI aware), so on a scaled display the
+pointer is drawn where it is.
 
 Go Live's sound comes from WASAPI process loopback: one stream of everything
 Windows plays except Yapfast's own process tree, the Yapfast window and its
