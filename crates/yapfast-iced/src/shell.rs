@@ -728,7 +728,7 @@ impl App {
             self.shell.taskbar_unread = Some((id, unread));
             tasks.push(
                 window::run(id, move |window| {
-                    desktop::desktop().taskbar_unread(window, unread)
+                    desktop::desktop().taskbar_unread(window, unread);
                 })
                 .discard(),
             );
