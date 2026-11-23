@@ -227,11 +227,18 @@ fn rows_view<'a, M: Clone + 'a>(
         };
         let mut drawn = drawn;
         if line.framed {
-            let ground = theme.raised;
+            // A card on whatever it lies on (a settings page's card, a
+            // dialog, a toast): a wash over that ground and a hairline
+            // round it, so it shows on every one of them.
+            let (ground, edge) = (theme.wash(0.04), theme.line);
             drawn = container(drawn)
-                .padding(10)
+                .padding(12)
                 .width(Length::Fill)
-                .style(move |_| style::rounded(ground, 8))
+                .style(move |_| container::Style {
+                    background: Some(ground.into()),
+                    border: style::edge(edge, 8.0),
+                    ..container::Style::default()
+                })
                 .into();
         } else if line.indent > 0 {
             let indent = f32::from(line.indent.min(3)) * 16.0;

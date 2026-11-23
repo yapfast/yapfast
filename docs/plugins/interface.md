@@ -315,6 +315,10 @@ it looks like the buttons beside it; a name this build doesn't have draws the
 text. In the voice panel each button is a tile of the panel's own row, its
 tooltip naming the plugin (*Next song · Controls plugin*).
 
+A row with `framed` is a card: a light wash over the ground it lies on and a
+hairline round it, so it shows on a settings page, in a dialog and on a toast
+alike; `indent` (0 to 3) steps a row in from the start.
+
 Any cell takes a `tooltip`, plain text shown when the pointer rests on it, and
 `end`: the row's cells with `end` sit together at its end, in their order, and
 the rest wrap from its start, so a dialog's Cancel and Delete sit at its right

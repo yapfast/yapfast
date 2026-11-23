@@ -1360,7 +1360,8 @@ pub fn part_id(
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Row {
-    /// Drawn inside a frame, as a card.
+    /// Drawn as a card: a wash over the ground it lies on and a hairline
+    /// round it, so it shows on a page, a dialog and a toast alike.
     #[serde(default)]
     pub framed: bool,
     /// Steps in from the start, 0 to 3.
