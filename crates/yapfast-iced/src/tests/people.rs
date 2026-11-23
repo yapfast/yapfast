@@ -1167,6 +1167,7 @@ fn select_and_copy(app: &mut App, line: iced::Rectangle) -> (Vec<String>, iced::
             c,
             keyboard::Modifiers::CTRL,
             physical,
+            None,
         ))));
     }
     (written, status)

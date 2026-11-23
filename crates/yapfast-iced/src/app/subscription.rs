@@ -29,8 +29,13 @@ impl App {
                 key,
                 modifiers,
                 physical_key,
+                text,
                 ..
-            } => Some(Message::Pressed(key, modifiers, physical_key)),
+            } => {
+                let typed =
+                    yapfast_iced_kit::field::Typed::from_key_text(&key, modifiers, text.as_deref());
+                Some(Message::Pressed(key, modifiers, physical_key, typed))
+            }
             keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
@@ -131,6 +136,7 @@ impl App {
                     keyboard::Key::Character("t".into()),
                     modifiers,
                     physical_key,
+                    None,
                 ))
             }
             _ => None,

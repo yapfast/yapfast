@@ -81,7 +81,12 @@ pub enum Message {
     /// A key nothing in the window took; as the window hands it on, with
     /// where it is on the keyboard, which tells push to talk's key.
     Key(keyboard::Key, keyboard::Modifiers),
-    Pressed(keyboard::Key, keyboard::Modifiers, keyboard::key::Physical),
+    Pressed(
+        keyboard::Key,
+        keyboard::Modifiers,
+        keyboard::key::Physical,
+        Option<yapfast_iced_kit::field::Typed>,
+    ),
     /// Shift, Ctrl, Alt or the logo key went down or up.
     Modifiers(keyboard::Modifiers),
     /// Fallback fonts the shaper wanted are in (`fonts::load_wanted`): the
