@@ -68,6 +68,9 @@ fn place_menu(
         choices.insert(0, MenuChoice::MarkRead);
         unread = false;
     }
+    // A folder's settings come after its servers, as in Discord's menu.
+    let folder_settings = folder && choices.contains(&MenuChoice::FolderSettings);
+    choices.retain(|choice| *choice != MenuChoice::FolderSettings);
     let developer = app.layout.developer_mode;
     let twelve = app.layout.prefs.twelve_hour_clock;
     let server_notifications = if server {
@@ -193,7 +196,7 @@ fn place_menu(
         })
         .collect();
     if folder && !header {
-        rows.extend(folder_rows(app, id, &folder_known, twelve));
+        rows.extend(folder_rows(app, id, &folder_known, twelve, folder_settings));
     }
     if rows.is_empty() {
         return Task::none();
@@ -326,6 +329,7 @@ pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Me
         MenuChoice::DuplicateChannel => Action::AskChannel(ChannelAsk::Duplicate(place)),
         MenuChoice::DeleteChannel => Action::AskChannel(ChannelAsk::Delete(place)),
         MenuChoice::LeaveServer => Action::AskLeaveServer(place),
+        MenuChoice::FolderSettings => Action::OpenFolderSettings(place),
         MenuChoice::JoinThread | MenuChoice::LeaveThread => Action::JoinThread {
             room: place,
             join: choice == MenuChoice::JoinThread,
@@ -654,6 +658,7 @@ fn folder_rows(
     folder: &str,
     known: &[(String, Option<yapfast_core::chat::ServerNotifications>)],
     twelve: bool,
+    settings: bool,
 ) -> Vec<MenuRow> {
     let state = app.client.state();
     let servers: Vec<MenuRow> = state
@@ -703,6 +708,16 @@ fn folder_rows(
             ),
             submenu: servers,
             ..MenuRow::plain(MenuAct::Event, "Servers")
+        });
+    }
+    if settings {
+        rows.push(MenuRow {
+            icon: Some(Icon::Settings),
+            separated: rows.is_empty(),
+            ..MenuRow::plain(
+                MenuAct::Place(MenuChoice::FolderSettings),
+                "Folder settings",
+            )
         });
     }
     if !app.layout.open_folders.is_empty() {
@@ -914,7 +929,7 @@ pub fn icon(choice: MenuChoice) -> Icon {
         C::AddNickname | C::EditNickname => Icon::UserPen,
         C::LeaveGroup | C::LeaveServer | C::LeaveThread => Icon::LogOut,
         C::Apps => Icon::Slash,
-        C::ServerSettings => Icon::Settings,
+        C::ServerSettings | C::FolderSettings => Icon::Settings,
         C::Unfriend => Icon::UserMinus,
         C::Ignore | C::Unignore | C::HideMuted | C::RemoveFromChannelList | C::UnfollowCategory => {
             Icon::EyeOff
@@ -1004,6 +1019,7 @@ pub fn label(choice: MenuChoice) -> &'static str {
             "Notification settings"
         }
         MenuChoice::MuteFolder => "Mute folder",
+        MenuChoice::FolderSettings => "Folder settings",
         MenuChoice::UnmuteFolder => "Unmute folder",
         MenuChoice::ShowAllChannels => "Show all channels",
         MenuChoice::HideMuted => "Hide muted channels",

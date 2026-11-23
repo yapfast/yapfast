@@ -518,12 +518,51 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::ArrangeServers { entries }) = command {
+        let entries: Vec<yapfast_discord::settings::Folder> = entries
+            .into_iter()
+            .map(|entry| yapfast_discord::settings::Folder {
+                id: entry
+                    .folder
+                    .as_ref()
+                    .and_then(|folder| crate::discord::parse_folder(&folder.id))
+                    .unwrap_or_default()
+                    .to_owned(),
+                name: entry.folder.as_ref().and_then(|folder| folder.name.clone()),
+                color: entry.folder.as_ref().and_then(|folder| folder.color),
+                servers: entry
+                    .servers
+                    .iter()
+                    .filter_map(|server| crate::discord::parse_server(server))
+                    .map(str::to_owned)
+                    .collect(),
+            })
+            .filter(|entry| !entry.servers.is_empty())
+            .collect();
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .arrange_servers(entries)
+                        .await
+                        .map_err(|error| error.to_string());
+                    let _ = events.send(Event::ServerFiled(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ServerFiled(Err(why.into())));
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::FileServer {
         server,
         source_folder,
         target,
         folder,
         before,
+        color,
     }) = command
     {
         match discord {
@@ -531,7 +570,7 @@ pub(super) fn command(
                 let (discord, events) = (discord.clone(), events.clone());
                 tokio::spawn(async move {
                     let result = discord
-                        .file_server(&server, source_folder, &target, folder, before)
+                        .file_server(&server, source_folder, &target, folder, before, color)
                         .await
                         .map_err(|error| error.to_string());
                     let _ = events.send(Event::ServerFiled(result));

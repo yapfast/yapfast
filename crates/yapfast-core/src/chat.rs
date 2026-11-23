@@ -754,6 +754,15 @@ pub struct ChannelSettings {
 }
 
 /// A folder of servers on the rail, as Discord's server list keeps them.
+/// A place on the rail's server list as Discord's settings keep it: a
+/// folder and its servers, or with no folder one server on its own; servers
+/// by their rail ids.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RailEntry {
+    pub folder: Option<ServerFolder>,
+    pub servers: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ServerFolder {
     /// Unique across networks, such as `discord-folder:7`.
@@ -3361,13 +3370,21 @@ pub enum DiscordCommand {
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`;
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
+    /// Put the rail's Discord servers in this order and these folders, as
+    /// an undo or Folder Settings sends them; [`Event::ServerFiled`]
+    /// follows.
+    ArrangeServers {
+        entries: Vec<RailEntry>,
+    },
     /// Places a server in a folder or moves a server or folder beside a tile.
+    /// A folder this makes takes `color`, RGB.
     FileServer {
         server: String,
         source_folder: bool,
         target: String,
         folder: bool,
         before: Option<bool>,
+        color: Option<u32>,
     },
     /// Share the game the Discord account plays, or stop;
     /// [`Event::ShowGameSet`] follows.

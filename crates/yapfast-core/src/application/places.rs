@@ -245,6 +245,12 @@ impl Application {
             });
             listed.push(MenuChoice::FolderNotifications);
         }
+        if !self.state.preview
+            && self.state.discord_user.is_some()
+            && id.starts_with("discord-folder:")
+        {
+            listed.push(MenuChoice::FolderSettings);
+        }
         listed
     }
 

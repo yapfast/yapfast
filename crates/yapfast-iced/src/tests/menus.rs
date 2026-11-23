@@ -941,7 +941,8 @@ fn a_folders_menu_changes_its_servers_together_and_lists_them() {
             "Mark folder as read",
             "Mute folder",
             "Notification settings",
-            "Servers"
+            "Servers",
+            "Folder settings"
         ]
     );
     assert!(

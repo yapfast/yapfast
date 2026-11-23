@@ -15,7 +15,7 @@ use iced::{
     widget::{Id, button, container, operation, row, text},
 };
 use yapfast_core::{
-    application::{Action, AppState, ChannelAsk, INVITE_AGES, INVITE_USES},
+    application::{Action, AppState, ChannelAsk, FOLDER_COLORS, INVITE_AGES, INVITE_USES},
     chat::{ChannelKind, ChannelSettings},
 };
 
@@ -38,6 +38,9 @@ const LINK: f32 = 44.0;
 /// The fields' ids.
 const JOIN_FIELD: &str = "join-invite";
 const CHANNEL_FIELD: &str = "channel-name";
+const FOLDER_FIELD: &str = "folder-name";
+/// A colour swatch in Folder Settings.
+const SWATCH: f32 = 28.0;
 
 /// The choices for a new invite link, as Discord's dialog words them, in
 /// the order of `INVITE_AGES` and `INVITE_USES`.
@@ -58,6 +61,18 @@ pub struct Dialogs {
     channel: Option<ChannelDraft>,
     /// Whether the leave dialog showed at the last sync.
     leave_shown: bool,
+    /// Folder Settings' name and colour, while it's open.
+    folder: Option<FolderDraft>,
+}
+
+struct FolderDraft {
+    name: String,
+    /// None for Discord's default colour.
+    color: Option<u32>,
+    /// The colour the folder had, when it's none of the swatches (one
+    /// another client picked): offered as a swatch of its own after them,
+    /// so it shows picked and can be picked again.
+    own: Option<u32>,
 }
 
 struct InviteChoice {
@@ -140,6 +155,12 @@ pub enum Event {
     /// The moved channel takes its category's permissions (true), keeps
     /// its own (false), or stays where it was (none).
     MoveSync(Option<bool>),
+    /// Folder Settings: its name typed, a colour chosen (none for the
+    /// default), Done, or closed.
+    FolderName(String),
+    FolderColor(Option<u32>),
+    SaveFolder,
+    CloseFolder,
 }
 
 fn message(event: Event) -> Message {
@@ -153,6 +174,7 @@ pub fn is_open(state: &AppState) -> bool {
         || state.channel_dialog.is_some()
         || state.leave.is_some()
         || state.move_sync.is_some()
+        || state.folder_settings.is_some()
 }
 
 /// The pictures the dialogs show: the server an invite is to.
@@ -213,6 +235,20 @@ impl Dialogs {
             }
             Some(_) => {}
             None => local.channel = None,
+        }
+        match &state.folder_settings {
+            Some(settings) if local.folder.is_none() => {
+                local.folder = Some(FolderDraft {
+                    name: settings.name.clone(),
+                    color: settings.color.filter(|color| *color != FOLDER_COLORS[0]),
+                    own: settings
+                        .color
+                        .filter(|color| !FOLDER_COLORS.contains(color)),
+                });
+                focus = Some(FOLDER_FIELD);
+            }
+            Some(_) => {}
+            None => local.folder = None,
         }
         if state.leave.is_some() && !local.leave_shown {
             focus = Some(NOBODY);
@@ -284,6 +320,28 @@ impl Dialogs {
             }
             Event::OpenCaptcha => Action::OpenJoinCaptcha,
             Event::CloseJoin => Action::CloseJoin,
+            Event::FolderName(name) => {
+                if let Some(draft) = &mut local.folder {
+                    draft.name = name;
+                }
+                return Task::none();
+            }
+            Event::FolderColor(color) => {
+                if let Some(draft) = &mut local.folder {
+                    draft.color = color;
+                }
+                return Task::none();
+            }
+            Event::SaveFolder => {
+                let Some(draft) = &local.folder else {
+                    return Task::none();
+                };
+                Action::SaveFolderSettings {
+                    name: draft.name.clone(),
+                    color: draft.color,
+                }
+            }
+            Event::CloseFolder => Action::CloseFolderSettings,
             Event::ChannelName(name) => {
                 if let Some(draft) = &mut local.channel {
                     draft.name = name;
@@ -345,7 +403,9 @@ impl Dialogs {
     /// a channel dialog or a leave without a field.
     pub fn key(&mut self, named: Option<key::Named>, cx: &mut Cx<'_>) -> Task<Message> {
         let state = cx.state();
-        let (close, enter) = if state.move_sync.is_some() {
+        let (close, enter) = if state.folder_settings.is_some() {
+            (Event::CloseFolder, Some(Event::SaveFolder))
+        } else if state.move_sync.is_some() {
             (Event::MoveSync(None), Some(Event::MoveSync(Some(true))))
         } else if state.leave.is_some() {
             (Event::CloseLeave, Some(Event::Leave))
@@ -383,6 +443,9 @@ struct View<'a> {
 impl<'a> View<'a> {
     fn view(self) -> Option<Element<'a, Message>> {
         let state = self.cx.state;
+        if state.folder_settings.is_some() {
+            return self.folder_view();
+        }
         if state.move_sync.is_some() {
             return self.move_sync_view();
         }
@@ -857,6 +920,75 @@ impl<'a> View<'a> {
     }
 
     /// Asks before leaving a server or group DM, in red; a group's offers
+    /// Folder Settings, as Discord's: the folder's name, blank to name it by
+    /// its servers, and its colour from Discord's swatches, the first its
+    /// default; Done sends both in the server list.
+    fn folder_view(self) -> Option<Element<'a, Message>> {
+        let draft = self.s.folder.as_ref()?;
+        let theme = self.cx.look.theme;
+        let chosen = draft.color.unwrap_or(FOLDER_COLORS[0]);
+        let ring = theme.text;
+        let colours = FOLDER_COLORS.iter().copied().chain(draft.own);
+        let swatches = colours.enumerate().map(|(index, rgb)| {
+            let ground = crate::style::hex(rgb);
+            let picked = rgb == chosen;
+            let color = (index > 0).then_some(rgb);
+            button(iced::widget::Space::new().width(SWATCH).height(SWATCH))
+                .padding(0)
+                .on_press(message(Event::FolderColor(color)))
+                .style(move |_, _| button::Style {
+                    background: Some(ground.into()),
+                    border: iced::Border {
+                        color: ring,
+                        width: if picked { 2.0 } else { 0.0 },
+                        radius: 4.0.into(),
+                    },
+                    ..button::Style::default()
+                })
+                .into()
+        });
+        let swatches: Vec<Element<'a, Message>> = swatches.collect();
+        let swatches = iced::widget::Row::from_vec(swatches)
+            .spacing(8)
+            .wrap()
+            .vertical_spacing(8);
+        let body = vec![
+            self.cx
+                .look
+                .dialog_head("Folder settings".to_owned(), message(Event::CloseFolder)),
+            form::heading(theme, "FOLDER NAME"),
+            form::field(theme, FOLDER_FIELD, "", &draft.name)
+                .padding([8.0, 10.0])
+                .on_input(|name| message(Event::FolderName(name)))
+                .on_submit(message(Event::SaveFolder))
+                .into(),
+            form::heading(theme, "FOLDER COLOR"),
+            swatches.into(),
+            buttons([
+                action(
+                    theme,
+                    "Cancel",
+                    Kind::Ghost,
+                    Some(message(Event::CloseFolder)),
+                )
+                .into(),
+                action(
+                    theme,
+                    "Done",
+                    Kind::Primary,
+                    Some(message(Event::SaveFolder)),
+                )
+                .into(),
+            ]),
+        ];
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            NARROW,
+            message(Event::CloseFolder),
+        ))
+    }
+
     /// to leave without telling its other members.
     fn leave_view(self) -> Option<Element<'a, Message>> {
         let leave = self.cx.state.leave.as_ref()?;

@@ -48,6 +48,7 @@ mod polls;
 mod preview;
 mod profile_editor;
 mod profiles;
+mod rail_folders;
 mod reactions;
 mod rooms;
 mod scheduled_event;
@@ -94,6 +95,7 @@ pub use profile_editor::{
     BIO_LIMIT, NAME_LIMIT, NotAColour, PRONOUNS_LIMIT, PictureEdit, ProfileEditor, ProfileText,
     parse_colour,
 };
+pub use rail_folders::{FOLDER_COLORS, FolderSettings};
 pub use reactions::{ReactionTip, ReactionsWindow, TIP_PEOPLE};
 pub use rooms::{MUTE_TIMES, MenuChoice, network_id, network_link};
 pub use scheduled_event::EventDialog;
@@ -539,6 +541,11 @@ pub struct AppState {
     /// Counts the cards arriving, so a client can tell when the rows that
     /// show them are out of date.
     pub invite_card_changes: u64,
+    /// The server list as it was before the last drop on the rail, while
+    /// the line offering to undo it shows.
+    pub rail_undo: Option<Vec<chat::RailEntry>>,
+    /// Folder Settings, from a rail folder's menu, while it's open.
+    pub folder_settings: Option<FolderSettings>,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -1061,6 +1068,7 @@ impl AppState {
             || self.person_dialog.is_some()
             || self.invite.is_some()
             || self.join.is_some()
+            || self.folder_settings.is_some()
             || self.oauth.is_some()
             || self.scheduled_event.is_some()
             || self.gift.is_some()
@@ -2453,11 +2461,26 @@ pub enum Action {
     CloseStatusEditor,
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`.
     SetStatus(String),
-    /// Drops a Discord server or folder in the rail.
+    /// Put the server list back as it was before the last drop, from the
+    /// line that offers it; or let the line go.
+    UndoRailMove,
+    ForgetRailUndo,
+    /// Open Folder Settings for a rail folder, by its id; save its name and
+    /// colour, none for the default; or close it.
+    OpenFolderSettings(String),
+    SaveFolderSettings {
+        name: String,
+        color: Option<u32>,
+    },
+    CloseFolderSettings,
+    /// Drops a Discord server or folder in the rail. A folder this makes
+    /// takes `color`, RGB, which the rail picks from its first server's
+    /// icon.
     FileServer {
         server: String,
         target: String,
         before: Option<bool>,
+        color: Option<u32>,
     },
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
@@ -4201,6 +4224,7 @@ impl Application {
                 server,
                 target,
                 before,
+                color,
             } => {
                 if self.state.preview || self.state.discord_user.is_none() || server == target {
                     return vec![];
@@ -4214,6 +4238,8 @@ impl Application {
                 let Some(id) = folder.or_else(|| crate::discord::parse_server(&target)) else {
                     return vec![];
                 };
+                // Undo puts it back for a while.
+                self.keep_for_undo();
                 vec![Effect::Backend(Command::Discord(
                     DiscordCommand::FileServer {
                         server: server.to_owned(),
@@ -4221,8 +4247,20 @@ impl Application {
                         target: id.to_owned(),
                         folder: folder.is_some(),
                         before,
+                        color,
                     },
                 ))]
+            }
+            Action::UndoRailMove => self.undo_rail_move(),
+            Action::ForgetRailUndo => {
+                self.state.rail_undo = None;
+                vec![]
+            }
+            Action::OpenFolderSettings(folder) => self.open_folder_settings(folder),
+            Action::SaveFolderSettings { name, color } => self.save_folder_settings(name, color),
+            Action::CloseFolderSettings => {
+                self.state.folder_settings = None;
+                vec![]
             }
             Action::SetStatus(status) => {
                 if self.state.preview
@@ -4907,6 +4945,8 @@ impl Application {
             }
             Event::ServerFiled(result) => {
                 if let Err(error) = result {
+                    // Nothing moved, so there's nothing to undo.
+                    self.state.rail_undo = None;
                     self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
                 }
             }

@@ -703,6 +703,13 @@ enum Request {
         target: String,
         folder: bool,
         before: Option<bool>,
+        color: Option<u32>,
+        reply: oneshot::Sender<Option<ServerListWrite>>,
+    },
+    /// The whole server list, as settings keep it (base64 `guild_folders`),
+    /// to show at once: an undo, or a folder's new name and colour.
+    ArrangeServers {
+        patch: String,
         reply: oneshot::Sender<Option<ServerListWrite>>,
     },
     RestoreServerList(ServerListWrite),
@@ -2671,6 +2678,7 @@ impl Discord {
     }
 
     /// Moves a server beside or into the target, or moves a whole folder.
+    /// A folder this makes takes `color`, RGB.
     pub async fn file_server(
         &self,
         server: &str,
@@ -2678,6 +2686,7 @@ impl Discord {
         target: &str,
         folder: bool,
         before: Option<bool>,
+        color: Option<u32>,
     ) -> Result<()> {
         let _turn = self.folder_writes.lock().await;
         let (reply, changed) = oneshot::channel();
@@ -2687,8 +2696,32 @@ impl Discord {
             target: target.to_owned(),
             folder,
             before,
+            color,
             reply,
         });
+        self.write_server_list(changed).await
+    }
+
+    /// Puts the account's server list in this order with these folders,
+    /// whole, as an undo or Folder Settings does: each entry a folder, or
+    /// with an empty `id` one server outside any. The rail shows it at once,
+    /// and as it was again if Discord refuses.
+    pub async fn arrange_servers(&self, entries: Vec<crate::settings::Folder>) -> Result<()> {
+        let _turn = self.folder_writes.lock().await;
+        let (reply, changed) = oneshot::channel();
+        let _ = self.requests.send(Request::ArrangeServers {
+            patch: crate::settings::write_server_list(&entries),
+            reply,
+        });
+        self.write_server_list(changed).await
+    }
+
+    /// Sends the server list the tracker now shows, and puts it back as it
+    /// was if Discord refuses.
+    async fn write_server_list(
+        &self,
+        changed: oneshot::Receiver<Option<ServerListWrite>>,
+    ) -> Result<()> {
         let Some(change) = changed.await.context("Discord isn't connected right now")? else {
             return Ok(());
         };

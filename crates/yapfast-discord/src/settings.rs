@@ -331,7 +331,12 @@ pub(crate) fn write_server_list(entries: &[Folder]) -> String {
 }
 
 /// Builds a patch that moves a server. With `before` set, insert beside the
-/// target. Otherwise, put the server into the target's folder.
+/// target. Otherwise, put the server into the target's folder; a folder
+/// this makes takes `color`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a drop's every part, as the rail sends it"
+)]
 pub(crate) fn file_server<'a>(
     list: &ServerList,
     joined: impl Iterator<Item = &'a str>,
@@ -340,6 +345,7 @@ pub(crate) fn file_server<'a>(
     target: &str,
     folder: bool,
     before: Option<bool>,
+    color: Option<u32>,
 ) -> Option<String> {
     if source_folder == folder && server == target {
         return None;
@@ -393,6 +399,8 @@ pub(crate) fn file_server<'a>(
     let source = entries
         .iter()
         .position(|entry| entry.servers.iter().any(|id| id == server))?;
+    // The folder the server leaves, which goes if only one is left in it.
+    let left = entries[source].id.clone();
     if let Some(before) = before {
         let nested = !folder && !entries[destination].id.is_empty();
         entries[source].servers.retain(|id| id != server);
@@ -410,6 +418,7 @@ pub(crate) fn file_server<'a>(
             );
         }
         entries.retain(|entry| !entry.servers.is_empty());
+        dissolve_if_alone(&mut entries, &left);
         return Some(write_server_list(&entries));
     }
     if source == destination {
@@ -423,13 +432,34 @@ pub(crate) fn file_server<'a>(
             }
         };
         entries[destination].id = id;
+        // A folder made here takes the colour the rail picked.
+        entries[destination].color = color;
     }
     entries[source].servers.retain(|id| id != server);
     entries[destination].servers.push(server.to_owned());
     if entries[source].servers.is_empty() {
         entries.remove(source);
     }
+    dissolve_if_alone(&mut entries, &left);
     Some(write_server_list(&entries))
+}
+
+/// The folder `left` (by its id), if a server leaving it left one server
+/// in it, goes, that server staying in its place on its own, as Discord's
+/// client takes such a folder apart. A folder that already held one server
+/// stays.
+fn dissolve_if_alone(entries: &mut [Folder], left: &str) {
+    if left.is_empty() {
+        return;
+    }
+    if let Some(entry) = entries
+        .iter_mut()
+        .find(|entry| entry.id == left && entry.servers.len() == 1)
+    {
+        entry.id.clear();
+        entry.name = None;
+        entry.color = None;
+    }
 }
 
 /// The values of a repeated `fixed64` field: packed, or one by one.
@@ -861,6 +891,7 @@ mod tests {
                 target,
                 folder,
                 before,
+                None,
             )
         };
         let named = Folder {
@@ -895,6 +926,98 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_made_by_a_drop_takes_the_colour_given() {
+        let list = ServerList {
+            order: ["1", "2"].map(str::to_owned).into(),
+            folders: Vec::new(),
+        };
+        let made = file_server(
+            &list,
+            [].into_iter(),
+            "2",
+            false,
+            "1",
+            false,
+            None,
+            Some(0xdc1e28),
+        )
+        .unwrap();
+        let made = server_list(&made).unwrap();
+        assert_eq!(made.folders[0].servers, ["1", "2"]);
+        assert_eq!(made.folders[0].color, Some(0xdc1e28));
+        // A folder already there keeps its own colour.
+        let joined = file_server(
+            &ServerList {
+                order: ["1", "2", "3"].map(str::to_owned).into(),
+                folders: made.folders.clone(),
+            },
+            [].into_iter(),
+            "3",
+            false,
+            &made.folders[0].id,
+            true,
+            None,
+            Some(0x123456),
+        )
+        .unwrap();
+        assert_eq!(
+            server_list(&joined).unwrap().folders[0].color,
+            Some(0xdc1e28)
+        );
+    }
+
+    #[test]
+    fn a_folder_left_with_one_server_goes() {
+        let folder = Folder {
+            id: "42".into(),
+            name: Some("Pair".into()),
+            color: Some(0x112233),
+            servers: vec!["1".into(), "2".into()],
+        };
+        let list = ServerList {
+            order: ["1", "2", "3"].map(str::to_owned).into(),
+            folders: vec![folder],
+        };
+        let out = file_server(
+            &list,
+            [].into_iter(),
+            "2",
+            false,
+            "3",
+            false,
+            Some(false),
+            None,
+        )
+        .unwrap();
+        let out = server_list(&out).unwrap();
+        assert_eq!(out.order, ["1", "3", "2"]);
+        assert!(out.folders.is_empty(), "{:?}", out.folders);
+        // A folder of one the drop didn't leave stays a folder.
+        let lone = Folder {
+            id: "7".into(),
+            name: Some("Solo".into()),
+            color: None,
+            servers: vec!["4".into()],
+        };
+        let list = ServerList {
+            order: ["1", "4", "5"].map(str::to_owned).into(),
+            folders: vec![lone.clone()],
+        };
+        let out = file_server(
+            &list,
+            [].into_iter(),
+            "1",
+            false,
+            "5",
+            false,
+            Some(false),
+            None,
+        )
+        .unwrap();
+        assert_eq!(server_list(&out).unwrap().folders, [lone]);
+    }
+
+    #[test]
     fn moving_a_folder_keeps_its_id_metadata_and_servers() {
         let folder = Folder {
             id: "42".into(),
@@ -911,14 +1034,35 @@ mod tests {
             order: ["1", "2", "3", "4", "5"].map(str::to_owned).into(),
             folders: vec![folder.clone(), other.clone()],
         };
-        let patch =
-            file_server(&list, [].into_iter(), "42", true, "43", true, Some(false)).unwrap();
+        let patch = file_server(
+            &list,
+            [].into_iter(),
+            "42",
+            true,
+            "43",
+            true,
+            Some(false),
+            None,
+        )
+        .unwrap();
         let moved = server_list(&patch).unwrap();
         assert_eq!(moved.order, ["3", "4", "5", "1", "2"]);
         assert_eq!(moved.folders, [other, folder]);
 
-        assert!(file_server(&list, [].into_iter(), "42", true, "2", false, Some(false)).is_none());
-        assert!(file_server(&list, [].into_iter(), "42", true, "43", true, None).is_none());
+        assert!(
+            file_server(
+                &list,
+                [].into_iter(),
+                "42",
+                true,
+                "2",
+                false,
+                Some(false),
+                None
+            )
+            .is_none()
+        );
+        assert!(file_server(&list, [].into_iter(), "42", true, "43", true, None, None).is_none());
     }
 
     fn status_only(status: &str) -> String {

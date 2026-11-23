@@ -549,11 +549,26 @@ impl Session<'_> {
                 target,
                 folder,
                 before,
+                color,
                 reply,
             } => {
-                let change =
-                    self.tracker
-                        .file_server(&server, source_folder, &target, folder, before);
+                let change = self.tracker.file_server(
+                    &server,
+                    source_folder,
+                    &target,
+                    folder,
+                    before,
+                    color,
+                );
+                if change.is_some() {
+                    self.publisher
+                        .publish(&mut self.tracker, &self.shared.lists);
+                }
+                let _ = reply.send(change);
+                Ok(())
+            }
+            Request::ArrangeServers { patch, reply } => {
+                let change = self.tracker.arrange_servers(patch);
                 if change.is_some() {
                     self.publisher
                         .publish(&mut self.tracker, &self.shared.lists);

@@ -1499,3 +1499,97 @@ async fn gives_up_the_server_as_discords_client_does() {
     post_control(server, "/_control/guild-reset", "");
     snapshot_where(discord, owner(bob)).await;
 }
+
+/// Every whole server list Undo and Folder Settings write, as Discord
+/// keeps it: a folder made of two servers, its name and colour, a server
+/// taken out of it, the list put back as before, and a folder taken apart.
+/// Each one is read back from the settings the fake keeps: the folders keep
+/// their ids, names and colours, the servers outside folders have no id,
+/// the order is the rail's, and the rest of the settings (the custom
+/// status) stays as it was. The session's snapshot follows the update.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn keeps_the_server_list_and_its_folders_as_discord_does() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        ..
+    } = Fixture::start("keeps_the_server_list_and_its_folders_as_discord_does").await;
+    let stored = || {
+        let answer: serde_json::Value =
+            serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+        answer["settings"].as_str().unwrap().to_owned()
+    };
+    let custom = settings::read(&stored()).custom;
+    assert!(custom.is_some(), "Alice's custom status, to keep");
+    let entry =
+        |id: &str, name: Option<&str>, color: Option<u32>, servers: &[&str]| settings::Folder {
+            id: id.into(),
+            name: name.map(Into::into),
+            color,
+            servers: servers.iter().map(|&id| id.to_owned()).collect(),
+        };
+    let (other, third) = ("1400000000000000501", "1400000000000000502");
+    let steps = [
+        (
+            "two servers dropped together make a folder",
+            vec![
+                entry("4100", None, Some(0x3ba55c), &[&guild, other]),
+                entry("", None, None, &[third]),
+            ],
+        ),
+        (
+            "Folder settings name and colour it",
+            vec![
+                entry("4100", Some("Raid night"), Some(0xed4245), &[&guild, other]),
+                entry("", None, None, &[third]),
+            ],
+        ),
+        (
+            "a server in, and one out of it",
+            vec![
+                entry("", None, None, &[other]),
+                entry("4100", Some("Raid night"), Some(0xed4245), &[third, &guild]),
+            ],
+        ),
+        (
+            "undo puts the list back",
+            vec![
+                entry("4100", Some("Raid night"), Some(0xed4245), &[&guild, other]),
+                entry("", None, None, &[third]),
+            ],
+        ),
+        (
+            "a folder taken apart: every server on its own",
+            vec![
+                entry("", None, None, &[&guild]),
+                entry("", None, None, &[other]),
+                entry("", None, None, &[third]),
+            ],
+        ),
+    ];
+    for (what, entries) in steps {
+        discord.arrange_servers(entries.clone()).await.unwrap();
+        let list = settings::server_list(&stored()).expect("the list is kept");
+        let order: Vec<&str> = entries
+            .iter()
+            .flat_map(|entry| entry.servers.iter().map(String::as_str))
+            .collect();
+        assert_eq!(list.order, order, "{what}: the order");
+        let folders: Vec<_> = entries
+            .iter()
+            .filter(|entry| !entry.id.is_empty())
+            .cloned()
+            .collect();
+        assert_eq!(list.folders, folders, "{what}: the folders");
+        assert_eq!(
+            settings::read(&stored()).custom,
+            custom,
+            "{what}: the rest of the settings stays"
+        );
+    }
+    // The session follows the last list: no folder is left.
+    snapshot_where(&discord, |snapshot| snapshot.folders.is_empty()).await;
+}

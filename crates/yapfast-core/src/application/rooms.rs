@@ -103,6 +103,8 @@ pub enum MenuChoice {
     MuteFolder,
     UnmuteFolder,
     FolderNotifications,
+    /// A rail folder's name and colour, in Folder Settings.
+    FolderSettings,
     /// Make an invite link to a Discord server or channel.
     Invite,
     /// Pin a Discord server's channel to the top of its channel list, for

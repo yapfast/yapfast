@@ -28,6 +28,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> impl Iterator<Item = Element<'a, Me
         gpu_banner(ctx),
         crate::signin::verify_banner(ctx),
         notice_banner(ctx),
+        rail_undo_banner(ctx),
     ]
     .into_iter()
     .flatten()
@@ -49,6 +50,51 @@ pub fn gpu_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
 pub fn notice_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let notice = ctx.state.notice.as_deref()?;
     Some(banner(ctx, notice, Message::DismissNotice))
+}
+
+/// After a drop on the rail, for six seconds: Undo, which puts the server
+/// list back as it was, and Dismiss.
+pub fn rail_undo_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+    ctx.state.rail_undo.as_ref()?;
+    let theme = ctx.look.theme;
+    let raised = theme.raised;
+    Some(
+        container(
+            row![
+                ctx.look.glyph(Icon::Folder, 18, theme.accent),
+                text("Your server list changed.")
+                    .size(theme.type_size("body", 15.0))
+                    .font(theme.font("body", crate::fonts::REGULAR))
+                    .color(theme.text)
+                    .width(Length::Fill),
+                action(
+                    theme,
+                    "Undo",
+                    Kind::Ghost,
+                    Some(Message::Rail(crate::rail::Event::Undo))
+                )
+                .small(),
+                action(
+                    theme,
+                    "Dismiss",
+                    Kind::Ghost,
+                    Some(Message::Rail(crate::rail::Event::UndoGone(None)))
+                )
+                .small(),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding(iced::Padding {
+            top: 6.0,
+            bottom: 6.0,
+            left: 16.0,
+            right: 8.0,
+        })
+        .width(Length::Fill)
+        .style(move |_| crate::style::fill(raised))
+        .into(),
+    )
 }
 
 /// The preview's note, which stays.

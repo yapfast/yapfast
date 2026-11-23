@@ -1388,6 +1388,7 @@ impl Tracker {
         target: &str,
         folder: bool,
         before: Option<bool>,
+        color: Option<u32>,
     ) -> Option<super::ServerListWrite> {
         let joined = self.servers.iter().map(|server| server.id.as_str());
         let patch = settings::file_server(
@@ -1398,7 +1399,20 @@ impl Tracker {
             target,
             folder,
             before,
+            color,
         )?;
+        self.show_server_list(patch)
+    }
+
+    /// The whole server list `patch` holds, shown at once, as an undo or
+    /// Folder Settings sends it.
+    pub(super) fn arrange_servers(&mut self, patch: String) -> Option<super::ServerListWrite> {
+        self.show_server_list(patch)
+    }
+
+    /// Shows the server list `patch` holds, unless it's the one shown, and
+    /// gives what puts it back.
+    fn show_server_list(&mut self, patch: String) -> Option<super::ServerListWrite> {
         let shown = settings::server_list(&patch)?;
         if *self.server_list == shown {
             return None;
@@ -2639,7 +2653,9 @@ mod tests {
         assert_eq!(tracker.snapshot().folders, [games]);
 
         // Releasing a server updates the snapshot before the save completes.
-        let change = tracker.file_server("50", false, "7", true, None).unwrap();
+        let change = tracker
+            .file_server("50", false, "7", true, None, None)
+            .unwrap();
         assert_eq!(
             order(&tracker),
             ["Bravo", "Delta", "Alpha", "Echo", "Charlie"]
@@ -2654,7 +2670,9 @@ mod tests {
         assert_eq!(tracker.snapshot().folders[0].servers, ["40", "10"]);
 
         // A newer server update takes precedence over a failed save.
-        let change = tracker.file_server("50", false, "7", true, None).unwrap();
+        let change = tracker
+            .file_server("50", false, "7", true, None, None)
+            .unwrap();
         tracker.apply(
             &Event::UserSettingsProtoUpdate,
             &json!({"settings": {"type": 1, "proto":
