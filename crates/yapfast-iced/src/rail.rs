@@ -1755,8 +1755,8 @@ impl<'a> View<'a> {
         let start_x = (width - (small * 2.0 + 2.0)) / 2.0;
         let start_y = (height - (small * 2.0 + 2.0)) / 2.0;
         let raised = self.cx.look.theme.raised;
-        let mut faces = stack![];
-        for (index, (initial, icon)) in preview.iter().enumerate() {
+        let mut faces = stack![].width(FOLDER).height(FOLDER);
+        for (index, (initial, icon)) in preview.iter().take(4).enumerate() {
             // Each one's outer corner is round, as the folder's.
             let mut radius = [4.0; 4];
             radius[[0, 1, 3, 2][index]] = 13.0;
