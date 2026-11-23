@@ -149,7 +149,7 @@ impl Settings {
                             .unwrap_or_else(|_| Err("Could not prepare the icon.".into())),
                         )
                     },
-                    move |result| message(Event::Picked(target, picker.clone(), result)),
+                    move |result| message(Event::Picked(target, picker, result)),
                 );
             }
             Event::Picked(target, picker, result) => {
