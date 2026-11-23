@@ -200,3 +200,89 @@ fn the_account_popover_shows_the_accounts_own_card_while_open() {
     assert!(app.status.popover.is_none());
     assert!(app.profiles.account.is_none(), "let go as it closes");
 }
+
+#[test]
+fn the_account_popover_shows_rich_presence_and_follows_live_changes() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{Activity, ActivityKind, Picture, Pixels, Playing};
+
+    let (mut app, _folder) = preview();
+    let activity = Activity {
+        kind: ActivityKind::Playing,
+        name: "Zed".into(),
+        details: Some("In yapfast".into()),
+        state: Some("Working on README.md".into()),
+        party: None,
+        party_id: None,
+        application_id: Some("42".into()),
+        start: Some(yapfast_core::clock::now_ms() - 33_000),
+        end: None,
+        large_image: Some("activity:zed".into()),
+        large_text: Some("Zed".into()),
+        small_image: Some("activity:workspace".into()),
+        small_text: Some("Workspace".into()),
+        url: None,
+        link: None,
+        emoji: None,
+    };
+    change(&mut app, |state| {
+        // Rich Presence does not wait for a profile HTTP request.
+        state.account_profile = None;
+        state.discord_activities = Arc::from([activity]);
+        state.discord_playing = Some(Playing {
+            name: "Zed".into(),
+            started_ms: Some(yapfast_core::clock::now_ms() - 33_000),
+        });
+        for (url, color) in [
+            ("activity:zed", [38, 140, 200, 255]),
+            ("activity:workspace", [45, 45, 50, 255]),
+        ] {
+            state.pictures.insert(
+                url.into(),
+                Arc::new(Picture {
+                    width: 4,
+                    height: 4,
+                    rgba: Pixels::new(4, 4, color.repeat(16)),
+                    animation: None,
+                }),
+            );
+        }
+    });
+    assert_eq!(app.status.activity_pictures().count(), 0);
+    let _ = app.update(Message::Status(StatusEvent::Toggle));
+    for line in ["Playing", "Zed", "In yapfast", "Working on README.md"] {
+        assert!(shows(&app, line), "{line}");
+    }
+    assert_eq!(
+        app.status.activity_pictures().collect::<Vec<_>>(),
+        ["activity:zed", "activity:workspace"]
+    );
+    assert!(
+        !crate::status::popover_playing(&app),
+        "the widget's own second clock replaces minute updates"
+    );
+
+    if let Some(path) = std::env::var_os("YAPFAST_TEST_ACCOUNT_SNAPSHOT") {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.snapshot(&iced::Theme::Dark)
+            .unwrap()
+            .matches_image(path)
+            .unwrap();
+    }
+
+    change(&mut app, |state| {
+        Arc::make_mut(&mut state.discord_activities)[0].state =
+            Some("Working on Cargo.toml".into());
+    });
+    assert!(shows(&app, "Working on Cargo.toml"));
+    assert!(!shows(&app, "Working on README.md"));
+    change(&mut app, |state| {
+        state.discord_activities = Default::default();
+        state.discord_playing = None;
+    });
+    assert!(!shows(&app, "Zed"), "clearing removes the activity");
+    assert_eq!(app.status.activity_pictures().count(), 0);
+    press(&mut app, key::Named::Escape);
+    assert!(app.status.popover.is_none());
+}

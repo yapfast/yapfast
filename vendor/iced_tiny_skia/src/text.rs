@@ -235,6 +235,7 @@ fn draw(
                         + (run.line_y * transformation.scale_factor()).round()
                             as i32,
                     clip_bounds,
+                    None,
                     [0.0; 4],
                     (opacity.clamp(0.0, 1.0) * 256.0) as u32,
                     false,

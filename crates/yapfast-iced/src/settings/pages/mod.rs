@@ -103,7 +103,7 @@ pub enum GameEvent {
 }
 
 fn pref(pref: Pref) -> Message {
-    Message::Settings(Event::Pref(pref))
+    crate::app::settings(Event::Pref(pref))
 }
 
 impl Settings {
@@ -320,7 +320,7 @@ impl<'a> Page<'a> {
 }
 
 fn account_message(event: AccountEvent) -> Message {
-    Message::Settings(Event::Account(event))
+    crate::app::settings(Event::Account(event))
 }
 
 /// Messages' text at a size: 14 px small, 15 default, 18 large.

@@ -1,7 +1,7 @@
 # Yapfast patches
 
 This is webrtc-sys 0.3.35 from crates.io under its original Apache-2.0 license.
-Four changes differ from it.
+Five changes differ from it.
 
 ## Windows link fix
 
@@ -40,6 +40,14 @@ which WebRTC reuses once the encoder lets go. libwebrtc's Rust
 calling thread; Yapfast asks for it right after making one. `release_buffers`
 empties the pool while the camera is off. Both are in
 src/video_track.cpp and include/livekit/video_track.h.
+
+## Pointer in Windows screen shares
+
+Windows Graphics Capture leaves the pointer out of some monitor captures, and
+DXGI and GDI never draw it. On Windows, src/desktop_capturer.cpp asks a screen
+capturer for frames without the pointer and wraps it in libwebrtc's
+`DesktopAndCursorComposer`, which draws the pointer once, where Windows says
+it is. Window captures are as upstream.
 
 Otherwise the Rust API, media code, dependency versions and libwebrtc archive
 stay pinned.
