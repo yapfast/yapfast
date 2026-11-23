@@ -301,7 +301,10 @@ fn shape_run(
 
     let fonts = font_system.get_font_matches(&attrs);
 
-    let default_families = [&attrs.family];
+    // Yapfast port: the default family may stand for another (a theme's
+    // body face standing in for the app's own, see `set_family_alias`).
+    let aliased = aliased_family(&attrs.family);
+    let default_families = [aliased.as_ref().unwrap_or(&attrs.family)];
     let mut font_iter = FontFallbackIter::new(
         font_system,
         &fonts,
@@ -497,7 +500,8 @@ fn shape_skip(
     let attrs = attrs_list.get_span(start_run);
     let fonts = font_system.get_font_matches(&attrs);
 
-    let default_families = [&attrs.family];
+    let aliased = aliased_family(&attrs.family);
+    let default_families = [aliased.as_ref().unwrap_or(&attrs.family)];
     let mut font_iter = FontFallbackIter::new(
         font_system,
         &fonts,
@@ -1714,4 +1718,36 @@ impl ShapeLine {
         scratch.cached_visual_lines = cached_visual_lines;
         scratch.glyph_sets = cached_glyph_sets;
     }
+}
+
+/// Yapfast port: one family name that stands for another while shaping,
+/// as Slint's `default-font-family` makes a theme's body face the face of
+/// every text that names none: text asking for `from` takes `to` (and its
+/// fallbacks as usual). Already shaped text keeps its glyphs until it's
+/// shaped again.
+#[cfg(feature = "std")]
+static FAMILY_ALIAS: std::sync::RwLock<Option<(&'static str, &'static str)>> =
+    std::sync::RwLock::new(None);
+
+/// Yapfast port: makes `from` stand for `to` while shaping, or nothing
+/// for `None`.
+#[cfg(feature = "std")]
+pub fn set_family_alias(alias: Option<(&'static str, &'static str)>) {
+    if let Ok(mut slot) = FAMILY_ALIAS.write() {
+        *slot = alias;
+    }
+}
+
+#[cfg(feature = "std")]
+fn aliased_family(family: &crate::Family<'_>) -> Option<crate::Family<'static>> {
+    let crate::Family::Name(name) = family else {
+        return None;
+    };
+    let (from, to) = (*FAMILY_ALIAS.read().ok()?)?;
+    (*name == from).then_some(crate::Family::Name(to))
+}
+
+#[cfg(not(feature = "std"))]
+fn aliased_family(_family: &crate::Family<'_>) -> Option<crate::Family<'static>> {
+    None
 }

@@ -231,9 +231,9 @@ out of the last one is unlinking.
 
 In rough order. The browser covers these until then.
 
+- Renaming and recolouring server folders.
 - Sorting and filtering a forum's posts by tag, and the gallery layout of
   forums and media channels.
-- Making and changing server folders.
 - A server's membership form and onboarding questions when joining by
   invite, and invite cards in messages.
 - A server's privacy settings: direct messages, message requests and
