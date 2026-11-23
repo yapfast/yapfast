@@ -23,7 +23,7 @@ fn built_in_shortcuts_show_the_list_and_respect_dialogs_and_recording() {
         app.layout.deafen_on_join, !deafened,
         "voice works in settings"
     );
-    let _ = app.update(Message::Settings(settings::Event::Record(
+    let _ = app.update(crate::app::settings(settings::Event::Record(
         settings::keybinds::Target::Talk,
         true,
     )));
@@ -150,7 +150,7 @@ fn recording_does_not_type_into_or_navigate_messages() {
     };
     let (mut app, _folder) = preview();
     let _ = shortcuts::update(&mut app, Shortcut::Help);
-    let _ = app.update(Message::Settings(settings::Event::Record(
+    let _ = app.update(crate::app::settings(settings::Event::Record(
         settings::keybinds::Target::Talk,
         true,
     )));

@@ -338,7 +338,9 @@ fn card_button<'a>(
     } else {
         card_button.label.as_str()
     };
-    let mut face = action(theme, label, kind, press).small();
+    let mut face = action(theme, label, kind, press)
+        .surface(theme, "card-button")
+        .small();
     match card_button.style {
         ButtonStyle::Link => face = face.icon(ctx.look.icon(Icon::Link, 16, rgb(theme.text))),
         ButtonStyle::Premium => face = face.icon(ctx.look.icon(Icon::Shop, 16, rgb(theme.text))),
