@@ -516,6 +516,33 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
 }
 
 #[test]
+fn the_unread_bar_stays_while_the_new_divider_is_above_whats_loaded() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 30);
+    change(&mut app, |state| {
+        // Discord's items, the newest loaded after a reply from a window of
+        // older ones: the first unread is older than all of them.
+        for (index, message) in Arc::make_mut(&mut state.messages).iter_mut().enumerate() {
+            let message = Arc::make_mut(message);
+            message.item = format!("d:{}", 1000 + index);
+        }
+        state.first_unread = Some("d:5".into());
+        state.caught_up = false;
+    });
+    assert!(!present(&app, "NEW"), "the divider isn't loaded");
+    let mut found = false;
+    interact(&mut app, |ui| {
+        found = starting(ui, "30+ new messages").is_some();
+    });
+    assert!(found, "the banner back to it stays");
+    change(&mut app, |state| state.first_unread = Some("d:2000".into()));
+    assert!(
+        !shows(&app, "Mark as read"),
+        "a divider past what's loaded shows no banner"
+    );
+}
+
+#[test]
 fn a_link_preview_and_a_file_show_in_their_cards() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
@@ -1894,4 +1921,89 @@ fn a_threads_card_shows_its_count_and_newest_message_as_discords_does() {
         count.x < left + 480.0,
         "{count:?} past the card's 480 from {left}"
     );
+}
+
+#[test]
+fn a_replys_quote_offers_its_whole_original() {
+    use yapfast_core::chat::Reply;
+    let (mut app, _folder) = preview();
+    let items = long_history(&mut app, 3);
+    change(&mut app, |state| {
+        let original = Arc::make_mut(&mut Arc::make_mut(&mut state.messages)[0]);
+        original.body = "First line\nand the rest of it".into();
+    });
+    let reply = |item: Option<&str>, body: &str| Reply {
+        author: "Sam".into(),
+        avatar: None,
+        body: body.into(),
+        emoji: Vec::new(),
+        item: item.map(str::to_owned),
+        color: None,
+        mentions: Vec::new(),
+        tag: None,
+    };
+    let state = app.client.state();
+    assert_eq!(
+        crate::message::whole_reply(state, &reply(Some(&items[0]), "First line")).as_deref(),
+        Some("First line\nand the rest of it"),
+        "the loaded original, past its first line"
+    );
+    assert_eq!(
+        crate::message::whole_reply(state, &reply(Some(&items[1]), "Short")),
+        None,
+        "a quote that shows whole has none"
+    );
+    let long = "word ".repeat(200);
+    let whole = crate::message::whole_reply(state, &reply(None, &long)).expect("cut short");
+    assert_eq!(whole.chars().count(), 601, "600 characters and an ellipsis");
+}
+
+#[test]
+fn an_invite_link_shows_discords_card_under_its_message() {
+    use yapfast_core::chat::{InviteCard, InvitePreview};
+    let (mut app, _folder) = preview();
+    let preview_of = |code: &str, server: &str| InvitePreview {
+        code: code.into(),
+        server: server.into(),
+        name: "Bike Club".into(),
+        icon: None,
+        room: format!("{server}:1"),
+        channel: "welcome".into(),
+        channel_type: 0,
+        voice: false,
+        members: Some(1234),
+        online: Some(87),
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![Arc::new(yapfast_core::chat::ChatMessage {
+            item: "d:1".into(),
+            id: "1".into(),
+            author: "Bob".into(),
+            body: "come ride https://discord.gg/bikes and https://discord.gg/old".into(),
+            formatted: true,
+            timestamp: 1,
+            ..Default::default()
+        })]);
+        state.invite_cards.insert(
+            "bikes".into(),
+            InviteCard::Server(Box::new(preview_of("bikes", "discord:980"))),
+        );
+        state.invite_cards.insert("old".into(), InviteCard::Invalid);
+    });
+    assert!(shows(&app, "You've been invited to join a server"));
+    assert!(shows(&app, "Bike Club"));
+    assert!(shows(&app, "87 Online"));
+    assert!(shows(&app, "1,234 Members"));
+    assert!(shows(&app, "Join"));
+    assert!(shows(&app, "Invalid Invite"));
+    assert!(shows(&app, "Ask Bob for a new invite"));
+    // In the server already, it offers to open it.
+    change(&mut app, |state| {
+        state.servers.push(Arc::new(yapfast_core::chat::ChatServer {
+            id: "discord:980".into(),
+            name: "Bike Club".into(),
+            ..Default::default()
+        }));
+    });
+    assert!(shows(&app, "Joined"));
 }

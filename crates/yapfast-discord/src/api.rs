@@ -92,8 +92,8 @@ pub const THREAD_PAGE: u32 = 25;
 /// batch this full may have more after it.
 pub const BANS_PAGE: usize = 1000;
 
-/// What a members search gave: Discord's answer, or the seconds to wait
-/// while it indexes the server.
+/// What a members or message tabs search gave: Discord's answer, or the
+/// seconds to wait while it indexes the server.
 #[derive(Debug)]
 pub enum MembersSearch {
     Found(Value),
@@ -168,6 +168,18 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
         _ => 0,
     };
     own.max(boosted)
+}
+
+/// The longest message this account may send or edit to, in characters, by
+/// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
+/// Nitro or Nitro Classic, as Discord's client allows from its first paid
+/// tier up; 2,000 without, or with Nitro Basic, which doesn't include
+/// longer messages.
+pub fn message_limit(premium_type: u8) -> usize {
+    match premium_type {
+        1 | 2 => 4000,
+        _ => 2000,
+    }
 }
 
 /// Discord answered a download with this error status.
@@ -541,6 +553,16 @@ impl Api {
         if let Some((side, id)) = from {
             let _ = write!(path, "&{side}={id}");
         }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// A channel's newest `limit` messages, newest first, as a glance at it
+    /// takes them: no read acknowledgement goes with them.
+    pub async fn newest(&self, channel: &str, limit: usize) -> Result<Vec<Value>> {
+        let path = format!("/channels/{channel}/messages?limit={limit}");
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(messages) => Ok(messages),
             _ => bail!("could not understand Discord's answer"),
@@ -1578,8 +1600,12 @@ impl Api {
         before: Option<&str>,
         user: Option<&str>,
         action: Option<u16>,
+        target: Option<&str>,
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/audit-logs?limit={AUDIT_PAGE}");
+        if let Some(target) = target {
+            let _ = write!(path, "&target_id={}", encode(target));
+        }
         if let Some(before) = before {
             let _ = write!(path, "&before={}", encode(before));
         }
@@ -1597,9 +1623,24 @@ impl Api {
     /// answers 202 while it indexes the server, with how many seconds to
     /// wait before asking again.
     pub async fn search_members(&self, guild: &str, body: &Value) -> Result<MembersSearch> {
-        let path = format!("/guilds/{guild}/members-search");
+        self.indexed(&format!("/guilds/{guild}/members-search"), body)
+            .await
+    }
+
+    /// How many messages someone sent in a server, as Mod View counts
+    /// them: `body` is Discord's `messages/search/tabs` query, with a tab
+    /// each for messages, links and media. Discord answers 202 while it
+    /// indexes the server, as for [`Self::search_members`].
+    pub async fn search_tabs(&self, guild: &str, body: &Value) -> Result<MembersSearch> {
+        self.indexed(&format!("/guilds/{guild}/messages/search/tabs"), body)
+            .await
+    }
+
+    /// A search Discord answers with 202 and how many seconds to wait
+    /// while it indexes the server.
+    async fn indexed(&self, path: &str, body: &Value) -> Result<MembersSearch> {
         let response = self
-            .execute(with_json(self.request(Method::POST, &path), body))
+            .execute(with_json(self.request(Method::POST, path), body))
             .await?;
         let indexing = response.status() == StatusCode::ACCEPTED;
         let body = response
@@ -2862,6 +2903,15 @@ mod tests {
         assert_eq!(upload_limit(0, Some(2)), 50 * MIB);
         assert_eq!(upload_limit(0, Some(3)), 100 * MIB);
         assert_eq!(upload_limit(2, Some(3)), 500 * MIB, "the larger wins");
+    }
+
+    #[test]
+    fn message_limits_follow_nitro() {
+        use super::message_limit;
+        assert_eq!(message_limit(0), 2000, "without Nitro");
+        assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
+        assert_eq!(message_limit(1), 4000, "Nitro Classic");
+        assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
     #[test]

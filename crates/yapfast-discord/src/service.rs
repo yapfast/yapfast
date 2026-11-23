@@ -1493,6 +1493,16 @@ impl Discord {
             .collect()
     }
 
+    /// A channel's newest `limit` messages, oldest first, to peek at: a
+    /// server's channel, or with [`PRIVATE`] a DM. It reads nothing, and
+    /// keeps nothing of them but their authors' names.
+    pub async fn peek(&self, guild: &str, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let values = self.api.newest(channel, limit).await?;
+        let mut messages = self.learn_authors(guild, &values).await;
+        messages.sort_by_key(Message::order);
+        Ok(messages)
+    }
+
     /// A channel's pinned messages, the latest pinned first: a server's
     /// channel, or with [`PRIVATE`] a DM.
     pub async fn pins(&self, guild: &str, channel: &str) -> Result<Vec<Message>> {
@@ -2183,8 +2193,20 @@ impl Discord {
         before: Option<&str>,
         user: Option<&str>,
         action: Option<u16>,
+        target: Option<&str>,
     ) -> Result<Value> {
-        self.api.audit_log(guild, before, user, action).await
+        self.api
+            .audit_log(guild, before, user, action, target)
+            .await
+    }
+
+    /// Mod View's counts; see [`crate::api::Api::search_tabs`].
+    pub async fn search_tabs(
+        &self,
+        guild: &str,
+        body: &Value,
+    ) -> Result<crate::api::MembersSearch> {
+        self.api.search_tabs(guild, body).await
     }
 
     /// A chunk of Members' search; see [`crate::api::Api::search_members`].
@@ -3079,6 +3101,22 @@ impl Discord {
         self.api.guild_settings(guild, &body).await
     }
 
+    /// Makes the same change to this account's notification settings for
+    /// each server of `guilds`, in one request, as a rail folder's menu
+    /// does; see [`crate::notifications::servers_body`]. Snapshots show it
+    /// when Discord confirms it.
+    pub async fn change_servers_notifications(
+        &self,
+        guilds: &[&str],
+        change: Change,
+    ) -> Result<()> {
+        if guilds.is_empty() {
+            return Ok(());
+        }
+        let body = crate::notifications::servers_body(guilds, change);
+        self.api.guilds_settings(&body).await
+    }
+
     /// Sets the `flags` of a server's channel's override, which pin it to
     /// the top of the channel list or unpin it, see
     /// [`crate::notifications::Override::pin_flags`], and add it to the
@@ -3137,6 +3175,14 @@ impl Discord {
     pub async fn invite(&self, code: &str, typed: Option<&str>) -> Result<invite::Preview> {
         let invite = self.api.resolve_invite(code, typed).await?;
         invite::Preview::of(&invite).context("This invite isn't to a server.")
+    }
+
+    /// What an invite link's card in a message shows, as [`Self::invite`]
+    /// looks it up: none for an invite that isn't to a server. An invalid
+    /// or expired invite is refused with [`api::code`] 10006 or 50020.
+    pub async fn invite_card(&self, code: &str) -> Result<Option<invite::Preview>> {
+        let invite = self.api.resolve_invite(code, None).await?;
+        Ok(invite::Preview::of(&invite))
     }
 
     /// Joins a server by the invite `preview` shows, as Discord's client

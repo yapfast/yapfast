@@ -782,20 +782,7 @@ impl<'a> super::View<'a> {
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Side(Event::Point(id.clone(), true)))
             .on_exit(Message::Side(Event::Point(id, false)));
-        let area = match message {
-            Some(message) => area.on_press(message),
-            None => area,
-        };
-        match menu {
-            Some(room) => {
-                let spot = self.cx.pressed;
-                RightPress::new(area, move |_| {
-                    Message::Side(Event::Menu(room.clone(), spot.get()))
-                })
-                .into()
-            }
-            None => area.into(),
-        }
+        row_area(self.cx, area, message, menu)
     }
 
     /// A conversation's row, with its thread line, and who is in it for a
@@ -1386,9 +1373,28 @@ pub(crate) fn listed_row_face<'a>(
         .interaction(iced::mouse::Interaction::Pointer)
         .on_enter(Message::Side(Event::Point(id.clone(), true)))
         .on_exit(Message::Side(Event::Point(id, false)));
+    row_area(cx, area, message, menu)
+}
+
+/// What a row takes, every kind alike: its press, a middle click that
+/// opens a conversation's row in split view, and a right click for its
+/// menu, `menu` naming the conversation.
+fn row_area<'a>(
+    cx: crate::ctx::Ctx<'a>,
+    area: iced::widget::MouseArea<'a, Message>,
+    message: Option<Message>,
+    menu: Option<String>,
+) -> Element<'a, Message> {
     let area = match message {
         Some(message) => area.on_press(message),
         None => area,
+    };
+    // A conversation's row opens in split view on a middle click.
+    let area = match &menu {
+        Some(room) if cx.layout.split_view => {
+            area.on_middle_press(Message::Side(Event::Split(room.clone())))
+        }
+        _ => area,
     };
     match menu {
         Some(room) => {

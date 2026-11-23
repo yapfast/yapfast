@@ -228,6 +228,11 @@ pub enum Icon {
     Search,
     /// Up and down arrows: a Sort menu.
     ArrowsUpDown,
+    /// Left and right arrows: split view's Swap sides.
+    ArrowsLeftRight,
+    /// A speech bubble's outline, in the line style of `Image` and
+    /// `History`: Mod View's Messages.
+    MessageCircleLine,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -311,6 +316,8 @@ pub enum Icon {
     UserX,
     FolderPlus,
     CopyPlus,
+    /// An outline paperclip, before a file link's name on its pill.
+    Paperclip,
 }
 
 impl Icon {
@@ -370,6 +377,7 @@ impl Icon {
             Icon::Volume => icon!("volume-2.svg"),
             Icon::VolumeOff => icon!("volume-x.svg"),
             Icon::Link => icon!("external-link.svg"),
+            Icon::Paperclip => icon!("paperclip.svg"),
             Icon::Chain => icon!("link.svg"),
             Icon::Eye => icon!("eye.svg"),
             Icon::EyeOff => icon!("eye-off.svg"),
@@ -393,6 +401,8 @@ impl Icon {
             Icon::ChartBar => icon!("chart-bar.svg"),
             Icon::Search => icon!("search.svg"),
             Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
+            Icon::ArrowsLeftRight => icon!("arrows-left-right.svg"),
+            Icon::MessageCircleLine => icon!("message-circle-line.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),

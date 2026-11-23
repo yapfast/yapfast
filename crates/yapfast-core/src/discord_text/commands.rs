@@ -2,7 +2,7 @@
 //! events, carried out on the channels.
 
 use super::{
-    render::{chat_member, mention_groups, notification, publish, send_topic, sent_id},
+    render::{chat_member, found_in, mention_groups, notification, publish, send_topic, sent_id},
     *,
 };
 use crate::chat::ForwardFailure;
@@ -81,6 +81,10 @@ pub fn command(
         }
         return;
     }
+    if let Command::Discord(DiscordCommand::Peek { room }) = command {
+        peek(room, discord, channels, events);
+        return;
+    }
     let Some(command) = account::command(
         command,
         discord,
@@ -106,6 +110,9 @@ pub fn command(
         return;
     };
     let Some(command) = super::audit_log::command(command, discord, events) else {
+        return;
+    };
+    let Some(command) = super::people::mod_view(command, discord, events) else {
         return;
     };
     let Some(command) = super::people::command(command, discord, events) else {
@@ -927,11 +934,15 @@ fn forward(
         return fail("You can forward that message once it has been sent.".into());
     };
     // Checked first, so a message too long to add isn't forwarded without it.
+    let limit = super::max_chars(discord);
     if note
         .as_ref()
-        .is_some_and(|note| note.chars().count() > MAX_CHARS)
+        .is_some_and(|note| note.chars().count() > limit)
     {
-        return fail("The message you added is over 2,000 characters.".into());
+        return fail(format!(
+            "The message you added is over {} characters.",
+            if limit > MAX_CHARS { "4,000" } else { "2,000" }
+        ));
     }
     let (discord, events) = (discord.clone(), events.clone());
     let (source, place) = (
@@ -963,4 +974,79 @@ fn forward(
         }
         let _ = events.send(Event::Forwarded { room, result });
     });
+}
+
+/// Shows a channel's newest messages to peek at, without opening it or
+/// reading it: from the channel kept in memory while it's up to date, or
+/// else asked of Discord once, keeping nothing. No pictures are fetched for
+/// them; those kept already show.
+fn peek(
+    room: String,
+    discord: Result<&Discord, &str>,
+    channels: &mut Channels,
+    events: &UnboundedSender<Event>,
+) {
+    let place =
+        discord::parse_room(&room).map(|(guild, channel)| (guild.to_owned(), channel.to_owned()));
+    let (Ok(discord), Some((guild, channel))) = (discord, place) else {
+        let _ = events.send(Event::Peeked {
+            room,
+            result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+        });
+        return;
+    };
+    let previews = channels.previews.clone();
+    if let Some(kept) = channels
+        .get_mut(&room)
+        .and_then(|kept| kept.newest(crate::chat::PEEK_MESSAGES))
+    {
+        let result = Ok(peeked(discord, &room, &kept, &previews));
+        let _ = events.send(Event::Peeked { room, result });
+        return;
+    }
+    let (discord, events) = (discord.clone(), events.clone());
+    tokio::spawn(async move {
+        let result = match discord
+            .peek(&guild, &channel, crate::chat::PEEK_MESSAGES)
+            .await
+        {
+            Ok(messages) => Ok(peeked(&discord, &room, &messages, &previews)),
+            Err(error) => {
+                tracing::debug!(error = format!("{error:#}"), "could not peek at a channel");
+                Err(error.to_string())
+            }
+        };
+        let _ = events.send(Event::Peeked { room, result });
+    });
+}
+
+/// Messages peeked at, as found messages show: their pictures only when
+/// the shared previews hold them, and their names otherwise.
+fn peeked(
+    discord: &Discord,
+    room: &str,
+    messages: &[Message],
+    previews: &channels::SharedPreviews,
+) -> Vec<ChatMessage> {
+    let mut found = found_in(discord, room, messages);
+    let mut previews = previews
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for (message, found) in messages.iter().zip(&mut found) {
+        let attachments = message
+            .attachments
+            .iter()
+            .filter(|attachment| attachment.shown == Shown::Message);
+        for (attachment, shown) in attachments.zip(&mut found.attachments) {
+            if !(shown.image || shown.video) {
+                continue;
+            }
+            shown.preview = attachment
+                .preview_url
+                .as_deref()
+                .and_then(|url| previews.get(url));
+            shown.preview_failed = shown.preview.is_none();
+        }
+    }
+    found
 }

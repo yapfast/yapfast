@@ -29,7 +29,7 @@ mod role_input;
 mod roles;
 mod safety;
 
-use audit_log::Known;
+pub(crate) use audit_log::Known;
 pub use audit_log::{
     AUDIT_ACTIONS, AUDIT_PAGE, AuditInput, AuditKind, AuditLine, AuditLogPage, AuditRow,
     Span as AuditSpan, Words as AuditWords,
@@ -383,6 +383,9 @@ impl Application {
         query: AuditQuery,
         result: Result<AuditLog, String>,
     ) {
+        if query.target.is_some() {
+            return self.mod_view_log(server, query, result);
+        }
         let asked = |settings: &ServerSettings| {
             settings.server == server
                 && matches!(&settings.page, Some(Page::AuditLog(page))

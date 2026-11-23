@@ -800,3 +800,37 @@ fn the_typing_line_has_its_own_strip_over_the_composer_and_never_covers_a_messag
         "on the line's strip: {note:?} {words:?}"
     );
 }
+
+#[test]
+fn a_long_embed_description_folds_behind_show_more() {
+    let (mut app, _folder) = preview();
+    app.layout.collapse_long = true;
+    let description: Vec<String> = (1..=24).map(|line| format!("report line {line}")).collect();
+    super::change(&mut app, |state| {
+        state.messages =
+            std::sync::Arc::new(vec![std::sync::Arc::new(yapfast_core::chat::ChatMessage {
+                item: "bot".into(),
+                author: "Reports".into(),
+                timestamp: 1,
+                embeds: vec![yapfast_core::chat::Embed {
+                    title: "Weekly report".into(),
+                    description: description.join("\n"),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })]);
+    });
+    // Its lines are one piece of text, so the fold shows by its button.
+    assert!(shows(&app, "Show more"), "folded");
+    interact(&mut app, |ui| {
+        ui.click("Show more").expect("Show more");
+    });
+    assert!(
+        app.timeline
+            .revealed
+            .contains(&crate::message::fold_key("bot")),
+        "unfolded"
+    );
+    interact(&mut app, |_| {});
+    assert!(shows(&app, "Show less"));
+}

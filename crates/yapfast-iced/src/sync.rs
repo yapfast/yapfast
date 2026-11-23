@@ -372,6 +372,7 @@ impl App {
         }
         tasks.push(crate::thread::thread_sync(self));
         crate::header_popovers::popovers_sync(self);
+        crate::peek::sync(self);
         crate::search::search_sync(self);
         crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
@@ -919,6 +920,14 @@ impl App {
             for emoji in &message.emoji {
                 want(Some(&emoji.picture));
             }
+            // The servers' icons on its invite cards.
+            for code in look.iter().flat_map(|look| &look.body.invites) {
+                if let Some(yapfast_core::chat::InviteCard::Server(preview)) =
+                    state.invite_cards.get(code)
+                {
+                    want(preview.icon.as_deref());
+                }
+            }
             if !look.is_some_and(|look| look.first) {
                 continue;
             }
@@ -981,6 +990,7 @@ impl App {
         }
         for url in crate::search_popout::pictures(self)
             .into_iter()
+            .chain(crate::mod_view::pictures(self))
             .chain(crate::search_filters::pictures(self))
         {
             want(Some(&url));

@@ -23,7 +23,8 @@
 // busy account has, for measuring; POST /_control/busy-start makes Bob post
 // in their channels ten times a second, and /_control/busy-stop stops him.
 // `--folders` puts them in folders in Alice's server list: the first three in
-// a red "Games" folder, the next two in one without a name or colour.
+// a red "Games" folder, or as many as `--folder-size N` says, for a big
+// folder's menu, the next two in one without a name or colour.
 // `--dms N` adds N older DMs, each with a person of its own, every other one
 // a friend, as a busy account has. `--images N` attaches a picture of its own
 // to every Nth extra history message, for a channel heavy with previews.
@@ -122,6 +123,9 @@
 // sort_by/sort_order too. The first search of each DM or server answers
 // 202 with Retry-After: 1, as Discord's does while it indexes it. GET
 // /_control/searches lists each search's query string, oldest first.
+// POST /guilds/{id}/messages/search/tabs counts Mod View's messages, links
+// and media tabs, each by author_id, has and attachment_extension; GET
+// /_control/search-tabs lists the bodies it was sent.
 // POST /_control/typing makes Bob start typing in #general, or with ?dm in
 // his DM; GET /_control/typed lists the channels Alice said she was typing in.
 // GET /channels/{id}/messages takes `before`, `after` or `around` a snowflake,
@@ -231,7 +235,8 @@
 // /users/@me/guilds/{id}/settings changes her notification settings for a
 // server and its channels, and USER_GUILD_SETTINGS_UPDATE says so; PATCH
 // /users/@me/guilds/settings changes several servers' at once, as Discord's
-// client pins a channel to the top with its override's flags. POST
+// client pins a channel to the top with its override's flags and Yapfast's
+// folder menu changes all of a folder's servers. POST
 // /channels/{id}/invites makes an invite to a channel of "Server" or of a
 // `--servers` filler, which @everyone may, as on Discord, and GET
 // /_control/invites lists them, each with the location its
@@ -252,7 +257,13 @@
 // its X-Context-Properties and session. POST /_control/invite-captcha makes
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
-// in first.
+// in first. GET /invites/bikes resolves to "Bike Club", a server Alice isn't
+// in, which is full, so joining it is refused with Discord's 30019; an
+// unknown code answers 10006. The counts come only with `with_counts=true`,
+// as Discord's do, and GET /_control/invite-lookups lists each GET's code
+// and query. POST /_control/invite-links makes Bob post a message linking
+// "server", "bikes" and an expired invite, for the cards Discord's client
+// shows under it, and answers with its id.
 // Authorizing Alien App from its link previews and authorizes the same
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
@@ -409,6 +420,7 @@ const { values: args } = parseArgs({
     "member-looks": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
+    "folder-size": { type: "string", default: "3" },
     "cdn-delay": { type: "string", default: "0" },
     unread: { type: "string", default: "5" },
     env: { type: "string" },
@@ -435,6 +447,8 @@ const CHAT_INTERVAL = 2_000;
 const GUILD = "1400000000000000100";
 /** A server Alice isn't in, which shows its profile only to its members. */
 const PRIVATE_GUILD = "1400000000000000990";
+/** A server Alice isn't in, which the "bikes" invite is to. */
+const BIKE_CLUB = "1400000000000000980";
 const CATEGORY = "1400000000000000101";
 const GENERAL = "1400000000000000102";
 const LOUNGE = "1400000000000000103";
@@ -901,7 +915,8 @@ const auditLog: { action: string; user: string; reason: string | null }[] = [];
  *  by Bob and Alice from before the run, then each kick, ban, unban,
  *  timeout and server settings change Alice makes. GET
  *  /guilds/{id}/audit-logs lists it newest first, 50 at a time, with
- *  `before`, `user_id` and `action_type`, as Audit Log asks, and the users
+ *  `before`, `user_id` and `action_type`, as Audit Log asks, or
+ *  `target_id`, as Mod View's Moderator Action Log does, and the users
  *  it names. POST /_control/audit-entries with `{"count": n}` adds n of
  *  Bob's message deletions, for paging; POST /_control/audit-reset puts
  *  back the seeded entries alone. */
@@ -1871,6 +1886,8 @@ function searchFilter(url: URL): (message: Message) => boolean {
     (!max || BigInt(message.id) < BigInt(max)) &&
     (pinned === null || (pins.get(message.channel)?.some((pin) => pin.message.id === message.id) ?? false) === (pinned === "true"));
 }
+/** The bodies of Mod View's POST /guilds/{id}/messages/search/tabs. */
+const tabSearches: unknown[] = [];
 // DMs and servers searched once, which Discord has indexed.
 const indexed = new Set<string>();
 /** Each message search's query string, as GET /_control/searches lists them. */
@@ -2931,11 +2948,12 @@ function folderEntry(servers: string[], id?: number, name?: string, color?: numb
 if (args.folders && !env) {
   const entry = folderEntry;
   const ids = fillers.map((filler) => filler.id);
+  const size = Math.max(1, Number(args["folder-size"]));
   const list = [
     entry([GUILD]),
-    entry(ids.slice(0, 3), 1, "Games", 0xed4245),
-    entry(ids.slice(3, 5), 2),
-    ...ids.slice(5).map((id) => entry([id])),
+    entry(ids.slice(0, size), 1, "Games", 0xed4245),
+    entry(ids.slice(size, size + 2), 2),
+    ...ids.slice(size + 2).map((id) => entry([id])),
   ];
   const folders = new Uint8Array(list.flatMap((bytes) => [...bytes]));
   settings = Buffer.concat([Buffer.from(settings, "base64"), protoBytes(14, folders)]).toString("base64");
@@ -5468,6 +5486,8 @@ function answerAutocomplete(body: any) {
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
 const inviteJoins: Record<string, unknown>[] = [];
+/** Each GET /invites/{code}: its code and query, for GET /_control/invite-lookups. */
+const inviteLookups: { code: string; query: string }[] = [];
 /** Each authorization of an application, oldest first, for
  *  GET /_control/oauth-authorizations. */
 const oauthAuthorizations: Record<string, unknown>[] = [];
@@ -6006,7 +6026,8 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         },
         join_source_type: source[0],
         source_invite_code: source[1],
-        inviter_id: null,
+        // Carol's invite, which she made.
+        inviter_id: source[1] === "carol1" ? users.carol.id : null,
         integration_type: null,
       })),
       page_result_count: page.length,
@@ -7024,6 +7045,43 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     return searchPage(url, found, (message) => ({ ...wireMessage(message, origin), guild_id: guild }));
   }
 
+  // Mod View's counts: POST /guilds/{id}/messages/search/tabs runs each
+  // of `tabs` (author_id, has and attachment_extension) over the server's
+  // channels and answers each tab's total_results and its first `limit`
+  // messages. The first search of the server answers 202 like GET's. Each
+  // body sent is kept for GET /_control/search-tabs.
+  if (method === "POST" && (m = path.match(/^\/guilds\/(\d+)\/messages\/search\/tabs$/))) {
+    const guild = m[1]!;
+    const channels = [...messages.keys()].filter((id) => !privates.has(id) && guildOf(id).guild_id === guild);
+    if (!channels.length) return notFound("Unknown Guild", 10004);
+    const body: any = await req.json().catch(() => ({}));
+    tabSearches.push(body);
+    if (!indexed.has(guild)) {
+      indexed.add(guild);
+      return json({ message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 0 }, 202);
+    }
+    const all = channels
+      .flatMap((id) => messages.get(id)!)
+      .filter((message) => message.type === 0 || message.type === 19)
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
+    const tabs: Record<string, unknown> = {};
+    for (const [name, tab] of Object.entries<any>(body.tabs ?? {})) {
+      const query = new URL("http://fake/");
+      for (const id of tab.author_id ?? []) query.searchParams.append("author_id", id);
+      for (const what of tab.has ?? []) query.searchParams.append("has", what);
+      const extensions: string[] = tab.attachment_extension ?? [];
+      const found = all
+        .filter(searchFilter(query))
+        .filter((message) => !extensions.length || message.files.some((file) => extensions.includes(file.filename.split(".").pop()!.toLowerCase())));
+      const limit = Math.min(Math.max(Number(tab.limit) || 25, 1), 25);
+      tabs[name] = {
+        messages: found.slice(0, limit).map((message) => [{ ...wireMessage(message, origin), guild_id: guild }]),
+        channels: [], cursor: {}, total_results: found.length, time_spent_ms: 1,
+      };
+    }
+    return json({ analytics_id: "fake", doing_deep_historical_index: false, tabs });
+  }
+
   // Each message request's latest message, for the requests list: 1 to 25
   // channel_ids, repeated. A channel that isn't a request is left out.
   if (method === "GET" && path === "/users/@me/message-requests/supplemental-data") {
@@ -7557,10 +7615,12 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     const before = query.get("before");
     const user = query.get("user_id");
     const action = query.get("action_type");
+    const target = query.get("target_id");
     const found = auditEntries
       .filter((entry) => before === null || BigInt(entry.id) < BigInt(before))
       .filter((entry) => user === null || entry.user_id === user)
       .filter((entry) => action === null || entry.action_type === Number(action))
+      .filter((entry) => target === null || entry.target_id === target)
       .reverse()
       .slice(0, limit);
     const named = new Set(found.flatMap((entry) => [entry.user_id, entry.target_id]));
@@ -7791,6 +7851,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       const { location: _, ...invite } = made;
       return invite;
     }
+    if (code === "bikes") {
+      return {
+        type: 0,
+        code,
+        inviter: wireUser(users.bob),
+        expires_at: null,
+        guild: { id: BIKE_CLUB, name: "Bike Club", icon: "bikeclub", splash: null, banner: null, description: null, features: [], verification_level: 1, vanity_url_code: null, nsfw_level: 0, premium_subscription_count: 0 },
+        guild_id: BIKE_CLUB,
+        channel: { id: "1400000000000000981", type: 0, name: "welcome" },
+      };
+    }
     if (code !== "server") return undefined;
     const server = guild();
     return {
@@ -7804,10 +7875,13 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     };
   };
   if ((m = path.match(/^\/invites\/([\w-]+)$/)) && (method === "GET" || method === "POST")) {
+    if (method === "GET") inviteLookups.push({ code: m[1]!, query: url.search });
     const invite = knownInvite(m[1]!);
     if (!invite) return notFound("Unknown Invite", 10006);
     if (method === "GET") {
-      return json({ ...invite, approximate_member_count: Object.keys(users).length, approximate_presence_count: 3 });
+      if (url.searchParams.get("with_counts") !== "true") return json(invite);
+      const counts = invite.guild.id === BIKE_CLUB ? [1234, 87] : [Object.keys(users).length, 3];
+      return json({ ...invite, approximate_member_count: counts[0], approximate_presence_count: counts[1] });
     }
     const body: any = await req.json().catch(() => ({}));
     const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
@@ -7826,6 +7900,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       context = null;
     }
     inviteJoins.push({ code: invite.code, session_id: body.session_id, context });
+    if (invite.guild.id === BIKE_CLUB) return json({ message: "Maximum number of server members reached (500000)", code: 30019 }, 403);
     const newMember = invite.guild.id === GUILD && leftServer;
     if (newMember) rejoin();
     const form = inviteForm;
@@ -9274,6 +9349,7 @@ const server = Bun.serve<SocketData>({
       return new Response("changed\n");
     }
     if (path === "/_control/audit-log") return Response.json(auditLog);
+    if (path === "/_control/search-tabs") return Response.json(tabSearches);
     if (req.method === "POST" && path === "/_control/audit-entries") {
       const body: any = await req.json().catch(() => ({}));
       const count = Number(body.count) || 0;
@@ -9725,6 +9801,15 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);
+    }
+    if (req.method === "GET" && path === "/_control/invite-lookups") {
+      return Response.json(inviteLookups);
+    }
+    if (req.method === "POST" && path === "/_control/invite-links") {
+      const content = "Come ride with us https://discord.gg/bikes or hang out at https://discord.com/invite/server - not https://discord.gg/expired";
+      const message = post(GENERAL, users.bob, content, Date.now());
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      return new Response(message.id);
     }
     if (req.method === "GET" && path === "/_control/event-interest") {
       return Response.json(eventInterest);

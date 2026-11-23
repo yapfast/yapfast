@@ -631,6 +631,7 @@ fn members_and_invites_list_as_discords_pages_do() {
         spammer: false,
         quarantined: false,
         joined_by,
+        inviter: None,
         bot: false,
     };
     let mut mod_ = member(

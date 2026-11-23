@@ -183,7 +183,7 @@ fn discord_mentions_search_the_server_and_name_roles() {
             },
         ],
     });
-    // People with their usernames, then roles; never this account, nor
+    // People with their usernames, this account too, then roles; not
     // channels, which `#` mentions.
     app.dispatch(Action::MentionQuery(Some(('@', String::new()))));
     let suggested: Vec<_> = app
@@ -196,6 +196,7 @@ fn discord_mentions_search_the_server_and_name_roles() {
         suggested,
         [
             ("Bob".into(), Some("bob".into()), false),
+            ("Alice".into(), None, false),
             ("Mods".into(), None, true)
         ]
     );
