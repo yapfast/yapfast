@@ -218,6 +218,8 @@ impl App {
     /// What views read besides their own state.
     /// The theme, icons and room the kit draws with.
     pub fn look(&self) -> crate::look::Look<'_> {
+        // Icons are drawn at the window's pixels, as the zoom has them now.
+        self.win.icons.set_scale(self.device_scale());
         crate::look::Look {
             theme: &self.theme,
             icons: &self.win.icons,

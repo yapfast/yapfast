@@ -1,19 +1,35 @@
 //! The client's icons, from the kit's `icons/`, and the pictures drawn of
 //! them: each at a size and colour drawn once and kept until the window
-//! goes or the theme changes.
+//! goes, the theme changes or the window's pixels per unit do.
+//!
+//! An icon is drawn at the window's own pixels, its size times the display
+//! scale and zoom, and shown at the size asked: drawn at the size asked and
+//! stretched by the renderer, as at 110%, every edge of a flat icon blurs.
 
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, sync::Arc};
+use std::{
+    borrow::Cow,
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    sync::Arc,
+};
 
 use iced::advanced::image::Handle;
 
 use crate::canvas::{self, handle};
 
-/// Icons drawn, by icon, size and colour; [`Look`](crate::look::Look)
-/// draws from it.
-#[derive(Default)]
+/// Icons drawn, by icon, size in the window's pixels and colour;
+/// [`Look`](crate::look::Look) draws from it.
 pub struct Icons {
     drawn: RefCell<HashMap<Drawn, Handle>>,
     replacements: HashMap<String, Replacement>,
+    /// The window's pixels to the view's units, which icons are drawn at.
+    scale: Cell<f32>,
+}
+
+impl Default for Icons {
+    fn default() -> Self {
+        Self::new(HashMap::new())
+    }
 }
 
 /// A checked installed-theme SVG and how it is coloured.
@@ -48,7 +64,25 @@ impl Icons {
         Self {
             drawn: RefCell::default(),
             replacements,
+            scale: Cell::new(1.0),
         }
+    }
+
+    /// Draws icons at `scale` window pixels to the view's unit from now on
+    /// (the display's scale times the zoom), letting go of those drawn at
+    /// another.
+    pub fn set_scale(&self, scale: f32) {
+        if !scale.is_finite() || scale <= 0.0 || scale == self.scale.get() {
+            return;
+        }
+        self.scale.set(scale);
+        self.forget();
+    }
+
+    /// The window's pixels across an icon `size` units across, rounded as
+    /// the renderer rounds a picture's span, so it's copied in unscaled.
+    fn pixels(&self, size: u32) -> u32 {
+        ((size as f32 * self.scale.get()).round() as u32).max(1)
     }
 
     /// Replaces the active package's icon pack and lets go of every raster
@@ -75,6 +109,7 @@ impl Icons {
     }
 
     fn get(&self, drawn: Drawn) -> Handle {
+        let drawn = drawn.at(self.pixels(drawn.size()));
         if let Some(handle) = self.drawn.borrow().get(&drawn) {
             return handle.clone();
         }
@@ -126,6 +161,21 @@ impl Drawn {
     fn icon(self) -> Icon {
         match self {
             Self::Coloured(icon, ..) | Self::Own(icon, ..) | Self::Tinted(icon, ..) => icon,
+        }
+    }
+
+    fn size(self) -> u32 {
+        match self {
+            Self::Coloured(_, size, _) | Self::Own(_, size) | Self::Tinted(_, size, _) => size,
+        }
+    }
+
+    /// The same icon `size` pixels across.
+    fn at(self, size: u32) -> Self {
+        match self {
+            Self::Coloured(icon, _, rgb) => Self::Coloured(icon, size, rgb),
+            Self::Own(icon, _) => Self::Own(icon, size),
+            Self::Tinted(icon, _, rgb) => Self::Tinted(icon, size, rgb),
         }
     }
 }
@@ -556,4 +606,37 @@ fn kebab(name: &str) -> String {
         out.push(letter.to_ascii_lowercase());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::advanced::image::Handle;
+
+    use super::{Icon, Icons};
+
+    fn pixels(handle: &Handle) -> (u32, u32) {
+        match handle {
+            Handle::Rgba { width, height, .. } => (*width, *height),
+            _ => panic!("icons are drawn as pixels"),
+        }
+    }
+
+    #[test]
+    fn icons_are_drawn_at_the_windows_pixels() {
+        let icons = Icons::default();
+        assert_eq!(
+            pixels(&icons.coloured(Icon::Gamepad, 15, 0x23a55a)),
+            (15, 15)
+        );
+        // At 110%, 15 units span 16.5 pixels, which the renderer rounds to 17.
+        icons.set_scale(1.1);
+        assert_eq!(icons.drawn.borrow().len(), 0, "the 100% drawings go");
+        assert_eq!(
+            pixels(&icons.coloured(Icon::Gamepad, 15, 0x23a55a)),
+            (17, 17)
+        );
+        assert_eq!(pixels(&icons.own(Icon::Gamepad, 16)), (18, 18));
+        icons.set_scale(1.1);
+        assert_eq!(icons.drawn.borrow().len(), 2, "the same scale keeps them");
+    }
 }
