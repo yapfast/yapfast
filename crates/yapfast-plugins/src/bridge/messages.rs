@@ -70,6 +70,8 @@ pub enum Notice {
     RecordingEnded { plugin: PluginId },
     /// A plugin's decorations should be asked again: what it keeps changed.
     Redecorate { plugin: PluginId },
+    /// A plugin's member-list badges should be asked again.
+    RedecorateMembers { plugin: PluginId },
     /// How a person looks, or everyone when `person` is none, should be asked
     /// again.
     IdentityRefresh {

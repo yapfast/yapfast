@@ -316,6 +316,7 @@ pub mod method {
     pub const APP_VERSION: &str = "app.version";
     pub const APP_NOW: &str = "app.now";
     pub const UI_REDECORATE: &str = "ui.redecorate";
+    pub const UI_REDECORATE_MEMBERS: &str = "ui.redecorate_members";
     pub const PEOPLE_BADGES: &str = "people.badges";
     pub const OVERLAY_PICTURE: &str = "overlay.picture";
     pub const SERVERS_DETAILS: &str = "servers.details";

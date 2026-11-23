@@ -77,6 +77,9 @@ pub mod method {
     /// Ask again what it draws under messages: decorations are asked for and
     /// kept, and a plugin whose answer changed says so with this.
     pub const UI_REDECORATE: &str = "ui.redecorate";
+    /// Ask again what badge it gives the people the member list shows
+    /// (`member.decorate`): its badges are kept and asked for once too.
+    pub const UI_REDECORATE_MEMBERS: &str = "ui.redecorate_members";
     /// Ask again how a person looks, or everyone: identities are kept too.
     pub const IDENTITY_REFRESH: &str = "identity.refresh";
     pub const MEDIA_GET: &str = "media.get";
@@ -202,7 +205,7 @@ pub mod method {
     /// is what a test compares that table against: a method added above without
     /// a place in the table would answer `unsupported` to every guest forever,
     /// and nothing else would say so.
-    pub const ALL: [&str; 121] = [
+    pub const ALL: [&str; 122] = [
         APP_VERSION,
         APP_LOCALE,
         APP_THEME_MODE,
@@ -245,6 +248,7 @@ pub mod method {
         UI_TOAST,
         UI_OPEN_DIALOG,
         UI_REDECORATE,
+        UI_REDECORATE_MEMBERS,
         IDENTITY_REFRESH,
         MEDIA_GET,
         MESSAGES_SEND,

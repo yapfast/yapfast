@@ -887,6 +887,7 @@ The `ui` calls take a widget tree, the rows of cells
 | `overlay.clear` | `{}` | `true` |
 | `ui.set_slot` on `profile.badges` or `profile.section` | `{ slot, tree, part?, person? }` | With `person`, the tree is that person's alone: each plugin keeps one drawing per person (the last 32) and one without `person` for every other profile; `ui.clear_slot { slot, person? }` takes one person's away, or all of them |
 | `ui.redecorate` | `{}` | `true`: what this plugin drew under messages is forgotten and the rows on screen are asked again, for an answer that changed (a review that loaded, a setting of its own) |
+| `ui.redecorate_members` | `{}` | `true`: the member-list badges this plugin gave (`member.decorate`) are asked for again for the people on screen; they stay drawn until it answers |
 | `identity.refresh` | `{ person? }` | `true`: what plugins said about that person, or everyone, is forgotten, and a card showing them asks again |
 
 A drawing doesn't wait for the interface: the call is answered as soon as the

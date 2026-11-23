@@ -34,6 +34,13 @@ pub fn redecorate() -> Result<()> {
     Ok(())
 }
 
+/// Asks Yapfast to ask this plugin again what badge it gives the people the
+/// member list shows (`member.decorate`); its badges stay until it answers.
+pub fn redecorate_members() -> Result<()> {
+    call::ok(method::UI_REDECORATE_MEMBERS, serde_json::json!({}))?;
+    Ok(())
+}
+
 /// Asks Yapfast to ask again how `person` looks, or everyone with `None`:
 /// identities are kept, not polled.
 pub fn refresh_identity(person: Option<&str>) -> Result<()> {

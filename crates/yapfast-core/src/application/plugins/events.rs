@@ -174,6 +174,20 @@ impl Application {
                 }
                 vec![]
             }
+            // A plugin said its member badges changed: what it said stays drawn,
+            // and the people on screen are asked again.
+            News::Notice(Notice::RedecorateMembers { plugin }) => {
+                let marked = self
+                    .state
+                    .plugin_slots
+                    .as_deref_mut()
+                    .is_some_and(|slots| slots.rebadge(plugin.as_str()));
+                if marked && let Some(room) = self.badges_rooms.clone() {
+                    let ids = self.visible_members.clone();
+                    self.plugins_decorate_members(&room, &ids);
+                }
+                vec![]
+            }
             // A plugin said how someone looks changed: what was kept goes, and
             // a card that shows them asks again.
             News::Notice(Notice::IdentityRefresh { person, .. }) => {

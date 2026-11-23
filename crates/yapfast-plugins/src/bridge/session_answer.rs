@@ -318,6 +318,14 @@ impl Session {
                 });
                 HostReturn::Ok(serde_json::Value::Bool(true))
             }
+            call::method::UI_REDECORATE_MEMBERS => {
+                // Its badges stay drawn until it answers again, so the list
+                // doesn't blink; the people on screen are asked again.
+                shared.announce(Notice::RedecorateMembers {
+                    plugin: plugin.clone(),
+                });
+                HostReturn::Ok(serde_json::Value::Bool(true))
+            }
             call::method::IDENTITY_REFRESH => {
                 let person = call
                     .payload

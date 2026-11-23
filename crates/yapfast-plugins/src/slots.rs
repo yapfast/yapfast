@@ -274,6 +274,9 @@ struct Badged {
     member: String,
     plugin: usize,
     badge: Option<Badge>,
+    /// The plugin asked to be asked again (`ui.redecorate_members`): the badge
+    /// still shows, and the member counts as not yet asked.
+    stale: bool,
 }
 
 /// A plugin's tree under one message.
@@ -870,6 +873,7 @@ impl Slots {
             member: member.to_owned(),
             plugin,
             badge: badge.clone(),
+            stale: false,
         });
         while self.badges.len() > BADGES {
             if let Some(gone) = self.badges.pop_front() {
@@ -901,8 +905,23 @@ impl Slots {
     pub fn members_asked(&self, member: &str) -> usize {
         self.badges
             .iter()
-            .filter(|kept| kept.member == member)
+            .filter(|kept| kept.member == member && !kept.stale)
             .count()
+    }
+
+    /// Marks what one plugin said about every person as to be asked again
+    /// (`ui.redecorate_members`), keeping it drawn until the new answer
+    /// replaces it; false when it had said nothing.
+    pub fn rebadge(&mut self, plugin: &str) -> bool {
+        let Some(plugin) = self.index(plugin) else {
+            return false;
+        };
+        let mut any = false;
+        for kept in self.badges.iter_mut().filter(|kept| kept.plugin == plugin) {
+            kept.stale = true;
+            any = true;
+        }
+        any
     }
 
     /// The people whose badges changed since this was last called.
@@ -1358,5 +1377,23 @@ mod tests {
             ["anyone's"],
             "the one for everyone stays"
         );
+    }
+
+    #[test]
+    fn a_rebadge_keeps_the_badge_and_asks_again() {
+        let mut slots = slots();
+        let badge = Badge {
+            text: "Mod".into(),
+            tone: Tone::Normal,
+        };
+        assert!(slots.badge("a.one", "p1", Some(badge.clone())));
+        assert!(!slots.badge("a.two", "p1", None));
+        assert_eq!(slots.members_asked("p1"), 2);
+        assert!(slots.rebadge("a.one"));
+        assert!(!slots.rebadge("a.nobody"));
+        assert_eq!(slots.members_asked("p1"), 1, "a.one is asked again");
+        assert_eq!(slots.badges("p1").count(), 1, "and its badge still shows");
+        assert!(!slots.badge("a.one", "p1", Some(badge)), "the same answer");
+        assert_eq!(slots.members_asked("p1"), 2);
     }
 }
