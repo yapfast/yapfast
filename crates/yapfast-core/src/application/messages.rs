@@ -472,24 +472,28 @@ impl Application {
         self.load_image()
     }
 
+    /// Steps the image viewer to the next or previous image of its
+    /// conversation, whatever message it's in, round from the last to the
+    /// first.
     pub(super) fn step_image(&mut self, step: isize) -> Vec<Effect> {
         let Some(viewer) = &self.state.viewer else {
             return vec![];
         };
-        let images: Vec<usize> = self
-            .state
-            .message(&viewer.item)
-            .into_iter()
-            .flat_map(|message| message.attachments.iter().enumerate())
-            .filter(|(_, attachment)| attachment.image)
-            .map(|(index, _)| index)
-            .collect();
-        let Some(at) = images.iter().position(|index| *index == viewer.index) else {
+        let images = self.state.viewer_images();
+        let Some(at) = images
+            .iter()
+            .position(|(item, index)| *item == viewer.item && *index == viewer.index)
+        else {
             return vec![];
         };
-        let next = images[(at as isize + step).rem_euclid(images.len() as isize) as usize];
+        let (item, index) = images[(at as isize + step).rem_euclid(images.len() as isize) as usize];
+        let item = item.to_owned();
         if let Some(viewer) = &mut self.state.viewer {
-            viewer.index = next;
+            if viewer.item != item {
+                viewer.item = item;
+                viewer.pictures.clear();
+            }
+            viewer.index = index;
         }
         self.load_image()
     }

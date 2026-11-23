@@ -277,6 +277,9 @@ pub enum Event {
     /// A category's heading, by what it folds by.
     Toggle(String),
     Filter(String),
+    /// The DM list's "Find or start a conversation" button, shown instead
+    /// of the filter when the setting is on: the quick switcher.
+    FindConversation,
     Friends,
     Requests,
     Browse,
@@ -341,9 +344,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.sidebar.voice_card_off = false;
             }
             crate::app::point(&mut app.pointed.side, id, entered);
+            // Where the pointer came onto the row, for a peek's height.
+            app.peek.placing = entered && app.layout.peek_channels;
             // A DM's nameplate and moving decoration come as it's
-            // pointed at.
-            return app.ask();
+            // pointed at; a peek follows the row.
+            return Task::batch([app.ask(), crate::peek::follow(app)]);
         }
         // A server tree lists other places' channels too, which go to
         // their place first.
@@ -378,6 +383,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Filter(filter) => {
             app.lists_shown = None;
             app.sidebar.filter = filter;
+        }
+        Event::FindConversation => {
+            return app.switcher_event(crate::switcher::Event::Toggle);
         }
         Event::Friends => app.client.dispatch(Action::OpenDmScreen(DmScreen::Friends)),
         Event::Requests => app

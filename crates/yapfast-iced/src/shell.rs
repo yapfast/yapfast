@@ -92,6 +92,10 @@ pub struct Shell {
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
+    /// Under the desktop's own title bar, or none, Discord's bar still
+    /// shows, without the window's buttons; the tests lay the window out
+    /// without it unless one asks.
+    pub bar_under_frame: bool,
     /// That the GPU failed to start, until the banner is dismissed.
     pub gpu_notice: bool,
 }
@@ -188,6 +192,11 @@ impl App {
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
+                if !focused {
+                    // Alt may be let go elsewhere.
+                    self.modifiers = iced::keyboard::Modifiers::default();
+                    return crate::peek::follow(self);
+                }
                 if focused {
                     return window::request_user_attention(id, None);
                 }

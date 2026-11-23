@@ -1302,6 +1302,7 @@ pub fn reply_bar_for<'a>(
                 &["Replying to ", reply.author, ": "],
                 reply.body,
                 reply.emoji,
+                &[],
                 crate::markdown::Look {
                     size: theme.type_size("small", 14.0),
                     line_height: 20.0,

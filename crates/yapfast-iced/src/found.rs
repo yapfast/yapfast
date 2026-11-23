@@ -29,6 +29,8 @@ use crate::{
 const GALLERY: f32 = 300.0;
 const LINES: f32 = 8.0;
 const AVATAR: f32 = 36.0;
+/// A sticker's picture on the card.
+const STICKER: f32 = 64.0;
 /// No timeline's row: its text's pieces select nothing.
 const NO_ROW: usize = usize::MAX;
 
@@ -119,6 +121,25 @@ pub fn found_view<'a>(
             },
         );
         words = words.push(container(body).max_height(LINE_HEIGHT * LINES).clip(true));
+    }
+    // Its stickers: each picture, small, when it's already here, or else
+    // its name, so a message of a sticker alone isn't an empty card.
+    for sticker in message
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.placement == Placement::Sticker)
+    {
+        words = words.push(match sticker.preview.as_ref() {
+            Some(picture) => ctx.shot(
+                Shot::new(Some(picture), iced::Size::new(STICKER, STICKER))
+                    .fit(crate::media::Fit::Contain)
+                    .bare(),
+            ),
+            None => elide(format!("Sticker: {}", sticker.name))
+                .size(14)
+                .color(theme.secondary)
+                .into(),
+        });
     }
     let gallery = Gallery::of(
         &message.attachments[..message.attachments.len().min(FOUND_PICTURES + 4)],

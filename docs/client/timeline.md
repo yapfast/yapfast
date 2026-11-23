@@ -68,7 +68,9 @@ waits for its retry.
 
 A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
-a file's card (its name and size), link previews and bots' cards (a bar of
+a file's card (its name, a link to the file in the link colour, and its
+size), the cards of the Discord invites it links (`message/invite.rs`), link
+previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
 thumbnail and footer), stickers, a poll, a voice message, an app's
 components, and reactions. The author line has the name (in its role
@@ -77,7 +79,10 @@ author who joined the server in the last week (`new_member`; not a bot, not
 one who left and came back, and not in a server itself under a week old, as
 Discord's client marks them), and, in a forum post, an "OP" tag for the
 post's author unless the APP tag is there; a reply's line quotes the
-author's tag a little smaller. A notice shows its icon in place of the avatar
+author's tag a little smaller, and pointed at for half a second shows the
+whole original in a tooltip, up to 600 characters (`message::whole_reply`:
+the loaded original past its first line, or the quote's own text when the
+line cuts it short), made only for the row under the pointer. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.
@@ -108,15 +113,19 @@ slash command, where one may write, is written in the composer
   picture clicked shows large (`image_viewer.rs`):
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
-  its bars; its name and place among the message's pictures, Save and
-  Close above, round buttons and the arrow keys stepping through them, a
+  its bars; its name and place among the conversation's loaded pictures
+  (`AppState::viewer_images`), Save and Close above, round buttons and the
+  arrow keys stepping through them from message to message, a
   note while the full one loads or why it can't; Escape, Close or a click
   outside closes it, and the core lets go of it. A right click on a
   picture or video, there or in the timeline, offers Copy Image, Save
   Image or Video, Copy Link and Open Link, after the message's own rows
   (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
-  dialog, offering only the file's own name.
+  dialog, offering only the file's own name. On Linux without the file
+  chooser portal, which the dialog needs (`downloads::has_save_dialog`),
+  the file goes straight to the Downloads folder instead, as `notes (1).txt`
+  beside one of its name, and the notice says it saved.
 - A video (`playback.rs`) shows its poster with a play mark; clicked, it
   plays in its cell, its frames coming through the stream worker's shared
   mapping as a watched stream's do (`video::Sources::clip`). While the

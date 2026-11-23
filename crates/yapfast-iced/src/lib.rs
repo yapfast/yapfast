@@ -52,6 +52,7 @@ mod desktop;
 mod slot;
 use yapfast_iced_kit::dialog;
 mod dialogs;
+mod downloads;
 mod edit;
 // build.rs packs Twemoji with it; here its test runs.
 #[cfg(test)]
@@ -84,6 +85,7 @@ mod menus;
 mod message;
 mod mfa;
 mod paint;
+mod peek;
 mod people;
 mod person_menu;
 mod picker;
