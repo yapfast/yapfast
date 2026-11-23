@@ -1206,6 +1206,9 @@ impl<B: Backend + 'static> Shared<B> {
             annotation: None,
             marks: None,
             author: None,
+            pictures: None,
+            tooltips: None,
+            emoji: None,
         };
         if self.ensure_active(slot).is_none() {
             let _ = self.reply(task.id, &nothing());
@@ -1246,6 +1249,9 @@ impl<B: Backend + 'static> Shared<B> {
                 annotation: decoration.annotation,
                 marks: decoration.marks,
                 author: decoration.author,
+                pictures: decoration.pictures,
+                tooltips: decoration.tooltips,
+                emoji: decoration.emoji,
             },
         );
         match result {
@@ -1876,6 +1882,9 @@ impl<B: Backend + 'static> Shared<B> {
                         annotation: None,
                         marks: None,
                         author: None,
+                        pictures: None,
+                        tooltips: None,
+                        emoji: None,
                     },
                 );
             }

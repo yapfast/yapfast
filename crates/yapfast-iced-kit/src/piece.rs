@@ -75,6 +75,26 @@ pub trait Moving {
     fn draw(&self, renderer: &mut Renderer, at: Point);
 }
 
+/// How a plugin's words move, a frame at a time while they're in view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Motion {
+    /// Each letter bobs, a little after the one before it.
+    Wiggle,
+    /// The letters cycle through the rainbow's colours.
+    Rainbow,
+}
+
+/// How long a moving span waits between frames: 20 a second, enough for
+/// letters that bob and cheap beside a playing emoji.
+const MOTION_FRAME: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// A hover line's ground and ink, as the window's tooltips are.
+#[derive(Clone, Copy, Debug)]
+pub struct TipLook {
+    pub ground: Color,
+    pub ink: Color,
+}
+
 /// The part of the selection within one piece.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Part {
@@ -148,6 +168,14 @@ pub struct Piece<'a, M> {
     spot: Option<&'a std::cell::Cell<Rectangle>>,
     /// Links that start so aren't underlined under the pointer.
     unlined: Option<&'static str>,
+    /// Spans that move, each with its ink: the paragraph draws them clear
+    /// and the piece draws each letter over its place.
+    motions: Vec<(usize, Motion, Color)>,
+    /// Lines shown over spans while the pointer is on them.
+    tips: Vec<(usize, &'a str)>,
+    tip_look: TipLook,
+    /// Pictures drawn in a circle, by the span's place.
+    rounded: Vec<usize>,
 }
 
 impl<'a, M> Piece<'a, M> {
@@ -193,7 +221,34 @@ impl<'a, M> Piece<'a, M> {
             highlight: Color::TRANSPARENT,
             spot: None,
             unlined: None,
+            motions: Vec::new(),
+            tips: Vec::new(),
+            tip_look: TipLook {
+                ground: Color::BLACK,
+                ink: Color::WHITE,
+            },
+            rounded: Vec::new(),
         }
+    }
+
+    /// Spans that move, each with the ink it would have had: their own is
+    /// clear.
+    pub fn motions(mut self, motions: Vec<(usize, Motion, Color)>) -> Self {
+        self.motions = motions;
+        self
+    }
+
+    /// A line shown over each of these spans while the pointer is on it.
+    pub fn tips(mut self, tips: Vec<(usize, &'a str)>, look: TipLook) -> Self {
+        self.tips = tips;
+        self.tip_look = look;
+        self
+    }
+
+    /// The pictures over these spans are drawn in a circle.
+    pub fn rounded(mut self, rounded: Vec<usize>) -> Self {
+        self.rounded = rounded;
+        self
     }
 
     /// Says which link a right press was on, before the menu it opens is
@@ -294,6 +349,156 @@ impl<'a, M> Piece<'a, M> {
     }
 }
 
+impl<M> Piece<'_, M> {
+    /// Each letter of the spans that move, over its place, as it is this
+    /// frame: a wave of letters bobbing, or the rainbow running through them.
+    fn draw_motions(
+        &self,
+        state: &State,
+        renderer: &mut Renderer,
+        bounds: Rectangle,
+        viewport: &Rectangle,
+    ) {
+        use iced::advanced::text::Renderer as _;
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let time = START
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_secs_f32();
+        for run in state.paragraph.buffer().layout_runs() {
+            for (letter, glyph) in run.glyphs.iter().enumerate() {
+                let Some((_, motion, ink)) = self
+                    .motions
+                    .iter()
+                    .find(|(index, _, _)| *index == glyph.metadata)
+                else {
+                    continue;
+                };
+                let Some(span) = self.spans.get(glyph.metadata) else {
+                    continue;
+                };
+                let size = span.size.map_or(self.size, |size| size.0);
+                let phase = letter as f32;
+                let (lift, color) = match motion {
+                    Motion::Wiggle => ((time * 7.0 + phase * 0.7).sin() * size * 0.1, *ink),
+                    Motion::Rainbow => (0.0, hue((time * 0.35 + phase * 0.06).fract(), ink.a)),
+                };
+                let Some(words) = run.text.get(glyph.start..glyph.end) else {
+                    continue;
+                };
+                renderer.fill_text(
+                    text::Text {
+                        content: words.to_owned(),
+                        bounds: Size::new(glyph.w + size, self.line_height),
+                        size: Pixels(size),
+                        line_height: LineHeight::Absolute(Pixels(self.line_height)),
+                        font: span.font.unwrap_or(REGULAR),
+                        align_x: text::Alignment::Default,
+                        align_y: iced::alignment::Vertical::Top,
+                        shaping: text::Shaping::Advanced,
+                        wrapping: Wrapping::None,
+                    },
+                    Point::new(bounds.x + glyph.x, bounds.y + run.line_top + lift),
+                    color,
+                    *viewport,
+                );
+            }
+        }
+    }
+}
+
+/// A bright colour round the colour wheel at `turn` (0 to 1).
+fn hue(turn: f32, alpha: f32) -> Color {
+    let channel = |offset: f32| {
+        let k = (offset + turn * 6.0) % 6.0;
+        0.92 - 0.6 * (k.min(4.0 - k).clamp(0.0, 1.0))
+    };
+    Color {
+        r: channel(5.0),
+        g: channel(3.0),
+        b: channel(1.0),
+        a: alpha,
+    }
+}
+
+/// A span's hover line, drawn above it in the window's tooltip look (below
+/// it when there's no room above).
+struct Tip<'a> {
+    words: &'a str,
+    anchor: Rectangle,
+    look: TipLook,
+    paragraph: Paragraph,
+}
+
+const TIP_SIZE: f32 = 14.0;
+const TIP_PAD: f32 = 10.0;
+const TIP_HEIGHT: f32 = 32.0;
+
+impl<M> iced::advanced::Overlay<M, Theme, Renderer> for Tip<'_> {
+    fn layout(&mut self, _renderer: &Renderer, room: Size) -> layout::Node {
+        self.paragraph = Paragraph::with_text(text::Text {
+            content: self.words,
+            bounds: Size::new(360.0, TIP_HEIGHT),
+            size: Pixels(TIP_SIZE),
+            line_height: LineHeight::Absolute(Pixels(TIP_HEIGHT)),
+            font: crate::fonts::BOLD,
+            align_x: text::Alignment::Default,
+            align_y: iced::alignment::Vertical::Top,
+            shaping: text::Shaping::Advanced,
+            wrapping: Wrapping::None,
+        });
+        let size = Size::new(
+            self.paragraph.min_bounds().width.min(360.0) + TIP_PAD * 2.0,
+            TIP_HEIGHT,
+        );
+        let x = self.anchor.x.min(room.width - size.width).max(0.0);
+        let above = self.anchor.y - size.height - 4.0;
+        let y = if above >= 0.0 {
+            above
+        } else {
+            self.anchor.y + self.anchor.height + 4.0
+        };
+        layout::Node::new(size).move_to(Point::new(x, y))
+    }
+
+    fn draw(
+        &self,
+        renderer: &mut Renderer,
+        _theme: &Theme,
+        _style: &renderer::Style,
+        layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+    ) {
+        use iced::advanced::{Renderer as _, text::Renderer as _};
+        let bounds = layout.bounds();
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: iced::Border {
+                    radius: 5.0.into(),
+                    ..iced::Border::default()
+                },
+                shadow: iced::Shadow {
+                    color: Color {
+                        a: 0.5,
+                        ..Color::BLACK
+                    },
+                    offset: iced::Vector::new(0.0, 3.0),
+                    blur_radius: 8.0,
+                },
+                ..Default::default()
+            },
+            self.look.ground,
+        );
+        renderer.fill_paragraph(
+            &self.paragraph,
+            Point::new(bounds.x + TIP_PAD, bounds.y),
+            self.look.ink,
+            bounds,
+        );
+    }
+}
+
 struct State {
     stamp: u64,
     /// The font system's version when shaped: a fallback font loaded since
@@ -304,6 +509,8 @@ struct State {
     /// The last place reported while dragging, so moving within a glyph
     /// reports nothing.
     reported: Option<Mark>,
+    /// The span with a hover line the pointer is on.
+    tip: Option<usize>,
 }
 
 impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
@@ -329,6 +536,7 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
             width: -1.0,
             paragraph: Paragraph::default(),
             reported: None,
+            tip: None,
         })
     }
 
@@ -415,6 +623,22 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
     ) {
         let state = tree.state.downcast_mut::<State>();
         let bounds = layout.bounds();
+        if !self.tips.is_empty()
+            && matches!(
+                event,
+                Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft)
+            )
+        {
+            let over = cursor
+                .position_in(bounds)
+                .filter(|_| cursor.position().is_some_and(|at| viewport.contains(at)))
+                .and_then(|at| state.paragraph.hit_span(at))
+                .filter(|index| self.tips.iter().any(|(tipped, _)| tipped == index));
+            if over != state.tip {
+                state.tip = over;
+                shell.request_redraw();
+            }
+        }
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 if let Some(at) = cursor.position_over(bounds)
@@ -464,6 +688,11 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                 }
             }
             Event::Window(iced::window::Event::RedrawRequested(now)) => {
+                // Words that move ask for their next frame only while the
+                // piece is in view: one scrolled away stops.
+                if !self.motions.is_empty() && viewport.intersects(&bounds) {
+                    shell.request_redraw_at(*now + MOTION_FRAME);
+                }
                 for (index, moving) in &self.moving {
                     for region in state.paragraph.span_bounds(*index) {
                         if region.x >= bounds.width {
@@ -646,7 +875,12 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                     continue;
                 }
                 let at = square_in(bounds, region);
-                crate::widgets::draw_picture(renderer, picture, at, [0.0; 4], 1.0);
+                let radius = if self.rounded.contains(index) {
+                    at.width / 2.0
+                } else {
+                    0.0
+                };
+                crate::widgets::draw_picture(renderer, picture, at, [radius; 4], 1.0);
             }
         }
         for (index, moving) in &self.moving {
@@ -657,6 +891,30 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                 moving.draw(renderer, square_in(bounds, region).position());
             }
         }
+        if !self.motions.is_empty() {
+            self.draw_motions(state, renderer, bounds, viewport);
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        _renderer: &Renderer,
+        _viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, M, Theme, Renderer>> {
+        let state = tree.state.downcast_ref::<State>();
+        let index = state.tip?;
+        let (_, words) = self.tips.iter().find(|(tipped, _)| *tipped == index)?;
+        let region = *state.paragraph.span_bounds(index).first()?;
+        let anchor = region + (layout.bounds().position() - Point::ORIGIN) + translation;
+        Some(iced::advanced::overlay::Element::new(Box::new(Tip {
+            words,
+            anchor,
+            look: self.tip_look,
+            paragraph: Paragraph::default(),
+        })))
     }
 
     fn mouse_interaction(

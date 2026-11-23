@@ -59,7 +59,15 @@ pub struct Run {
     /// colours: only a fenced block's runs carry one.
     #[cfg(feature = "plugins")]
     pub tone: Option<yapfast_plugin_api::code::Tone>,
+    /// How a plugin's mark moves the words, drawn a frame at a time.
+    pub motion: Option<Motion>,
+    /// A line a plugin shows while the pointer is over the run.
+    pub tip: Option<String>,
+    /// A picture of a plugin's drawn in a circle.
+    pub round: bool,
 }
+
+pub use crate::piece::Motion;
 
 /// Whether a coloured link is a mention drawn on a pill: a person's, a
 /// role's or everyone's.
@@ -128,6 +136,77 @@ pub fn highlight(body: &mut Body, words: &yapfast_core::search_words::Words) {
 pub struct Mark {
     pub text: String,
     pub look: MarkLook,
+    /// Where a link mark goes.
+    pub url: Option<String>,
+    /// A line on hover.
+    pub tip: Option<String>,
+}
+
+/// Everything plugins lay over a message's text: styles over its words,
+/// pictures set beside words or mentions, lines over its links on hover, and
+/// emoji hidden or swapped. A build without plugins lays nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Decor {
+    pub marks: Vec<Mark>,
+    pub pictures: Vec<Picture>,
+    pub tips: Vec<Tip>,
+    pub swaps: Vec<Swap>,
+}
+
+impl Decor {
+    pub fn is_empty(&self) -> bool {
+        self.marks.is_empty()
+            && self.pictures.is_empty()
+            && self.tips.is_empty()
+            && self.swaps.is_empty()
+    }
+}
+
+/// A small picture set beside some words or a mention.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Picture {
+    pub url: String,
+    pub beside: Beside,
+    pub after: bool,
+    pub round: bool,
+    pub tip: Option<String>,
+}
+
+/// What a [`Picture`] goes beside.
+#[cfg_attr(
+    not(feature = "plugins"),
+    allow(dead_code, reason = "only a plugin makes one")
+)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Beside {
+    Words(String),
+    /// Every link to this address: a mention's.
+    Link(String),
+}
+
+/// A line over every run linking to `link`, on hover.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Tip {
+    pub link: String,
+    pub text: String,
+}
+
+/// An emoji, by a custom one's id or `:name:` or as typed, hidden (`with`
+/// none) or shown as some text or another custom emoji's picture.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Swap {
+    pub emoji: String,
+    pub with: Option<SwapWith>,
+}
+
+#[cfg_attr(
+    not(feature = "plugins"),
+    allow(dead_code, reason = "only a plugin makes one")
+)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SwapWith {
+    Text(String),
+    Picture(String),
 }
 
 /// How a [`Mark`] draws its words. Only a plugin makes one, so a build
@@ -142,16 +221,50 @@ pub enum MarkLook {
     Italic,
     Strike,
     Highlight,
+    Spoiler,
+    Link,
+    Wiggle,
+    Rainbow,
 }
 
-/// Lays plugins' marks over a message's text: every place a plain run says a
+/// Where plugins' spoilers count from in a message, past any it has of its
+/// own, so revealing one never reveals the other.
+pub const PLUGIN_SPOILERS: usize = 1 << 20;
+
+/// Lays plugins' decor over a message's text: every place a plain run says a
 /// mark's words takes its style. A link, a mention, an emoji, a spoiler and a
 /// code block are left as they are, so a mark can't dress one up as another,
-/// and the words themselves never change.
-pub fn mark(body: &mut Body, marks: &[Mark]) {
+/// and the words themselves never change. A spoiler mark covers its words
+/// through the message `item` until `revealed` says it was clicked.
+///
+/// Then emoji are swapped, pictures set beside their words or mentions, and
+/// tooltips put on the links they name.
+pub fn mark(body: &mut Body, decor: &Decor, item: &str, revealed: impl Fn(usize) -> bool) {
+    if decor.is_empty() {
+        return;
+    }
+    marks(body, &decor.marks, item, &revealed);
+    swap_emoji(body, &decor.swaps);
+    set_pictures(body, &decor.pictures);
+    for tip in &decor.tips {
+        let masked = format!("{}{}", links::LEAVE, tip.link);
+        for run in body.parts.iter_mut().flat_map(|part| &mut part.runs) {
+            if run
+                .link
+                .as_deref()
+                .is_some_and(|link| link == tip.link || link == masked)
+            {
+                run.tip = Some(tip.text.clone());
+            }
+        }
+    }
+}
+
+fn marks(body: &mut Body, marks: &[Mark], item: &str, revealed: &impl Fn(usize) -> bool) {
     if marks.is_empty() {
         return;
     }
+    let mut spoilers = PLUGIN_SPOILERS;
     for part in &mut body.parts {
         if part.shape == Shape::Code {
             continue;
@@ -187,9 +300,203 @@ pub fn mark(body: &mut Body, marks: &[Mark]) {
                     MarkLook::Italic => marked.italic = true,
                     MarkLook::Strike => marked.strike = true,
                     MarkLook::Highlight => marked.highlight = true,
+                    MarkLook::Spoiler => {
+                        if !revealed(spoilers) {
+                            marked.hidden = true;
+                            marked.link = Some(spoiler::link(item, spoilers));
+                        }
+                        spoilers += 1;
+                    }
+                    MarkLook::Link => {
+                        marked.link = mark
+                            .url
+                            .as_ref()
+                            .map(|url| format!("{}{url}", links::LEAVE));
+                    }
+                    MarkLook::Wiggle => marked.motion = Some(Motion::Wiggle),
+                    MarkLook::Rainbow => marked.motion = Some(Motion::Rainbow),
+                }
+                if !marked.hidden {
+                    marked.tip.clone_from(&mark.tip);
                 }
                 runs.push(marked);
                 at += start + mark.text.len();
+            }
+            if at < run.text.len() {
+                runs.push(Run {
+                    text: run.text[at..].to_owned(),
+                    ..run
+                });
+            }
+        }
+        part.runs = runs;
+    }
+}
+
+/// Hides or swaps the emoji `swaps` name: a custom emoji's run by its id or
+/// `:name:`, a typed emoji wherever plain text or an emoji's link says it.
+fn swap_emoji(body: &mut Body, swaps: &[Swap]) {
+    if swaps.is_empty() {
+        return;
+    }
+    let card = yapfast_core::emoji::card::LINK;
+    let into = |run: &Run, with: &Option<SwapWith>| -> Option<Run> {
+        let base = Run {
+            link: None,
+            emoji: None,
+            ..run.clone()
+        };
+        match with {
+            None => None,
+            Some(SwapWith::Text(text)) => Some(Run {
+                text: text.clone(),
+                ..base
+            }),
+            Some(SwapWith::Picture(url)) => Some(Run {
+                text: EMOJI_MARK.to_string(),
+                emoji: Some((url.clone(), String::new())),
+                ..base
+            }),
+        }
+    };
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        'runs: for run in std::mem::take(&mut part.runs) {
+            if run.code || run.hidden {
+                runs.push(run);
+                continue;
+            }
+            if let Some((url, name)) = &run.emoji {
+                let found = swaps.iter().find(|swap| {
+                    swap.emoji == *name
+                        || (swap.emoji.bytes().all(|b| b.is_ascii_digit())
+                            && url.contains(&format!("/emojis/{}.", swap.emoji)))
+                });
+                match found {
+                    Some(swap) => runs.extend(into(&run, &swap.with)),
+                    None => runs.push(run),
+                }
+                continue;
+            }
+            if run
+                .link
+                .as_deref()
+                .is_some_and(|link| !link.starts_with(card))
+            {
+                runs.push(run);
+                continue;
+            }
+            // Typed emoji: each place the text says one, the earliest first.
+            let mut at = 0;
+            loop {
+                let rest = &run.text[at..];
+                let found = swaps
+                    .iter()
+                    .filter(|swap| !swap.emoji.starts_with(':'))
+                    .filter(|swap| !swap.emoji.bytes().all(|b| b.is_ascii_digit()))
+                    .filter_map(|swap| rest.find(&swap.emoji).map(|start| (start, swap)))
+                    .min_by_key(|(start, _)| *start);
+                let Some((start, swap)) = found else {
+                    if at == 0 {
+                        runs.push(run);
+                        continue 'runs;
+                    }
+                    break;
+                };
+                if start > 0 {
+                    runs.push(Run {
+                        text: rest[..start].to_owned(),
+                        ..run.clone()
+                    });
+                }
+                runs.extend(into(&run, &swap.with));
+                at += start + swap.emoji.len();
+            }
+            if at < run.text.len() {
+                runs.push(Run {
+                    text: run.text[at..].to_owned(),
+                    ..run
+                });
+            }
+        }
+        part.runs = runs;
+    }
+}
+
+/// Sets each of `pictures` beside every place its words are said in plain
+/// text, or beside every run linking where it says (a mention).
+fn set_pictures(body: &mut Body, pictures: &[Picture]) {
+    if pictures.is_empty() {
+        return;
+    }
+    let picture_run = |picture: &Picture| Run {
+        text: EMOJI_MARK.to_string(),
+        emoji: Some((picture.url.clone(), String::new())),
+        round: picture.round,
+        tip: picture.tip.clone(),
+        ..Run::default()
+    };
+    for part in &mut body.parts {
+        if part.shape == Shape::Code {
+            continue;
+        }
+        let mut runs = Vec::with_capacity(part.runs.len());
+        for run in std::mem::take(&mut part.runs) {
+            if run.code || run.hidden || run.emoji.is_some() {
+                runs.push(run);
+                continue;
+            }
+            if let Some(link) = run.link.as_deref() {
+                let beside: Vec<&Picture> = pictures
+                    .iter()
+                    .filter(|picture| picture.beside == Beside::Link(link.to_owned()))
+                    .collect();
+                runs.extend(beside.iter().filter(|p| !p.after).map(|p| picture_run(p)));
+                let after: Vec<Run> = beside
+                    .iter()
+                    .filter(|p| p.after)
+                    .map(|p| picture_run(p))
+                    .collect();
+                runs.push(run);
+                runs.extend(after);
+                continue;
+            }
+            let mut at = 0;
+            loop {
+                let rest = &run.text[at..];
+                let found = pictures
+                    .iter()
+                    .filter_map(|picture| match &picture.beside {
+                        Beside::Words(words) if !words.is_empty() => rest
+                            .find(words.as_str())
+                            .map(|start| (start, words, picture)),
+                        _ => None,
+                    })
+                    .min_by_key(|(start, _, _)| *start);
+                let Some((start, words, picture)) = found else {
+                    break;
+                };
+                if start > 0 {
+                    runs.push(Run {
+                        text: rest[..start].to_owned(),
+                        ..run.clone()
+                    });
+                }
+                let said = Run {
+                    text: words.clone(),
+                    ..run.clone()
+                };
+                if picture.after {
+                    runs.push(said);
+                    runs.push(picture_run(picture));
+                } else {
+                    runs.push(picture_run(picture));
+                    runs.push(said);
+                }
+                at += start + words.len();
             }
             if at < run.text.len() {
                 runs.push(Run {
@@ -259,6 +566,8 @@ impl Run {
             && self.color == other.color
             && self.hidden == other.hidden
             && self.highlight == other.highlight
+            && self.motion == other.motion
+            && self.tip == other.tip
             && self.emoji.is_none()
             && other.emoji.is_none()
     }
@@ -316,6 +625,15 @@ pub struct Body {
 
 impl Body {
     /// Its text as it shows, parts on lines of their own.
+    /// The address of every picture over its text: custom emoji and what
+    /// plugins set in.
+    pub fn pictures(&self) -> impl Iterator<Item = &str> {
+        self.parts
+            .iter()
+            .flat_map(|part| &part.runs)
+            .filter_map(|run| run.emoji.as_ref().map(|(url, _)| url.as_str()))
+    }
+
     pub fn plain(&self) -> String {
         self.parts
             .iter()
@@ -806,6 +1124,9 @@ fn inline(markdown: &str) -> Vec<Run> {
             highlight: false,
             #[cfg(feature = "plugins")]
             tone: None,
+            motion: None,
+            tip: None,
+            round: false,
         };
         match runs.last_mut() {
             Some(last) if last.same_style(&run) => last.text.push_str(text),
@@ -1089,12 +1410,31 @@ impl<'c> crate::ctx::Ctx<'c> {
             let side = (size * EMOJI_SCALE).round();
             let mut pictures = Vec::new();
             let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
+            let mut motions = Vec::new();
+            let mut tips = Vec::new();
+            let mut rounded = Vec::new();
             let spans: Vec<_> = part
                 .runs
                 .iter()
                 .enumerate()
                 .map(|(index, run)| {
-                    let span = self.run_span(run, ink);
+                    let mut span = self.run_span(run, ink);
+                    if let Some(tip) = &run.tip {
+                        tips.push((index, tip.as_str()));
+                    }
+                    if run.round {
+                        rounded.push(index);
+                    }
+                    // Words a plugin moves are drawn a frame at a time by the
+                    // piece, over their room, while pictures play; still, they
+                    // show as they are.
+                    if let Some(motion) = run.motion
+                        && plays
+                        && self.plays
+                    {
+                        motions.push((index, motion, span.color.unwrap_or(ink)));
+                        span = span.color(Color::TRANSPARENT);
+                    }
                     if let Some((url, _)) = &run.emoji {
                         let playing = plays
                             .then(|| self.playing_emoji(url, side as u32, &self.pictures.players))
@@ -1120,6 +1460,15 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .item(self.lanes.row_look(row).map(|look| look.item.clone()))
                 .pictures(pictures)
                 .moving(moving)
+                .motions(motions)
+                .tips(
+                    tips,
+                    crate::piece::TipLook {
+                        ground: theme.tooltip,
+                        ink: theme.text,
+                    },
+                )
+                .rounded(rounded)
                 .size(size, (size * ratio).round())
                 .color(ink)
                 .fill()
@@ -1359,6 +1708,123 @@ let x = 1;
         let mut body = parse("😭", &[], 0x00a8fc, "m", |_| false);
         link_emoji(&mut body, &[], |_| false);
         assert!(body.parts[0].runs.iter().all(|run| run.link.is_none()));
+    }
+
+    fn decor_marks(marks: Vec<(&str, MarkLook, Option<&str>)>) -> Decor {
+        Decor {
+            marks: marks
+                .into_iter()
+                .map(|(text, look, url)| Mark {
+                    text: text.to_owned(),
+                    look,
+                    url: url.map(str::to_owned),
+                    tip: Some("why".to_owned()),
+                })
+                .collect(),
+            ..Decor::default()
+        }
+    }
+
+    #[test]
+    fn plugin_spoilers_links_and_motions_lay_over_plain_words() {
+        let decor = decor_marks(vec![
+            ("secret", MarkLook::Spoiler, None),
+            ("docs", MarkLook::Link, Some("https://example.com")),
+            ("yay", MarkLook::Wiggle, None),
+        ]);
+        let mut body = parse("a secret, docs and yay", &[], 0, "m", |_| false);
+        mark(&mut body, &decor, "m", |_| false);
+        let runs = &body.parts[0].runs;
+        let secret = runs.iter().find(|run| run.text == "secret").unwrap();
+        assert!(
+            secret.hidden && secret.tip.is_none(),
+            "covered, and says nothing"
+        );
+        assert_eq!(
+            secret.link.as_deref().and_then(spoiler::target),
+            Some(("m", PLUGIN_SPOILERS))
+        );
+        let docs = runs.iter().find(|run| run.text == "docs").unwrap();
+        assert_eq!(
+            docs.link.as_deref().and_then(links::masked),
+            Some("https://example.com")
+        );
+        assert_eq!(docs.tip.as_deref(), Some("why"));
+        let yay = runs.iter().find(|run| run.text == "yay").unwrap();
+        assert_eq!(yay.motion, Some(Motion::Wiggle));
+        // Revealed, the words show plain.
+        let mut shown = parse("a secret", &[], 0, "m", |_| false);
+        mark(&mut shown, &decor, "m", |index| index == PLUGIN_SPOILERS);
+        assert!(shown.parts[0].runs.iter().all(|run| !run.hidden));
+    }
+
+    #[test]
+    fn emoji_are_hidden_or_swapped_and_pictures_set_beside_words_and_mentions() {
+        let emoji = [yapfast_core::chat::CustomEmoji {
+            text: ":kekw:".to_owned(),
+            id: "12".to_owned(),
+            picture: "https://cdn.discordapp.com/emojis/12.png".to_owned(),
+            animated: false,
+            usable: true,
+        }];
+        let mentions = [Mentioned {
+            text: "@Ada".to_owned(),
+            target: mention::Target::User("7".to_owned()),
+            color: None,
+            at: vec![0],
+        }];
+        let mut body = parse("@Ada :kekw: in France \u{2764}", &mentions, 0, "m", |_| {
+            false
+        });
+        with_emoji(&mut body, &emoji);
+        let decor = Decor {
+            swaps: vec![
+                Swap {
+                    emoji: "12".to_owned(),
+                    with: Some(SwapWith::Text("lol".to_owned())),
+                },
+                Swap {
+                    emoji: "\u{2764}".to_owned(),
+                    with: None,
+                },
+            ],
+            pictures: vec![
+                Picture {
+                    url: "https://cdn.discordapp.com/avatars/7/a.png".to_owned(),
+                    beside: Beside::Link(mention::link(&mention::Target::User("7".to_owned()))),
+                    after: false,
+                    round: true,
+                    tip: None,
+                },
+                Picture {
+                    url: "https://cdn.discordapp.com/emojis/9.webp".to_owned(),
+                    beside: Beside::Words("France".to_owned()),
+                    after: true,
+                    round: false,
+                    tip: None,
+                },
+            ],
+            tips: vec![Tip {
+                link: mention::link(&mention::Target::User("7".to_owned())),
+                text: "Ada Lovelace".to_owned(),
+            }],
+            ..Decor::default()
+        };
+        mark(&mut body, &decor, "m", |_| false);
+        let runs = &body.parts[0].runs;
+        assert!(
+            runs[0].round && runs[0].emoji.is_some(),
+            "the avatar before the mention"
+        );
+        assert_eq!(runs[1].tip.as_deref(), Some("Ada Lovelace"));
+        let plain = body.plain();
+        assert!(
+            plain.contains("lol") && !plain.contains('\u{2764}'),
+            "{plain}"
+        );
+        let france = runs.iter().position(|run| run.text == "France").unwrap();
+        assert!(runs[france + 1].emoji.is_some(), "the flag after the words");
+        assert_eq!(body.pictures().count(), 2);
     }
 
     #[test]

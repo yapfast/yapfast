@@ -377,7 +377,10 @@ When a row comes on screen, the parent asks the plugin for that row with
 | --- | --- | --- |
 | `tree` | A small card under the message, drawn from the widget set, under the plugin's credit line | `decorate` |
 | `annotation` | One line under the text, such as a translation or a tag: `{ "text": "hello (French)", "tone": "muted" }`, at most 280 characters, in `normal`, `muted`, `accent`, `success` or `warning` | `messages.read` |
-| `marks` | Styles over words the text already says: `[{ "text": "bonjour", "style": "highlight" }]`, at most 16, each naming 1 to 200 characters, styled `bold`, `italic`, `strike` or `highlight` | `messages.read` |
+| `marks` | Styles over words the text already says: `[{ "text": "bonjour", "style": "highlight" }]`, at most 16, each naming 1 to 200 characters, styled `bold`, `italic`, `strike`, `highlight`, `spoiler` (covered until clicked, as a spoiler is), `link` (with `"url"`, an `http` or `https` address, which asks before it leaves as a masked link does), `wiggle` or `rainbow` (the letters bob, or run through the rainbow, 20 frames a second while the row is on screen, and still when pictures don't play); any mark may carry a `"tooltip"` shown while the pointer is on its words | `messages.read` |
+| `pictures` | Small pictures set into the text, before (or with `"after": true` after) words it says or a person's mentions: `[{ "src": "https://cdn.discordapp.com/avatars/1/a.png", "mention": "1", "round": true }]` or `{ "src": "emoji:<id>", "text": "France", "after": true }`; `src` is a Discord CDN address (`cdn.discordapp.com`, `media.discordapp.net`, fetched through Yapfast's own session) or `emoji:<id>`; at most 16, each with an optional `tooltip` | `messages.read` |
+| `tooltips` | A line shown while the pointer is on a link the message has, or a person's mentions: `[{ "link": "https://bit.ly/x", "text": "goes to example.com" }, { "mention": "1", "text": "Ada, the admin" }]`, at most 16 | `messages.read` |
+| `emoji` | Emoji hidden from the text, or shown as something else: `[{ "emoji": "<custom id>" }, { "emoji": ":kekw:", "with": "lol" }, { "emoji": "\u2764", "with_emoji": "<custom id>" }]`; `emoji` is a custom emoji's id or `:name:` or a typed emoji; `with` is up to 32 characters, `with_emoji` another custom emoji's picture; at most 64 | `messages.read` |
 | `hide`, `hide_media` | Keep the row, or its pictures and files, out of view | `messages.filter` ([below](#keeping-a-deleted-row-and-hiding-one)) |
 | `blur_media` | Cover the row's pictures, blurred under the spoiler's cover, until the person clicks one, as BlurNSFW does; a room's `nsfw` (in `rooms.get`, `rooms.list` and `room_selected`) says the channel is age-restricted | `messages.filter` |
 
@@ -392,7 +395,9 @@ names words rather than offsets, so it styles what the message says and can't
 say anything it doesn't. A mark never applies to a link, a mention, a custom
 emoji, a spoiler or a code block, so it can't dress one up as another, and it has
 no tone at all, so nothing a plugin styles looks like Yapfast's warning or
-danger. A message a plugin styled without adding a line says so under the text,
+danger. A `link` mark's words always ask before they leave, since they aren't
+the address, and a `spoiler` mark is counted apart from the message's own
+spoilers, so revealing one never reveals the other. A message a plugin styled without adding a line says so under the text,
 *Styled by Translator*. An annotation in a tone Yapfast keeps for itself, a mark
 list past its cap, or text with a control or direction character is dropped
 where it arrives and the rest of the answer still draws.

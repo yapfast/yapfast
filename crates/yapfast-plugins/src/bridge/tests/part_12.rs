@@ -354,6 +354,9 @@ fn decorated_with(capabilities: &[&str], annotation: serde_json::Value) -> Optio
                 annotation: Some(annotation),
                 marks: Some(serde_json::json!([{ "text": "hi", "style": "bold" }])),
                 author: None,
+                pictures: Some(serde_json::json!([{ "src": "emoji:12", "text": "hi" }])),
+                tooltips: Some(serde_json::json!([{ "mention": "7", "text": "Ada" }])),
+                emoji: Some(serde_json::json!([{ "emoji": ":kekw:", "with": "lol" }])),
             })
             .expect("it serializes"),
         ),
@@ -391,6 +394,9 @@ fn a_line_and_marks_need_messages_read_and_are_kept_for_the_row() {
         Some("hello, translated")
     );
     assert_eq!(inline.marks.len(), 1);
+    assert_eq!(inline.pictures.len(), 1, "a picture beside the words");
+    assert_eq!(inline.tooltips[0].text, "Ada");
+    assert_eq!(inline.emoji[0].with.as_deref(), Some("lol"));
 }
 
 #[test]

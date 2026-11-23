@@ -30,12 +30,12 @@ pub type Spans = ();
 /// What plugins drew on one message, as the timeline lays its text out: one
 /// number that changes whenever a decoration of it changes, and the marks over
 /// its words. A build without plugins draws nothing on any message.
-pub fn decor(state: &AppState, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+pub fn decor(state: &AppState, item: &str) -> (u64, crate::markdown::Decor) {
     #[cfg(feature = "plugins")]
     {
         let (key, marks) = match state.plugin_slots.as_deref() {
             Some(slots) => crate::plugin_slots::decor(slots, item),
-            None => (0, Vec::new()),
+            None => (0, crate::markdown::Decor::default()),
         };
         // A message a plugin sent says so under it, which changes its height.
         let sent = u64::from(state.plugin_sent_by.contains_key(item)) << 1;
@@ -44,7 +44,7 @@ pub fn decor(state: &AppState, item: &str) -> (u64, Vec<crate::markdown::Mark>) 
     #[cfg(not(feature = "plugins"))]
     {
         let _ = (state, item);
-        (0, Vec::new())
+        (0, crate::markdown::Decor::default())
     }
 }
 

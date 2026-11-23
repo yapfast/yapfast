@@ -960,6 +960,12 @@ impl App {
             for emoji in &message.emoji {
                 want(Some(&emoji.picture));
             }
+            // Pictures plugins set into the text, and emoji they swapped in.
+            if let Some(look) = look {
+                for url in look.body.body.pictures() {
+                    want(Some(url));
+                }
+            }
             if !look.is_some_and(|look| look.first) {
                 continue;
             }

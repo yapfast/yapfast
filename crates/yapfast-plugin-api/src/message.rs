@@ -354,6 +354,15 @@ pub struct Decoration {
     /// Small badges on the author's line, after the name, as the plugin wrote
     /// them: checked by the parent with [`AuthorBadge::check_all`].
     pub author: Option<serde_json::Value>,
+    /// Small pictures set into the text, as the plugin wrote them: checked by
+    /// the parent with [`InlinePicture::check_all`].
+    pub pictures: Option<serde_json::Value>,
+    /// Lines over the message's links and mentions on hover: checked with
+    /// [`LinkTip::check_all`].
+    pub tooltips: Option<serde_json::Value>,
+    /// Emoji hidden or shown as something else: checked with
+    /// [`EmojiSwap::check_all`].
+    pub emoji: Option<serde_json::Value>,
 }
 
 impl Decoration {
@@ -382,6 +391,9 @@ impl Decoration {
             annotation: present("annotation"),
             marks: present("marks"),
             author: present("author"),
+            pictures: present("pictures"),
+            tooltips: present("tooltips"),
+            emoji: present("emoji"),
         };
         if decoration.tree.is_none()
             && !decoration.hide
@@ -390,6 +402,9 @@ impl Decoration {
             && decoration.annotation.is_none()
             && decoration.marks.is_none()
             && decoration.author.is_none()
+            && decoration.pictures.is_none()
+            && decoration.tooltips.is_none()
+            && decoration.emoji.is_none()
         {
             return None;
         }
@@ -514,6 +529,23 @@ pub enum MarkStyle {
     Strike,
     /// A tinted background behind the words, as a search's match shows.
     Highlight,
+    /// Covered as a spoiler is until the person clicks it.
+    Spoiler,
+    /// A link to the mark's `url`, which asks before it leaves as a masked
+    /// link does, since the words aren't the address.
+    Link,
+    /// Each letter bobs, a little after the one before it.
+    Wiggle,
+    /// The letters cycle through the colours of the rainbow.
+    Rainbow,
+}
+
+impl MarkStyle {
+    /// Whether the words move: drawn a frame at a time while on screen and
+    /// still when pictures don't play.
+    pub fn moves(self) -> bool {
+        matches!(self, MarkStyle::Wiggle | MarkStyle::Rainbow)
+    }
 }
 
 /// One style over every place the message's text says `text`.
@@ -526,6 +558,12 @@ pub enum MarkStyle {
 pub struct Mark {
     pub text: String,
     pub style: MarkStyle,
+    /// Where a `link` mark goes: an `http` or `https` address.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// A line shown while the pointer is over the words, any style.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<String>,
 }
 
 impl Mark {
@@ -556,8 +594,250 @@ impl Mark {
                 ));
             }
             crate::text::check(&mark.text).map_err(|why| format!("a mark: {why}"))?;
+            match (&mark.url, mark.style) {
+                (Some(url), MarkStyle::Link) if web_address(url) => {}
+                (_, MarkStyle::Link) => {
+                    return Err("a link mark's url is an http or https address".to_owned());
+                }
+                (Some(_), _) => return Err("only a link mark has a url".to_owned()),
+                (None, _) => {}
+            }
+            if let Some(tooltip) = &mark.tooltip {
+                check_tip(tooltip).map_err(|why| format!("a mark's tooltip: {why}"))?;
+            }
         }
         Ok(marks)
+    }
+}
+
+/// Whether `url` is an `http` or `https` address with a host.
+fn web_address(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"));
+    rest.is_some_and(|rest| {
+        !rest.is_empty()
+            && !rest.starts_with(['/', '?', '#'])
+            && url.len() <= 2048
+            && !url.chars().any(char::is_whitespace)
+    })
+}
+
+/// A tooltip's words: one line of 1 to [`Annotation::MAX_CHARS`] characters.
+fn check_tip(tip: &str) -> Result<(), String> {
+    let count = tip.trim().chars().count();
+    if count == 0 || count > Annotation::MAX_CHARS {
+        return Err(format!("it is 1 to {} characters", Annotation::MAX_CHARS));
+    }
+    crate::text::check(tip).map_err(str::to_owned)
+}
+
+/// A small picture a plugin sets into a message's text, before or after words
+/// it says or a person it mentions: an avatar beside a mention, a flag beside
+/// a country's name.
+///
+/// ```json
+/// { "src": "https://cdn.discordapp.com/avatars/1/a.png", "mention": "1", "round": true }
+/// { "src": "emoji:1234", "text": "France", "after": true, "tooltip": "a flag" }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InlinePicture {
+    /// A Discord CDN address (`cdn.discordapp.com` or `media.discordapp.net`,
+    /// fetched through Yapfast's own session) or `emoji:<id>` for a custom
+    /// emoji's picture.
+    pub src: String,
+    /// The words it goes beside, every place the text says them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
+    /// Or the person, by Discord id, whose mentions it goes beside.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mention: String,
+    /// After the words instead of before them.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub after: bool,
+    /// Drawn in a circle, as an avatar is.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub round: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tooltip: String,
+}
+
+/// A custom emoji's picture by id, as Discord's CDN serves it.
+fn emoji_address(id: &str) -> Option<String> {
+    (!id.is_empty() && id.len() <= 20 && id.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| format!("https://cdn.discordapp.com/emojis/{id}.webp?size=48"))
+}
+
+impl InlinePicture {
+    /// The most pictures one plugin sets into one message.
+    pub const MAX: usize = 16;
+
+    /// The address the picture is fetched from, or `None` for a source that
+    /// isn't Discord's.
+    pub fn address(&self) -> Option<String> {
+        if let Some(id) = self.src.strip_prefix("emoji:") {
+            return emoji_address(id);
+        }
+        let lower = self.src.to_ascii_lowercase();
+        [
+            "https://cdn.discordapp.com/",
+            "https://media.discordapp.net/",
+        ]
+        .iter()
+        .any(|host| lower.starts_with(host))
+        .then(|| self.src.clone())
+        .filter(|src| web_address(src))
+    }
+
+    /// A plugin's pictures, checked: at most [`Self::MAX`], each from a
+    /// Discord address and beside either some words or a mention.
+    pub fn check_all(value: &serde_json::Value) -> Result<Vec<Self>, String> {
+        let pictures: Vec<InlinePicture> = serde_json::from_value(value.clone())
+            .map_err(|error| format!("its inline pictures: {error}"))?;
+        if pictures.len() > Self::MAX {
+            return Err(format!(
+                "it set {} pictures, and a message takes {}",
+                pictures.len(),
+                Self::MAX
+            ));
+        }
+        for picture in &pictures {
+            if picture.address().is_none() {
+                return Err(format!(
+                    "an inline picture's src `{}` isn't a Discord address or emoji:<id>",
+                    picture.src
+                ));
+            }
+            if picture.text.is_empty() == picture.mention.is_empty() {
+                return Err("an inline picture goes beside either text or a mention".to_owned());
+            }
+            if picture.text.chars().count() > Mark::MAX_CHARS {
+                return Err("an inline picture's words are too long".to_owned());
+            }
+            crate::text::check(&picture.text).map_err(|why| format!("an inline picture: {why}"))?;
+            if !picture.tooltip.is_empty() {
+                check_tip(&picture.tooltip)
+                    .map_err(|why| format!("an inline picture's tooltip: {why}"))?;
+            }
+        }
+        Ok(pictures)
+    }
+}
+
+/// A line shown while the pointer is over a link or a mention in a message:
+/// where a short link really goes, who someone is.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LinkTip {
+    /// The address the message links to, as it says it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub link: String,
+    /// Or the person, by Discord id, whose mentions it is for.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mention: String,
+    pub text: String,
+}
+
+impl LinkTip {
+    /// The most tooltips one plugin gives one message.
+    pub const MAX: usize = 16;
+
+    /// A plugin's tooltips, checked: at most [`Self::MAX`], each for a link
+    /// or a mention, one line of 1 to [`Annotation::MAX_CHARS`] characters.
+    pub fn check_all(value: &serde_json::Value) -> Result<Vec<Self>, String> {
+        let tips: Vec<LinkTip> = serde_json::from_value(value.clone())
+            .map_err(|error| format!("its link tooltips: {error}"))?;
+        if tips.len() > Self::MAX {
+            return Err(format!(
+                "it gave {} tooltips, and a message takes {}",
+                tips.len(),
+                Self::MAX
+            ));
+        }
+        for tip in &tips {
+            if tip.link.is_empty() == tip.mention.is_empty() {
+                return Err("a link tooltip is for either a link or a mention".to_owned());
+            }
+            check_tip(&tip.text).map_err(|why| format!("a link tooltip: {why}"))?;
+        }
+        Ok(tips)
+    }
+}
+
+/// One emoji hidden from a message's text, or shown as something else.
+///
+/// ```json
+/// { "emoji": "\u2764" }
+/// { "emoji": ":kekw:", "with": "lol" }
+/// { "emoji": "1234", "with_emoji": "5678" }
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EmojiSwap {
+    /// A custom emoji's id or `:name:`, or a Unicode emoji as it is typed.
+    pub emoji: String,
+    /// Text in its place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with: Option<String>,
+    /// Or another custom emoji's picture in its place, by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_emoji: Option<String>,
+}
+
+impl EmojiSwap {
+    /// The most emoji one plugin swaps in one message.
+    pub const MAX: usize = 64;
+    /// The longest text an emoji becomes.
+    pub const MAX_CHARS: usize = 32;
+
+    /// The custom emoji it names by id, when it names one so.
+    pub fn id(&self) -> Option<&str> {
+        let id = self.emoji.as_str();
+        (!id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())).then_some(id)
+    }
+
+    /// The picture's address of `with_emoji`, when it has one.
+    pub fn replacement(&self) -> Option<String> {
+        emoji_address(self.with_emoji.as_deref()?)
+    }
+
+    /// A plugin's swaps, checked: at most [`Self::MAX`], each naming an emoji
+    /// and becoming nothing, a few words or another custom emoji.
+    pub fn check_all(value: &serde_json::Value) -> Result<Vec<Self>, String> {
+        let swaps: Vec<EmojiSwap> =
+            serde_json::from_value(value.clone()).map_err(|error| format!("its emoji: {error}"))?;
+        if swaps.len() > Self::MAX {
+            return Err(format!(
+                "it swapped {} emoji, and a message takes {}",
+                swaps.len(),
+                Self::MAX
+            ));
+        }
+        for swap in &swaps {
+            let count = swap.emoji.chars().count();
+            if count == 0 || count > Mark::MAX_CHARS {
+                return Err("an emoji swap names an emoji".to_owned());
+            }
+            crate::text::check(&swap.emoji).map_err(|why| format!("an emoji swap: {why}"))?;
+            if swap.with.is_some() && swap.with_emoji.is_some() {
+                return Err("an emoji becomes text or another emoji, not both".to_owned());
+            }
+            if let Some(with) = &swap.with {
+                if with.chars().count() > Self::MAX_CHARS {
+                    return Err(format!(
+                        "an emoji becomes at most {} characters",
+                        Self::MAX_CHARS
+                    ));
+                }
+                crate::text::check(with).map_err(|why| format!("an emoji swap: {why}"))?;
+            }
+            if swap.with_emoji.is_some() && swap.replacement().is_none() {
+                return Err("an emoji swap's with_emoji is a custom emoji's id".to_owned());
+            }
+        }
+        Ok(swaps)
     }
 }
 
@@ -579,6 +859,68 @@ mod decoration_tests {
         ] {
             assert!(AuthorBadge::check_all(&wrong).is_err(), "{wrong}");
         }
+    }
+
+    #[test]
+    fn new_marks_pictures_tips_and_emoji_check_out() {
+        let marks = serde_json::json!([
+            { "text": "secret", "style": "spoiler" },
+            { "text": "docs", "style": "link", "url": "https://example.com/a", "tooltip": "the docs" },
+            { "text": "yay", "style": "rainbow" },
+        ]);
+        let checked = Mark::check_all(&marks).unwrap();
+        assert!(checked[2].style.moves() && !checked[0].style.moves());
+        for wrong in [
+            serde_json::json!([{ "text": "a", "style": "link" }]),
+            serde_json::json!([{ "text": "a", "style": "link", "url": "javascript:alert(1)" }]),
+            serde_json::json!([{ "text": "a", "style": "bold", "url": "https://example.com" }]),
+            serde_json::json!([{ "text": "a", "style": "bold", "tooltip": "" }]),
+        ] {
+            assert!(Mark::check_all(&wrong).is_err(), "{wrong}");
+        }
+        let pictures = InlinePicture::check_all(&serde_json::json!([
+            { "src": "emoji:12", "text": "France", "after": true },
+            { "src": "https://cdn.discordapp.com/avatars/1/a.png", "mention": "1", "round": true },
+        ]))
+        .unwrap();
+        assert_eq!(
+            pictures[0].address().as_deref(),
+            Some("https://cdn.discordapp.com/emojis/12.webp?size=48")
+        );
+        for wrong in [
+            serde_json::json!([{ "src": "https://example.com/a.png", "text": "a" }]),
+            serde_json::json!([{ "src": "emoji:x", "text": "a" }]),
+            serde_json::json!([{ "src": "emoji:1" }]),
+            serde_json::json!([{ "src": "emoji:1", "text": "a", "mention": "2" }]),
+        ] {
+            assert!(InlinePicture::check_all(&wrong).is_err(), "{wrong}");
+        }
+        assert!(
+            LinkTip::check_all(&serde_json::json!([{ "link": "https://a.b", "text": "x" }]))
+                .is_ok()
+        );
+        assert!(LinkTip::check_all(&serde_json::json!([{ "text": "x" }])).is_err());
+        let swaps = EmojiSwap::check_all(&serde_json::json!([
+            { "emoji": "12" },
+            { "emoji": ":kekw:", "with": "lol" },
+            { "emoji": "\u{2764}", "with_emoji": "34" },
+        ]))
+        .unwrap();
+        assert_eq!(swaps[0].id(), Some("12"));
+        assert!(
+            swaps[2]
+                .replacement()
+                .is_some_and(|url| url.contains("/emojis/34."))
+        );
+        assert!(
+            EmojiSwap::check_all(
+                &serde_json::json!([{ "emoji": "a", "with": "b", "with_emoji": "1" }])
+            )
+            .is_err()
+        );
+        let parsed =
+            Decoration::parse(serde_json::json!({ "emoji": [{ "emoji": "12" }] })).unwrap();
+        assert!(parsed.emoji.is_some(), "emoji alone is an answer");
     }
 
     #[test]
@@ -841,6 +1183,15 @@ pub enum FromHelper {
         /// Badges on the author's line, unchecked: the parent checks them.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         author: Option<serde_json::Value>,
+        /// Pictures set into the text, unchecked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pictures: Option<serde_json::Value>,
+        /// Tooltips over links and mentions, unchecked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tooltips: Option<serde_json::Value>,
+        /// Emoji hidden or swapped, unchecked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        emoji: Option<serde_json::Value>,
     },
     /// How a plugin answered about one person, as `yf_identity` returned it, or
     /// nothing when it said nothing. The parent checks the answer, and keeps it

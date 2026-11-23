@@ -297,12 +297,23 @@ pub struct Inline {
     pub marks: Vec<yapfast_plugin_api::message::Mark>,
     /// Badges on the author's line.
     pub author: Vec<yapfast_plugin_api::message::AuthorBadge>,
+    /// Small pictures set into the text.
+    pub pictures: Vec<yapfast_plugin_api::message::InlinePicture>,
+    /// Lines over its links and mentions on hover.
+    pub tooltips: Vec<yapfast_plugin_api::message::LinkTip>,
+    /// Emoji hidden or shown as something else.
+    pub emoji: Vec<yapfast_plugin_api::message::EmojiSwap>,
 }
 
 impl Inline {
     /// Nothing added to the text.
     pub fn is_empty(&self) -> bool {
-        self.annotation.is_none() && self.marks.is_empty() && self.author.is_empty()
+        self.annotation.is_none()
+            && self.marks.is_empty()
+            && self.author.is_empty()
+            && self.pictures.is_empty()
+            && self.tooltips.is_empty()
+            && self.emoji.is_empty()
     }
 }
 

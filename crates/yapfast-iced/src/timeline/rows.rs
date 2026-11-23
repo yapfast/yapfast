@@ -205,10 +205,10 @@ pub fn body_of(
     muted: u32,
     revealed: impl Fn(usize) -> bool,
     colours: impl Fn(&str) -> Option<crate::code::Spans>,
-    decor: impl Fn(&str) -> (u64, Vec<crate::markdown::Mark>),
+    decor: impl Fn(&str) -> (u64, crate::markdown::Decor),
 ) -> Laid {
     let (decor, marks) = if message.notice.is_some() {
-        (0, Vec::new())
+        (0, crate::markdown::Decor::default())
     } else {
         decor(&message.item)
     };
@@ -216,7 +216,7 @@ pub fn body_of(
         markdown::notice(message, notice, text, muted)
     } else if !message.formatted {
         let mut body = markdown::plain(&message.body);
-        markdown::mark(&mut body, &marks);
+        markdown::mark(&mut body, &marks, &message.item, &revealed);
         body
     } else {
         let mut body = markdown::parse(
@@ -234,7 +234,7 @@ pub fn body_of(
         let _ = &colours;
         markdown::with_emoji(&mut body, &message.emoji);
         markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
-        markdown::mark(&mut body, &marks);
+        markdown::mark(&mut body, &marks, &message.item, &revealed);
         body
     };
     let laid = |markdown: &str| markdown::parse(markdown, &[], mention, &message.item, |_| true);
@@ -278,8 +278,8 @@ pub fn body_of(
 /// What no plugin drew on a message: nothing, as the selection's tests lay it
 /// out.
 #[cfg(test)]
-pub fn undecorated(_item: &str) -> (u64, Vec<crate::markdown::Mark>) {
-    (0, Vec::new())
+pub fn undecorated(_item: &str) -> (u64, crate::markdown::Decor) {
+    (0, crate::markdown::Decor::default())
 }
 
 /// What the history's edge shows, at the timeline's first row.

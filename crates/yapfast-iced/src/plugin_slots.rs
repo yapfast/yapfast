@@ -630,12 +630,15 @@ pub fn menu_rows(
 /// The slots keep a decoration that didn't change as the same `Arc`, so its
 /// address is what the number is made of: a row is laid out again only when a
 /// plugin's answer about it really moved.
-pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
+pub fn decor(slots: &Slots, item: &str) -> (u64, crate::markdown::Decor) {
+    use crate::markdown::{Beside, Decor, Mark, MarkLook, Picture, Swap, SwapWith, Tip};
     use std::hash::{Hash, Hasher};
     use yapfast_plugin_api::message::MarkStyle;
     let mut hasher = std::hash::DefaultHasher::new();
-    let mut marks = Vec::new();
+    let mut decor = Decor::default();
     let mut any = false;
+    let mention =
+        |id: &str| yapfast_core::mention::link(&yapfast_core::mention::Target::User(id.to_owned()));
     for decoration in slots.decorations(item) {
         any = true;
         decoration.plugin.hash(&mut hasher);
@@ -651,26 +654,58 @@ pub fn decor(slots: &Slots, item: &str) -> (u64, Vec<crate::markdown::Mark>) {
             decoration.blur_media,
         )
             .hash(&mut hasher);
-        marks.extend(
-            decoration
-                .inline
-                .marks
-                .iter()
-                .map(|mark| crate::markdown::Mark {
-                    text: mark.text.clone(),
-                    look: match mark.style {
-                        MarkStyle::Bold => crate::markdown::MarkLook::Bold,
-                        MarkStyle::Italic => crate::markdown::MarkLook::Italic,
-                        MarkStyle::Strike => crate::markdown::MarkLook::Strike,
-                        MarkStyle::Highlight => crate::markdown::MarkLook::Highlight,
+        let inline = &decoration.inline;
+        decor.marks.extend(inline.marks.iter().map(|mark| Mark {
+            text: mark.text.clone(),
+            look: match mark.style {
+                MarkStyle::Bold => MarkLook::Bold,
+                MarkStyle::Italic => MarkLook::Italic,
+                MarkStyle::Strike => MarkLook::Strike,
+                MarkStyle::Highlight => MarkLook::Highlight,
+                MarkStyle::Spoiler => MarkLook::Spoiler,
+                MarkStyle::Link => MarkLook::Link,
+                MarkStyle::Wiggle => MarkLook::Wiggle,
+                MarkStyle::Rainbow => MarkLook::Rainbow,
+            },
+            url: mark.url.clone(),
+            tip: mark.tooltip.clone(),
+        }));
+        decor
+            .pictures
+            .extend(inline.pictures.iter().filter_map(|picture| {
+                Some(Picture {
+                    url: picture.address()?,
+                    beside: if picture.mention.is_empty() {
+                        Beside::Words(picture.text.clone())
+                    } else {
+                        Beside::Link(mention(&picture.mention))
                     },
-                }),
-        );
+                    after: picture.after,
+                    round: picture.round,
+                    tip: (!picture.tooltip.is_empty()).then(|| picture.tooltip.clone()),
+                })
+            }));
+        decor.tips.extend(inline.tooltips.iter().map(|tip| Tip {
+            link: if tip.mention.is_empty() {
+                tip.link.clone()
+            } else {
+                mention(&tip.mention)
+            },
+            text: tip.text.clone(),
+        }));
+        decor.swaps.extend(inline.emoji.iter().map(|swap| Swap {
+            emoji: swap.emoji.clone(),
+            with: match (&swap.with, swap.replacement()) {
+                (Some(text), _) => Some(SwapWith::Text(text.clone())),
+                (None, Some(url)) => Some(SwapWith::Picture(url)),
+                (None, None) => None,
+            },
+        }));
     }
     if !any {
-        return (0, marks);
+        return (0, decor);
     }
-    (hasher.finish() | 1, marks)
+    (hasher.finish() | 1, decor)
 }
 
 /// A plugin's small badge: a few words in a tone on a faint fill of it, with

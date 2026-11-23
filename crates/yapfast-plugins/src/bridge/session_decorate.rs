@@ -123,12 +123,16 @@ impl Session {
         message: &str,
         tree: Option<serde_json::Value>,
         mut hide: crate::slots::Hidden,
-        (annotation, marks, author): (
-            Option<serde_json::Value>,
-            Option<serde_json::Value>,
-            Option<serde_json::Value>,
-        ),
+        said: Said,
     ) {
+        let Said {
+            annotation,
+            marks,
+            author,
+            pictures,
+            tooltips,
+            emoji,
+        } = said;
         let tree = match tree {
             Some(value) => match serde_json::to_string(&value)
                 .map_err(|error| error.to_string())
@@ -181,8 +185,33 @@ impl Session {
         // message says, which is `messages.read`'s: a plugin without it was
         // asked with the body left out, and has no words to style.
         let mut inline = crate::slots::Inline::default();
-        if annotation.is_some() || marks.is_some() {
+        let about_text = annotation.is_some()
+            || marks.is_some()
+            || pictures.is_some()
+            || tooltips.is_some()
+            || emoji.is_some();
+        if about_text {
             if reads {
+                fn checked<T>(
+                    plugin: &PluginId,
+                    what: &str,
+                    value: Option<serde_json::Value>,
+                    check: fn(&serde_json::Value) -> Result<Vec<T>, String>,
+                ) -> Vec<T> {
+                    value
+                        .and_then(|value| {
+                            check(&value)
+                                .inspect_err(|refusal| {
+                                    tracing::warn!(%plugin, %refusal, what, "a plugin's decoration part was refused");
+                                })
+                                .ok()
+                        })
+                        .unwrap_or_default()
+                }
+                use yapfast_plugin_api::message::{EmojiSwap, InlinePicture, LinkTip};
+                inline.pictures = checked(plugin, "pictures", pictures, InlinePicture::check_all);
+                inline.tooltips = checked(plugin, "tooltips", tooltips, LinkTip::check_all);
+                inline.emoji = checked(plugin, "emoji", emoji, EmojiSwap::check_all);
                 inline.annotation = annotation.and_then(|value| {
                     yapfast_plugin_api::message::Annotation::check(&value)
                         .inspect_err(|refusal| {
@@ -202,7 +231,7 @@ impl Session {
             } else {
                 tracing::warn!(
                     %plugin,
-                    "a plugin annotated or styled a message without `messages.read`"
+                    "a plugin annotated, styled or set pictures into a message without `messages.read`"
                 );
             }
         }
@@ -318,4 +347,15 @@ impl Session {
             badge,
         }));
     }
+}
+
+/// What a plugin said about a message's text and author, each part as it
+/// wrote it: checked one by one where it arrives.
+pub(super) struct Said {
+    pub annotation: Option<serde_json::Value>,
+    pub marks: Option<serde_json::Value>,
+    pub author: Option<serde_json::Value>,
+    pub pictures: Option<serde_json::Value>,
+    pub tooltips: Option<serde_json::Value>,
+    pub emoji: Option<serde_json::Value>,
 }

@@ -111,6 +111,9 @@ impl Session {
                 annotation,
                 marks,
                 author,
+                pictures,
+                tooltips,
+                emoji,
             } => {
                 self.pending.remove(&frame.id);
                 self.on_decorated(
@@ -123,7 +126,14 @@ impl Session {
                         media: hide_media,
                         blur: blur_media,
                     },
-                    (annotation, marks, author),
+                    super::session_decorate::Said {
+                        annotation,
+                        marks,
+                        author,
+                        pictures,
+                        tooltips,
+                        emoji,
+                    },
                 );
                 None
             }
