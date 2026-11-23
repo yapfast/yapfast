@@ -31,22 +31,37 @@ use crate::{
 const MARGIN: f32 = 16.0;
 const RADIUS: f32 = 8.0;
 
-/// The least width its grip drags it to, the shape it keeps (a 16:9
-/// picture, as [`CORNER`] is), and the square of it its grip takes.
-const LEAST: f32 = 180.0;
+/// The widths its grip drags it between, as Discord's picture in picture
+/// for a video (200 to 960 px, and 20 px past that while it's dragged), the
+/// step it settles on when let go (40 px), the shape it keeps (a 16:9
+/// picture, as [`CORNER`] is, 320 px wide as Discord's), and the square of
+/// it its grip takes.
+const LEAST: f32 = 200.0;
+const MOST: f32 = 960.0;
+const STEP: f32 = 40.0;
 const SHAPE: f32 = CORNER.height / CORNER.width;
 const GRIP: f32 = 22.0;
 
-/// The picture's size: as its grip was dragged to, else its own, no larger
-/// than the window has room for, on the window's own pixels.
+/// The picture's size: as its grip was dragged to, else its own, on the
+/// window's own pixels. While it's dragged it follows the pointer within
+/// the window's room; otherwise it's no wider than the room settles on, as
+/// Discord's narrows when the window does.
 pub fn corner_size(app: &App) -> Size {
-    let width = app
-        .layout
-        .corner_width
-        .unwrap_or(CORNER.width)
-        .clamp(LEAST, most(app));
+    let wanted = app.layout.corner_width.unwrap_or(CORNER.width);
+    let room = room(app);
+    let width = if app.call.resize.is_some() {
+        wanted.clamp(LEAST, (MOST + 20.0).min(room).max(LEAST))
+    } else {
+        wanted.min(settle(room))
+    };
     let width = on_pixels(app, width);
     Size::new(width, on_pixels(app, width * SHAPE))
+}
+
+/// A width as Discord settles one when its grip is let go: to the nearest
+/// 40 px, within 200 and 960.
+fn settle(width: f32) -> f32 {
+    ((width / STEP).round() * STEP).clamp(LEAST, MOST)
 }
 
 /// A length in the app's units as the window's pixels have it: the picture
@@ -58,13 +73,12 @@ fn on_pixels(app: &App, length: f32) -> f32 {
     (length * pixels).round() / pixels
 }
 
-/// The widest the picture gets: within the window, right of the
-/// conversation.
-fn most(app: &App) -> f32 {
+/// The widest the window has room for: right of the conversation, below
+/// the header.
+fn room(app: &App) -> f32 {
     let left = crate::conversation::chat_left(app) + MARGIN;
     let top = header::HEIGHT + MARGIN;
-    let room = (app.window.width - MARGIN - left).min((app.window.height - MARGIN - top) / SHAPE);
-    room.max(LEAST)
+    (app.window.width - MARGIN - left).min((app.window.height - MARGIN - top) / SHAPE)
 }
 
 /// The corners the picture may sit in: its left, right, top and bottom
@@ -121,43 +135,31 @@ pub(super) fn on_grip(app: &App, at: Point) -> bool {
 }
 
 /// The grip dragged to `at`: the picture keeps the window's corner and its
-/// shape, and takes the size the pointer asks for, along the way its grip
-/// goes, within the window.
+/// shape, and its width follows the pointer across, as Discord's does
+/// (its grip resizes horizontally only): away from the window's edge it
+/// grows, towards it it shrinks; the pointer going up or down does
+/// nothing.
 pub(super) fn resize_to(app: &mut App, at: Point) {
     let Some(resize) = app.call.resize else {
         return;
     };
-    // The pointer's way towards the picture's own corner is the way that
-    // makes it larger, each way counted in width: how far it went across,
-    // and how far down, the shape's share of it. The two are weighed by how
-    // far the pointer went each way, so neither takes over from one pixel
-    // to the next: a drag across the diagonal asks for no change at all,
-    // where the larger of them dropped the size and took it back again as
-    // the pointer went on.
     let across = if app.call.left {
         at.x - resize.from.x
     } else {
         resize.from.x - at.x
     };
-    let down = if app.call.bottom {
-        resize.from.y - at.y
-    } else {
-        at.y - resize.from.y
-    } / SHAPE;
-    let all = across.abs() + down.abs();
-    let by = if all > 0.0 {
-        (across * across.abs() + down * down.abs()) / all
-    } else {
-        0.0
-    };
-    let width = (resize.width + by).clamp(LEAST, most(app));
-    app.layout.corner_width = Some(width);
+    app.layout.corner_width = Some((resize.width + across).clamp(LEAST, MOST + 20.0));
 }
 
-/// The grip let go: the size it was dragged to is kept for the next window,
-/// and the frames the picture shows are made at it.
+/// The grip let go: the picture settles on the nearest 40 px within 200
+/// and 960 and the window's room, as Discord's does; that width is kept
+/// for the next window, and the frames the picture shows are made at it.
 pub(super) fn let_go(app: &mut App) {
+    let dragged = corner_size(app).width;
     app.call.resize = None;
+    if app.layout.corner_width.is_some() {
+        app.layout.corner_width = Some(settle(dragged).min(settle(room(app))));
+    }
     crate::layout::store(app.client.root(), "corner_width", app.layout.corner_width);
     crate::call::stage::place_videos(app);
 }
@@ -311,7 +313,10 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
     } else {
         Rectangle::new(Point::new(grip.x - at.x, grip.y - at.y), grip.size())
     };
-    let held = crate::widgets::Grip::new(held, over, diagonal);
+    // The grip takes its press first: over the stop button (its bottom
+    // right, the grip's when the picture sits top left) a press resizes,
+    // as the pointer says, and doesn't stop the share.
+    let held = crate::widgets::Grip::new(held, over, diagonal, Message::Call(Event::Grab));
     Some(
         stack![pin(held).x(at.x).y(at.y)]
             .width(Length::Fill)

@@ -471,6 +471,8 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
     assert!(shows(&app, "Bob"), "his tile's name");
 }
 
+/// Discord's picture in picture: its grip resizes it horizontally only,
+/// between 200 and 960 px, and settles on the nearest 40 px when let go.
 #[test]
 fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
     use crate::app::Message;
@@ -490,72 +492,70 @@ fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
         crate::call::corner::corner_view(&app).is_some(),
         "in the corner"
     );
+    let width = |app: &App| crate::call::corner::corner_size(app).width;
     let size = crate::call::corner::corner_size(&app);
     assert_eq!((size.width, size.height), (320.0, 180.0), "as it comes");
-    // A drag at its grip, 100 px towards the window's middle, the way the
-    // grip goes, makes it 100 px wider, and as much taller as its shape
-    // gives.
+    // Its grip, 90 px towards the window's middle: 90 px wider while
+    // dragged, whatever the pointer does up or down, then 400 px, the
+    // nearest 40, once let go.
     let grip = crate::call::corner::grip(&app).center();
     app.pressed.set(grip);
     let _ = app.update(Message::Call(Event::Grab));
     assert!(app.call.resize.is_some(), "its grip resizes it");
-    let _ = app.update(Message::Call(Event::DragTo(Point::new(
-        grip.x - 100.0,
-        grip.y + 100.0 * 180.0 / 320.0,
-    ))));
-    assert_eq!(
-        crate::call::corner::corner_size(&app).width,
-        420.0,
-        "100 px wider"
-    );
-    // The pointer wandering by the grip asks for the size it went for, a
-    // step at a time: no move of it drops the picture to another size and
-    // takes it back again, as picking the larger of the pointer's two ways
-    // did once it crossed the diagonal.
+    for down in [0.0, 120.0, -60.0] {
+        let _ = app.update(Message::Call(Event::DragTo(Point::new(
+            grip.x - 90.0,
+            grip.y + down,
+        ))));
+        assert_eq!(width(&app), 410.0, "across only, {down} px down");
+    }
     let _ = app.update(Message::Call(Event::Drop));
+    assert!(app.call.resize.is_none() && app.call.grab.is_none());
+    assert_eq!(width(&app), 400.0, "settled on 40 px");
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).corner_width,
+        Some(400.0),
+        "kept"
+    );
+    // Up and down alone change nothing.
     let grip = crate::call::corner::grip(&app).center();
     app.pressed.set(grip);
     let _ = app.update(Message::Call(Event::Grab));
     let _ = app.update(Message::Call(Event::DragTo(Point::new(
-        grip.x - 50.0,
+        grip.x,
+        grip.y + 200.0,
+    ))));
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 400.0, "the same");
+    // Towards the window's edge it shrinks, to 200 px at least.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x + 500.0,
         grip.y,
     ))));
-    assert_eq!(
-        crate::call::corner::corner_size(&app).width,
-        470.0,
-        "50 px wider"
-    );
-    let mut last = 470.0;
-    for step in 1..=24 {
-        let at = Point::new(grip.x - 50.0, grip.y + step as f32 * 8.0);
-        let _ = app.update(Message::Call(Event::DragTo(at)));
-        let width = crate::call::corner::corner_size(&app).width;
-        assert!(
-            (width - last).abs() < 30.0,
-            "8 px of the pointer moved it {} px, from {last} to {width}",
-            width - last
-        );
-        last = width;
-    }
-    // Back by the grip, it's the size the drag to it asked for.
-    let _ = app.update(Message::Call(Event::DragTo(Point::new(
-        grip.x - 100.0,
-        grip.y + 100.0 * 180.0 / 320.0,
-    ))));
-    assert_eq!(
-        crate::call::corner::corner_size(&app).width,
-        520.0,
-        "back to 100 px wider"
-    );
-    // Let go, it keeps none of the drag and the size stays for the next
-    // window.
+    assert_eq!(width(&app), 200.0, "no narrower");
     let _ = app.update(Message::Call(Event::Drop));
-    assert!(app.call.resize.is_none() && app.call.grab.is_none());
-    assert_eq!(
-        crate::layout::Layout::read(folder.path()).corner_width,
-        Some(520.0),
-        "kept"
-    );
+    assert_eq!(width(&app), 200.0);
+    // And to 960 px at most, 20 past it while dragged, in a window with
+    // the room.
+    app.shell.frame = Size::new(3000.0, 2000.0);
+    crate::window_bar::fit_window(&mut app);
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x - 2000.0,
+        grip.y,
+    ))));
+    assert_eq!(width(&app), 980.0, "20 px past while dragged");
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 960.0, "no wider");
+    // A smaller window narrows it to the room it settles on.
+    app.shell.frame = Size::new(1000.0, 700.0);
+    crate::window_bar::fit_window(&mut app);
+    assert!(width(&app) < 960.0 && width(&app) % 40.0 == 0.0);
     // A click on its grip opens nothing, where one on the picture returns
     // to the call.
     let selected = app.client.state().selected.clone();
@@ -564,12 +564,14 @@ fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
     let _ = app.update(Message::Call(Event::Drop));
     assert_eq!(app.client.state().selected, selected, "no call opened");
     // Pressed on the picture instead, it's moved, not resized.
+    let grip = crate::call::corner::grip(&app).center();
     app.pressed.set(Point::new(grip.x + 100.0, grip.y - 100.0));
     let _ = app.update(Message::Call(Event::Grab));
     assert!(
         app.call.grab.is_some() && app.call.resize.is_none(),
         "moved"
     );
+    let _ = app.update(Message::Call(Event::Drop));
     // Its edges fall on the window's own pixels, at any zoom, so its
     // picture and the shade over it end on the same row.
     app.shell.zoom = 1.15;
@@ -577,11 +579,74 @@ fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
     let pixels = app.device_scale();
     for length in [size.width, size.height] {
         assert!(
-            (length * pixels).fract().abs() < 0.01,
+            ((length * pixels).round() - length * pixels).abs() < 0.01,
             "{length} is a whole window pixel: {}",
             length * pixels
         );
     }
+}
+
+/// Sat top left, the corner picture's grip is its bottom right, over the
+/// stop button's corner: a press there resizes, as the pointer says, and
+/// doesn't stop the share; the button's middle still stops it.
+#[test]
+fn the_corner_pictures_grip_over_its_stop_button_resizes() {
+    use crate::app::Message;
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+    });
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(
+        crate::call::corner::corner_view(&app).is_some(),
+        "your screen in the corner"
+    );
+    app.call.left = true;
+    app.call.bottom = false;
+    let grip = crate::call::corner::grip(&app);
+    let size = crate::call::corner::corner_size(&app);
+    // The button: 32 px, 8 px in from the picture's bottom right, where
+    // the grip ends.
+    let corner = Point::new(grip.x + grip.width, grip.y + grip.height);
+    let overlap = Point::new(corner.x - 15.0, corner.y - 15.0);
+    let button = Point::new(corner.x - 24.0, corner.y - 24.0);
+    assert!(grip.contains(overlap) && !grip.contains(button));
+    assert!(size.width > 64.0);
+    let press = |app: &App, at: Point| -> Vec<Message> {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.point_at(at);
+        let _ = ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect()
+    };
+    let stops = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Call(Event::StopSharing)))
+    };
+    let grabs = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Call(Event::Grab)))
+    };
+    let messages = press(&app, button);
+    assert!(stops(&messages), "the button's middle stops the share");
+    let messages = press(&app, overlap);
+    assert!(
+        grabs(&messages) && !stops(&messages),
+        "the grip takes it, {} messages",
+        messages.len()
+    );
+    for message in messages {
+        let _ = app.update(message);
+    }
+    assert!(app.call.resize.is_some(), "resized, not stopped");
+    assert!(app.client.state().voice.sharing.is_some());
 }
 
 #[test]

@@ -71,42 +71,64 @@ impl<M: Clone> Hooks<M> for Watch<M> {
 
 /// Its child, whose pointer is `look` over its grip: a picture in a corner
 /// of the window, which a drag at the corner away from it resizes. The
-/// shape changes as the pointer comes and goes, with no message.
-pub struct Grip {
+/// shape changes as the pointer comes and goes, with no message; a left
+/// press on the grip sends `on_press` and goes no further, so a button of
+/// the child's under the grip doesn't take a press the pointer said would
+/// resize.
+pub struct Grip<M> {
     /// Where the grip is, from the child's own top left, and the pointer's
     /// shape there.
     at: Rectangle,
     look: mouse::Interaction,
+    on_press: M,
 }
 
-impl Grip {
-    pub fn new<'a, M: Clone>(
+impl<M: Clone> Grip<M> {
+    pub fn new<'a>(
         child: impl Into<Element<'a, M>>,
         at: Rectangle,
         look: mouse::Interaction,
+        on_press: M,
     ) -> Wrap<'a, Self, M> {
-        Wrap::new(child, Self { at, look })
+        Wrap::new(child, Self { at, look, on_press })
     }
-}
 
-impl<M: Clone> Hooks<M> for Grip {
-    type State = Stateless;
-
-    fn interaction(&self, _: &Stateless, at: At, child: mouse::Interaction) -> mouse::Interaction {
+    fn on_grip(&self, at: &At) -> bool {
         let grip = Rectangle {
             x: at.bounds.x + self.at.x,
             y: at.bounds.y + self.at.y,
             ..self.at
         };
-        if at
-            .cursor
+        at.cursor
             .position()
             .is_some_and(|position| grip.contains(position))
+    }
+}
+
+impl<M: Clone> Hooks<M> for Grip<M> {
+    type State = Stateless;
+
+    fn update(
+        &mut self,
+        _: &mut Stateless,
+        event: &iced::Event,
+        at: At,
+        shell: &mut Shell<'_, M>,
+        child: &mut Inner<'_, '_, M>,
+    ) {
+        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+            && !shell.is_event_captured()
+            && self.on_grip(&at)
         {
-            self.look
-        } else {
-            child
+            shell.publish(self.on_press.clone());
+            shell.capture_event();
+            return;
         }
+        child.update(shell);
+    }
+
+    fn interaction(&self, _: &Stateless, at: At, child: mouse::Interaction) -> mouse::Interaction {
+        if self.on_grip(&at) { self.look } else { child }
     }
 }
 
