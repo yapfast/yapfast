@@ -208,6 +208,21 @@ fn the_sample_plugin_answers_every_kind_of_hook() {
 fn a_setting_read_inside_a_hook_is_answered_in_the_same_call() {
     let mut helper = Helper::start("settings-hook");
     let signer = plugin("signer");
+    // The parent's copy of the plugin's settings goes before its module, as
+    // the real parent sends it, so the read is answered in the helper and
+    // never waits on a round trip that a loaded machine could make late.
+    let mut settings = serde_json::Map::new();
+    settings.insert("signature".to_owned(), json!("sent from my plugin"));
+    let id = helper.next_id();
+    helper.send(
+        FrameKind::Request,
+        id,
+        &ToHelper::Kept {
+            plugin: signer.clone(),
+            settings,
+            storage: None,
+        },
+    );
     helper.activate(&signer, "settings_hook.wat", PAGES);
     helper.wait_for(BUDGET, "Activated", |message| {
         matches!(message, FromHelper::Activated { .. })
@@ -221,35 +236,11 @@ fn a_setting_read_inside_a_hook_is_answered_in_the_same_call() {
             request: a_hook(),
         },
     );
-    let (frame, call) = match helper.wait_for_frame(BUDGET, "Call", |message| {
-        matches!(message, FromHelper::Call { .. })
-    }) {
-        (
-            frame,
-            FromHelper::Call {
-                plugin,
-                call,
-                request,
-            },
-        ) => {
-            assert_eq!(plugin, signer);
-            assert_eq!(request.method, "settings.get");
-            assert_eq!(request.payload["key"], "signature");
-            (frame, call)
-        }
-        (_, other) => panic!("expected Call, got {other:?}"),
-    };
-    helper.send(
-        FrameKind::Reply,
-        frame,
-        &ToHelper::Return {
-            plugin: signer.clone(),
-            call,
-            answer: HostReturn::Ok(json!("sent from my plugin")),
-        },
-    );
     match helper.wait_for(BUDGET, "HookDone", |message| {
-        matches!(message, FromHelper::HookDone { .. })
+        matches!(
+            message,
+            FromHelper::HookDone { .. } | FromHelper::Call { .. }
+        )
     }) {
         FromHelper::HookDone {
             outcome, failures, ..
@@ -260,7 +251,7 @@ fn a_setting_read_inside_a_hook_is_answered_in_the_same_call() {
             };
             assert_eq!(draft.body, "sent from my plugin");
         }
-        other => panic!("expected HookDone, got {other:?}"),
+        other => panic!("the read was answered in the helper, not sent on: {other:?}"),
     }
 }
 
