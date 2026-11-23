@@ -173,7 +173,7 @@ mod linux {
 
     impl Tray {
         pub fn start(chosen: super::Chosen) -> Option<Self> {
-            let icons = |unread| {
+            let icons = |unread: bool| {
                 SIZES
                     .iter()
                     .filter_map(|&size| super::logo(size, unread.into()))
