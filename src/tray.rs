@@ -81,9 +81,21 @@ impl Tray {
     }
 }
 
-/// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
-/// unread messages cut into its corner.
-fn logo(size: u32, unread: bool) -> Option<crate::icon::Rgba> {
+enum Badge {
+    None,
+    Dot,
+    #[cfg(windows)]
+    Count(u8),
+}
+
+impl From<bool> for Badge {
+    fn from(unread: bool) -> Self {
+        if unread { Self::Dot } else { Self::None }
+    }
+}
+
+/// Yapfast's marigold logo with the notification badge cut into its corner.
+fn logo(size: u32, badge: Badge) -> Option<crate::icon::Rgba> {
     let mut svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg")
         .replacen(
             r#"width="24" height="24""#,
@@ -91,15 +103,43 @@ fn logo(size: u32, unread: bool) -> Option<crate::icon::Rgba> {
             1,
         )
         .replacen(r##"fill="#fff" mask"##, r##"fill="#ffbf47" mask"##, 1);
-    if unread {
-        svg = svg
+    svg = match badge {
+        Badge::None => svg,
+        Badge::Dot => svg
             .replacen("</mask>", r#"<circle cx="74" cy="74" r="21" /></mask>"#, 1)
             .replacen(
                 "</svg>",
                 r##"<circle cx="74" cy="74" r="15" fill="#f0545e" /></svg>"##,
                 1,
+            ),
+        #[cfg(windows)]
+        Badge::Count(count) => {
+            // Stroked digits stay readable at small sizes and need no font.
+            const DIGITS: [&str; 9] = [
+                "M2 4L7 0V16M3 16H11",
+                "M1 4Q1 0 6 0Q11 0 11 5Q11 8 1 16H11",
+                "M1 2Q3 0 6 0Q11 0 11 4Q11 8 6 8Q11 8 11 12Q11 16 6 16Q2 16 1 14",
+                "M8 0L1 11H11M8 0V16",
+                "M11 0H2L1 8Q11 5 11 12Q11 16 6 16Q2 16 1 14",
+                "M10 1Q1 -2 1 10Q1 16 6 16Q11 16 11 11Q11 7 6 7Q3 7 1 10",
+                "M1 0H11L4 16",
+                "M6 8C-1 8 -1 0 6 0S13 8 6 8C-1 8 -1 16 6 16S13 8 6 8Z",
+                "M2 15Q11 19 11 6Q11 0 6 0Q1 0 1 5Q1 10 6 10Q9 10 11 7",
+            ];
+            let digit = DIGITS[usize::from(count.min(9) - 1)];
+            let (left, x, plus) = if count > 9 {
+                (47, 52.0, "M16 8H27M21.5 2.5V13.5")
+            } else {
+                (57, 66.5, "")
+            };
+            let badge = format!(
+                r#"<rect x="{left}" y="12" width="{}" height="31" rx="15.5""#,
+                90 - left
             );
-    }
+            svg.replacen("</mask>", &format!(r##"{badge} stroke="#000" stroke-width="6"/></mask>"##), 1)
+                .replacen("</svg>", &format!(r##"{badge} fill="#d12c43"/><path transform="translate({x} 18) scale(1.18)" d="{digit}{plus}" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>"##), 1)
+        }
+    };
     crate::icon::rasterize(svg.as_bytes(), size)
 }
 
@@ -136,7 +176,7 @@ mod linux {
             let icons = |unread| {
                 SIZES
                     .iter()
-                    .filter_map(|&size| super::logo(size, unread))
+                    .filter_map(|&size| super::logo(size, unread.into()))
                     .map(|pixels| ksni::Icon {
                         width: pixels.width as i32,
                         height: pixels.height as i32,
@@ -291,6 +331,9 @@ mod linux {
 }
 
 #[cfg(windows)]
+pub(crate) use windows::taskbar_icon;
+
+#[cfg(windows)]
 mod windows {
     use std::cell::{Cell, RefCell};
 
@@ -384,7 +427,10 @@ mod windows {
                 }
                 TASKBAR_CREATED.set(RegisterWindowMessageW(w!("TaskbarCreated")));
                 let size = GetSystemMetrics(SM_CXSMICON).clamp(16, 256) as u32;
-                let icons = [icon(size, false), icon(size, true)];
+                let icons = [
+                    icon(size, super::Badge::None),
+                    icon(size, super::Badge::Dot),
+                ];
                 let mut data = NOTIFYICONDATAW {
                     cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                     hWnd: window,
@@ -450,17 +496,19 @@ mod windows {
         unsafe { Shell_NotifyIconW(message, data) != 0 }
     }
 
+    pub(crate) fn taskbar_icon(size: u32, count: u8) -> HICON {
+        icon(size, super::Badge::Count(count))
+    }
+
     /// The logo as an icon with an alpha channel: colour as BGRA, and an empty
     /// mask, which the alpha replaces.
-    fn icon(size: u32, unread: bool) -> HICON {
-        let Some(pixels) = super::logo(size, unread) else {
+    fn icon(size: u32, badge: super::Badge) -> HICON {
+        let Some(mut pixels) = super::logo(size, badge) else {
             return std::ptr::null_mut();
         };
-        let colour: Vec<u8> = pixels
-            .pixels
-            .chunks_exact(4)
-            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
-            .collect();
+        for pixel in pixels.pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
         let (width, height) = (pixels.width, pixels.height);
         // Rows of the 1-bit mask are padded to 16 bits.
         let mask = vec![0u8; width.div_ceil(16) as usize * 2 * height as usize];
@@ -473,7 +521,7 @@ mod windows {
                 1,
                 32,
                 mask.as_ptr(),
-                colour.as_ptr(),
+                pixels.pixels.as_ptr(),
             )
         }
     }
@@ -580,8 +628,8 @@ mod none {
 mod tests {
     #[test]
     fn the_logo_is_marigold_and_unread_adds_a_red_dot() {
-        let plain = super::logo(32, false).unwrap();
-        let unread = super::logo(32, true).unwrap();
+        let plain = super::logo(32, super::Badge::None).unwrap();
+        let unread = super::logo(32, super::Badge::Dot).unwrap();
         assert_eq!((plain.width, plain.height), (32, 32));
         let marigold = |pixel: &[u8]| pixel == [0xff, 0xbf, 0x47, 255];
         let red = |pixel: &[u8]| pixel == [0xf0, 0x54, 0x5e, 255];

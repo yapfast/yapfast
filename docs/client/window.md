@@ -113,6 +113,9 @@ own, which a stream hands to the event loop as messages; nothing polls.
   flashes and a notification shows, as the settings allow. A click on the
   notification opens its conversation, closing Settings, and brings the
   window back.
+  On Windows the taskbar icon counts the mentions and unread DMs that
+  trigger the tray dot. It shows 1–9, or 9+ for ten or more. An unread
+  unmuted DM with no message count contributes one.
 - A later start of Yapfast on the same data folder hands over to the
   running one and ends: the window comes forward with that start's token,
   and a Discord link it brought (a `LINK` on its command line, or a

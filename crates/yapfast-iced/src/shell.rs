@@ -49,6 +49,8 @@ pub struct Start {
 pub struct Shell {
     /// The window, while open.
     pub window: Option<window::Id>,
+    #[cfg(windows)]
+    pub(crate) taskbar_unread: Option<(window::Id, u8)>,
     pub focused: bool,
     pub minimized: bool,
     pub maximized: bool,
@@ -150,7 +152,12 @@ impl App {
         self.shell.gpu_notice = start.gpu_failed;
         self.shell.fixed_size = start.fixed_size;
         self.place_as_kept();
-        self.show_tray();
+        if let Some(tray) = &self.shell.tray {
+            tray.show(
+                self.desktop_unread() > 0,
+                self.client.state().voice.active(),
+            );
+        }
         // Once at start with the check on.
         if self.layout.prefs.check_for_updates {
             crate::updates::look_for_updates(self, true);
@@ -508,9 +515,18 @@ impl App {
         self.shell.minimized = false;
         self.focus_changed(true);
         let tell = self.shell.tell.clone();
+        let unread = if cfg!(windows) {
+            self.desktop_unread()
+        } else {
+            0
+        };
+        #[cfg(windows)]
+        {
+            self.shell.taskbar_unread = Some((id, unread));
+        }
         let decorate = window::run(id, move |window| {
             if let Some(tell) = tell {
-                desktop::desktop().decorate(window, tell);
+                desktop::desktop().decorate(window, tell, unread);
             }
         })
         .discard();
@@ -673,27 +689,50 @@ impl App {
         iced::exit()
     }
 
-    /// The tray icon's unread dot, for a mention or an unread DM as Discord
-    /// counts them, and Disconnect in its menu during a call.
-    pub fn show_tray(&self) {
-        let Some(tray) = &self.shell.tray else {
-            return;
-        };
-        let state = self.client.state();
-        tray.show(
-            state
-                .rooms
-                .iter()
-                .any(|room| room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)),
-            state.voice.active(),
-        );
+    /// Discord already counts DM messages as mentions. Fall back to the
+    /// unread state for unmuted DMs when there is no count.
+    fn desktop_unread(&self) -> u8 {
+        let limit = if cfg!(windows) { 10 } else { 1 };
+        let mut total = 0;
+        for room in &self.client.state().rooms {
+            let unread_dm = if room.direct && !room.muted {
+                room.unread
+            } else {
+                0
+            };
+            total += room.mentions.max(unread_dm).min(u64::from(limit)) as u8;
+            if total >= limit {
+                return limit;
+            }
+        }
+        total
     }
 
     /// After each change: the tray's icon, the alerts the core raised, and a
     /// link waiting for Discord.
     pub fn shell_sync(&mut self) -> Task<Message> {
-        self.show_tray();
+        let unread = if cfg!(windows) || self.shell.tray.is_some() {
+            self.desktop_unread()
+        } else {
+            0
+        };
+        if let Some(tray) = &self.shell.tray {
+            tray.show(unread > 0, self.client.state().voice.active());
+        }
         let mut tasks = Vec::new();
+        #[cfg(windows)]
+        if let Some((id, shown)) = self.shell.taskbar_unread
+            && self.shell.window == Some(id)
+            && shown != unread
+        {
+            self.shell.taskbar_unread = Some((id, unread));
+            tasks.push(
+                window::run(id, move |window| {
+                    desktop::desktop().taskbar_unread(window, unread)
+                })
+                .discard(),
+            );
+        }
         for alert in self.client.take_alerts() {
             tasks.push(self.alert(alert));
         }
