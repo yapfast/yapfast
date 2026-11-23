@@ -125,6 +125,19 @@ pub fn pictures_directory() -> Option<std::path::PathBuf> {
         .map(std::path::Path::to_path_buf)
 }
 
+/// The home folder, and the desktop's Downloads folder: its own download
+/// folder (XDG's on Linux, the Known Folder on Windows), or `Downloads` in
+/// the home folder when it names none.
+pub fn home_and_downloads() -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let dirs = directories::UserDirs::new()?;
+    let home = dirs.home_dir().to_owned();
+    let downloads = dirs
+        .download_dir()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| home.join("Downloads"));
+    Some((home, downloads))
+}
+
 /// Keeps the cookies Discord sets, and the account as last seen, in `root`
 /// across restarts. A missing `root` is made readable only by its owner
 /// first, as the Matrix session store asks of it; the caches' folders

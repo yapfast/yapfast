@@ -12,6 +12,11 @@ pub struct Style {
     /// Say what the message says, rather than only who wrote.
     #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     pub text: bool,
+    /// Offer Open in split view beside Open, where the notification service
+    /// shows buttons: the freedesktop one does, as an action; Windows' toasts
+    /// keep opening the conversation as before.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub split: bool,
 }
 
 /// Where a clicked notification's conversation goes. It runs off the window's
@@ -137,7 +142,10 @@ mod linux {
             {
                 hints.insert("image-data", image);
             }
-            let actions = ["default", "Open"];
+            let mut actions = vec!["default", "Open"];
+            if style.split {
+                actions.extend(["split", "Open in split view"]);
+            }
             let request = (
                 "Yapfast",
                 0u32,
@@ -192,8 +200,10 @@ mod linux {
                         continue;
                     };
                     let room = shown().get(&id).cloned();
-                    if let (Some(room), "default") = (room, action.as_str()) {
-                        opened(room);
+                    match (room, action.as_str()) {
+                        (Some(room), "default") => opened(room),
+                        (Some(room), "split") => opened(format!("{}{room}", yapfast_iced::SPLIT)),
+                        _ => {}
                     }
                 }
                 Some("NotificationClosed") => {

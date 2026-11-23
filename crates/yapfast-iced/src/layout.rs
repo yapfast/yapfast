@@ -82,6 +82,33 @@ pub struct Layout {
     pub deafen_on_join: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
+    /// A menu row's submenu folds down inside the menu under it, sliding
+    /// open, unless the person chose it to open beside the menu, or to
+    /// snap open without sliding. Unset, `menus::SUBMENUS_BESIDE` decides.
+    pub submenus_beside: Option<bool>,
+    pub submenus_slide: Option<bool>,
+    /// Holding Alt over a channel or DM in the sidebar peeks at its newest
+    /// messages; off unless turned on.
+    pub peek_channels: bool,
+    /// The DM list's search is Discord's "Find or start a conversation"
+    /// button, which opens the quick switcher, instead of a filter; off
+    /// unless turned on.
+    pub dm_search_switcher: bool,
+    /// Split view, a Yapfast addition, off unless turned on: a channel or
+    /// DM beside the open one. Ctrl+click and a middle click on a row open
+    /// it there, and the room it shows comes back on the next start, each
+    /// unless turned off; its width as dragged, and the room it shows.
+    pub split_view: bool,
+    pub split_click: Option<bool>,
+    pub split_restore: Option<bool>,
+    /// A message's notification offers Open in split view, unless turned
+    /// off.
+    pub split_notify: Option<bool>,
+    /// A dot by the split's name when someone writes there while typing is
+    /// on the other side, unless turned off.
+    pub split_dot: Option<bool>,
+    pub split_width: Option<f32>,
+    pub split_room: Option<String>,
     /// DMs pinned to the top of the list, by room id, the first pinned
     /// first.
     pub pinned: Vec<String>,
@@ -410,7 +437,16 @@ impl Layout {
             Action::SetCosmetics(self.prefs.cosmetics()),
             Action::StripTracking(self.prefs.strip_tracking.unwrap_or(true)),
             Action::HideNameplates(!self.prefs.nameplates.unwrap_or(true)),
+            Action::SplitView(self.split_view),
         ]
+        .into_iter()
+        .chain(
+            self.split_room
+                .clone()
+                .filter(|_| self.split_view && self.split_restore.unwrap_or(true))
+                .map(Action::RestoreSplit),
+        )
+        .collect()
     }
 }
 

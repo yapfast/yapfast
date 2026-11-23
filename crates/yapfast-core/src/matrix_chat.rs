@@ -2058,6 +2058,7 @@ async fn publish_timeline(
                         emoji: Vec::new(),
                         item,
                         color: None,
+                        mentions: Vec::new(),
                         tag: None,
                     }
                 }
@@ -2068,6 +2069,7 @@ async fn publish_timeline(
                     emoji: Vec::new(),
                     item,
                     color: None,
+                    mentions: Vec::new(),
                     tag: None,
                 },
                 _ => {
@@ -2086,6 +2088,7 @@ async fn publish_timeline(
                         emoji: Vec::new(),
                         item,
                         color: None,
+                        mentions: Vec::new(),
                         tag: None,
                     }
                 }

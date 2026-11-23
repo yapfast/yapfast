@@ -40,6 +40,7 @@ mod messages;
 mod mfa;
 mod new_post;
 mod oauth;
+mod peek;
 mod place_search;
 mod places;
 mod polls;
@@ -264,6 +265,15 @@ impl NewDm {
 pub struct Pins {
     pub room: String,
     /// The latest pinned first; `None` while they're on their way.
+    pub messages: Option<Result<Vec<ChatMessage>, String>>,
+}
+
+/// A room's newest messages, peeked at without opening or reading it, while
+/// the peek shows. They go when it closes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Peek {
+    pub room: String,
+    /// Oldest first; `None` while they're on their way.
     pub messages: Option<Result<Vec<ChatMessage>, String>>,
 }
 
@@ -516,6 +526,14 @@ pub struct AppState {
     pub invite: Option<InviteDialog>,
     /// Join a Server, while it's open.
     pub join: Option<JoinDialog>,
+    /// The cards of the invite links in messages, by code, for this
+    /// session: each invite is looked up once, when a message with it is on
+    /// or near the screen. One that couldn't be looked up isn't kept, so
+    /// it's asked again when it next shows.
+    pub invite_cards: HashMap<String, chat::InviteCard>,
+    /// Counts the cards arriving, so a client can tell when the rows that
+    /// show them are out of date.
+    pub invite_card_changes: u64,
     /// The application a clicked authorization link opened, while its
     /// dialog is open.
     pub oauth: Option<OAuthDialog>,
@@ -611,6 +629,9 @@ pub struct AppState {
     pub activity_cards_hidden: bool,
     /// Which of the cosmetics people wear show, and are fetched.
     pub cosmetics: Cosmetics,
+    /// Split view, a Yapfast addition: a Discord channel or DM can show
+    /// beside the open room ([`AppState::can_split`]).
+    pub split_view: bool,
     pub switch_voice: Option<String>,
     /// A stream to watch once its call connects and they show sharing in
     /// it, as clicking them in the channel list asks: the voice channel and
@@ -701,7 +722,8 @@ pub struct AppState {
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
     pub voice_chat: bool,
-    /// A Discord thread shown beside the selected channel.
+    /// A Discord thread shown beside the selected channel, or in split view
+    /// any Discord channel or DM.
     pub aside: Option<aside::Aside>,
     pub room_ready: bool,
     pub messages: Arc<Vec<Arc<ChatMessage>>>,
@@ -768,6 +790,9 @@ pub struct AppState {
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
     pub pins: Option<Pins>,
+    /// The room peeked at, and its newest messages once they came, while
+    /// the peek shows.
+    pub peek: Option<Peek>,
     pub search: Option<Search>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
@@ -910,6 +935,35 @@ impl AppState {
 
     pub fn compose(&self) -> Option<&Compose> {
         self.selected.as_ref().and_then(|id| self.compose.get(id))
+    }
+
+    /// Every image the image viewer steps through from the one it shows:
+    /// those of the loaded messages of its conversation, the timeline or
+    /// the thread beside it, in order, each by its message and its place
+    /// there.
+    pub fn viewer_images(&self) -> Vec<(&str, usize)> {
+        let Some(viewer) = &self.viewer else {
+            return vec![];
+        };
+        let in_timeline = self
+            .messages
+            .iter()
+            .any(|message| message.item == viewer.item);
+        let messages: &[Arc<ChatMessage>] = match &self.aside {
+            Some(aside) if !in_timeline => &aside.messages[..],
+            _ => &self.messages[..],
+        };
+        messages
+            .iter()
+            .flat_map(|message| {
+                message
+                    .attachments
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, attachment)| attachment.image)
+                    .map(|(index, _)| (message.item.as_str(), index))
+            })
+            .collect()
     }
 
     /// A message the selected room or the thread beside it shows.
@@ -1317,18 +1371,14 @@ impl AppState {
     }
 
     /// Who and what a message in the selected room may mention: its members, those
-    /// found by name and those who wrote lately, then its roles and groups. This
-    /// account isn't one of them.
+    /// found by name and those who wrote lately, this account among them as
+    /// in Discord's client, then its roles and groups.
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
         };
         let on_discord = Network::of(room) == Network::Discord;
-        let mut seen: HashSet<String> = [&self.discord_user, &self.account]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut candidates = Vec::new();
         let listed = self
             .members
@@ -1724,6 +1774,18 @@ pub enum Action {
     /// Show a Discord thread beside the open channel, as its link in a
     /// message does; anything else opens as [`Action::Open`] does.
     OpenAside(String),
+    /// Show a Discord channel, thread or DM beside the open room, in split
+    /// view; with split view off, or for a room it can't show, select it as
+    /// [`Action::SelectRoom`] does.
+    OpenSplit(String),
+    /// Turn split view on or off.
+    SplitView(bool),
+    /// Show the room in split view in the main view, and the main view's
+    /// room in split view.
+    SwapSplit,
+    /// Show this room in split view once it's listed and a room is open, as
+    /// it was when Yapfast last closed.
+    RestoreSplit(String),
     CloseAside,
     /// Show the thread beside the open channel in place of it.
     ExpandAside,
@@ -1977,6 +2039,9 @@ pub enum Action {
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
     ShowPins(bool),
+    /// Peek at a room's newest messages without opening or reading it, as
+    /// holding Alt over it in the channel list asks, or stop.
+    Peek(Option<String>),
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -2184,6 +2249,9 @@ pub enum Action {
     OpenJoinCaptcha,
     OpenJoinForm,
     CloseJoin,
+    /// The button of an invite link's card in a message, by its code:
+    /// Join joins the server, as the card shows it; Joined opens it.
+    JoinInviteCard(String),
     /// Open a clicked authorization link, by its query; pick the
     /// server it installs to, by its Discord id; authorize it; or
     /// close its dialog.
@@ -2596,6 +2664,12 @@ pub struct Application {
     pending_open: Option<String>,
     /// A thread to show beside the selected channel once it's listed.
     pending_aside: Option<String>,
+    /// The room split view showed when Yapfast last closed, to show again
+    /// once it's listed and a room is open.
+    pending_split: Option<String>,
+    /// The room shown before the one on screen, where the conversation goes
+    /// when the room on screen moves to split view.
+    previous_room: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
     /// it shows beside its channel.
     first_message: Option<String>,
@@ -3146,8 +3220,26 @@ impl Application {
     /// thousands of messages, and the rooms in scope, which can be thousands
     /// of channels, are gone through only when they changed: this runs on
     /// every event.
-    fn request_pictures(&mut self) -> Option<Effect> {
+    /// Also looks up the invites linked in those messages, by the same
+    /// test.
+    fn request_pictures(&mut self) -> Vec<Effect> {
         self.let_go_of_effect_pictures();
+        let mut effects = Vec::new();
+        if !Arc::ptr_eq(&self.pictured_timeline, &self.state.messages) {
+            let messages = self.state.messages.clone();
+            if let Some(range) = visible_range(&messages, &self.visible_messages) {
+                effects.extend(self.look_up_invite_cards(&messages[range]));
+            }
+        }
+        let aside = self
+            .state
+            .aside
+            .as_ref()
+            .filter(|aside| !Arc::ptr_eq(&self.pictured_aside, &aside.messages))
+            .map(|aside| aside.messages.clone());
+        if let Some(messages) = aside {
+            effects.extend(self.look_up_invite_cards(&messages));
+        }
         let state = &self.state;
         let rooms_changed =
             !self
@@ -3195,9 +3287,12 @@ impl Application {
             }
             self.pictured_aside = aside.messages.clone();
         }
-        (!wanted.is_empty()).then_some(Effect::Backend(Command::Discord(DiscordCommand::Pictures(
-            wanted,
-        ))))
+        if !wanted.is_empty() {
+            effects.push(Effect::Backend(Command::Discord(DiscordCommand::Pictures(
+                wanted,
+            ))));
+        }
+        effects
     }
 
     /// Lets go of the custom emoji pictures in memory, but those the messages
@@ -3477,6 +3572,13 @@ impl Application {
             Action::ShowVoiceChat(chat) => self.show_voice_chat(chat),
             Action::GoToCall => self.go_to_call(),
             Action::OpenAside(id) => self.open_aside(id),
+            Action::OpenSplit(id) => self.open_split(id),
+            Action::SplitView(on) => self.set_split_view(on),
+            Action::SwapSplit => self.swap_split(),
+            Action::RestoreSplit(room) => {
+                self.pending_split = Some(room);
+                self.restore_split()
+            }
             Action::CloseAside => self.close_aside(),
             Action::ExpandAside => self.expand_aside(),
             Action::AsideEarlier => self.aside_earlier(),
@@ -3728,6 +3830,7 @@ impl Application {
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
+            Action::Peek(room) => self.peek(room),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -3867,6 +3970,7 @@ impl Application {
             Action::FindInvite(typed) => self.find_invite(typed),
             Action::OpenInviteLink(code) => self.open_invite_link(code),
             Action::JoinServer => self.join_server(),
+            Action::JoinInviteCard(code) => self.join_invite_card(code),
             Action::OpenJoinCaptcha => self.open_join_captcha(),
             Action::OpenJoinForm => self.open_join_form(),
             Action::CloseJoin => {
@@ -4546,6 +4650,7 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
+            Event::Peeked { room, result } => self.peeked(room, result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
@@ -4609,6 +4714,7 @@ impl Application {
             }
             Event::InviteSent { result, .. } => self.invite_sent(result),
             Event::InviteResolved { code, result } => return self.invite_resolved(code, result),
+            Event::InviteCard { code, card } => self.invite_card(code, card),
             Event::JoinCaptcha { code, page } => return self.join_captcha(code, page),
             Event::ServerJoined { code, result } => return self.server_joined(code, result),
             Event::OAuthResolved { query, result } => return self.oauth_resolved(query, result),

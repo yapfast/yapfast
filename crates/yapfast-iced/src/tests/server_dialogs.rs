@@ -336,13 +336,25 @@ fn a_voice_channels_chat_opens_from_its_row_and_its_header_goes_back() {
     )));
     let state = app.client.state();
     assert_eq!(state.selected.as_deref(), Some(lounge));
-    assert!(state.voice_chat, "its chat, not its call");
-    assert_eq!(app.header.voice_chat, Some(true));
-    assert!(!shows(&app, "Join voice"));
+    // A Discord voice channel's chat opens beside its call, as Discord's.
+    assert!(!state.voice_chat, "the call stays");
+    assert!(
+        state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.voice && aside.room == lounge),
+        "its chat beside it"
+    );
     let _ = app.update(Message::Side(crate::sidebar::Event::VoiceChat(false)));
-    assert!(!app.client.state().voice_chat);
-    assert_eq!(app.header.voice_chat, Some(false));
-    assert!(shows(&app, "Join voice"), "the call's view again");
+    assert!(
+        app.client
+            .state()
+            .aside
+            .as_ref()
+            .is_none_or(|aside| !aside.voice),
+        "Hide chat closes it"
+    );
+    assert!(shows(&app, "Join voice"), "the call's view");
 }
 
 #[test]

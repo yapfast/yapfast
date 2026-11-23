@@ -23,7 +23,8 @@
 // busy account has, for measuring; POST /_control/busy-start makes Bob post
 // in their channels ten times a second, and /_control/busy-stop stops him.
 // `--folders` puts them in folders in Alice's server list: the first three in
-// a red "Games" folder, the next two in one without a name or colour.
+// a red "Games" folder, or as many as `--folder-size N` says, for a big
+// folder's menu, the next two in one without a name or colour.
 // `--dms N` adds N older DMs, each with a person of its own, every other one
 // a friend, as a busy account has. `--images N` attaches a picture of its own
 // to every Nth extra history message, for a channel heavy with previews.
@@ -231,7 +232,8 @@
 // /users/@me/guilds/{id}/settings changes her notification settings for a
 // server and its channels, and USER_GUILD_SETTINGS_UPDATE says so; PATCH
 // /users/@me/guilds/settings changes several servers' at once, as Discord's
-// client pins a channel to the top with its override's flags. POST
+// client pins a channel to the top with its override's flags and Yapfast's
+// folder menu changes all of a folder's servers. POST
 // /channels/{id}/invites makes an invite to a channel of "Server" or of a
 // `--servers` filler, which @everyone may, as on Discord, and GET
 // /_control/invites lists them, each with the location its
@@ -252,7 +254,13 @@
 // its X-Context-Properties and session. POST /_control/invite-captcha makes
 // the next join ask for an hCaptcha, as the QR ticket's does, and POST
 // /_control/invite-form makes it answer that the server has a form to fill
-// in first.
+// in first. GET /invites/bikes resolves to "Bike Club", a server Alice isn't
+// in, which is full, so joining it is refused with Discord's 30019; an
+// unknown code answers 10006. The counts come only with `with_counts=true`,
+// as Discord's do, and GET /_control/invite-lookups lists each GET's code
+// and query. POST /_control/invite-links makes Bob post a message linking
+// "server", "bikes" and an expired invite, for the cards Discord's client
+// shows under it, and answers with its id.
 // Authorizing Alien App from its link previews and authorizes the same
 // way: GET /oauth2/authorize shows it, POST /oauth2/authorize makes it and
 // answers the `location` to go to next, and GET
@@ -409,6 +417,7 @@ const { values: args } = parseArgs({
     "member-looks": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
+    "folder-size": { type: "string", default: "3" },
     "cdn-delay": { type: "string", default: "0" },
     unread: { type: "string", default: "5" },
     env: { type: "string" },
@@ -435,6 +444,8 @@ const CHAT_INTERVAL = 2_000;
 const GUILD = "1400000000000000100";
 /** A server Alice isn't in, which shows its profile only to its members. */
 const PRIVATE_GUILD = "1400000000000000990";
+/** A server Alice isn't in, which the "bikes" invite is to. */
+const BIKE_CLUB = "1400000000000000980";
 const CATEGORY = "1400000000000000101";
 const GENERAL = "1400000000000000102";
 const LOUNGE = "1400000000000000103";
@@ -2931,11 +2942,12 @@ function folderEntry(servers: string[], id?: number, name?: string, color?: numb
 if (args.folders && !env) {
   const entry = folderEntry;
   const ids = fillers.map((filler) => filler.id);
+  const size = Math.max(1, Number(args["folder-size"]));
   const list = [
     entry([GUILD]),
-    entry(ids.slice(0, 3), 1, "Games", 0xed4245),
-    entry(ids.slice(3, 5), 2),
-    ...ids.slice(5).map((id) => entry([id])),
+    entry(ids.slice(0, size), 1, "Games", 0xed4245),
+    entry(ids.slice(size, size + 2), 2),
+    ...ids.slice(size + 2).map((id) => entry([id])),
   ];
   const folders = new Uint8Array(list.flatMap((bytes) => [...bytes]));
   settings = Buffer.concat([Buffer.from(settings, "base64"), protoBytes(14, folders)]).toString("base64");
@@ -5468,6 +5480,8 @@ function answerAutocomplete(body: any) {
 const invites: Record<string, unknown>[] = [];
 /** Each join by an invite, oldest first, for GET /_control/invite-joins. */
 const inviteJoins: Record<string, unknown>[] = [];
+/** Each GET /invites/{code}: its code and query, for GET /_control/invite-lookups. */
+const inviteLookups: { code: string; query: string }[] = [];
 /** Each authorization of an application, oldest first, for
  *  GET /_control/oauth-authorizations. */
 const oauthAuthorizations: Record<string, unknown>[] = [];
@@ -7791,6 +7805,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       const { location: _, ...invite } = made;
       return invite;
     }
+    if (code === "bikes") {
+      return {
+        type: 0,
+        code,
+        inviter: wireUser(users.bob),
+        expires_at: null,
+        guild: { id: BIKE_CLUB, name: "Bike Club", icon: "bikeclub", splash: null, banner: null, description: null, features: [], verification_level: 1, vanity_url_code: null, nsfw_level: 0, premium_subscription_count: 0 },
+        guild_id: BIKE_CLUB,
+        channel: { id: "1400000000000000981", type: 0, name: "welcome" },
+      };
+    }
     if (code !== "server") return undefined;
     const server = guild();
     return {
@@ -7804,10 +7829,13 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     };
   };
   if ((m = path.match(/^\/invites\/([\w-]+)$/)) && (method === "GET" || method === "POST")) {
+    if (method === "GET") inviteLookups.push({ code: m[1]!, query: url.search });
     const invite = knownInvite(m[1]!);
     if (!invite) return notFound("Unknown Invite", 10006);
     if (method === "GET") {
-      return json({ ...invite, approximate_member_count: Object.keys(users).length, approximate_presence_count: 3 });
+      if (url.searchParams.get("with_counts") !== "true") return json(invite);
+      const counts = invite.guild.id === BIKE_CLUB ? [1234, 87] : [Object.keys(users).length, 3];
+      return json({ ...invite, approximate_member_count: counts[0], approximate_presence_count: counts[1] });
     }
     const body: any = await req.json().catch(() => ({}));
     const live = [...sockets].some((ws) => ws.data.identified && ws.data.session === body.session_id);
@@ -7826,6 +7854,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
       context = null;
     }
     inviteJoins.push({ code: invite.code, session_id: body.session_id, context });
+    if (invite.guild.id === BIKE_CLUB) return json({ message: "Maximum number of server members reached (500000)", code: 30019 }, 403);
     const newMember = invite.guild.id === GUILD && leftServer;
     if (newMember) rejoin();
     const form = inviteForm;
@@ -9725,6 +9754,15 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/invite-joins") {
       return Response.json(inviteJoins);
+    }
+    if (req.method === "GET" && path === "/_control/invite-lookups") {
+      return Response.json(inviteLookups);
+    }
+    if (req.method === "POST" && path === "/_control/invite-links") {
+      const content = "Come ride with us https://discord.gg/bikes or hang out at https://discord.com/invite/server - not https://discord.gg/expired";
+      const message = post(GENERAL, users.bob, content, Date.now());
+      dispatch("MESSAGE_CREATE", dispatched(message, origin));
+      return new Response(message.id);
     }
     if (req.method === "GET" && path === "/_control/event-interest") {
       return Response.json(eventInterest);

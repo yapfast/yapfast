@@ -9,7 +9,7 @@ use yapfast_core::chat::{self, Attachment, ChatMessage, Placement};
 
 use crate::{
     app::Message,
-    controls::placed,
+    controls::{self, placed},
     fonts::{BOLD, MEDIUM, REGULAR},
     media::{self, Fit, Gallery, Shot},
     pictures::Icon,
@@ -361,13 +361,26 @@ pub fn file_card<'a>(
         (_, _, Some(size)) => size,
         _ => String::new(),
     };
-    let mut words = column![
-        text(attachment.name.as_str())
-            .size(theme.type_size("body", 14.0))
-            .font(theme.font("body", MEDIUM))
-            .color(theme.text)
-            .wrapping(text::Wrapping::None)
-    ];
+    // Its name is a link to the file, in Discord's link blue, as a link to
+    // it would be; an address no browser opens (Matrix's mxc://) links
+    // nowhere.
+    let name = text(attachment.name.as_str())
+        .size(theme.type_size("body", 14.0))
+        .font(theme.font("body", MEDIUM))
+        .wrapping(text::Wrapping::None);
+    let name: Element<'a, Message> = match attachment
+        .url
+        .as_deref()
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+    {
+        Some(url) => iced::widget::button(name)
+            .padding(0)
+            .on_press(Message::Link(url.to_owned(), iced::Point::ORIGIN))
+            .style(controls::ink_style(theme.link, theme.link))
+            .into(),
+        None => name.color(theme.text).into(),
+    };
+    let mut words = column![name];
     if !detail.is_empty() {
         words = words.push(
             text(detail)

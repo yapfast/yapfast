@@ -750,6 +750,8 @@ pub(crate) fn submenu(
 pub(crate) fn discord_rank(choice: MenuChoice) -> u8 {
     match choice {
         MenuChoice::MarkRead | MenuChoice::JoinVoice | MenuChoice::OpenChat => 0,
+        // A conversation's, after Mark as read, before its person's.
+        MenuChoice::OpenInSplit => 0,
         MenuChoice::Profile => 1,
         MenuChoice::Mention => 2,
         MenuChoice::Message => 3,

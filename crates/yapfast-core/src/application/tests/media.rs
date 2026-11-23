@@ -192,6 +192,65 @@ fn a_voice_message_plays_and_pauses_one_at_a_time() {
 }
 
 #[test]
+fn the_viewer_steps_on_through_the_conversations_images() {
+    let mut app = connected();
+    let file = |name: &str, image: bool| chat::Attachment {
+        name: name.into(),
+        size: None,
+        image,
+        dimensions: None,
+        preview: None,
+        preview_failed: false,
+        placement: chat::Placement::Message,
+        gif: None,
+        spoiler: false,
+        video: false,
+        url: None,
+        description: None,
+    };
+    let message = |item: &str, files: Vec<chat::Attachment>| ChatMessage {
+        id: item.into(),
+        item: item.into(),
+        attachments: files,
+        ..Default::default()
+    };
+    app.apply(Event::Timeline {
+        room: "dm".into(),
+        messages: timeline(vec![
+            message("e:1", vec![file("a.png", true)]),
+            message("e:2", vec![file("notes.txt", false)]),
+            message("e:3", vec![file("b.png", true), file("c.png", true)]),
+        ]),
+    });
+    app.dispatch(Action::ViewImage {
+        item: "e:1".into(),
+        index: 0,
+    });
+    let at = |app: &Application| {
+        app.state
+            .viewer
+            .as_ref()
+            .map(|viewer| (viewer.item.clone(), viewer.index))
+    };
+    app.dispatch(Action::StepImage(1));
+    assert_eq!(
+        at(&app),
+        Some(("e:3".into(), 0)),
+        "past the file, into the next message"
+    );
+    assert_eq!(
+        app.state.viewer.as_ref().unwrap().pictures.len(),
+        1,
+        "its own picture alone"
+    );
+    app.dispatch(Action::StepImage(1));
+    assert_eq!(at(&app), Some(("e:3".into(), 1)));
+    app.dispatch(Action::StepImage(1));
+    assert_eq!(at(&app), Some(("e:1".into(), 0)), "round to the first");
+    assert_eq!(app.state.viewer_images().len(), 3);
+}
+
+#[test]
 fn the_viewer_steps_through_a_messages_images() {
     let mut app = connected();
     let file = |name: &str, image: bool| chat::Attachment {

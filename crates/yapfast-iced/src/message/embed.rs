@@ -111,7 +111,16 @@ pub(super) fn embed<'a>(
         );
     }
     if !laid.description.parts.is_empty() && !embed.description.is_empty() {
-        card = card.push(ctx.body_view(&laid.description, index, first, small(14.0, theme.text)));
+        let look = small(14.0, theme.text);
+        let description = ctx.body_view(&laid.description, index, first, look);
+        // A bot's report or a webhook's long description folds as a long
+        // message does, behind the message's own Show more.
+        card = card.push(if ctx.layout.collapse_long {
+            let line = look.line_height;
+            super::folding(ctx, index, description, (line * 10.0, line * 8.0))
+        } else {
+            description
+        });
     }
     // Inline fields share a row, up to three; others have one each.
     let mut fields = column![].spacing(8);
