@@ -315,6 +315,10 @@ it looks like the buttons beside it; a name this build doesn't have draws the
 text. In the voice panel each button is a tile of the panel's own row, its
 tooltip naming the plugin (*Next song · Controls plugin*).
 
+Rows are 6 px apart, and a few stand further from what is over them, as
+Settings' own groups do: 16 px over a row that starts with a `caption`, and 12
+over a `setting` row, a toggle with a `description` and a row of `end` cells.
+
 A row with `framed` is a card: a light wash over the ground it lies on and a
 hairline round it, so it shows on a settings page, in a dialog and on a toast
 alike; `indent` (0 to 3) steps a row in from the start.

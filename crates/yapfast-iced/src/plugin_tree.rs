@@ -185,7 +185,7 @@ fn rows_view<'a, M: Clone + 'a>(
 ) -> Element<'a, M> {
     let theme = paint.look.theme;
     let mut rows = column![].spacing(6).width(Length::Fill);
-    for line in lines {
+    for (at, line) in lines.iter().enumerate() {
         // A row's cells sit side by side while they fit, and the ones that
         // don't move to a line of their own: every cell keeps its natural
         // width, so a narrow card stacks a row rather than crushing its text
@@ -244,9 +244,37 @@ fn rows_view<'a, M: Clone + 'a>(
             let indent = f32::from(line.indent.min(3)) * 16.0;
             drawn = row![Space::new().width(indent), drawn].into();
         }
+        // Settings' rhythm: a group's caption, a setting's row and a row of
+        // end buttons stand further from what is over them.
+        let above = if at == 0 { 0.0 } else { room_above(line) };
+        if above > 0.0 {
+            drawn = container(drawn)
+                .padding(iced::Padding {
+                    top: above,
+                    ..iced::Padding::ZERO
+                })
+                .width(Length::Fill)
+                .into();
+        }
         rows = rows.push(drawn);
     }
     rows.into()
+}
+
+/// The room a row takes over the 6 px between rows: 10 more over a group's
+/// caption, 6 over a setting's row (a described toggle's too), 6 over a row
+/// of buttons at its end, as a dialog's are.
+fn room_above(line: &Row) -> f32 {
+    let Some(first) = line.cells.first() else {
+        return 0.0;
+    };
+    match first.kind {
+        Kind::Caption => 10.0,
+        Kind::Setting => 6.0,
+        Kind::Toggle if !first.description.is_empty() => 6.0,
+        _ if line.cells.iter().all(|cell| cell.end) => 6.0,
+        _ => 0.0,
+    }
 }
 
 /// A cell that takes its row's whole width rather than its own.
