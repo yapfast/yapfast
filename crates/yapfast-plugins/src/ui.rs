@@ -1107,6 +1107,10 @@ pub enum Kind {
     #[default]
     Text,
     Heading,
+    /// A group's heading, as Settings' THEME: small bold capitals.
+    Caption,
+    /// A dialog's or a page's title, larger than a heading.
+    Title,
     Muted,
     Code,
     Badge,
@@ -2244,6 +2248,20 @@ mod tests {
         .unwrap();
         let ends: Vec<bool> = tree.rows[0].cells.iter().map(|cell| cell.end).collect();
         assert_eq!(ends, [false, true, true]);
+    }
+
+    #[test]
+    fn captions_and_titles_are_words() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "title", "text": "Roles" },
+                { "kind": "caption", "text": "Permissions" }
+            ] }] }"#,
+        )
+        .unwrap();
+        let kinds: Vec<Kind> = tree.rows[0].cells.iter().map(|cell| cell.kind).collect();
+        assert_eq!(kinds, [Kind::Title, Kind::Caption]);
+        assert!(!Kind::Caption.interactive() && !Kind::Title.container());
     }
 
     #[test]

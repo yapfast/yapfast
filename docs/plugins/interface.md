@@ -271,6 +271,8 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | Kind | What it draws | Its fields |
 | --- | --- | --- |
 | `text`, `muted`, `heading` | Markdown: bold, italic, strikethrough, inline code and links | `text` |
+| `title` | A dialog's or page's title, 20 px bold | `text` |
+| `caption` | A group's heading as Settings draws one (THEME, PROFILES): 12 px bold capitals in the muted ink, whatever case it was written in | `text` |
 | `code` | Monospaced text on the sunken ground | `text` |
 | `badge` | A small mark in its tone | `text`, `tone` |
 | `icon`, `image` | A picture, 16 px square or up to 240 × 135 | `src`, `text` while it isn't there |

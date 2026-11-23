@@ -335,6 +335,18 @@ fn cell_body<'a, M: Clone + 'a>(
         Kind::Text => prose(theme, &cell.text, 14.0, ink, false),
         Kind::Muted => prose(theme, &cell.text, 13.0, theme.muted, false),
         Kind::Heading => prose(theme, &cell.text, 15.0, ink, true),
+        // Settings' group heading (`form::heading`): 12 px bold capitals in
+        // the muted ink, whatever case the plugin wrote.
+        Kind::Caption => text(cell.text.to_uppercase())
+            .size(12)
+            .font(BOLD)
+            .color(theme.muted)
+            .into(),
+        Kind::Title => text(cell.text.clone())
+            .size(20)
+            .font(BOLD)
+            .color(theme.text)
+            .into(),
         Kind::Code => {
             let ground = theme.sunken;
             container(
