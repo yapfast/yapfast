@@ -33,6 +33,9 @@ pub struct PluginState {
     /// Where the files a plugin made wait for the upload that sends them:
     /// `<data>/plugins-attach`.
     attach_dir: std::path::PathBuf,
+    /// The deleted rows `messages.retain` kept, per conversation, written down
+    /// so they come back after a restart.
+    pub retained: crate::plugins::retention::Kept,
     /// The application's state as the wire carries it, which the bridge answers
     /// a guest's reads from. Held here rather than asked of the bridge, because
     /// publishing is the application's side of it.
@@ -179,6 +182,7 @@ impl PluginState {
         Ok(PluginState {
             bridge,
             attach_dir: data_dir.join("plugins-attach"),
+            retained: crate::plugins::retention::Kept::new(data_dir.join("plugins-retained")),
             world,
             grants,
             settings: settings::Store::new(data_dir.join("plugins")),

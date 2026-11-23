@@ -413,6 +413,14 @@ by the `message_delete` event, which is where the row it stores comes from. The
 merge is the parent's (`plugins/retention.rs`), so a plugin keeps the row by
 declaring the capability and needs no call.
 
+Kept rows outlive a restart: the parent writes each conversation's down in
+`<data>/plugins-retained/<conversation>.json`, the newest 500 of them, with who
+wrote each, when, its text and when it went (not its reactions, pictures or
+embeds), and puts them back, flagged, between their neighbours when the
+conversation loads again while a plugin holds `messages.retain`. Only rows
+inside the window that loaded come back, and none the backend still has. Hide
+this deleted message forgets one for good.
+
 `yf_identity` is asked once per (person, server) and not once per message, so
 the answer is a description of a person and not of a row:
 

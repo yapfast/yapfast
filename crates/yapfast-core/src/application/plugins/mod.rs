@@ -741,6 +741,11 @@ impl Application {
                         .collect();
                     self.state.messages = Arc::new(kept);
                     self.state.retained_at.remove(&item);
+                    if let (Some(room), Some(plugins)) =
+                        (self.state.selected.clone(), self.state.plugins.as_mut())
+                    {
+                        plugins.retained.forget(&room, &item);
+                    }
                 }
                 Vec::new()
             }

@@ -4779,22 +4779,34 @@ impl Application {
                     // A plugin that asked for `messages.retain` wants a row the
                     // backend dropped kept, flagged, so the person sees what
                     // went and can read what the plugin kept of it.
+                    //
+                    // What an earlier run kept of this conversation comes back
+                    // too, and what is newly kept is written down for the next.
                     #[cfg(feature = "plugins")]
-                    let messages = match self.state.plugins.as_ref() {
-                        Some(plugins) if plugins.retains() => {
-                            let kept =
-                                crate::plugins::retention::keep(messages, self.messages_made());
-                            // When each newly kept row went, for its tag.
-                            let now = crate::clock::now_ms();
-                            for message in kept.iter().filter(|message| message.deleted) {
-                                self.state
-                                    .retained_at
-                                    .entry(message.item.clone())
-                                    .or_insert(now);
-                            }
-                            kept
+                    let messages = if self
+                        .state
+                        .plugins
+                        .as_ref()
+                        .is_some_and(|plugins| plugins.retains())
+                    {
+                        let kept = crate::plugins::retention::keep(messages, self.messages_made());
+                        let mut at = std::mem::take(&mut self.state.retained_at);
+                        let kept = match self.state.plugins.as_mut() {
+                            Some(plugins) => plugins.retained.restore(&room, kept, &mut at),
+                            None => kept,
+                        };
+                        // When each newly kept row went, for its tag.
+                        let now = crate::clock::now_ms();
+                        for message in kept.iter().filter(|message| message.deleted) {
+                            at.entry(message.item.clone()).or_insert(now);
                         }
-                        _ => messages,
+                        if let Some(plugins) = self.state.plugins.as_mut() {
+                            plugins.retained.remember(&room, &kept, &at);
+                        }
+                        self.state.retained_at = at;
+                        kept
+                    } else {
+                        messages
                     };
                     self.state.messages = self.without_blocked(Arc::new(messages));
                     self.show_sent_commands();

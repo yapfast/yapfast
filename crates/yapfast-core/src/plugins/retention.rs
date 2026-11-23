@@ -12,7 +12,8 @@
 //! borrowed ids for the arriving list and one pass over each, and nothing at all
 //! when no plugin asked for it.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::chat::ChatMessage;
@@ -116,6 +117,242 @@ pub fn keep(
     kept
 }
 
+/// The most deleted rows kept for one conversation across restarts; past
+/// this, the oldest go.
+pub const KEPT_PER_ROOM: usize = 500;
+
+/// A kept deleted row as it is written down, so it is shown again after a
+/// restart: who wrote it, when, and what it said. Its reactions, pictures and
+/// embeds aren't kept; the retaining plugin keeps what it wants of those.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Saved {
+    pub item: String,
+    pub id: String,
+    pub author: String,
+    pub sender: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<u32>,
+    #[serde(default)]
+    pub bot: bool,
+    #[serde(default)]
+    pub webhook: bool,
+    pub body: String,
+    #[serde(default)]
+    pub formatted: bool,
+    pub time: String,
+    pub timestamp: u64,
+    #[serde(default)]
+    pub own: bool,
+    #[serde(default)]
+    pub edited: bool,
+    /// When it was seen to go, in Unix milliseconds, for its tag.
+    pub deleted_at: u64,
+}
+
+impl Saved {
+    fn of(message: &ChatMessage, deleted_at: u64) -> Saved {
+        Saved {
+            item: message.item.clone(),
+            id: message.id.clone(),
+            author: message.author.clone(),
+            sender: message.sender.clone(),
+            avatar: message.avatar.clone(),
+            color: message.color,
+            bot: message.bot,
+            webhook: message.webhook,
+            body: message.body.clone(),
+            formatted: message.formatted,
+            time: message.time.clone(),
+            timestamp: message.timestamp,
+            own: message.own,
+            edited: message.edited,
+            deleted_at,
+        }
+    }
+
+    /// The row it was, flagged deleted, and nothing on it to press.
+    pub fn row(&self) -> ChatMessage {
+        ChatMessage {
+            item: self.item.clone(),
+            id: self.id.clone(),
+            author: self.author.clone(),
+            sender: self.sender.clone(),
+            avatar: self.avatar.clone(),
+            color: self.color,
+            bot: self.bot,
+            webhook: self.webhook,
+            body: self.body.clone(),
+            formatted: self.formatted,
+            time: self.time.clone(),
+            timestamp: self.timestamp,
+            own: self.own,
+            edited: self.edited,
+            deleted: true,
+            ..ChatMessage::default()
+        }
+    }
+}
+
+/// The deleted rows kept per conversation, written to
+/// `<data>/plugins-retained/<conversation>.json` so they outlive a restart,
+/// and read once per conversation per session, when it first loads while a
+/// plugin holds `messages.retain`.
+#[derive(Debug, Default)]
+pub struct Kept {
+    dir: PathBuf,
+    rooms: HashMap<String, Vec<Saved>>,
+}
+
+impl Kept {
+    pub fn new(dir: PathBuf) -> Kept {
+        Kept {
+            dir,
+            rooms: HashMap::new(),
+        }
+    }
+
+    /// A conversation's file: its id with anything but letters, digits, `-`
+    /// and `_` written as `_`.
+    fn path(&self, room: &str) -> PathBuf {
+        let name: String = room
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        self.dir.join(format!("{name}.json"))
+    }
+
+    fn room(&mut self, room: &str) -> &mut Vec<Saved> {
+        if !self.rooms.contains_key(room) {
+            let read = std::fs::read(self.path(room))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Vec<Saved>>(&bytes).ok())
+                .unwrap_or_default();
+            self.rooms.insert(room.to_owned(), read);
+        }
+        self.rooms.entry(room.to_owned()).or_default()
+    }
+
+    fn write(&self, room: &str) {
+        let Some(rows) = self.rooms.get(room) else {
+            return;
+        };
+        let path = self.path(room);
+        let written = if rows.is_empty() {
+            match std::fs::remove_file(&path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+                _ => Ok(()),
+            }
+        } else {
+            std::fs::create_dir_all(&self.dir).and_then(|()| {
+                let bytes = serde_json::to_vec(rows).map_err(std::io::Error::other)?;
+                let mut file = tempfile::NamedTempFile::new_in(&self.dir)?;
+                std::io::Write::write_all(&mut file, &bytes)?;
+                file.persist(&path).map(|_| ()).map_err(|error| error.error)
+            })
+        };
+        if let Err(error) = written {
+            tracing::warn!(%error, "couldn't keep a conversation's deleted messages");
+        }
+    }
+
+    /// The arriving timeline with the rows this conversation kept from an
+    /// earlier run put back, flagged, by their time: only those inside the
+    /// window that arrived (at or after its first row), and none the list
+    /// already holds. Their deletion times go into `at`.
+    pub fn restore(
+        &mut self,
+        room: &str,
+        arriving: Vec<Arc<ChatMessage>>,
+        at: &mut HashMap<String, u64>,
+    ) -> Vec<Arc<ChatMessage>> {
+        let Some(first) = arriving.first().map(|message| message.timestamp) else {
+            return arriving;
+        };
+        let saved = self.room(room);
+        if saved.is_empty() {
+            return arriving;
+        }
+        let present: HashSet<&str> = arriving
+            .iter()
+            .map(|message| message.item.as_str())
+            .collect();
+        let mut back: Vec<&Saved> = saved
+            .iter()
+            .filter(|row| row.timestamp >= first && !present.contains(row.item.as_str()))
+            .collect();
+        drop(present);
+        if back.is_empty() {
+            return arriving;
+        }
+        back.sort_by_key(|row| row.timestamp);
+        let mut merged = Vec::with_capacity(arriving.len() + back.len());
+        let mut back = back.into_iter().peekable();
+        for message in arriving {
+            while let Some(row) = back.next_if(|row| row.timestamp < message.timestamp) {
+                at.entry(row.item.clone()).or_insert(row.deleted_at);
+                merged.push(Arc::new(row.row()));
+            }
+            merged.push(message);
+        }
+        for row in back {
+            at.entry(row.item.clone()).or_insert(row.deleted_at);
+            merged.push(Arc::new(row.row()));
+        }
+        merged
+    }
+
+    /// Writes down the rows of `messages` flagged deleted that this
+    /// conversation hasn't kept yet, the newest [`KEPT_PER_ROOM`]; nothing is
+    /// written when none is new.
+    pub fn remember(
+        &mut self,
+        room: &str,
+        messages: &[Arc<ChatMessage>],
+        at: &HashMap<String, u64>,
+    ) {
+        let saved = self.room(room);
+        let known: HashSet<String> = saved.iter().map(|row| row.item.clone()).collect();
+        let new: Vec<Saved> = messages
+            .iter()
+            .filter(|message| message.deleted && !known.contains(&message.item))
+            .map(|message| {
+                Saved::of(
+                    message,
+                    at.get(&message.item)
+                        .copied()
+                        .unwrap_or_else(crate::clock::now_ms),
+                )
+            })
+            .collect();
+        if new.is_empty() {
+            return;
+        }
+        saved.extend(new);
+        saved.sort_by_key(|row| row.timestamp);
+        let over = saved.len().saturating_sub(KEPT_PER_ROOM);
+        saved.drain(..over);
+        self.write(room);
+    }
+
+    /// Forgets one kept row: the person's "Hide this deleted message".
+    pub fn forget(&mut self, room: &str, item: &str) {
+        let saved = self.room(room);
+        let before = saved.len();
+        saved.retain(|row| row.item != item);
+        if saved.len() != before {
+            self.write(room);
+        }
+    }
+}
+
 /// Whether a row a plugin kept is still the one on screen, which is what the
 /// interface asks when it draws a row flagged deleted.
 pub fn is_kept(message: &ChatMessage) -> bool {
@@ -183,6 +420,74 @@ mod tests {
         let items: Vec<&str> = kept.iter().map(|message| message.item.as_str()).collect();
         assert_eq!(items, vec!["1", "2"]);
         assert!(kept.iter().all(|message| message.deleted));
+    }
+
+    fn at(item: &str, timestamp: u64, deleted: bool) -> Arc<ChatMessage> {
+        Arc::new(ChatMessage {
+            timestamp,
+            ..(*message(item, deleted)).clone()
+        })
+    }
+
+    #[test]
+    fn kept_rows_come_back_after_a_restart_in_their_place() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let dir = folder.path().join("plugins-retained");
+        let mut times = HashMap::new();
+        times.insert("d:2".to_owned(), 77);
+        {
+            let mut kept = Kept::new(dir.clone());
+            let rows = vec![
+                at("d:1", 10, false),
+                at("d:2", 20, true),
+                at("d:3", 30, false),
+            ];
+            kept.remember("discord:1:2", &rows, &times);
+            // Nothing new: nothing written again, and nothing twice.
+            kept.remember("discord:1:2", &rows, &times);
+        }
+        assert!(dir.join("discord_1_2.json").exists());
+
+        // A new run: the backend's list doesn't have it, and it goes back
+        // between its neighbours, flagged, with when it went.
+        let mut kept = Kept::new(dir.clone());
+        let mut restored_at = HashMap::new();
+        let back = kept.restore(
+            "discord:1:2",
+            vec![at("d:1", 10, false), at("d:3", 30, false)],
+            &mut restored_at,
+        );
+        let items: Vec<&str> = back.iter().map(|row| row.item.as_str()).collect();
+        assert_eq!(items, vec!["d:1", "d:2", "d:3"]);
+        assert!(back[1].deleted && !back[1].can_reply);
+        assert_eq!(back[1].body, "body of d:2");
+        assert_eq!(restored_at.get("d:2"), Some(&77));
+
+        // A window that starts after it leaves it out, and another
+        // conversation has none.
+        let later = kept.restore("discord:1:2", vec![at("d:3", 30, false)], &mut restored_at);
+        assert_eq!(later.len(), 1);
+        let other = kept.restore("discord:1:9", vec![at("d:1", 10, false)], &mut restored_at);
+        assert_eq!(other.len(), 1);
+
+        kept.forget("discord:1:2", "d:2");
+        assert!(
+            !dir.join("discord_1_2.json").exists(),
+            "the last one hidden"
+        );
+    }
+
+    #[test]
+    fn a_conversation_keeps_its_newest_rows() {
+        let folder = tempfile::tempdir().expect("a folder");
+        let mut kept = Kept::new(folder.path().to_owned());
+        let rows: Vec<_> = (0..KEPT_PER_ROOM as u64 + 20)
+            .map(|row| at(&format!("d:{row}"), row, true))
+            .collect();
+        kept.remember("r", &rows, &HashMap::new());
+        let saved = kept.room("r");
+        assert_eq!(saved.len(), KEPT_PER_ROOM);
+        assert_eq!(saved[0].item, "d:20");
     }
 
     #[test]
