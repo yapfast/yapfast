@@ -715,7 +715,7 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
             .expect("click Hide Members");
     });
 
-    assert!(app.call.hide_members);
+    assert!(crate::call::members_hidden(&app));
     let (_, _, after_tiles, _) = crate::call::stage::stage(&app);
     assert_eq!(after_tiles[1].size(), Size::ZERO);
     assert_eq!(
@@ -751,7 +751,7 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
             .expect("click Show Members");
     });
 
-    assert!(!app.call.hide_members);
+    assert!(!crate::call::members_hidden(&app));
     let (_, _, restored_tiles, _) = crate::call::stage::stage(&app);
     assert_eq!(restored_tiles, before_tiles);
     assert!(
@@ -760,9 +760,11 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
     );
     assert!(on_stage(&app, "Bob"), "Bob returns to the strip");
 
-    // Leaving the call resets the toggle.
+    // The channel keeps its choice after the call is left, as Discord's
+    // client keeps it while it runs.
     let _ = crate::call::update(&mut app, Event::ToggleMembers);
-    assert!(app.call.hide_members);
+    assert!(crate::call::members_hidden(&app));
+    let room = app.client.state().voice.room.clone().expect("in a call");
     let _ = crate::call::update(&mut app, Event::Leave);
-    assert!(!app.call.hide_members);
+    assert!(app.call.members_hidden.contains(&room));
 }

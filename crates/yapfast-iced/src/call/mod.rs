@@ -23,7 +23,7 @@ pub mod dock;
 pub(crate) mod popups;
 pub mod stage;
 
-use std::{cell::Cell, sync::Arc};
+use std::{cell::Cell, collections::HashSet, sync::Arc};
 
 use iced::{Point, Rectangle, Task, Vector};
 use yapfast_core::{
@@ -55,8 +55,10 @@ pub struct Call {
     pub watched: Option<String>,
     /// The large tile over the whole window.
     pub full: bool,
-    /// Whether the bottom participant strip is hidden while a tile shows large.
-    pub hide_members: bool,
+    /// The voice channels whose strip of members under a large tile is
+    /// hidden: kept for each channel while Yapfast runs, through leaving
+    /// and joining again, as Discord's client keeps it.
+    pub members_hidden: HashSet<String>,
     /// How far the stage is scrolled, and the tile the pointer is on, by its
     /// place.
     pub scrolled: f32,
@@ -181,6 +183,16 @@ pub enum Event {
     Drop,
 }
 
+/// Whether the call's strip of members under a large tile is hidden.
+pub fn members_hidden(app: &App) -> bool {
+    app.client
+        .state()
+        .voice
+        .room
+        .as_ref()
+        .is_some_and(|room| app.call.members_hidden.contains(room))
+}
+
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     let voice = &app.client.state().voice;
     let action = match event {
@@ -210,7 +222,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::ToggleMembers => {
-            app.call.hide_members = !app.call.hide_members;
+            if let Some(room) = app.client.state().voice.room.clone()
+                && !app.call.members_hidden.remove(&room)
+            {
+                app.call.members_hidden.insert(room);
+            }
             app.call.scrolled = 0.0;
             app.call.pointed = None;
             crate::call::stage::place_videos(app);
@@ -390,7 +406,6 @@ pub fn call_sync(app: &mut App) {
     let voice = &app.client.state().voice;
     if !voice.active() {
         app.call.full = false;
-        app.call.hide_members = false;
         if matches!(app.call.popup, Some(Popup::Share | Popup::Soundboard))
             || app.call.share_listing.is_some()
         {

@@ -116,7 +116,7 @@ pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
         focused,
         stage_size(app),
         full,
-        !full && app.call.hide_members,
+        !full && crate::call::members_hidden(app),
     );
     (slots, focused, tiles, content)
 }
@@ -364,6 +364,25 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
     // The stage takes what's left, so the controls always show (the
     // banners over the call take room the stage's size doesn't know).
     let stage = container(stage).height(Length::Fill).clip(true);
+    // With the strip hidden, Show Members sits 6 px over the stage's foot,
+    // whatever room the banners leave the stage.
+    let stage: Element<'_, Message> = if has_strip(app) && crate::call::members_hidden(app) {
+        stack![
+            stage,
+            container(members_toggle(app))
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .align_x(Alignment::Center)
+                .align_y(Alignment::End)
+                .padding(Padding {
+                    bottom: MEMBERS_BOTTOM_GAP,
+                    ..Padding::ZERO
+                })
+        ]
+        .into()
+    } else {
+        stage.into()
+    };
     column![line, stage, call_controls(app)].into()
 }
 
@@ -476,7 +495,7 @@ pub fn stage_view(app: &App) -> Element<'_, Message> {
     let size = stage_size(app);
     let full = full_shown(app);
     let (slots, focused, tiles, content) = stage(app);
-    let has_strip = focused.is_some_and(|place| place < slots.len()) && !full && slots.len() > 1;
+    let has_strip = has_strip(app);
     // A click beside the large tile shows the grid again.
     let beside = if focused.is_some() && !full {
         Message::Call(Event::Focus(None))
@@ -494,7 +513,7 @@ pub fn stage_view(app: &App) -> Element<'_, Message> {
     }
     let toggle_x = ((size.width - MEMBERS_WIDTH) / 2.0).max(0.0);
     if has_strip
-        && !app.call.hide_members
+        && !crate::call::members_hidden(app)
         && let Some(strip_top) = tiles
             .iter()
             .enumerate()
@@ -518,21 +537,21 @@ pub fn stage_view(app: &App) -> Element<'_, Message> {
             .on_scroll(|viewport| Message::Call(Event::Scrolled(viewport.absolute_offset().y)))
             .into()
     };
-    if has_strip && app.call.hide_members {
-        let y = (size.height - MEMBERS_HEIGHT - MEMBERS_BOTTOM_GAP).max(0.0);
-        return stack![panel, pin(members_toggle(app)).x(toggle_x).y(y)]
-            .width(size.width)
-            .height(size.height)
-            .into();
-    }
     panel
+}
+
+/// Whether the Hide/Show Members pill shows: a tile is large beside
+/// others, not full screen.
+fn has_strip(app: &App) -> bool {
+    let (slots, focused, _, _) = stage(app);
+    focused.is_some_and(|place| place < slots.len()) && !full_shown(app) && slots.len() > 1
 }
 
 /// The pill toggling the bottom participant strip under a large tile: a
 /// chevron and the users icon on a 60×32 capsule, with its tooltip above.
 fn members_toggle(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
-    let (icon, label) = if app.call.hide_members {
+    let (icon, label) = if crate::call::members_hidden(app) {
         (Icon::ChevronUp, "Show Members")
     } else {
         (Icon::ChevronDown, "Hide Members")
