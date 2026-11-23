@@ -108,7 +108,7 @@ impl<'a> Page<'a> {
                     theme,
                     tr("Edit profile"),
                     Kind::Plain,
-                    Some(Message::Settings(Event::EditProfile)),
+                    Some(crate::app::settings(Event::EditProfile)),
                 )
                 .icon(self.cx.look.icon(Icon::UserPen, 18, ink))
                 .into(),

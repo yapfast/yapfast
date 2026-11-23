@@ -315,6 +315,6 @@ impl<'a> View<'a> {
         ]
         .spacing(12)
         .padding(16);
-        crate::dialog::panel(theme, body.into(), DIALOG, None, input(RoleInput::Cancel))
+        crate::theme_art::panel_dialog(self.cx, body, DIALOG, None, input(RoleInput::Cancel))
     }
 }

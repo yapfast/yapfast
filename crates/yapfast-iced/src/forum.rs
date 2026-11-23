@@ -1004,9 +1004,8 @@ fn tags_menu<'a>(
             .style(controls::lit_style(None, theme.hover, 4.0)),
         );
     }
-    container(list.padding(6))
-        .style(controls::menu_panel(theme))
-        .into()
+    let panel = container(list.padding(6)).style(controls::menu_panel(theme));
+    controls::themed_outline(panel, theme, "menu", theme.menu_line, 1.0, 8.0)
 }
 
 #[cfg(test)]

@@ -27,21 +27,26 @@ impl<'a> super::View<'a> {
     pub(super) fn voice_channel_card(self, people: &'a [VoicePerson]) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let summary = yapfast_core::voice_roster::Roster::of(people).summary();
-        let mut card = column![elide(summary).size(12).font(BOLD).color(theme.secondary)]
-            .spacing(4)
-            .padding(Padding {
-                top: 10.0,
-                ..Padding::new(12.0)
-            })
-            .width(VOICE_CARD_WIDTH);
+        let mut card = column![
+            elide(summary)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", BOLD))
+                .color(theme.secondary)
+        ]
+        .spacing(4)
+        .padding(Padding {
+            top: 10.0,
+            ..Padding::new(12.0)
+        })
+        .width(VOICE_CARD_WIDTH);
         for person in people.iter().take(VOICE_CARD_PEOPLE) {
             let opacity = if person.elsewhere { 0.5 } else { 1.0 };
             let mut line = row![
                 self.cx
                     .avatar(person.avatar.as_deref(), &person.name, 20.0, 10.0, opacity),
                 elide(person.name.as_str())
-                    .size(14)
-                    .font(MEDIUM)
+                    .size(theme.type_size("names", 14.0))
+                    .font(theme.font("names", MEDIUM))
                     .color(faded(theme.text, opacity)),
             ]
             .spacing(8)
@@ -52,7 +57,14 @@ impl<'a> super::View<'a> {
                     line = line.push(self.cx.look.glyph(Icon::Video, 16, theme.muted));
                 }
                 if person.streaming {
-                    line = line.push(controls::live_pill(theme, None));
+                    let activity_themed = self
+                        .cx
+                        .themes
+                        .content(&theme.id, self.cx.layout.theme_content.contains(&theme.id))
+                        .is_some_and(|c| {
+                            c.activity == yapfast_core::themes::content::Follow::Theme
+                        });
+                    line = line.push(controls::live_pill_in(theme, activity_themed, None));
                 }
             }
             card = card.push(line);
@@ -61,11 +73,20 @@ impl<'a> super::View<'a> {
         if more > 0 {
             card = card.push(
                 text(i18n::fill(tr("and {} more"), &[&more]))
-                    .size(12)
+                    .size(theme.type_size("small", 12.0))
+                    .font(theme.font("small", crate::fonts::REGULAR))
                     .color(theme.muted),
             );
         }
-        container(card).style(controls::tip_style(theme)).into()
+        let tip = controls::tip_wrap(theme, container(card).style(controls::tip_style(theme)));
+        controls::themed_outline(
+            tip,
+            theme,
+            "tooltip",
+            theme.line,
+            1.0,
+            theme.surface_radius("tooltip", 6.0),
+        )
     }
 
     /// Someone in a voice channel, under its row: their avatar and name, and
@@ -125,8 +146,10 @@ impl<'a> super::View<'a> {
         let mut face = row![
             avatar,
             column![
+                // As Slint's: 15 px in the window's face (a theme's body),
+                // not the theme's names.
                 elide(person.name.as_str())
-                    .size(15)
+                    .size(15.0)
                     .font(if speaking { BOLD } else { MEDIUM })
                     .color(faded(ink, opacity))
             ]
@@ -139,6 +162,11 @@ impl<'a> super::View<'a> {
                 face = face.push(self.cx.look.glyph(Icon::Video, 16, theme.muted));
             }
             if person.streaming {
+                let activity_themed = self
+                    .cx
+                    .themes
+                    .content(&theme.id, self.cx.layout.theme_content.contains(&theme.id))
+                    .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
                 let local = live.is_some_and(|live| live.local);
                 let watch = (!local).then(|| {
                     Message::Call(crate::call::Event::ShowPerson(
@@ -146,7 +174,7 @@ impl<'a> super::View<'a> {
                         person.id.clone(),
                     ))
                 });
-                face = face.push(controls::live_pill(theme, watch));
+                face = face.push(controls::live_pill_in(theme, activity_themed, watch));
             }
             if person.muted || person.deafened {
                 let ink = if person.server_muted {

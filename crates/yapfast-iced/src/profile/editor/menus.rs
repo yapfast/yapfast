@@ -90,12 +90,18 @@ pub(super) fn menu_list<'a>(
     for (entry, pressed) in rows {
         list = list.push(ctx.look.menu_item(entry, Light::Pointer, pressed));
     }
-    opaque(
-        container(list)
-            .padding(6)
-            .width(Length::Fill)
-            .style(controls::menu_panel(ctx.look.theme)),
-    )
+    let panel = container(list)
+        .padding(6)
+        .width(Length::Fill)
+        .style(controls::menu_panel(ctx.look.theme));
+    opaque(controls::themed_outline(
+        panel,
+        ctx.look.theme,
+        "menu",
+        ctx.look.theme.menu_line,
+        1.0,
+        8.0,
+    ))
 }
 
 /// The pencil, or the lock where Nitro is wanted, on a dark disc.
@@ -213,22 +219,28 @@ pub(super) fn tag_list<'a>(ctx: crate::ctx::Ctx<'a>, editor: &'a Editor) -> Elem
             message(Event::Tag(id.to_owned())),
         ));
     }
-    opaque(
-        container(
-            column![
-                form::field(theme, TAG_SEARCH, tr("Search"), &editor.tag_query)
-                    .size(13)
-                    .padding(7)
-                    .on_input(|query| message(Event::TagQuery(query))),
-                scroll_view(rows)
-                    .height(Length::Shrink)
-                    .style(scrollbar(theme)),
-            ]
-            .spacing(6),
-        )
-        .padding(8)
-        .max_height(290)
-        .width(Length::Fill)
-        .style(controls::menu_panel(theme)),
+    let panel = container(
+        column![
+            form::field(theme, TAG_SEARCH, tr("Search"), &editor.tag_query)
+                .size(13)
+                .padding(7)
+                .on_input(|query| message(Event::TagQuery(query))),
+            scroll_view(rows)
+                .height(Length::Shrink)
+                .style(scrollbar(theme)),
+        ]
+        .spacing(6),
     )
+    .padding(8)
+    .max_height(290)
+    .width(Length::Fill)
+    .style(controls::menu_panel(theme));
+    opaque(controls::themed_outline(
+        panel,
+        theme,
+        "menu",
+        theme.menu_line,
+        1.0,
+        8.0,
+    ))
 }

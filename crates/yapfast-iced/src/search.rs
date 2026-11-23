@@ -752,9 +752,14 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     let search = state.search_shown()?;
     let theme = cx.look.theme;
     let server = discord::parse_server(&search.place).is_some();
-    let mut title = row![elide(count(search)).size(15).font(BOLD).color(theme.text)]
-        .spacing(8)
-        .align_y(Alignment::Center);
+    let mut title = row![
+        elide(theme.heading(&count(search)).into_owned())
+            .size(theme.header_size(15.0))
+            .font(theme.header_font(BOLD))
+            .color(theme.text)
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
     if search.indexing_older && !search.loading {
         // Discord links its help on indexing; this says what it says.
         let indexing = elide("Indexing").size(13).color(theme.link);
@@ -1069,7 +1074,8 @@ pub fn search_field<'a>(
     let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
     let input = text_input(placeholder, value)
         .id(iced::widget::Id::new(id))
-        .size(14)
+        .size(theme.type_size("body", 14.0))
+        .font(theme.font("body", crate::fonts::REGULAR))
         .padding(0)
         .on_input(on_input)
         .on_submit(submit)

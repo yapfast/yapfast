@@ -331,11 +331,21 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .padding(8)
         .style(move |_| rounded(faded(live, 0.12), 6)),
     );
-    let (ground, edge) = (theme.raised, theme.edge);
-    container(card)
+    let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+    let decorated =
+        ctx.themes.decorates(&theme.id, surface) || theme.package_paint(surface.ground()).is_some();
+    let (ground, edge) = (
+        if decorated {
+            iced::Color::TRANSPARENT
+        } else {
+            theme.raised
+        },
+        theme.edge,
+    );
+    let card = container(card)
         .width(WIDTH)
-        .style(move |_| crate::style::panel(ground, edge, 8.0))
-        .into()
+        .style(move |_| crate::style::surface_panel(theme, "popout", ground, edge, 8.0));
+    crate::theme_art::surface(card, ctx, surface)
 }
 
 fn connection_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'a, Message> {

@@ -793,7 +793,7 @@ impl<'a> View<'a> {
         ]
         .spacing(12)
         .padding(16);
-        crate::dialog::panel(theme, body.into(), CONFIRM, None, cancel)
+        crate::theme_art::panel_dialog(self.cx, body, CONFIRM, None, cancel)
     }
 
     /// Add's picker: the roles without an overwrite, then the members
@@ -915,7 +915,7 @@ impl<'a> View<'a> {
         .padding(16)
         .height(Length::Fill);
         let height = ADD_HEIGHT.min(self.cx.look.window.height - ADD_ROOM);
-        crate::dialog::panel(theme, body.into(), ADD_WIDTH, Some(height), close)
+        crate::theme_art::panel_dialog(self.cx, body, ADD_WIDTH, Some(height), close)
     }
 
     /// A row of Add's picker, lit under the pointer.

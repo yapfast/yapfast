@@ -26,7 +26,6 @@ use crate::{
     app::Message,
     controls::{Kind, action},
     ctx::Ctx,
-    dialog,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     form,
     pictures::Icon,
@@ -447,9 +446,9 @@ impl<'a> View<'a> {
                 .spacing(form::TIGHT),
             );
         }
-        Some(dialog::panel(
-            theme,
-            body.into(),
+        Some(crate::theme_art::panel_dialog(
+            self.cx,
+            body,
             BAN_DIALOG,
             None,
             ban(BanInput::Close),

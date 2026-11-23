@@ -315,7 +315,7 @@ fn activity_looks(activities: &Activities) -> Vec<ActivityLook> {
 }
 
 /// An activity as its card shows it.
-fn activity_look(activity: &Activity) -> ActivityLook {
+pub(crate) fn activity_look(activity: &Activity) -> ActivityLook {
     let text = |text: &Option<Box<str>>| text.as_deref().map(str::to_owned);
     // A Hang status's emoji goes before its words, as a status's does.
     let name = match &activity.emoji {

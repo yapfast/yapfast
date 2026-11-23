@@ -47,7 +47,7 @@ impl<'a> Page<'a> {
         .padding([0, 12])
         .width(Length::Fill)
         .height(28)
-        .on_press(Message::Settings(SettingsEvent::Open(Section::About)))
+        .on_press(crate::app::settings(SettingsEvent::Open(Section::About)))
         .style(crate::controls::lit_style(Some(rest), lit, 4.0));
         Some(
             container(iced::widget::center_y(face))

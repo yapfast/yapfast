@@ -150,7 +150,23 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             Some(Message::Call(Event::Noise)),
         ));
     }
-    if active {
+    // A gel theme's leave is the danger gel (as asked).
+    let gel_leave = active
+        .then(|| {
+            crate::theme_art::gel_call_button(
+                ctx,
+                Icon::PhoneOff,
+                18,
+                "Leave voice",
+                crate::theme_art::GelTone::Danger,
+                (32.0, 32.0),
+                (voice.phase != Phase::Leaving).then_some(Message::Call(Event::Leave)),
+            )
+        })
+        .flatten();
+    if let Some(leave) = gel_leave {
+        top = top.push(leave);
+    } else if active {
         top = top.push(dock_icon(
             ctx,
             Icon::PhoneOff,
@@ -178,14 +194,43 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         });
         let when = |message: Message| ready.then_some(message);
         let face = |icon| ctx.look.glyph(icon, 20, theme.secondary);
+        // A gel theme's are gel pills, lit while on.
+        let gel = |icon, label: &'static str, on: bool, message: Option<Message>| {
+            crate::theme_art::gel_call_button(
+                ctx,
+                icon,
+                20,
+                label,
+                if on {
+                    crate::theme_art::GelTone::Lit
+                } else {
+                    crate::theme_art::GelTone::Plain
+                },
+                (Length::Fill, 32.0),
+                message,
+            )
+        };
         if voice.soundboard.is_some() {
-            buttons = buttons.push(ctx.spot(controls::dock_button(
-                face(Icon::Soundboard),
-                tr("Open Soundboard"),
-                false,
-                theme,
-                when(Message::Call(Event::Open(Popup::Soundboard))),
-            )));
+            let message = when(Message::Call(Event::Open(Popup::Soundboard)));
+            buttons = buttons.push(
+                ctx.spot(
+                    gel(
+                        Icon::Soundboard,
+                        tr("Open Soundboard"),
+                        false,
+                        message.clone(),
+                    )
+                    .unwrap_or_else(|| {
+                        controls::dock_button(
+                            face(Icon::Soundboard),
+                            tr("Open Soundboard"),
+                            false,
+                            theme,
+                            message,
+                        )
+                    }),
+                ),
+            );
         }
         if voice.can_film {
             let on = voice.camera_phase != voice::CameraPhase::Off;
@@ -196,13 +241,12 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             } else {
                 tr("Turn on camera")
             };
-            buttons = buttons.push(controls::dock_button(
-                face(if on { Icon::Video } else { Icon::VideoOff }),
-                label,
-                on,
-                theme,
-                when(Message::Call(Event::Camera)),
-            ));
+            let icon = if on { Icon::Video } else { Icon::VideoOff };
+            let message = when(Message::Call(Event::Camera));
+            buttons =
+                buttons.push(gel(icon, label, on, message.clone()).unwrap_or_else(|| {
+                    controls::dock_button(face(icon), label, on, theme, message)
+                }));
         }
         // Stopping is beside "Your screen"; while the system's dialog
         // first picks what to share, there's nothing to switch yet.
@@ -211,17 +255,17 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 .sharing
                 .as_ref()
                 .is_none_or(|sharing| sharing.phase == voice::SharePhase::Live);
-            buttons = buttons.push(ctx.spot(controls::dock_button(
-                face(Icon::ScreenShare),
-                if sharing {
-                    tr("Switch screen or window")
-                } else {
-                    tr("Share your screen")
-                },
-                sharing,
-                theme,
-                (ready && live).then_some(Message::Call(Event::Open(Popup::Share))),
-            )));
+            let label = if sharing {
+                tr("Switch screen or window")
+            } else {
+                tr("Share your screen")
+            };
+            let message = (ready && live).then_some(Message::Call(Event::Open(Popup::Share)));
+            buttons = buttons.push(ctx.spot(
+                gel(Icon::ScreenShare, label, sharing, message.clone()).unwrap_or_else(|| {
+                    controls::dock_button(face(Icon::ScreenShare), label, sharing, theme, message)
+                }),
+            ));
         }
         dock = dock.push(buttons);
     }
@@ -317,7 +361,11 @@ fn sharing_line<'a>(
     let theme = ctx.look.theme;
     let live = sharing.phase == voice::SharePhase::Live;
     let lead: Element<'a, Message> = if live {
-        container(controls::live_pill(theme, None))
+        let activity_themed = ctx
+            .themes
+            .content(&theme.id, ctx.layout.theme_content.contains(&theme.id))
+            .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
+        container(controls::live_pill_in(theme, activity_themed, None))
             .padding(Padding {
                 left: 20.0,
                 ..Padding::ZERO

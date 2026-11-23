@@ -68,10 +68,12 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
     let quick = ctx.modifiers.shift() && !opened_from(ctx, item);
     let deletes = quick && message.can_delete && writes;
     let act = |act: MenuAct| Message::Menu(crate::menus::Event::Act(act, item.clone(), at));
+    let hover_wash = theme.token_colour("actions-hover", theme.wash(0.1));
     let button = |icon: Icon, label: &'static str, message: Message| {
         ctx.look
             .icon_button(icon, label, message)
             .size(BAR_BUTTON, 20)
+            .hover_wash(hover_wash)
     };
     let mut buttons = row![].align_y(Alignment::Center);
     if quick && message.can_pin {
@@ -105,7 +107,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
                     &key,
                     20,
                     BAR_BUTTON,
-                    (None, theme.wash(0.1)),
+                    (None, hover_wash),
                     Message::Menu(crate::menus::Event::React(item.clone(), key.clone())),
                 ));
             }
@@ -144,20 +146,113 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
             Message::Timeline(crate::timeline::Event::RowMenu(shared.clone(), at)),
         )
     });
-    let (ground, edge) = (theme.raised, theme.edge);
-    let bar = mouse_area(container(buttons).padding(3).style(move |_| {
-        crate::style::outlined(ground, edge, 8.0).shadow(crate::style::hover_bar_shadow())
-    }))
-    .on_enter(Message::Timeline(crate::timeline::Event::PointRow(
+    let surface = yapfast_core::themes::package::art::ArtSurface::Actions;
+    let decorated =
+        ctx.themes.decorates(&theme.id, surface) || theme.package_paint("actions").is_some();
+    let ground = if decorated {
+        iced::Color::TRANSPARENT
+    } else {
+        theme.raised
+    };
+    let edge = theme.edge;
+    let custom_outline = theme.outline("actions").is_some();
+    // As Slint's `ActionsFrame`: a solid outline is the frame's own
+    // border, under its art (Zine's tape strip covers it); only a dashed
+    // or dotted one is drawn over everything.
+    let solid = ctx
+        .themes
+        .package_layout(&theme.id)
+        .and_then(|layout| {
+            layout
+                .borders
+                .get(&yapfast_core::themes::layout::BorderPlace::Actions)
+        })
+        .filter(|border| border.stroke == yapfast_core::themes::layout::Stroke::Solid)
+        .copied();
+    // Under a theme's art a solid outline doesn't show (Zine's tape strip
+    // covers it); without art it's the frame's edge (Phosphor's green).
+    let has_art = !ctx.themes.art(&theme.id, surface).is_empty();
+    let solid_edge = solid.filter(|_| !has_art).map(|solid| {
+        let mut border = theme.surface_border("actions", 8.0, 1.0, edge);
+        border.width = solid.width.unwrap_or(border.width);
+        border.color = solid
+            .colour
+            .map(crate::themes::argb)
+            .unwrap_or(border.color);
+        border.radius = theme
+            .surface_radius("actions", 8.0)
+            .min((BAR_BUTTON + 6.0) / 2.0)
+            .into();
+        border
+    });
+    let action = container(buttons).padding(3).style(move |_| {
+        let mut style = crate::style::surface_panel(theme, "actions", ground, edge, 8.0);
+        if custom_outline {
+            style.border.width = 0.0;
+        }
+        if let Some(border) = solid_edge {
+            style.border = border;
+        }
+        // A dressed bar's ground and art lie under this see-through face:
+        // its shadow goes under them (below), not over them through it
+        // (Bubblegum's hard purple shadow filled its pink pill).
+        style.shadow = if decorated {
+            iced::Shadow::default()
+        } else {
+            theme.surface_shadow("actions", crate::style::hover_bar_shadow())
+        };
+        style
+    });
+    let action = crate::theme_art::surface(action, ctx, surface);
+    let action: Element<'a, Message> = if decorated {
+        let shadow = theme.surface_shadow("actions", crate::style::hover_bar_shadow());
+        let paint = theme.surface_paint("actions");
+        // Held to half the bar's height: past it iced draws a bar shape.
+        let radius = theme
+            .surface_radius("actions", 8.0)
+            .min((BAR_BUTTON + 6.0) / 2.0);
+        container(action)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(paint),
+                border: iced::Border::default().rounded(radius),
+                shadow,
+                ..Default::default()
+            })
+            .into()
+    } else {
+        action
+    };
+    if decorated && solid.is_some() {
+        return Some(finish(ctx, shared, action));
+    }
+    let action = crate::theme_art::outlined(
+        action,
+        ctx,
+        yapfast_core::themes::layout::BorderPlace::Actions,
+        "actions",
+        8.0,
+        1.0,
+        edge,
+    );
+    Some(finish(ctx, shared, action))
+}
+
+/// The bar under the pointer: its moves held from the rows round it.
+fn finish<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    shared: std::sync::Arc<str>,
+    action: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let bar = mouse_area(action).on_enter(Message::Timeline(crate::timeline::Event::PointRow(
         shared, true,
     )));
     // The pointer on the bar is on its message, though the bar floats
     // over the row above: the bar keeps its moves from that row, and
     // from its own row's saying the pointer left. Not while a drag
     // selects, whose moves the text under it follows.
-    Some(if ctx.lanes.timeline.selecting {
+    if ctx.lanes.timeline.selecting {
         bar.into()
     } else {
         crate::widgets::Holds::new(bar).into()
-    })
+    }
 }

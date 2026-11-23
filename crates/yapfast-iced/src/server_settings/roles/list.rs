@@ -382,11 +382,17 @@ impl<'a> View<'a> {
             ),
         ]
         .spacing(2);
-        iced::widget::opaque(
-            container(rows)
-                .padding(6)
-                .width(MORE)
-                .style(controls::menu_panel(self.cx.look.theme)),
-        )
+        let panel = container(rows)
+            .padding(6)
+            .width(MORE)
+            .style(controls::menu_panel(self.cx.look.theme));
+        iced::widget::opaque(controls::themed_outline(
+            panel,
+            self.cx.look.theme,
+            "menu",
+            self.cx.look.theme.menu_line,
+            1.0,
+            8.0,
+        ))
     }
 }

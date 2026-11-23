@@ -281,10 +281,27 @@ impl<'a> View<'a> {
                     .width(Length::Fill),
             );
         }
+        let count_words = count.to_string();
+        let count_words = if name.is_none() {
+            self.cx.themes.label(
+                &theme.id,
+                yapfast_core::themes::chrome::Label::Reaction,
+                count_words.clone(),
+                &[("n", count_words.as_str())],
+            )
+        } else {
+            count_words
+        };
+        let count_font = self
+            .cx
+            .themes
+            .chrome(&theme.id)
+            .and_then(|chrome| chrome.font)
+            .map_or("body", yapfast_core::themes::package::Role::name);
         face = face.push(
-            text(count.to_string())
+            text(count_words)
                 .size(14)
-                .font(BOLD)
+                .font(theme.font(count_font, BOLD))
                 .color(theme.text),
         );
         let (active, hover) = (theme.active, theme.hover);

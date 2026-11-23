@@ -134,8 +134,12 @@ pub(crate) fn read_kept(url: &str, mut picture: chat::Picture) -> chat::Picture 
 }
 
 /// The start of a Discord folder's [`chat::ServerFolder::id`].
-#[cfg(feature = "discord")]
 const FOLDER_PREFIX: &str = "discord-folder:";
+
+/// The Discord folder a rail tile names.
+pub fn parse_folder(id: &str) -> Option<&str> {
+    id.strip_prefix(FOLDER_PREFIX)
+}
 
 pub fn server_id(guild: &str) -> String {
     format!("{PREFIX}{guild}")

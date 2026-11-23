@@ -87,6 +87,18 @@ pub enum Message {
     /// Fallback fonts the shaper wanted are in (`fonts::load_wanted`): the
     /// view is built and its text laid out again.
     FontsLoaded,
+    /// The desktop's light/dark window preference, initially and on change.
+    SystemTheme(iced::theme::Mode),
+    /// The quarter-second theme trial countdown.
+    ThemeTrialTick(std::time::Instant),
+    /// The trial banner's Keep (`true`) or Revert (`false`).
+    ThemeTrial(bool),
+    /// Twice a second while `--theme-dev` watches a folder.
+    ThemeDevTick,
+    /// Frame tick for declared `Slot::Accent` colour animations.
+    ThemeAccentTick(std::time::Instant),
+    /// A retained conversation reached the end of its theme transition.
+    ThemeTransitionDone(std::time::Instant),
     /// Nothing to do: a click a backdrop takes.
     Nothing,
     /// The header's bell: the open channel's notification choices.
@@ -121,7 +133,7 @@ pub enum Message {
     /// Something done to the call or in it (`call/`).
     Call(crate::call::Event),
     /// Something done in Settings (`settings/`).
-    Settings(crate::settings::Event),
+    Settings(Box<crate::settings::Event>),
     /// The update check's, which runs with Settings closed.
     Updates(crate::updates::Event),
     /// The keybinds' watcher told where they work, or of a toggling one's
@@ -153,6 +165,10 @@ pub enum Message {
     Shell(crate::shell::Event),
     /// The window's own title bar (`window_bar.rs`).
     Bar(crate::window_bar::Event),
+}
+
+pub fn settings(event: crate::settings::Event) -> Message {
+    Message::Settings(Box::new(event))
 }
 
 /// The backend's events, up to [`EVENT_BATCH`] at a time; iced applies all

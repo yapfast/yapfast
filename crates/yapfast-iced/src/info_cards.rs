@@ -25,7 +25,6 @@ use crate::{
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     media::{Fit, Shot},
     style::{rounded, scrollbar},
-    theme::Theme,
     widgets::Place,
 };
 
@@ -91,17 +90,27 @@ pub enum Event {
 /// The frame of a card over the window (`ground`, the theme's edge and the
 /// raised shadow), `width` wide, its corners `radius` round.
 pub fn frame<'a>(
-    theme: &Theme,
+    cx: Ctx<'a>,
     ground: iced::Color,
     width: f32,
     radius: f32,
     child: impl Into<Element<'a, Message>>,
 ) -> container::Container<'a, Message> {
+    let theme = cx.look.theme;
     let edge = theme.edge;
+    let surface = yapfast_core::themes::package::art::ArtSurface::Card;
+    let decorated =
+        cx.themes.decorates(&theme.id, surface) || theme.package_paint(surface.ground()).is_some();
+    let ground = if decorated {
+        iced::Color::TRANSPARENT
+    } else {
+        ground
+    };
+    let child = crate::theme_art::surface(child, cx, surface);
     container(child)
         .width(width)
         .clip(true)
-        .style(move |_| crate::style::panel(ground, edge, radius))
+        .style(move |_| crate::style::surface_panel(theme, "card", ground, edge, radius))
 }
 
 /// The mutual server whose card is open, as the profile lists it.
@@ -333,7 +342,7 @@ impl<'a> View<'a> {
             let sticker = matches!(expression, Expression::Sticker(..));
             body = body.push(self.expression_server(server, sticker));
         }
-        let card = frame(theme, theme.raised, EXPRESSION_WIDTH, 8.0, body);
+        let card = frame(self.cx, theme.raised, EXPRESSION_WIDTH, 8.0, body);
         // 4 px under it, or above it without room.
         let anchor = crate::widgets::Anchor::Span(spot.height);
         Some(
@@ -501,7 +510,7 @@ impl<'a> View<'a> {
             card = card.push(scroll_view(list).height(tall).style(scrollbar(theme)));
         }
         let limit = self.cx.look.window.height - 16.0;
-        let card = frame(theme, theme.raised, ROLE_WIDTH, 8.0, card).max_height(limit);
+        let card = frame(self.cx, theme.raised, ROLE_WIDTH, 8.0, card).max_height(limit);
         Some(Place::new(crate::widgets::motion::grow(opaque(card)), at, 8.0).into())
     }
 
@@ -611,7 +620,7 @@ impl<'a> View<'a> {
             )
             .wide(36.0),
         );
-        let card = frame(theme, ground, SERVER_WIDTH, 12.0, column![top, body]);
+        let card = frame(self.cx, ground, SERVER_WIDTH, 12.0, column![top, body]);
         let at = Point::new(at.x + 8.0, at.y - 8.0);
         Some(Place::new(crate::widgets::motion::grow(opaque(card)), at, 8.0).into())
     }

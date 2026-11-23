@@ -333,8 +333,12 @@ impl<'a> View<'a> {
             TEXT_INPUT if field.paragraph => {
                 match self.s.paragraphs.get(index).and_then(Option::as_ref) {
                     Some(content) => {
-                        let (ground, ink, selection, accent) =
-                            (theme.sunken, theme.text, theme.selection, theme.accent);
+                        let (ground, ink, selection, accent) = (
+                            theme.sunken,
+                            theme.text,
+                            theme.token_colour("selection", theme.selection),
+                            theme.accent,
+                        );
                         let editor = text_editor(content)
                             .height(PARAGRAPH)
                             .size(15)

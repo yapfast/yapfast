@@ -547,6 +547,7 @@ impl<'a> View<'a> {
         body: Element<'a, Message>,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let radius = theme.surface_radius("popout", RADIUS);
         let tall = detail.is_some();
         let mut words = column![heading].spacing(2);
         if let Some(detail) = detail {
@@ -576,12 +577,22 @@ impl<'a> View<'a> {
                 .style(move |_| {
                     crate::style::rounded(
                         panel_ground,
-                        crate::style::corners([RADIUS, RADIUS, 0.0, 0.0]),
+                        crate::style::corners([radius, radius, 0.0, 0.0]),
                     )
                 }),
             bar(theme.edge, Length::Fill, 1),
         ];
-        let (ground, edge) = (theme.sidebar, theme.edge);
+        let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+        let decorated = self.cx.themes.decorates(&theme.id, surface)
+            || theme.package_paint(surface.ground()).is_some();
+        let (ground, edge) = (
+            if decorated {
+                iced::Color::TRANSPARENT
+            } else {
+                theme.sidebar
+            },
+            theme.edge,
+        );
         let panel = container(column![head, body])
             .height(if fill_place {
                 Length::Fill
@@ -590,10 +601,11 @@ impl<'a> View<'a> {
             })
             .clip(true)
             .style(move |_| container::Style {
-                shadow: raised_shadow(),
-                ..crate::style::rounded(ground, RADIUS)
+                shadow: theme.surface_shadow("popout", raised_shadow()),
+                ..crate::style::rounded(ground, radius)
             });
-        iced::widget::opaque(controls::edged(panel, edge, RADIUS))
+        let panel = crate::theme_art::surface(panel, self.cx, surface);
+        iced::widget::opaque(controls::edged(panel, edge, radius))
     }
 
     fn heading(self, words: &'a str) -> Element<'a, Message> {

@@ -378,7 +378,7 @@ fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Element<'a, Message> {
             .wide(36.0),
         );
     }
-    frame(theme, theme.sidebar, WIDTH, 12.0, body).into()
+    frame(cx, theme.sidebar, WIDTH, 12.0, body).into()
 }
 
 #[cfg(test)]

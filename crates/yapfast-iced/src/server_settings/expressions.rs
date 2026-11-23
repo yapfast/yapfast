@@ -24,7 +24,6 @@ use crate::{
     app::Message,
     controls::{Kind, action, lights},
     ctx::{Cx, Request},
-    dialog,
     fonts::{BOLD, SEMIBOLD},
     form,
     media::{Fit, Shot},
@@ -547,9 +546,9 @@ impl<'a> View<'a> {
         } else {
             emoji(EmojiInput::Cancel)
         };
-        Some(dialog::panel(
-            theme,
-            body.into(),
+        Some(crate::theme_art::panel_dialog(
+            self.cx,
+            body,
             EMOJI_DIALOG,
             None,
             outside,
@@ -923,9 +922,9 @@ impl<'a> View<'a> {
         } else {
             sticker(StickerInput::Cancel)
         };
-        Some(dialog::panel(
-            theme,
-            scroll_view(body).style(scrollbar(theme)).into(),
+        Some(crate::theme_art::panel_dialog(
+            self.cx,
+            scroll_view(body).style(scrollbar(theme)),
             STICKER_DIALOG,
             None,
             outside,

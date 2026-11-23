@@ -219,9 +219,9 @@ impl<'a> View<'a> {
         .spacing(12)
         .padding(16)
         .height(Length::Fill);
-        crate::dialog::panel(
-            theme,
-            body.into(),
+        crate::theme_art::panel_dialog(
+            self.cx,
+            body,
             DIALOG,
             Some(height),
             input(RoleInput::CloseAdding),

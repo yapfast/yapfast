@@ -22,6 +22,7 @@ pub mod reorder;
 pub mod sheet;
 pub mod style;
 pub mod theme;
+pub mod theme_page;
 pub mod tile;
 pub mod timer;
 pub mod viewer;

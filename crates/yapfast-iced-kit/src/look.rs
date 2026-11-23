@@ -36,6 +36,20 @@ impl<'a> Look<'a> {
         }
     }
 
+    /// As [`Self::glyph`], but in `color` even where the theme's icon pack
+    /// keeps a replacement's own colours.
+    pub fn tinted_glyph(self, icon: Icon, size: u32, color: Color) -> Pic {
+        let glyph = Pic::square(
+            self.icons.tinted(icon, size, crate::theme::rgb(color)),
+            size as f32,
+        );
+        if color.a < 1.0 {
+            glyph.opacity(color.a)
+        } else {
+            glyph
+        }
+    }
+
     /// One of the kit's icons in its own colours, `size` square, drawn once.
     pub fn drawn(self, icon: Icon, size: u32) -> Pic {
         Pic::square(self.icons.own(icon, size), size as f32)

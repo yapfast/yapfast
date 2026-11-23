@@ -14,16 +14,16 @@ use yapfast_core::chat::ChatMessage;
 use crate::{
     app::{Message, key},
     controls::bar,
-    fonts::{BOLD, MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, REGULAR, SEMIBOLD},
     pictures::{Face, Icon},
     style::{corners, rounded, scrollbar},
     widgets::{Corner, RightPress, Rows, Settle, Watch},
 };
 
 use super::{
-    ASIDE, DIVIDER, EDGE, Edge, Event, GROUP_GAP, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD,
-    MENTIONED, MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, ROW_GAP,
-    RowLook, TAIL, TIMELINE, UNREAD_BAR, top_space,
+    ASIDE, DIVIDER, EDGE, Edge, Event, Intro, KEYED_EDGE, MENTION_EDGE, MENTION_GOLD, MENTIONED,
+    MENTIONED_HOVER, PRESENT_BAR, REPLY_EDGE, REPLY_TARGET, REPLY_TARGET_HOVER, RowLook, TAIL,
+    TIMELINE, UNREAD_BAR, top_space,
 };
 use yapfast_core::i18n::{self, tr};
 
@@ -87,6 +87,12 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .style(scrollbar(ctx.look.theme));
+    // The scrollable reports its viewport as it scrolls, not as the window
+    // grows round a list too short to scroll: the room that holds a short
+    // history down is worked out from the height the list really has.
+    let list = iced::widget::sensor(list)
+        .on_show(|size| Message::Timeline(Event::Viewport(size)))
+        .on_resize(|size| Message::Timeline(Event::Viewport(size)));
     // Its scroll reports build the view again only when they matter.
     let list = Settle::new(list, |message| match message {
         Message::Timeline(Event::Scrolled(viewport)) => Some(viewport),
@@ -127,6 +133,63 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     crate::widgets::Spot::new(layers, &ctx.lanes.timeline.place).into()
 }
 
+/// A row's tint: the edit's, the jump's light, a mention's, the pointer's,
+/// or a theme's stripe.
+pub(crate) fn row_ground(ctx: crate::ctx::Ctx<'_>, index: usize, look: &RowLook) -> Option<Color> {
+    let theme = ctx.look.theme;
+    let message = ctx.row_message(index)?;
+    let pointed = ctx.pointed.message.as_deref() == Some(message.item.as_str());
+    let jumped = ctx.lanes.timeline.jump_lit.as_deref() == Some(message.item.as_str());
+    let edited = ctx.composer.editing.as_deref() == Some(message.item.as_str());
+    // As Slint's: in bubbles the jump's light and a mention's tint lie on
+    // the bubble (see `message::message_content`), not across the row.
+    let bubble = bubbled(ctx, message);
+    if edited {
+        // Discord's edit tint (#29292d on its dark theme).
+        Some(crate::theme::mix(theme.active, theme.chat, 0.84))
+    } else if bubble {
+        None
+    } else if jumped {
+        Some(Color {
+            a: 0.14,
+            ..theme.accent
+        })
+    } else if index < ASIDE && reply_target(ctx, message) {
+        Some(if pointed {
+            REPLY_TARGET_HOVER
+        } else {
+            REPLY_TARGET
+        })
+    } else if look.highlighted {
+        Some(if pointed {
+            theme.token_colour("mentioned-hover", MENTIONED_HOVER)
+        } else {
+            theme.token_colour("mentioned", MENTIONED)
+        })
+    } else if pointed && !crate::theme_effects::message_row_active(ctx) && !bubbled(ctx, message) {
+        // Slint lays no band under a bubble's row; the bubble is the
+        // message.
+        Some(theme.row_hover)
+    } else {
+        None
+    }
+    .or_else(|| {
+        theme
+            .surface_stripe("row")
+            .filter(|stripe| stripe.messages && index % 2 == 1)
+            .map(|stripe| stripe.colour)
+    })
+}
+
+/// Whether a reply being written answers this message.
+fn reply_target(ctx: crate::ctx::Ctx<'_>, message: &yapfast_core::chat::ChatMessage) -> bool {
+    matches!(
+        ctx.state.compose(),
+        Some(yapfast_core::application::Compose::Reply { item, .. })
+            if item.as_str() == message.item.as_str()
+    )
+}
+
 /// One row: the history's edge above the first, a divider above a new
 /// day or the first unread message, then the message on its tint.
 pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, Message> {
@@ -134,6 +197,8 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         return Space::new().into();
     };
     let theme = ctx.look.theme;
+    let spacing = theme.spacing();
+    let message_gap = super::rows::row_gap(spacing);
     let aside = index >= ASIDE;
     let edge = if aside {
         index == ASIDE && ctx.lanes.aside.is_some_and(|aside| aside.ready)
@@ -152,84 +217,137 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         if look.divided() {
             above = above.push(divider(ctx, look));
         }
-        whole = whole.push(container(above).padding(
-            Padding::ZERO.top(top_space(look) - if look.divided() { DIVIDER } else { 0.0 }),
-        ));
+        whole = whole.push(
+            container(above).padding(
+                Padding::ZERO
+                    .top(top_space(look, spacing) - if look.divided() { DIVIDER } else { 0.0 }),
+            ),
+        );
     }
     let pointed = ctx.pointed.message.as_deref() == Some(message.item.as_str());
-    let jumped = ctx.lanes.timeline.jump_lit.as_deref() == Some(message.item.as_str());
-    let edited = ctx.composer.editing.as_deref() == Some(message.item.as_str());
     // The message a reply being written answers is blurple, not gold.
-    let target = !aside
-        && matches!(
-            ctx.state.compose(),
-            Some(yapfast_core::application::Compose::Reply { item, .. })
-                if item.as_str() == message.item.as_str()
-        );
-    let ground = if edited {
-        // Discord's edit tint (#29292d on its dark theme).
-        Some(crate::theme::mix(theme.active, theme.chat, 0.84))
-    } else if jumped {
-        Some(Color {
-            a: 0.14,
-            ..theme.accent
-        })
-    } else if target {
-        Some(if pointed {
-            REPLY_TARGET_HOVER
-        } else {
-            REPLY_TARGET
-        })
-    } else if look.highlighted {
-        Some(if pointed { MENTIONED_HOVER } else { MENTIONED })
-    } else if pointed {
-        Some(theme.row_hover)
-    } else {
+    let target = !aside && reply_target(ctx, message);
+    // A card carries its own tint, mark and edge, leaning with it, as
+    // Slint's; the row under it stays bare.
+    let carded = spacing.cards_gap.is_some() && message.notice.is_none();
+    let ground = if carded {
         None
+    } else {
+        row_ground(ctx, index, look)
     };
     // The tint starts under the gap that sets a group apart from the one
     // above it, as Discord's does.
-    let gap = if !head && look.first { GROUP_GAP } else { 0.0 };
-    let tinted = container(crate::message::message_content(ctx, index, look))
+    let gap = if !head && look.first {
+        top_space(look, spacing)
+    } else {
+        0.0
+    };
+    let mut message_content = container(crate::message::message_content(ctx, index, look))
         .width(Length::Fill)
         .padding(Padding {
             top: if head || look.first {
                 0.0
             } else {
-                top_space(look)
+                top_space(look, spacing)
             },
-            bottom: ROW_GAP,
+            bottom: message_gap,
             ..Padding::ZERO
-        })
-        .style(move |_| container::Style {
-            background: ground.map(Into::into),
-            ..container::Style::default()
         });
-    let content = container(tinted)
+    // A theme's row inset (Slint's `row-inset-x`/`-y`): the band and its
+    // edges sit that far in from the row, clear of a pane's rim
+    // (Bubblegum's), over the message rather than its gap above.
+    let inset = theme.surface_inset("row");
+    let band = |child: Element<'a, Message>| -> Element<'a, Message> {
+        match inset {
+            Some((across, down)) => container(child)
+                .padding(Padding {
+                    top: if head { 0.0 } else { top_space(look, spacing) } + down,
+                    bottom: message_gap + down,
+                    left: across,
+                    right: across,
+                })
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => child,
+        }
+    };
+    let mut ground_layer = None;
+    if let Some(ground) = ground {
+        let mut border = theme.surface_border("row", 0.0, 0.0, Color::TRANSPARENT);
+        border.radius = theme.row_radius(0.0).into();
+        let shadow = theme.surface_shadow("row", iced::Shadow::default());
+        let style = move |_: &_| container::Style {
+            background: Some(ground.into()),
+            border,
+            shadow,
+            ..Default::default()
+        };
+        if inset.is_some() {
+            ground_layer = Some(band(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(style)
+                    .into(),
+            ));
+        } else {
+            message_content = message_content.style(style);
+        }
+    }
+    let message_content = container(message_content)
         .width(Length::Fill)
         .padding(Padding::ZERO.top(gap));
-    let mut content = stack![content];
-    // The edges run down the message, from under the gap.
-    let edged = |ink: Color, width: f32| {
-        container(bar(ink, width, Length::Fill))
-            .height(Length::Fill)
-            .padding(Padding::ZERO.top(gap))
-    };
-    if target {
-        content = content.push(edged(REPLY_EDGE, MENTION_EDGE));
-    } else if look.highlighted {
-        content = content.push(edged(MENTION_GOLD, MENTION_EDGE));
+    let mut content = stack![message_content];
+    if let Some(ground) = ground_layer {
+        content = content.push_under(ground);
     }
-    if ctx.lanes.keyed == Some(message.item.as_str()) {
+    // The edges run down the message, from under the gap.
+    let edged = |ink: Color, width: f32| -> Element<'a, Message> {
+        if inset.is_some() {
+            band(bar(ink, width, Length::Fill).into())
+        } else {
+            container(bar(ink, width, Length::Fill))
+                .height(Length::Fill)
+                .padding(Padding::ZERO.top(gap))
+                .into()
+        }
+    };
+    if !carded && !bubbled(ctx, message) {
+        if target {
+            content = content.push(edged(REPLY_EDGE, MENTION_EDGE));
+        } else if look.highlighted {
+            content = content.push(edged(MENTION_GOLD, MENTION_EDGE));
+        }
+    }
+    if ctx.lanes.keyed == Some(message.item.as_str()) && !carded {
         content = content.push(edged(theme.accent, KEYED_EDGE));
     }
     // The hover bar floats over the row's top edge, so it never moves
     // the timeline. It stays while what it opened is open.
+    // A bubble carries its own bar beside it (see `message::message_content`).
     if (pointed || crate::message::hover_bar::kept(ctx, &message.item))
+        && !bubbled(ctx, message)
         && let Some(actions) = crate::message::hover_bar::hover_bar(ctx, index)
     {
-        let body = if head { 0.0 } else { top_space(look) };
-        content = content.push(Corner::new(actions, 16.0, body - 16.0));
+        let body = if head { 0.0 } else { top_space(look, spacing) };
+        // As Slint's: in a log at its text column's start, over the line
+        // above, clear of the hovered one; on a first row with nothing over
+        // it, inside the row.
+        let log = crate::message::irc_column_left(ctx, message);
+        let top = if index == 0 && !head {
+            body + 4.0
+        } else if log.is_some() {
+            body + 4.0 - crate::message::BAR_HEIGHT
+        } else {
+            body - 16.0
+        };
+        // Over a card's right edge, as Slint's, 8 px in from it.
+        let corner = Corner::new(actions, if carded { 8.0 } else { 16.0 }, top);
+        content = content.push(match log {
+            Some(left) => corner.at_most(left),
+            None => corner,
+        });
     }
     // A right click opens the message's menu where the pointer is: the
     // press is in the list's space, which the lane's corner, as the press
@@ -240,13 +358,20 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
         let origin = iced::Vector::new(lane.left, lane.top);
         Message::Timeline(Event::RowMenu(item.clone(), at + origin))
     });
+    let content = if carded {
+        content.into()
+    } else {
+        // As Slint's: a theme's row highlighter marks a plain row, not a
+        // bubble's (Bubblegum's band ran the row's width under its pill).
+        crate::theme_effects::message_row(content, ctx, pointed && !bubbled(ctx, message))
+    };
     whole = whole.push(
         mouse_area(content)
             .on_enter(Message::Timeline(Event::PointRow(look.item.clone(), true)))
             .on_exit(Message::Timeline(Event::PointRow(look.item.clone(), false))),
     );
     if look.last {
-        whole = whole.push(Space::new().height(TAIL - ROW_GAP));
+        whole = whole.push(Space::new().height((TAIL - message_gap).max(0.0)));
     }
     // A window of older messages ends with what's after it: newer
     // messages loading, or a way to load them.
@@ -287,15 +412,26 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
     let new = look.unread_start;
     let ink = if new { theme.danger } else { theme.line };
     let line = || {
-        container(bar(ink, Length::Fill, 1))
-            .width(Length::Fill)
-            .center_y(Length::Fill)
+        container(crate::theme_art::rule(
+            ctx,
+            yapfast_core::themes::layout::BorderPlace::Divider,
+            ink,
+            1.0,
+        ))
+        .width(Length::Fill)
+        .center_y(Length::Fill)
     };
     let mut middle = row![line()].align_y(Alignment::Center);
     if let Some(day) = &look.day {
+        let day = ctx.themes.label(
+            &theme.id,
+            yapfast_core::themes::chrome::Label::Day,
+            day.as_str(),
+            &[("date", day.as_str())],
+        );
         middle = middle
             .push(
-                container(text(day.as_str()).size(12).font(SEMIBOLD).color(if new {
+                container(text(day).size(12).font(SEMIBOLD).color(if new {
                     theme.danger
                 } else {
                     theme.muted
@@ -321,8 +457,15 @@ pub(super) fn divider<'a>(ctx: crate::ctx::Ctx<'a>, look: &'a RowLook) -> Elemen
 /// The "NEW" tag at the marker's right end: a red pill with a point at its
 /// left end that narrows to the line's height.
 fn new_tag<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
-    let (red, ink) = (ctx.look.theme.danger, ctx.look.theme.on_danger);
-    let pill = container(text(tr("NEW")).size(10).font(BOLD).color(ink))
+    let theme = ctx.look.theme;
+    let (red, ink) = (theme.danger, theme.on_danger);
+    let label = ctx.themes.label(
+        &theme.id,
+        yapfast_core::themes::chrome::Label::New,
+        tr("NEW"),
+        &[],
+    );
+    let pill = container(text(label).size(10).font(BOLD).color(ink))
         .padding([0, 4])
         .height(13)
         .align_y(Alignment::Center)
@@ -364,9 +507,19 @@ pub fn edge_line<'a>(
         } else if edge.thread {
             i18n::fill(tr("This is the start of the {} thread."), &[&edge.name])
         } else {
-            i18n::fill(tr("This is the start of #{}."), &[&edge.name])
+            // A theme's own words for a channel's start, as Slint's.
+            ctx.themes.label(
+                &theme.id,
+                yapfast_core::themes::chrome::Label::Start,
+                i18n::fill(tr("This is the start of #{}."), &[&edge.name]),
+                &[("channel", edge.name.as_str())],
+            )
         };
-        text(words).size(14).color(theme.muted).into()
+        text(words)
+            .size(theme.type_size("body", 14.0))
+            .font(theme.font("body", REGULAR))
+            .color(theme.muted)
+            .into()
     } else {
         edge_button(ctx, edge.loading, edge.failed, false, earlier)
     };
@@ -423,7 +576,10 @@ pub(super) fn edge_button<'a>(
     };
     let face = row![
         ctx.look.glyph(icon, 16, ink),
-        text(words).size(14).font(MEDIUM).color(theme.secondary)
+        text(words)
+            .size(theme.type_size("body", 14.0))
+            .font(theme.font("body", MEDIUM))
+            .color(theme.secondary)
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -454,9 +610,9 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     let theme = ctx.look.theme;
     let title = |words: String, weight| {
-        text(words)
-            .size(32)
-            .font(weight)
+        text(theme.heading(&words).into_owned())
+            .size(theme.title_size(32.0))
+            .font(theme.font("headings", weight))
             .color(theme.text)
             .height(40)
             .wrapping(text::Wrapping::None)
@@ -474,7 +630,9 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             block = block
                 .push(title(tr("Welcome to").to_owned(), SEMIBOLD))
                 .push(title(name.clone(), SEMIBOLD));
-            text(tr("This is the beginning of this server.")).size(14)
+            text(tr("This is the beginning of this server."))
+                .size(theme.type_size("body", 14.0))
+                .font(theme.font("body", crate::fonts::REGULAR))
         }
         _ => {
             let field = theme.field;
@@ -486,14 +644,22 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 )
                 .push(Space::new().height(8))
                 .push(title(
-                    i18n::fill(tr("Welcome to #{}!"), &[&edge.name]),
+                    ctx.themes.label(
+                        &theme.id,
+                        yapfast_core::themes::chrome::Label::Welcome,
+                        i18n::fill(tr("Welcome to #{}!"), &[&edge.name]),
+                        &[("channel", edge.name.as_str())],
+                    ),
                     BOLD,
                 ));
-            text(i18n::fill(
-                tr("This is the start of the #{} channel."),
-                &[&edge.name],
+            text(ctx.themes.label(
+                &theme.id,
+                yapfast_core::themes::chrome::Label::Start,
+                i18n::fill(tr("This is the start of the #{} channel."), &[&edge.name]),
+                &[("channel", edge.name.as_str())],
             ))
-            .size(16)
+            .size(theme.type_size("body", 16.0))
+            .font(theme.font("body", crate::fonts::REGULAR))
         }
     };
     block
@@ -726,7 +892,12 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
     } else {
         (i18n::fill(tr("Welcome to #{}"), &[&edge.name]), 28)
     };
-    start = start.push(text(title).size(size).font(BOLD).color(theme.text));
+    start = start.push(
+        text(theme.heading(&title).into_owned())
+            .size(theme.title_size(size as f32))
+            .font(theme.font("headings", BOLD))
+            .color(theme.text),
+    );
     if edge.ready {
         let words = if edge.direct {
             i18n::fill(
@@ -744,7 +915,12 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
                 &[&edge.name],
             )
         };
-        start = start.push(text(words).color(theme.secondary));
+        start = start.push(
+            text(words)
+                .size(theme.type_size("body", 16.0))
+                .font(theme.font("body", crate::fonts::REGULAR))
+                .color(theme.secondary),
+        );
     }
     container(start)
         .width(Length::Fill)
@@ -842,14 +1018,16 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     .style(crate::controls::lit_style(Some(rest), lit, 8.0));
     let face = row![
         text(tr("You're viewing older messages"))
-            .size(14)
-            .font(MEDIUM)
+            .size(theme.type_size("body", 14.0))
+            .font(theme.font("body", MEDIUM))
             .color(words)
             .wrapping(text::Wrapping::None),
         go,
     ]
     .spacing(15)
     .align_y(Alignment::Center);
+    let border = theme.surface_border("toast", 16.0, 1.0, edge);
+    let shadow = theme.surface_shadow("toast", crate::style::pill_shadow());
     container(face)
         .padding(Padding {
             left: 17.0,
@@ -861,9 +1039,20 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
         .align_y(Alignment::Center)
         .style(move |_| container::Style {
             background: Some(ground.into()),
-            border: crate::style::edge(edge, 16.0),
-            shadow: crate::style::pill_shadow(),
+            border,
+            shadow,
             ..container::Style::default()
         })
         .into()
+}
+
+/// Whether the message is drawn as a theme's bubble, which takes no row
+/// band under the pointer, as in Slint.
+fn bubbled(ctx: crate::ctx::Ctx<'_>, message: &yapfast_core::chat::ChatMessage) -> bool {
+    message.notice.is_none()
+        && ctx
+            .themes
+            .package_layout(&ctx.look.theme.id)
+            .and_then(|layout| layout.messages)
+            == Some(yapfast_core::themes::layout::MessageStyle::Bubbles)
 }

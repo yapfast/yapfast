@@ -240,12 +240,13 @@ impl<'a> crate::ctx::Ctx<'a> {
                     ((picture.width as f32 / scale).ceil() as u32).max(1),
                     ((picture.height as f32 / scale).ceil() as u32).max(1),
                 );
-                match self
-                    .pictures
-                    .fitter
-                    .borrow_mut()
-                    .get(picture, small.0, small.1, false)
-                {
+                match self.pictures.fitter.borrow_mut().get(
+                    picture,
+                    small.0,
+                    small.1,
+                    false,
+                    self.media_look(),
+                ) {
                     Some(blur) => Pic::new(blur, size)
                         .at(Rectangle::with_size(size))
                         .radius(radius)
@@ -255,15 +256,13 @@ impl<'a> crate::ctx::Ctx<'a> {
             }
             Some(picture) if picture.animation.is_some() && self.plays => self
                 .pictures
-                .animated(picture, size, at, fit == Fit::Cover)
+                .animated(picture, size, at, fit == Fit::Cover, self.media_look())
                 .radius(radius)
                 .into(),
             Some(picture) if (picture.width, picture.height) == (width, height) => {
                 let handle = self
-                    .pictures
-                    .previews
-                    .borrow_mut()
-                    .get(picture, crate::pictures::shared);
+                    .fit(picture, width, height, false)
+                    .expect("nonzero picture");
                 hidden = at.size() == size && self.pictures.opaque(picture);
                 Pic::new(handle, size).at(at).radius(radius).into()
             }
@@ -273,6 +272,7 @@ impl<'a> crate::ctx::Ctx<'a> {
                     width,
                     height,
                     fit == Fit::Cover,
+                    self.media_look(),
                 ) {
                     Some(handle) => {
                         hidden = at.size() == size && self.pictures.opaque(picture);

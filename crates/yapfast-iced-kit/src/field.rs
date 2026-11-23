@@ -527,6 +527,11 @@ impl<'a, M: Clone> Field<'a, M> {
         self
     }
 
+    pub fn font(mut self, font: Font) -> Self {
+        self.font = font;
+        self
+    }
+
     pub fn suggesting(mut self, suggesting: bool) -> Self {
         self.suggesting = suggesting;
         self
