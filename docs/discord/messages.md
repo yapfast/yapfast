@@ -7,7 +7,12 @@ Yapfast lists the linked account's Discord servers in the rail with their
 channels. Channels the account's roles and channel overwrites keep it out of
 show greyed out with a lock, as in Discord; channels hidden from it appear the
 same way only with the "Show channels you can't access" setting, which is off
-by default. Server text channels are listed under their Discord categories and
+by default. Discord sends a hidden channel with the `OBFUSCATED` flag
+(`1 << 17`) and its name and topic as `___hidden___`, so such a channel, or
+category, is named "No Access", as Discord's client names it, has no topic,
+and counts as hidden whatever its overwrites say. A hidden voice channel
+still lists who is in it, from the voice states Discord sends for every
+voice channel, as any voice channel does; a click on it joins nothing. Server text channels are listed under their Discord categories and
 open in Yapfast's timeline. Clicking a category's heading collapses it, leaving
 the open channel, unread ones and voice channels with people in them, as in
 Discord; Yapfast remembers which categories are collapsed, per server. History
@@ -87,6 +92,8 @@ roles. A ping reply puts the account in `mentions`, so it is a mention,
 highlighted always, as Discord's client does. A reply to its message with the
 ping off is highlighted too, but only while it's new: after the last message
 read when the channel or thread opened, by snowflake.
+The account's own message that names it is highlighted as well, as
+Discord's client does, though it counts as no mention.
 Each server in the rail shows its mentions as a count, and the DM button
 counts DM mentions and the friend requests waiting for an answer. A voice
 channel's unread chat marks its server in the rail only by mentions, as
@@ -200,8 +207,12 @@ Yapfast is back, rather than showing an error.
   open folders on this device, in `layout.json`, as Discord's client keeps
   them per device. Settings entries with an id are folders, read with their
   name and colour (`GuildFolder` fields 2 to 4, each in a wrapper); one
-  without is a server on its own. Folders can't be made or changed in Yapfast
-  yet.
+  without is a server on its own. Dropping a server on another server or
+  folder, or moving a server or a whole folder between tiles, saves the new
+  arrangement through `PATCH /users/@me/settings-proto/1`.
+  The rail applies the move immediately from the last known server list.
+  The update replaces the `guild_folders` field. A failed save restores the
+  previous arrangement unless Discord has since sent a newer one.
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`
@@ -263,7 +274,9 @@ Yapfast is back, rather than showing an error.
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
   menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
-  message says. Pictures come through Discord's
+  message says. A link straight to a video file, which Discord embeds as the
+  video alone, plays under the message as an attached video does, its first
+  frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
@@ -477,6 +490,8 @@ Yapfast is back, rather than showing an error.
   message", which "Show it" opens, and they don't notify or show typing.
   Yapfast learns the blocked from READY's relationships (type 2) and keeps them
   current from RELATIONSHIP_ADD and RELATIONSHIP_REMOVE.
+- Messages from ignored users show collapsed in the timeline with a Show
+  button and don't notify. Yapfast reads `user_ignored` from relationships.
 - A reply's quoted line jumps to the original and highlights it for a
   moment, as described under [jumping to a message](#jumping-to-a-message).
   It says the original was deleted only when `referenced_message` is
@@ -521,11 +536,14 @@ Yapfast is back, rather than showing an error.
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
-  wrote lately, and server members a search by name finds (the gateway's
+  wrote lately, this account among them as in Discord's client, and server
+  members a search by name finds (the gateway's
   member request with a query, as Discord's client does), then the roles
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's
-  `<@id>` or `<@&id>`.
+  `<@id>` or `<@&id>`. Saving an edit also turns the `@Name` of anyone the
+  message mentioned into their `<@id>`, even someone no longer suggested; a
+  name two of them share stays text.
 - Typing `#` in a server channel suggests the server's text and voice
   channels this account can see, in Discord's order, under CHANNELS, voice
   channels with a speaker. Sending turns each `#name` into Discord's `<#id>`;

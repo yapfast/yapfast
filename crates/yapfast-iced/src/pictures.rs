@@ -25,6 +25,7 @@ use iced::{
     widget::{container, stack, text},
 };
 use yapfast_core::chat::{Picture, Presence};
+use yapfast_core::themes::content::{self, Media};
 
 use crate::{
     animated::{Animated, Players},
@@ -41,6 +42,20 @@ struct NativePixels(Vec<u8>);
 impl yapfast_core::chat::PixelBuffer for NativePixels {
     fn bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    fn straight_rgba(&self) -> Vec<u8> {
+        let mut pixels = self.0.clone();
+        for pixel in pixels.chunks_exact_mut(4) {
+            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+            let straight = |value: u8| match a {
+                0 => 0,
+                255 => value,
+                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
+            };
+            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
+        }
+        pixels
     }
 }
 
@@ -84,6 +99,46 @@ pub fn shared(picture: &Arc<Picture>) -> Handle {
         picture.height,
         bytes::Bytes::from_owner(PictureBytes(picture.clone())),
     )
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MediaLook {
+    pub media: Media,
+    pub patterned: bool,
+}
+
+impl Default for MediaLook {
+    fn default() -> Self {
+        Self {
+            media: Media::Normal,
+            patterned: true,
+        }
+    }
+}
+
+fn apply_media(look: MediaLook, pixels: &mut [u8], width: u32, height: u32) {
+    match look.media {
+        Media::Dither(dither) if look.patterned && content::Dither::patterned(width, height) => {
+            content::dither(&dither, pixels, width);
+        }
+        media => content::recolour(media, pixels),
+    }
+}
+
+/// `picture`'s pixels under the theme's content look: borrowed as they are
+/// when the look leaves them alone, so a stock fit copies nothing first.
+fn themed_native(picture: &Picture, look: MediaLook) -> std::borrow::Cow<'_, [u8]> {
+    if look.media == Media::Normal {
+        return std::borrow::Cow::Borrowed(&picture.rgba);
+    }
+    let mut pixels = picture.rgba.straight_rgba();
+    apply_media(look, &mut pixels, picture.width, picture.height);
+    paint::to_native(&mut pixels);
+    std::borrow::Cow::Owned(pixels)
+}
+
+pub(crate) fn apply_frame_media(look: MediaLook, pixels: &mut [u8], width: u32, height: u32) {
+    apply_media(look, pixels, width, height);
 }
 
 pub use crate::canvas::handle;
@@ -193,8 +248,9 @@ impl Pictures {
         size: Size,
         at: Rectangle,
         cover: bool,
+        media: MediaLook,
     ) -> Animated<'_> {
-        self.players.animated(picture, size, at, cover)
+        self.players.animated(picture, size, at, cover, media)
     }
 
     /// After the core's state changed: images of pictures it let go of go
@@ -354,6 +410,19 @@ pub struct Face<'a> {
     pub play: bool,
     /// The presence dot, the ring's colour, and where the dot goes.
     pub dot: Option<(Presence, u32, Point)>,
+    /// A theme presence dot's requested side instead of stock 16 px.
+    pub dot_size: Option<f32>,
+    /// A theme ring outside the avatar: ARGB, width and glow reach.
+    pub ring: Option<(u32, f32, f32)>,
+    /// Theme art around the avatar. A frame with a window places the
+    /// avatar in that window; an ordinary frame is drawn over it.
+    pub frame: Option<&'a yapfast_core::themes::lists::TileArt>,
+    /// Illuminated initial opt-in (`Some((member_row, pointed))`) for
+    /// message/member avatars when `content.avatars.initials` is declared.
+    pub initial: Option<(bool, bool)>,
+    /// Degrees a theme's frame turns about the face's centre (Zine's
+    /// member prints); the picture in it stays straight.
+    pub turn: f32,
 }
 
 impl<'a> Face<'a> {
@@ -369,6 +438,29 @@ impl<'a> Face<'a> {
             decoration: None,
             play: false,
             dot: None,
+            dot_size: None,
+            ring: None,
+            frame: None,
+            initial: None,
+            turn: 0.0,
+        }
+    }
+
+    pub fn turn(self, turn: f32) -> Self {
+        Self { turn, ..self }
+    }
+
+    pub fn illuminated(self, revealed: bool) -> Self {
+        Self {
+            initial: Some((false, revealed)),
+            ..self
+        }
+    }
+
+    pub fn illuminated_member(self, revealed: bool) -> Self {
+        Self {
+            initial: Some((true, revealed)),
+            ..self
         }
     }
 
@@ -390,6 +482,18 @@ impl<'a> Face<'a> {
 
     pub fn dot(self, dot: Option<(Presence, u32, Point)>) -> Self {
         Self { dot, ..self }
+    }
+
+    pub fn dot_size(self, dot_size: Option<f32>) -> Self {
+        Self { dot_size, ..self }
+    }
+
+    pub fn ring(self, ring: Option<(u32, f32, f32)>) -> Self {
+        Self { ring, ..self }
+    }
+
+    pub fn frame(self, frame: Option<&'a yapfast_core::themes::lists::TileArt>) -> Self {
+        Self { frame, ..self }
     }
 }
 
@@ -426,6 +530,7 @@ pub struct Fitted {
     key: FitKey,
     picture: Weak<Picture>,
     handle: Handle,
+    media: MediaLook,
 }
 
 /// Copies of the core's pictures at the sizes messages show them at (a
@@ -434,7 +539,7 @@ pub struct Fitted {
 /// go of once no view shows them; until a copy comes its place shows its
 /// ground. A copy made comes back as a [`Fitted`].
 pub struct Fitter {
-    jobs: std::sync::mpsc::Sender<(FitKey, Arc<Picture>)>,
+    jobs: std::sync::mpsc::Sender<(FitKey, Arc<Picture>, MediaLook)>,
     /// Copies made, by what they copy, with the picture so a copy of a
     /// picture the core let go of goes too.
     done: HashMap<FitKey, (Weak<Picture>, Handle)>,
@@ -442,6 +547,7 @@ pub struct Fitter {
     asked: std::collections::HashSet<FitKey>,
     /// What the view being built shows.
     shown: std::collections::HashSet<FitKey>,
+    media: MediaLook,
 }
 
 impl Fitter {
@@ -451,15 +557,16 @@ impl Fitter {
         Self,
         impl iced::futures::Stream<Item = Fitted> + Send + 'static,
     ) {
-        let (jobs, queue) = std::sync::mpsc::channel::<(FitKey, Arc<Picture>)>();
+        let (jobs, queue) = std::sync::mpsc::channel::<(FitKey, Arc<Picture>, MediaLook)>();
         let (made, copies) = iced::futures::channel::mpsc::unbounded();
         let spawned = std::thread::Builder::new()
             .name("fitter".into())
             .spawn(move || {
-                while let Ok((key, picture)) = queue.recv() {
+                while let Ok((key, picture, media)) = queue.recv() {
                     let (_, width, height, cover) = key;
+                    let source = themed_native(&picture, media);
                     let pixels = fitted(
-                        &picture.rgba,
+                        &source,
                         (picture.width, picture.height),
                         (width, height),
                         cover,
@@ -468,6 +575,7 @@ impl Fitter {
                         key,
                         picture: Arc::downgrade(&picture),
                         handle: Handle::from_rgba(width, height, pixels),
+                        media,
                     };
                     drop(picture);
                     if made.unbounded_send(fitted).is_err() {
@@ -483,6 +591,7 @@ impl Fitter {
             done: HashMap::new(),
             asked: Default::default(),
             shown: Default::default(),
+            media: MediaLook::default(),
         };
         (fitter, copies)
     }
@@ -495,17 +604,19 @@ impl Fitter {
         width: u32,
         height: u32,
         cover: bool,
+        media: MediaLook,
     ) -> Option<Handle> {
         if picture.width == 0 || picture.height == 0 || width == 0 || height == 0 {
             return None;
         }
+        self.set_media(media);
         let key = (Arc::as_ptr(picture) as usize, width, height, cover);
         self.shown.insert(key);
         if let Some((_, handle)) = self.done.get(&key) {
             return Some(handle.clone());
         }
         if self.asked.insert(key) {
-            self.jobs.send((key, picture.clone())).ok();
+            self.jobs.send((key, picture.clone(), media)).ok();
         }
         None
     }
@@ -514,8 +625,21 @@ impl Fitter {
     /// the next view doesn't show, goes then.
     pub fn made(&mut self, fitted: Fitted) {
         self.asked.remove(&fitted.key);
+        if fitted.media != self.media {
+            return;
+        }
         self.done
             .insert(fitted.key, (fitted.picture, fitted.handle));
+    }
+
+    fn set_media(&mut self, media: MediaLook) {
+        if self.media == media {
+            return;
+        }
+        self.media = media;
+        self.done.clear();
+        self.asked.clear();
+        self.shown.clear();
     }
 
     /// The window went: every copy goes, and those asked for go as they
@@ -545,7 +669,7 @@ impl Fitter {
         for key in asked {
             let (_, width, height, cover) = key;
             let pixels = fitted(
-                &picture.rgba,
+                &themed_native(picture, self.media),
                 (picture.width, picture.height),
                 (width, height),
                 cover,
@@ -554,6 +678,7 @@ impl Fitter {
                 key,
                 picture: Arc::downgrade(picture),
                 handle: Handle::from_rgba(width, height, pixels),
+                media: self.media,
             });
         }
     }
@@ -573,6 +698,19 @@ impl Fitter {
 }
 
 impl<'a> crate::ctx::Ctx<'a> {
+    pub fn media_look(self) -> MediaLook {
+        MediaLook {
+            media: self
+                .themes
+                .content(
+                    &self.look.theme.id,
+                    self.layout.theme_content.contains(&self.look.theme.id),
+                )
+                .map_or(Media::Normal, |content| content.media),
+            patterned: self.layout.theme_performance != yapfast_core::themes::Performance::Light,
+        }
+    }
+
     /// The picture at `url` at `width` by `height`: the core's own pixels
     /// when it came at that size, else a copy made once (cut to cover the
     /// size, or stretched to it).
@@ -591,8 +729,15 @@ impl<'a> crate::ctx::Ctx<'a> {
         if picture.width == 0 || picture.height == 0 || width == 0 || height == 0 {
             return None;
         }
+        let media = self.media_look();
         if picture.width == width && picture.height == height {
-            return Some(self.pictures.previews.borrow_mut().get(picture, shared));
+            return Some(self.pictures.previews.borrow_mut().get(picture, |picture| {
+                if media.media == Media::Normal {
+                    shared(picture)
+                } else {
+                    Handle::from_rgba(width, height, themed_native(picture, media).into_owned())
+                }
+            }));
         }
         Some(
             self.pictures
@@ -601,8 +746,9 @@ impl<'a> crate::ctx::Ctx<'a> {
                 .entry((width, height, cover))
                 .or_default()
                 .get(picture, |picture| {
+                    let pixels = themed_native(picture, media);
                     let pixels = fitted(
-                        &picture.rgba,
+                        &pixels,
                         (picture.width, picture.height),
                         (width, height),
                         cover,
@@ -625,7 +771,13 @@ impl<'a> crate::ctx::Ctx<'a> {
         let still = self.fit(picture, side, side, false);
         Some(
             players
-                .animated(picture, square, Rectangle::with_size(square), false)
+                .animated(
+                    picture,
+                    square,
+                    Rectangle::with_size(square),
+                    false,
+                    self.media_look(),
+                )
                 .still(still),
         )
     }
@@ -640,7 +792,10 @@ impl<'a> crate::ctx::Ctx<'a> {
         }
         let picture = self.state.pictures.get(url)?;
         picture.animation.as_ref()?;
-        Some(self.pictures.animated(picture, size, at, cover))
+        Some(
+            self.pictures
+                .animated(picture, size, at, cover, self.media_look()),
+        )
     }
 
     /// A presence dot, drawn once.
@@ -708,6 +863,19 @@ impl<'a> crate::ctx::Ctx<'a> {
         radius: f32,
         opacity: f32,
     ) -> Element<'a, Message> {
+        let radius = self.look.theme.avatar_radius(size, radius);
+        self.avatar_tinted_exact(url, name, key, size, radius, opacity)
+    }
+
+    fn avatar_tinted_exact(
+        self,
+        url: Option<&str>,
+        name: &str,
+        key: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
         let pixels = size as u32;
         if let Some(handle) = url.and_then(|url| self.picture(url, pixels, pixels, true)) {
             return Pic::square(handle, size)
@@ -716,14 +884,23 @@ impl<'a> crate::ctx::Ctx<'a> {
                 .into();
         }
         let tint = faded(hex(tint(key)), opacity);
-        container(
-            text(initials(name))
+        // A theme's window draws the initials as Slint does: 700, 0.42 of
+        // the face, in the theme's body face; otherwise the window's face.
+        let theme = self.look.theme;
+        let words = text(initials(name)).color(faded(Color::WHITE, opacity));
+        let words = if theme.packaged() {
+            let mut font = theme.font("body", crate::fonts::BOLD);
+            font.weight = crate::fonts::BOLD.weight;
+            words.size(size * 0.42).font(font)
+        } else {
+            words
                 .size(size * 0.4)
-                .color(faded(Color::WHITE, opacity)),
-        )
-        .center(size)
-        .style(move |_| rounded(tint, radius))
-        .into()
+                .font(theme.font("small", crate::fonts::MEDIUM))
+        };
+        container(words)
+            .center(size)
+            .style(move |_| rounded(tint, radius))
+            .into()
     }
 
     /// An avatar of `size` with the decoration round it (a fifth larger,
@@ -739,11 +916,144 @@ impl<'a> crate::ctx::Ctx<'a> {
             decoration,
             play,
             dot,
+            dot_size,
+            ring,
+            frame,
+            initial,
+            turn,
         } = face;
-        let mut layers =
-            stack![self.avatar_tinted(url, name, key.unwrap_or(name), size, size / 2.0, opacity)];
+        let content = self.themes.content(
+            &self.look.theme.id,
+            self.layout.theme_content.contains(&self.look.theme.id),
+        );
+        let window = frame.and_then(|frame| frame.window);
+        let avatar_size = window.map_or(size, |window| window[2].max(1.0));
+        let radius = if let (Some(frame), Some(_)) = (frame, window) {
+            frame.window_radius
+        } else {
+            match content.map(|content| content.avatars.shape) {
+                Some(yapfast_core::themes::content::AvatarShape::Circle) => avatar_size / 2.0,
+                Some(yapfast_core::themes::content::AvatarShape::Square) => 0.0,
+                Some(yapfast_core::themes::content::AvatarShape::Rounded) => {
+                    content.map_or(8.0, |content| content.avatars.radius)
+                }
+                _ => self
+                    .look
+                    .theme
+                    .avatar_radius(avatar_size, avatar_size / 2.0),
+            }
+        };
+        let illuminated = initial.and_then(|(for_member, revealed)| {
+            let initials = content.and_then(|c| c.avatars.initials)?;
+            if (for_member && !initials.members) || (initials.reveal && revealed) {
+                return None;
+            }
+            let letter = yapfast_core::themes::content::initial_letter(name)?;
+            Some((initials, letter))
+        });
+        let avatar = if let Some((initials, letter)) = illuminated {
+            let theme = self.look.theme;
+            let ink = faded(
+                initials
+                    .colour
+                    .map(crate::themes::argb)
+                    .unwrap_or_else(|| theme.accent_text()),
+                opacity,
+            );
+            let ground = initials
+                .ground
+                .map(crate::themes::argb)
+                .map(|c| faded(c, opacity));
+            let border = initials.border.map_or_else(
+                || iced::Border {
+                    radius: radius.into(),
+                    ..Default::default()
+                },
+                |(c, w)| iced::Border {
+                    color: faded(crate::themes::argb(c), opacity),
+                    width: w,
+                    radius: radius.into(),
+                },
+            );
+            let font = theme.font(initials.font.name(), crate::fonts::BOLD);
+            container(
+                text(letter)
+                    .size((avatar_size * initials.size).round().max(1.0))
+                    .font(font)
+                    .color(ink),
+            )
+            .center(avatar_size)
+            .style(move |_| iced::widget::container::Style {
+                background: ground.map(Into::into),
+                border,
+                ..Default::default()
+            })
+            .into()
+        } else {
+            self.avatar_tinted_exact(url, name, key.unwrap_or(name), avatar_size, radius, opacity)
+        };
+        let avatar: Element<'a, Message> = match content.and_then(|content| content.avatars.ring) {
+            Some((colour, width)) => container(avatar)
+                .style(move |_| container::Style {
+                    border: iced::Border {
+                        color: hex(colour & 0x00ff_ffff),
+                        width,
+                        radius: radius.into(),
+                    },
+                    ..Default::default()
+                })
+                .into(),
+            None => avatar,
+        };
+        let avatar: Element<'a, Message> = match window {
+            Some([x, y, _, _]) => crate::controls::placed(avatar, x, y),
+            None => avatar,
+        };
+        let mut layers = stack![];
+        if let Some((colour, width, glow)) = ring {
+            let reach = 3.0 + width;
+            let side = size + reach * 2.0;
+            let colour = crate::themes::argb(colour);
+            layers = layers.push(crate::controls::placed(
+                container(iced::widget::Space::new())
+                    .width(side)
+                    .height(side)
+                    .style(move |_| container::Style {
+                        border: iced::Border {
+                            color: colour,
+                            width,
+                            radius: (side / 2.0).into(),
+                        },
+                        shadow: iced::Shadow {
+                            color: colour.scale_alpha(0.6),
+                            blur_radius: glow,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+                -reach,
+                -reach,
+            ));
+        }
+        if window.is_some()
+            && let Some(frame) = frame
+            && let Some(art) = crate::theme_art::tile_art_turned(
+                self,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                frame,
+                size,
+                size,
+                turn,
+            )
+        {
+            layers = layers.push(art);
+        }
+        layers = layers.push(avatar);
         let square = Size::new(size, size);
-        if let Some(decoration) = decoration {
+        let decorations = content.is_none_or(|content| {
+            content.avatars.decorations != yapfast_core::themes::content::Shown::Hide
+        });
+        if decorations && let Some(decoration) = decoration {
             let side = (size * 1.2).round();
             let inset = -(side - size) / 2.0;
             let at = Rectangle::new(Point::new(inset, inset), Size::new(side, side));
@@ -756,16 +1066,29 @@ impl<'a> crate::ctx::Ctx<'a> {
                 layers = layers.push(Pic::new(still, square).at(at).opacity(opacity));
             }
         }
+        if window.is_none()
+            && let Some(frame) = frame
+            && let Some(art) = crate::theme_art::tile_art(
+                self,
+                yapfast_core::themes::package::art::ArtSurface::Members,
+                frame,
+                size,
+                size,
+            )
+        {
+            layers = layers.push(art);
+        }
         if let Some((presence, ring, at)) = dot
             && let Some(dot) = self.mark(Mark::Dot(presence, ring))
         {
             // The phone stands 5 px taller than the dot.
+            let side = dot_size.unwrap_or(16.0).max(1.0);
             let tall = if presence == Presence::Mobile {
-                5.0
+                side * 5.0 / 16.0
             } else {
                 0.0
             };
-            let at = Rectangle::new(Point::new(at.x, at.y - tall), Size::new(16.0, 16.0 + tall));
+            let at = Rectangle::new(Point::new(at.x, at.y - tall), Size::new(side, side + tall));
             layers = layers.push(Pic::new(dot, square).at(at));
         }
         layers.width(size).height(size).into()
@@ -776,7 +1099,81 @@ impl<'a> crate::ctx::Ctx<'a> {
 mod tests {
     use std::{sync::Arc, time::Instant};
 
-    use super::Player;
+    use yapfast_core::themes::content::{Dither, Media};
+
+    use super::{MediaLook, NativePixels, Player, apply_media};
+
+    #[test]
+    fn native_pixels_leave_as_straight_rgba() {
+        use yapfast_core::chat::PixelBuffer;
+        // Opaque, half see-through and clear: red stays red, not blue.
+        let rgba = [200, 40, 10, 255, 200, 40, 10, 128, 0, 0, 0, 0];
+        let mut native = rgba.to_vec();
+        crate::paint::to_native(&mut native);
+        assert_ne!(native[..3], rgba[..3]);
+        let straight = NativePixels(native).straight_rgba();
+        assert_eq!(straight[..4], rgba[..4]);
+        for (got, want) in straight[4..8].iter().zip(&rgba[4..8]) {
+            assert!(got.abs_diff(*want) <= 2, "{straight:?}");
+        }
+        assert_eq!(straight[8..], rgba[8..]);
+    }
+
+    #[test]
+    fn media_recolouring_keeps_alpha() {
+        let mut pixels = [240, 60, 20, 17, 20, 180, 220, 203];
+        apply_media(
+            MediaLook {
+                media: Media::Mono,
+                patterned: true,
+            },
+            &mut pixels,
+            2,
+            1,
+        );
+        assert_eq!(pixels[0], pixels[1]);
+        assert_eq!(pixels[1], pixels[2]);
+        assert_eq!(pixels[4], pixels[5]);
+        assert_eq!(pixels[5], pixels[6]);
+        assert_eq!([pixels[3], pixels[7]], [17, 203]);
+    }
+
+    #[test]
+    fn performance_light_turns_a_large_dither_into_a_gradient() {
+        let dither = Dither {
+            palette: [0xff00_0000, 0xffff_ffff, 0, 0, 0, 0, 0, 0],
+            len: 2,
+            matrix: 2,
+            scale: 1,
+        };
+        let source = [128, 128, 128, 255].repeat(65);
+        let mut patterned = source.clone();
+        let mut gradient = source;
+        apply_media(
+            MediaLook {
+                media: Media::Dither(dither),
+                patterned: true,
+            },
+            &mut patterned,
+            65,
+            1,
+        );
+        apply_media(
+            MediaLook {
+                media: Media::Dither(dither),
+                patterned: false,
+            },
+            &mut gradient,
+            65,
+            1,
+        );
+        assert_ne!(patterned, gradient);
+        assert!(
+            patterned
+                .chunks_exact(4)
+                .all(|pixel| { pixel[..3] == [0, 0, 0] || pixel[..3] == [255, 255, 255] })
+        );
+    }
 
     #[test]
     fn a_moving_picture_whose_file_went_stops_asking_for_frames() {
