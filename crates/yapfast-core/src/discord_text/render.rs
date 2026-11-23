@@ -109,6 +109,7 @@ pub(super) fn found(
             .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
         bot: message.bot,
+        webhook: message.webhook_id.is_some(),
         body,
         author,
         formatted: ordinary,

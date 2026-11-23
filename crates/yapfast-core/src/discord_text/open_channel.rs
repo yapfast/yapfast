@@ -1819,6 +1819,7 @@ impl OpenChannel {
                 .map(|style| Arc::new(style.into())),
             color: server.and_then(|server| discord.color(server, &message.author_id)),
             bot: message.bot,
+            webhook: message.webhook_id.is_some(),
             tag: discord::server_tag(discord.server_tag(&message.author_id)),
             // Discord's client marks a person, not a bot, who joined in the
             // last week, unless the server itself is that new.

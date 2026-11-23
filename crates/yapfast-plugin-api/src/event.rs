@@ -294,6 +294,10 @@ pub struct MessageView {
     /// Among its conversation's pinned messages.
     #[serde(default)]
     pub pinned: bool,
+    /// A Discord webhook sent it: `author` is the name and picture the
+    /// webhook gave, not an account's, so `people.get` knows nobody by its id.
+    #[serde(default)]
+    pub webhook: bool,
     /// The stickers it carries.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stickers: Vec<StickerView>,

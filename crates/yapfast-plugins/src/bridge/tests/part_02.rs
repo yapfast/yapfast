@@ -178,6 +178,7 @@ fn a_read_is_answered_from_what_the_application_published() {
             reply_to: None,
             mentions_me: false,
             pinned: false,
+            webhook: false,
             stickers: Vec::new(),
         }],
     );

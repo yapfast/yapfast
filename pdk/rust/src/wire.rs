@@ -754,6 +754,9 @@ pub struct MessageView {
     /// Whether this message mentions the account.
     #[serde(default)]
     pub mentions_me: bool,
+    /// A Discord webhook sent it: the author is the name the webhook gave.
+    #[serde(default)]
+    pub webhook: bool,
 }
 
 /// A person, as events and calls name them.

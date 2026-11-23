@@ -2031,6 +2031,8 @@ pub struct ChatMessage {
     pub color: Option<u32>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
+    /// A Discord webhook sent it: the author is the name it gave.
+    pub webhook: bool,
     /// The server tag the author wears by their name, on Discord.
     pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.

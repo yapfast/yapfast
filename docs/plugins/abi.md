@@ -204,8 +204,9 @@ keeps.
 
 An event with a `room` whose payload is an object also carries `room_name`, the
 conversation's name as the sidebar shows it, unless the payload has its own. A
-message's payload says `pinned`, and `stickers`, `[{ id, name }]`, when it has
-any.
+message's payload says `pinned`, `webhook` (a Discord webhook sent it, so its
+author is the name and picture the webhook gave and no account), and
+`stickers`, `[{ id, name }]`, when it has any.
 
 `topics` is there only when something was published to a topic the plugin
 subscribed to; a batch with none has no field at all. Each entry is one

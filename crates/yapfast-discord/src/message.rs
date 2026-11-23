@@ -125,6 +125,10 @@ pub struct Message {
     /// The author is a bot or webhook, which Discord tags.
     #[serde(default)]
     pub bot: bool,
+    /// The webhook that sent it, which Discord names on a webhook's
+    /// messages: their author is the name the webhook gave, not an account.
+    #[serde(default)]
+    pub webhook_id: Option<String>,
     /// Discord Markdown with mentions still as `<@id>`.
     pub content: String,
     /// Shown after the author's name instead of content, for joins, pins
@@ -897,6 +901,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         author_id: author["id"].as_str()?.into(),
         author: author_name(value).into(),
         bot: author["bot"].as_bool().unwrap_or(false),
+        webhook_id: value["webhook_id"].as_str().map(str::to_owned),
         content,
         notice: system.as_ref().and_then(|_| match kind {
             PINNED => Some(Notice::Pinned(
@@ -2626,6 +2631,22 @@ mod tests {
         .unwrap();
         assert_eq!(message.attachments.len(), 1);
         assert_eq!(message.components[0].rows.len(), 1);
+    }
+
+    #[test]
+    fn keeps_the_webhook_a_message_came_from() {
+        let message = parse(&json!({
+            "id": "1", "channel_id": "2", "webhook_id": "77",
+            "author": {"id": "77", "username": "Deploys", "bot": true}, "content": "shipped",
+        }))
+        .unwrap();
+        assert_eq!(message.webhook_id.as_deref(), Some("77"));
+        let message = parse(&json!({
+            "id": "1", "channel_id": "2",
+            "author": {"id": "3", "username": "ann"}, "content": "hi",
+        }))
+        .unwrap();
+        assert_eq!(message.webhook_id, None);
     }
 
     #[test]

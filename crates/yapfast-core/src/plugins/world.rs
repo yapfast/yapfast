@@ -673,6 +673,7 @@ fn message_view(message: &ChatMessage, room: &str) -> MessageView {
         reply_to: message.reply.as_ref().and_then(|reply| reply.item.clone()),
         mentions_me: message.mentions_me,
         pinned: message.pinned,
+        webhook: message.webhook,
         stickers: chat_stickers(message),
     }
 }
@@ -887,10 +888,12 @@ mod tests {
     #[test]
     fn the_timeline_answers_a_page_and_one_message() {
         let world = world();
+        let mut hooked = (*message("3", "three")).clone();
+        hooked.webhook = true;
         let timeline = Arc::new(vec![
             message("1", "one"),
             message("2", "two"),
-            message("3", "three"),
+            Arc::new(hooked),
         ]);
         world.publish_timeline("discord:1:2", &timeline);
 
@@ -901,6 +904,12 @@ mod tests {
         assert_eq!(bodies, ["one", "two", "three"], "the page is oldest first");
         assert_eq!(history[0].at, 1_700_000_000_000, "a time is milliseconds");
         assert_eq!(history[0].author.id, "person-1");
+        let webhooks: Vec<bool> = history.iter().map(|view| view.webhook).collect();
+        assert_eq!(
+            webhooks,
+            [false, false, true],
+            "a webhook's message says so"
+        );
 
         let page = world
             .history("discord:1:2", Some("3"), Some(10))

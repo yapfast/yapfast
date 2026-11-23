@@ -958,6 +958,7 @@ pub(crate) fn message_view(
         },
         mentions_me: message.mentions_me(&me, server.map(|server| &*server.marks)),
         pinned: message.pinned,
+        webhook: message.webhook_id.is_some(),
         stickers: discord_stickers(message),
     };
     (view, own)
