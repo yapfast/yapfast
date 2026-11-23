@@ -5,7 +5,7 @@
 //! what it floats over ([`Holds`]).
 
 use iced::{
-    Element, Length, Point, Rectangle, Size, Theme, Vector,
+    Background, Element, Length, Point, Rectangle, Size, Theme, Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget, layout, mouse, renderer,
         widget::{Operation, Tree, tree},
@@ -65,6 +65,47 @@ impl<M: Clone> Hooks<M> for Watch<M> {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Its child, whose pointer is `look` over its grip: a picture in a corner
+/// of the window, which a drag at the corner away from it resizes. The
+/// shape changes as the pointer comes and goes, with no message.
+pub struct Grip {
+    /// Where the grip is, from the child's own top left, and the pointer's
+    /// shape there.
+    at: Rectangle,
+    look: mouse::Interaction,
+}
+
+impl Grip {
+    pub fn new<'a, M: Clone>(
+        child: impl Into<Element<'a, M>>,
+        at: Rectangle,
+        look: mouse::Interaction,
+    ) -> Wrap<'a, Self, M> {
+        Wrap::new(child, Self { at, look })
+    }
+}
+
+impl<M: Clone> Hooks<M> for Grip {
+    type State = Stateless;
+
+    fn interaction(&self, _: &Stateless, at: At, child: mouse::Interaction) -> mouse::Interaction {
+        let grip = Rectangle {
+            x: at.bounds.x + self.at.x,
+            y: at.bounds.y + self.at.y,
+            ..self.at
+        };
+        if at
+            .cursor
+            .position()
+            .is_some_and(|position| grip.contains(position))
+        {
+            self.look
+        } else {
+            child
         }
     }
 }
@@ -201,6 +242,7 @@ impl<M: Clone> Hooks<M> for RightPress<'_, M> {
 pub struct Hover<'a, M> {
     base: Element<'a, M>,
     over: Element<'a, M>,
+    shade: Option<Background>,
     kept: bool,
 }
 
@@ -209,8 +251,15 @@ impl<'a, M: Clone> Hover<'a, M> {
         Self {
             base: base.into(),
             over: over.into(),
+            shade: None,
             kept: false,
         }
+    }
+
+    /// Lays `shade` over the child while `over` shows, under it.
+    pub fn shade(mut self, shade: impl Into<Background>) -> Self {
+        self.shade = Some(shade.into());
+        self
     }
 
     /// Shows `over` whether the pointer is on it or not.
@@ -403,6 +452,19 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Hover<'_, M> {
         );
         if self.shown(tree) {
             renderer.with_layer(layout.bounds(), |renderer| {
+                if let Some(shade) = self.shade {
+                    // A pixel past the child, cut back by the layer's own
+                    // edge: a gradient's foot lands a fraction of a window
+                    // pixel short of the child's, and the row it leaves
+                    // shows what's under it a shade lighter than itself.
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: layout.bounds().expand(1.0),
+                            ..renderer::Quad::default()
+                        },
+                        shade,
+                    );
+                }
                 self.over.as_widget().draw(
                     &tree.children[1],
                     renderer,

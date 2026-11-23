@@ -194,7 +194,7 @@ impl App {
         }
         subscriptions.push(crate::away::away_subscription(self));
         subscriptions.push(crate::keybinds::window_talk_keys());
-        if self.call.grab.is_some() {
+        if self.call.grab.is_some() || self.call.resize.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     Some(Message::Call(crate::call::Event::DragTo(position)))

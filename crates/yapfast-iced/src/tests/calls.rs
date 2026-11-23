@@ -2,8 +2,8 @@
 //! device gone away, the share menu in a short window, the microphone's
 //! level only while its menu shows, the dock's channel line, a voice
 //! channel's Join, someone's volumes and menu from their tile, a camera's
-//! tile before its first frame, and the call's own order under its
-//! channel.
+//! tile before its first frame, the corner picture's grip resizing it,
+//! and the call's own order under its channel.
 
 use iced::{Point, Rectangle, Size};
 use yapfast_core::{
@@ -469,6 +469,119 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
     // His tile has his name at its foot, over his picture, until the
     // first frame.
     assert!(shows(&app, "Bob"), "his tile's name");
+}
+
+#[test]
+fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
+    use crate::app::Message;
+    let (mut app, folder, _) = in_call();
+    // Bob's camera stays in the corner once the call is off screen.
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.local = false;
+        bob.video = Some(yapfast_core::picture::Feed::new());
+        state.voice.participants.push(bob);
+    });
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(
+        crate::call::corner::corner_view(&app).is_some(),
+        "in the corner"
+    );
+    let size = crate::call::corner::corner_size(&app);
+    assert_eq!((size.width, size.height), (320.0, 180.0), "as it comes");
+    // A drag at its grip, 100 px towards the window's middle, the way the
+    // grip goes, makes it 100 px wider, and as much taller as its shape
+    // gives.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    assert!(app.call.resize.is_some(), "its grip resizes it");
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x - 100.0,
+        grip.y + 100.0 * 180.0 / 320.0,
+    ))));
+    assert_eq!(
+        crate::call::corner::corner_size(&app).width,
+        420.0,
+        "100 px wider"
+    );
+    // The pointer wandering by the grip asks for the size it went for, a
+    // step at a time: no move of it drops the picture to another size and
+    // takes it back again, as picking the larger of the pointer's two ways
+    // did once it crossed the diagonal.
+    let _ = app.update(Message::Call(Event::Drop));
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x - 50.0,
+        grip.y,
+    ))));
+    assert_eq!(
+        crate::call::corner::corner_size(&app).width,
+        470.0,
+        "50 px wider"
+    );
+    let mut last = 470.0;
+    for step in 1..=24 {
+        let at = Point::new(grip.x - 50.0, grip.y + step as f32 * 8.0);
+        let _ = app.update(Message::Call(Event::DragTo(at)));
+        let width = crate::call::corner::corner_size(&app).width;
+        assert!(
+            (width - last).abs() < 30.0,
+            "8 px of the pointer moved it {} px, from {last} to {width}",
+            width - last
+        );
+        last = width;
+    }
+    // Back by the grip, it's the size the drag to it asked for.
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x - 100.0,
+        grip.y + 100.0 * 180.0 / 320.0,
+    ))));
+    assert_eq!(
+        crate::call::corner::corner_size(&app).width,
+        520.0,
+        "back to 100 px wider"
+    );
+    // Let go, it keeps none of the drag and the size stays for the next
+    // window.
+    let _ = app.update(Message::Call(Event::Drop));
+    assert!(app.call.resize.is_none() && app.call.grab.is_none());
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).corner_width,
+        Some(520.0),
+        "kept"
+    );
+    // A click on its grip opens nothing, where one on the picture returns
+    // to the call.
+    let selected = app.client.state().selected.clone();
+    app.pressed.set(crate::call::corner::grip(&app).center());
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(app.client.state().selected, selected, "no call opened");
+    // Pressed on the picture instead, it's moved, not resized.
+    app.pressed.set(Point::new(grip.x + 100.0, grip.y - 100.0));
+    let _ = app.update(Message::Call(Event::Grab));
+    assert!(
+        app.call.grab.is_some() && app.call.resize.is_none(),
+        "moved"
+    );
+    // Its edges fall on the window's own pixels, at any zoom, so its
+    // picture and the shade over it end on the same row.
+    app.shell.zoom = 1.15;
+    let size = crate::call::corner::corner_size(&app);
+    let pixels = app.device_scale();
+    for length in [size.width, size.height] {
+        assert!(
+            (length * pixels).fract().abs() < 0.01,
+            "{length} is a whole window pixel: {}",
+            length * pixels
+        );
+    }
 }
 
 #[test]

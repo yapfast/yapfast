@@ -694,38 +694,20 @@ impl<M> Widget<M, Theme, Renderer> for Video {
             iced::Point::new(x, y),
             Size::new(drawn_width / pixels, drawn_height / pixels),
         );
-        // The bars only, so the frame's pixels are written once.
-        let bars = [
-            Rectangle::new(tile.position(), Size::new(tile.width, picture.y - tile.y)),
-            Rectangle::new(
-                iced::Point::new(tile.x, picture.y + picture.height),
-                Size::new(
-                    tile.width,
-                    tile.y + tile.height - picture.y - picture.height,
-                ),
-            ),
-            Rectangle::new(
-                iced::Point::new(tile.x, picture.y),
-                Size::new(picture.x - tile.x, picture.height),
-            ),
-            Rectangle::new(
-                iced::Point::new(picture.x + picture.width, picture.y),
-                Size::new(
-                    tile.x + tile.width - picture.x - picture.width,
-                    picture.height,
-                ),
-            ),
-        ];
-        for bar in bars {
-            if bar.width >= 0.5 && bar.height >= 0.5 {
-                renderer.fill_quad(
-                    renderer::Quad {
-                        bounds: bar,
-                        ..Default::default()
-                    },
-                    self.ground,
-                );
-            }
+        // Its ground under the picture, where the picture doesn't fill the
+        // tile: a bar beside it, or the fraction of a pixel it comes up
+        // short of the tile's edge, which left a hairline of whatever is
+        // behind the tile along that edge (a corner picture's border, in the
+        // shade under its title) as no bar that thin is worth drawing.
+        let short = picture.width < tile.width - 0.01 || picture.height < tile.height - 0.01;
+        if short {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: tile,
+                    ..Default::default()
+                },
+                self.ground,
+            );
         }
         renderer.draw_image(
             raster::Image {
