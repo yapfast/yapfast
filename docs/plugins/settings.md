@@ -21,7 +21,12 @@ It has four tabs at the top:
   a `ListView` in a `SettingsFrame` with `fill`, so only the rows in sight
   exist, and a row's icon goes through `PictureStore` only while the row
   does.
-- **Installed**: a row per plugin: the kit's `form::switch` under its name and
+- **Installed**: a search field over the list, which filters it as it's
+  typed by each plugin's name, description and id (ignoring case), with how
+  many show of how many are installed ("12 of 120"), a button in the field
+  that clears it, and *No plugins match* with **Clear the search** when none
+  does; Ctrl+F on the tab puts the keys in it. Then a row per plugin: the
+  kit's `form::switch` under its name and
   description, which takes effect at once, its version and status (*Idle*,
   *Running*, *Suspended: ran out of memory*), *Version 1.2 is available* when
   there is one, and its buttons: **Restart** while it is suspended, which

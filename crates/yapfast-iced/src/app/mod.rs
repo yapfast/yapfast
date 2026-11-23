@@ -676,6 +676,18 @@ impl App {
             }
             Message::Forum(event) => crate::forum::update(self, event),
             Message::BrowseChannels(event) => crate::browse_channels::update(self, event),
+            // On Settings → Plugins → Installed, Ctrl+F searches the
+            // plugins installed rather than the conversation.
+            #[cfg(feature = "plugins")]
+            Message::Search(crate::search::Event::Focus { .. })
+                if self
+                    .win
+                    .settings
+                    .get()
+                    .is_some_and(crate::settings::searches_installed) =>
+            {
+                operation::focus(crate::settings::PLUGIN_SEARCH)
+            }
             Message::Search(crate::search::Event::Focus { channel }) => {
                 crate::search::focus(self, channel)
             }

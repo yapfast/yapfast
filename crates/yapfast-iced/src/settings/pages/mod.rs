@@ -33,6 +33,8 @@ pub(super) use plugins::PluginPage;
 pub use plugins::Tab;
 #[cfg(feature = "plugins")]
 pub(in crate::settings) use plugins::plugin_dialog;
+#[cfg(feature = "plugins")]
+pub use plugins::{INSTALLED_SEARCH as PLUGIN_SEARCH, searches_installed};
 mod sounds;
 
 /// The choices of Messages' animations, of the date's order, of the sound

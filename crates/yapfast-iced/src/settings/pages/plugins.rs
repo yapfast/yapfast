@@ -109,6 +109,9 @@ pub struct PluginPage {
     pub tab: Tab,
     /// The marketplace's search field and the query it filters by.
     pub search: String,
+    /// What the Installed tab's search field holds, which filters the
+    /// installed plugins by name, description and id as it's typed.
+    pub installed_search: String,
     pub query: String,
     /// The chosen category, 0 being every one.
     pub category: usize,
@@ -219,6 +222,8 @@ pub enum PluginEvent {
     Opened(bool),
     Tab(Tab),
     Search(String),
+    /// The Installed tab's search field took a keystroke, or was cleared.
+    SearchInstalled(String),
     /// The marketplace's category chip chosen, 0 being every one.
     Category(usize),
     Url(String),
@@ -308,6 +313,30 @@ pub enum PluginEvent {
     },
     SetMemoryBudget(u32),
     SetIdleMinutes(u32),
+}
+
+/// The Installed tab's search field, which Ctrl+F focuses on that tab.
+#[cfg(feature = "plugins")]
+pub const INSTALLED_SEARCH: &str = "plugin-installed-search";
+
+/// Whether an installed plugin is one `query` finds: in its name, its
+/// description or its id, ignoring case and the spaces round it.
+#[cfg(feature = "plugins")]
+fn installed_matches(plugin: &Installed, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+    query.is_empty()
+        || [&plugin.name, &plugin.description, &plugin.id]
+            .into_iter()
+            .any(|text| text.to_lowercase().contains(&query))
+}
+
+/// Whether Ctrl+F belongs to the Installed tab's search: Settings is open on
+/// Plugins, on that tab, with no plugin's own page open.
+#[cfg(feature = "plugins")]
+pub fn searches_installed(settings: &Settings) -> bool {
+    settings.section() == crate::settings::Section::Plugins
+        && settings.plugins.tab == Tab::Installed
+        && settings.plugins.open.is_none()
 }
 
 #[cfg(feature = "plugins")]
@@ -427,6 +456,7 @@ impl Settings {
                     self.plugins.search = text.clone();
                     self.plugins.query = text;
                 }
+                PluginEvent::SearchInstalled(text) => self.plugins.installed_search = text,
                 PluginEvent::Category(index) => self.plugins.category = index,
                 PluginEvent::Url(text) => self.plugins.url = text,
                 PluginEvent::Open(id) => {
@@ -913,11 +943,52 @@ impl<'a> Page<'a> {
             )];
         }
         let look = self.cx.look;
-        let slots = self.cx.state.plugin_slots.as_deref();
-        let showing = self.cx.state.plugin_activity.as_ref();
-        let rows: Vec<Element<'a, Message>> = view
+        let query = self.s.plugins.installed_search.as_str();
+        let matching: Vec<&Installed> = view
             .installed
             .iter()
+            .filter(|plugin| installed_matches(plugin, query))
+            .collect();
+        let mut parts = vec![self.installed_search(theme)];
+        let total = view.installed.len();
+        parts.push(form::note(
+            theme,
+            if query.trim().is_empty() {
+                format!("{total} installed")
+            } else {
+                format!("{} of {total}", matching.len())
+            },
+        ));
+        if matching.is_empty() {
+            parts.push(list_card(
+                theme,
+                vec![
+                    column![
+                        text("No plugins match").size(15).font(BOLD).color(theme.text),
+                        form::note(
+                            theme,
+                            format!(
+                                "Nothing installed has \u{201c}{}\u{201d} in its name, description or id.",
+                                query.trim()
+                            ),
+                        ),
+                        controls::action(
+                            theme,
+                            "Clear the search",
+                            ActionKind::Plain,
+                            Some(plugin_message(PluginEvent::SearchInstalled(String::new()))),
+                        ),
+                    ]
+                    .spacing(8)
+                    .into(),
+                ],
+            ));
+            return parts;
+        }
+        let slots = self.cx.state.plugin_slots.as_deref();
+        let showing = self.cx.state.plugin_activity.as_ref();
+        let rows: Vec<Element<'a, Message>> = matching
+            .into_iter()
             .map(|plugin| {
                 let page = !plugin.settings.schema.settings.is_empty()
                     || slots.is_some_and(|slots| {
@@ -942,7 +1013,48 @@ impl<'a> Page<'a> {
                 }
             })
             .collect();
-        vec![list_card(theme, rows)]
+        parts.push(list_card(theme, rows));
+        parts
+    }
+
+    /// The Installed tab's search field: a magnifier at its right while
+    /// it's empty, a button that clears it once something is typed. Ctrl+F
+    /// on the tab puts the keys in it.
+    #[cfg(feature = "plugins")]
+    fn installed_search(self, theme: &Theme) -> Element<'a, Message> {
+        let look = self.cx.look;
+        let typed = &self.s.plugins.installed_search;
+        let field = form::field(theme, INSTALLED_SEARCH, "Search installed plugins", typed)
+            .on_input(|text| plugin_message(PluginEvent::SearchInstalled(text)))
+            .padding(iced::Padding {
+                top: 9.0,
+                right: 40.0,
+                bottom: 9.0,
+                left: 12.0,
+            });
+        let end: Element<'a, Message> = if typed.is_empty() {
+            look.glyph(crate::pictures::Icon::Search, 18, theme.muted)
+                .into()
+        } else {
+            look.icon_button(
+                crate::pictures::Icon::X,
+                "Clear search",
+                plugin_message(PluginEvent::SearchInstalled(String::new())),
+            )
+            .size(28.0, 16)
+            .into()
+        };
+        iced::widget::stack![
+            field,
+            container(end)
+                .padding(iced::Padding {
+                    right: 8.0,
+                    ..iced::Padding::ZERO
+                })
+                .align_right(Length::Fill)
+                .center_y(Length::Fill),
+        ]
+        .into()
     }
 
     #[cfg(feature = "plugins")]
@@ -2898,6 +3010,30 @@ fn trim(value: f64) -> String {
 #[cfg(all(test, feature = "plugins"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_installed_search_finds_a_plugin_by_its_name_description_or_id() {
+        let plugin = Installed {
+            id: "dev.yapfast.message-logger".to_owned(),
+            name: "Message Logger".to_owned(),
+            description: "Keeps deleted and edited messages.".to_owned(),
+            ..Installed::default()
+        };
+        for query in [
+            "",
+            "  ",
+            "logger",
+            "MESSAGE log",
+            "deleted",
+            "dev.yapfast",
+            " edited ",
+        ] {
+            assert!(installed_matches(&plugin, query), "{query:?} finds it");
+        }
+        for query in ["spotify", "loggers", "yapfast.oneko"] {
+            assert!(!installed_matches(&plugin, query), "{query:?} doesn't");
+        }
+    }
 
     fn listing(kind: page::Kind, category: &str) -> Listing {
         Listing {

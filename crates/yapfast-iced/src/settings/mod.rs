@@ -51,6 +51,8 @@ pub use appearance::Event as ThemeEvent;
 pub use pages::PluginEvent;
 #[cfg(all(test, feature = "plugins"))]
 pub use pages::{DevTab, Tab as PluginTab};
+#[cfg(feature = "plugins")]
+pub use pages::{PLUGIN_SEARCH, searches_installed};
 
 /// What a theme editor's change sends.
 #[cfg(test)]

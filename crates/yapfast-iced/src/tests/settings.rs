@@ -62,6 +62,30 @@ fn plugin_advanced_controls_have_their_own_tab() {
     assert!(!present(&app, "Install a plugin"));
 }
 
+/// Ctrl+F on Settings → Plugins → Installed puts the keys in its search,
+/// and on another tab does what it does over any page: nothing.
+#[cfg(feature = "plugins")]
+#[test]
+fn ctrl_f_on_the_installed_plugins_focuses_their_search() {
+    use crate::settings::{PluginEvent, PluginTab};
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Plugins);
+    let ctrl_f = |app: &mut App| {
+        app.update(Message::Search(crate::search::Event::Focus {
+            channel: true,
+        }))
+        .units()
+    };
+    assert!(
+        ctrl_f(&mut app) > 0,
+        "the installed plugins' search focused"
+    );
+    let _ = app.update(Message::Settings(Event::Plugin(PluginEvent::Tab(
+        PluginTab::Marketplace,
+    ))));
+    assert_eq!(ctrl_f(&mut app), 0, "not the marketplace's");
+}
+
 /// A plugin chosen in Advanced goes through the same runtime request as the
 /// core's local installer, and the page returns to its installed rows.
 #[cfg(feature = "plugins")]
