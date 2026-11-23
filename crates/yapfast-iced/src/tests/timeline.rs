@@ -516,6 +516,33 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
 }
 
 #[test]
+fn the_unread_bar_stays_while_the_new_divider_is_above_whats_loaded() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 30);
+    change(&mut app, |state| {
+        // Discord's items, the newest loaded after a reply from a window of
+        // older ones: the first unread is older than all of them.
+        for (index, message) in Arc::make_mut(&mut state.messages).iter_mut().enumerate() {
+            let message = Arc::make_mut(message);
+            message.item = format!("d:{}", 1000 + index);
+        }
+        state.first_unread = Some("d:5".into());
+        state.caught_up = false;
+    });
+    assert!(!present(&app, "NEW"), "the divider isn't loaded");
+    let mut found = false;
+    interact(&mut app, |ui| {
+        found = starting(ui, "30+ new messages").is_some();
+    });
+    assert!(found, "the banner back to it stays");
+    change(&mut app, |state| state.first_unread = Some("d:2000".into()));
+    assert!(
+        !shows(&app, "Mark as read"),
+        "a divider past what's loaded shows no banner"
+    );
+}
+
+#[test]
 fn a_link_preview_and_a_file_show_in_their_cards() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {

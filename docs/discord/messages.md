@@ -92,6 +92,8 @@ roles. A ping reply puts the account in `mentions`, so it is a mention,
 highlighted always, as Discord's client does. A reply to its message with the
 ping off is highlighted too, but only while it's new: after the last message
 read when the channel or thread opened, by snowflake.
+The account's own message that names it is highlighted as well, as
+Discord's client does, though it counts as no mention.
 Each server in the rail shows its mentions as a count, and the DM button
 counts DM mentions and the friend requests waiting for an answer. A voice
 channel's unread chat marks its server in the rail only by mentions, as
@@ -272,7 +274,9 @@ Yapfast is back, rather than showing an error.
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
   menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
-  message says. Pictures come through Discord's
+  message says. A link straight to a video file, which Discord embeds as the
+  video alone, plays under the message as an attached video does, its first
+  frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
@@ -530,7 +534,8 @@ Yapfast is back, rather than showing an error.
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
-  wrote lately, and server members a search by name finds (the gateway's
+  wrote lately, this account among them as in Discord's client, and server
+  members a search by name finds (the gateway's
   member request with a query, as Discord's client does), then the roles
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's

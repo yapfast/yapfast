@@ -94,6 +94,10 @@ pub struct Shell {
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
+    /// Under the desktop's own title bar, or none, Discord's bar still
+    /// shows, without the window's buttons; the tests lay the window out
+    /// without it unless one asks.
+    pub bar_under_frame: bool,
     /// That the GPU failed to start, until the banner is dismissed.
     pub gpu_notice: bool,
 }

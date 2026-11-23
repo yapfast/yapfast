@@ -1331,10 +1331,13 @@ impl Server {
                 let name = self.role_names.get(role)?;
                 let position = self.role_positions.get(role).copied().unwrap_or_default();
                 let color = self.role_colors.get(role).map(|(_, color)| *color);
-                Some((std::cmp::Reverse(position), name.clone(), color))
+                // Two roles at one position rank by id, the older higher,
+                // as Discord's client ranks them.
+                let id = role.parse::<u64>().unwrap_or(u64::MAX);
+                Some(((std::cmp::Reverse(position), id), name.clone(), color))
             })
             .collect();
-        named.sort();
+        named.sort_by_key(|(rank, ..)| *rank);
         named
             .into_iter()
             .map(|(_, name, color)| (name, color))
@@ -1863,6 +1866,38 @@ mod tests {
             let channel = parse_channel(&serde_json::json!({"id": "1", "type": kind})).unwrap();
             assert_eq!(channel.channel_type, Some(kind as u8));
         }
+    }
+
+    #[test]
+    fn roles_at_one_position_rank_by_id_the_older_higher() {
+        let names = [
+            ("900", "Server Booster"),
+            ("12", "contributor"),
+            ("5", "Mods"),
+        ];
+        let server = Server {
+            id: "1".into(),
+            role_names: Arc::new(
+                names
+                    .iter()
+                    .map(|(id, name)| (id.to_string(), name.to_string()))
+                    .collect(),
+            ),
+            role_positions: Arc::new(
+                [("900", 2), ("12", 2), ("5", 3)]
+                    .iter()
+                    .map(|(id, position)| (id.to_string(), *position))
+                    .collect(),
+            ),
+            ..Server::default()
+        };
+        let roles: Vec<String> = ["900", "12", "5"].iter().map(|id| id.to_string()).collect();
+        let named: Vec<String> = server
+            .named_roles(&roles)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(named, ["Mods", "contributor", "Server Booster"]);
     }
 
     #[test]
