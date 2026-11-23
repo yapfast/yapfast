@@ -198,14 +198,32 @@ fn rows_view<'a, M: Clone + 'a>(
             }
             cells.into()
         } else {
+            // The cells marked `end` sit together at the row's end, as a
+            // dialog's buttons do; the rest wrap from its start.
             let mut cells = row![]
                 .spacing(8)
                 .align_y(Alignment::Center)
                 .width(Length::Fill);
+            let mut ends = row![].spacing(8).align_y(Alignment::Center);
+            let mut any_end = false;
             for cell in &line.cells {
-                cells = cells.push(cell_view(paint, cell, message));
+                if cell.end {
+                    ends = ends.push(cell_view(paint, cell, message));
+                    any_end = true;
+                } else {
+                    cells = cells.push(cell_view(paint, cell, message));
+                }
             }
-            cells.wrap().vertical_spacing(6).into()
+            let start: Element<'a, M> = cells.wrap().vertical_spacing(6).into();
+            if any_end {
+                row![container(start).width(Length::Fill), ends]
+                    .spacing(8)
+                    .align_y(Alignment::Center)
+                    .width(Length::Fill)
+                    .into()
+            } else {
+                start
+            }
         };
         let mut drawn = drawn;
         if line.framed {
@@ -571,6 +589,11 @@ fn cell_body<'a, M: Clone + 'a>(
                     line = line.push(
                         container(cell_view(paint, inner, message))
                             .width(Length::FillPortion(1))
+                            .align_x(if inner.end {
+                                Alignment::End
+                            } else {
+                                Alignment::Start
+                            })
                             .clip(true),
                     );
                 }

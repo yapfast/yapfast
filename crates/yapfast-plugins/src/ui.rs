@@ -1364,6 +1364,10 @@ pub struct Cell {
     /// A button drawn small (28 px tall), as in a row or a list.
     #[serde(default)]
     pub small: bool,
+    /// Drawn at its row's end (with the row's other end cells after it), or
+    /// at a grid cell's end, as a dialog's buttons or a row's action are.
+    #[serde(default)]
+    pub end: bool,
     /// A section's rows.
     #[serde(default)]
     pub rows: Vec<Row>,
@@ -1517,6 +1521,7 @@ impl Default for Cell {
             icon: String::new(),
             variant: Variant::Secondary,
             small: false,
+            end: false,
             rows: Vec::new(),
             cells: Vec::new(),
             columns: 0,
@@ -2225,6 +2230,20 @@ mod tests {
             .is_err(),
             "a face Yapfast doesn't have is refused"
         );
+    }
+
+    #[test]
+    fn a_cell_may_sit_at_its_rows_end() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "text", "text": "Delete it?" },
+                { "kind": "button", "id": "no", "text": "Cancel", "end": true },
+                { "kind": "button", "id": "yes", "text": "Delete", "variant": "danger", "end": true }
+            ] }] }"#,
+        )
+        .unwrap();
+        let ends: Vec<bool> = tree.rows[0].cells.iter().map(|cell| cell.end).collect();
+        assert_eq!(ends, [false, true, true]);
     }
 
     #[test]

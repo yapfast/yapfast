@@ -309,7 +309,10 @@ it looks like the buttons beside it; a name this build doesn't have draws the
 text. In the voice panel each button is a tile of the panel's own row, its
 tooltip naming the plugin (*Next song · Controls plugin*).
 
-Any cell takes a `tooltip`, plain text shown when the pointer rests on it. A
+Any cell takes a `tooltip`, plain text shown when the pointer rests on it, and
+`end`: the row's cells with `end` sit together at its end, in their order, and
+the rest wrap from its start, so a dialog's Cancel and Delete sit at its right
+as Yapfast's own do; in a grid, an `end` cell sits at its column's end. A
 cell's `tone` is `normal`, `muted`, `accent`, `success`, `warning` or `danger`,
 never a colour. A row's cells sit side by side while they fit the slot and wrap
 onto lines of their own when they don't, each at its natural width, so a plugin
