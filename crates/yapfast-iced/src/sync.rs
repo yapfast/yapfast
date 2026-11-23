@@ -372,6 +372,7 @@ impl App {
         }
         tasks.push(crate::thread::thread_sync(self));
         crate::header_popovers::popovers_sync(self);
+        crate::peek::sync(self);
         crate::search::search_sync(self);
         crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
@@ -987,6 +988,9 @@ impl App {
         }
         for url in crate::profile::profile_pictures(self.ctx()) {
             want(Some(&url));
+        }
+        for url in self.status.activity_pictures() {
+            want(Some(url));
         }
         for url in crate::friends::friends_pictures(self) {
             want(Some(&url));

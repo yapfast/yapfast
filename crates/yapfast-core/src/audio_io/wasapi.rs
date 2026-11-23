@@ -72,7 +72,10 @@ thread_local! {
 /// Discord's and browsers' do; a microphone's joins "Audio", the category
 /// below, which is still above every ordinary thread. Says how it raised
 /// the calling thread, or why it couldn't.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "Discord voice uses MMCSS thread priorities")
+)]
 pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
     let (name, how) = match priority {
         super::Priority::Playback => (w!("Pro Audio"), "MMCSS Pro Audio"),
@@ -783,7 +786,7 @@ mod others {
     impl IActivateAudioInterfaceCompletionHandler_Impl for Activated_Impl {
         fn ActivateCompleted(
             &self,
-            _: Ref<IActivateAudioInterfaceAsyncOperation>,
+            _: Ref<'_, IActivateAudioInterfaceAsyncOperation>,
         ) -> windows::core::Result<()> {
             let _ = self.0.send(());
             Ok(())

@@ -2819,7 +2819,9 @@ fn group_name(heading: &str) -> String {
     }
     let mut letters = heading.chars();
     letters.next().map_or_else(String::new, |first| {
-        first.to_string() + &letters.as_str().to_lowercase()
+        let mut name = first.to_string();
+        name.push_str(&letters.as_str().to_lowercase());
+        name
     })
 }
 

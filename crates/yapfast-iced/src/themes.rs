@@ -3035,20 +3035,7 @@ fn decoded_art(folder: &Path, layer: &art::Layer) -> Option<image::RgbaImage> {
 }
 
 fn picture_rgba(picture: &yapfast_core::chat::Picture) -> image::RgbaImage {
-    use yapfast_core::dominant_colour::Order;
-    let mut rgba = picture.rgba.to_vec();
-    if crate::pictures::byte_order(picture) == Order::Bgra {
-        for pixel in rgba.chunks_exact_mut(4) {
-            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-            let straight = |value: u8| match a {
-                0 => 0,
-                255 => value,
-                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
-            };
-            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
-        }
-    }
-    image::RgbaImage::from_raw(picture.width, picture.height, rgba)
+    image::RgbaImage::from_raw(picture.width, picture.height, picture.rgba.straight_rgba())
         .expect("decoded art has its declared dimensions")
 }
 
@@ -4645,8 +4632,20 @@ mod tests {
             std::fs::create_dir(folder).unwrap();
         }
         let long_ago = std::time::SystemTime::now() - Duration::from_secs(2 * 60 * 60);
+        let mut directory = std::fs::OpenOptions::new();
+        directory.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+            const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+            directory
+                .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+                .access_mode(FILE_WRITE_ATTRIBUTES);
+        }
         for folder in [&left, &other] {
-            std::fs::File::open(folder)
+            directory
+                .open(folder)
                 .unwrap()
                 .set_modified(long_ago)
                 .unwrap();

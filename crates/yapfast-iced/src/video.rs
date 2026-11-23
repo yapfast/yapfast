@@ -694,7 +694,12 @@ impl<M> Widget<M, Theme, Renderer> for Video {
             iced::Point::new(x, y),
             Size::new(drawn_width / pixels, drawn_height / pixels),
         );
-        // The bars only, so the frame's pixels are written once.
+        // The bars only, so the frame's pixels are written once: the
+        // software renderer fills every pixel it's given, each frame. A
+        // bar as thin as the fraction of a pixel the picture comes up short
+        // of the tile's edge is drawn too, or it left a hairline of
+        // whatever is behind the tile along that edge (a corner picture's
+        // border, in the shade under its title).
         let bars = [
             Rectangle::new(tile.position(), Size::new(tile.width, picture.y - tile.y)),
             Rectangle::new(
@@ -717,7 +722,7 @@ impl<M> Widget<M, Theme, Renderer> for Video {
             ),
         ];
         for bar in bars {
-            if bar.width >= 0.5 && bar.height >= 0.5 {
+            if bar.width > 0.01 && bar.height > 0.01 {
                 renderer.fill_quad(
                     renderer::Quad {
                         bounds: bar,

@@ -303,7 +303,7 @@ const DRAG_START: f32 = 4.0;
 /// follows the pointer through the window's events, not through it.
 pub struct Drags<'a, M> {
     click: Option<M>,
-    drag: Option<Box<dyn Fn(f32) -> M + 'a>>,
+    drag: Option<Box<dyn Fn(Point, Point) -> M + 'a>>,
     over: Option<Box<dyn Fn(bool) -> M + 'a>>,
     tracking: bool,
     head: Option<f32>,
@@ -337,7 +337,12 @@ impl<'a, M: Clone> Wrap<'a, Drags<'a, M>, M> {
         self
     }
 
-    pub fn drag(mut self, drag: impl Fn(f32) -> M + 'a) -> Self {
+    pub fn drag(self, drag: impl Fn(f32) -> M + 'a) -> Self {
+        self.drag_at(move |_, grab| drag(grab.y))
+    }
+
+    /// Starts a drag with the window pointer and the press offset in the tile.
+    pub fn drag_at(mut self, drag: impl Fn(Point, Point) -> M + 'a) -> Self {
         self.hooks.drag = Some(Box::new(drag));
         self
     }
@@ -379,13 +384,17 @@ impl<M: Clone> Hooks<M> for Drags<'_, M> {
         if !(released && self.tracking) {
             child.update(shell);
         }
-        if let (Some(from), Some(position), Some(drag)) =
-            (state.pressed, moved_to(event, at.cursor), &self.drag)
+        if let iced::Event::Mouse(mouse::Event::CursorMoved { position }) = event
+            && let (Some(from), Some(cursor), Some(drag)) =
+                (state.pressed, at.cursor.position(), &self.drag)
             && !state.moved
-            && (position.y - from.y).abs() > DRAG_START
+            && (cursor.y - from.y).abs() > DRAG_START
         {
             state.moved = true;
-            shell.publish(drag(from.y - bounds.y));
+            shell.publish(drag(
+                *position,
+                Point::new(from.x - bounds.x, from.y - bounds.y),
+            ));
         }
         match event {
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {

@@ -217,7 +217,7 @@ mod linux {
             .add_field(true)
             .add_field(8i32)
             .add_field(4i32)
-            .add_field(picture.rgba.to_vec())
+            .add_field(picture.rgba.straight_rgba())
             .build()
             .ok()?;
         Some(Value::from(structure))
@@ -408,7 +408,7 @@ mod windows {
     fn save(picture: &Picture, path: &Path) -> image::ImageResult<()> {
         let file = std::io::BufWriter::new(std::fs::File::create(path)?);
         image::codecs::png::PngEncoder::new(file).write_image(
-            &picture.rgba,
+            &picture.rgba.straight_rgba(),
             picture.width,
             picture.height,
             image::ExtendedColorType::Rgba8,

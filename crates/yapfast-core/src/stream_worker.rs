@@ -809,7 +809,7 @@ impl Sink {
                             video.sound = stream_audio::Capture::start(video.sender.sound(), audio)
                                 .inspect_err(|error| {
                                     self.audio_error =
-                                        Some(format!("Could not share stream audio: {error:#}"))
+                                        Some(format!("Could not share stream audio: {error:#}"));
                                 })
                                 .ok();
                         }

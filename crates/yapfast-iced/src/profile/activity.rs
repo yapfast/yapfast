@@ -1,27 +1,42 @@
-//! One of someone's activities on their profile: its heading, its pictures,
-//! its lines, and how long it's run or how far a song has got.
+//! One of someone's activities on their profile, as Discord's client lays
+//! its card out: a heading, the picture with the small one at its corner,
+//! the title and up to two lines, then small lines with an icon (the
+//! party, an episode, how long it's run) or a song's bar.
 
 use iced::{
     Alignment, Color, Element, Length, Point, Rectangle, Size,
     widget::{Space, button, column, container, row, stack, text},
 };
 
-use super::look::{ActivityLook, Inks, clock};
+use super::look::{ActivityLook, Inks, clock, timer};
 use crate::{
     app::Message,
     controls::{Kind, action, ink_style},
-    fonts::{BOLD, SEMIBOLD},
+    elide::elide,
+    fonts::{MEDIUM, SEMIBOLD},
     looks::Status,
     people::StatusInk,
+    pictures::Icon,
     style::rounded,
     widgets::Pic,
 };
 
-/// The large picture, the small one on its ring, and where the ring sits.
-const LARGE: f32 = 64.0;
-const SMALL: f32 = 22.0;
-const RING: f32 = 26.0;
-const RING_AT: f32 = 44.0;
+/// The picture and the small one at its corner: 60 and 24 on a card, 100
+/// and 32 on the full profile, as Discord's `size-60` and `size-100`.
+/// Whether the theme dresses activity cards (its content follows the
+/// theme): its accent fills a song's bar and its card shape rounds the art.
+fn activity_themed(ctx: crate::ctx::Ctx<'_>) -> bool {
+    ctx.themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme)
+}
+
+fn sizes(big: bool) -> (f32, f32) {
+    if big { (100.0, 32.0) } else { (60.0, 24.0) }
+}
 
 /// Now, in Unix seconds, as the activities' times count.
 fn now_seconds() -> u64 {
@@ -60,29 +75,55 @@ fn progress(
     }
 }
 
-/// An activity's card; its times move as the clock does.
+/// An activity's card; its times move as the clock does. `big` is the
+/// full profile's, with the larger picture; `bot` leaves the picture out,
+/// as Discord does on a bot's card.
 pub fn activity_card_view<'a>(
     ctx: crate::ctx::Ctx<'a>,
     activity: &'a ActivityLook,
     inks: &Inks,
     menu: Option<bool>,
+    big: bool,
+    bot: bool,
 ) -> Element<'a, Message> {
+    card_view(ctx, activity, inks, menu, big, bot)
+}
+
+/// The account menu uses the same card as a profile, without its menu:
+/// the time runs in green beside the kind's icon there too.
+pub fn account_activity_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    activity: &'a ActivityLook,
+    inks: &Inks,
+) -> Element<'a, Message> {
+    card_view(ctx, activity, inks, None, false, false)
+}
+
+fn card_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    activity: &'a ActivityLook,
+    inks: &Inks,
+    menu: Option<bool>,
+    big: bool,
+    bot: bool,
+) -> Element<'a, Message> {
+    // The heading ends with "…" short of the more button, never under it.
     let mut head = row![
-        text(activity.heading.as_str())
-            .size(12)
-            .font(BOLD)
-            .color(inks.ink3)
-            .wrapping(text::Wrapping::None)
-            .width(Length::Fill)
+        container(
+            elide(activity.heading.as_str())
+                .size(12)
+                .font(MEDIUM)
+                .color(inks.ink)
+        )
+        .width(Length::Fill)
     ]
+    .spacing(4)
     .height(16)
     .align_y(Alignment::Center);
     // Discord's more menu, on anyone's card but a bot's; on one's own
     // game it offers its privacy too.
     if let Some(own) = menu {
-        let face = ctx
-            .look
-            .glyph(crate::pictures::Icon::Ellipsis, 14, inks.ink2);
+        let face = ctx.look.glyph(Icon::Ellipsis, 14, inks.ink2);
         head = head.push(ctx.look.face_button(
             face,
             20.0,
@@ -91,18 +132,26 @@ pub fn activity_card_view<'a>(
         ));
     }
     let mut card = column![head].spacing(8);
-    let mut body = row![].spacing(12).align_y(Alignment::Center);
-    if let Some(large) = &activity.large {
-        body = body.push(activity_art(ctx, large, activity.small.as_deref(), inks));
+    let mut body = row![]
+        .spacing(if big { 12 } else { 8 })
+        .align_y(Alignment::Center);
+    if !bot {
+        body = body.push(activity_art(
+            ctx,
+            activity.large.as_deref(),
+            activity.small.as_deref(),
+            inks,
+            big,
+        ));
     }
-    let mut lines = column![].spacing(2).width(Length::Fill);
+    let mut lines = column![].spacing(4).width(Length::Fill);
     let title: Element<'a, Message> = match &activity.link {
         // A song's title opens its page, as in Discord.
         Some(link) => button(
-            text(activity.name.as_str())
+            elide(activity.name.as_str())
                 .size(14)
-                .font(BOLD)
-                .wrapping(text::Wrapping::None),
+                .font(SEMIBOLD)
+                .color(inks.ink),
         )
         .padding(0)
         .on_press(Message::Link(link.clone(), Point::ORIGIN))
@@ -118,85 +167,99 @@ pub fn activity_card_view<'a>(
         }
     };
     lines = lines.push(title);
-    for line in [&activity.details, &activity.state] {
-        if !line.is_empty() {
-            lines = lines.push(
-                text(line.as_str())
-                    .size(13)
-                    .color(inks.ink2)
-                    .wrapping(text::Wrapping::None),
+    for line in &activity.lines {
+        lines = lines.push(elide(line.as_str()).size(12).color(inks.ink2));
+    }
+    // The small lines, each with its icon: the party, the episode, then
+    // how long it's run in the online green.
+    let green = ctx.look.theme.live;
+    let small =
+        |icon: Icon, color: Color| ctx.look.icons.coloured(icon, 12, crate::theme::rgb(color));
+    let mut chips = row![].spacing(8).align_y(Alignment::Center);
+    let mut any = false;
+    for (icon, words) in [
+        (Icon::Users, &activity.party),
+        (Icon::Tv, &activity.episode),
+    ] {
+        if let Some(words) = words {
+            any = true;
+            chips = chips.push(
+                row![
+                    Pic::square(small(icon, inks.ink2), 12.0),
+                    elide(words.as_str()).size(12).color(inks.ink2)
+                ]
+                .spacing(4)
+                .align_y(Alignment::Center),
             );
         }
     }
     // Its times move by themselves, each second: no message, no view.
     let second = std::time::Duration::from_secs(1);
-    match (activity.start, activity.end) {
-        // A song, with its start and end, shows how far it's got on a
-        // bar, with how long it is either side.
-        (Some(start), Some(end)) if end > start => {
-            let length = end - start;
-            let played = move || now_seconds().saturating_sub(start).min(length);
-            let track = if inks.themed {
-                Color { a: 0.2, ..inks.ink }
-            } else {
-                ctx.look.theme.raised
-            };
-            let activity_themed = ctx
-                .themes
-                .content(
-                    &ctx.look.theme.id,
-                    ctx.layout.theme_content.contains(&ctx.look.theme.id),
-                )
-                .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
-            let ink = if activity_themed {
-                ctx.look.theme.accent
-            } else {
-                inks.ink
-            };
-            let filled = crate::widgets::gauge(second, move |renderer, bounds| {
-                let share = played() as f32 / length.max(1) as f32;
-                progress(renderer, bounds, share, track, ink);
-            })
-            .height(3);
-            lines = lines.push(
-                row![
-                    crate::widgets::live_text(second, move || clock(played()))
-                        .size(12)
-                        .color(inks.ink2),
-                    filled,
-                    text(clock(length)).size(12).color(inks.ink2),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            );
-        }
-        (Some(start), _) => {
-            lines = lines.push(
+    if let Some(since) = activity.since {
+        any = true;
+        let until = activity.until;
+        let icon = Icon::activity(activity.icon).unwrap_or(Icon::Gamepad);
+        chips = chips.push(
+            row![
+                Pic::square(small(icon, green), 12.0),
                 crate::widgets::live_text(second, move || {
-                    format!("{} elapsed", clock(now_seconds().saturating_sub(start)))
+                    let now = until.map_or(now_seconds(), |until| now_seconds().min(until));
+                    timer(now.saturating_sub(since))
                 })
                 .size(12)
-                .color(inks.ink3),
-            );
-        }
-        (None, Some(end)) => {
-            lines = lines.push(
-                crate::widgets::live_text(second, move || {
-                    format!("{} left", clock(end.saturating_sub(now_seconds())))
-                })
-                .size(12)
-                .color(inks.ink3),
-            );
-        }
-        (None, None) => {}
+                .color(green),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center),
+        );
+    }
+    if any {
+        lines = lines.push(chips);
+    }
+    // A song or show with its start and end shows how far it's got on a
+    // bar, with how long it is either side.
+    if let Some((start, end)) = activity.bar {
+        let length = end - start;
+        let played = move || now_seconds().saturating_sub(start).min(length);
+        let track = Color {
+            a: if inks.themed { 0.2 } else { 0.12 },
+            ..inks.ink
+        };
+        let ink = if activity_themed(ctx) {
+            ctx.look.theme.accent
+        } else {
+            inks.ink
+        };
+        let filled = crate::widgets::gauge(second, move |renderer, bounds| {
+            let share = played() as f32 / length.max(1) as f32;
+            progress(renderer, bounds, share, track, ink);
+        })
+        .height(2);
+        lines = lines.push(
+            row![
+                crate::widgets::live_text(second, move || clock(played()))
+                    .size(12)
+                    .font(iced::Font::MONOSPACE)
+                    .color(inks.ink2),
+                filled,
+                text(clock(length))
+                    .size(12)
+                    .font(iced::Font::MONOSPACE)
+                    .color(inks.ink2),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
     }
     body = body.push(lines);
     card = card.push(body);
-    if let Some(url) = &activity.url {
+    if let Some(url) = &activity.url
+        && menu != Some(true)
+    {
         card = card.push(
             action(
                 ctx.look.theme,
-                "Watch stream",
+                "Watch",
                 Kind::Plain,
                 Some(Message::Link(url.clone(), Point::ORIGIN)),
             )
@@ -206,66 +269,73 @@ pub fn activity_card_view<'a>(
     card.into()
 }
 
-/// The large picture, with the small one on a ring of the card's ground
-/// at its corner.
+/// The picture, or a plain square when there's none, with the small one
+/// on a ring of the card's ground at its lower corner, overhanging it by
+/// 4 px as Discord's does.
 fn activity_art<'a>(
     ctx: crate::ctx::Ctx<'a>,
-    large: &str,
+    large: Option<&str>,
     small: Option<&str>,
     inks: &Inks,
+    big: bool,
 ) -> Element<'a, Message> {
-    let theme = ctx.look.theme;
-    let raised = theme.raised;
-    let activity_themed = ctx
-        .themes
-        .content(&theme.id, ctx.layout.theme_content.contains(&theme.id))
-        .is_some_and(|c| c.activity == yapfast_core::themes::content::Follow::Theme);
-    let tile_border = if activity_themed {
-        theme.surface_border("card", LARGE / 6.0, 0.0, Color::TRANSPARENT)
+    let (side, small_side) = sizes(big);
+    let ring = small_side + 4.0;
+    let ring_at = side + 4.0 - ring;
+    // The square under the picture, and all there is without one: the
+    // field's shade, which stands apart from the card's tile.
+    let under = inks.field;
+    let themed = activity_themed(ctx);
+    let radius = if themed {
+        ctx.look.theme.surface_radius("card", 8.0)
     } else {
-        crate::style::round(LARGE / 6.0)
+        8.0
     };
-    let tile_radius = if activity_themed {
-        theme.surface_radius("card", LARGE / 6.0)
+    let border = if themed {
+        ctx.look
+            .theme
+            .surface_border("card", 8.0, 0.0, Color::TRANSPARENT)
     } else {
-        LARGE / 6.0
+        crate::style::round(radius)
     };
-    let square = Size::new(LARGE, LARGE);
-    let mut pictures =
-        stack![
-            container(Space::new())
-                .width(LARGE)
-                .height(LARGE)
-                .style(move |_| iced::widget::container::Style {
-                    background: Some(raised.into()),
-                    border: tile_border,
-                    ..Default::default()
-                })
-        ];
-    if let Some(picture) = ctx.picture(large, LARGE as u32, LARGE as u32, true) {
-        pictures = pictures.push(Pic::new(picture, square).radius(tile_radius));
+    let mut pictures = stack![
+        container(Space::new())
+            .width(side)
+            .height(side)
+            .style(move |_| iced::widget::container::Style {
+                background: Some(under.into()),
+                border,
+                ..Default::default()
+            })
+    ];
+    if let Some(picture) =
+        large.and_then(|large| ctx.picture(large, side as u32, side as u32, true))
+    {
+        pictures = pictures.push(Pic::new(picture, Size::new(side, side)).radius(radius));
     }
+    let mut outer = side;
     if let Some(small) = small {
+        outer = ring_at + ring;
         let ground = inks.ground;
         pictures = pictures.push(crate::controls::placed(
             container(Space::new())
-                .width(RING)
-                .height(RING)
-                .style(move |_| rounded(ground, RING / 2.0)),
-            RING_AT,
-            RING_AT,
+                .width(ring)
+                .height(ring)
+                .style(move |_| rounded(ground, ring / 2.0)),
+            ring_at,
+            ring_at,
         ));
-        if let Some(picture) = ctx.picture(small, SMALL as u32, SMALL as u32, true) {
-            let inset = RING_AT + (RING - SMALL) / 2.0;
+        if let Some(picture) = ctx.picture(small, small_side as u32, small_side as u32, true) {
+            let inset = ring_at + 2.0;
             pictures = pictures.push(
-                Pic::new(picture, Size::new(RING_AT + RING, RING_AT + RING))
+                Pic::new(picture, Size::new(outer, outer))
                     .at(Rectangle::new(
                         Point::new(inset, inset),
-                        Size::new(SMALL, SMALL),
+                        Size::new(small_side, small_side),
                     ))
-                    .radius(SMALL / 2.0),
+                    .radius(small_side / 2.0),
             );
         }
     }
-    container(pictures).width(LARGE).height(LARGE).into()
+    container(pictures).width(outer).height(outer).into()
 }
