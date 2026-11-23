@@ -106,7 +106,7 @@ impl<'a> Page<'a> {
             theme,
             "Restart Yapfast",
             Kind::Plain,
-            Some(Message::Settings(Event::Restart)),
+            Some(crate::app::settings(Event::Restart)),
         )
         .icon(self.cx.look.icon(Icon::Refresh, 18, ink));
         Some(form::beside(

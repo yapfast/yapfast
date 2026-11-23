@@ -543,6 +543,14 @@ impl Message {
         named || everyone || role
     }
 
+    /// Whether the timeline highlights it for `me`: as it calls on them,
+    /// or, being their own, as it names them, which Discord's client
+    /// highlights all the same though it never notifies of it.
+    pub fn highlights_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
+        self.names_me(me, marks)
+            || (self.author_id == me && self.mentions.iter().any(|user| user == me))
+    }
+
     /// Whether it replies to a message of `me`'s, not being its own.
     pub fn replies_to(&self, me: &str) -> bool {
         self.author_id != me
@@ -3563,6 +3571,12 @@ mod tests {
         let own = message(json!({"author": {"id": "1", "username": "alice"},
             "mention_everyone": true}));
         assert!(!own.mentions_me(me, Some(&server)));
+        assert!(!own.highlights_me(me, Some(&server)));
+        // Naming herself, it's highlighted though it doesn't call on her.
+        let named = message(json!({"author": {"id": "1", "username": "alice"},
+            "mentions": [{"id": "1", "username": "alice"}], "content": "<@1>"}));
+        assert!(!named.mentions_me(me, Some(&server)));
+        assert!(named.highlights_me(me, Some(&server)));
         // A DM has no server: @everyone means nothing there.
         assert!(!message(json!({"mention_everyone": true})).mentions_me(me, None));
     }

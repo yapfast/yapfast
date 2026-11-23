@@ -40,6 +40,7 @@ mod messages;
 mod mfa;
 mod new_post;
 mod oauth;
+mod peek;
 mod place_search;
 mod places;
 mod polls;
@@ -264,6 +265,15 @@ impl NewDm {
 pub struct Pins {
     pub room: String,
     /// The latest pinned first; `None` while they're on their way.
+    pub messages: Option<Result<Vec<ChatMessage>, String>>,
+}
+
+/// A room's newest messages, peeked at without opening or reading it, while
+/// the peek shows. They go when it closes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Peek {
+    pub room: String,
+    /// Oldest first; `None` while they're on their way.
     pub messages: Option<Result<Vec<ChatMessage>, String>>,
 }
 
@@ -768,6 +778,9 @@ pub struct AppState {
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
     pub pins: Option<Pins>,
+    /// The room peeked at, and its newest messages once they came, while
+    /// the peek shows.
+    pub peek: Option<Peek>,
     pub search: Option<Search>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
@@ -1101,11 +1114,20 @@ impl AppState {
     /// suits going through every room, as [`Self::in_scope`] for each
     /// doesn't with many servers.
     pub fn scoped_rooms(&self) -> impl Iterator<Item = &ChatRoom> {
-        let server = match &self.navigation {
+        self.rooms_in(&self.navigation)
+    }
+
+    /// [`Self::scoped_rooms`] for `navigation` rather than the open one: a
+    /// server tree lists the channels of servers it isn't in.
+    pub fn rooms_in<'a>(
+        &'a self,
+        navigation: &Navigation,
+    ) -> impl Iterator<Item = &'a ChatRoom> + use<'a> {
+        let server = match navigation {
             Navigation::DirectMessages => None,
             Navigation::Server(id) => self.servers.iter().find(|server| &server.id == id),
         };
-        let channels: Option<HashSet<&str>> = match &self.navigation {
+        let channels: Option<HashSet<&str>> = match navigation {
             Navigation::DirectMessages => None,
             Navigation::Server(_) => Some(
                 server
@@ -1308,18 +1330,14 @@ impl AppState {
     }
 
     /// Who and what a message in the selected room may mention: its members, those
-    /// found by name and those who wrote lately, then its roles and groups. This
-    /// account isn't one of them.
+    /// found by name and those who wrote lately, this account among them as
+    /// in Discord's client, then its roles and groups.
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
         };
         let on_discord = Network::of(room) == Network::Discord;
-        let mut seen: HashSet<String> = [&self.discord_user, &self.account]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut candidates = Vec::new();
         let listed = self
             .members
@@ -1968,6 +1986,9 @@ pub enum Action {
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
     ShowPins(bool),
+    /// Peek at a room's newest messages without opening or reading it, as
+    /// holding Alt over it in the channel list asks, or stop.
+    Peek(Option<String>),
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -2367,6 +2388,12 @@ pub enum Action {
     CloseStatusEditor,
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`.
     SetStatus(String),
+    /// Drops a Discord server or folder in the rail.
+    FileServer {
+        server: String,
+        target: String,
+        before: Option<bool>,
+    },
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
     /// Set how loud the Discord account's soundboard plays, on its slider
@@ -3713,6 +3740,7 @@ impl Application {
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
+            Action::Peek(room) => self.peek(room),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -4056,6 +4084,33 @@ impl Application {
             Action::CloseStatusEditor => {
                 self.state.status_editor = None;
                 vec![]
+            }
+            Action::FileServer {
+                server,
+                target,
+                before,
+            } => {
+                if self.state.preview || self.state.discord_user.is_none() || server == target {
+                    return vec![];
+                }
+                let source_folder = crate::discord::parse_folder(&server);
+                let Some(server) = source_folder.or_else(|| crate::discord::parse_server(&server))
+                else {
+                    return vec![];
+                };
+                let folder = crate::discord::parse_folder(&target);
+                let Some(id) = folder.or_else(|| crate::discord::parse_server(&target)) else {
+                    return vec![];
+                };
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::FileServer {
+                        server: server.to_owned(),
+                        source_folder: source_folder.is_some(),
+                        target: id.to_owned(),
+                        folder: folder.is_some(),
+                        before,
+                    },
+                ))]
             }
             Action::SetStatus(status) => {
                 if self.state.preview
@@ -4465,6 +4520,12 @@ impl Application {
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
+            Event::ProfilePresence {
+                user,
+                presence,
+                activity,
+                activities,
+            } => self.show_profile_presence(&user, presence, activity, activities),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -4504,6 +4565,7 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
+            Event::Peeked { room, result } => self.peeked(room, result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
@@ -4734,6 +4796,11 @@ impl Application {
             }
             Event::CustomStatusSet(Ok(())) => {
                 self.state.status_editor = None;
+            }
+            Event::ServerFiled(result) => {
+                if let Err(error) = result {
+                    self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
+                }
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {

@@ -118,7 +118,7 @@ impl Filming {
     }
 
     /// Whether a camera films, rather than none or one opening.
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub fn filming(&self) -> bool {
         self.camera.is_some()
     }

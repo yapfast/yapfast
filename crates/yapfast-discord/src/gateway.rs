@@ -497,11 +497,13 @@ impl Gateway {
         guild_id: &str,
         user_ids: &[String],
         nonce: Option<&str>,
+        presences: bool,
     ) -> Result<()> {
         if self.members_held(guild_id) {
             return Ok(());
         }
-        let mut request = json!({"guild_id": [guild_id], "user_ids": user_ids, "presences": false});
+        let mut request =
+            json!({"guild_id": [guild_id], "user_ids": user_ids, "presences": presences});
         if let Some(nonce) = nonce {
             request["nonce"] = nonce.into();
         }
@@ -1437,12 +1439,32 @@ mod tests {
         );
     }
 
+    /// A profile's presence is asked for as Discord's client asks: the
+    /// member by id, with `presences` and a nonce.
+    #[tokio::test]
+    async fn a_presence_request_asks_for_presences() {
+        let discord = Discord::new().await;
+        let (mut gateway, mut peer) = discord.session(SLOW_HEARTBEAT, limiter()).await;
+        gateway
+            .request_members("a", &["7".to_owned()], Some("n"), true)
+            .await
+            .unwrap();
+        let sent = peer.command().await;
+        assert_eq!(sent["op"], REQUEST_GUILD_MEMBERS);
+        assert_eq!(sent["d"]["presences"], true);
+        assert_eq!(sent["d"]["user_ids"], json!(["7"]));
+        assert_eq!(sent["d"]["nonce"], "n");
+    }
+
     #[tokio::test]
     async fn member_requests_wait_as_long_as_discord_asks() {
         let discord = Discord::new().await;
         let (mut gateway, mut peer) = discord.session(SLOW_HEARTBEAT, limiter()).await;
         let users = ["1".to_owned()];
-        gateway.request_members("a", &users, None).await.unwrap();
+        gateway
+            .request_members("a", &users, None, false)
+            .await
+            .unwrap();
         assert_eq!(peer.command().await["op"], REQUEST_GUILD_MEMBERS);
 
         peer.dispatch(
@@ -1455,9 +1477,15 @@ mod tests {
         assert!(!gateway.members_held("b"));
 
         // Server a's request is held back; b's goes.
-        gateway.request_members("a", &users, None).await.unwrap();
+        gateway
+            .request_members("a", &users, None, false)
+            .await
+            .unwrap();
         gateway.search_members("a", "bo", 10, "n").await.unwrap();
-        gateway.request_members("b", &users, None).await.unwrap();
+        gateway
+            .request_members("b", &users, None, false)
+            .await
+            .unwrap();
         assert_eq!(peer.command().await["d"]["guild_id"], json!(["b"]));
     }
 

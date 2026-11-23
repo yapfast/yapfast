@@ -218,3 +218,35 @@ fn an_event_shows_when_and_where_and_marks_interest() {
     press(&mut app, key::Named::Escape);
     assert!(app.client.state().scheduled_event.is_none());
 }
+
+/// A link's confirmation shows in the stock look, whatever the theme: no
+/// theme's colours, art or overlays over "This link goes to …". Closing
+/// it shows the theme again.
+#[test]
+fn link_confirmations_show_the_whole_window_in_the_stock_look() {
+    let (mut app, _folder) = super::preview();
+    assert!(app.choose_theme("nord"));
+    let stock = crate::themes::stock_theme();
+
+    app.leaving = Some("https://example.com/away".into());
+    let _ = app.update(Message::Nothing);
+    assert_eq!(app.theme.id, stock.id, "leaving");
+    assert_eq!(app.theme.chat, stock.chat);
+    app.leaving = None;
+    let _ = app.update(Message::Nothing);
+    assert_eq!(app.theme.id, "nord");
+
+    change(&mut app, |state| state.oauth = Some(OAuthDialog::default()));
+    let _ = app.update(Message::Nothing);
+    assert_eq!(app.theme.id, stock.id, "authorizing");
+    change(&mut app, |state| state.oauth = None);
+    let _ = app.update(Message::Nothing);
+    assert_eq!(app.theme.id, "nord");
+
+    change(&mut app, |state| state.gift = Some(GiftDialog::default()));
+    let _ = app.update(Message::Nothing);
+    assert_eq!(app.theme.id, stock.id, "a gift");
+    change(&mut app, |state| state.gift = None);
+    let _ = app.update(Message::Nothing);
+    assert_eq!(app.theme.id, "nord");
+}

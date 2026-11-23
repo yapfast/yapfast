@@ -49,7 +49,10 @@ pub struct Start {
 pub struct Shell {
     /// The window, while open.
     pub window: Option<window::Id>,
+    #[cfg(windows)]
+    pub(crate) taskbar_unread: Option<(window::Id, u8)>,
     pub focused: bool,
+    pub minimized: bool,
     pub maximized: bool,
     pub full_screen: bool,
     /// The size the window had while it wasn't maximized, which one made
@@ -91,6 +94,10 @@ pub struct Shell {
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
+    /// Under the desktop's own title bar, or none, Discord's bar still
+    /// shows, without the window's buttons; the tests lay the window out
+    /// without it unless one asks.
+    pub bar_under_frame: bool,
     /// That the GPU failed to start, until the banner is dismissed.
     pub gpu_notice: bool,
 }
@@ -124,6 +131,8 @@ pub enum Event {
     DismissGpuNotice,
     /// The window took another size, or opened at one.
     Resized(Size),
+    /// Glass art baked for the window's new size, off its thread.
+    GlassBaked(Option<crate::themes::GlassBaked>),
     /// A key pressed with Ctrl, which may zoom.
     Zoom(keyboard::Key, key::Physical),
     /// Ctrl and the wheel.
@@ -147,7 +156,12 @@ impl App {
         self.shell.gpu_notice = start.gpu_failed;
         self.shell.fixed_size = start.fixed_size;
         self.place_as_kept();
-        self.show_tray();
+        if let Some(tray) = &self.shell.tray {
+            tray.show(
+                self.desktop_unread() > 0,
+                self.client.state().voice.active(),
+            );
+        }
         // Once at start with the check on.
         if self.layout.prefs.check_for_updates {
             crate::updates::look_for_updates(self, true);
@@ -189,7 +203,13 @@ impl App {
                 if focused {
                     return window::request_user_attention(id, None);
                 }
-                Task::none()
+                // Alt may be let go elsewhere.
+                self.modifiers = iced::keyboard::Modifiers::default();
+                Task::batch([
+                    crate::peek::follow(self),
+                    window::is_minimized(id)
+                        .map(|min| Message::Bar(crate::window_bar::Event::Minimized(min))),
+                ])
             }
             Event::Focused(..) => Task::none(),
             Event::Closed(id) => {
@@ -245,15 +265,39 @@ impl App {
             }
             Event::Resized(size) => {
                 self.shell.frame = size;
+                // Glass shows its old blur stretched, and bakes the new one
+                // off the window's thread once the size rests.
+                let glass = if self.themes.resized((
+                    size.width.round().max(1.0) as u32,
+                    size.height.round().max(1.0) as u32,
+                )) && let Some((jobs, generation, latest)) = self.themes.glass_jobs()
+                {
+                    Task::perform(
+                        crate::themes::bake_glass_later(jobs, generation, latest),
+                        |baked| Message::Shell(Event::GlassBaked(baked)),
+                    )
+                } else {
+                    Task::none()
+                };
                 self.shell.sized = self.shell.sized.wrapping_add(1);
                 self.fit_zoom();
                 let fitted = crate::active_now::active_now_fits(self.ctx());
                 crate::window_bar::fit_window(self);
                 if crate::active_now::active_now_fits(self.ctx()) == fitted {
-                    return crate::window_bar::read_window_state(self);
+                    return Task::batch([glass, crate::window_bar::read_window_state(self)]);
                 }
                 crate::active_now::active_now_sync(self);
-                Task::batch([crate::window_bar::read_window_state(self), self.ask()])
+                Task::batch([
+                    glass,
+                    crate::window_bar::read_window_state(self),
+                    self.ask(),
+                ])
+            }
+            Event::GlassBaked(baked) => {
+                if let Some(baked) = baked {
+                    self.themes.glass_baked(baked);
+                }
+                Task::none()
             }
             Event::Zoom(key, physical) => self.zoom_key(&key, physical).unwrap_or_else(Task::none),
             Event::ZoomStep(step) => self.zoom_step(step),
@@ -265,10 +309,15 @@ impl App {
     /// only while someone may be looking, and counts the open conversation
     /// as read only while the window is in front.
     fn focus_changed(&mut self, focused: bool) {
+        if focused {
+            self.shell.minimized = false;
+        }
         if std::mem::replace(&mut self.shell.focused, focused) != focused {
             self.client.dispatch(Action::WindowFocused(focused));
             let reads = self.reads();
             self.client.dispatch(Action::Reading(reads));
+            self.sync_cues();
+            self.dirty = true;
         }
     }
 
@@ -473,11 +522,21 @@ impl App {
         if self.shell.window != Some(id) {
             return Task::none();
         }
+        self.shell.minimized = false;
         self.focus_changed(true);
         let tell = self.shell.tell.clone();
+        let unread = if cfg!(windows) {
+            self.desktop_unread()
+        } else {
+            0
+        };
+        #[cfg(windows)]
+        {
+            self.shell.taskbar_unread = Some((id, unread));
+        }
         let decorate = window::run(id, move |window| {
             if let Some(tell) = tell {
-                desktop::desktop().decorate(window, tell);
+                desktop::desktop().decorate(window, tell, unread);
             }
         })
         .discard();
@@ -592,6 +651,7 @@ impl App {
     /// stop being made for tiles nobody sees.
     fn forget_window(&mut self, keep: crate::app::Keep) -> Task<Message> {
         use crate::slot::Why;
+        self.shell.minimized = false;
         self.focus_changed(false);
         // The next window's timeline starts at its end: where this one was
         // read is kept for it.
@@ -639,27 +699,50 @@ impl App {
         iced::exit()
     }
 
-    /// The tray icon's unread dot, for a mention or an unread DM as Discord
-    /// counts them, and Disconnect in its menu during a call.
-    pub fn show_tray(&self) {
-        let Some(tray) = &self.shell.tray else {
-            return;
-        };
-        let state = self.client.state();
-        tray.show(
-            state
-                .rooms
-                .iter()
-                .any(|room| room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)),
-            state.voice.active(),
-        );
+    /// Discord already counts DM messages as mentions. Fall back to the
+    /// unread state for unmuted DMs when there is no count.
+    fn desktop_unread(&self) -> u8 {
+        let limit = if cfg!(windows) { 10 } else { 1 };
+        let mut total = 0;
+        for room in &self.client.state().rooms {
+            let unread_dm = if room.direct && !room.muted {
+                room.unread
+            } else {
+                0
+            };
+            total += room.mentions.max(unread_dm).min(u64::from(limit)) as u8;
+            if total >= limit {
+                return limit;
+            }
+        }
+        total
     }
 
     /// After each change: the tray's icon, the alerts the core raised, and a
     /// link waiting for Discord.
     pub fn shell_sync(&mut self) -> Task<Message> {
-        self.show_tray();
+        let unread = if cfg!(windows) || self.shell.tray.is_some() {
+            self.desktop_unread()
+        } else {
+            0
+        };
+        if let Some(tray) = &self.shell.tray {
+            tray.show(unread > 0, self.client.state().voice.active());
+        }
         let mut tasks = Vec::new();
+        #[cfg(windows)]
+        if let Some((id, shown)) = self.shell.taskbar_unread
+            && self.shell.window == Some(id)
+            && shown != unread
+        {
+            self.shell.taskbar_unread = Some((id, unread));
+            tasks.push(
+                window::run(id, move |window| {
+                    desktop::desktop().taskbar_unread(window, unread);
+                })
+                .discard(),
+            );
+        }
         for alert in self.client.take_alerts() {
             tasks.push(self.alert(alert));
         }

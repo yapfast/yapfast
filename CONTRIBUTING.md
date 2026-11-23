@@ -7,6 +7,36 @@ don't build the same thing. A small fix can go straight to a pull request.
 
 ## Build and test
 
+### Lint and formatting
+
+Install [prek](https://prek.j178.dev/installation/) 0.5.11 or newer,
+then run the hooks from the repository root:
+
+```sh
+prek run --all-files
+```
+
+Formatters apply changes; inspect them and rerun until all hooks pass.
+Repository-wide formatting is being introduced separately, so this command may
+report existing violations and modify files outside your change. For focused
+checks, use `prek run --files path/to/file.py`. The CI formatting job is temporarily
+disabled until the dependency-update and formatting-baseline PRs are merged.
+
+For automatic checks of staged files, run
+`prek install`. If you previously installed hooks with pre-commit, replace them
+with `prek install -f`. The hook in `.githooks`, enabled with
+`git config core.hooksPath .githooks`, does not need prek: it only checks Rust
+formatting, inside the Nix shell.
+
+Tools are pinned in `prek.toml`; prek installs their isolated environments on
+the first run for Ruff and clang-format. Other text and syntax checks are built
+into prek. No project Python environment or Node.js installation is needed.
+
+See [Code style](docs/code-style.md) for formatting rules, exclusions and commands.
+The configuration files linked there define the rules.
+
+### Build checks
+
 [Development](docs/development.md) covers running the app, and
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
 flows from the window to `application/`.
@@ -100,6 +130,19 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 ## Pull requests
 
+Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
+toolchain in `rust-toolchain.toml`. Strict Clippy and workspace tests run in
+parallel, each with its own cache, and the tests job then runs
+`scripts/test-fake-discord`. The formatting job (prek, including rustfmt) and
+dependency job (cargo-audit and cargo-machete) are temporarily commented out
+until the dependency-update and formatting-baseline PRs are merged. The disabled
+audit command excludes the SQLite advisory `RUSTSEC-2026-0459`.
+
+CI also runs on pushes to `main` and can be started manually; documentation-only
+and listed media-only changes do not trigger automatic runs. Documentation links
+are checked locally by `scripts/check-doc-links`, not by the current workflow.
+Run the Matrix checks above locally when your change needs them.
+
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.
 - Base every pull request on `main`, including the layers of a stack, since a
@@ -107,7 +150,7 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
   description, say which pull request goes in first.
 - Write commit subjects as Conventional Commits, in the present tense, saying
   what changes for the user: `feat(discord): join and leave threads from their
-  menu`. The body says what it does and why.
+menu`. The body says what it does and why.
 - A change in behavior updates its doc in the same commit. Docs describe how
   things work now; history and measurements go in the commit message.
 - In the description, say what you ran, what you skipped and which systems you

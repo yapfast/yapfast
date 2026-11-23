@@ -502,43 +502,6 @@ pub(super) fn share_menu<'a>(
     .into()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_screen_disables_presets_above_its_height() {
-        let mut share = Share {
-            screens: vec![Screen {
-                title: "Screen".into(),
-                preview: None,
-            }],
-            windows: vec![],
-            cameras: vec![],
-            sources: vec![],
-            dialog: false,
-            pick: 0,
-            quality: StreamQuality {
-                resolution: Resolution::P1440,
-                ..StreamQuality::default()
-            },
-            switching: false,
-        };
-        assert_eq!(share.resolution(), Resolution::P1440);
-        share.screens[0].preview = Some(ScreenPreview {
-            handle: Handle::from_rgba(1, 1, vec![0; 4]),
-            width: 1920,
-            height: 1080,
-        });
-        assert_eq!(share.dimensions(), Some((1920, 1080)));
-        assert!(share.supports(Resolution::P1080));
-        assert!(!share.supports(Resolution::P1440));
-        assert_eq!(share.resolution(), Resolution::Source);
-        share.pick = 1;
-        assert_eq!(share.resolution(), Resolution::P1440);
-    }
-}
-
 /// A screen in the share menu: its picture, once taken, over its name.
 pub(super) fn screen_card<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -609,4 +572,41 @@ pub(super) fn screen_card<'a>(
         }
     })
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_screen_disables_presets_above_its_height() {
+        let mut share = Share {
+            screens: vec![Screen {
+                title: "Screen".into(),
+                preview: None,
+            }],
+            windows: vec![],
+            cameras: vec![],
+            sources: vec![],
+            dialog: false,
+            pick: 0,
+            quality: StreamQuality {
+                resolution: Resolution::P1440,
+                ..StreamQuality::default()
+            },
+            switching: false,
+        };
+        assert_eq!(share.resolution(), Resolution::P1440);
+        share.screens[0].preview = Some(ScreenPreview {
+            handle: Handle::from_rgba(1, 1, vec![0; 4]),
+            width: 1920,
+            height: 1080,
+        });
+        assert_eq!(share.dimensions(), Some((1920, 1080)));
+        assert!(share.supports(Resolution::P1080));
+        assert!(!share.supports(Resolution::P1440));
+        assert_eq!(share.resolution(), Resolution::Source);
+        share.pick = 1;
+        assert_eq!(share.resolution(), Resolution::P1440);
+    }
 }
