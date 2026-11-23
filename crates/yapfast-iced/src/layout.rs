@@ -98,6 +98,9 @@ pub struct Layout {
     pub members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
+    /// How wide the picture in the window's corner was dragged: the stream
+    /// watched, this account's screen or a camera.
+    pub corner_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,

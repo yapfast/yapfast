@@ -2376,6 +2376,12 @@ pub enum Action {
     CloseStatusEditor,
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`.
     SetStatus(String),
+    /// Drops a Discord server or folder in the rail.
+    FileServer {
+        server: String,
+        target: String,
+        before: Option<bool>,
+    },
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
     /// Set how loud the Discord account's soundboard plays, on its slider
@@ -4066,6 +4072,33 @@ impl Application {
                 self.state.status_editor = None;
                 vec![]
             }
+            Action::FileServer {
+                server,
+                target,
+                before,
+            } => {
+                if self.state.preview || self.state.discord_user.is_none() || server == target {
+                    return vec![];
+                }
+                let source_folder = crate::discord::parse_folder(&server);
+                let Some(server) = source_folder.or_else(|| crate::discord::parse_server(&server))
+                else {
+                    return vec![];
+                };
+                let folder = crate::discord::parse_folder(&target);
+                let Some(id) = folder.or_else(|| crate::discord::parse_server(&target)) else {
+                    return vec![];
+                };
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::FileServer {
+                        server: server.to_owned(),
+                        source_folder: source_folder.is_some(),
+                        target: id.to_owned(),
+                        folder: folder.is_some(),
+                        before,
+                    },
+                ))]
+            }
             Action::SetStatus(status) => {
                 if self.state.preview
                     || self.state.discord_user.is_none()
@@ -4743,6 +4776,11 @@ impl Application {
             }
             Event::CustomStatusSet(Ok(())) => {
                 self.state.status_editor = None;
+            }
+            Event::ServerFiled(result) => {
+                if let Err(error) = result {
+                    self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
+                }
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {

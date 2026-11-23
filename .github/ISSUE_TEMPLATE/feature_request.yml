@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest an improvement to Yapfast.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Search existing issues first. Describe the problem you want to solve and who it affects.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what makes it difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed behavior
+      description: Describe how the feature would work. Add mockups or examples if useful.
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Relevant network
+      options:
+        - Discord
+        - Matrix
+        - Both
+        - Not network-specific
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include any workaround you use today.
+  - type: textarea
+    id: resources
+    attributes:
+      label: Performance and additional context
+      description: Mention expected memory, CPU, download or storage costs, if known, and whether an optional setting would help.

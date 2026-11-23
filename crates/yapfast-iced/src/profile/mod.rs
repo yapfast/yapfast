@@ -9,7 +9,7 @@
 //! [`editor`] the profile editor, drawn with the card's parts, and
 //! [`name_style`] its Display Name Style window.
 
-mod activity;
+pub(crate) mod activity;
 pub mod body;
 mod cosmetic;
 pub mod editor;
@@ -426,6 +426,7 @@ impl Profiles {
 /// shows, once per tab and person.
 pub fn profile_sync(app: &mut App) -> Task<Message> {
     let state = app.client.state();
+    app.status.sync_activities(state);
     // The card the core closed, or one shown large, goes.
     if app.profiles.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
         app.profiles.card = None;

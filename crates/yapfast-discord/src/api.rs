@@ -504,7 +504,7 @@ impl Api {
 
     /// The application a game's Rich Presence names, for its name, as the
     /// desktop client asks when a game connects.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_application(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/rpc");
         self.json(self.request(Method::GET, &path)).await
@@ -512,7 +512,7 @@ impl Api {
 
     /// Discord's media proxy's names for images a game's Rich Presence gives
     /// by address, as the desktop client asks for them.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_external_assets(&self, id: &str, urls: &[&str]) -> Result<Value> {
         let path = format!("/applications/{id}/external-assets");
         self.json(with_json(
@@ -523,7 +523,7 @@ impl Api {
     }
 
     /// The images an application uploaded, by name, for its Rich Presence.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_assets(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/assets");
         self.json(self.request(Method::GET, &path)).await

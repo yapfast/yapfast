@@ -296,8 +296,8 @@ pub fn type_anywhere(
     app: &mut App,
     key: &keyboard::Key,
     modifiers: keyboard::Modifiers,
+    typed: Option<field::Typed>,
 ) -> Task<Message> {
-    let typed = field::Typed::of(key, modifiers);
     let tab = *key == keyboard::Key::Named(keyboard::key::Named::Tab)
         && !modifiers.command()
         && !modifiers.alt();

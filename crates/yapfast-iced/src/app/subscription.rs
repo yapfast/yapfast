@@ -29,8 +29,13 @@ impl App {
                 key,
                 modifiers,
                 physical_key,
+                text,
                 ..
-            } => Some(Message::Pressed(key, modifiers, physical_key)),
+            } => {
+                let typed =
+                    yapfast_iced_kit::field::Typed::from_key_text(&key, modifiers, text.as_deref());
+                Some(Message::Pressed(key, modifiers, physical_key, typed))
+            }
             keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
@@ -132,6 +137,7 @@ impl App {
                     keyboard::Key::Character("t".into()),
                     modifiers,
                     physical_key,
+                    None,
                 ))
             }
             _ => None,
@@ -199,13 +205,14 @@ impl App {
             );
         }
         subscriptions.extend(crate::arrange::arrange_subscription(self));
+        subscriptions.extend(crate::rail::drag_subscription(self));
         subscriptions.extend(crate::uploads::follow_subscription(self));
         if shown {
             subscriptions.extend(crate::typing::subscription(self));
         }
         subscriptions.push(crate::away::away_subscription(self));
         subscriptions.push(crate::keybinds::window_talk_keys());
-        if self.call.grab.is_some() {
+        if self.call.grab.is_some() || self.call.resize.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     Some(Message::Call(crate::call::Event::DragTo(position)))

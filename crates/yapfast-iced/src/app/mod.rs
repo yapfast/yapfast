@@ -540,8 +540,11 @@ impl App {
                     crate::shortcuts::update(self, shortcut)
                 }
             }
-            Message::Key(key, modifiers) => self.key(key, modifiers),
-            Message::Pressed(key, modifiers, physical) => {
+            Message::Key(key, modifiers) => {
+                let typed = yapfast_iced_kit::field::Typed::of(&key, modifiers);
+                self.key(key, modifiers, typed)
+            }
+            Message::Pressed(key, modifiers, physical, typed) => {
                 // Built-ins have a subscription of their own, including
                 // captured presses. Do not also edit/step a focused message.
                 if self.recording_keybind()
@@ -558,7 +561,7 @@ impl App {
                     }
                     _ => key,
                 };
-                let task = self.key(key, modifiers);
+                let task = self.key(key, modifiers, typed);
                 self.talk_pressed = false;
                 task
             }

@@ -14,6 +14,12 @@ rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
 (unavailable in a Discord outage)".
+On the standard left rail, drag a Discord server onto another server to
+create a folder, or onto an existing folder to add it. The dragged icon
+follows the pointer. An outline
+marks a tile that will take the server, and a line marks an insertion point
+between tiles. Drag a folder by its icon to move it with all its servers.
+Discord saves the resulting folders and order to your account.
 The speaker is green while this account is in a call there, and grey
 while others are in a Discord server's voice channels. It follows
 Discord's server list (GuildMediaStateStore): a screen when someone
