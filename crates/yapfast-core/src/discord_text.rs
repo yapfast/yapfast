@@ -492,14 +492,17 @@ impl Chat {
                     channel.refresh(&self.discord, &self.done);
                 }
                 self.online = online;
-                // A thread a message leads to shows its new count on the link.
+                // Refresh collapsed messages and thread links when their snapshot data changes.
                 for channel in self
                     .channels
                     .open
                     .iter_mut()
                     .chain(&mut self.channels.aside)
                 {
-                    if channel.loaded && channel.links_changed(&snapshot) {
+                    if channel.loaded
+                        && (channel.message_visibility_changed(&snapshot)
+                            || channel.links_changed(&snapshot))
+                    {
                         render::publish(channel, &self.discord, &self.done, events);
                     }
                 }

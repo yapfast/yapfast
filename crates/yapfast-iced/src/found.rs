@@ -92,10 +92,13 @@ pub fn found_view<'a>(
         container(
             row![
                 elide(message.author.clone())
-                    .size(15)
-                    .font(SEMIBOLD)
+                    .size(theme.type_size("names", 15.0))
+                    .font(theme.font("names", SEMIBOLD))
                     .color(name_ink),
-                elide(found.when.as_str()).size(12).color(theme.muted),
+                elide(found.when.as_str())
+                    .size(theme.type_size("time", 12.0))
+                    .font(theme.font("time", crate::fonts::REGULAR))
+                    .color(theme.muted),
             ]
             .spacing(8)
             .align_y(Alignment::Center),

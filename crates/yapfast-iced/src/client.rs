@@ -81,6 +81,12 @@ impl Client {
         &self.runtime
     }
 
+    /// A shared handle for iced tasks which hand work to the backend's
+    /// runtime and may outlive the Settings update that started them.
+    pub fn shared_runtime(&self) -> Arc<BackgroundRuntime> {
+        self.runtime.clone()
+    }
+
     /// The data folder.
     pub fn root(&self) -> &std::path::Path {
         &self.root

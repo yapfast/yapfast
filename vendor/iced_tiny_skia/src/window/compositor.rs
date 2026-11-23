@@ -26,6 +26,8 @@ pub struct Surface {
     /// had the new one, and kept the old one where nothing else changed.
     layer_stack: VecDeque<(Vec<Layer>, Color)>,
     max_age: u8,
+    /// Yapfast port (patch 27): the scale its last frame was drawn at.
+    scale_factor: f32,
 }
 
 impl crate::graphics::Compositor for Compositor {
@@ -85,6 +87,7 @@ impl crate::graphics::Compositor for Compositor {
             clip_mask: tiny_skia::Mask::new(1, 1).expect("Create clip mask"),
             layer_stack: VecDeque::new(),
             max_age: 0,
+            scale_factor: 0.0,
         };
 
         if width > 0 && height > 0 {
@@ -176,6 +179,16 @@ pub fn present(
         .map_err(|_| compositor::SurfaceError::Lost)?;
     let waited = start.map(|_| Instant::now());
 
+    // Yapfast port (patch 27): a new scale (the app's zoom, which doesn't
+    // reconfigure the surface) redraws the window whole. Past frames'
+    // layers are in logical pixels, so diffed across it they'd damage the
+    // old scale's places, leaving the new one's stale. The renderer's
+    // backdrop lets go of what it kept on its own (`layer_changes`).
+    if surface.scale_factor != viewport.scale_factor() {
+        surface.scale_factor = viewport.scale_factor();
+        surface.layer_stack.clear();
+    }
+
     let last_layers = {
         let age = buffer.age();
 
@@ -189,38 +202,57 @@ pub fn present(
         }
     };
 
-    let damage = last_layers
-        .and_then(|(last_layers, last_background)| {
-            (*last_background == background_color).then(|| {
-                damage::diff(
-                    last_layers,
-                    renderer.layers(),
-                    |layer| vec![layer.bounds],
-                    Layer::damage,
-                )
-            })
-        })
-        .unwrap_or_else(|| vec![Rectangle::with_size(viewport.logical_size())]);
+    // Yapfast port (patch 32): what each layer changed since the frame
+    // presented last, for the renderer's backdrop: a layer that's new
+    // changed what it draws (patch 27's extent).
+    let front = surface
+        .layer_stack
+        .front()
+        .filter(|(_, previous_background)| *previous_background == background_color)
+        .map(|(previous, _)| previous);
+    let changes = {
+        let current = renderer.layers();
+        match front {
+            // Yapfast port (patch 41): paired by place where they lie, the
+            // layers that came or went partway between.
+            Some(previous) => crate::layer::changes(previous, current),
+            None => crate::layer::Changes {
+                layers: current.iter().map(|layer| vec![layer.bounds]).collect(),
+                gone: Vec::new(),
+                shifted: None,
+            },
+        }
+    };
 
     // Yapfast port (patch 23): the compositor is told what differs from
     // the frame it shows, the one presented last, not the whole window.
-    // `damage` is against the buffer's own older frame, which may differ.
+    // That is `changes` and what the layers that went drew (patch 32
+    // already worked it out). The draw's `damage` is against the buffer's
+    // own older frame.
     let bounds = Rectangle::with_size(viewport.logical_size());
+    let shown = front.map(|_| changes.all().collect::<Vec<_>>());
+    renderer.layer_changes(
+        changes.layers,
+        changes.shifted,
+        viewport.scale_factor(),
+        physical_size,
+    );
+
+    // Yapfast port (patch 27): a layer that came or went damages what it
+    // drew (`Layer::extent`), not its bounds; (patch 41) paired as above.
+    let damage = last_layers
+        .and_then(|(last_layers, last_background)| {
+            (*last_background == background_color).then(|| {
+                crate::layer::changes(last_layers, renderer.layers())
+                    .all()
+                    .collect()
+            })
+        })
+        .unwrap_or_else(|| vec![Rectangle::with_size(viewport.logical_size())]);
     let shown = if buffer.age() == 1 {
         Some(damage.clone())
     } else {
-        surface
-            .layer_stack
-            .front()
-            .filter(|(_, previous_background)| *previous_background == background_color)
-            .map(|(previous, _)| {
-                damage::diff(
-                    previous,
-                    renderer.layers(),
-                    |layer| vec![layer.bounds],
-                    Layer::damage,
-                )
-            })
+        shown
     }
     .map(|shown| physical(&merged(damage::group(shown, bounds)), viewport));
 
@@ -298,6 +330,9 @@ pub fn screenshot(
     background_color: Color,
 ) -> Vec<u8> {
     let size = viewport.physical_size();
+    // Yapfast port (patch 32): a screenshot draws whole. Changes told for a
+    // frame that had no damage, and so wasn't drawn, are left unused.
+    renderer.backdrop.fresh = false;
 
     let mut offscreen_buffer: Vec<u32> =
         vec![0; size.width as usize * size.height as usize];

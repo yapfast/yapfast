@@ -15,6 +15,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Compose},
     network::Network,
+    themes::package::art::{KeySlot, MAX_KEY_TRAVEL},
 };
 
 use crate::{
@@ -27,6 +28,7 @@ use crate::{
     pictures::Icon,
     popover::{Popover, Side},
     style::{corners, faded, rounded},
+    themes::ComposerKey,
 };
 
 /// The composer's field and the inline edit's, for the app's focus tasks.
@@ -567,7 +569,9 @@ fn plus(app: &mut App) -> Task<Message> {
         });
     }
     let at = iced::Point::new(
-        crate::conversation::chat_left(app) + GUTTER + INSET,
+        crate::conversation::chat_left(app)
+            + app.theme.spacing().chat_padding.unwrap_or(GUTTER)
+            + INSET,
         composer_top(app) - 8.0,
     );
     app.win.menu = Some(Menu::new(at, rows).anchor(crate::widgets::Anchor::Bottom));
@@ -606,6 +610,12 @@ fn send(app: &mut App) -> Task<Message> {
         }
     }
     app.client.dispatch(Action::Send);
+    app.cue(yapfast_core::themes::media::SoundSlot::Send);
+    app.themes.particle_event(
+        &app.theme.id,
+        yapfast_core::themes::package::art::Trigger::MessageSent,
+        None,
+    );
     app.composer.suggest.clear(&mut app.client);
     Task::batch([to_end, app.sync()])
 }
@@ -815,7 +825,11 @@ pub fn composer_button(
     .into()
 }
 
-pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+/// The composer in two: the typing strip, and the rest under it (the
+/// bars, the box and the foot), each in the composer's gutters. A theme's
+/// composer ground lies under the rest alone, so the strip, as Discord's,
+/// has no ground of its own.
+pub fn parts<'a>(ctx: crate::ctx::Ctx<'a>) -> (Element<'a, Message>, Element<'a, Message>) {
     let look = composer_look(ctx);
     // The strip over it all, as Discord's: who else is typing, or why
     // this account can't send, and the slowmode's note.
@@ -838,7 +852,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .clip(true)
             .into()
     });
-    let mut compose = column![crate::typing::strip(ctx, hint, look.note)];
+    let gutter = ctx.look.theme.spacing().chat_padding.unwrap_or(GUTTER);
+    let strip = container(crate::typing::strip(ctx, hint, look.note))
+        .padding(Padding::ZERO.left(gutter).right(gutter))
+        .into();
+    let mut compose = column![];
     if let Some(title) = &look.request {
         compose = compose.push(request_bar(ctx, title));
     } else {
@@ -851,9 +869,151 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             composer_box(ctx, &look)
         });
     }
-    container(compose.push(Space::new().height(GUTTER)))
-        .padding(Padding::ZERO.left(GUTTER).right(GUTTER))
-        .into()
+    let rest = container(compose.push(Space::new().height(gutter)))
+        .padding(Padding::ZERO.left(gutter).right(gutter))
+        .into();
+    (strip, rest)
+}
+
+/// [`composer_button`] on a theme's key for `slot` (Bubblegum's candy
+/// keys), when the theme draws one: the key lies under the glyph, rises a
+/// pixel under the pointer and goes down while pressed, its pressed
+/// picture shown and the glyph moved down its travel. Without a key it's
+/// the plain button.
+fn keyed_button(
+    ctx: crate::ctx::Ctx<'_>,
+    slot: KeySlot,
+    icon: Icon,
+    label: &'static str,
+    glyph: u32,
+    tint: iced::Color,
+    message: Option<Message>,
+) -> Element<'static, Message> {
+    let Some(key) = ctx.themes.composer_key(&ctx.look.theme.id, slot).cloned() else {
+        return composer_button(ctx, icon, label, glyph, tint, message);
+    };
+    let tint = if message.is_some() {
+        tint
+    } else {
+        faded(tint, 0.45)
+    };
+    let face = ctx.look.glyph(icon, glyph, tint).boxed(32);
+    // The key is the button's face: no hover wash over the candy.
+    let face = button(face)
+        .padding(0)
+        .width(32)
+        .height(32)
+        .on_press_maybe(message)
+        .style(|_, _| button::Style::default());
+    let hover = if ctx.look.theme.motion().hover == yapfast_iced_kit::theme::Hover::None {
+        0.0
+    } else {
+        -1.0
+    };
+    let face = crate::widgets::Wrap::new(face, KeyCap { key, hover });
+    tooltip(
+        face,
+        controls::tip(ctx.look.theme, label),
+        tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
+/// Draws a [`ComposerKey`] under a button and moves both with the pointer.
+struct KeyCap {
+    key: ComposerKey,
+    /// Logical pixels the key and glyph move under the pointer (up is
+    /// negative).
+    hover: f32,
+}
+
+#[derive(Default)]
+struct KeyState {
+    pointed: bool,
+    pressed: bool,
+}
+
+impl crate::widgets::Hooks<Message> for KeyCap {
+    type State = KeyState;
+
+    fn draw_viewport(&self, child: iced::Rectangle, viewport: iced::Rectangle) -> iced::Rectangle {
+        // The key, centred on the button and as big as it's drawn, and
+        // the few pixels it and the glyph move either way.
+        let size = self.key.size;
+        let over = ((size.width.max(size.height) - child.width.min(child.height)) / 2.0).max(0.0);
+        child
+            .expand(over + MAX_KEY_TRAVEL + 2.0)
+            .intersection(&viewport)
+            .unwrap_or(viewport)
+    }
+
+    fn update(
+        &mut self,
+        state: &mut KeyState,
+        event: &iced::Event,
+        at: crate::widgets::At,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        child: &mut crate::widgets::Inner<'_, '_, Message>,
+    ) {
+        child.update(shell);
+        let iced::Event::Mouse(event) = event else {
+            return;
+        };
+        let pointed = at.cursor.is_over(at.child);
+        let pressed = match event {
+            iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left) => pointed,
+            iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)
+            | iced::mouse::Event::CursorLeft => false,
+            _ => state.pressed && pointed,
+        };
+        if (pointed, pressed) != (state.pointed, state.pressed) {
+            state.pointed = pointed;
+            state.pressed = pressed;
+            shell.request_redraw();
+        }
+    }
+
+    fn draw(
+        &self,
+        state: &KeyState,
+        renderer: &mut crate::widgets::Renderer,
+        at: crate::widgets::At,
+        child: &mut dyn FnMut(&mut crate::widgets::Renderer),
+    ) {
+        use iced::advanced::{Renderer as _, image::Renderer as _};
+        let lifted = if state.pointed { self.hover } else { 0.0 };
+        let (picture, key_offset, glyph_offset) = match (&self.key.down, state.pressed) {
+            (Some(down), true) => (down, 0.0, self.key.travel),
+            (None, true) => (&self.key.up, self.key.travel, self.key.travel),
+            (_, false) => (&self.key.up, lifted, lifted),
+        };
+        let centre = at.child.center();
+        let size = self.key.size;
+        renderer.draw_image(
+            iced::advanced::image::Image {
+                handle: picture.clone(),
+                filter_method: iced::advanced::image::FilterMethod::Linear,
+                rotation: iced::Radians(0.0),
+                border_radius: Default::default(),
+                opacity: 1.0,
+                snap: false,
+            },
+            iced::Rectangle::new(
+                iced::Point::new(
+                    centre.x - size.width / 2.0,
+                    centre.y - size.height / 2.0 + key_offset,
+                ),
+                size,
+            ),
+            at.viewport,
+        );
+        if glyph_offset == 0.0 {
+            child(renderer);
+        } else {
+            renderer.with_transformation(iced::Transformation::translate(0.0, glyph_offset), child);
+        }
+    }
 }
 
 /// The box with the field and its buttons, and the suggestions over it.
@@ -873,6 +1033,16 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             _ => format!("Message {name}"),
         }
     };
+    let placeholder = if replying {
+        placeholder
+    } else {
+        ctx.themes.label(
+            &theme.id,
+            yapfast_core::themes::chrome::Label::Composer,
+            placeholder,
+            &[("channel", name.as_str())],
+        )
+    };
     let commanding = ctx.state.command_draft().is_some();
     let placeholder = crate::commands::command_placeholder(ctx).unwrap_or(placeholder);
     let field = Field::new(
@@ -883,8 +1053,8 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         field::Colors {
             ground: iced::Color::TRANSPARENT,
             text: theme.text,
-            placeholder: theme.placeholder,
-            selection: theme.selection,
+            placeholder: theme.token_colour("placeholder", theme.placeholder),
+            selection: theme.token_colour("selection", theme.selection),
         },
     )
     .padding(Padding {
@@ -895,6 +1065,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         left: 6.0,
     })
     .enabled(look.enabled)
+    .font(theme.font("body", crate::fonts::REGULAR))
     .pastes()
     .tabs(commanding)
     .suggesting(crate::suggest::suggesting(ctx, Writing::Draft));
@@ -915,8 +1086,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             theme.secondary
         }
     };
-    let plus = composer_button(
+    let plus = keyed_button(
         ctx,
+        KeySlot::Plus,
         Icon::Add,
         if look.plus {
             "More options"
@@ -935,61 +1107,144 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
-    if state.can_pick_gifs() {
-        buttons = buttons.push(lift(composer_button(
+    // A theme can draw a key under each button (Bubblegum's candy keys);
+    // the preview, which has no GIFs or stickers, still shows a button
+    // with a key of its own, greyed, so no key is left without its glyph.
+    let keyed = |slot: KeySlot| state.preview && ctx.themes.composer_key(&theme.id, slot).is_some();
+    if state.can_pick_gifs() || keyed(KeySlot::Gif) {
+        buttons = buttons.push(lift(keyed_button(
             ctx,
+            KeySlot::Gif,
             Icon::Gif,
             "Open GIF picker",
             22,
             tint(Tab::Gifs),
-            opens(Tab::Gifs),
+            opens(Tab::Gifs).filter(|_| state.can_pick_gifs()),
         )));
     }
-    if state.can_pick_stickers() {
-        buttons = buttons.push(lift(composer_button(
+    if state.can_pick_stickers() || keyed(KeySlot::Sticker) {
+        buttons = buttons.push(lift(keyed_button(
             ctx,
+            KeySlot::Sticker,
             Icon::Sticker,
             "Open sticker picker",
             22,
             tint(Tab::Stickers),
-            opens(Tab::Stickers),
+            opens(Tab::Stickers).filter(|_| state.can_pick_stickers()),
         )));
     }
-    let emoji = buttons.push(lift(composer_button(
+    let emoji = buttons.push(lift(keyed_button(
         ctx,
+        KeySlot::Emoji,
         Icon::Smile,
         "Add an emoji",
         22,
         tint(Tab::Emoji),
         opens(Tab::Emoji),
     )));
-    let line = row![lift(plus), field, emoji]
+    // A theme's prompt before the words, such as `$`.
+    let prompt = ctx
+        .themes
+        .chrome(&theme.id)
+        .and_then(|chrome| chrome.prompt.as_deref())
+        .filter(|prompt| !prompt.is_empty())
+        .map(|prompt| {
+            container(
+                text(prompt.to_owned())
+                    .font(crate::theme_chrome::mono(ctx))
+                    .size(theme.type_size("body", 15.0))
+                    .color(theme.muted),
+            )
+            .padding(Padding::ZERO.bottom(12))
+        });
+    let mut line = row![lift(plus)];
+    if let Some(prompt) = prompt {
+        line = line.push(prompt);
+    }
+    let line = line
+        .push(field)
+        .push(emoji)
         .spacing(6)
         .align_y(Alignment::End)
         .padding(Padding::ZERO.left(INSET).right(8));
     let ground = if look.enabled {
-        theme.composer
+        theme.token_colour("composer", theme.composer)
     } else {
         theme.field
     };
     // Discord's outline: faint, and a notch lighter with the keys.
     let edge = if ctx.composer.focused {
-        faded(theme.muted, 0.55)
+        theme.token_colour("composer-focus", faded(theme.muted, 0.55))
     } else {
         theme.outline_field
     };
+    let surface_radius = theme.surface_radius("composer", 10.0);
     let radius = if replying {
-        corners([0.0, 0.0, 10.0, 10.0])
+        corners([0.0, 0.0, surface_radius, surface_radius])
     } else {
-        10.0.into()
+        surface_radius.into()
     };
+    let mut border = theme.surface_border("composer", 10.0, 1.0, edge);
+    border.radius = radius;
+    let outline_fallback = border;
+    if theme.outline("composer").is_some() {
+        border.width = 0.0;
+    }
+    let shadow = theme.surface_shadow("composer", iced::Shadow::default());
     let mut inside = column![];
     if let Some(tray) = crate::uploads::tray(ctx) {
         inside = inside.push(tray);
     }
-    let frame = container(inside.push(line))
-        .width(Length::Fill)
-        .style(move |_| crate::style::outlined(ground, edge, radius));
+    // A theme's composer art lies over the field's ground, under its
+    // words and buttons, as in Slint; a glass composer's field is the
+    // glass (the blur under the theme's ground) rather than a solid ground.
+    let surface = yapfast_core::themes::package::art::ArtSurface::Composer;
+    let art = crate::theme_art::art_layers(ctx, surface, surface_radius);
+    let glass = crate::theme_art::glass_under(ctx, surface, surface_radius);
+    let solid = glass.is_none();
+    let frame: Element<'a, Message> = if art.is_some() || glass.is_some() {
+        let mut stack = iced::widget::Stack::with_children([container(inside.push(line))
+            .width(Length::Fill)
+            .into()]);
+        if let Some(art) = art {
+            stack = stack.push_under(art);
+        }
+        if let Some(glass) = glass {
+            stack = stack.push_under(glass);
+        }
+        stack
+            .push_under(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: solid.then(|| ground.into()),
+                        border,
+                        shadow,
+                        ..Default::default()
+                    }),
+            )
+            .into()
+    } else {
+        container(inside.push(line))
+            .width(Length::Fill)
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border,
+                shadow,
+                ..Default::default()
+            })
+            .into()
+    };
+    let frame = crate::theme_art::outlined(
+        frame,
+        ctx,
+        yapfast_core::themes::layout::BorderPlace::Composer,
+        "composer",
+        10.0,
+        outline_fallback.width,
+        outline_fallback.color,
+    );
     Popover::new(
         frame,
         crate::suggest::suggestions_view(ctx, Writing::Draft),
@@ -1048,7 +1303,7 @@ pub fn reply_bar_for<'a>(
                 reply.body,
                 reply.emoji,
                 crate::markdown::Look {
-                    size: 14.0,
+                    size: theme.type_size("small", 14.0),
                     line_height: 20.0,
                     ink: theme.secondary,
                 },
