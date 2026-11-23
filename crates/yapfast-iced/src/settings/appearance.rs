@@ -1,8 +1,7 @@
-//! Appearance: the themes as small windows drawn in their own colours (a
-//! click shows one at once and keeps it), New theme and each custom theme's
-//! pencil opening the editor, whose changes show at once (Save keeps them
-//! among the person's own themes, Cancel puts the theme from before back),
-//! and the profile switches. See docs/themes.md.
+//! Appearance's theme shortcuts and profile switches, and the dedicated
+//! Themes page: installed packages, the person's own themes, their options
+//! and performance. The editor's changes show at once; Save keeps them and
+//! Cancel puts the theme from before back. See docs/themes.md.
 
 use iced::{
     Alignment, Border, Color, Element, Length,
@@ -11,9 +10,10 @@ use iced::{
 use yapfast_core::{
     application::Action,
     theme::{self as palette, Custom},
+    themes::Performance,
 };
 
-use super::{Drop, Event as SettingsEvent, Page, Settings};
+use super::{Drop, Event as SettingsEvent, Page, Section, Settings, theme_marketplace};
 use crate::{
     app::Message,
     controls::{Kind, action, lights, placed},
@@ -28,11 +28,6 @@ use crate::{
 const TILE: f32 = 150.0;
 const TILE_HEIGHT: f32 = 124.0;
 const TILE_GAP: f32 = 12.0;
-/// The editor's colours: two columns from this width, each row this tall.
-const TWO_COLUMNS: f32 = 520.0;
-const COLOUR_GAP: f32 = 24.0;
-/// The name field.
-const NAME: &str = "theme-name";
 
 /// The theme editor while it's open: the theme as edited, each colour's
 /// text and whether it's wrong, its name, and what it started from.
@@ -111,6 +106,20 @@ impl Editor {
 #[derive(Clone, Debug)]
 pub enum Event {
     Choose(String),
+    /// A tab of the page: leaving the creator or the editor cancels it.
+    Tab(theme_marketplace::Tab),
+    TurnOff,
+    Revert,
+    Performance(i32),
+    ReduceMotion(bool),
+    ReadableText(bool),
+    ThemeOption(String, String, serde_json::Value),
+    ThemeContent(String, bool),
+    ThemeNotificationSounds(String, bool),
+    ThemeInterfaceSounds(String, bool),
+    ThemeInterfaceVolume(String, u8),
+    ThemeTransitions(bool),
+    Creator(super::theme_creator::Event),
     New,
     Edit(String),
     Start(usize),
@@ -135,18 +144,110 @@ pub enum Cosmetic {
     Frames,
 }
 
-fn theme_message(event: Event) -> Message {
-    Message::Settings(SettingsEvent::Theme(event))
+pub(super) fn theme_message(event: Event) -> Message {
+    crate::app::settings(SettingsEvent::Theme(event))
+}
+
+pub(super) fn marketplace_message(event: theme_marketplace::Event) -> Message {
+    crate::app::settings(SettingsEvent::Marketplace(event))
 }
 
 impl Settings {
-    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) {
+    pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) -> iced::Task<Message> {
         match event {
+            Event::Creator(event) => return self.creator_event(event, cx),
             Event::Choose(id) => choose(cx, &id),
+            Event::Tab(tab) => {
+                self.cancel_theme(cx);
+                return self.update(
+                    SettingsEvent::Marketplace(theme_marketplace::Event::Tab(tab)),
+                    cx,
+                );
+            }
+            Event::TurnOff => {
+                // Off stays off: no theme is kept in layout.json, so the
+                // default shows at the next start too, and the theme that
+                // was showing is the one Back returns to.
+                cx.themes.turn_off(cx.client.root());
+                // A trial ends with it: what it was given goes.
+                cx.layout.theme_sounds.remove("trial");
+                cx.layout.theme_content.remove("trial");
+                cx.layout.theme = None;
+                cx.layout.previous_theme = cx.themes.previous().map(|(id, _)| id.to_owned());
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            Event::Revert => {
+                if cx.themes.revert(cx.client.root()) {
+                    cx.request(Request::Changed(Shown::Theme));
+                }
+            }
+            Event::Performance(index) => {
+                let performance = Performance::from_index(index);
+                cx.layout.theme_performance = performance;
+                cx.keep("theme_performance", performance);
+                cx.themes
+                    .motion_changed(performance, cx.layout.reduce_motion);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            Event::ReduceMotion(on) => {
+                cx.layout.reduce_motion = on;
+                cx.keep("reduce_motion", on);
+                cx.themes.motion_changed(cx.layout.theme_performance, on);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            Event::ReadableText(on) => {
+                cx.layout.readable_text = on;
+                cx.keep("readable_text", on);
+                cx.themes.readable_changed(on);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            Event::ThemeOption(id, option, value) => {
+                let Some(choices) = cx.themes.set_option(
+                    &id,
+                    &option,
+                    value,
+                    cx.layout.theme_performance,
+                    cx.layout.reduce_motion,
+                ) else {
+                    return iced::Task::none();
+                };
+                if choices.is_empty() {
+                    cx.layout.theme_options.remove(&id);
+                } else {
+                    cx.layout.theme_options.insert(id, choices);
+                }
+                cx.keep("theme_options", &cx.layout.theme_options);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            Event::ThemeContent(id, on) => {
+                if on {
+                    cx.layout.theme_content.insert(id);
+                } else {
+                    cx.layout.theme_content.remove(&id);
+                }
+                cx.keep("theme_content", &cx.layout.theme_content);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            Event::ThemeNotificationSounds(id, on) => {
+                change_sound_prefs(cx, &id, |prefs| prefs.on = on);
+            }
+            Event::ThemeInterfaceSounds(id, on) => {
+                change_sound_prefs(cx, &id, |prefs| prefs.interface = on);
+            }
+            Event::ThemeInterfaceVolume(id, volume) => {
+                change_sound_prefs(cx, &id, |prefs| prefs.volume = volume.min(100));
+            }
+            Event::ThemeTransitions(on) => {
+                cx.layout.theme_transitions = on;
+                cx.keep("theme_transitions", on);
+            }
             Event::New => self.new_theme(cx),
             Event::Edit(id) => {
+                if self.edit_creator(&id, cx) {
+                    return iced::Task::none();
+                }
                 let Some(custom) = cx.themes.custom.iter().find(|custom| custom.id == id) else {
-                    return;
+                    return iced::Task::none();
                 };
                 let editor = Editor::new(
                     Some(custom.id.clone()),
@@ -161,10 +262,10 @@ impl Settings {
                     .map(|start| (start.base, start.theme, copy_name(start.name)))
                     .collect();
                 let Some(editor) = self.editor.as_mut() else {
-                    return;
+                    return iced::Task::none();
                 };
                 let Some((base, theme, name)) = starts.get(index).cloned() else {
-                    return;
+                    return iced::Task::none();
                 };
                 // It takes the new start's name too, unless the person
                 // named it.
@@ -206,6 +307,7 @@ impl Settings {
             Event::Delete => self.delete_theme(cx),
             Event::Profile(cosmetic, on) => self::cosmetic(cx, cosmetic, on),
         }
+        iced::Task::none()
     }
 
     /// Opens the editor on a copy of the theme shown, which can start from
@@ -233,6 +335,10 @@ impl Settings {
     }
 
     fn open_editor(&mut self, editor: Editor, cx: &mut Cx<'_>) {
+        // As in the Slint build, New theme and Edit in Appearance lead to the
+        // creator inside Settings → Themes rather than turning Appearance
+        // into a second theme-management page.
+        self.section = Some(Section::Themes);
         self.editor = Some(editor);
         self.show_edited(cx);
     }
@@ -248,7 +354,7 @@ impl Settings {
     }
 
     /// Closes the editor: the window shows the theme chosen again.
-    fn close_editor(&mut self, cx: &mut Cx<'_>) -> Option<Editor> {
+    pub(super) fn close_editor(&mut self, cx: &mut Cx<'_>) -> Option<Editor> {
         let editor = self.editor.take()?;
         if self.preview.take().is_some() {
             cx.request(Request::Changed(Shown::Theme));
@@ -286,6 +392,8 @@ impl Settings {
                     name,
                     base: editor.base,
                     theme: editor.theme,
+                    creator: None,
+                    folder: None,
                 });
                 id
             }
@@ -297,6 +405,7 @@ impl Settings {
     /// Closes the editor and shows the theme from before it opened.
     pub(super) fn cancel_theme(&mut self, cx: &mut Cx<'_>) {
         self.close_editor(cx);
+        self.close_creator(cx);
     }
 
     /// Deletes the theme edited; if it was the chosen one, Yap shows.
@@ -312,12 +421,13 @@ impl Settings {
             return;
         };
         if let Some(id) = editor.editing {
-            cx.themes.custom.retain(|custom| custom.id != id);
+            let changed = cx.themes.forget_custom(cx.client.root(), &id);
+            cx.layout.custom_themes.clone_from(&cx.themes.custom);
             cx.keep("custom_themes", &cx.themes.custom);
+            if changed {
+                cx.request(Request::Changed(Shown::Theme));
+            }
         }
-        let (id, _) = palette::chosen(cx.themes.chosen.as_deref(), &cx.themes.custom);
-        let id = id.to_owned();
-        choose(cx, &id);
     }
 }
 
@@ -328,7 +438,34 @@ fn choose(cx: &mut Cx<'_>, id: &str) {
         return;
     };
     cx.themes.choose(cx.client.root(), &theme.id);
-    cx.request(Request::Changed(Shown::Theme));
+    cx.request(Request::ThemeApplied);
+}
+
+/// Changes one applied package's sound choices, omitting the map entry when
+/// every value is the Slint build's default. Notification replacements are
+/// reapplied immediately when this is the active theme.
+fn change_sound_prefs(
+    cx: &mut Cx<'_>,
+    id: &str,
+    change: impl FnOnce(&mut crate::themes::SoundPrefs),
+) {
+    let Some(mut prefs) = cx.themes.sound_prefs(id) else {
+        return;
+    };
+    change(&mut prefs);
+    if !cx.themes.set_sound_prefs(id, prefs) {
+        return;
+    }
+    if prefs == crate::themes::SoundPrefs::default() {
+        cx.layout.theme_sounds.remove(id);
+    } else {
+        cx.layout.theme_sounds.insert(id.to_owned(), prefs);
+    }
+    cx.keep("theme_sounds", &cx.layout.theme_sounds);
+    let active = cx.themes.chosen_id().to_owned();
+    if active == id {
+        cx.themes.apply_sounds(&active);
+    }
 }
 
 /// A profile switch: kept, and the core told what may now show.
@@ -356,12 +493,8 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
 
 impl<'a> Page<'a> {
     pub(super) fn appearance_page(self) -> Element<'a, Message> {
-        let settings = self.s;
         let theme = self.cx.look.theme;
-        if let Some(editor) = &settings.editor {
-            return self.editor_view(editor, settings.open == Some(Drop::Start));
-        }
-        let tiles = self.theme_tiles();
+        let tiles = self.theme_tiles(true);
         let prefs = &self.cx.layout.prefs;
         let cosmetics = prefs.cosmetics();
         let profile = |label, description, on: bool, which| {
@@ -369,17 +502,78 @@ impl<'a> Page<'a> {
                 .description(description)
                 .view(self.cx.look)
         };
+        let theme_options = self
+            .cx
+            .themes
+            .installed
+            .iter()
+            .find(|installed| self.cx.themes.chosen_id() == installed.id)
+            .and_then(|installed| self.theme_options(installed))
+            .unwrap_or_else(|| Space::new().height(0).into());
+        let installed_name = self
+            .cx
+            .themes
+            .installed
+            .iter()
+            .find(|installed| self.cx.themes.chosen_id() == installed.id)
+            .map(|installed| installed.name.clone());
+        let actions = row![
+            action(
+                theme,
+                "Browse themes",
+                Kind::Plain,
+                Some(crate::app::settings(SettingsEvent::Open(Section::Themes))),
+            )
+            .small()
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Brush, 16, crate::theme::rgb(theme.text))
+            ),
+            action(
+                theme,
+                "New theme",
+                Kind::Plain,
+                Some(theme_message(Event::New))
+            )
+            .small()
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Plus, 16, crate::theme::rgb(theme.text))
+            ),
+        ]
+        .spacing(8);
+        let installed_note: Element<'a, Message> = installed_name.map_or_else(
+            || Space::new().height(0).into(),
+            |name| {
+                form::note(
+                    theme,
+                    format!(
+                        "Showing {name}, an installed theme. Choose one above, or manage it in Themes."
+                    ),
+                )
+            },
+        );
         form::page([
             form::title(theme, "Appearance"),
             form::group([
-                form::beside(
-                    form::heading(theme, "THEME"),
-                    action(theme, "New theme", Kind::Plain, Some(theme_message(Event::New)))
-                        .small()
-                        .icon(self.cx.look.icon(Icon::Plus, 16, crate::theme::rgb(theme.text))),
-                ),
+                form::beside(form::heading(theme, "THEME"), actions),
                 tiles,
             ]),
+            installed_note,
+            theme_options,
+            switch(
+                "Readable text",
+                self.cx.layout.readable_text,
+                Some(theme_message(Event::ReadableText(
+                    !self.cx.layout.readable_text,
+                ))),
+            )
+            .description(
+                "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
+            )
+            .view(self.cx.look),
             self.desktop_icons(),
             self.title_bar_switch(),
             column![
@@ -433,14 +627,19 @@ impl<'a> Page<'a> {
     }
 
     /// The themes as tiles, as many 150 px or wider across as fit.
-    fn theme_tiles(self) -> Element<'a, Message> {
+    pub(super) fn theme_tiles(self, include_built_in: bool) -> Element<'a, Message> {
         iced::widget::responsive(move |size| {
             let columns = ((size.width + TILE_GAP) / (TILE + TILE_GAP))
                 .floor()
                 .max(1.0) as usize;
             let width = (size.width - (columns - 1) as f32 * TILE_GAP) / columns as f32;
+            let built_in = if include_built_in {
+                palette::BUILT_IN.as_slice()
+            } else {
+                &[]
+            };
             let cards: Vec<(String, String, bool, palette::Theme)> =
-                palette::BUILT_IN
+                built_in
                     .iter()
                     .map(|built_in| {
                         (
@@ -498,6 +697,7 @@ impl<'a> Page<'a> {
         if current {
             label = label.push(self.cx.look.glyph(Icon::Check, 16, theme.accent));
         }
+        let (accent, faint, line, hover) = (theme.accent, theme.faint, theme.line, theme.hover);
         let face = button(
             column![preview, container(label).padding([0, 2])]
                 .spacing(6)
@@ -507,7 +707,24 @@ impl<'a> Page<'a> {
         .width(width)
         .height(TILE_HEIGHT)
         .on_press(theme_message(Event::Choose(id.to_owned())))
-        .style(tile_style(theme, current));
+        .style(move |_, status| {
+            let lit = lights(status);
+            button::Style {
+                background: lit.then(|| hover.into()),
+                border: Border {
+                    color: if current {
+                        accent
+                    } else if lit {
+                        faint
+                    } else {
+                        line
+                    },
+                    width: if current { 2.0 } else { 1.0 },
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            }
+        });
         if !custom {
             return face.into();
         }
@@ -523,146 +740,86 @@ impl<'a> Page<'a> {
         stack![face, placed(pencil, width - 8.0 - 24.0, 8.0 + 78.0 + 6.0)].into()
     }
 
-    /// The editor: the name with Save and Cancel, what a new theme starts
-    /// from, Dark, each colour's field, and Delete for a saved one.
-    fn editor_view(self, editor: &'a Editor, starts_open: bool) -> Element<'a, Message> {
+    /// The colour editor, for one of the person's themes made of colours
+    /// alone: the creator's bar, then every colour beside Delete.
+    pub(super) fn editor_view(self, editor: &'a Editor) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let mut parts = vec![
-            form::title(theme, "Appearance"),
-            form::group([
-                form::heading(
-                    theme,
-                    if editor.editing.is_some() {
-                        "EDIT THEME"
-                    } else {
-                        "NEW THEME"
-                    },
-                ),
-                row![
-                    form::field(theme, NAME, "Name", &editor.name)
-                        .on_input(|name| theme_message(Event::Name(name)))
-                        .on_submit(theme_message(Event::Save)),
-                    action(
-                        theme,
-                        "Save",
-                        Kind::Primary,
-                        editor.valid().then(|| theme_message(Event::Save))
-                    ),
-                    action(
-                        theme,
-                        "Cancel",
-                        Kind::Plain,
-                        Some(theme_message(Event::Cancel))
-                    )
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .into(),
-            ]),
-        ];
-        if editor.editing.is_none() {
-            let names: Vec<String> = palette::starts(&self.cx.themes.custom)
-                .map(|start| start.name.to_owned())
-                .collect();
-            parts.push(form::group([
-                form::heading(theme, "START FROM"),
-                form::dropdown(
-                    names,
-                    Some(editor.start),
-                    starts_open,
-                    Message::Settings(SettingsEvent::Drop(Drop::Start)),
-                    |index| theme_message(Event::Start(index)),
-                )
-                .view(self.cx.look),
-            ]));
-        }
-        parts.push(
-            switch(
-                "Dark",
-                editor.theme.dark,
-                Some(theme_message(Event::Dark(!editor.theme.dark))),
-            )
-            .description("Drop-down lists and scroll bars draw dark to match.")
-            .view(self.cx.look),
+        let starts_open = self.s.open == Some(Drop::Start);
+        let bar = self.editor_bar(
+            &editor.name,
+            |name| theme_message(Event::Name(name)),
+            None,
+            editor.editing.is_some(),
+            editor.valid().then(|| theme_message(Event::Save)),
+            theme_message(Event::Cancel),
         );
-        let colours = iced::widget::responsive(move |size| {
-            let columns = if size.width >= TWO_COLUMNS { 2 } else { 1 };
-            let per = editor.fields.len().div_ceil(columns);
-            let mut line = row![].spacing(COLOUR_GAP);
-            for column_index in 0..columns {
-                let mut cells = column![];
-                for index in column_index * per..((column_index + 1) * per).min(editor.fields.len())
-                {
-                    let (name, hex, wrong) = &editor.fields[index];
-                    let shown = editor.theme.colour(index).map_or(Color::TRANSPARENT, color);
-                    cells = cells.push(form::colour_row(
-                        theme,
-                        name,
-                        shown,
-                        hex,
-                        *wrong,
-                        move |text| theme_message(Event::Colour(index, text)),
-                    ));
-                }
-                line = line.push(container(cells).width(Length::FillPortion(1)));
+        let controls = move |_: f32| -> Element<'a, Message> {
+            let mut parts = Vec::new();
+            if editor.editing.is_none() {
+                let names: Vec<String> = palette::starts(&self.cx.themes.custom)
+                    .map(|start| start.name.to_owned())
+                    .collect();
+                parts.push(form::group([
+                    form::heading(theme, "START FROM"),
+                    form::dropdown(
+                        names,
+                        Some(editor.start),
+                        starts_open,
+                        crate::app::settings(SettingsEvent::Drop(Drop::Start)),
+                        |index| theme_message(Event::Start(index)),
+                    )
+                    .view(self.cx.look),
+                ]));
             }
-            line.into()
-        })
-        .height(Length::Shrink);
-        parts.push(form::group([
-            form::heading(theme, "COLOURS"),
-            form::note(
-                theme,
-                "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it.",
-            ),
-            colours.into(),
-        ]));
-        if editor.editing.is_some() {
-            parts.push(form::buttons([action(
-                theme,
-                if editor.confirming {
-                    "Delete it for good"
-                } else {
-                    "Delete theme"
-                },
-                Kind::Danger,
-                Some(theme_message(Event::Delete)),
-            )
-            .small()
-            .icon(
-                self.cx
-                    .look
-                    .icon(Icon::Trash, 16, crate::theme::rgb(theme.on_danger)),
-            )
-            .into()]));
-        }
-        form::page(parts)
-    }
-}
-
-/// The theme tile's outline and hover.
-fn tile_style(
-    theme: &crate::theme::Theme,
-    current: bool,
-) -> impl Fn(&iced::Theme, button::Status) -> button::Style + use<> {
-    let (accent, faint, line, hover) = (theme.accent, theme.faint, theme.line, theme.hover);
-    move |_, status| {
-        let lit = lights(status);
-        button::Style {
-            background: lit.then(|| hover.into()),
-            border: Border {
-                color: if current {
-                    accent
-                } else if lit {
-                    faint
-                } else {
-                    line
-                },
-                width: if current { 2.0 } else { 1.0 },
-                radius: 10.0.into(),
-            },
-            ..Default::default()
-        }
+            parts.push(
+                switch(
+                    "Dark",
+                    editor.theme.dark,
+                    Some(theme_message(Event::Dark(!editor.theme.dark))),
+                )
+                .description("Drop-down lists and scroll bars draw dark to match.")
+                .view(self.cx.look),
+            );
+            parts.push(form::group([
+                form::heading(theme, "EVERY COLOUR"),
+                form::note(
+                    theme,
+                    "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it.",
+                ),
+                super::theme_creator::colour_rows(
+                    theme,
+                    &editor.fields,
+                    &editor.theme,
+                    |index, text| theme_message(Event::Colour(index, text)),
+                ),
+            ]));
+            column(parts).spacing(24).into()
+        };
+        let aside = move |_: f32| -> Element<'a, Message> {
+            if editor.editing.is_none() {
+                return Space::new().into();
+            }
+            row![
+                action(
+                    theme,
+                    if editor.confirming {
+                        "Delete it for good"
+                    } else {
+                        "Delete theme"
+                    },
+                    Kind::Danger,
+                    Some(theme_message(Event::Delete)),
+                )
+                .small()
+                .icon(self.cx.look.icon(
+                    Icon::Trash,
+                    16,
+                    crate::theme::rgb(theme.on_danger)
+                ),)
+            ]
+            .into()
+        };
+        self.editor_frame(bar, None, controls, aside)
     }
 }
 
@@ -772,7 +929,7 @@ impl<'a> Page<'a> {
         switch(
             "Use the system title bar",
             system,
-            Some(Message::Settings(SettingsEvent::Pref(
+            Some(crate::app::settings(SettingsEvent::Pref(
                 super::pages::Pref::SystemTitleBar(!system),
             ))),
         )

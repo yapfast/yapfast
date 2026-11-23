@@ -475,6 +475,8 @@ Yapfast is back, rather than showing an error.
   message", which "Show it" opens, and they don't notify or show typing.
   Yapfast learns the blocked from READY's relationships (type 2) and keeps them
   current from RELATIONSHIP_ADD and RELATIONSHIP_REMOVE.
+- Messages from ignored users show collapsed in the timeline with a Show
+  button and don't notify. Yapfast reads `user_ignored` from relationships.
 - A reply's quoted line jumps to the original and highlights it for a
   moment, as described under [jumping to a message](#jumping-to-a-message).
   It says the original was deleted only when `referenced_message` is

@@ -285,7 +285,8 @@ impl<'a> View<'a> {
                 .below()
                 .into(),
         );
-        let mut shown = Viewer::new(GROUND, picture, size, Message::Image(Event::Close))
+        let scrim = self.cx.look.theme.token_colour("scrim", GROUND);
+        let mut shown = Viewer::new(scrim, picture, size, Message::Image(Event::Close))
             .title(attachment.name.clone(), buttons);
         if images.len() > 1
             && let Some(place) = place
@@ -310,7 +311,12 @@ impl<'a> View<'a> {
                 .align_y(Alignment::End),
             );
         }
-        Some(shown.view(self.cx.look))
+        let shown = shown.view(self.cx.look);
+        Some(crate::theme_art::surface(
+            shown,
+            self.cx,
+            yapfast_core::themes::package::art::ArtSurface::Lightbox,
+        ))
     }
 
     /// The round buttons either side that step to the previous and next

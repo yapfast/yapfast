@@ -108,7 +108,7 @@ pub enum Event {
 }
 
 fn message(event: Event) -> Message {
-    Message::Settings(SettingsEvent::DesktopIcon(event))
+    crate::app::settings(SettingsEvent::DesktopIcon(event))
 }
 
 impl Settings {
