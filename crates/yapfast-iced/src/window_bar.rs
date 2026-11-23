@@ -96,6 +96,9 @@ pub enum Event {
     /// Whether the window is maximized now, and full screen (as a kiosk
     /// makes it), read at the size `Shell::sized` counts so.
     State(bool, bool, u32),
+    /// What the desktop says; `None` (Wayland can't tell) leaves what
+    /// Yapfast knows, such as its own Minimize.
+    Minimized(Option<bool>),
 }
 
 /// The inbox's tabs, as Discord's first two.
@@ -194,7 +197,7 @@ pub fn read_window_state(app: &App) -> Task<Message> {
         return Task::none();
     };
     let sized = app.shell.sized;
-    window::is_maximized(id).then(move |maximized| {
+    let state = window::is_maximized(id).then(move |maximized| {
         window::mode(id).map(move |mode| {
             Message::Bar(Event::State(
                 maximized,
@@ -202,7 +205,9 @@ pub fn read_window_state(app: &App) -> Task<Message> {
                 sized,
             ))
         })
-    })
+    });
+    let minimized = window::is_minimized(id).map(|min| Message::Bar(Event::Minimized(min)));
+    Task::batch([state, minimized])
 }
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -286,7 +291,16 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.bar_drag.armed = None;
             id.map_or_else(Task::none, window::toggle_maximize)
         }
-        Event::Minimize => id.map_or_else(Task::none, |id| window::minimize(id, true)),
+        Event::Minimize => {
+            app.shell.minimized = true;
+            id.map_or_else(Task::none, |id| window::minimize(id, true))
+        }
+        Event::Minimized(minimized) => {
+            if let Some(minimized) = minimized {
+                app.shell.minimized = minimized;
+            }
+            Task::none()
+        }
         // As the desktop's close button: to the tray, or quit.
         Event::Close => app.close_requested(),
         Event::Resize(direction) => {
@@ -782,7 +796,17 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             .height(Length::Fill)
             .into()
     };
-    let (raised, line) = (theme.raised, theme.line);
+    let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+    let decorated =
+        app.themes.decorates(&theme.id, surface) || theme.package_paint(surface.ground()).is_some();
+    let (raised, line) = (
+        if decorated {
+            iced::Color::TRANSPARENT
+        } else {
+            theme.raised
+        },
+        theme.line,
+    );
     let panel = container(column![
         head,
         controls::bar(theme.line, Length::Fill, 1),
@@ -792,7 +816,8 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     // `window` is the room under the bar already: the panel starts 4 px
     // under it and stops 12 px over the window's foot.
     .height((app.window.height - 4.0 - 12.0).min(INBOX_MOST))
-    .style(move |_| crate::style::panel(raised, line, 8.0));
+    .style(move |_| crate::style::surface_panel(theme, "popout", raised, line, 8.0));
+    let panel = crate::theme_art::surface(panel, app.ctx(), surface);
     let at = Point::new(app.window.width - INBOX_WIDTH - 8.0, HEIGHT + 4.0);
     Some(
         stack![

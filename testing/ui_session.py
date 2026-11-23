@@ -63,7 +63,7 @@ CHARACTERS.update({' ': (57, False), '-': (12, False), '=': (13, False), ';': (3
                    '%': (6, True), '^': (7, True), '&': (8, True), '*': (9, True), '+': (13, True)})
 
 fake = None
-# Yapfast reads commands for its window from this file; see `test_control` in src/ui.rs.
+# Yapfast reads window commands here; see crates/yapfast-iced/src/control_file.rs.
 window_control = state / 'window-control'
 environment = dict(os.environ, YAPFAST_UI_TEST_SIZE=args.size, YAPFAST_UI_TEST_CONTROL=str(window_control))
 if args.cursor:

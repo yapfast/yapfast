@@ -13,7 +13,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use iced::{
-    Alignment, Color, Element, Length, Padding, Task,
+    Alignment, Color, Element, Length, Padding, Size, Task,
     widget::{
         Space, column, container, mouse_area, row, scrollable::Viewport, stack, text, tooltip,
     },
@@ -22,6 +22,7 @@ use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::{ChatRoom, ChatServer, MarkKind, VoicePerson},
     discord,
+    themes::lists::{LabelPlace, PillMode, RailShape, RailTiles},
 };
 
 use crate::{
@@ -61,6 +62,13 @@ pub fn view<'a>(rail: &'a Rail, cx: crate::ctx::Ctx<'a>) -> Element<'a, Message>
     View { s: rail, cx }.rail_view()
 }
 
+/// The same server picker laid across the window's top. The item faces and
+/// theme tile art stay on the same path as the vertical rail; only the
+/// scroll axis and edge marks change.
+pub fn top_view<'a>(rail: &'a Rail, cx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
+    View { s: rail, cx }.top_view()
+}
+
 /// The rail's view: its rows and the view context.
 #[derive(Clone, Copy)]
 struct View<'a> {
@@ -80,6 +88,42 @@ impl Rail {
 }
 
 pub const WIDTH: f32 = 72.0;
+
+/// The rail's resolved width. An installed package may need a little more
+/// room for card, ticket or tall tiles; stock and colour-only themes keep
+/// Wired's exact 72 px rail.
+pub fn themed_width(package: Option<&yapfast_core::themes::layout::Layout>) -> f32 {
+    package
+        .and_then(|layout| layout.rail_tiles.as_ref())
+        .map_or(WIDTH, RailTiles::rail_width)
+}
+
+/// The rail width after ordinary chrome is considered. A package's text
+/// rail owns its checked width; icon and tile rails keep the layout width.
+pub fn resolved_width(
+    package: Option<&yapfast_core::themes::layout::Layout>,
+    chrome: Option<&yapfast_core::themes::chrome::Chrome>,
+) -> f32 {
+    chrome
+        .filter(|chrome| chrome.rail_text())
+        .and_then(|chrome| chrome.rail_width)
+        .unwrap_or_else(|| themed_width(package))
+}
+
+/// A top rail is 64 px in stock themes. Theme tiles may make it taller, but
+/// never shorter than Wired's usable hit area.
+pub fn themed_top_height(package: Option<&yapfast_core::themes::layout::Layout>) -> f32 {
+    package
+        .and_then(|layout| layout.rail_tiles.as_ref())
+        .map_or(64.0, |tiles| {
+            let label = if tiles.label == LabelPlace::Below {
+                tiles.label_size + 2.0
+            } else {
+                0.0
+            };
+            (tiles.height + label + 16.0).max(64.0)
+        })
+}
 /// A server's tile, a folder's, and the gap after each, as Discord's.
 pub const TILE: f32 = 40.0;
 pub const FOLDER: f32 = 48.0;
@@ -239,16 +283,40 @@ impl RailItem {
     }
 
     /// The row's height, its gap included.
-    pub fn height(&self, index: usize) -> f32 {
+    pub fn height(&self, index: usize, tiles: Option<&RailTiles>) -> f32 {
+        let tile = tiles.map_or(TILE, |tiles| tiles.height);
+        let folder = tiles.map_or(FOLDER, |tiles| tiles.height);
+        let gap = tiles.map_or(GAP, |tiles| tiles.gap + 2.0 * tiles.pad);
+        let label = tiles.map_or(0.0, |tiles| {
+            if tiles.label == LabelPlace::Below {
+                tiles.label_size + 2.0
+            } else {
+                0.0
+            }
+        });
         match &self.kind {
             Kind::Divider if index == 0 => 0.0,
-            Kind::Divider => 1.0 + GAP,
-            Kind::Folder { open: true, .. } => FOLDER + 4.0,
-            Kind::Folder { open: false, .. } => FOLDER + GAP,
-            Kind::Nested { last, .. } => TILE + if *last { 4.0 } else { 0.0 } + GAP,
-            Kind::Server | Kind::Dm | Kind::Add => TILE + GAP,
+            Kind::Divider => {
+                tiles
+                    .and_then(|tiles| tiles.divider)
+                    .map_or(1.0, |divider| divider.size.1)
+                    + gap
+            }
+            Kind::Folder { open: true, .. } => folder + label + 4.0,
+            Kind::Folder { open: false, .. } => folder + label + gap,
+            Kind::Nested { last, .. } => tile + label + if *last { 4.0 } else { 0.0 } + gap,
+            Kind::Server | Kind::Dm | Kind::Add => tile + label + gap,
         }
     }
+}
+
+/// Whether `room` is the conversation someone reads: open, its newest
+/// message in view and the window in front. Discord's client marks what
+/// comes there read as it comes, so the room never shows as unread on the
+/// rail, nor in the DM home's count, though the core counts it until its
+/// read reaches Discord.
+fn read_now(state: &AppState, room: &ChatRoom) -> bool {
+    state.reading && !state.detached && state.selected.as_deref() == Some(room.id.as_str())
 }
 
 /// The DM home's marks, from the core's state: selected, any DM unread, and
@@ -257,7 +325,7 @@ pub fn home(state: &AppState) -> Home {
     let mentions: u64 = state
         .rooms
         .iter()
-        .filter(|room| room.direct)
+        .filter(|room| room.direct && !read_now(state, room))
         .map(|room| room.mentions)
         .sum();
     let incoming = state
@@ -270,7 +338,7 @@ pub fn home(state: &AppState) -> Home {
         unread: state
             .rooms
             .iter()
-            .any(|room| room.direct && room.unread > 0),
+            .any(|room| room.direct && room.unread > 0 && !read_now(state, room)),
         badge: count_badge(mentions + incoming),
     }
 }
@@ -291,6 +359,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             room.direct
                 && !room.request
                 && room.category != discord::SPAM
+                && !read_now(state, room)
                 && (room.unread > 0 || room.mentions > 0)
         })
         .map(|room| RailItem {
@@ -532,6 +601,11 @@ fn tile_initials(item: &RailItem) -> String {
     }
 }
 
+/// A tree row's branch: `└──` for a list's last, else `├──`.
+fn branch(last: bool) -> String {
+    if last { "└──" } else { "├──" }.to_owned()
+}
+
 /// What a tile shows around it.
 #[derive(Default)]
 struct Marks<'a> {
@@ -541,6 +615,7 @@ struct Marks<'a> {
     /// Its speaker, and whether this account is in a call there.
     speaker: Option<(Media, bool)>,
     pointed: bool,
+    folder: bool,
     open_folder: bool,
     /// A right click on it opens its menu.
     menu: bool,
@@ -562,7 +637,7 @@ impl Rail {
             if matches!(item.kind, Kind::Folder { open: true, .. }) {
                 open_folder = Some(item.id.as_str());
             }
-            let height = item.height(index);
+            let height = item.height(index, None);
             let local = y - top;
             top += height;
             if !(-GAP / 2.0..height - GAP / 2.0).contains(&local) {
@@ -682,10 +757,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Drop => {
-            let above = app.shell.frame.height - app.window.height;
-            let destination = app
-                .rail
-                .destination(above)
+            let view = View {
+                s: &app.rail,
+                cx: app.ctx(),
+            };
+            let destination = view
+                .destination()
                 .map(|drop| (drop.target.to_owned(), drop.before));
             if let (Some(drag), Some((target, before))) = (app.rail.dragging.take(), destination) {
                 app.client.dispatch(Action::FileServer {
@@ -696,19 +773,34 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             }
             return app.sync();
         }
-        Event::Home => app
-            .client
-            .dispatch(Action::Navigate(Navigation::DirectMessages)),
-        Event::Server(id) => app
-            .client
-            .dispatch(Action::Navigate(Navigation::Server(id))),
+        Event::Home => {
+            app.client
+                .dispatch(Action::Navigate(Navigation::DirectMessages));
+        }
+        Event::Server(id) => {
+            app.client
+                .dispatch(Action::Navigate(Navigation::Server(id)));
+        }
         Event::Folder(id) => {
             app.lists_shown = None;
-            if !app.layout.open_folders.remove(&id) {
-                app.layout.open_folders.insert(id);
+            if crate::sidebar::tree::one_folder(app) {
+                // A tree that opens one folder at a time keeps it apart:
+                // the rail's open folders stay for the stock theme.
+                let open = app.layout.tree_folder.take();
+                if open.as_deref() != Some(id.as_str()) {
+                    app.layout.tree_folder = Some(id);
+                }
+                crate::layout::store(app.client.root(), "tree_folder", &app.layout.tree_folder);
+            } else {
+                if !app.layout.open_folders.remove(&id) {
+                    app.layout.open_folders.insert(id);
+                }
+                crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
             }
-            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
-            app.rail.items = rail(app.client.state(), &app.layout.open_folders);
+            app.rail.items = rail(
+                app.client.state(),
+                &crate::sidebar::tree::folders_shown(app),
+            );
             return app.ask();
         }
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),
@@ -721,21 +813,167 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
 }
 
 impl<'a> View<'a> {
+    /// Drop hit testing uses the stock left rail's tile and list geometry.
+    fn can_drag(self) -> bool {
+        let theme = &self.cx.look.theme.id;
+        self.tiles().is_none()
+            && !self.top_rail()
+            && !crate::conversation::navigation_right(self.cx.themes.package_layout(theme))
+            && !self
+                .cx
+                .themes
+                .chrome(theme)
+                .is_some_and(yapfast_core::themes::chrome::Chrome::rail_text)
+    }
+
+    fn destination(self) -> Option<Destination<'a>> {
+        self.can_drag()
+            .then(|| self.s.destination(self.cx.above))
+            .flatten()
+    }
+
+    fn tiles(self) -> Option<&'a RailTiles> {
+        self.cx.themes.rail_tiles(&self.cx.look.theme.id)
+    }
+
+    fn rail_width(self) -> f32 {
+        resolved_width(
+            self.cx.themes.package_layout(&self.cx.look.theme.id),
+            self.cx.themes.chrome(&self.cx.look.theme.id),
+        )
+    }
+
+    fn top_rail(self) -> bool {
+        self.cx
+            .themes
+            .package_layout(&self.cx.look.theme.id)
+            .and_then(|layout| layout.rail)
+            == Some(yapfast_core::themes::layout::RailSide::Top)
+    }
+
+    fn tile_size(self) -> (f32, f32) {
+        self.tiles()
+            .map_or((TILE, TILE), |tiles| (tiles.width, tiles.height))
+    }
+
+    fn folder_size(self) -> (f32, f32) {
+        self.tiles()
+            .map_or((FOLDER, FOLDER), |tiles| (tiles.width, tiles.height))
+    }
+
+    fn label_height(self) -> f32 {
+        self.tiles().map_or(0.0, |tiles| {
+            if tiles.label == LabelPlace::Below {
+                tiles.label_size + 2.0
+            } else {
+                0.0
+            }
+        })
+    }
+
+    /// A tile drawn on the theme's frames (Zine's prints): no ring or
+    /// shadow of its own, as Slint's.
+    fn framed(self) -> bool {
+        self.tiles().is_some_and(|tiles| !tiles.frame.is_empty())
+    }
+
+    /// A tile's seed, as Slint's: its id's, the home tile's 0.
+    fn seed(id: &str) -> u64 {
+        if id.is_empty() {
+            0
+        } else {
+            crate::themes::slint_seed(id)
+        }
+    }
+
+    /// Degrees a tile leans, from its seed within the theme's `tilt`, as
+    /// Slint's `Rails.lean`; none at the Light level.
+    fn lean(self, id: &str) -> f32 {
+        let Some(tiles) = self.tiles().filter(|tiles| tiles.tilt != 0.0) else {
+            return 0.0;
+        };
+        let (performance, _) = self.cx.themes.art_motion(&self.cx.look.theme.id);
+        if performance == yapfast_core::themes::Performance::Light {
+            return 0.0;
+        }
+        crate::themes::seeded_lean(Self::seed(id), tiles.tilt)
+    }
+
+    /// Of a theme's choices, the one a tile's seed picks.
+    fn picked<'t>(
+        choices: &'t [yapfast_core::themes::lists::TileArt],
+        id: &str,
+    ) -> Option<&'t yapfast_core::themes::lists::TileArt> {
+        (!choices.is_empty()).then(|| &choices[Self::seed(id) as usize % choices.len()])
+    }
+
+    /// Where a framed face turns about, as `card_ground`'s pivot: the
+    /// tile's centre, which the frame turns about, above the window's top.
+    fn face_pivot(self, id: &str, selected: bool) -> f32 {
+        let (_, tile_height) = self.tile_size();
+        self.tiles()
+            .and_then(|tiles| {
+                selected
+                    .then_some(tiles.selected.frame.as_ref())
+                    .flatten()
+                    .or_else(|| Self::picked(&tiles.frame, id))
+            })
+            .and_then(|frame| frame.window)
+            .map_or(f32::NAN, |[_, y, _, _]| y - tile_height / 2.0)
+    }
+
+    /// The box a tile's face fills: its frame's window (the seed's frame,
+    /// or the selected one), else the tile.
+    fn face_box(self, id: &str, selected: bool) -> (f32, f32) {
+        self.tiles()
+            .and_then(|tiles| {
+                selected
+                    .then_some(tiles.selected.frame.as_ref())
+                    .flatten()
+                    .or_else(|| Self::picked(&tiles.frame, id))
+            })
+            .and_then(|frame| frame.window)
+            .map_or_else(|| self.tile_size(), |[_, _, width, height]| (width, height))
+    }
+
+    fn tile_radius(self) -> f32 {
+        self.tiles().map_or_else(
+            || self.cx.look.theme.surface_radius("rail-icon", RADIUS),
+            |tiles| {
+                if tiles.shape == RailShape::Circle {
+                    tiles.width.min(tiles.height) / 2.0
+                } else {
+                    tiles.radius
+                }
+            },
+        )
+    }
+
     pub fn rail_view(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        if self
+            .cx
+            .themes
+            .chrome(&theme.id)
+            .is_some_and(yapfast_core::themes::chrome::Chrome::rail_text)
+        {
+            return self.text_rail_view();
+        }
+        let tiles = self.tiles();
+        let rail_width = self.rail_width();
         let viewport = self.s.scroll;
         let mut top = 0.0;
-        let destination = self.s.destination(self.cx.above);
+        let destination = self.destination();
         let mut rows = Rows::new(
             self.s
                 .items
                 .iter()
                 .enumerate()
-                .map(|(i, item)| item.height(i))
+                .map(|(i, item)| item.height(i, tiles))
                 .sum(),
         );
         for (index, item) in self.s.items.iter().enumerate() {
-            let height = item.height(index);
+            let height = item.height(index, tiles);
             let at = top;
             top += height;
             if at + height < viewport.offset - MARGIN
@@ -760,24 +998,501 @@ impl<'a> View<'a> {
             .on_scroll(|viewport| Message::Rail(Event::Scrolled(viewport)))
             .height(Length::Fill)
             .style(scrollbar(theme));
-        let line = container(bar(theme.outline, 32, 1)).center_x(WIDTH);
-        let items = column![self.home_tile(), line, list]
-            .spacing(GAP)
-            .width(WIDTH);
-        container(items.padding(Padding {
-            bottom: 12.0,
+        // As Slint lays a theme's tiles: the home tile in a slot of its own
+        // (the tile and `pad` round it), the theme's divider in its height
+        // and 8 px, then the servers, each with the gap above its slot.
+        let mut items = match tiles {
+            Some(tiles) => {
+                let divider: Element<'a, Message> = match tiles.divider {
+                    Some(divider) => {
+                        let colour = crate::themes::argb(divider.colour);
+                        let (width, height) = divider.size;
+                        // Dotted: dots a height apart, as Slint's.
+                        let line: Element<'a, Message> = if divider.dotted {
+                            let count = (width / (height * 2.0)).floor().max(1.0) as usize;
+                            let mut dots = row![].spacing(height);
+                            for _ in 0..count {
+                                dots = dots.push(
+                                    container(Space::new())
+                                        .width(height)
+                                        .height(height)
+                                        .style(move |_| rounded(colour, height / 2.0)),
+                                );
+                            }
+                            container(dots).width(width).into()
+                        } else {
+                            bar(colour, width, height).into()
+                        };
+                        container(line)
+                            .center_x(rail_width)
+                            .center_y(height + 8.0)
+                            .into()
+                    }
+                    None => container(bar(theme.outline, 32, 1))
+                        .center_x(rail_width)
+                        .height(1)
+                        .into(),
+                };
+                column![
+                    container(self.home_tile())
+                        .center_y(tiles.height + 2.0 * tiles.pad + self.label_height()),
+                    divider,
+                    list
+                ]
+                .spacing(0)
+                .width(rail_width)
+            }
+            None => {
+                let line = container(bar(theme.outline, 32, 1)).center_x(rail_width);
+                column![self.home_tile(), line, list]
+                    .spacing(GAP)
+                    .width(rail_width)
+            }
+        };
+        // As Slint: a theme's art at the rail's foot (a power light). The
+        // add button is the list's last tile.
+        if let Some(foot) = tiles.and_then(|tiles| tiles.foot.as_ref()) {
+            let height = foot.size.map_or(48.0, |(_, height)| height);
+            if let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Rail,
+                foot,
+                rail_width,
+                height,
+            ) {
+                items = items.push(container(art).width(rail_width).height(height));
+            }
+        }
+        // A glass rail keeps its tiles inside its edge, as Slint's
+        // `pane-inset` does.
+        // As Slint's `pane-inset`: a rail in a theme whose panes float
+        // keeps its tiles 8 px in, and a glass rail's edge more.
+        let inset = self.cx.themes.glass_style(&theme.id).map_or(0.0, |style| {
+            let glass_rail = self
+                .cx
+                .themes
+                .glass(
+                    &theme.id,
+                    yapfast_core::themes::package::art::ArtSurface::Rail,
+                )
+                .is_some();
+            let edge = style.highlight.is_some_and(|colour| colour >> 24 != 0)
+                || style.inset.as_ref().is_some_and(|inset| inset.blur > 0.0);
+            let rim_width = style.rim.map_or(0.0, |(_, width)| width);
+            let rim = if glass_rail {
+                rim_width.max(if edge { 2.0 } else { 0.0 })
+            } else {
+                0.0
+            };
+            if style.gap > 0.0 || style.radius > 0.0 || rim > 0.0 {
+                8.0 + rim
+            } else {
+                0.0
+            }
+        });
+        let content: Element<'a, Message> = container(items.padding(Padding {
+            top: if tiles.is_some() { inset } else { 0.0 },
+            bottom: 12.0_f32.max(inset),
             ..Padding::ZERO
         }))
-        .width(WIDTH)
+        .width(rail_width)
         .height(Length::Fill)
-        .into()
+        .into();
+        let mut layers = stack![];
+        if let Some(tiles) = tiles {
+            for ground in &tiles.ground {
+                if let Some(art) = crate::theme_art::tile_art(
+                    self.cx,
+                    yapfast_core::themes::package::art::ArtSurface::Rail,
+                    ground,
+                    rail_width,
+                    self.cx.look.window.height,
+                ) {
+                    layers = layers.push(art);
+                }
+            }
+        }
+        layers
+            .push(content)
+            .width(rail_width)
+            .height(Length::Fill)
+            .into()
+    }
+
+    /// A theme's text rail: the same navigation and menus as the tile rail,
+    /// with only checked labels and marks replacing its visible words.
+    fn text_rail_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let chrome = self
+            .cx
+            .themes
+            .chrome(&theme.id)
+            .expect("a text rail belongs to installed chrome");
+        let width = self.rail_width();
+        let role = chrome
+            .font
+            .map_or("small", yapfast_core::themes::package::Role::name);
+        let fixed = |words: String| {
+            text(words)
+                .size(theme.type_size(role, 14.0))
+                .font(theme.font(role, MEDIUM))
+                .color(theme.muted)
+        };
+        let mut content = column![].spacing(1).padding(8).width(Length::Fill);
+        if let Some(title) = chrome
+            .labels
+            .get(&yapfast_core::themes::chrome::Label::RailTitle)
+        {
+            content = content
+                .push(container(fixed(title.clone())).padding(Padding::ZERO.left(8).bottom(4)));
+        }
+        let home = self.cx.themes.label(
+            &theme.id,
+            yapfast_core::themes::chrome::Label::RailHome,
+            "Direct messages",
+            &[],
+        );
+        let tree_rail =
+            crate::theme_chrome::tree(self.cx, yapfast_core::themes::chrome::TreeList::Rail);
+        content = content.push(self.tree_button(
+            String::new(),
+            if tree_rail {
+                branch(self.s.items.is_empty())
+            } else {
+                String::new()
+            },
+            home,
+            self.s.home.selected,
+            self.s.home.unread,
+            &self.s.home.badge,
+            Message::Rail(Event::Home),
+        ));
+
+        let mut rows = column![].spacing(1).width(Length::Fill);
+        let count = self.s.items.len();
+        for (index, item) in self.s.items.iter().enumerate() {
+            if item.kind == Kind::Divider {
+                rows = rows.push(Space::new().height(6));
+                continue;
+            }
+            // The text rail writes its own add line, below.
+            if item.kind == Kind::Add {
+                continue;
+            }
+            let (label, nested, selected, unread, badge, message) = match &item.kind {
+                Kind::Folder { open, .. } => {
+                    let label = chrome.folders.as_ref().map_or_else(
+                        || format!("{} {}", if *open { "-" } else { "+" }, item.name),
+                        |folders| {
+                            format!(
+                                "{}{}{}",
+                                if *open {
+                                    &folders.open
+                                } else {
+                                    &folders.closed
+                                },
+                                item.name,
+                                folders.suffix
+                            )
+                        },
+                    );
+                    (
+                        label,
+                        false,
+                        item.selected && !*open,
+                        item.unread && !*open,
+                        if *open { "" } else { item.badge.as_str() },
+                        Message::Rail(Event::Folder(item.id.clone())),
+                    )
+                }
+                Kind::Dm => (
+                    format!("@{}", item.name),
+                    false,
+                    false,
+                    true,
+                    item.badge.as_str(),
+                    Message::Rail(Event::Dm(item.id.clone())),
+                ),
+                Kind::Nested { .. } => (
+                    self.cx.themes.marked(
+                        &theme.id,
+                        yapfast_core::themes::chrome::Place::Server,
+                        &item.name,
+                    ),
+                    true,
+                    item.selected,
+                    item.unread,
+                    item.badge.as_str(),
+                    Message::Rail(Event::Server(item.id.clone())),
+                ),
+                Kind::Server => (
+                    self.cx.themes.marked(
+                        &theme.id,
+                        yapfast_core::themes::chrome::Place::Server,
+                        &item.name,
+                    ),
+                    false,
+                    item.selected,
+                    item.unread,
+                    item.badge.as_str(),
+                    Message::Rail(Event::Server(item.id.clone())),
+                ),
+                Kind::Divider | Kind::Add => unreachable!(),
+            };
+            let line = match (tree_rail, nested) {
+                (true, true) => format!("│   {}", branch(index + 1 == count)),
+                (true, false) => branch(index + 1 == count),
+                (false, true) => "  ".to_owned(),
+                (false, false) => String::new(),
+            };
+            rows = rows.push(self.tree_button(
+                item.id.clone(),
+                line,
+                label,
+                selected,
+                unread,
+                badge,
+                message,
+            ));
+        }
+        content = content.push(
+            scroll_view(rows)
+                .height(Length::Fill)
+                .style(scrollbar(theme)),
+        );
+        if self.cx.state.discord_online || self.cx.state.preview {
+            content = content.push(self.tree_button(
+                "+".into(),
+                String::new(),
+                "+ join".into(),
+                false,
+                false,
+                "",
+                Message::Rail(Event::Join),
+            ));
+        }
+        let selected =
+            self.s.items.iter().find(|item| {
+                item.selected && matches!(item.kind, Kind::Server | Kind::Nested { .. })
+            });
+        if let (Some(template), Some(server)) = (
+            chrome
+                .labels
+                .get(&yapfast_core::themes::chrome::Label::RailFooter),
+            selected,
+        ) {
+            let words =
+                yapfast_core::themes::chrome::fill(template, &[("server", server.name.as_str())]);
+            content = content.push(container(fixed(words)).padding(Padding::ZERO.left(8).top(4)));
+        }
+        container(content).width(width).height(Length::Fill).into()
+    }
+
+    pub fn top_view(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let tiles = self.tiles();
+        let height = themed_top_height(self.cx.themes.package_layout(&theme.id));
+        let cell_width = self.tile_size().0.max(self.folder_size().0).max(40.0) + 20.0;
+        let mut cells = row![container(self.home_tile()).width(cell_width).height(height)]
+            .align_y(Alignment::Center)
+            .spacing(0);
+        for (index, item) in self.s.items.iter().enumerate() {
+            // The theme's own add button ends the row, below.
+            if item.kind == Kind::Add {
+                continue;
+            }
+            if item.kind == Kind::Divider {
+                if index > 0 {
+                    let (width, colour, dotted) = tiles.and_then(|tiles| tiles.divider).map_or(
+                        (1.0, theme.outline, false),
+                        |divider| {
+                            (
+                                divider.size.1.max(1.0),
+                                crate::themes::argb(divider.colour),
+                                divider.dotted,
+                            )
+                        },
+                    );
+                    let rule: Element<'a, Message> = if dotted {
+                        let mut dots = column![].spacing(width);
+                        let count = ((height - 24.0) / (2.0 * width)).floor().max(1.0) as usize;
+                        for _ in 0..count {
+                            dots = dots.push(
+                                container(Space::new())
+                                    .width(width)
+                                    .height(width)
+                                    .style(move |_| rounded(colour, width / 2.0)),
+                            );
+                        }
+                        dots.into()
+                    } else {
+                        bar(colour, width, 32).into()
+                    };
+                    cells = cells.push(container(rule).center_x(9).center_y(height));
+                }
+                continue;
+            }
+            cells = cells.push(
+                container(self.rail_row(index, item, height, None))
+                    .width(cell_width)
+                    .height(height),
+            );
+        }
+        let state = self.cx.state;
+        if state.discord_online || state.preview {
+            if let Some(gap) = tiles.and_then(|tiles| tiles.add_gap) {
+                cells = cells.push(Space::new().width(gap));
+            }
+            cells = cells.push(
+                container(self.action_tile(
+                    "+",
+                    Icon::Plus,
+                    "Join a server",
+                    Message::Rail(Event::Join),
+                ))
+                .width(cell_width)
+                .height(height),
+            );
+        }
+        let content = crate::widgets::scroll_view(container(cells).padding([0.0, 6.0]))
+            .across()
+            .width(Length::Fill)
+            .height(height)
+            .style(scrollbar(theme));
+        let mut layers = stack![];
+        if let Some(tiles) = tiles {
+            for ground in &tiles.ground {
+                if let Some(art) = crate::theme_art::tile_art(
+                    self.cx,
+                    yapfast_core::themes::package::art::ArtSurface::Rail,
+                    ground,
+                    self.cx.look.window.width,
+                    height,
+                ) {
+                    layers = layers.push(art);
+                }
+            }
+        }
+        layers
+            .push(content)
+            .width(Length::Fill)
+            .height(height)
+            .into()
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "each part it draws is its own input"
+    )]
+    fn tree_button(
+        self,
+        id: String,
+        branch: String,
+        label: String,
+        selected: bool,
+        unread: bool,
+        badge: &str,
+        message: Message,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let role = self
+            .cx
+            .themes
+            .chrome(&theme.id)
+            .and_then(|chrome| chrome.font)
+            .map_or("body", yapfast_core::themes::package::Role::name);
+        let pointed = self.cx.pointed.rail.as_deref() == Some(id.as_str());
+        let ink = if selected {
+            theme.on_accent
+        } else if unread || pointed {
+            theme.text
+        } else {
+            theme.secondary
+        };
+        let mut line = row![].align_y(Alignment::Center).spacing(4);
+        if !branch.is_empty() {
+            line = line.push(
+                text(branch)
+                    .font(crate::theme_chrome::mono(self.cx))
+                    .size(14)
+                    .color(if selected {
+                        theme.on_accent
+                    } else {
+                        crate::theme_chrome::tree_ink(self.cx)
+                    }),
+            );
+        }
+        line = line.push(
+            crate::elide::elide(label)
+                .size(theme.type_size("small", 14.0))
+                .font(if unread && !selected {
+                    crate::fonts::BOLD
+                } else {
+                    theme.font(role, crate::fonts::REGULAR)
+                })
+                .color(ink),
+        );
+        // The count follows the name (a Fill spacer beside the name would
+        // halve the room it may take).
+        if !badge.is_empty() {
+            let words = match self
+                .cx
+                .themes
+                .chrome(&theme.id)
+                .and_then(|chrome| chrome.counts.as_ref())
+                .filter(|counts| !counts.mentions.is_empty())
+            {
+                Some(counts) => {
+                    yapfast_core::themes::chrome::fill(&counts.mentions, &[("n", badge)])
+                }
+                None => format!("({badge})"),
+            };
+            line = line.push(
+                text(words)
+                    .size(14)
+                    .font(crate::fonts::BOLD)
+                    .color(if selected {
+                        theme.on_accent
+                    } else {
+                        theme.danger
+                    }),
+            );
+        }
+        let ground = if selected {
+            theme.accent
+        } else if pointed {
+            crate::style::faded(theme.text, 0.08)
+        } else {
+            Color::TRANSPARENT
+        };
+        let row = container(line)
+            .height(22)
+            .width(Length::Fill)
+            .padding([0.0, 4.0])
+            .style(move |_| crate::style::fill(ground));
+        let hit = mouse_area(row)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_enter(Message::Rail(Event::Point(id.clone(), true)))
+            .on_exit(Message::Rail(Event::Point(id.clone(), false)))
+            .on_press(message);
+        if id.is_empty() || id == "+" {
+            hit.into()
+        } else {
+            let spot = self.cx.pressed;
+            RightPress::new(hit, move |_| {
+                Message::Rail(Event::Menu(id.clone(), spot.get()))
+            })
+            .into()
+        }
     }
 
     /// The DM home: the app's logo, as Discord puts its own there.
     fn home_tile(self) -> Element<'a, Message> {
         let home = &self.s.home;
+        let (width, height) = self.tile_size();
         let pointed = self.cx.pointed.rail.as_deref() == Some("");
         let face = self.glyph_tile(Icon::Logo, home.selected || pointed);
+        let face = crate::theme_effects::rail_icon(face, self.cx, true, 0);
         let marks = Marks {
             selected: home.selected,
             unread: home.unread,
@@ -788,13 +1503,16 @@ impl<'a> View<'a> {
         // Its badge reaches into the gap below it.
         container(self.tile_cell(
             String::new(),
-            controls::tip(self.cx.look.theme, "Direct messages"),
+            (
+                "Direct messages".into(),
+                controls::tip(self.cx.look.theme, "Direct messages"),
+            ),
             face,
-            (TILE, 0.0),
+            (width, height, 0.0),
             marks,
             Message::Rail(Event::Home),
         ))
-        .height(TILE)
+        .height(height + self.label_height())
         .into()
     }
 
@@ -802,24 +1520,146 @@ impl<'a> View<'a> {
     /// lit, on the accent.
     fn glyph_tile(self, icon: Icon, lit: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let (width, height) = self.tile_size();
+        let radius = self.tile_radius();
+        let mut border = theme.surface_border("rail-icon", RADIUS, 0.0, Color::TRANSPARENT);
+        border.radius = radius.into();
+        let shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
         let (ground, ink) = if lit {
             (theme.accent, theme.on_accent)
         } else {
             (theme.raised, theme.accent)
         };
+        if self.framed() && icon == Icon::Logo {
+            // As Slint's framed home tile: the logo in the theme's pink
+            // ink on the raised ground in the print's window, turned with
+            // the print (the logo itself stays straight).
+            let ink = if lit {
+                theme.on_accent
+            } else {
+                theme.token_colour("accent-text", theme.accent)
+            };
+            let ground = theme.raised;
+            return crate::theme_art::card_ground(
+                self.cx.look.glyph(icon, 24, ink).boxed(Length::Fill).into(),
+                Some(ground),
+                iced::Shadow::default(),
+                self.lean(""),
+                self.face_pivot("", lit && self.s.home.selected),
+                0.0,
+                crate::theme_art::CardMarks::default(),
+            );
+        }
+        if self.framed() && icon == Icon::Plus {
+            // Slint's add button on a framed rail: a plain 48 px box in the
+            // rail icon's border and shadow, the plus in pink ink.
+            let side = width.min(height).min(48.0);
+            let ink = theme.token_colour("accent-text", theme.accent);
+            let ground = theme.raised;
+            return container(
+                self.cx
+                    .look
+                    .glyph(Icon::Add, 24, ink)
+                    .boxed(Length::Fill)
+                    .width(side)
+                    .height(side)
+                    .style(move |_| container::Style {
+                        background: Some(ground.into()),
+                        border,
+                        shadow,
+                        ..Default::default()
+                    }),
+            )
+            .center_x(width)
+            .center_y(height)
+            .into();
+        }
+        // A gel theme's home and action tiles are gel buttons too.
+        if crate::theme_art::has_gel(self.cx) {
+            let face = self
+                .cx
+                .look
+                .glyph(icon, 24, ink)
+                .boxed(Length::Fill)
+                .width(width)
+                .height(height);
+            let tone = if lit {
+                crate::theme_art::GelTone::Lit
+            } else {
+                crate::theme_art::GelTone::Plain
+            };
+            if let Some(gel) = crate::theme_art::gel_button(self.cx, face, radius, tone, 0.0, false)
+            {
+                return gel;
+            }
+        }
+        // In a theme's tile window, as Slint's `TilePicture`: the raised
+        // (or, lit, the accent) paint in the window's shape, without the
+        // rail icon's border and shadow.
+        let tiled = self.tiles().is_some();
+        let paint: iced::Background = if !tiled {
+            ground.into()
+        } else if lit {
+            theme.surface_paint("accent")
+        } else {
+            theme.surface_paint("raised")
+        };
         self.cx
             .look
             .glyph(icon, 24, ink)
-            .boxed(TILE)
-            .style(move |_| rounded(ground, RADIUS))
+            .boxed(Length::Fill)
+            .width(width)
+            .height(height)
+            .style(move |_| container::Style {
+                background: Some(paint),
+                border: if tiled {
+                    iced::Border {
+                        radius: border.radius,
+                        ..Default::default()
+                    }
+                } else {
+                    border
+                },
+                shadow: if tiled {
+                    iced::Shadow::default()
+                } else {
+                    shadow
+                },
+                ..Default::default()
+            })
             .into()
     }
 
     /// The add-a-server tile: the raised ground, a step toward the rail's
     /// while at rest, with a disc of the text's colour and the rail's plus
-    /// cut from it.
+    /// cut from it. A theme's is Slint's `TileAddItem`: the stock "+" on the
+    /// raised ground in the rail icon's shape, at most 48 px, no frame or
+    /// label.
     fn add_face(self, lit: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        if self.tiles().is_some_and(|tiles| tiles.add_gap.is_some()) {
+            let (width, height) = self.tile_size();
+            let side = (width.min(48.0), height.min(48.0));
+            let radius = theme.surface_radius("rail-icon", 12.0);
+            let ground = if lit {
+                theme.raised.into()
+            } else {
+                theme.surface_paint("raised")
+            };
+            let mut border = theme.surface_border("rail-icon", 12.0, 0.0, Color::TRANSPARENT);
+            border.radius = radius.into();
+            let shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
+            return container(self.cx.look.glyph(Icon::Add, 24, theme.accent_text()))
+                .center_x(side.0)
+                .center_y(side.1)
+                .style(move |_| container::Style {
+                    background: Some(ground),
+                    border,
+                    shadow,
+                    ..Default::default()
+                })
+                .into();
+        }
         let ground = if lit {
             theme.raised
         } else {
@@ -841,21 +1681,159 @@ impl<'a> View<'a> {
         .into()
     }
 
+    /// A tile at the rail's foot that does something rather than open a
+    /// place.
+    fn action_tile(
+        self,
+        id: &'static str,
+        icon: Icon,
+        tip: &'static str,
+        message: Message,
+    ) -> Element<'a, Message> {
+        let (width, height) = self.tile_size();
+        let pointed = self.cx.pointed.rail.as_deref() == Some(id);
+        // A theme's add is Slint's `TileAddItem`: the stock "+" on the
+        // raised ground in the rail icon's shape, at most 48 px, no frame or
+        // label.
+        if id == "+" && self.tiles().is_some_and(|tiles| tiles.add_gap.is_some()) {
+            let theme = self.cx.look.theme;
+            let side = (width.min(48.0), height.min(48.0));
+            let radius = theme.surface_radius("rail-icon", 12.0);
+            let ground = if pointed {
+                theme.raised.into()
+            } else {
+                theme.surface_paint("raised")
+            };
+            let mut border = theme.surface_border("rail-icon", 12.0, 0.0, Color::TRANSPARENT);
+            border.radius = radius.into();
+            let shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
+            // Slint's add draws the pack's plain plus.
+            let _ = icon;
+            let face = container(self.cx.look.glyph(Icon::Add, 24, theme.accent_text()))
+                .center_x(side.0)
+                .center_y(side.1)
+                .style(move |_| container::Style {
+                    background: Some(ground),
+                    border,
+                    shadow,
+                    ..Default::default()
+                });
+            let face = iced::widget::button(face)
+                .padding(0)
+                .on_press(message)
+                .style(|_, _| iced::widget::button::Style::default());
+            let face = mouse_area(face)
+                .interaction(iced::mouse::Interaction::Pointer)
+                .on_enter(Message::Rail(Event::Point(id.into(), true)))
+                .on_exit(Message::Rail(Event::Point(id.into(), false)));
+            let face = iced::widget::tooltip(
+                face,
+                controls::tip(theme, tip),
+                iced::widget::tooltip::Position::Left,
+            )
+            .gap(6);
+            return container(face)
+                .center_x(self.rail_width())
+                .height(height)
+                .align_y(Alignment::Center)
+                .into();
+        }
+        let face = self.glyph_tile(icon, pointed);
+        let marks = Marks {
+            pointed,
+            ..Marks::default()
+        };
+        let cell = self.tile_cell(
+            id.into(),
+            (tip.into(), controls::tip(self.cx.look.theme, tip)),
+            face,
+            (width, height, 0.0),
+            marks,
+            message,
+        );
+        // A theme's foot art lies above it (see `rail_view`).
+        container(cell).height(height + self.label_height()).into()
+    }
+
+    /// The colour at a tile's foot, for its reflection: the gel bubble's
+    /// last stop (own while lit, other else), or the accent or raised.
+    fn tile_foot(self, lit: bool) -> Color {
+        let theme = self.cx.look.theme;
+        let bubbles = self
+            .cx
+            .themes
+            .package_layout(&theme.id)
+            .map(|layout| &layout.bubbles);
+        let paint = if crate::theme_art::has_gel(self.cx) {
+            bubbles.and_then(|bubbles| {
+                if lit {
+                    bubbles.own.as_ref()
+                } else {
+                    bubbles.other.as_ref()
+                }
+            })
+        } else {
+            None
+        };
+        match paint.map(crate::themes::paint) {
+            Some(iced::Background::Color(colour)) => colour,
+            Some(iced::Background::Gradient(iced::Gradient::Linear(linear))) => linear
+                .stops
+                .iter()
+                .flatten()
+                .last()
+                .map_or(theme.raised, |stop| stop.color),
+            _ => {
+                if lit {
+                    theme.accent
+                } else {
+                    theme.raised
+                }
+            }
+        }
+    }
+
     /// A server's or a DM's face: its picture, else its initials on the
     /// raised ground (the accent while lit); faded while out of reach.
     fn server_face(self, item: &RailItem, lit: bool) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let side = TILE as u32;
+        let (width, height) = self.tile_size();
+        let radius = self.tile_radius();
+        let picture_width = width.round() as u32;
+        let picture_height = height.round() as u32;
         let opacity = if item.unavailable { 0.5 } else { 1.0 };
+        // A gel theme's server tiles are glossy gel buttons (as
+        // asked): its own bubble's gel when selected, the other's else,
+        // brightened under the pointer.
+        let gel_tone = if item.selected {
+            crate::theme_art::GelTone::Lit
+        } else {
+            crate::theme_art::GelTone::Plain
+        };
+        // The gel lights itself under the pointer.
+        let gel_lift = 0.0;
         if let Some(picture) = item
             .icon
             .as_deref()
-            .and_then(|url| self.cx.picture(url, side, side, true))
+            .and_then(|url| self.cx.picture(url, picture_width, picture_height, true))
         {
-            return Pic::square(picture, TILE)
-                .radius(RADIUS)
+            let (face_width, face_height) = self.face_box(&item.id, item.selected);
+            let picture = Pic::new(picture, Size::new(face_width, face_height))
+                .radius(radius)
                 .opacity(opacity)
-                .into();
+                .turn(if self.framed() {
+                    self.lean(&item.id)
+                } else {
+                    0.0
+                });
+            if crate::theme_art::has_gel(self.cx) {
+                let shell = container(picture).width(width).height(height);
+                return crate::theme_art::gel_button(
+                    self.cx, shell, radius, gel_tone, gel_lift, true,
+                )
+                .expect("a gel theme");
+            }
+            return picture.into();
         }
         let (ground, ink) = if lit {
             (theme.accent, theme.on_accent)
@@ -866,9 +1844,80 @@ impl<'a> View<'a> {
             crate::style::faded(ground, opacity),
             crate::style::faded(ink, opacity),
         );
-        container(text(tile_initials(item)).size(16).font(MEDIUM).color(ink))
-            .center(TILE)
-            .style(move |_| rounded(ground, RADIUS))
+        if self.framed() {
+            // As Slint's framed tile: the initials on the raised ground (the
+            // accent while lit) in the print's window, which turns with the
+            // print; the letters stay straight.
+            return crate::theme_art::card_ground(
+                container(
+                    text(tile_initials(item))
+                        .size(16)
+                        .font(theme.font("body", MEDIUM))
+                        .color(ink),
+                )
+                .center(Length::Fill)
+                .into(),
+                Some(ground),
+                iced::Shadow::default(),
+                self.lean(&item.id),
+                self.face_pivot(&item.id, item.selected),
+                0.0,
+                crate::theme_art::CardMarks::default(),
+            );
+        }
+        // A theme's tile names its server as Slint's: 16 px at 600, in the
+        // theme's body face.
+        let font = if theme.packaged() {
+            let mut font = theme.font("body", MEDIUM);
+            font.weight = iced::font::Weight::Semibold;
+            font
+        } else {
+            MEDIUM
+        };
+        if crate::theme_art::has_gel(self.cx) {
+            let ink = if item.selected {
+                theme.on_accent
+            } else {
+                theme.text
+            };
+            let face = container(
+                text(tile_initials(item))
+                    .size(16)
+                    .font(font)
+                    .color(crate::style::faded(ink, opacity)),
+            )
+            .center_x(width)
+            .center_y(height);
+            if let Some(gel) =
+                crate::theme_art::gel_button(self.cx, face, radius, gel_tone, gel_lift, false)
+            {
+                return gel;
+            }
+        }
+        let tiled = self.tiles().is_some();
+        let paint: iced::Background = if !tiled {
+            ground.into()
+        } else if lit {
+            theme.surface_paint("accent")
+        } else {
+            theme.surface_paint("raised")
+        };
+        container(text(tile_initials(item)).size(16).font(font).color(ink))
+            .center_x(width)
+            .center_y(height)
+            .style(move |_| {
+                let mut style = crate::style::rounded(ground, radius);
+                style.background = Some(paint);
+                if tiled {
+                    // As Slint's `TilePicture`: no rail icon border or shadow
+                    // in a theme's tile window.
+                    return style;
+                }
+                style.border = theme.surface_border("rail-icon", RADIUS, 0.0, Color::TRANSPARENT);
+                style.border.radius = radius.into();
+                style.shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
+                style
+            })
             .into()
     }
 
@@ -882,40 +1931,50 @@ impl<'a> View<'a> {
         pointed: bool,
     ) -> Element<'a, Message> {
         let tint = hex(tint);
+        let theme = self.cx.look.theme;
+        let (width, height) = self.folder_size();
+        let radius = self.tile_radius();
         if open {
             return self
                 .cx
                 .look
                 .glyph(Icon::Folder, 24, tint)
-                .boxed(FOLDER)
+                .boxed(Length::Fill)
+                .width(width)
+                .height(height)
                 .into();
         }
-        const SMALL: f32 = 19.0;
-        const STEP: f32 = 21.0;
+        let small = self
+            .tiles()
+            .and_then(|tiles| tiles.folder_mini)
+            .unwrap_or_else(|| (width.min(height) - 10.0).max(16.0) / 2.0);
+        let step = small + 2.0;
+        let start_x = (width - (small * 2.0 + 2.0)) / 2.0;
+        let start_y = (height - (small * 2.0 + 2.0)) / 2.0;
         let raised = self.cx.look.theme.raised;
-        let mut faces = stack![];
-        for (index, (initial, icon)) in preview.iter().enumerate() {
+        let mut faces = stack![].width(FOLDER).height(FOLDER);
+        for (index, (initial, icon)) in preview.iter().take(4).enumerate() {
             // Each one's outer corner is round, as the folder's.
             let mut radius = [4.0; 4];
             radius[[0, 1, 3, 2][index]] = 13.0;
             let face: Element<'a, Message> = match icon
                 .as_deref()
-                .and_then(|url| self.cx.picture(url, SMALL as u32, SMALL as u32, true))
+                .and_then(|url| self.cx.picture(url, small as u32, small as u32, true))
             {
-                Some(picture) => Pic::square(picture, SMALL).radius_each(radius).into(),
+                Some(picture) => Pic::square(picture, small).radius_each(radius).into(),
                 None => container(
                     text(initial.clone())
                         .size(8)
                         .font(BOLD)
                         .color(self.cx.look.theme.text),
                 )
-                .center(SMALL)
+                .center(small)
                 .style(move |_| rounded(raised, corners(radius)))
                 .into(),
             };
             let (x, y) = (
-                4.0 + (index % 2) as f32 * STEP,
-                4.0 + (index / 2) as f32 * STEP,
+                start_x + (index % 2) as f32 * step,
+                start_y + (index / 2) as f32 * step,
             );
             faces = faces.push(controls::placed(face, x, y));
         }
@@ -924,9 +1983,16 @@ impl<'a> View<'a> {
             ..tint
         };
         container(faces)
-            .width(FOLDER)
-            .height(FOLDER)
-            .style(move |_| rounded(ground, FOLDER_RADIUS))
+            .width(width)
+            .height(height)
+            .style(move |_| {
+                let mut style = crate::style::rounded(ground, radius);
+                style.border =
+                    theme.surface_border("rail-icon", FOLDER_RADIUS, 0.0, Color::TRANSPARENT);
+                style.border.radius = radius.into();
+                style.shadow = theme.surface_shadow("rail-icon", iced::Shadow::default());
+                style
+            })
             .into()
     }
 
@@ -937,16 +2003,46 @@ impl<'a> View<'a> {
         height: f32,
         destination: Option<&Destination<'_>>,
     ) -> Element<'a, Message> {
+        let tiles = self.tiles();
+        let rail_width = if self.top_rail() {
+            self.tile_size().0.max(self.folder_size().0).max(40.0) + 20.0
+        } else {
+            self.rail_width()
+        };
+        let (tile_width, tile_height) = self.tile_size();
+        let (folder_width, folder_height) = self.folder_size();
         let pointed = self.cx.pointed.rail.as_deref() == Some(item.id.as_str());
         if item.kind == Kind::Divider {
             return if index == 0 {
                 Space::new().into()
             } else {
-                controls::placed(
-                    bar(self.cx.look.theme.outline, 32, 1),
-                    (WIDTH - 32.0) / 2.0,
-                    ABOVE,
-                )
+                let (width, height, colour, dotted) = tiles.and_then(|tiles| tiles.divider).map_or(
+                    (32.0, 1.0, self.cx.look.theme.outline, false),
+                    |divider| {
+                        (
+                            divider.size.0,
+                            divider.size.1,
+                            crate::themes::argb(divider.colour),
+                            divider.dotted,
+                        )
+                    },
+                );
+                let divider: Element<'a, Message> = if dotted {
+                    let count = (width / (2.0 * height)).floor().max(1.0) as usize;
+                    let mut dots = row![].spacing(height);
+                    for _ in 0..count {
+                        dots = dots.push(
+                            container(Space::new())
+                                .width(height)
+                                .height(height)
+                                .style(move |_| rounded(colour, height / 2.0)),
+                        );
+                    }
+                    dots.into()
+                } else {
+                    bar(colour, width, height).into()
+                };
+                controls::placed(divider, (rail_width - width) / 2.0, ABOVE)
             };
         }
         let lit = item.selected || pointed;
@@ -957,21 +2053,38 @@ impl<'a> View<'a> {
                 preview,
             } => (
                 self.folder_face(*open, *tint, preview, pointed),
-                FOLDER,
+                (folder_width, folder_height),
                 Message::Rail(Event::Folder(item.id.clone())),
             ),
             Kind::Dm => (
                 self.server_face(item, lit),
-                TILE,
+                (tile_width, tile_height),
                 Message::Rail(Event::Dm(item.id.clone())),
             ),
-            Kind::Add => (self.add_face(pointed), TILE, Message::Rail(Event::Join)),
+            Kind::Add => (
+                self.add_face(pointed),
+                (tile_width, tile_height),
+                Message::Rail(Event::Join),
+            ),
             _ => (
                 self.server_face(item, lit),
-                TILE,
+                (tile_width, tile_height),
                 Message::Rail(Event::Server(item.id.clone())),
             ),
         };
+        let place = self.s.items[..index]
+            .iter()
+            .filter(|i| i.kind != Kind::Divider)
+            .count();
+        let face = crate::theme_effects::rail_icon(face, self.cx, false, place);
+        let face = crate::widgets::motion::interactive_cued(
+            face,
+            self.cx.look.theme.motion(),
+            self.cx.look.theme.accent,
+            self.cx.look.theme.surface_radius("rail-icon", RADIUS),
+            self.cx.look.theme.has_hover_cue(),
+            self.cx.look.theme.has_press_cue(),
+        );
         let open_folder = matches!(item.kind, Kind::Folder { open: true, .. });
         let marks = Marks {
             selected: item.selected,
@@ -982,9 +2095,11 @@ impl<'a> View<'a> {
                 .filter(|_| !open_folder)
                 .map(|media| (media, item.call)),
             pointed,
+            folder: matches!(item.kind, Kind::Folder { .. }),
             open_folder,
             menu: item.kind != Kind::Add,
-            draggable: !self.cx.state.preview
+            draggable: self.can_drag()
+                && !self.cx.state.preview
                 && self.cx.state.discord_user.is_some()
                 && (matches!(item.kind, Kind::Folder { .. })
                     || (matches!(item.kind, Kind::Server | Kind::Nested { .. })
@@ -998,12 +2113,22 @@ impl<'a> View<'a> {
             Cow::Borrowed(item.name.as_str())
         };
         // Who is in which voice channel, made only under the pointer.
+        let label = name.clone();
         let tip = if pointed && !item.busy.0.is_empty() {
             self.voice_card(name, &item.busy.0)
         } else {
             controls::tip(self.cx.look.theme, name)
         };
-        let cell = self.tile_cell(item.id.clone(), tip, face, (side, ABOVE), marks, message);
+        // A theme's slot keeps its gap above it and its pad round the tile.
+        let above = ABOVE + tiles.map_or(0.0, |tiles| tiles.gap + tiles.pad);
+        let cell = self.tile_cell(
+            item.id.clone(),
+            (label, tip),
+            face,
+            (side.0, side.1, above),
+            marks,
+            message,
+        );
         // An open folder's servers sit on a strip of its colour, from the
         // folder down to its last server.
         let strip = match &item.kind {
@@ -1014,6 +2139,33 @@ impl<'a> View<'a> {
             _ => None,
         };
         let mut layers = stack![];
+        // As Slint: a link only between two servers' tiles, not from the
+        // divider or an unread DM.
+        let linked = index > 0
+            && !matches!(item.kind, Kind::Divider | Kind::Dm)
+            && self
+                .s
+                .items
+                .get(index - 1)
+                .is_some_and(|before| !matches!(before.kind, Kind::Divider | Kind::Dm));
+        if linked
+            && let Some(tiles) = tiles
+            && let Some(between) = tiles.between.as_ref()
+            && let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Rail,
+                between,
+                rail_width,
+                tiles.between_height,
+            )
+        {
+            let gap = tiles.gap + 2.0 * tiles.pad;
+            layers = layers.push(controls::placed(
+                art,
+                0.0,
+                (gap - tiles.between_height).max(0.0) / 2.0,
+            ));
+        }
         if let Some((tint, top, last)) = strip {
             let ground = Color {
                 a: 0.16,
@@ -1021,13 +2173,14 @@ impl<'a> View<'a> {
             };
             let round = |on: bool| if on { RADIUS } else { 0.0 };
             let shape = [round(top), round(top), round(last), round(last)];
-            let strip_height = if last { TILE + 4.0 } else { height };
+            let strip_width = tiles.map_or(FOLDER, |tiles| tiles.width);
+            let strip_height = if last { tile_height + 4.0 } else { height };
             layers = layers.push(controls::placed(
                 container(Space::new())
-                    .width(FOLDER)
+                    .width(strip_width)
                     .height(strip_height)
                     .style(move |_| rounded(ground, corners(shape))),
-                (WIDTH - FOLDER) / 2.0,
+                (rail_width - strip_width) / 2.0,
                 ABOVE,
             ));
         }
@@ -1044,13 +2197,13 @@ impl<'a> View<'a> {
             let cue = match destination.before {
                 Some(before) => controls::placed(
                     bar(live, TILE, INSERTION_LINE),
-                    (WIDTH - TILE) / 2.0,
+                    (rail_width - TILE) / 2.0,
                     if before { 0.0 } else { height },
                 ),
                 None => controls::placed(
                     container(Space::new())
-                        .width(side + 4.0)
-                        .height(side + 4.0)
+                        .width(side.0 + 4.0)
+                        .height(side.1 + 4.0)
                         .style(move |_| iced::widget::container::Style {
                             border: iced::Border {
                                 color: live,
@@ -1059,30 +2212,63 @@ impl<'a> View<'a> {
                             },
                             ..Default::default()
                         }),
-                    (WIDTH - side) / 2.0 - 2.0,
+                    (rail_width - side.0) / 2.0 - 2.0,
                     ABOVE - 2.0,
                 ),
             };
             layers = layers.push(cue);
         }
-        layers.width(WIDTH).height(height + ABOVE).into()
+        layers.width(rail_width).height(height + ABOVE).into()
     }
 
-    /// A tile of `side` in its cell across the rail, `above` px under the
-    /// cell's top: the pill at the rail's edge, the tile under the pointer's
-    /// watch, its badge and speaker, its tooltip.
+    /// A tile in its cell across the rail, `above` px under the cell's top:
+    /// the pill at the rail's edge, the tile under the pointer's watch, its
+    /// optional theme label, badge and speaker, and its tooltip.
     fn tile_cell(
         self,
         id: String,
-        tip: Element<'a, Message>,
+        (name, tip): (Cow<'a, str>, Element<'a, Message>),
         face: Element<'a, Message>,
-        (side, above): (f32, f32),
+        (tile_width, tile_height, above): (f32, f32, f32),
         marks: Marks<'a>,
         message: Message,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let left = (WIDTH - side) / 2.0;
-        let pill = if marks.open_folder {
+        let tiles = self.tiles();
+        let top_rail = self.top_rail();
+        let rail_width = if top_rail {
+            self.tile_size().0.max(self.folder_size().0).max(40.0) + 20.0
+        } else {
+            self.rail_width()
+        };
+        let right_rail = crate::conversation::navigation_right(
+            self.cx.themes.package_layout(&self.cx.look.theme.id),
+        );
+        let edge_direction = if right_rail { 1.0 } else { -1.0 };
+        let selected_offset = tiles
+            .filter(|_| marks.selected)
+            .map_or((0.0, 0.0), |tiles| tiles.selected.offset);
+        let hover_lift = tiles.map_or(0.0, |tiles| {
+            if marks.pointed && tiles.hover == yapfast_core::themes::lists::HoverKind::Lift {
+                tiles.hover_amount
+            } else {
+                0.0
+            }
+        });
+        let left = (rail_width - tile_width) / 2.0 + selected_offset.0 * edge_direction;
+        let tile_top = if top_rail {
+            let height = themed_top_height(self.cx.themes.package_layout(&theme.id));
+            (height - tile_height - self.label_height()).max(0.0) / 2.0 + selected_offset.1
+                - hover_lift
+        } else {
+            above + selected_offset.1 - hover_lift
+        };
+        let pill_allowed = tiles.is_none_or(|tiles| match tiles.pill {
+            PillMode::On => true,
+            PillMode::Off => false,
+            PillMode::Unread => marks.unread,
+        });
+        let pill = if !pill_allowed || marks.open_folder {
             0.0
         } else if marks.selected {
             PILL_OPEN
@@ -1093,19 +2279,204 @@ impl<'a> View<'a> {
         } else {
             0.0
         };
-        let ink = theme.text;
+        let ink = theme.token_colour("pill", theme.text);
         let mut layers = stack![];
         if pill > 0.0 {
-            layers = layers.push(controls::placed(
-                container(Space::new())
-                    .width(4)
-                    .height(pill)
-                    .style(move |_| rounded(ink, corners([0.0, 4.0, 4.0, 0.0]))),
+            let (pill_x, pill_y, pill_width, pill_height, pill_corners) = if top_rail {
+                (
+                    left + (tile_width - pill) / 2.0,
+                    themed_top_height(self.cx.themes.package_layout(&theme.id)) - 4.0,
+                    pill,
+                    4.0,
+                    [4.0, 4.0, 0.0, 0.0],
+                )
+            } else {
+                (
+                    if right_rail { rail_width - 4.0 } else { 0.0 },
+                    tile_top + (tile_height - pill) / 2.0,
+                    4.0,
+                    pill,
+                    if right_rail {
+                        [4.0, 0.0, 0.0, 4.0]
+                    } else {
+                        [0.0, 4.0, 4.0, 0.0]
+                    },
+                )
+            };
+            let pill_el: Element<'a, Message> = container(Space::new())
+                .width(pill_width)
+                .height(pill_height)
+                .style(move |_| rounded(ink, corners(pill_corners)))
+                .into();
+            // Always wrapped, so pointing at the tile holds the animation
+            // instead of dropping its clock and restarting it.
+            let pill_el = if marks.unread && !marks.selected {
+                crate::theme_effects::slot_resting(
+                    pill_el,
+                    self.cx,
+                    yapfast_core::themes::package::Slot::Unread,
+                    Some(theme.rail),
+                    marks.pointed,
+                )
+            } else {
+                pill_el
+            };
+            layers = layers.push(controls::placed(pill_el, pill_x, pill_y));
+        }
+        // As Slint: the home tile's label is "DMs", not its tooltip.
+        let name = if id.is_empty() { "DMs" } else { name.as_ref() };
+        let label =
+            crate::themes::list_case(tiles.map(|tiles| tiles.label_case), name).into_owned();
+        let label_ink = tiles
+            .and_then(|tiles| tiles.label_colour)
+            .map(crate::themes::argb)
+            .unwrap_or(theme.text);
+        let label_ground = tiles
+            .and_then(|tiles| tiles.label_ground)
+            .map(crate::themes::argb);
+        let label_size = tiles.map_or(8.0, |tiles| tiles.label_size);
+        let label_box = tiles.and_then(|tiles| tiles.label_box);
+        let label_font_role = tiles.map_or("small", |tiles| tiles.label_font.name());
+        let label_font = theme.font(label_font_role, MEDIUM);
+        let label_view = move |width: f32, height: f32| {
+            // Elided to its box, centred, as Slint's.
+            container(
+                crate::elide::elide(label.clone())
+                    .size(label_size)
+                    .font(label_font)
+                    .color(label_ink)
+                    .centred(),
+            )
+            .width(width)
+            .height(height)
+            .clip(true)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                background: label_ground.map(Into::into),
+                ..Default::default()
+            })
+        };
+        let mut tile_face = stack![].width(tile_width).height(tile_height);
+        if let Some(below) = tiles.and_then(|tiles| tiles.below.as_ref())
+            && let Some(art) = crate::theme_art::tile_art(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Rail,
+                below,
+                tile_width,
+                tile_height,
+            )
+        {
+            tile_face = tile_face.push(art);
+        }
+        let frame = tiles
+            .and_then(|tiles| {
+                if marks.folder {
+                    if marks.open_folder {
+                        tiles.folder_open_frame.as_ref()
+                    } else {
+                        tiles.folder_frame.as_ref()
+                    }
+                } else if marks.selected {
+                    tiles.selected.frame.as_ref()
+                } else {
+                    None
+                }
+                .or_else(|| Self::picked(&tiles.frame, &id))
+            })
+            // Slint's add button is a plain box, never a print.
+            .filter(|_| id != "+");
+        let lean = if id == "+" { 0.0 } else { self.lean(&id) };
+        let frame_art = frame.and_then(|frame| {
+            crate::theme_art::tile_art_turned(
+                self.cx,
+                yapfast_core::themes::package::art::ArtSurface::Rail,
+                frame,
+                tile_width,
+                tile_height,
+                lean,
+            )
+        });
+        // As Slint: a frame with a window (a polaroid, a ticket) lies under
+        // the face, and the face fills the window; otherwise the frame lies
+        // over the face.
+        match (frame.and_then(|frame| frame.window), frame_art) {
+            (Some([x, y, width, height]), Some(art)) => {
+                tile_face = tile_face.push(art).push(controls::placed(
+                    // A turned print's window isn't cut square, or its
+                    // corners would be clipped off.
+                    container(face)
+                        .width(width)
+                        .height(height)
+                        .clip(lean == 0.0),
+                    x,
+                    y,
+                ));
+            }
+            (_, art) => {
+                tile_face = tile_face.push(face);
+                if let Some(art) = art {
+                    tile_face = tile_face.push(art);
+                }
+            }
+        }
+        if tiles.is_some_and(|tiles| tiles.label == LabelPlace::Inside) {
+            let [x, y, width, height] = label_box.unwrap_or([
+                2.0,
+                (tile_height - label_size - 4.0).max(0.0),
+                (tile_width - 4.0).max(1.0),
+                label_size + 4.0,
+            ]);
+            tile_face = tile_face.push(controls::placed(label_view(width, height), x, y));
+        }
+        let below_label = tiles.is_some_and(|tiles| tiles.label == LabelPlace::Below);
+        let label_height = if below_label { label_size + 2.0 } else { 0.0 };
+        let mut tile_face = stack![tile_face]
+            .width(tile_width)
+            .height(tile_height + label_height);
+        if below_label {
+            tile_face = tile_face.push(controls::placed(
+                label_view(tile_width, label_height),
                 0.0,
-                above + (side - pill) / 2.0,
+                tile_height,
             ));
         }
-        let hover = mouse_area(face)
+        // As Slint: the seed's tape over every print, and the selected
+        // stamp over that, both turning with the tile.
+        if id != "+"
+            && let Some(tiles) = tiles
+        {
+            let selected = tiles.selected.over.as_ref().filter(|_| marks.selected);
+            // The seed's tape as a hand lays it on each print (as
+            // asked): along the top edge left, centred or right, a little
+            // longer or shorter, a few degrees either way, the same every
+            // launch. The selected stamp stays where it's put.
+            let tape = Self::picked(&tiles.over, &id).map(|over| {
+                let jitter = if over.layer.position.1 <= 0.0 {
+                    crate::theme_art::Jitter::tape(
+                        (Self::seed(&id) as u32).rotate_left(5) ^ 0x9e37_79b9,
+                    )
+                } else {
+                    crate::theme_art::Jitter::NONE
+                };
+                (over, jitter)
+            });
+            let stamp = selected.map(|over| (over, crate::theme_art::Jitter::NONE));
+            for (over, jitter) in tape.into_iter().chain(stamp) {
+                if let Some(art) = crate::theme_art::tile_art_jittered(
+                    self.cx,
+                    yapfast_core::themes::package::art::ArtSurface::Rail,
+                    over,
+                    tile_width,
+                    tile_height + label_height,
+                    lean,
+                    jitter,
+                ) {
+                    tile_face = tile_face.push(art);
+                }
+            }
+        }
+        let hover = mouse_area(tile_face)
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Rail(Event::Point(id.clone(), true)))
             .on_exit(Message::Rail(Event::Point(id.clone(), false)));
@@ -1129,33 +2500,127 @@ impl<'a> View<'a> {
         } else {
             tile
         };
+        let position = if top_rail {
+            tooltip::Position::Bottom
+        } else if right_rail {
+            tooltip::Position::Left
+        } else {
+            tooltip::Position::Right
+        };
         let tile = if self.s.dragging.is_some() {
             tile
         } else {
-            tooltip(tile, tip, tooltip::Position::Right)
+            tooltip(tile, tip, position)
                 .gap(8)
                 .snap_within_viewport(true)
                 .into()
         };
-        layers = layers.push(controls::placed(tile, left, above));
+        // A theme's reflection: the tile's foot mirrored under it in three
+        // 4 px bands at 0.28, 0.14 and 0.05, as Slint's. Each band is the
+        // width the round tile has at the rows it mirrors, in the colour
+        // of its foot (the gel's, or the ground's).
+        if let Some(tiles) = tiles.filter(|tiles| tiles.reflection && !top_rail) {
+            let lit = marks.selected;
+            let foot = self.tile_foot(lit);
+            let round = tiles.shape == RailShape::Circle;
+            for (band, opacity) in [0.28_f32, 0.14, 0.05].into_iter().enumerate() {
+                let rows = 4.0 * band as f32 + 2.0;
+                let half = tile_width / 2.0;
+                let width = if round {
+                    2.0 * (half * half - (half - rows).powi(2)).max(0.0).sqrt()
+                } else {
+                    tile_width
+                };
+                let colour = Color {
+                    a: foot.a * opacity,
+                    ..foot
+                };
+                layers = layers.push(controls::placed(
+                    container(Space::new())
+                        .width(width)
+                        .height(4)
+                        .style(move |_| rounded(colour, 2.0)),
+                    left + (tile_width - width) / 2.0,
+                    tile_top + tile_height + 4.0 * band as f32,
+                ));
+            }
+        }
+        layers = layers.push(controls::placed(tile, left, tile_top));
         if let Some((media, joined)) = marks.speaker {
             layers = layers.push(controls::placed(
                 self.speaker(media, joined),
-                left + side + 3.0 - 20.0,
-                above - 3.0,
+                left + tile_width + 3.0 - 20.0,
+                tile_top - 3.0,
             ));
         }
         if !marks.badge.is_empty() {
             // Its right and bottom edges 4 px past the tile's.
+            let badge = match tiles {
+                Some(tiles)
+                    if tiles.badge.ground.is_some()
+                        || tiles.badge.ink.is_some()
+                        || tiles.badge.radius.is_some() =>
+                {
+                    self.mention_badge(marks.badge, tiles.badge)
+                }
+                _ => count_pill(theme, marks.badge, RAIL_COUNT, Some(theme.rail)),
+            };
             layers = layers.push(
-                container(count_pill(theme, marks.badge, RAIL_COUNT, Some(theme.rail)))
-                    .width(left + side + BELOW)
-                    .height(above + side + BELOW)
-                    .align_x(Alignment::End)
-                    .align_y(Alignment::End),
+                container(crate::theme_effects::slot(
+                    badge,
+                    self.cx,
+                    yapfast_core::themes::package::Slot::Mention,
+                    Some(theme.rail),
+                ))
+                .width(left + tile_width + BELOW)
+                .height(tile_top + tile_height + BELOW)
+                .align_x(Alignment::End)
+                .align_y(Alignment::End),
             );
         }
-        layers.width(WIDTH).height(above + side + BELOW).into()
+        layers
+            .width(rail_width)
+            .height(if top_rail {
+                themed_top_height(self.cx.themes.package_layout(&theme.id))
+            } else {
+                tile_top + tile_height + label_height + BELOW
+            })
+            .into()
+    }
+
+    fn mention_badge(
+        self,
+        count: &str,
+        badge: yapfast_core::themes::lists::MentionBadge,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let ground = badge
+            .ground
+            .map(crate::themes::argb)
+            .unwrap_or(theme.danger);
+        let ink = badge
+            .ink
+            .map(crate::themes::argb)
+            .unwrap_or(theme.on_danger);
+        let radius = badge.radius.unwrap_or(RAIL_COUNT.height / 2.0);
+        let number = text(count.to_owned())
+            .size(RAIL_COUNT.size)
+            .font(BOLD)
+            .color(ink)
+            .wrapping(text::Wrapping::None);
+        let mut pill = container(number)
+            .padding([0.0, RAIL_COUNT.pad])
+            .height(RAIL_COUNT.height)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center);
+        if count.chars().count() < 2 {
+            pill = pill.width(RAIL_COUNT.height);
+        }
+        let pill = pill.style(move |_| rounded(ground, radius));
+        container(pill)
+            .padding(3)
+            .style(move |_| rounded(theme.rail, radius + 3.0))
+            .into()
     }
 
     /// People in voice: a white speaker, camera or screen on grey, on a

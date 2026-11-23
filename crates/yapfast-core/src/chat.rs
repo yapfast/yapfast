@@ -2046,6 +2046,8 @@ pub struct ChatMessage {
     pub deleted: bool,
     /// From someone this account blocked: it shows collapsed until asked for.
     pub blocked: bool,
+    /// From someone this account ignored: it shows collapsed until revealed.
+    pub ignored: bool,
     /// Mentions this account or a group it's in, other than as a reply to
     /// its message. The timeline highlights it.
     pub mentions_me: bool,

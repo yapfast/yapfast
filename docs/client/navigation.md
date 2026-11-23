@@ -5,13 +5,18 @@ badge counts DM mentions and friend
 requests), the DMs with unread messages, a line, then the servers and
 folders, then the "Add a server" tile after the last of them, which opens Join a Server (a plus
 cut from a disc on a raised ground, a step toward the rail's at rest; it has no menu and is
-there while Discord is connected or in the preview). Each tile has its pill at the
+there while Discord is connected or in the preview). A message in the DM
+being read (its newest message in view, the window in front) shows neither on
+the rail nor in the DM home's count while its read is on its way to Discord,
+as Discord's client marks it read as it comes; scrolled up, or with the window
+behind another, it shows. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
 (unavailable in a Discord outage)".
-Drag a Discord server onto another server to create a folder, or onto an
-existing folder to add it. The dragged icon follows the pointer. An outline
+On the standard left rail, drag a Discord server onto another server to
+create a folder, or onto an existing folder to add it. The dragged icon
+follows the pointer. An outline
 marks a tile that will take the server, and a line marks an insertion point
 between tiles. Drag a folder by its icon to move it with all its servers.
 Discord saves the resulting folders and order to your account.
@@ -65,8 +70,12 @@ channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
 locked faint; a forum's row counts its unread posts in a bold number
 where a text channel's mentions go, and its badge the mentions in its posts
-(the row alone: the server's badge counts each post already); a channel's
-row under the pointer or while selected offers Create invite, to that
+(the row alone: the server's badge counts each post already). Listed threads
+and forum posts have a curved connector under the parent channel's icon.
+Its 2 px stem starts one pixel below the parent row and spans the gaps
+between threads. The arms are 2 px thick and curve into the stem. The
+last arm ends the stem with a taller outer bend. A channel's row under
+the pointer or while selected offers Create invite, to that
 channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,

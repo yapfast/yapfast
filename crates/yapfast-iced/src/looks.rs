@@ -631,7 +631,10 @@ impl<'a> crate::ctx::Ctx<'a> {
     /// Discord's white on blurple tag after a name: APP, or OP for the
     /// author of a forum post.
     pub fn blurple_tag(self, label: &'static str, opacity: f32) -> Element<'a, Message> {
-        let fill = faded(hex(BLURPLE), opacity);
+        let fill = faded(
+            self.look.theme.token_colour("app-badge", hex(BLURPLE)),
+            opacity,
+        );
         container(
             text(label)
                 .size(10)

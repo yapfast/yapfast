@@ -207,6 +207,24 @@ pub(super) fn dressed<'a>(
         Mode::Docked => ctx.profiles.effect.panel,
         Mode::Card | Mode::Side => ctx.profiles.effect.card,
     };
+    let card = if mode != Mode::Docked && !super::inks(ctx, &shown.look, mode).themed {
+        crate::theme_art::surface_over(
+            card,
+            ctx,
+            yapfast_core::themes::package::art::ArtSurface::CardOver,
+        )
+    } else {
+        card
+    };
+    let card = if mode == Mode::Docked {
+        crate::theme_effects::interactive(card, ctx)
+    } else {
+        crate::theme_effects::foil(
+            card,
+            ctx,
+            yapfast_core::themes::package::art::FoilSurface::Card,
+        )
+    };
     let card = match effect_view(ctx, shown, width, since) {
         Some(effect) => stack![card, effect].into(),
         None => card,
@@ -238,6 +256,16 @@ fn effect_view<'a>(
     width: f32,
     since: Option<Instant>,
 ) -> Option<Element<'a, Message>> {
+    if ctx
+        .themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .is_some_and(|c| c.profiles.effects == yapfast_core::themes::content::Shown::Hide)
+    {
+        return None;
+    }
     let effect = worn_effect(ctx.state, shown).filter(|effect| !effect.layers.is_empty())?;
     let pictures = &ctx.state.pictures;
     let time = since.map(|since| since.elapsed().as_millis() as u64);

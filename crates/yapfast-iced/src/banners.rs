@@ -13,7 +13,6 @@ use crate::{
     controls::{Kind, action},
     fonts::MEDIUM,
     pictures::Icon,
-    style::fill,
 };
 
 pub fn dismiss_notice(app: &mut App) -> iced::Task<Message> {
@@ -58,7 +57,7 @@ pub fn preview_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messag
         return None;
     }
     let theme = ctx.look.theme;
-    let raised = theme.raised;
+    let raised = banner_ground(ctx);
     let note = container(
         row![
             ctx.look.glyph(Icon::TriangleAlert, 16, theme.accent),
@@ -73,9 +72,11 @@ pub fn preview_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messag
     )
     .padding([7, 16])
     .width(Length::Fill)
-    .style(move |_| fill(raised))
-    .into();
-    Some(note)
+    .style(move |_| container::Style {
+        background: Some(raised),
+        ..Default::default()
+    });
+    Some(note.into())
 }
 
 /// A notice with its Dismiss button (`dismissed`).
@@ -85,8 +86,8 @@ pub fn banner<'a>(
     dismissed: Message,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let raised = theme.raised;
-    container(
+    let raised = banner_ground(ctx);
+    let note = container(
         row![
             ctx.look.glyph(Icon::TriangleAlert, 18, theme.accent),
             text(words).size(15).color(theme.text).width(Length::Fill),
@@ -102,6 +103,15 @@ pub fn banner<'a>(
         right: 8.0,
     })
     .width(Length::Fill)
-    .style(move |_| fill(raised))
-    .into()
+    .style(move |_| container::Style {
+        background: Some(raised),
+        ..Default::default()
+    });
+    note.into()
+}
+
+/// A banner's ground: the raised paint, a theme's gradient included, as
+/// Slint's `Banner` (`Theme.raised-fill`).
+fn banner_ground(ctx: crate::ctx::Ctx<'_>) -> iced::Background {
+    ctx.look.theme.surface_paint("raised")
 }
