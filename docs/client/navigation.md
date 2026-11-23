@@ -64,8 +64,12 @@ channel in it, where this account may. A channel's row shows its kind's
 icon, its unread mark at the sidebar's edge, its mentions, and muted or
 locked faint; a forum's row counts its unread posts in a bold number
 where a text channel's mentions go, and its badge the mentions in its posts
-(the row alone: the server's badge counts each post already); a channel's
-row under the pointer or while selected offers Create invite, to that
+(the row alone: the server's badge counts each post already). Listed threads
+and forum posts have a curved connector under the parent channel's icon.
+Its 2 px stem starts one pixel below the parent row and spans the gaps
+between threads. The arms are 2 px thick and curve into the stem. The
+last arm ends the stem with a taller outer bend. A channel's row under
+the pointer or while selected offers Create invite, to that
 channel, for those who may invite; a busy voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,

@@ -2,7 +2,7 @@
 //! them, and their faces and inks.
 
 use iced::{
-    Alignment, Color, Element, Length, Padding,
+    Alignment, Color, Element, Length, Padding, Point, Rectangle, Size,
     widget::{Space, column, container, mouse_area, row, stack, text},
 };
 
@@ -13,7 +13,7 @@ use crate::{
     fonts::{BOLD, MEDIUM, REGULAR, SEMIBOLD},
     pictures::Icon,
     style::{corners, faded, rounded},
-    widgets::{Drags, RightPress},
+    widgets::{Drags, Pic, RightPress},
 };
 
 use super::{CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, Room, SideRow, VOICE_CARD_GAP};
@@ -50,6 +50,12 @@ fn themed_count_pill<'a>(
     }
     pill.style(move |_| rounded(ground, radius)).into()
 }
+
+const THREAD_INDENT: f32 = 28.0;
+/// The stem's left edge within the row, aligned under the channel icon.
+const THREAD_STEM: f32 = 16.0;
+/// Space between the parent row and the top of its thread connector.
+const THREAD_STEM_INSET: f32 = 1.0;
 
 impl<'a> super::View<'a> {
     pub(super) fn side_row(
@@ -167,15 +173,44 @@ impl<'a> super::View<'a> {
             .padding(8)
             .into(),
         };
+        let (inner, gap) = match row {
+            // A heading sits 2 px over its first row, whatever the gap.
+            SideRow::Heading { .. } => (inner, GAP),
+            // The connector takes up the space through the row's gap.
+            SideRow::Room(room) if room.thread => (inner, 0.0),
+            // The stem starts a pixel under its channel, rounded at its
+            // top, and runs on through the gap to the first thread.
+            SideRow::Room(room) if room.has_threads && row_gap > THREAD_STEM_INSET => {
+                let ink = theme.reply_spine;
+                let icon = self
+                    .cx
+                    .look
+                    .icon(Icon::ThreadCap, 2, crate::theme::rgb(ink));
+                let cap = Pic::new(icon, Size::new(2.0, 1.0))
+                    .at(Rectangle::with_size(Size::new(2.0, 2.0)))
+                    .opacity(ink.a);
+                let below = row_gap - THREAD_STEM_INSET - 1.0;
+                let stem: Element<'a, Message> = if below > 0.0 {
+                    column![cap, bar(ink, 2.0, below)].into()
+                } else {
+                    cap.into()
+                };
+                (
+                    column![
+                        inner,
+                        controls::placed(stem, THREAD_STEM, THREAD_STEM_INSET)
+                    ]
+                    .into(),
+                    0.0,
+                )
+            }
+            _ => (inner, row_gap),
+        };
         let inset = container(inner)
             .padding(Padding {
                 left: INSET,
                 right: INSET,
-                bottom: if matches!(row, SideRow::Heading { .. }) {
-                    GAP
-                } else {
-                    row_gap
-                },
+                bottom: gap,
                 top: 0.0,
             })
             .width(Length::Fill);
@@ -767,11 +802,9 @@ impl<'a> super::View<'a> {
     /// busy voice channel.
     pub(super) fn room_rows(self, room: &'a Room, place: Option<usize>) -> Element<'a, Message> {
         let line = self.room_row(room, place.is_some());
-        let line: Element<'a, Message> = if room.thread {
-            row![self.thread_line(room.thread_continues), line].into()
-        } else {
-            line
-        };
+        if room.thread {
+            return row![self.thread_line(room), line].into();
+        }
         if room.people.is_empty() {
             return line;
         }
@@ -809,29 +842,47 @@ impl<'a> super::View<'a> {
         column![line, people].spacing(GAP).into()
     }
 
-    /// The line from a channel to its thread, 28 px wide: down from the
-    /// channel and round into the thread, on down while another follows.
-    pub(super) fn thread_line(self, continues: bool) -> Element<'a, Message> {
-        let faint = self.cx.look.theme.faint;
-        let down = bar(faint, 1.5, if continues { ROW + GAP } else { 13.0 + GAP });
-        let round = container(Space::new())
-            .width(10.75)
-            .height(7.5)
-            .style(move |_| iced::widget::container::Style {
-                border: iced::Border {
-                    color: faint,
-                    width: 1.5,
-                    radius: corners([0.0, 0.0, 0.0, 6.0]),
-                },
-                ..Default::default()
-            });
-        container(stack![
-            controls::placed(down, 17.25, 0.0),
-            controls::placed(round, 17.25, 12.75),
-        ])
-        .width(28)
-        .height(ROW)
-        .into()
+    /// The line into a thread and, while another follows, down through
+    /// the gap to the next row: the connector's 34 px square with its arm
+    /// at the row's middle, and the stem drawn on through what a theme's
+    /// taller row or wider gap leaves above or below it. The square's
+    /// right edge is transparent.
+    fn thread_line(self, room: &Room) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let height = room.row_height(theme);
+        let gap = self
+            .cx
+            .themes
+            .channel_rows(&theme.id)
+            .and_then(|rows| rows.gap)
+            .unwrap_or(GAP);
+        let icon = if room.thread_continues {
+            Icon::ThreadBranch
+        } else {
+            Icon::ThreadEnd
+        };
+        let side = ROW + GAP;
+        let ink = theme.reply_spine;
+        let handle = self.cx.look.icon(icon, side as u32, crate::theme::rgb(ink));
+        let total = height + gap;
+        // The arm is at the middle of the square's 32 px row.
+        let top = (height - ROW) / 2.0;
+        let mut layers = stack![
+            Pic::new(handle, Size::new(THREAD_INDENT, total))
+                .at(Rectangle::new(Point::new(0.0, top), Size::new(side, side)))
+                .opacity(ink.a)
+        ]
+        .width(THREAD_INDENT)
+        .height(total);
+        let stem =
+            |from: f32, to: f32| controls::placed(bar(ink, 2.0, to - from), THREAD_STEM, from);
+        if top > 0.0 {
+            layers = layers.push(stem(0.0, top));
+        }
+        if room.thread_continues && top + side < total {
+            layers = layers.push(stem(top + side, total));
+        }
+        layers.into()
     }
 
     /// A conversation's row; one that may be `dragged` is clicked through
