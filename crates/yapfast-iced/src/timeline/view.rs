@@ -155,6 +155,11 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             Padding::ZERO.top(top_space(look) - if look.divided() { DIVIDER } else { 0.0 }),
         ));
     }
+    // A row a plugin hides (`hide`) draws nothing of its message, only what
+    // the list puts around it.
+    if look.body.plugin_hidden {
+        return row_end(ctx, index, look, aside, whole).into();
+    }
     let pointed = ctx.pointed.message.as_deref() == Some(message.item.as_str());
     let jumped = ctx.lanes.timeline.jump_lit.as_deref() == Some(message.item.as_str());
     let edited = ctx.composer.editing.as_deref() == Some(message.item.as_str());
@@ -254,6 +259,18 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             .on_enter(Message::Timeline(Event::PointRow(look.item.clone(), true)))
             .on_exit(Message::Timeline(Event::PointRow(look.item.clone(), false))),
     );
+    row_end(ctx, index, look, aside, whole).into()
+}
+
+/// What follows a row's message: the tail under the last, and under a
+/// window of older messages what's after it.
+fn row_end<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    index: usize,
+    look: &RowLook,
+    aside: bool,
+    mut whole: iced::widget::Column<'a, Message>,
+) -> iced::widget::Column<'a, Message> {
     if look.last {
         whole = whole.push(Space::new().height(TAIL - super::row_gap()));
     }
@@ -282,7 +299,7 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
             .align_y(Alignment::Center),
         );
     }
-    whole.into()
+    whole
 }
 
 /// A new day's date, and above the first unread message Discord's

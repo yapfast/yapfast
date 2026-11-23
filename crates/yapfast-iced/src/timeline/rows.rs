@@ -76,6 +76,11 @@ pub struct Laid {
     /// marks over its words, their lines and cards under it — as one number,
     /// so a row whose decorations changed is laid out and measured again.
     pub decor: u64,
+    /// A plugin hides the row (`hide`): it keeps its place in the list and
+    /// draws nothing, so the rows around it group as if it weren't there.
+    pub plugin_hidden: bool,
+    /// A plugin hides the row's pictures and files (`hide_media`).
+    pub media_hidden: bool,
 }
 
 impl std::ops::Deref for Laid {
@@ -130,11 +135,14 @@ pub fn row_looks<'a>(
     let first_new = chat::first_new(messages, marks.seen);
     let now = yapfast_core::clock::now_ms() / 1000;
     let mut before_date = None;
+    // The last row drawn: a row a plugin hides draws nothing, so the next
+    // one groups with, and dates itself against, the one before it.
+    let mut shown: Option<usize> = None;
     messages
         .iter()
         .enumerate()
         .map(|(index, message)| {
-            let before = index.checked_sub(1).map(|before| &*messages[before]);
+            let before = shown.map(|before| &*messages[before]);
             let (item, laid, date, time) = match old(index) {
                 Some(look) => (
                     look.item.clone(),
@@ -149,6 +157,21 @@ pub fn row_looks<'a>(
                     clock.sent(message, now).into(),
                 ),
             };
+            let last = index + 1 == messages.len();
+            if laid.plugin_hidden {
+                return RowLook {
+                    item,
+                    first: false,
+                    day: None,
+                    unread_start: false,
+                    highlighted: false,
+                    last,
+                    body: laid,
+                    date,
+                    time,
+                };
+            }
+            shown = Some(index);
             let new_day = date.is_some() && (before.is_none() || before_date != date);
             before_date = date;
             // The author shows again below the "New" divider.
@@ -161,7 +184,7 @@ pub fn row_looks<'a>(
                 day: new_day.then(|| yapfast_core::clock::day(message.timestamp)),
                 unread_start,
                 highlighted: message.highlighted(index >= first_new),
-                last: index + 1 == messages.len(),
+                last,
                 body: laid,
                 date,
                 time,
@@ -272,6 +295,8 @@ pub fn body_of(
         cards,
         reply,
         decor,
+        plugin_hidden: marks.hide,
+        media_hidden: marks.hide_media,
     }
 }
 
@@ -394,6 +419,16 @@ impl Edge {
 /// estimated by character count at the timeline's width, its pictures and
 /// reactions, and the space and dividers above it.
 pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) -> f32 {
+    // A row a plugin hides draws only what the list puts around it: the
+    // history's edge over the first, the tail under the last.
+    if look.body.plugin_hidden {
+        let tail = if look.last {
+            TAIL - super::row_gap()
+        } else {
+            0.0
+        };
+        return (edge + tail).round();
+    }
     let text_width = (width - GUTTER - END_PAD).max(100.0);
     let per_line = (text_width / CHAR).floor().max(1.0) as usize;
     let text = look.body.plain();
@@ -415,21 +450,24 @@ pub fn row_height(message: &ChatMessage, look: &RowLook, width: f32, edge: f32) 
     if look.first && message.notice.is_none() {
         content += AUTHOR_LINE + AUTHOR_GAP;
     }
-    let gallery = Gallery::of(&message.attachments, Placement::Message, text_width);
-    if !gallery.is_empty() {
-        content += gallery.size.height + 4.0;
-    }
-    if message
-        .attachments
-        .iter()
-        .any(|attachment| attachment.placement == Placement::Sticker)
-    {
-        content += crate::message::STICKER + 4.0;
-    }
-    let files = crate::message::files(message, Placement::Message).count();
-    content += files as f32 * (FILE_CARD + 4.0);
-    if files > 0 && message.voice.is_some() {
-        content += crate::playback::VOICE_CARD - FILE_CARD - 4.0;
+    // Pictures, stickers and files a plugin hides take no room.
+    if !look.body.media_hidden {
+        let gallery = Gallery::of(&message.attachments, Placement::Message, text_width);
+        if !gallery.is_empty() {
+            content += gallery.size.height + 4.0;
+        }
+        if message
+            .attachments
+            .iter()
+            .any(|attachment| attachment.placement == Placement::Sticker)
+        {
+            content += crate::message::STICKER + 4.0;
+        }
+        let files = crate::message::files(message, Placement::Message).count();
+        content += files as f32 * (FILE_CARD + 4.0);
+        if files > 0 && message.voice.is_some() {
+            content += crate::playback::VOICE_CARD - FILE_CARD - 4.0;
+        }
     }
     if let Some(poll) = &message.poll {
         content += crate::polls::estimate(poll);

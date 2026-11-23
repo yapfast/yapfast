@@ -808,6 +808,113 @@ fn message_actions_and_menu_rows_name_the_message_by_its_timeline_id() {
     assert_eq!(subjects, vec![ITEM], "the menu's row names it by d:<id>");
 }
 
+/// A decoration's `hide` takes its row out of the timeline, and `hide_media`
+/// takes a row's pictures and files out of it, the text staying; turning the
+/// plugin off brings both back.
+#[test]
+fn a_decoration_hides_its_row_or_its_pictures_and_files() {
+    use yapfast_core::chat::{Attachment, ChatMessage, Placement};
+    use yapfast_core::plugins::slots::Hidden;
+
+    let (mut app, _data) = super::preview();
+    let source = folder_plugin();
+    load(&mut app, source.path());
+    let attachment = |name: &str, image: bool| Attachment {
+        name: name.into(),
+        size: Some(12),
+        image,
+        dimensions: image.then_some((40, 30)),
+        preview: None,
+        preview_failed: false,
+        placement: Placement::Message,
+        gif: None,
+        spoiler: image,
+        video: false,
+        url: None,
+        description: None,
+    };
+    super::change(&mut app, |state| {
+        let template = state.messages.last().cloned().expect("a message");
+        let said = |item: &str, body: &str, at: u64, attachments: Vec<Attachment>| {
+            std::sync::Arc::new(ChatMessage {
+                id: item.into(),
+                item: item.into(),
+                body: body.into(),
+                timestamp: template.timestamp + at,
+                attachments,
+                ..(*template).clone()
+            })
+        };
+        state.messages = std::sync::Arc::new(vec![
+            said("h1", "Nobody should read this", 600, Vec::new()),
+            said(
+                "h2",
+                "Look at these",
+                660,
+                vec![
+                    attachment("kitten.png", true),
+                    attachment("notes.txt", false),
+                ],
+            ),
+        ]);
+    });
+    assert!(shows(&app, "Nobody should read this"));
+    assert!(shows(&app, "SPOILER"), "the picture, covered as a spoiler");
+    assert!(shows(&app, "notes.txt"), "the file's card");
+
+    let decorate = |app: &mut App, item: &str, hide: Hidden| {
+        let slots = app.client.app.state.plugin_slots.as_mut().expect("slots");
+        assert!(slots.decorate(PLUGIN, item, None, hide));
+        // The core hands the timeline a new list when a decoration moves.
+        super::change(app, |state| {
+            state.messages = std::sync::Arc::new((*state.messages).clone());
+        });
+    };
+    decorate(
+        &mut app,
+        "h1",
+        Hidden {
+            row: true,
+            ..Hidden::default()
+        },
+    );
+    decorate(
+        &mut app,
+        "h2",
+        Hidden {
+            media: true,
+            ..Hidden::default()
+        },
+    );
+    assert!(!present(&app, "Nobody should read this"), "the hidden row");
+    assert!(shows(&app, "Look at these"), "the other row's text stays");
+    assert!(!present(&app, "SPOILER"), "its picture goes");
+    assert!(!present(&app, "notes.txt"), "and its file");
+    let index = |app: &App, item: &str| {
+        app.timeline
+            .messages
+            .iter()
+            .position(|message| message.item == item)
+            .expect("the row")
+    };
+    let hidden = index(&app, "h1");
+    assert!(app.timeline.looks[hidden].body.plugin_hidden);
+    assert!(
+        app.timeline.looks[index(&app, "h2")].first,
+        "the row after a hidden one shows its author"
+    );
+
+    // The plugin turned off: what it hid comes back.
+    let slots = app.client.app.state.plugin_slots.as_mut().expect("slots");
+    assert!(slots.forget(PLUGIN));
+    super::change(&mut app, |state| {
+        state.messages = std::sync::Arc::new((*state.messages).clone());
+    });
+    assert!(shows(&app, "Nobody should read this"));
+    assert!(shows(&app, "SPOILER"));
+    assert!(shows(&app, "notes.txt"));
+}
+
 /// A plugin's keybind action is offered on the Keybinds page as
 /// "<plugin>: <label>", a binding to it is watched by its own id, and keys
 /// Yapfast already uses are refused for it with a note.

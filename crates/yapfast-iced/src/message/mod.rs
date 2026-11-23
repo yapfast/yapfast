@@ -237,12 +237,15 @@ pub fn message_content<'a>(
     if message.edited && message.notice.is_none() && !editing {
         content = content.push(text("(edited)").size(10).color(theme.muted));
     }
+    // A plugin that hides the row's media (`hide_media`) takes its pictures,
+    // stickers and files out of it.
+    let media = !look.body.media_hidden;
     let gallery = Gallery::of(
         &message.attachments,
         Placement::Message,
         content_width_of(ctx, index),
     );
-    if !gallery.is_empty() {
+    if media && !gallery.is_empty() {
         content = content.push(
             container(crate::message::attachments::gallery(
                 ctx, index, message, &gallery,
@@ -252,10 +255,13 @@ pub fn message_content<'a>(
             .padding(Padding::ZERO.top(4).bottom(3)),
         );
     }
-    if let Some(stickers) = crate::message::attachments::stickers(ctx, message) {
+    if media && let Some(stickers) = crate::message::attachments::stickers(ctx, message) {
         content = content.push(container(stickers).padding(Padding::ZERO.top(4)));
     }
-    for (at, (index, attachment)) in files(message, Placement::Message).enumerate() {
+    for (at, (index, attachment)) in files(message, Placement::Message)
+        .enumerate()
+        .filter(|_| media)
+    {
         // A voice message's recording is its first attachment.
         if at == 0
             && let Some(voice) = &message.voice

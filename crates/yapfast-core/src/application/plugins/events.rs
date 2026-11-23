@@ -354,31 +354,12 @@ impl Application {
             // that moved. Only a real change redraws anything: the same tree
             // again costs nothing.
             News::Notice(Notice::Slot(output)) => {
-                let decorated = match &output {
-                    crate::plugins::slots::Output::Decorate { message, .. } => {
-                        Some(message.clone())
-                    }
-                    _ => None,
-                };
                 let changed = self
                     .state
                     .plugin_slots
                     .as_mut()
                     .is_some_and(|slots| slots.apply(output));
-                // A decoration is drawn in its row, which the interface lays out
-                // and measures with the timeline: a new timeline `Arc`, holding
-                // the same messages, is what tells it to look at its rows again.
-                // Only the row whose decoration moved is laid out anew.
-                if changed
-                    && let Some(message) = decorated
-                    && self
-                        .state
-                        .messages
-                        .iter()
-                        .any(|shown| shown.item == message)
-                {
-                    self.state.messages = Arc::new(self.state.messages.as_ref().clone());
-                }
+                self.plugins_rows_moved();
                 redraw_if(changed)
             }
             // A plugin that was turned off or suspended draws nothing, so
@@ -405,6 +386,8 @@ impl Application {
                     .plugin_slots
                     .as_mut()
                     .is_some_and(|slots| slots.forget(plugin.as_ref()));
+                // What it hid or drew on rows goes with it.
+                self.plugins_rows_moved();
                 let identities = self
                     .state
                     .plugins
@@ -426,6 +409,7 @@ impl Application {
                     .plugin_slots
                     .as_mut()
                     .is_some_and(|slots| slots.clear_all());
+                self.plugins_rows_moved();
                 let identities = self
                     .state
                     .plugins
@@ -624,6 +608,31 @@ impl Application {
         }
         if wants_presence {
             self.plugins_presence(room, members, account);
+        }
+    }
+
+    /// A decoration is drawn in its row, and what it hides is left out of it,
+    /// which the interface lays out and measures with the timeline: a new
+    /// timeline `Arc`, holding the same messages, is what tells it to look at
+    /// its rows again, and only the rows whose decorations moved (drawn,
+    /// changed, or gone with their plugin) are laid out anew. The messages
+    /// taken are the slots' whole list, so it never grows.
+    fn plugins_rows_moved(&mut self) {
+        let Some(slots) = self.state.plugin_slots.as_mut() else {
+            return;
+        };
+        let moved = slots.take_decorated();
+        if moved.is_empty() {
+            return;
+        }
+        let moved: std::collections::HashSet<&str> = moved.iter().map(String::as_str).collect();
+        if self
+            .state
+            .messages
+            .iter()
+            .any(|shown| moved.contains(shown.item.as_str()))
+        {
+            self.state.messages = Arc::new(self.state.messages.as_ref().clone());
         }
     }
 

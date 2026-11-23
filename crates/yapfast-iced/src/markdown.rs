@@ -151,6 +151,12 @@ pub struct Decor {
     pub pictures: Vec<Picture>,
     pub tips: Vec<Tip>,
     pub swaps: Vec<Swap>,
+    /// A plugin hides the whole row (`hide`): the timeline keeps its place
+    /// and draws nothing of it. Not part of [`Decor::is_empty`], which is
+    /// about what's laid over the words.
+    pub hide: bool,
+    /// A plugin hides the row's pictures and files (`hide_media`).
+    pub hide_media: bool,
 }
 
 impl Decor {

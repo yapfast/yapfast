@@ -719,6 +719,9 @@ pub fn decor(slots: &Slots, item: &str) -> (u64, crate::markdown::Decor) {
     if !any {
         return (0, decor);
     }
+    let hidden = slots.hidden(item);
+    decor.hide = hidden.row;
+    decor.hide_media = hidden.media;
     (hasher.finish() | 1, decor)
 }
 
