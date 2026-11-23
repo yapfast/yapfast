@@ -244,7 +244,7 @@ menu's subject as its `target`:
 | `image` | A picture's menu in a message | Its attachment, `<message>:<index>` |
 | `sticker` | A sticker's menu in a message | The sticker's id |
 | `emoji` | A reaction's right-click | The reaction's key, as `messages.react` takes it |
-| `role` | A role's right-click on a profile | The role's id |
+| `role` | A role's right-click on a profile | `<server>:<role>`, the server the profile shows (the open conversation's) and the role's id; the role's id alone outside a server |
 | `composer` | The composer's menu | The room |
 | `attach` | The composer's + menu | The room |
 

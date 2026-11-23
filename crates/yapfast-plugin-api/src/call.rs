@@ -1861,6 +1861,12 @@ pub struct ServerView {
     /// Its channels and categories the account muted, by id, now.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub muted_channels: Vec<String>,
+    /// What the account may do there, Discord's bit field as a decimal
+    /// string: its roles' permissions together (every bit for the owner or an
+    /// administrator), none while it is timed out; a channel's overwrites
+    /// aren't in it.
+    #[serde(default)]
+    pub permissions: String,
 }
 
 /// One of `people.friends`' or `people.blocked`' answers.
@@ -1914,6 +1920,12 @@ pub struct ServerDetailsView {
     pub roles: Vec<RoleView>,
     pub emojis: Vec<ServerEmojiView>,
     pub stickers: Vec<ServerStickerView>,
+    /// What the account may do there, Discord's bit field as a decimal
+    /// string: its roles' permissions together (every bit for the owner or an
+    /// administrator), none while it is timed out; a channel's overwrites
+    /// aren't in it.
+    #[serde(default)]
+    pub permissions: String,
 }
 
 /// A server's role, highest first.
@@ -1986,6 +1998,10 @@ pub struct PeopleMember {
 pub struct MemberView {
     #[serde(flatten)]
     pub person: crate::event::PersonView,
+    /// The server whose member list this is, by its id; none for a DM's or
+    /// a group's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
     /// The ids of their roles in that server, as far as Yapfast knows.
     #[serde(default)]
     pub roles: Vec<String>,

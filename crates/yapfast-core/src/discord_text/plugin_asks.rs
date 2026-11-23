@@ -71,7 +71,10 @@ pub(super) fn command(
                 let guild = discord::parse_server(&server).unwrap_or(&server).to_owned();
                 let snapshot = discord.snapshots().borrow().clone();
                 match snapshot.servers.iter().find(|held| held.id == guild) {
-                    Some(held) => listed(server_details(held)),
+                    Some(held) => listed(server_details(
+                        held,
+                        own_permissions(held, snapshot.user_id.as_deref()),
+                    )),
                     None => HostReturn::Error {
                         message: format!("the account isn't in a server `{server}`"),
                     },
@@ -143,6 +146,7 @@ pub(super) fn command(
                                     }
                                 }),
                                 muted: held.marks.muted,
+                                permissions: own_permissions(held, snapshot.user_id.as_deref()),
                                 muted_channels: notifications
                                     .overrides
                                     .keys()
@@ -556,9 +560,18 @@ async fn search(
     }
 }
 
+/// What the account may do in a server, as `servers.list` and
+/// `servers.details` give it: its roles' permissions as a decimal string, none
+/// while nobody is signed in.
+fn own_permissions(held: &yapfast_discord::marked::MarkedServer, me: Option<&str>) -> String {
+    me.map_or(0, |me| held.server_permissions(me, &held.marks.roles))
+        .to_string()
+}
+
 /// `servers.details`' answer for a server the account is in.
 fn server_details(
     server: &yapfast_discord::ready::Server,
+    permissions: String,
 ) -> yapfast_plugin_api::call::ServerDetailsView {
     use yapfast_plugin_api::call::{
         RoleView, ServerDetailsView, ServerEmojiView, ServerStickerView,
@@ -585,6 +598,7 @@ fn server_details(
         .collect();
     roles.sort_by(|a, b| b.position.cmp(&a.position).then_with(|| a.id.cmp(&b.id)));
     ServerDetailsView {
+        permissions,
         roles,
         emojis: server
             .emojis

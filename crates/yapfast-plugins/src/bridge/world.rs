@@ -60,6 +60,10 @@ pub trait World: Send + Sync {
 
 /// What `people.member` found.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one answer, made once per call and moved straight into its reply"
+)]
 pub enum MemberAnswer {
     /// The server's members are the open conversation's, and this is who is
     /// there, when anyone with that id is.

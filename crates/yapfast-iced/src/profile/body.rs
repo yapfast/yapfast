@@ -1140,12 +1140,29 @@ fn role_chips<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> El
         let chip: Element<'a, Message> = iced::widget::mouse_area(chip)
             .on_right_press(Message::PluginRows(
                 yapfast_core::plugins::ui::Target::Role,
-                role.id.clone(),
+                role_subject(ctx, &role.id),
             ))
             .into();
         chips = chips.push(chip);
     }
     chips.wrap().vertical_spacing(4).into()
+}
+
+/// What a role's menu names it by: `<server>:<role>`, the server the
+/// profile is shown in (the open conversation's), so a plugin can read the
+/// server's roles or open its settings; the role's id alone outside one.
+#[cfg(feature = "plugins")]
+fn role_subject(ctx: crate::ctx::Ctx<'_>, role: &str) -> String {
+    match ctx
+        .state
+        .selected
+        .as_deref()
+        .and_then(yapfast_core::discord::parse_room)
+        .filter(|(server, _)| *server != yapfast_core::discord::DM_GUILD)
+    {
+        Some((server, _)) => format!("{server}:{role}"),
+        None => role.to_owned(),
+    }
 }
 
 /// Their accounts on other services: each one's name, verified, and

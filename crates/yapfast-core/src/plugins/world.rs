@@ -106,6 +106,7 @@ impl yapfast_plugins::bridge::world::World for World {
                 .iter()
                 .map(|member| MemberView {
                     person: person(member),
+                    server: room_server(&members.room),
                     roles: member.roles.iter().cloned().collect(),
                     presence: member
                         .presence
@@ -569,6 +570,7 @@ impl World {
                 .find(|member| member.id == id)
                 .map(|member| MemberView {
                     person: person(member),
+                    server: room_server(&members.room),
                     roles: member.roles.iter().cloned().collect(),
                     presence: member
                         .presence
@@ -1035,6 +1037,11 @@ mod tests {
             found.person.avatar.as_deref(),
             Some("https://cdn.discordapp.com/avatars/2/a.png"),
             "with the avatar an image cell can show"
+        );
+        assert_eq!(
+            found.server.as_deref(),
+            Some("1"),
+            "the list says its server"
         );
         assert_eq!(found.roles, ["7"]);
         assert_eq!(found.presence.as_deref(), Some("dnd"));
