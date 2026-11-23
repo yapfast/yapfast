@@ -101,27 +101,62 @@ fn line<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         return None;
     }
     let theme = ctx.look.theme;
+    // A theme's own words for the line ("{name} typing ({n})") replace it
+    // whole; otherwise the pieces, in the theme's small face.
+    let size = theme.type_size("small", SIZE);
+    let plain: String = line.iter().map(|piece| piece.0).collect();
+    let themed = ctx
+        .themes
+        .chrome(&theme.id)
+        .is_some_and(|chrome| {
+            chrome
+                .labels
+                .contains_key(&yapfast_core::themes::chrome::Label::Typing)
+        })
+        .then(|| {
+            let (names, count) = yapfast_core::themes::chrome::split_typing(&plain);
+            let count = count.to_string();
+            ctx.themes.label(
+                &theme.id,
+                yapfast_core::themes::chrome::Label::Typing,
+                plain.clone(),
+                &[("name", names.as_str()), ("n", count.as_str())],
+            )
+        });
     let words = |pieces: &[(&str, bool)]| -> Element<'a, Message> {
         row(pieces.iter().map(|&(piece, name)| {
             text(piece.to_owned())
-                .size(SIZE)
+                .size(size)
                 .line_height(iced::Pixels(LINE))
-                .font(if name { SEMIBOLD } else { MEDIUM })
+                .font(if name {
+                    theme.font("small", SEMIBOLD)
+                } else {
+                    theme.font("small", MEDIUM)
+                })
                 .color(if name { theme.text } else { theme.secondary })
                 .wrapping(text::Wrapping::None)
                 .into()
         }))
         .into()
     };
-    let full = words(&line);
-    let short = ctx
-        .state
-        .typing_line_short()
-        .map_or_else(|| Space::new().into(), |short| words(&short));
-    let dots = Dots {
-        ink: theme.text,
-        plays: ctx.plays,
+    let (full, short) = match themed {
+        Some(said) => (words(&[(said.as_str(), false)]), Space::new().into()),
+        None => (
+            words(&line),
+            ctx.state
+                .typing_line_short()
+                .map_or_else(|| Space::new().into(), |short| words(&short)),
+        ),
     };
+    let dots = crate::theme_effects::slot(
+        Dots {
+            ink: theme.text,
+            plays: ctx.plays,
+        },
+        ctx,
+        yapfast_core::themes::package::Slot::Typing,
+        Some(theme.chat),
+    );
     Some(
         container(
             row![
@@ -157,9 +192,9 @@ fn slowmode<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         row![
             ctx.look.glyph(Icon::Timer, 12, ink),
             text(says.clone())
-                .size(SIZE)
+                .size(theme.type_size("small", SIZE))
                 .line_height(iced::Pixels(LINE))
-                .font(MEDIUM)
+                .font(theme.font("small", MEDIUM))
                 .color(ink)
                 .wrapping(text::Wrapping::None),
         ]

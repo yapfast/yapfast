@@ -64,3 +64,14 @@ keep their own family names:
 
 A name styled in a script one of these lacks shows in the usual font. Binary
 packages include these licences and notes in `licenses/fonts/`.
+
+## Theme fonts
+
+`AtkinsonHyperlegibleNext-Regular.ttf` is Atkinson Hyperlegible Next by the
+Braille Institute, one of the faces the theme creator offers, beside the
+display name fonts above. It is the static Regular, unmodified, from the
+[googlefonts/atkinson-hyperlegible-next](https://github.com/googlefonts/atkinson-hyperlegible-next)
+repository at commit `7925f50f649b3813257faf2f4c0b381011f434f1` (version
+2.001). Its licence is the SIL Open Font License 1.1, unchanged in
+[LICENSE-OFL-Atkinson.txt](LICENSE-OFL-Atkinson.txt). The theme creator embeds
+it in the binary and writes it into a theme that uses it.

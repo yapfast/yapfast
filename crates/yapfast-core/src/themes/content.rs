@@ -1,0 +1,952 @@
+//! A theme's `content`: how it draws what people bring — their pictures,
+//! avatars, names, profiles, embeds and activity — rather than Yapfast's own
+//! surfaces.
+//!
+//! It only shows when the person lets it: Settings → Themes → *Let the theme
+//! style people's profiles and media*, off unless turned on, for each theme.
+//! Off, everyone's pictures, colours and cosmetics show as they made them.
+//!
+//! Every field picks from a closed list, and `keep` (or leaving it out) draws
+//! the thing as stock. Pictures are recoloured once, as they're handed to the
+//! interface, never per frame; text keeps 4.5:1 against what it's on.
+
+use serde_json::Value;
+
+use super::layout::closed;
+use super::package::{Error, Role, colour_at, named, number, object};
+
+closed! {
+    /// The shape every avatar is cut to.
+    AvatarShape { Keep => "keep", Circle => "circle", Square => "square", Rounded => "rounded" }
+}
+
+closed! {
+    /// Something people wear that a theme may leave out.
+    Shown { Keep => "keep", Hide => "hide" }
+}
+
+closed! {
+    /// People's own colours, or the theme's.
+    Follow { Keep => "keep", Theme => "theme" }
+}
+
+closed! {
+    /// How role colours on names show.
+    NameColours {
+        /// As the server gave them.
+        Keep => "keep",
+        /// Every name in the theme's name colour.
+        Theme => "theme",
+        /// Each keeps its hue, with its saturation and lightness pulled into
+        /// the theme's range and its contrast forced.
+        Clamp => "clamp",
+        /// Each person's name in a colour of the theme's `palette`, picked
+        /// from who they are, as a chat terminal colours nicks.
+        Palette => "palette",
+    }
+}
+
+closed! {
+    /// How nameplates behind names show.
+    Nameplates { Keep => "keep", Hide => "hide", Tint => "tint" }
+}
+
+/// How people's pictures are drawn: avatars, server icons, emoji pictures,
+/// stickers, attachments, embed thumbnails, link previews and GIFs.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Media {
+    #[default]
+    Normal,
+    /// Luminance mapped from `dark` to `light`, as a two-ink print. ARGB.
+    Duotone { dark: u32, light: u32 },
+    /// Washed towards `colour` by `amount` (0–1).
+    Tint { colour: u32, amount: f32 },
+    /// Greys.
+    Mono,
+    /// Drawn in a few of the theme's colours by brightness, with an ordered
+    /// (Bayer) pattern standing in for the tones between them, as an old
+    /// screen draws a picture.
+    Dither(Dither),
+}
+
+impl Media {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Duotone { .. } => "duotone",
+            Self::Tint { .. } => "tint",
+            Self::Mono => "mono",
+            Self::Dither(_) => "dither",
+        }
+    }
+}
+
+/// The most colours a dither palette holds.
+pub const MAX_DITHER: usize = 8;
+
+/// `media`'s `dither`: a palette of 2 to 8 colours, darkest first, the
+/// pattern's size and how many pixels each of its cells covers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dither {
+    /// ARGB, from dark to light; the first `len` of them.
+    pub palette: [u32; MAX_DITHER],
+    pub len: u8,
+    /// The Bayer matrix's side: 2, 4 or 8.
+    pub matrix: u8,
+    /// Pixels a cell of the pattern covers across and down (1–4), for a
+    /// coarser grain.
+    pub scale: u8,
+}
+
+impl Dither {
+    /// The palette's colours, dark to light.
+    pub fn palette(&self) -> &[u32] {
+        &self.palette[..usize::from(self.len)]
+    }
+
+    /// Whether a picture this size takes the pattern; a smaller one, such
+    /// as an emoji, takes the palette as a gradient, which the pattern
+    /// would only turn to noise.
+    pub fn patterned(width: u32, height: u32) -> bool {
+        width.max(height) > DITHER_SMALLEST
+    }
+}
+
+/// The largest side of a picture drawn as a gradient rather than dithered.
+pub const DITHER_SMALLEST: u32 = 64;
+
+/// `content.avatars`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Avatars {
+    pub shape: AvatarShape,
+    /// Corner radius in pixels for `rounded` (0–24).
+    pub radius: f32,
+    pub decorations: Shown,
+    /// A ring in the theme's colour around every avatar, in place of
+    /// decorations: ARGB and width in pixels (1–4).
+    pub ring: Option<(u32, f32)>,
+    /// `mode: "initial"`: the person's first letter beside their messages
+    /// in place of their picture, as an illuminated initial.
+    pub initials: Option<Initials>,
+}
+
+/// An illuminated initial: a person's first letter, drawn in one of the
+/// theme's faces, in place of their avatar beside messages. A name that
+/// starts with a letter without case, such as CJK or an emoji, keeps its
+/// picture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Initials {
+    /// The type role whose face draws it, such as a blackletter `headings`.
+    pub font: Role,
+    /// The letter's colour, ARGB; the theme's `accent-text` when not set.
+    pub colour: Option<u32>,
+    /// Its size against the avatar's, 0.4–1.2.
+    pub size: f32,
+    /// A ground under it, ARGB; none when not set.
+    pub ground: Option<u32>,
+    /// An outline round it, ARGB and pixels (1–4).
+    pub border: Option<(u32, f32)>,
+    /// The picture shows while the pointer is on the message.
+    pub reveal: bool,
+    /// The member list draws initials too.
+    pub members: bool,
+}
+
+impl Default for Initials {
+    fn default() -> Self {
+        Self {
+            font: Role::Headings,
+            colour: None,
+            size: 0.8,
+            ground: None,
+            border: None,
+            reveal: true,
+            members: false,
+        }
+    }
+}
+
+/// The letter an illuminated initial shows for a display name: its first
+/// character, as a capital, when it's a letter with case (Latin, Greek,
+/// Cyrillic and the like); none otherwise, and the picture shows.
+pub fn initial_letter(name: &str) -> Option<String> {
+    let first = name.trim_start().chars().next()?;
+    (first.is_alphabetic() && (first.is_uppercase() || first.is_lowercase()))
+        .then(|| first.to_uppercase().collect())
+}
+
+/// `content.names`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Names {
+    pub colours: NameColours,
+    /// The colour `theme` draws every name in, ARGB; the theme's `text`
+    /// when not set.
+    pub colour: Option<u32>,
+    /// `clamp`'s saturation and lightness ranges, 0–1 each; see
+    /// [`Names::clamp_ranges`] for when they're not set.
+    pub saturation: Option<(f32, f32)>,
+    pub lightness: Option<(f32, f32)>,
+    /// Display name styles (fonts, gradients, glow) and ransom names.
+    pub styles: Follow,
+    pub nameplates: Nameplates,
+    /// `palette`'s colours, ARGB, the first `palette_len` of them.
+    pub palette: [u32; MAX_PALETTE],
+    pub palette_len: u8,
+}
+
+/// The most colours a names palette holds.
+pub const MAX_PALETTE: usize = 8;
+
+impl Names {
+    /// The palette's colours.
+    pub fn palette(&self) -> &[u32] {
+        &self.palette[..usize::from(self.palette_len)]
+    }
+
+    /// The palette's colour for someone, from their id, the same each time.
+    pub fn palette_colour(&self, id: &str) -> Option<u32> {
+        let palette = self.palette();
+        if palette.is_empty() {
+            return None;
+        }
+        // FNV-1a: steady across runs and machines, unlike the std hasher.
+        let mut hash: u32 = 0x811c_9dc5;
+        for byte in id.bytes() {
+            hash ^= u32::from(byte);
+            hash = hash.wrapping_mul(0x0100_0193);
+        }
+        Some(palette[hash as usize % palette.len()])
+    }
+
+    /// Saturation and lightness `clamp` holds colours in: the theme's, or
+    /// muted mid tones that read on its ground.
+    pub fn clamp_ranges(&self, dark: bool) -> ((f32, f32), (f32, f32)) {
+        (
+            self.saturation.unwrap_or((0.2, 0.65)),
+            self.lightness
+                .unwrap_or(if dark { (0.6, 0.82) } else { (0.22, 0.42) }),
+        )
+    }
+}
+
+/// `content.profiles`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Profiles {
+    /// Profile themes: Nitro colours and the banner colour. `theme` puts the
+    /// card on the theme's own card surface and art; a banner picture still
+    /// shows, recoloured as `media` says.
+    pub themes: Follow,
+    pub effects: Shown,
+}
+
+/// What a theme does to people's content; stock when default.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Content {
+    pub media: Media,
+    pub avatars: Avatars,
+    pub names: Names,
+    pub profiles: Profiles,
+    /// The embed colour bar and the links in embeds.
+    pub embeds: Follow,
+    /// Activity and game tiles, and the LIVE pill.
+    pub activity: Follow,
+}
+
+impl Content {
+    /// Whether it changes anything at all.
+    #[cfg(test)]
+    pub fn is_stock(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// What it changes, as the cost line lists it: `content (if allowed):
+    /// duotone pictures, square avatars, theme name colours`.
+    pub fn summary(&self) -> Option<String> {
+        self.phrase()
+            .map(|phrase| format!("content (if allowed): {phrase}"))
+    }
+
+    /// What it changes, as a list in words: `duotone pictures, square
+    /// avatars`; none when it changes nothing.
+    pub fn phrase(&self) -> Option<String> {
+        let mut parts: Vec<String> = Vec::new();
+        if self.media != Media::Normal {
+            parts.push(format!("{} pictures", self.media.name()));
+        }
+        if self.avatars.shape != AvatarShape::Keep {
+            parts.push(format!("{} avatars", self.avatars.shape.name()));
+        }
+        if self.avatars.initials.is_some() {
+            parts.push("illuminated initials".into());
+        }
+        if self.avatars.ring.is_some() {
+            parts.push("avatar rings".into());
+        } else if self.avatars.decorations == Shown::Hide {
+            parts.push("no decorations".into());
+        }
+        if self.names.colours != NameColours::Keep {
+            parts.push(format!("{} name colours", self.names.colours.name()));
+        }
+        if self.names.styles == Follow::Theme {
+            parts.push("theme name styles".into());
+        }
+        if self.names.nameplates != Nameplates::Keep {
+            parts.push(format!("nameplates {}", self.names.nameplates.name()));
+        }
+        if self.profiles.themes == Follow::Theme {
+            parts.push("theme profile cards".into());
+        }
+        if self.profiles.effects == Shown::Hide {
+            parts.push("no profile effects".into());
+        }
+        if self.embeds == Follow::Theme {
+            parts.push("theme embeds".into());
+        }
+        if self.activity == Follow::Theme {
+            parts.push("theme activity".into());
+        }
+        (!parts.is_empty()).then(|| parts.join(", "))
+    }
+}
+
+pub(super) fn read_content(
+    value: &Value,
+    place: &str,
+    content: &mut Content,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    for (key, value) in object(value, place)? {
+        let here = format!("{place}.{key}");
+        match key.as_str() {
+            "media" => content.media = read_media(value, &here)?,
+            "avatars" => read_avatars(value, &here, &mut content.avatars, notes)?,
+            "names" => read_names(value, &here, &mut content.names, notes)?,
+            "profiles" => {
+                for (key, value) in object(value, &here)? {
+                    let at = format!("{here}.{key}");
+                    match key.as_str() {
+                        "themes" => {
+                            content.profiles.themes = named(value, &at, Follow::ALL, Follow::name)?;
+                        }
+                        "effects" => {
+                            content.profiles.effects = named(value, &at, Shown::ALL, Shown::name)?;
+                        }
+                        _ => {
+                            notes.push(format!("\"{at}\" isn't something profiles takes; ignored"));
+                        }
+                    }
+                }
+            }
+            "embeds" => content.embeds = named(value, &here, Follow::ALL, Follow::name)?,
+            "activity" => content.activity = named(value, &here, Follow::ALL, Follow::name)?,
+            _ => notes.push(format!("\"{here}\" isn't something content takes; ignored")),
+        }
+    }
+    Ok(())
+}
+
+/// `"normal"`, `"mono"`, `{ "duotone": { "dark", "light" } }`,
+/// `{ "tint": { "colour", "amount" } }` or `{ "dither": { "palette", "matrix",
+/// "scale" } }`.
+fn read_media(value: &Value, at: &str) -> Result<Media, Error> {
+    let wrong = || {
+        Error(format!(
+            "\"{at}\" is \"normal\", \"mono\", {{ \"duotone\": {{ \"dark\", \"light\" }} }}, {{ \"tint\": {{ \"colour\", \"amount\" }} }} or {{ \"dither\": {{ \"palette\" }} }}"
+        ))
+    };
+    match value {
+        Value::String(text) => match text.as_str() {
+            "normal" => Ok(Media::Normal),
+            "mono" => Ok(Media::Mono),
+            _ => Err(wrong()),
+        },
+        Value::Object(fields) if fields.len() == 1 => {
+            let (kind, inner) = fields.iter().next().expect("one field");
+            let here = format!("{at}.{kind}");
+            let inner = object(inner, &here)?;
+            let colour = |key: &str| {
+                inner
+                    .get(key)
+                    .ok_or_else(|| Error(format!("\"{here}\" needs \"{key}\"")))
+                    .and_then(|value| colour_at(value, &format!("{here}.{key}")))
+            };
+            match kind.as_str() {
+                "duotone" => Ok(Media::Duotone {
+                    dark: colour("dark")?,
+                    light: colour("light")?,
+                }),
+                "tint" => Ok(Media::Tint {
+                    colour: colour("colour")?,
+                    amount: match inner.get("amount") {
+                        Some(amount) => number(amount, &format!("{here}.amount"), (0.0, 1.0))?,
+                        None => 0.35,
+                    },
+                }),
+                "dither" => read_dither(inner, &here).map(Media::Dither),
+                _ => Err(wrong()),
+            }
+        }
+        _ => Err(wrong()),
+    }
+}
+
+fn read_dither(fields: &serde_json::Map<String, Value>, here: &str) -> Result<Dither, Error> {
+    let at = format!("{here}.palette");
+    let items = fields
+        .get("palette")
+        .and_then(Value::as_array)
+        .filter(|items| (2..=MAX_DITHER).contains(&items.len()))
+        .ok_or_else(|| {
+            Error(format!(
+                "\"{at}\" is a list of 2 to {MAX_DITHER} colours, such as the theme's darkest and lightest"
+            ))
+        })?;
+    let mut colours = items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| colour_at(item, &format!("{at}[{index}]")))
+        .collect::<Result<Vec<u32>, Error>>()?;
+    // The pattern steps through them by brightness.
+    colours.sort_by_key(|colour| luma(&channels(*colour)));
+    let mut palette = [0; MAX_DITHER];
+    palette[..colours.len()].copy_from_slice(&colours);
+    let mut dither = Dither {
+        palette,
+        len: colours.len() as u8,
+        matrix: 4,
+        scale: 1,
+    };
+    for (key, value) in fields {
+        let spot = format!("{here}.{key}");
+        match key.as_str() {
+            "palette" => {}
+            "matrix" => {
+                dither.matrix = match value.as_u64() {
+                    Some(side @ (2 | 4 | 8)) => side as u8,
+                    _ => return Err(Error(format!("\"{spot}\" is 2, 4 or 8"))),
+                }
+            }
+            "scale" => dither.scale = number(value, &spot, (1.0, 4.0))?.round() as u8,
+            _ => {
+                return Err(Error(format!(
+                    "\"{spot}\" isn't something dither takes: \"palette\", \"matrix\" or \"scale\""
+                )));
+            }
+        }
+    }
+    Ok(dither)
+}
+
+fn read_avatars(
+    value: &Value,
+    here: &str,
+    avatars: &mut Avatars,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "shape" => match value {
+                Value::Object(fields) => {
+                    let radius = fields.get("rounded").ok_or_else(|| {
+                        Error(format!("\"{at}\" is a shape name or {{ \"rounded\": 8 }}"))
+                    })?;
+                    avatars.shape = AvatarShape::Rounded;
+                    avatars.radius = number(radius, &format!("{at}.rounded"), (0.0, 24.0))?;
+                }
+                _ => {
+                    avatars.shape = named(value, &at, AvatarShape::ALL, AvatarShape::name)?;
+                    if avatars.shape == AvatarShape::Rounded && avatars.radius == 0.0 {
+                        avatars.radius = 8.0;
+                    }
+                }
+            },
+            "decorations" => avatars.decorations = named(value, &at, Shown::ALL, Shown::name)?,
+            "mode" => match value.as_str() {
+                Some("initial") => {
+                    avatars.initials.get_or_insert_with(Initials::default);
+                }
+                Some("picture") => avatars.initials = None,
+                _ => {
+                    return Err(Error(format!("\"{at}\" is \"picture\" or \"initial\"")));
+                }
+            },
+            "initial" => {
+                let initials = avatars.initials.get_or_insert_with(Initials::default);
+                read_initial(value, &at, initials, notes)?;
+            }
+            "ring" => {
+                let fields = object(value, &at)?;
+                let colour = fields
+                    .get("colour")
+                    .ok_or_else(|| Error(format!("\"{at}\" needs \"colour\"")))
+                    .and_then(|value| colour_at(value, &format!("{at}.colour")))?;
+                let width = match fields.get("width") {
+                    Some(width) => number(width, &format!("{at}.width"), (1.0, 4.0))?,
+                    None => 2.0,
+                };
+                avatars.ring = Some((colour, width));
+            }
+            _ => notes.push(format!("\"{at}\" isn't something avatars takes; ignored")),
+        }
+    }
+    Ok(())
+}
+
+fn read_initial(
+    value: &Value,
+    here: &str,
+    initials: &mut Initials,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "font" => initials.font = named(value, &at, &Role::ALL, Role::name)?,
+            "colour" => initials.colour = Some(colour_at(value, &at)?),
+            "size" => initials.size = number(value, &at, (0.4, 1.2))?,
+            "ground" => initials.ground = Some(colour_at(value, &at)?),
+            "border" => {
+                let fields = object(value, &at)?;
+                let colour = fields
+                    .get("colour")
+                    .ok_or_else(|| Error(format!("\"{at}\" needs \"colour\"")))
+                    .and_then(|value| colour_at(value, &format!("{at}.colour")))?;
+                let width = match fields.get("width") {
+                    Some(width) => number(width, &format!("{at}.width"), (1.0, 4.0))?,
+                    None => 1.0,
+                };
+                initials.border = Some((colour, width));
+            }
+            "hover" => {
+                initials.reveal = match value.as_str() {
+                    Some("picture") => true,
+                    Some("initial") => false,
+                    _ => {
+                        return Err(Error(format!(
+                            "\"{at}\" is \"picture\" (the avatar shows under the pointer) or \"initial\""
+                        )));
+                    }
+                }
+            }
+            "members" => {
+                initials.members = value
+                    .as_bool()
+                    .ok_or_else(|| Error(format!("\"{at}\" is true or false")))?;
+            }
+            _ => notes.push(format!(
+                "\"{at}\" isn't something an initial takes; ignored"
+            )),
+        }
+    }
+    Ok(())
+}
+
+fn read_names(
+    value: &Value,
+    here: &str,
+    names: &mut Names,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    let range = |value: &Value, at: &str| -> Result<(f32, f32), Error> {
+        match value.as_array().map(Vec::as_slice) {
+            Some([low, high]) => {
+                let (low, high) = (number(low, at, (0.0, 1.0))?, number(high, at, (0.0, 1.0))?);
+                if low > high {
+                    return Err(Error(format!("\"{at}\" goes from low to high")));
+                }
+                Ok((low, high))
+            }
+            _ => Err(Error(format!("\"{at}\" is [low, high], each 0 to 1"))),
+        }
+    };
+    for (key, value) in object(value, here)? {
+        let at = format!("{here}.{key}");
+        match key.as_str() {
+            "colours" => names.colours = named(value, &at, NameColours::ALL, NameColours::name)?,
+            "colour" => names.colour = Some(colour_at(value, &at)?),
+            "saturation" => names.saturation = Some(range(value, &at)?),
+            "lightness" => names.lightness = Some(range(value, &at)?),
+            "palette" => {
+                let items = value
+                    .as_array()
+                    .filter(|items| (2..=MAX_PALETTE).contains(&items.len()))
+                    .ok_or_else(|| {
+                        Error(format!("\"{at}\" is a list of 2 to {MAX_PALETTE} colours"))
+                    })?;
+                names.palette = [0; MAX_PALETTE];
+                for (index, item) in items.iter().enumerate() {
+                    names.palette[index] = colour_at(item, &format!("{at}[{index}]"))?;
+                }
+                names.palette_len = items.len() as u8;
+                if names.colours == NameColours::Keep {
+                    names.colours = NameColours::Palette;
+                }
+            }
+            "styles" => names.styles = named(value, &at, Follow::ALL, Follow::name)?,
+            "nameplates" => {
+                names.nameplates = named(value, &at, Nameplates::ALL, Nameplates::name)?;
+            }
+            _ => notes.push(format!("\"{at}\" isn't something names takes; ignored")),
+        }
+    }
+    Ok(())
+}
+
+/// Recolours RGBA pixels, straight alpha, in place, as `media` says. One
+/// table of 256 entries a picture, so a large one costs a lookup a pixel.
+pub fn recolour(media: Media, rgba: &mut [u8]) {
+    let table: [[u8; 3]; 256] = match media {
+        Media::Normal => return,
+        Media::Mono => std::array::from_fn(|grey| [grey as u8; 3]),
+        Media::Duotone { dark, light } => {
+            let (dark, light) = (channels(dark), channels(light));
+            std::array::from_fn(|level| {
+                std::array::from_fn(|channel| {
+                    let (from, to) = (f32::from(dark[channel]), f32::from(light[channel]));
+                    (from + (to - from) * level as f32 / 255.0).round() as u8
+                })
+            })
+        }
+        Media::Dither(dither) => {
+            let palette = dither.palette();
+            std::array::from_fn(|level| gradient(palette, level as u8))
+        }
+        Media::Tint { colour, amount } => {
+            // A wash by luminance, so the picture's light and shade stay.
+            let colour = channels(colour);
+            let table: [[u8; 3]; 256] = std::array::from_fn(|level| {
+                std::array::from_fn(|channel| {
+                    (f32::from(colour[channel]) * level as f32 / 255.0 * amount).round() as u8
+                })
+            });
+            let keep = 1.0 - amount;
+            for pixel in rgba.chunks_exact_mut(4) {
+                let washed = table[usize::from(luma(pixel))];
+                for channel in 0..3 {
+                    pixel[channel] = (f32::from(pixel[channel]) * keep + f32::from(washed[channel]))
+                        .round()
+                        .min(255.0) as u8;
+                }
+            }
+            return;
+        }
+    };
+    for pixel in rgba.chunks_exact_mut(4) {
+        let mapped = table[usize::from(luma(pixel))];
+        pixel[..3].copy_from_slice(&mapped);
+    }
+}
+
+/// Draws RGBA pixels, straight alpha, `width` across, in `dither`'s palette
+/// with its ordered pattern: each pixel's brightness, plus the pattern's
+/// threshold where it falls, picks a colour of the palette. Alpha is kept.
+/// Done once a picture, off the window's thread; a few operations a pixel.
+pub fn dither(dither: &Dither, rgba: &mut [u8], width: u32) {
+    let palette = dither.palette();
+    if palette.len() < 2 || width == 0 {
+        return;
+    }
+    let colours: Vec<[u8; 3]> = palette.iter().map(|colour| channels(*colour)).collect();
+    let side = usize::from(dither.matrix.clamp(2, 8));
+    let matrix = bayer(side);
+    let cells = (side * side) as u32;
+    let steps = (palette.len() - 1) as u32;
+    // Where a brightness falls along the palette, in 1/cells of a step.
+    let along: [u32; 256] = std::array::from_fn(|level| level as u32 * steps * cells / 255);
+    let scale = usize::from(dither.scale.max(1));
+    let width = width as usize;
+    for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        let (x, y) = ((index % width) / scale, (index / width) / scale);
+        let threshold = u32::from(matrix[(y % side) * side + x % side]);
+        let step = ((along[usize::from(luma(pixel))] + threshold) / cells).min(steps);
+        pixel[..3].copy_from_slice(&colours[step as usize]);
+    }
+}
+
+/// The Bayer matrix of side 2, 4 or 8, row by row: the order each cell of
+/// the pattern lights in.
+fn bayer(side: usize) -> Vec<u8> {
+    let mut matrix = vec![0u8];
+    let mut size = 1;
+    while size < side {
+        let mut next = vec![0u8; size * size * 4];
+        for y in 0..size {
+            for x in 0..size {
+                let value = matrix[y * size + x] * 4;
+                let wide = size * 2;
+                next[y * wide + x] = value;
+                next[y * wide + x + size] = value + 2;
+                next[(y + size) * wide + x] = value + 3;
+                next[(y + size) * wide + x + size] = value + 1;
+            }
+        }
+        matrix = next;
+        size *= 2;
+    }
+    matrix
+}
+
+/// A brightness's colour along a palette, dark to light, blending between
+/// the two it falls between.
+fn gradient(palette: &[u32], level: u8) -> [u8; 3] {
+    let steps = palette.len().saturating_sub(1).max(1);
+    let along = f32::from(level) / 255.0 * steps as f32;
+    let from = (along.floor() as usize)
+        .min(steps - 1)
+        .min(palette.len() - 1);
+    let to = (from + 1).min(palette.len() - 1);
+    let mix = along - from as f32;
+    let (from, to) = (channels(palette[from]), channels(palette[to]));
+    std::array::from_fn(|channel| {
+        (f32::from(from[channel]) + (f32::from(to[channel]) - f32::from(from[channel])) * mix)
+            .round() as u8
+    })
+}
+
+/// Rec. 601 luma in integers.
+fn luma(pixel: &[u8]) -> u8 {
+    ((u32::from(pixel[0]) * 77 + u32::from(pixel[1]) * 150 + u32::from(pixel[2]) * 29) >> 8) as u8
+}
+
+fn channels(argb: u32) -> [u8; 3] {
+    [(argb >> 16) as u8, (argb >> 8) as u8, argb as u8]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::themes::package::{Mode, Package};
+
+    fn theme(content: &str) -> Result<Package, Error> {
+        Package::parse(&format!(
+            r#"{{ "theme_api": 1, "id": "com.example.own", "name": "Own", "version": "1.0.0",
+                "content": {content},
+                "variants": {{ "dark": {{ "base": "yap" }} }} }}"#
+        ))
+    }
+
+    #[test]
+    fn reads_every_content_field() {
+        let package = theme(
+            r##"{
+                "media": { "duotone": { "dark": "#03110a", "light": "#5cff85" } },
+                "avatars": { "shape": { "rounded": 6 }, "decorations": "hide", "ring": { "colour": "#5cff85", "width": 2 } },
+                "names": { "colours": "clamp", "colour": "#5cff85", "saturation": [0.2, 0.5], "lightness": [0.6, 0.8],
+                           "styles": "theme", "nameplates": "tint" },
+                "profiles": { "themes": "theme", "effects": "hide" },
+                "embeds": "theme", "activity": "theme"
+            }"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let content = package.resolve(Mode::Dark).unwrap().content;
+        assert_eq!(
+            content.media,
+            Media::Duotone {
+                dark: 0xff03110a,
+                light: 0xff5cff85
+            }
+        );
+        assert_eq!(content.avatars.shape, AvatarShape::Rounded);
+        assert_eq!(content.avatars.radius, 6.0);
+        assert_eq!(content.avatars.decorations, Shown::Hide);
+        assert_eq!(content.avatars.ring, Some((0xff5cff85, 2.0)));
+        assert_eq!(content.names.colours, NameColours::Clamp);
+        assert_eq!(content.names.saturation, Some((0.2, 0.5)));
+        assert_eq!(content.names.styles, Follow::Theme);
+        assert_eq!(content.names.nameplates, Nameplates::Tint);
+        assert_eq!(content.profiles.themes, Follow::Theme);
+        assert_eq!(content.profiles.effects, Shown::Hide);
+        assert_eq!(content.embeds, Follow::Theme);
+        assert_eq!(content.activity, Follow::Theme);
+        assert!(
+            content
+                .summary()
+                .unwrap()
+                .starts_with("content (if allowed): duotone pictures")
+        );
+    }
+
+    #[test]
+    fn short_forms_and_stock() {
+        let package = theme(r#"{ "media": "mono", "avatars": { "shape": "square" } }"#).unwrap();
+        let content = package.resolve(Mode::Dark).unwrap().content;
+        assert_eq!(content.media, Media::Mono);
+        assert_eq!(content.avatars.shape, AvatarShape::Square);
+        let tint = theme(r##"{ "media": { "tint": { "colour": "#ff0000" } } }"##).unwrap();
+        assert!(matches!(
+            tint.resolve(Mode::Dark).unwrap().content.media,
+            Media::Tint { amount, .. } if amount == 0.35
+        ));
+        let stock = theme("{}").unwrap();
+        assert!(stock.resolve(Mode::Dark).unwrap().content.is_stock());
+    }
+
+    #[test]
+    fn refuses_values_out_of_their_lists() {
+        assert!(theme(r#"{ "media": "sepia" }"#).is_err());
+        assert!(theme(r#"{ "avatars": { "shape": "hexagon" } }"#).is_err());
+        assert!(theme(r#"{ "avatars": { "shape": { "rounded": 99 } } }"#).is_err());
+        assert!(theme(r#"{ "names": { "lightness": [0.9, 0.1] } }"#).is_err());
+        assert!(theme(r#"{ "embeds": "loud" }"#).is_err());
+        let noted = theme(r#"{ "sparkle": true }"#).unwrap();
+        assert!(
+            noted
+                .notes
+                .iter()
+                .any(|note| note.contains("content.sparkle"))
+        );
+    }
+
+    fn green() -> Dither {
+        match theme(
+            r##"{ "media": { "dither": { "palette": ["#B8FFC8", "#020A04", "#2F8A4A"], "matrix": 2 } } }"##,
+        )
+        .unwrap()
+        .resolve(Mode::Dark)
+        .unwrap()
+        .content
+        .media
+        {
+            Media::Dither(dither) => dither,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn reads_a_dither_palette_dark_to_light() {
+        let dither = green();
+        assert_eq!(dither.palette(), [0xff020a04, 0xff2f8a4a, 0xffb8ffc8]);
+        assert_eq!((dither.matrix, dither.scale), (2, 1));
+        let stock =
+            theme(r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"] } } }"##).unwrap();
+        assert!(matches!(
+            stock.resolve(Mode::Dark).unwrap().content.media,
+            Media::Dither(Dither {
+                matrix: 4,
+                scale: 1,
+                len: 2,
+                ..
+            })
+        ));
+        assert!(
+            stock
+                .resolve(Mode::Dark)
+                .unwrap()
+                .content
+                .summary()
+                .unwrap()
+                .contains("dither pictures")
+        );
+        assert!(theme(r##"{ "media": { "dither": { "palette": ["#000000"] } } }"##).is_err());
+        assert!(
+            theme(
+                r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"], "matrix": 3 } } }"##
+            )
+            .is_err()
+        );
+        assert!(
+            theme(
+                r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"], "scale": 9 } } }"##
+            )
+            .is_err()
+        );
+        assert!(
+            theme(
+                r##"{ "media": { "dither": { "palette": ["#000000", "#ffffff"], "glow": 1 } } }"##
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn dithering_uses_only_the_palette_and_follows_brightness() {
+        let dither = green();
+        // A flat dark grey, 4 by 4, between the first two colours: a
+        // pattern of both.
+        let mut grey = [64u8, 64, 64, 200].repeat(16);
+        super::dither(&dither, &mut grey, 4);
+        let palette: Vec<[u8; 3]> = dither.palette().iter().map(|c| channels(*c)).collect();
+        let mut seen = std::collections::BTreeSet::new();
+        for pixel in grey.chunks_exact(4) {
+            assert!(
+                palette.contains(&[pixel[0], pixel[1], pixel[2]]),
+                "{pixel:?}"
+            );
+            assert_eq!(pixel[3], 200);
+            seen.insert([pixel[0], pixel[1], pixel[2]]);
+        }
+        assert_eq!(seen.len(), 2, "a grey between two colours mixes them");
+        // Black and white stay the palette's ends.
+        let mut ends = [0u8, 0, 0, 255, 255, 255, 255, 255];
+        super::dither(&dither, &mut ends, 2);
+        assert_eq!(&ends[..3], &channels(dither.palette[0]));
+        assert_eq!(&ends[4..7], &channels(dither.palette[2]));
+        // The same picture dithers the same each time.
+        let mut again = [64u8, 64, 64, 200].repeat(16);
+        super::dither(&dither, &mut again, 4);
+        assert_eq!(grey, again);
+        // Without the pattern, the palette is a gradient.
+        let mut smooth = [128u8, 128, 128, 255];
+        recolour(Media::Dither(dither), &mut smooth);
+        assert_eq!(&smooth[..3], &gradient(dither.palette(), 128));
+        assert!(Dither::patterned(400, 300) && !Dither::patterned(48, 48));
+        assert_eq!(bayer(2), [0, 2, 3, 1]);
+        let four = bayer(4);
+        let mut sorted = four;
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..16).collect::<Vec<u8>>());
+    }
+
+    #[test]
+    fn reads_illuminated_initials() {
+        let package = theme(
+            r##"{ "avatars": { "mode": "initial", "initial": { "font": "names", "colour": "#9e263b",
+                  "size": 0.9, "ground": "#09090b", "border": { "colour": "#29252a" }, "hover": "initial",
+                  "members": true } } }"##,
+        )
+        .unwrap();
+        assert!(package.notes.is_empty(), "{:?}", package.notes);
+        let content = package.resolve(Mode::Dark).unwrap().content;
+        let initials = content.avatars.initials.unwrap();
+        assert_eq!(initials.font, Role::Names);
+        assert_eq!(initials.colour, Some(0xff9e263b));
+        assert_eq!(initials.border, Some((0xff29252a, 1.0)));
+        assert!(!initials.reveal && initials.members);
+        assert!(content.phrase().unwrap().contains("illuminated initials"));
+        let plain = theme(r#"{ "avatars": { "mode": "initial" } }"#).unwrap();
+        let initials = plain.resolve(Mode::Dark).unwrap().content.avatars.initials;
+        assert_eq!(initials, Some(Initials::default()));
+        assert!(theme(r#"{ "avatars": { "mode": "letters" } }"#).is_err());
+        assert!(theme(r#"{ "avatars": { "initial": { "size": 3 } } }"#).is_err());
+        assert!(theme(r#"{ "avatars": { "initial": { "font": "fraktur.ttf" } } }"#).is_err());
+        assert_eq!(initial_letter("bob"), Some("B".into()));
+        assert_eq!(initial_letter("  élodie"), Some("É".into()));
+        assert_eq!(initial_letter("Ωmega"), Some("Ω".into()));
+        assert_eq!(initial_letter("😀 sam"), None);
+        assert_eq!(initial_letter("山田"), None);
+        assert_eq!(initial_letter("_x"), None);
+        assert_eq!(initial_letter(""), None);
+    }
+
+    #[test]
+    fn recolouring_maps_luminance_and_keeps_alpha() {
+        let mut pixels = [0, 0, 0, 255, 255, 255, 255, 128];
+        recolour(
+            Media::Duotone {
+                dark: 0xff102030,
+                light: 0xffa0b0c0,
+            },
+            &mut pixels,
+        );
+        assert_eq!(pixels, [0x10, 0x20, 0x30, 255, 0xa0, 0xb0, 0xc0, 128]);
+        let mut grey = [255, 0, 0, 255];
+        recolour(Media::Mono, &mut grey);
+        assert_eq!(grey[0], grey[1]);
+        assert_eq!(grey[1], grey[2]);
+        let mut same = [12, 34, 56, 78];
+        recolour(Media::Normal, &mut same);
+        assert_eq!(same, [12, 34, 56, 78]);
+    }
+}
