@@ -96,7 +96,10 @@ pub fn manifest(new: &NewTheme) -> Result<String, String> {
         Some(start) => format!("{name}, from {}'s colours.", start.from),
         None => format!("{name}, a theme for Yapfast."),
     };
-    let mut text = template.to_owned();
+    // A checkout that turns line ends into CRLF (Git's `core.autocrlf` on
+    // Windows) builds the template in with them; a new theme is written with
+    // `\n`, as the rest of this does.
+    let mut text = template.replace("\r\n", "\n");
     for (field, value) in [
         ("id", quote(&id)),
         ("name", quote(name)),
@@ -159,7 +162,7 @@ pub fn create(folder: &Path, new: &NewTheme) -> Result<Vec<PathBuf>, String> {
     let mut written = vec![PathBuf::from(MANIFEST)];
     let mut files = vec![(PathBuf::from("LICENSE"), template_file("LICENSE"))];
     files.extend(package.files().into_iter().map(|path| {
-        let bytes = template_file(&path.to_string_lossy().replace('\\', "/"));
+        let bytes = template_file(&super::theme_path(&path));
         (path, bytes)
     }));
     let write = |relative: &Path, bytes: &[u8]| -> Result<(), String> {
@@ -182,7 +185,7 @@ pub fn create(folder: &Path, new: &NewTheme) -> Result<Vec<PathBuf>, String> {
             None => {
                 return Err(format!(
                     "the template names {}, which it doesn't hold",
-                    relative.display()
+                    super::theme_path(&relative)
                 ));
             }
         };

@@ -1814,7 +1814,10 @@ pub fn write_export(
             .components()
             .any(|part| !matches!(part, Component::Normal(_)))
         {
-            return Err(format!("{} isn't inside the theme", relative.display()));
+            return Err(format!(
+                "{} isn't inside the theme",
+                super::theme_path(&relative)
+            ));
         }
         let from = source
             .map(|source| source.join(&relative))
@@ -1825,7 +1828,7 @@ pub fn write_export(
             .ok_or_else(|| {
                 format!(
                     "the theme names {}, which isn't in its folder",
-                    relative.display()
+                    super::theme_path(&relative)
                 )
             })?;
         let to = folder.join(&relative);

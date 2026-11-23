@@ -88,6 +88,15 @@ fn shown_within(text: &str, most: usize) -> String {
     }
 }
 
+/// A path inside a theme as its messages show it: parts joined with `/`, as
+/// `theme.json` writes them, on Windows too, where the path itself holds `\`.
+pub fn theme_path(path: &std::path::Path) -> String {
+    path.components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// `text` with what [`refused_char`] names written out as `\u{…}`.
 fn escaped(text: &str) -> String {
     let mut out = String::new();
@@ -189,6 +198,13 @@ mod tests {
         }
         assert_eq!(shown("a\u{202e}b"), "a\\u{202e}b");
         assert_eq!(shown(&"x".repeat(200)).chars().count(), 161);
+    }
+
+    #[test]
+    fn a_path_in_a_theme_is_shown_with_slashes() {
+        let path = std::path::Path::new("art").join("sky").join("night.jpg");
+        assert_eq!(theme_path(&path), "art/sky/night.jpg");
+        assert_eq!(theme_path(std::path::Path::new("theme.json")), "theme.json");
     }
 
     #[test]
