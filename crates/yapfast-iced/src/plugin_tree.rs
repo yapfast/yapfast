@@ -167,6 +167,17 @@ pub fn draw<'a, M: Clone + 'a>(
     rows_view(paint, &tree.rows, &message)
 }
 
+/// Draws some of a tree's rows, as [`draw`] draws them all: the pieces of a
+/// settings page between its forms.
+pub fn draw_rows<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    rows: &'a [Row],
+    message: impl Fn(Act) -> M + 'a,
+) -> Element<'a, M> {
+    let message: Sender<'a, M> = std::rc::Rc::new(message);
+    rows_view(paint, rows, &message)
+}
+
 fn rows_view<'a, M: Clone + 'a>(
     paint: Paint<'a>,
     lines: &'a [Row],
@@ -538,6 +549,9 @@ fn cell_body<'a, M: Clone + 'a>(
                 .into()
         }
         Kind::Spacer => Space::new().width(Length::Fixed(8.0)).into(),
+        // The settings page draws the form in its place
+        // (`settings/pages/plugins.rs`); anywhere else it is nothing.
+        Kind::SettingsForm => Space::new().into(),
         Kind::List => {
             let mut items = column![].spacing(4).width(Length::Fill);
             for (index, item) in cell.items.iter().enumerate() {

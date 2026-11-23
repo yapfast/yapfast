@@ -680,6 +680,53 @@ fn a_plugins_settings_page_draws_and_saves() {
     );
 }
 
+/// A `settings_form` row on a plugin's own page is its manifest's form, drawn
+/// where the row is, with only the settings it names, between what the plugin
+/// drew around it.
+#[test]
+fn a_plugins_own_page_embeds_its_settings_form() {
+    use crate::settings::{Event, PluginEvent, Section};
+
+    let (mut app, _data) = super::preview();
+    let source = folder_plugin_with(
+        r#""settings": [
+            { "key": "loud", "type": "bool", "label": "Loud mode" },
+            { "key": "greeting", "type": "string", "label": "Greeting", "default": "hey" }
+        ],"#,
+    );
+    load(&mut app, source.path());
+    app.shell.frame.height = 2400.0;
+    crate::window_bar::fit_window(&mut app);
+    let _ = app.update(crate::app::Message::Settings(Event::Open(Section::Plugins)));
+    let _ = app.update(crate::app::Message::Settings(Event::Plugin(
+        PluginEvent::OpenSettings(PLUGIN.into()),
+    )));
+    draw(
+        &mut app,
+        Slot::SettingsPage,
+        r#"{ "rows": [
+            { "cells": [{ "kind": "heading", "text": "Before the form" }] },
+            { "cells": [{ "kind": "settings_form", "options": ["greeting"] }] },
+            { "cells": [{ "text": "After the form" }] }
+        ] }"#,
+    );
+    assert!(shows(&app, "Before the form"));
+    assert!(shows(&app, "Greeting"), "the setting it names");
+    assert!(shows(&app, "hey"), "with its value");
+    assert!(!shows(&app, "Loud mode"), "and not the one it leaves out");
+    assert!(shows(&app, "After the form"));
+    // Naming no keys, it shows them all.
+    draw(
+        &mut app,
+        Slot::SettingsPage,
+        r#"{ "rows": [{ "cells": [{ "kind": "settings_form" }] }] }"#,
+    );
+    assert!(
+        shows(&app, "Loud mode") && shows(&app, "Greeting"),
+        "every setting"
+    );
+}
+
 /// A plugin's keybind action is offered on the Keybinds page as
 /// "<plugin>: <label>", a binding to it is watched by its own id, and keys
 /// Yapfast already uses are refused for it with a note.

@@ -274,6 +274,7 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `code` | Monospaced text on the sunken ground | `text` |
 | `badge` | A small mark in its tone | `text`, `tone` |
 | `icon`, `image` | A picture, 16 px square or up to 240 × 135 | `src`, `text` while it isn't there |
+| `settings_form` | The manifest's settings form, drawn and saved as the plugin's page draws it, where this row is: only on the plugin's own settings page (`settings.page`), nothing anywhere else | `options`: the settings' keys it shows, every shown one when empty |
 | `tile` | A picture over its label in one card of a fixed width (96 px unless `width`), so a grid of them lines up; a button when it has an `id` | `src`, `text`, `id`, and the picture fields below |
 | `button`, `link` | A button in the kit's plain style, or a link's words | `id`, `text`, `enabled`, and a button's `icon` |
 | `toggle` | The kit's switch, its label before it | `id`, `text`, `checked` |

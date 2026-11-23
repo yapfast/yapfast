@@ -1145,6 +1145,11 @@ pub enum Kind {
     /// A picture over its label in one card of a fixed width, a button when it
     /// has an `id`: a picker's choice, laid out in a grid that lines up.
     Tile,
+    /// The plugin's manifest settings, drawn and saved as its page draws them,
+    /// where this row is: only on the plugin's own settings page, and nothing
+    /// anywhere else. `options` names the settings' keys it shows, every
+    /// shown setting when empty.
+    SettingsForm,
 }
 
 impl Kind {

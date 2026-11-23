@@ -1756,17 +1756,46 @@ impl<'a> Page<'a> {
             });
         match drawn {
             Some(drawn) => {
-                let page = plugin_tree::draw(
-                    plugin_tree::Paint {
-                        look: self.cx.look,
-                        local: &self.s.plugins.local,
-                        images: &self.cx.plugin_kept.images,
-                        plugin: self.s.plugins.open.as_deref().unwrap_or_default(),
-                    },
-                    &drawn.tree,
-                    |act| plugin_message(PluginEvent::Act { key: None, act }),
-                );
-                parts.push(form::card(theme, page));
+                let paint = plugin_tree::Paint {
+                    look: self.cx.look,
+                    local: &self.s.plugins.local,
+                    images: &self.cx.plugin_kept.images,
+                    plugin: self.s.plugins.open.as_deref().unwrap_or_default(),
+                };
+                // A `settings_form` row is the manifest's form, drawn where it
+                // is, between cards of what the plugin drew around it.
+                let rows = &drawn.tree.rows;
+                let mut start = 0;
+                for (at, row) in rows.iter().enumerate() {
+                    let Some(embedded) = row
+                        .cells
+                        .iter()
+                        .find(|cell| cell.kind == yapfast_core::plugins::ui::Kind::SettingsForm)
+                    else {
+                        continue;
+                    };
+                    if start < at {
+                        parts.push(form::card(
+                            theme,
+                            plugin_tree::draw_rows(paint, &rows[start..at], |act| {
+                                plugin_message(PluginEvent::Act { key: None, act })
+                            }),
+                        ));
+                    }
+                    let shown = self.setting_rows(theme, &embedded.options);
+                    if !shown.is_empty() {
+                        parts.push(form::card(theme, form::group(shown)));
+                    }
+                    start = at + 1;
+                }
+                if start == 0 || start < rows.len() {
+                    parts.push(form::card(
+                        theme,
+                        plugin_tree::draw_rows(paint, &rows[start..], |act| {
+                            plugin_message(PluginEvent::Act { key: None, act })
+                        }),
+                    ));
+                }
                 if let Some(form_state) = self.s.plugins.form.as_ref() {
                     for refused in form_state.refused.values() {
                         parts.push(form::error(theme, refused.message.clone()).into());
@@ -1872,17 +1901,30 @@ impl<'a> Page<'a> {
     /// own `show` rules hide left out.
     #[cfg(feature = "plugins")]
     fn settings_form(self, theme: &Theme) -> Vec<Element<'a, Message>> {
+        let rows = self.setting_rows(theme, &[]);
+        if rows.is_empty() {
+            return Vec::new();
+        }
+        let reset = self.reset_line(theme);
+        vec![section(
+            theme,
+            "SETTINGS",
+            [form::card(theme, form::group([form::group(rows), reset]))],
+        )]
+    }
+
+    /// The rows of the manifest's settings form that show now: those `keys`
+    /// names, or all of them when it names none.
+    #[cfg(feature = "plugins")]
+    fn setting_rows(self, theme: &Theme, keys: &[String]) -> Vec<Element<'a, Message>> {
         let Some(form_state) = self.s.plugins.form.as_ref() else {
             return Vec::new();
         };
         let schema = &form_state.schema;
-        if schema.settings.is_empty() {
-            return Vec::new();
-        }
         let states = schema.states(&form_state.values);
         let mut rows: Vec<Element<'a, Message>> = Vec::new();
         for (setting, state) in schema.settings.iter().zip(states) {
-            if !state.shown {
+            if !state.shown || !(keys.is_empty() || keys.contains(&setting.key)) {
                 continue;
             }
             let value = form_state.values.get(&setting.key);
@@ -1892,12 +1934,7 @@ impl<'a> Page<'a> {
                 .map(|refused: &Refused| refused.message.clone());
             rows.push(self.setting_row(theme, setting, value, state.enabled, refused, form_state));
         }
-        let reset = self.reset_line(theme);
-        vec![section(
-            theme,
-            "SETTINGS",
-            [form::card(theme, form::group([form::group(rows), reset]))],
-        )]
+        rows
     }
 
     #[cfg(feature = "plugins")]
