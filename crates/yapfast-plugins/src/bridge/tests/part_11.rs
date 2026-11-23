@@ -76,3 +76,61 @@ fn a_navigation_action_without_a_gesture_is_refused() {
         "the window doesn't move"
     );
 }
+
+/// `clipboard.write` follows the send's gesture rule, and takes at most
+/// [`limits::MAX_CLIPBOARD_BYTES`] of text, refused whole rather than cut.
+#[test]
+fn a_clipboard_write_needs_a_click_and_at_most_64_kib() {
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let plugin = installed(
+        directory.path(),
+        &action_manifest(&["clipboard.write"]),
+        b"not a real module",
+    );
+    let (wake, notices) = notice_channel();
+    let shared = shared(directory.path(), wake);
+    let (_session_directory, mut session, written, _inbound) = session_stub();
+    let call = HostCall::new(
+        call::method::CLIPBOARD_WRITE,
+        CopyText {
+            text: "1234567890".to_owned(),
+        },
+    )
+    .expect("a call payload");
+    runtime().block_on(async { session.on_call(&shared, 12, plugin, call) });
+    let (_, answer) = returned(&next_frame(&written));
+    let HostReturn::Denied { reason } = answer else {
+        panic!("copying with nobody there is refused: {answer:?}");
+    };
+    assert!(reason.contains("click"), "{reason}");
+    assert!(
+        notices.recv_timeout(Duration::from_millis(50)).is_err(),
+        "the clipboard is left alone"
+    );
+
+    let most = "1".repeat(yapfast_plugin_api::limits::MAX_CLIPBOARD_BYTES);
+    let (answer, notices) = ask_action(
+        call::method::CLIPBOARD_WRITE,
+        serde_json::json!({ "text": most }),
+        &["clipboard.write"],
+    );
+    assert!(matches!(answer, HostReturn::Pending { .. }), "{answer:?}");
+    let Ok(Notice::Call { request, .. }) = notices.recv_timeout(Duration::from_secs(2)) else {
+        panic!("64 KiB of text reaches the application");
+    };
+    assert_eq!(request, AppCall::Copy { text: most.clone() });
+
+    let (answer, notices) = ask_action(
+        call::method::CLIPBOARD_WRITE,
+        serde_json::json!({ "text": format!("{most}1") }),
+        &["clipboard.write"],
+    );
+    let HostReturn::Error { message } = answer else {
+        panic!("a byte over 64 KiB is refused: {answer:?}");
+    };
+    assert!(message.contains("at most"), "{message}");
+    assert!(
+        notices.recv_timeout(Duration::from_millis(50)).is_err(),
+        "nothing is copied, not even a part"
+    );
+}

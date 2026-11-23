@@ -253,9 +253,21 @@ impl Session {
                     click: crate::ui::Click::asked(notify.room, notify.id).map(Box::new),
                 })
             }
-            call::method::CLIPBOARD_WRITE => request
-                .parse::<CopyText>()
-                .map(|copy| AppCall::Copy { text: copy.text }),
+            // Refused whole rather than cut: half of what the person meant to
+            // copy, pasted somewhere, is worse than nothing copied.
+            call::method::CLIPBOARD_WRITE => match request.parse::<CopyText>() {
+                Err(error) => return Some(wrong_payload(method, error)),
+                Ok(copy) if copy.text.len() > limits::MAX_CLIPBOARD_BYTES => {
+                    return Some(HostReturn::Error {
+                        message: format!(
+                            "`clipboard.write` takes at most {} bytes of text; this was {}",
+                            limits::MAX_CLIPBOARD_BYTES,
+                            copy.text.len()
+                        ),
+                    });
+                }
+                Ok(copy) => Ok(AppCall::Copy { text: copy.text }),
+            },
             call::method::OPEN_URL => request
                 .parse::<OpenUrl>()
                 .map(|open| AppCall::Open { url: open.url }),
@@ -593,6 +605,8 @@ impl Session {
                 "open a save dialog"
             } else if matches!(app, AppCall::OpenFile(_)) {
                 "open a file picker"
+            } else if matches!(app, AppCall::Copy { .. }) {
+                "write the clipboard"
             } else {
                 "move the window or write the composer"
             };

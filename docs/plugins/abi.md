@@ -513,7 +513,7 @@ so nothing waits on a person:
 | `composer.set_draft` | `{ room, body }` | Replaces it, which the composer shows at once |
 | `composer.insert` | `{ room, text }` | Writes after it, never over it |
 | `notify.send` | `{ text, room?, id? }` | One OS notification, titled with the plugin and tagged with it; with `room` (a conversation this account can see, refused otherwise) or `id`, a click on it opens `room`, is the person's gesture for the plugin, and arrives at `yf_input` as `{ "kind": "clicked", "from": "notification", "id": … }` (`id` empty when only a room was given) |
-| `clipboard.write` | `{ text }` | Puts text on the clipboard |
+| `clipboard.write` | `{ text }` | Puts text on the clipboard, such as an ID when the person clicks it; needs `clipboard.write` and a recent gesture, and text over 64 KB is refused whole, never cut |
 | `open.url` | `{ url }` | Opens a page the way a message's link does |
 | `media.get` | `{ url }` | The bytes of an attachment, an avatar or an emoji the picture store already keeps; `{ "bytes": 1234, "bytes_base64": "…" }`, and never a fetch |
 

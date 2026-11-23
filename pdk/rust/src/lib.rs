@@ -48,6 +48,7 @@
 pub mod account;
 pub mod app;
 pub mod call;
+pub mod clipboard;
 pub mod command;
 pub mod event;
 pub mod hook;
@@ -77,8 +78,8 @@ pub mod prelude {
     pub use crate::wire::method;
     pub use crate::yapfast_plugin;
     pub use crate::{
-        account, app, call, http, image, log, microphone, oauth, overlay, settings, storage,
-        timers, uploads,
+        account, app, call, clipboard, http, image, log, microphone, oauth, overlay, settings,
+        storage, timers, uploads,
     };
 
     pub use crate::call::{CallResult, HostReturn, Pending};

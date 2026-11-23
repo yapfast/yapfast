@@ -46,7 +46,7 @@ audio capabilities, which share one line.
 | `audio.play`, `audio.speak` | Play a sound, speak text through the OS | Plays sounds and speech |
 | `microphone` | Record the microphone as Ogg Opus or PCM, asked about the first time, with a red bar while it does | Records your microphone when it asks: you're asked the first time, and a red bar shows while it does, with Stop |
 | `notifications` | OS notifications | Shows notifications |
-| `clipboard.write` | Write to the clipboard on a gesture | Writes to your clipboard |
+| `clipboard.write` | Write text to the clipboard, up to 64 KB, on a gesture | Copy text to your clipboard when you click something in it. |
 | `ui.modify` | Change, hide or replace named parts of the interface | Can change Yapfast's interface |
 | `network` | HTTPS to the hosts the manifest lists, and to no other | Uses network |
 | `network.local` | One exact loopback port, which the manifest names | Connects to an app on this computer |
@@ -315,7 +315,7 @@ using another plugin's button, is no gesture for this one.
 | `composer.get_draft` | none: the person's own composer |
 | `messages.jump_to`, `composer.set_draft`, `composer.insert` | none, and a recent user gesture: without one they answer `denied` |
 | `notify.send` | `notifications` |
-| `clipboard.write` | `clipboard.write`, and a recent user gesture |
+| `clipboard.write` | `clipboard.write`, and a recent user gesture (the one rule sends use): without one it answers `denied` |
 | `open.url` | `open.app`, and a recent user gesture; each link then waits in the leaving-link dialog, with the theme unmodified, until the person chooses to open it |
 | `discord.set_status`, `set_custom_status`, `set_activity`, `clear_activity` | `presence.write` |
 | `discord.mark_read`, `set_mute` | `notifications.manage` |

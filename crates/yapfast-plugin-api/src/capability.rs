@@ -380,7 +380,9 @@ impl Capability {
                 "Records your microphone when it asks, once you say yes, while a red bar says so"
             }
             Capability::Notifications => "Shows notifications",
-            Capability::ClipboardWrite => "Writes to your clipboard",
+            Capability::ClipboardWrite => {
+                "Copy text to your clipboard when you click something in it."
+            }
             Capability::UiModify => "Can change Yapfast's interface",
             Capability::Network => "Connects to the sites it lists",
             Capability::NetworkLocal => "Connects to an app on this computer",

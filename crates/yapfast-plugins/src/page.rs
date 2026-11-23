@@ -608,7 +608,10 @@ pub fn capability(name: &str) -> (String, Tone) {
             Tone::Danger,
         ),
         "notifications" => ("Shows notifications", Tone::Normal),
-        "clipboard.write" => ("Writes to your clipboard", Tone::Normal),
+        "clipboard.write" => (
+            "Copy text to your clipboard when you click something in it.",
+            Tone::Normal,
+        ),
         "ui.modify" => ("Can change Yapfast's interface", Tone::Strong),
         "open.app" => ("Opens other apps", Tone::Normal),
         "messages.attach" => (
