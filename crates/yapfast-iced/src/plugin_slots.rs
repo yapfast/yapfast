@@ -1048,31 +1048,32 @@ pub fn profile_sections<'a>(ctx: Ctx<'a>, person: &'a str) -> Option<Element<'a,
     any.then(|| sections.into())
 }
 
-/// What plugins show over the account, always, in or out of a call: each
-/// plugin's small tree under a line crediting it, the subject the open
-/// conversation (`account.panel`).
+/// What plugins show over the account, always, in or out of a call
+/// (`account.panel`), the subject the open conversation: each plugin's tree
+/// 12 px in with a line under it, as the players Vencord puts there are
+/// drawn, and its plugin named in a tooltip beside it (to the right, clear
+/// of its own buttons' tooltips), so it never passes for Yapfast's own.
 pub fn account_panel<'a>(ctx: Ctx<'a>, subject: &'a str) -> Option<Element<'a, Message>> {
     let theme = ctx.look.theme;
-    let mut panels = column![].spacing(6).width(Length::Fill);
+    let mut panels = column![].width(Length::Fill);
     let mut any = false;
     for (drawn, plugin) in shown(ctx, Slot::AccountPanel) {
+        let body = container(draw(ctx, drawn, plugin, subject))
+            .padding(12)
+            .width(Length::Fill)
+            .clip(true);
         panels = panels.push(
-            column![
-                credit(theme, plugin),
-                container(draw(ctx, drawn, plugin, subject))
-                    .width(Length::Fill)
-                    .clip(true),
-            ]
-            .spacing(4),
+            tooltip(
+                body,
+                controls::tip(theme, from(plugin)),
+                tooltip::Position::Right,
+            )
+            .gap(8),
         );
+        panels = panels.push(crate::form::rule(theme));
         any = true;
     }
-    any.then(|| {
-        container(panels)
-            .padding([6, 10])
-            .width(Length::Fill)
-            .into()
-    })
+    any.then(|| panels.into())
 }
 
 /// The tabs plugins add to the emoji and sticker picker: each plugin's name
