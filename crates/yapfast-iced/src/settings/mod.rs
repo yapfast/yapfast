@@ -17,6 +17,7 @@
 //! do.
 
 mod appearance;
+mod desktop_icons;
 pub mod keybinds;
 mod pages;
 pub mod updates;
@@ -174,6 +175,7 @@ pub struct Settings {
     /// which the window shows meanwhile.
     pub editor: Option<Editor>,
     preview: Option<Theme>,
+    icons: Option<desktop_icons::Icons>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
@@ -222,6 +224,7 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    DesktopIcon(desktop_icons::Event),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
     /// A key went down or up, or the window lost the focus, while one is
@@ -261,6 +264,10 @@ impl Settings {
         }
         if before == Some(Section::Appearance) && section != Section::Appearance {
             self.cancel_theme(cx);
+            self.icons = None;
+        }
+        if section == Section::Appearance && before != Some(Section::Appearance) {
+            self.icons = desktop_icons::Icons::new(cx.client.root(), &cx.layout.prefs);
         }
         if before == Some(Section::Voice) && section != Section::Voice {
             self.end_mic_test(cx);
@@ -309,6 +316,7 @@ impl Settings {
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
             Event::Theme(event) => self.theme_event(event, cx),
+            Event::DesktopIcon(event) => return self.desktop_icon_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),

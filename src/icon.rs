@@ -1,10 +1,13 @@
-//! Yapfast's icon on its window, and its pictures drawn from SVG. Linux
-//! desktops find the icon from the window's app ID, which names the desktop
-//! entry in packaging/linux, which an AppImage installs for itself
-//! (`crate::desktop_entry`); X11 shows the window's own where the entry
-//! isn't installed. Windows shows the executable's icon (build.rs) in
-//! Explorer, and the window loads the same one. Each window toolkit gives
-//! its windows these as it makes them.
+//! Desktop icon artwork, imported icons, and pictures drawn from SVG.
+
+use std::{
+    io::{Cursor, Read, Write},
+    path::Path,
+};
+
+use image::{ImageFormat, ImageReader, RgbaImage, imageops};
+use yapfast_core::theme::{self, Theme};
+use yapfast_iced::{IconChoice, IconTarget};
 
 pub use crate::APP_ID;
 
@@ -13,6 +16,166 @@ pub struct Rgba {
     pub width: u32,
     pub height: u32,
     pub pixels: Vec<u8>,
+}
+
+const ICON_SIZE: u32 = 256;
+const MAX_FILE: u64 = 8 * 1024 * 1024;
+const MAX_SIDE: u32 = 4096;
+
+fn filename(target: IconTarget) -> &'static str {
+    match target {
+        IconTarget::Application => "application-icon.png",
+        IconTarget::Tray => "tray-icon.png",
+    }
+}
+
+/// Reads a supported image and fits it on a square canvas.
+pub fn prepare(path: &Path) -> Result<Vec<u8>, String> {
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(MAX_FILE + 1).read_to_end(&mut bytes))
+        .map_err(|_| "Could not read the chosen image.")?;
+    if bytes.len() as u64 > MAX_FILE {
+        return Err("Choose an image no larger than 8 MiB.".into());
+    }
+    let invalid = "Choose a readable PNG, ICO, JPEG or WebP image.";
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| invalid)?;
+    if !matches!(
+        reader.format(),
+        Some(ImageFormat::Png | ImageFormat::Ico | ImageFormat::Jpeg | ImageFormat::WebP)
+    ) {
+        return Err(invalid.into());
+    }
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(128 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader.decode().map_err(|err| match err {
+        image::ImageError::Limits(_) => "Choose an image up to 4096 × 4096 pixels.",
+        _ => invalid,
+    })?;
+    let resized = decoded
+        .resize(ICON_SIZE, ICON_SIZE, imageops::FilterType::Lanczos3)
+        .into_rgba8();
+    let mut square = RgbaImage::new(ICON_SIZE, ICON_SIZE);
+    imageops::replace(
+        &mut square,
+        &resized,
+        i64::from((ICON_SIZE - resized.width()) / 2),
+        i64::from((ICON_SIZE - resized.height()) / 2),
+    );
+    let mut png = Cursor::new(Vec::new());
+    square
+        .write_to(&mut png, ImageFormat::Png)
+        .map_err(|_| "Could not prepare the icon.")?;
+    Ok(png.into_inner())
+}
+
+/// Replaces the saved copy only once the new file is complete.
+pub fn save(root: &Path, target: IconTarget, png: &[u8]) -> Result<(), String> {
+    let save = "Could not save the icon in Yapfast’s data folder.";
+    std::fs::create_dir_all(root).map_err(|_| save)?;
+    let mut file = tempfile::NamedTempFile::new_in(root).map_err(|_| save)?;
+    file.write_all(png).map_err(|_| save)?;
+    file.persist(root.join(filename(target)))
+        .map_err(|_| save)?;
+    Ok(())
+}
+
+pub enum Artwork {
+    Default,
+    Theme(&'static Theme),
+    Custom(RgbaImage),
+}
+
+impl Artwork {
+    pub fn load(root: &Path, target: IconTarget, choice: &IconChoice) -> Self {
+        match choice {
+            IconChoice::Default => Self::Default,
+            IconChoice::Theme(id) => {
+                theme::find(id).map_or(Self::Default, |preset| Self::Theme(&preset.theme))
+            }
+            IconChoice::Custom => {
+                let path = root.join(filename(target));
+                let result = ImageReader::open(path).ok().and_then(|mut reader| {
+                    let mut limits = image::Limits::default();
+                    limits.max_image_width = Some(ICON_SIZE);
+                    limits.max_image_height = Some(ICON_SIZE);
+                    reader.limits(limits);
+                    reader.decode().ok()
+                });
+                result.map_or(Self::Default, |image| Self::Custom(image.into_rgba8()))
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    pub fn window(&self, size: u32) -> Option<Rgba> {
+        let svg = include_str!("../packaging/icon.svg");
+        match self {
+            Self::Default => rasterize(svg.as_bytes(), size),
+            Self::Theme(theme) => {
+                let svg = svg
+                    .replace("#ffbf47", &format!("#{:06x}", theme.accent.rgb_part()))
+                    .replace("#1d1607", &format!("#{:06x}", theme.on_accent.rgb_part()));
+                rasterize(svg.as_bytes(), size)
+            }
+            Self::Custom(image) => Some(rgba(scale(image, size))),
+        }
+    }
+
+    pub fn tray(&self, size: u32, unread: bool) -> Option<Rgba> {
+        let accent = match self {
+            Self::Default => 0xffbf47,
+            Self::Theme(theme) => theme.accent.rgb_part(),
+            Self::Custom(image) => {
+                let mut pixels = scale(image, size);
+                if unread {
+                    let badge = rasterize(
+                        br##"<svg xmlns="http://www.w3.org/2000/svg" width="78" height="78">
+                            <circle cx="61" cy="61" r="16" fill="#202126"/>
+                            <circle cx="61" cy="61" r="12" fill="#f0545e"/>
+                        </svg>"##,
+                        size,
+                    )?;
+                    let badge = RgbaImage::from_raw(badge.width, badge.height, badge.pixels)?;
+                    imageops::overlay(&mut pixels, &badge, 0, 0);
+                }
+                return Some(rgba(pixels));
+            }
+        };
+        let mut svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg").replacen(
+            r##"fill="#fff" mask"##,
+            &format!("fill=\"#{accent:06x}\" mask"),
+            1,
+        );
+        if unread {
+            svg = svg
+                .replacen("</mask>", r#"<circle cx="74" cy="74" r="21" /></mask>"#, 1)
+                .replacen(
+                    "</svg>",
+                    r##"<circle cx="74" cy="74" r="15" fill="#f0545e" /></svg>"##,
+                    1,
+                );
+        }
+        rasterize(svg.as_bytes(), size)
+    }
+}
+
+fn scale(image: &RgbaImage, size: u32) -> RgbaImage {
+    imageops::resize(image, size, size, imageops::FilterType::Lanczos3)
+}
+
+fn rgba(image: RgbaImage) -> Rgba {
+    let (width, height) = image.dimensions();
+    Rgba {
+        width,
+        height,
+        pixels: image.into_raw(),
+    }
 }
 
 /// An SVG drawn `size` pixels across its wider side, with resvg.
@@ -44,56 +207,224 @@ pub fn rasterize(svg: &[u8], size: u32) -> Option<Rgba> {
     })
 }
 
-/// The window's icon on Linux, at the size packaging/icon.svg is drawn at.
-#[cfg(target_os = "linux")]
-pub fn window_icon() -> Option<Rgba> {
-    rasterize(include_bytes!("../packaging/icon.svg"), 64)
-}
-
 /// The icon in packaging/windows/yapfast.rc.
 #[cfg(windows)]
-pub const RESOURCE: u16 = 1;
+const RESOURCE: u16 = 1;
 
-/// Gives a window made without an icon the title bar's small icon and the
-/// taskbar's large one from the executable, each loaded at the size Windows
-/// draws it rather than scaled from one picture.
 #[cfg(windows)]
-pub fn set_on(hwnd: isize) {
-    use windows_sys::Win32::{
-        System::LibraryLoader::GetModuleHandleW,
-        UI::WindowsAndMessaging::{
-            GetSystemMetrics, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW,
-            SM_CXICON, SM_CXSMICON, SendMessageW, WM_SETICON,
-        },
-    };
-    // SAFETY: the window is the caller's, alive across the calls; the icons
-    // are loaded from this executable's own resources and stay with it.
-    unsafe {
-        let module = GetModuleHandleW(std::ptr::null());
-        for (which, metric) in [(ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)] {
-            let side = GetSystemMetrics(metric);
-            let icon = LoadImageW(
-                module,
+pub(crate) struct NativeIcon(pub windows_sys::Win32::UI::WindowsAndMessaging::HICON);
+
+#[cfg(windows)]
+impl NativeIcon {
+    pub fn from_rgba(mut image: Rgba) -> Option<Self> {
+        use windows_sys::Win32::{
+            System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::CreateIcon,
+        };
+        for pixel in image.pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        // Rows of the 1-bit mask are padded to 16 bits.
+        let mask = vec![0u8; image.width.div_ceil(16) as usize * 2 * image.height as usize];
+        // SAFETY: both buffers hold the requested number of rows and live across the call.
+        let handle = unsafe {
+            CreateIcon(
+                GetModuleHandleW(std::ptr::null()),
+                image.width as i32,
+                image.height as i32,
+                1,
+                32,
+                mask.as_ptr(),
+                image.pixels.as_ptr(),
+            )
+        };
+        (!handle.is_null()).then(|| Self(handle))
+    }
+
+    fn from_resource(size: i32) -> Option<Self> {
+        use windows_sys::Win32::{
+            System::LibraryLoader::GetModuleHandleW,
+            UI::WindowsAndMessaging::{IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW},
+        };
+        // SAFETY: RESOURCE identifies the icon in this executable's resource table.
+        let handle = unsafe {
+            LoadImageW(
+                GetModuleHandleW(std::ptr::null()),
                 RESOURCE as usize as *const u16,
                 IMAGE_ICON,
-                side,
-                side,
+                size,
+                size,
                 LR_DEFAULTCOLOR,
-            );
-            if !icon.is_null() {
-                SendMessageW(hwnd as _, WM_SETICON, which as usize, icon as isize);
+            )
+        };
+        (!handle.is_null()).then(|| Self(handle))
+    }
+}
+
+#[cfg(windows)]
+impl Drop for NativeIcon {
+    fn drop(&mut self) {
+        // SAFETY: this icon is owned here and no longer in use.
+        unsafe { windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon(self.0) };
+    }
+}
+
+/// Gives the running window its own icons at the Windows title bar and
+/// taskbar sizes. The window owns both until they are replaced or it closes.
+#[cfg(windows)]
+pub fn set_on(hwnd: isize, artwork: &Artwork) {
+    use windows_sys::Win32::{
+        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        UI::{
+            Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
+            WindowsAndMessaging::{
+                GetPropW, GetSystemMetrics, ICON_BIG, ICON_SMALL, RemovePropW, SM_CXICON,
+                SM_CXSMICON, SendMessageW, SetPropW, WM_NCDESTROY, WM_SETICON,
+            },
+        },
+    };
+
+    type WindowIcons = [NativeIcon; 2];
+    const SUBCLASS_ID: usize = 0;
+    // GetWindowSubclass needs version 6 of the common controls in the manifest.
+    const ICON_PROPERTY: windows_sys::core::PCWSTR = windows_sys::w!("YapfastWindowIcons");
+
+    unsafe extern "system" fn dispose(
+        window: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        id: usize,
+        _: usize,
+    ) -> LRESULT {
+        // SAFETY: the subclass runs on the window's thread. On destruction
+        // its property owns the box installed by set_on.
+        unsafe {
+            if message == WM_NCDESTROY {
+                RemoveWindowSubclass(window, Some(dispose), id);
+                let icons = RemovePropW(window, ICON_PROPERTY).cast::<WindowIcons>();
+                let result = DefSubclassProc(window, message, wparam, lparam);
+                if !icons.is_null() {
+                    drop(Box::from_raw(icons));
+                }
+                return result;
             }
+            DefSubclassProc(window, message, wparam, lparam)
+        }
+    }
+
+    let load = |metric| {
+        // SAFETY: the metric has no pointer arguments and is a system icon size.
+        let size = unsafe { GetSystemMetrics(metric) }.clamp(16, ICON_SIZE as i32);
+        if matches!(artwork, Artwork::Default)
+            && let Some(icon) = NativeIcon::from_resource(size)
+        {
+            return Some(icon);
+        }
+        NativeIcon::from_rgba(artwork.window(size as u32)?)
+    };
+    let (Some(small), Some(big)) = (load(SM_CXSMICON), load(SM_CXICON)) else {
+        return;
+    };
+    let handles = [small.0, big.0];
+    let icons = Box::into_raw(Box::new([small, big]));
+    // SAFETY: the caller owns the live window on this thread. The subclass
+    // releases its icon property on destruction. Only the previous box can
+    // be released after replacing the icons.
+    unsafe {
+        let window = hwnd as HWND;
+        let previous = GetPropW(window, ICON_PROPERTY).cast::<WindowIcons>();
+        if SetWindowSubclass(window, Some(dispose), SUBCLASS_ID, 0) == 0
+            || SetPropW(window, ICON_PROPERTY, icons.cast()) == 0
+        {
+            drop(Box::from_raw(icons));
+            return;
+        }
+        for (which, handle) in [ICON_SMALL, ICON_BIG].into_iter().zip(handles) {
+            SendMessageW(window, WM_SETICON, which as usize, handle as isize);
+        }
+        if !previous.is_null() {
+            drop(Box::from_raw(previous));
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[cfg(target_os = "linux")]
     #[test]
     fn the_window_icon_is_drawn_square() {
-        let icon = super::window_icon().unwrap();
+        let icon = Artwork::Default.window(64).unwrap();
         assert_eq!((icon.width, icon.height), (64, 64));
         assert!(icon.pixels.chunks_exact(4).any(|pixel| pixel[3] == 255));
+    }
+
+    #[test]
+    fn a_custom_icon_is_kept_independently_and_the_tray_badges_it() {
+        let folder = tempfile::tempdir().unwrap();
+        let root = folder.path();
+        let source = root.join("source.png");
+        let green = image::Rgba([40, 180, 60, 255]);
+        RgbaImage::from_pixel(64, 32, green).save(&source).unwrap();
+        let prepared = prepare(&source).unwrap();
+        save(root, IconTarget::Tray, &prepared).unwrap();
+        std::fs::remove_file(source).unwrap();
+
+        let artwork = Artwork::load(root, IconTarget::Tray, &IconChoice::Custom);
+        let Artwork::Custom(image) = &artwork else {
+            panic!("the saved tray icon should survive removal of its source");
+        };
+        assert_eq!(image.dimensions(), (ICON_SIZE, ICON_SIZE));
+        assert_eq!(image.get_pixel(128, 128), &green);
+        assert_eq!(image.get_pixel(128, 0)[3], 0);
+        assert!(matches!(
+            Artwork::load(root, IconTarget::Application, &IconChoice::Custom),
+            Artwork::Default
+        ));
+
+        let red = |pixel: &[u8]| pixel == [0xf0, 0x54, 0x5e, 255];
+        assert!(
+            !artwork
+                .tray(32, false)
+                .unwrap()
+                .pixels
+                .chunks_exact(4)
+                .any(red)
+        );
+        assert!(
+            artwork
+                .tray(32, true)
+                .unwrap()
+                .pixels
+                .chunks_exact(4)
+                .any(red)
+        );
+    }
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn each_theme_colours_both_icons_with_its_accent() {
+        for preset in &theme::BUILT_IN {
+            let artwork = Artwork::Theme(&preset.theme);
+            let [_, r, g, b] = preset.theme.accent.rgb_part().to_be_bytes();
+            let accent = |pixel: &[u8]| pixel == [r, g, b, 255];
+            assert!(
+                artwork
+                    .window(64)
+                    .unwrap()
+                    .pixels
+                    .chunks_exact(4)
+                    .any(accent)
+            );
+            assert!(
+                artwork
+                    .tray(32, false)
+                    .unwrap()
+                    .pixels
+                    .chunks_exact(4)
+                    .any(accent)
+            );
+        }
     }
 }

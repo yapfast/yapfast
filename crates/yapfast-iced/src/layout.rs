@@ -190,6 +190,9 @@ pub struct Prefs {
     pub name_styles: Option<bool>,
     pub server_tags: Option<bool>,
     pub profile_frames: Option<bool>,
+    pub application_icon: crate::desktop::IconChoice,
+    pub tray_icon: Option<crate::desktop::IconChoice>,
+    pub tray_uses_application_icon: Option<bool>,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,
@@ -227,6 +230,29 @@ pub enum Animate {
 }
 
 impl Prefs {
+    pub fn tray_uses_application_icon(&self) -> bool {
+        use crate::desktop::IconChoice;
+        self.tray_uses_application_icon.unwrap_or_else(|| {
+            // Matching presets can share. Custom images are stored in
+            // separate files, so two Custom choices may look different.
+            self.tray_icon
+                .as_ref()
+                .is_none_or(|tray| *tray != IconChoice::Custom && *tray == self.application_icon)
+        })
+    }
+
+    pub fn tray_artwork(&self) -> (crate::desktop::IconTarget, &crate::desktop::IconChoice) {
+        use crate::desktop::{IconChoice, IconTarget};
+        if self.tray_uses_application_icon() {
+            (IconTarget::Application, &self.application_icon)
+        } else {
+            (
+                IconTarget::Tray,
+                self.tray_icon.as_ref().unwrap_or(&IconChoice::Default),
+            )
+        }
+    }
+
     /// The profile switches, each on unless turned off.
     pub fn cosmetics(&self) -> yapfast_core::application::Cosmetics {
         let default = yapfast_core::application::Cosmetics::default();
@@ -251,6 +277,45 @@ impl Prefs {
         // After the date's order, which Discord's timestamps follow.
         clock::set_twelve_hour_clock(self.twelve_hour_clock);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn tray_icon_follows_matching_presets_and_preserves_separate_choices() {
+    use crate::desktop::{IconChoice, IconTarget};
+    use serde_json::json;
+
+    assert_eq!(
+        Prefs::default().tray_artwork(),
+        (IconTarget::Application, &IconChoice::Default)
+    );
+    let mut prefs: Prefs = serde_json::from_value(json!({
+        "application_icon": {"theme": "dracula"},
+        "tray_icon": {"theme": "dracula"}
+    }))
+    .unwrap();
+    assert_eq!(prefs.tray_artwork().0, IconTarget::Application);
+
+    let separate = IconChoice::Theme("nord".into());
+    prefs.tray_icon = Some(separate.clone());
+    assert_eq!(prefs.tray_artwork(), (IconTarget::Tray, &separate));
+
+    prefs.application_icon = IconChoice::Custom;
+    prefs.tray_icon = Some(IconChoice::Custom);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Tray, &IconChoice::Custom)
+    );
+    prefs.tray_uses_application_icon = Some(true);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Application, &IconChoice::Custom)
+    );
+    prefs.tray_uses_application_icon = Some(false);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Tray, &IconChoice::Custom)
+    );
 }
 
 /// Voice's settings in `layout.json`, which the core is told of as the

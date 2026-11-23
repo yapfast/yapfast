@@ -86,9 +86,21 @@ recording. Each change is kept at once in
   theme's pencil edits it. A colour's field shows its change at once, or
   says "Not a colour"; Save keeps the theme among the person's own and
   chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Then the system
-  title bar's switch, where Yapfast can draw its own, and the profile
-  switches, which the core is told of.
+  from before, and a saved one's Delete asks once more. Application icon
+  shows the colours of the built-in themes as preview tiles, with Yap
+  selected by default. The tray uses the application icon's selection by
+  default. Turning off “Use the application icon in the tray” reveals the
+  tray's own choices. A previously saved different preset or separate custom
+  image starts with the switch off. The tray keeps its separate choice
+  while the switch is on.
+  Upload custom image accepts PNG, ICO, JPEG or WebP files up to 8 MiB and
+  4096 × 4096 pixels.
+  Yapfast keeps a 256 × 256 PNG copy in its data folder, preserving aspect
+  ratio and adding transparent padding where needed.
+  The running window and tray update as soon as a choice is made. On Linux,
+  the window icon applies where the desktop uses X11 window icons. Desktops
+  that use the application's desktop entry show the launcher icon there.
+  Then there are the system title bar and profile switches.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those

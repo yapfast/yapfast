@@ -5,6 +5,8 @@
 
 use std::cell::Cell;
 
+use crate::icon::Artwork;
+
 /// The xdg-activation token of the tray click or Open Yapfast that is
 /// opening the window, which lets a Wayland window come to the front.
 #[cfg(target_os = "linux")]
@@ -59,8 +61,8 @@ impl Tray {
     /// Puts Yapfast's icon in the tray. `chosen` is handed what the person
     /// picked. `None` where there's no tray to use. On Windows it starts on
     /// the window's thread, whose message loop runs the icon's window.
-    pub fn start(chosen: Chosen) -> Option<Self> {
-        let platform = platform::Tray::start(chosen)?;
+    pub fn start(chosen: Chosen, artwork: &Artwork) -> Option<Self> {
+        let platform = platform::Tray::start(chosen, artwork)?;
         Some(Self {
             platform,
             shown: Cell::new(Shown::default()),
@@ -79,28 +81,10 @@ impl Tray {
             self.platform.show(shown);
         }
     }
-}
 
-/// Yapfast's logo in Yap's marigold, `size` pixels square, with a red dot for
-/// unread messages cut into its corner.
-fn logo(size: u32, unread: bool) -> Option<crate::icon::Rgba> {
-    let mut svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg")
-        .replacen(
-            r#"width="24" height="24""#,
-            &format!(r#"width="{size}" height="{size}""#),
-            1,
-        )
-        .replacen(r##"fill="#fff" mask"##, r##"fill="#ffbf47" mask"##, 1);
-    if unread {
-        svg = svg
-            .replacen("</mask>", r#"<circle cx="74" cy="74" r="21" /></mask>"#, 1)
-            .replacen(
-                "</svg>",
-                r##"<circle cx="74" cy="74" r="15" fill="#f0545e" /></svg>"##,
-                1,
-            );
+    pub fn set_icon(&self, artwork: &Artwork) {
+        self.platform.set_icon(artwork);
     }
-    crate::icon::rasterize(svg.as_bytes(), size)
 }
 
 #[cfg(target_os = "linux")]
@@ -120,39 +104,28 @@ mod linux {
 
     use ksni::{MenuItem, menu::StandardItem};
 
-    use super::{Choice, Shown};
+    use super::{Artwork, Choice, Shown};
 
     /// The tray's sizes of the icon; the tray scales the nearest.
     const SIZES: [u32; 2] = [32, 64];
 
+    enum Update {
+        Shown(Shown),
+        Icons([Vec<ksni::Icon>; 2]),
+    }
+
     pub struct Tray {
-        updates: mpsc::Sender<Shown>,
+        updates: mpsc::Sender<Update>,
         /// Registered with a running StatusNotifierWatcher.
         online: Arc<AtomicBool>,
     }
 
     impl Tray {
-        pub fn start(chosen: super::Chosen) -> Option<Self> {
-            let icons = |unread| {
-                SIZES
-                    .iter()
-                    .filter_map(|&size| super::logo(size, unread))
-                    .map(|pixels| ksni::Icon {
-                        width: pixels.width as i32,
-                        height: pixels.height as i32,
-                        // ARGB, in network byte order.
-                        data: pixels
-                            .pixels
-                            .chunks_exact(4)
-                            .flat_map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
-                            .collect(),
-                    })
-                    .collect()
-            };
+        pub fn start(chosen: super::Chosen, artwork: &Artwork) -> Option<Self> {
             let online = Arc::new(AtomicBool::new(false));
             let item = Item {
                 shown: Shown::default(),
-                icons: [icons(false), icons(true)],
+                icons: icons(artwork),
                 chosen,
                 online: online.clone(),
             };
@@ -173,11 +146,35 @@ mod linux {
         }
 
         pub fn show(&self, shown: Shown) {
-            let _ = self.updates.send(shown);
+            let _ = self.updates.send(Update::Shown(shown));
+        }
+
+        pub fn set_icon(&self, artwork: &Artwork) {
+            let _ = self.updates.send(Update::Icons(icons(artwork)));
         }
     }
 
-    fn run(item: Item, shown: mpsc::Receiver<Shown>) {
+    fn icons(artwork: &Artwork) -> [Vec<ksni::Icon>; 2] {
+        [false, true].map(|unread| {
+            SIZES
+                .into_iter()
+                .filter_map(|size| artwork.tray(size, unread))
+                .map(|mut icon| {
+                    // ARGB, in network byte order.
+                    for pixel in icon.pixels.chunks_exact_mut(4) {
+                        pixel.rotate_right(1);
+                    }
+                    ksni::Icon {
+                        width: icon.width as i32,
+                        height: icon.height as i32,
+                        data: icon.pixels,
+                    }
+                })
+                .collect()
+        })
+    }
+
+    fn run(item: Item, updates: mpsc::Receiver<Update>) {
         use ksni::blocking::TrayMethods;
         let online = item.online.clone();
         let chosen = item.chosen.clone();
@@ -196,8 +193,11 @@ mod linux {
             tracing::info!("tray icon shown");
             choose(&chosen, Choice::Available);
         }
-        for shown in shown {
-            handle.update(|item| item.shown = shown);
+        for update in updates {
+            handle.update(|item| match update {
+                Update::Shown(shown) => item.shown = shown,
+                Update::Icons(icons) => item.icons = icons,
+            });
         }
         handle.shutdown().wait();
     }
@@ -304,19 +304,20 @@ mod windows {
                     NOTIFY_ICON_MESSAGE, NOTIFYICONDATAW, Shell_NotifyIconW,
                 },
                 WindowsAndMessaging::{
-                    AppendMenuW, CreateIcon, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-                    DestroyIcon, DestroyMenu, DestroyWindow, GetCursorPos, GetSystemMetrics, HICON,
-                    MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassW, RegisterWindowMessageW,
-                    SM_CXSMICON, SetForegroundWindow, SetMenuDefaultItem, TPM_NONOTIFY,
-                    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU,
-                    WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPED,
+                    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
+                    DestroyWindow, GetCursorPos, GetSystemMetrics, MF_SEPARATOR, MF_STRING,
+                    PostMessageW, RegisterClassW, RegisterWindowMessageW, SM_CXSMICON,
+                    SetForegroundWindow, SetMenuDefaultItem, TPM_NONOTIFY, TPM_RETURNCMD,
+                    TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL,
+                    WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPED,
                 },
             },
         },
         w,
     };
 
-    use super::{Choice, Shown};
+    use super::{Artwork, Choice, Shown};
+    use crate::icon::NativeIcon;
 
     /// The message the icon sends the hidden window with what happened to it.
     const ICON_MESSAGE: u32 = WM_APP + 1;
@@ -339,7 +340,7 @@ mod windows {
         /// The notification area shows it.
         added: bool,
         /// Without the unread dot, and with it.
-        icons: [HICON; 2],
+        icons: [NativeIcon; 2],
         shown: Shown,
         chosen: super::Chosen,
     }
@@ -349,7 +350,8 @@ mod windows {
     }
 
     impl Tray {
-        pub fn start(chosen: super::Chosen) -> Option<Self> {
+        pub fn start(chosen: super::Chosen, artwork: &Artwork) -> Option<Self> {
+            let icons = icons(artwork).or_else(|| icons(&Artwork::Default))?;
             // SAFETY: plain Win32 calls on the UI thread; every pointer passed
             // lives across the call, and the window and icons are released in
             // `drop`.
@@ -383,15 +385,13 @@ mod windows {
                     return None;
                 }
                 TASKBAR_CREATED.set(RegisterWindowMessageW(w!("TaskbarCreated")));
-                let size = GetSystemMetrics(SM_CXSMICON).clamp(16, 256) as u32;
-                let icons = [icon(size, false), icon(size, true)];
                 let mut data = NOTIFYICONDATAW {
                     cbSize: size_of::<NOTIFYICONDATAW>() as u32,
                     hWnd: window,
                     uID: 1,
                     uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
                     uCallbackMessage: ICON_MESSAGE,
-                    hIcon: icons[0],
+                    hIcon: icons[0].0,
                     ..std::mem::zeroed()
                 };
                 for (place, unit) in data.szTip.iter_mut().zip("Yapfast".encode_utf16()) {
@@ -420,11 +420,27 @@ mod windows {
             let data = ICON.with_borrow_mut(|icon| {
                 let icon = icon.as_mut()?;
                 icon.shown = shown;
-                icon.data.hIcon = icon.icons[usize::from(shown.unread)];
+                icon.data.hIcon = icon.icons[usize::from(shown.unread)].0;
                 Some(icon.data)
             });
             if let Some(data) = data {
                 notify(NIM_MODIFY, &data);
+            }
+        }
+
+        pub fn set_icon(&self, artwork: &Artwork) {
+            let Some(icons) = icons(artwork) else {
+                return;
+            };
+            let update = ICON.with_borrow_mut(|icon| {
+                let icon = icon.as_mut()?;
+                icon.data.hIcon = icons[usize::from(icon.shown.unread)].0;
+                let previous = std::mem::replace(&mut icon.icons, icons);
+                Some((icon.data, previous))
+            });
+            if let Some((data, previous)) = update {
+                notify(NIM_MODIFY, &data);
+                drop(previous);
             }
         }
     }
@@ -433,10 +449,6 @@ mod windows {
         fn drop(&mut self) {
             if let Some(icon) = ICON.take() {
                 notify(NIM_DELETE, &icon.data);
-                for picture in icon.icons {
-                    // SAFETY: the pictures are this tray's, and no longer shown.
-                    unsafe { DestroyIcon(picture) };
-                }
             }
             // SAFETY: the window is this tray's, on this thread.
             unsafe { DestroyWindow(self.window) };
@@ -450,32 +462,13 @@ mod windows {
         unsafe { Shell_NotifyIconW(message, data) != 0 }
     }
 
-    /// The logo as an icon with an alpha channel: colour as BGRA, and an empty
-    /// mask, which the alpha replaces.
-    fn icon(size: u32, unread: bool) -> HICON {
-        let Some(pixels) = super::logo(size, unread) else {
-            return std::ptr::null_mut();
-        };
-        let colour: Vec<u8> = pixels
-            .pixels
-            .chunks_exact(4)
-            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
-            .collect();
-        let (width, height) = (pixels.width, pixels.height);
-        // Rows of the 1-bit mask are padded to 16 bits.
-        let mask = vec![0u8; width.div_ceil(16) as usize * 2 * height as usize];
-        // SAFETY: both buffers hold `height` rows of `width` pixels.
-        unsafe {
-            CreateIcon(
-                GetModuleHandleW(std::ptr::null()),
-                width as i32,
-                height as i32,
-                1,
-                32,
-                mask.as_ptr(),
-                colour.as_ptr(),
-            )
-        }
+    fn icons(artwork: &Artwork) -> Option<[NativeIcon; 2]> {
+        // SAFETY: the metric has no pointer arguments and is a system icon size.
+        let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.clamp(16, 256) as u32;
+        Some([
+            NativeIcon::from_rgba(artwork.tray(size, false)?)?,
+            NativeIcon::from_rgba(artwork.tray(size, true)?)?,
+        ])
     }
 
     unsafe extern "system" fn procedure(
@@ -559,12 +552,12 @@ mod windows {
 
 #[cfg(not(any(target_os = "linux", windows)))]
 mod none {
-    use super::{Choice, Shown};
+    use super::{Artwork, Choice, Shown};
 
     pub struct Tray;
 
     impl Tray {
-        pub fn start(_: super::Chosen) -> Option<Self> {
+        pub fn start(_: super::Chosen, _: &Artwork) -> Option<Self> {
             None
         }
 
@@ -573,6 +566,8 @@ mod none {
         }
 
         pub fn show(&self, _: Shown) {}
+
+        pub fn set_icon(&self, _: &Artwork) {}
     }
 }
 
@@ -580,8 +575,8 @@ mod none {
 mod tests {
     #[test]
     fn the_logo_is_marigold_and_unread_adds_a_red_dot() {
-        let plain = super::logo(32, false).unwrap();
-        let unread = super::logo(32, true).unwrap();
+        let plain = super::Artwork::Default.tray(32, false).unwrap();
+        let unread = super::Artwork::Default.tray(32, true).unwrap();
         assert_eq!((plain.width, plain.height), (32, 32));
         let marigold = |pixel: &[u8]| pixel == [0xff, 0xbf, 0x47, 255];
         let red = |pixel: &[u8]| pixel == [0xf0, 0x54, 0x5e, 255];

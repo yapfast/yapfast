@@ -380,6 +380,7 @@ impl<'a> Page<'a> {
                 ),
                 tiles,
             ]),
+            self.desktop_icons(),
             self.title_bar_switch(),
             column![
                 form::heading(theme, "PROFILES"),
@@ -497,7 +498,6 @@ impl<'a> Page<'a> {
         if current {
             label = label.push(self.cx.look.glyph(Icon::Check, 16, theme.accent));
         }
-        let (accent, faint, line, hover) = (theme.accent, theme.faint, theme.line, theme.hover);
         let face = button(
             column![preview, container(label).padding([0, 2])]
                 .spacing(6)
@@ -507,24 +507,7 @@ impl<'a> Page<'a> {
         .width(width)
         .height(TILE_HEIGHT)
         .on_press(theme_message(Event::Choose(id.to_owned())))
-        .style(move |_, status| {
-            let lit = lights(status);
-            button::Style {
-                background: lit.then(|| hover.into()),
-                border: Border {
-                    color: if current {
-                        accent
-                    } else if lit {
-                        faint
-                    } else {
-                        line
-                    },
-                    width: if current { 2.0 } else { 1.0 },
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            }
-        });
+        .style(tile_style(theme, current));
         if !custom {
             return face.into();
         }
@@ -654,6 +637,32 @@ impl<'a> Page<'a> {
             .into()]));
         }
         form::page(parts)
+    }
+}
+
+/// The theme tile's outline and hover.
+fn tile_style(
+    theme: &crate::theme::Theme,
+    current: bool,
+) -> impl Fn(&iced::Theme, button::Status) -> button::Style + use<> {
+    let (accent, faint, line, hover) = (theme.accent, theme.faint, theme.line, theme.hover);
+    move |_, status| {
+        let lit = lights(status);
+        button::Style {
+            background: lit.then(|| hover.into()),
+            border: Border {
+                color: if current {
+                    accent
+                } else if lit {
+                    faint
+                } else {
+                    line
+                },
+                width: if current { 2.0 } else { 1.0 },
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        }
     }
 }
 
