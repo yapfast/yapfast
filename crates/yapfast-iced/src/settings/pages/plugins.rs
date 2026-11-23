@@ -1784,7 +1784,7 @@ impl<'a> Page<'a> {
                     }
                     let shown = self.setting_rows(theme, &embedded.options);
                     if !shown.is_empty() {
-                        parts.push(form::card(theme, form::group(shown)));
+                        parts.push(form::card(theme, form::page(shown)));
                     }
                     start = at + 1;
                 }
@@ -1909,7 +1909,7 @@ impl<'a> Page<'a> {
         vec![section(
             theme,
             "SETTINGS",
-            [form::card(theme, form::group([form::group(rows), reset]))],
+            [form::card(theme, form::page([form::page(rows), reset]))],
         )]
     }
 
@@ -1949,20 +1949,18 @@ impl<'a> Page<'a> {
     ) -> Element<'a, Message> {
         let key = setting.key.clone();
         let look = self.cx.look;
-        let mut rows = column![text(setting.label.clone()).size(14).color(theme.text),].spacing(4);
-        if !setting.description.is_empty() {
-            rows = rows.push(
-                text(setting.description.clone())
-                    .size(12)
-                    .color(theme.muted),
-            );
-        }
-        let control: Element<'a, Message> = match &setting.kind {
+        // As Settings' own rows: the label (15 px) with what it does under
+        // it (13 px, muted); a switch or a drop-down at the row's end, a
+        // field or a slider under the words.
+        let refused_line = |refused: Option<String>| {
+            refused.map(|refused| text(refused).size(13).color(theme.danger))
+        };
+        match &setting.kind {
             SettingKind::Bool { .. } => {
                 let on = matches!(value, Some(Value::Bool(true)));
                 let next = if on { "false" } else { "true" }.to_owned();
-                form::toggle(
-                    theme,
+                let switch = form::switch(
+                    setting.label.as_str(),
                     on,
                     enabled.then(|| {
                         plugin_message(PluginEvent::Set {
@@ -1971,7 +1969,63 @@ impl<'a> Page<'a> {
                         })
                     }),
                 )
+                .description(setting.description.as_str())
+                .view(look);
+                return column![switch]
+                    .push(refused_line(refused))
+                    .spacing(4)
+                    .into();
             }
+            SettingKind::Select { options, .. } => {
+                let current = match value {
+                    Some(Value::Text(chosen)) => options.iter().position(|o| &o.value == chosen),
+                    _ => None,
+                };
+                let labelled_options: Vec<String> =
+                    options.iter().map(|o| o.label.clone()).collect();
+                let at = format!("select:{key}");
+                let open = self.s.plugins.dropdown.as_deref() == Some(at.as_str());
+                let list = form::dropdown(
+                    labelled_options,
+                    current,
+                    open,
+                    plugin_message(PluginEvent::Dropdown(if open { None } else { Some(at) })),
+                    move |index| {
+                        plugin_message(PluginEvent::Set {
+                            key: key.clone(),
+                            value: index.to_string(),
+                        })
+                    },
+                )
+                .width(Length::Fixed(SELECT_WIDTH))
+                .enabled(enabled)
+                .view(look);
+                let words: Element<'a, Message> = if setting.description.is_empty() {
+                    text(setting.label.as_str())
+                        .size(15)
+                        .color(theme.text)
+                        .into()
+                } else {
+                    labelled(theme, setting.label.as_str(), setting.description.as_str())
+                };
+                return column![form::beside(words, list)]
+                    .push(refused_line(refused))
+                    .spacing(4)
+                    .into();
+            }
+            _ => {}
+        }
+        let mut rows = column![text(setting.label.clone()).size(15).color(if enabled {
+            theme.text
+        } else {
+            theme.muted
+        })]
+        .spacing(4);
+        if !setting.description.is_empty() {
+            rows = rows.push(form::note(theme, setting.description.clone()));
+        }
+        let control: Element<'a, Message> = match &setting.kind {
+            SettingKind::Bool { .. } | SettingKind::Select { .. } => return Space::new().into(),
             SettingKind::String(spec) => {
                 let text_value = self.draft_or(&key, value);
                 form::field(
@@ -1991,32 +2045,6 @@ impl<'a> Page<'a> {
                 })
                 .on_submit(plugin_message(PluginEvent::Submit(key.clone())))
                 .into()
-            }
-            SettingKind::Select { options, .. } => {
-                let current = match value {
-                    Some(Value::Text(chosen)) => options.iter().position(|o| &o.value == chosen),
-                    _ => None,
-                };
-                let labelled: Vec<String> = options.iter().map(|o| o.label.clone()).collect();
-                let at = format!("select:{key}");
-                let open = self.s.plugins.dropdown.as_deref() == Some(at.as_str());
-                form::dropdown(
-                    labelled,
-                    current,
-                    open,
-                    plugin_message(PluginEvent::Dropdown(if open { None } else { Some(at) })),
-                    {
-                        let key = key.clone();
-                        move |index| {
-                            plugin_message(PluginEvent::Set {
-                                key: key.clone(),
-                                value: index.to_string(),
-                            })
-                        }
-                    },
-                )
-                .enabled(enabled)
-                .view(look)
             }
             SettingKind::Slider(range) | SettingKind::Number(range) => {
                 let number = match value {
@@ -2083,7 +2111,7 @@ impl<'a> Page<'a> {
             } => {
                 let records = match value {
                     Some(Value::List(records)) => records,
-                    _ => return form::card(theme, rows),
+                    _ => return rows.into(),
                 };
                 let mut lines: Vec<Element<'a, Message>> = Vec::new();
                 for (index, record) in records.iter().enumerate() {
@@ -2155,7 +2183,7 @@ impl<'a> Page<'a> {
                     lines.push(add);
                 }
                 rows = rows.push(column(lines).spacing(6));
-                return form::card(theme, rows);
+                return rows.into();
             }
             SettingKind::Widget => {
                 let tree = form_state
@@ -2186,9 +2214,7 @@ impl<'a> Page<'a> {
             }
         };
         rows = rows.push(container(control).width(Length::Fill));
-        if let Some(refused) = refused {
-            rows = rows.push(text(refused).size(12).color(theme.danger));
-        }
+        rows = rows.push(refused_line(refused));
         form::group([rows.into()])
     }
 
@@ -2764,6 +2790,10 @@ fn list_row<'a>(
         None => words.into(),
     }
 }
+
+/// How wide a setting's drop-down is, at its row's end.
+#[cfg(feature = "plugins")]
+const SELECT_WIDTH: f32 = 220.0;
 
 /// A part of a page: its heading in capitals, and what is under it close to
 /// it, so the page's larger gaps fall between parts.
