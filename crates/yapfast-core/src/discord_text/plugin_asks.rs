@@ -169,6 +169,7 @@ pub(super) fn command(
                             name: person.name.clone(),
                             username: person.username.clone(),
                             avatar: person.avatar.clone(),
+                            since: None,
                         })
                         .collect()
                 } else {
@@ -180,6 +181,7 @@ pub(super) fn command(
                             name: person.name.clone(),
                             username: None,
                             avatar: person.avatar.clone(),
+                            since: person.since,
                         })
                         .collect()
                 };
@@ -676,6 +678,7 @@ fn profile_view(
                 name: friend.name.clone(),
                 username: None,
                 avatar: friend.avatar.clone(),
+                since: None,
             })
             .collect(),
         connections: profile

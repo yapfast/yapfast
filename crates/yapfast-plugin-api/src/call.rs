@@ -1890,6 +1890,10 @@ pub struct RelationView {
     /// The address of their avatar.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub avatar: String,
+    /// When the friendship began, in Unix milliseconds: Discord's
+    /// relationship `since`, for a friend when Discord sent it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
 }
 
 /// `settings.set`: one of the plugin's own settings, as its manifest declares
