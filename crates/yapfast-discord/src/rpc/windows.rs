@@ -42,7 +42,14 @@ impl Socket {
     }
 
     pub(super) async fn accept(&mut self) -> Result<Stream> {
-        self.listener.connect().await?;
+        if let Err(error) = self.listener.connect().await {
+            // A client that opened and closed the pipe before connect()
+            // leaves this instance failing with ERROR_NO_DATA until it is
+            // disconnected. A fresh instance, made while this one still
+            // holds the name, keeps the pipe ours and RPC serving.
+            self.listener = Self::instance(&self.path, false)?;
+            return Err(error.into());
+        }
         // Keep a listening instance alive before handing off the connected
         // one. Clients can reconnect without losing the claimed pipe name.
         let next = Self::instance(&self.path, false)?;
