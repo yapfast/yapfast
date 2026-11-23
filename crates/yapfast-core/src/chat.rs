@@ -1507,14 +1507,20 @@ pub struct Picture {
     pub animation: Option<Animation>,
 }
 
-/// A picture's RGBA pixels. Once the UI has said how to make its own buffers
-/// ([`set_pixel_buffers`]), they're made in one, which it shows without a
-/// copy; until then, and without a UI, they're a plain vector.
+/// A picture's pixels. Once the UI has said how to make its own buffers
+/// ([`set_pixel_buffers`]), they're made in one, in its format, which it shows
+/// without a copy; until then, and without a UI, they're a plain vector of
+/// straight RGBA. Anything leaving Yapfast takes [`Pixels::straight_rgba`].
 pub struct Pixels(Box<dyn PixelBuffer>);
 
-/// Memory a picture's RGBA pixels live in.
+/// Memory a picture's pixels live in.
 pub trait PixelBuffer: std::any::Any + Send + Sync {
     fn bytes(&self) -> &[u8];
+
+    /// The pixels as straight RGBA, whatever format the buffer keeps.
+    fn straight_rgba(&self) -> Vec<u8> {
+        self.bytes().to_vec()
+    }
 }
 
 impl PixelBuffer for Vec<u8> {
@@ -1544,6 +1550,12 @@ impl Pixels {
     /// The buffer the pixels are in, when it's a `T`.
     pub fn buffer<T: PixelBuffer>(&self) -> Option<&T> {
         (self.0.as_ref() as &dyn std::any::Any).downcast_ref()
+    }
+
+    /// A copy as straight RGBA, as files, the clipboard and notifications
+    /// take pictures: the UI's own buffers may keep another byte order.
+    pub fn straight_rgba(&self) -> Vec<u8> {
+        self.0.straight_rgba()
     }
 }
 

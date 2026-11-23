@@ -43,6 +43,20 @@ impl yapfast_core::chat::PixelBuffer for NativePixels {
     fn bytes(&self) -> &[u8] {
         &self.0
     }
+
+    fn straight_rgba(&self) -> Vec<u8> {
+        let mut pixels = self.0.clone();
+        for pixel in pixels.chunks_exact_mut(4) {
+            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+            let straight = |value: u8| match a {
+                0 => 0,
+                255 => value,
+                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
+            };
+            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
+        }
+        pixels
+    }
 }
 
 /// Has the core decode pictures into the renderer's format, once the
@@ -102,22 +116,6 @@ impl Default for MediaLook {
     }
 }
 
-fn straight_pixels(picture: &Picture) -> Vec<u8> {
-    let mut pixels = picture.rgba.to_vec();
-    if byte_order(picture) == yapfast_core::dominant_colour::Order::Bgra {
-        for pixel in pixels.chunks_exact_mut(4) {
-            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-            let straight = |value: u8| match a {
-                0 => 0,
-                255 => value,
-                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
-            };
-            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
-        }
-    }
-    pixels
-}
-
 fn apply_media(look: MediaLook, pixels: &mut [u8], width: u32, height: u32) {
     match look.media {
         Media::Dither(dither) if look.patterned && content::Dither::patterned(width, height) => {
@@ -133,7 +131,7 @@ fn themed_native(picture: &Picture, look: MediaLook) -> std::borrow::Cow<'_, [u8
     if look.media == Media::Normal {
         return std::borrow::Cow::Borrowed(&picture.rgba);
     }
-    let mut pixels = straight_pixels(picture);
+    let mut pixels = picture.rgba.straight_rgba();
     apply_media(look, &mut pixels, picture.width, picture.height);
     paint::to_native(&mut pixels);
     std::borrow::Cow::Owned(pixels)
@@ -1103,7 +1101,23 @@ mod tests {
 
     use yapfast_core::themes::content::{Dither, Media};
 
-    use super::{MediaLook, Player, apply_media};
+    use super::{MediaLook, NativePixels, Player, apply_media};
+
+    #[test]
+    fn native_pixels_leave_as_straight_rgba() {
+        use yapfast_core::chat::PixelBuffer;
+        // Opaque, half see-through and clear: red stays red, not blue.
+        let rgba = [200, 40, 10, 255, 200, 40, 10, 128, 0, 0, 0, 0];
+        let mut native = rgba.to_vec();
+        crate::paint::to_native(&mut native);
+        assert_ne!(native[..3], rgba[..3]);
+        let straight = NativePixels(native).straight_rgba();
+        assert_eq!(straight[..4], rgba[..4]);
+        for (got, want) in straight[4..8].iter().zip(&rgba[4..8]) {
+            assert!(got.abs_diff(*want) <= 2, "{straight:?}");
+        }
+        assert_eq!(straight[8..], rgba[8..]);
+    }
 
     #[test]
     fn media_recolouring_keeps_alpha() {
