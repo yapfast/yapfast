@@ -300,6 +300,7 @@ impl App {
             let reads = self.reads();
             self.client.dispatch(Action::Reading(reads));
             self.sync_cues();
+            self.dirty = true;
         }
     }
 

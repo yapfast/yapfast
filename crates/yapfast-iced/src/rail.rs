@@ -289,13 +289,22 @@ impl RailItem {
     }
 }
 
+/// Whether `room` is the conversation someone reads: open, its newest
+/// message in view and the window in front. Discord's client marks what
+/// comes there read as it comes, so the room never shows as unread on the
+/// rail, nor in the DM home's count, though the core counts it until its
+/// read reaches Discord.
+fn read_now(state: &AppState, room: &ChatRoom) -> bool {
+    state.reading && !state.detached && state.selected.as_deref() == Some(room.id.as_str())
+}
+
 /// The DM home's marks, from the core's state: selected, any DM unread, and
 /// the DM mentions with the friend requests waiting, as Discord counts them.
 pub fn home(state: &AppState) -> Home {
     let mentions: u64 = state
         .rooms
         .iter()
-        .filter(|room| room.direct)
+        .filter(|room| room.direct && !read_now(state, room))
         .map(|room| room.mentions)
         .sum();
     let incoming = state
@@ -308,7 +317,7 @@ pub fn home(state: &AppState) -> Home {
         unread: state
             .rooms
             .iter()
-            .any(|room| room.direct && room.unread > 0),
+            .any(|room| room.direct && room.unread > 0 && !read_now(state, room)),
         badge: count_badge(mentions + incoming),
     }
 }
@@ -329,6 +338,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             room.direct
                 && !room.request
                 && room.category != discord::SPAM
+                && !read_now(state, room)
                 && (room.unread > 0 || room.mentions > 0)
         })
         .map(|room| RailItem {

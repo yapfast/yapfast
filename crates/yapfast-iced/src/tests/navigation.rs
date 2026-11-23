@@ -54,6 +54,37 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
 }
 
 #[test]
+fn a_dm_being_read_stays_off_the_rail_and_out_of_the_home_count() {
+    use crate::rail::{Event, Kind};
+    let (mut app, _folder) = preview();
+    let _ = app.update(Message::Rail(Event::Dm("riley".into())));
+    let read = |app: &mut App, reading: bool| {
+        change(app, |state| {
+            state.reading = reading;
+            let room = state
+                .rooms
+                .iter_mut()
+                .map(Arc::make_mut)
+                .find(|room| room.id == "riley")
+                .expect("the room");
+            // A message came, which the core counts until its read reaches
+            // Discord.
+            room.unread = 1;
+            room.mentions = 1;
+        });
+    };
+    read(&mut app, true);
+    assert_eq!(app.rail.items[0].kind, Kind::Divider, "no DM on the rail");
+    assert!(!app.rail.home.unread);
+    assert_eq!(app.rail.home.badge, "");
+    // Scrolled up or the window behind another, the message waits.
+    read(&mut app, false);
+    assert_eq!(app.rail.items[0].kind, Kind::Dm);
+    assert!(app.rail.home.unread);
+    assert_eq!(app.rail.home.badge, "1");
+}
+
+#[test]
 fn a_voice_channels_chat_marks_its_server_only_by_mentions() {
     let (mut app, _folder) = preview();
     let friends = |app: &App| {

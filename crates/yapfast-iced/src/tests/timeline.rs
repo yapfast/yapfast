@@ -595,6 +595,29 @@ fn new_messages_leave_the_earlier_ones_being_read_where_they_are() {
 }
 
 #[test]
+fn a_view_in_the_room_under_the_last_message_follows_new_ones() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 80);
+    // Up a few pixels, into the room under the last message, which a
+    // touchpad leaves easily.
+    scroll_up(&mut app, 5.0);
+    assert!(
+        app.timeline.at_end && app.timeline.from_end > 0.0,
+        "the last message is still all in view"
+    );
+    let new = numbered(&app, 80, 81);
+    change(&mut app, |state| {
+        let mut messages = (*state.messages).clone();
+        messages.extend(new);
+        state.messages = Arc::new(messages);
+    });
+    assert!(
+        app.timeline.at_end && app.timeline.from_end == 0.0,
+        "the view went to the end"
+    );
+}
+
+#[test]
 fn sending_while_reading_earlier_messages_goes_to_the_newest() {
     let (mut app, _folder) = preview();
     long_history(&mut app, 80);
