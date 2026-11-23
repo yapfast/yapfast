@@ -275,11 +275,12 @@ widgets, so a theme styles a plugin's drawing as it styles Yapfast's.
 | `caption` | A group's heading as Settings draws one (THEME, PROFILES): 12 px bold capitals in the muted ink, whatever case it was written in | `text` |
 | `code` | Monospaced text on the sunken ground | `text` |
 | `badge` | A small mark in its tone | `text`, `tone` |
-| `icon`, `image` | A picture, 16 px square or up to 240 × 135 | `src`, `text` while it isn't there |
+| `icon`, `image` | A picture, 16 px square or up to 240 × 135, round when `round` | `src`, `text` while it isn't there, `round` |
 | `settings_form` | The manifest's settings form, drawn and saved as the plugin's page draws it, where this row is: only on the plugin's own settings page (`settings.page`), nothing anywhere else | `options`: the settings' keys it shows, every shown one when empty |
 | `tile` | A picture over its label in one card of a fixed width (96 px unless `width`), so a grid of them lines up; a button when it has an `id` | `src`, `text`, `id`, and the picture fields below |
 | `button`, `link` | A button, or a link's words | `id`, `text`, `enabled`, and a button's `icon`, `variant` and `small` |
 | `toggle` | The kit's switch, its label before it; with a `description`, Settings' own switch row: the label, the description under it, the switch at the row's end, and a click anywhere on the row flips it | `id`, `text`, `checked`, `description` |
+| `item` | One row of a list as Settings draws one: a picture (`src`, 32 px with a `description`, else 24; round when `round`), its name (`text`) with the `description` under it, and its `cells`, its actions, at the end, a button among them drawn small; with an `id` the whole row is pressed, lit while `selected` | `src`, `round`, `text`, `description`, `cells`, `id`, `selected` |
 | `setting` | A setting's row as Settings draws one: `text` (15 px) with `description` (13 px, muted) under it at the start, and its `cells`, the controls, at the end, a button among them drawn small | `text`, `description`, `cells` |
 | `select` | Its options as a row of buttons, the chosen one lit | `id`, `options`, `value` |
 | `segmented` | Settings' own row of choices: its options side by side on the sunken ground, the chosen one raised and bold, for two to four short options worth seeing at once; its label over it when `text` has one | `id`, `options`, `value`, `text` |

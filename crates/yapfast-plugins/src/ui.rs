@@ -1111,6 +1111,10 @@ pub enum Kind {
     Caption,
     /// A dialog's or a page's title, larger than a heading.
     Title,
+    /// One row of a list, as Settings' lists draw theirs: a picture (`src`),
+    /// its name (`text`) with `description` under it, and its actions
+    /// (`cells`) at the end; pressed as a whole when it has an `id`.
+    Item,
     /// A setting's row, as Settings draws one: `text` with `description`
     /// under it at the start, and `cells` (its controls) at the end.
     Setting,
@@ -1191,13 +1195,13 @@ impl Kind {
     pub const fn container(self) -> bool {
         matches!(
             self,
-            Self::Tabs | Self::Section | Self::Grid | Self::Setting
+            Self::Tabs | Self::Section | Self::Grid | Self::Setting | Self::Item
         )
     }
 
     /// It holds cells of its own (`cells`).
     pub const fn holds_cells(self) -> bool {
-        matches!(self, Self::Grid | Self::Setting)
+        matches!(self, Self::Grid | Self::Setting | Self::Item)
     }
 }
 
@@ -1433,9 +1437,12 @@ pub struct Cell {
     pub width: Option<f32>,
     #[serde(default)]
     pub height: Option<f32>,
-    /// Drawn as the chosen one: an accent ring round it.
+    /// Drawn as the chosen one: an accent ring round it (a list's row: lit).
     #[serde(default)]
     pub selected: bool,
+    /// Its picture drawn round, as an avatar is.
+    #[serde(default)]
+    pub round: bool,
     /// What an image or tile shows while the pointer is on it: another
     /// picture, or (with `hover_crop` alone) another part of the same.
     #[serde(default)]
@@ -1451,7 +1458,10 @@ impl Cell {
     /// The pictures this cell shows: an image's, an icon's or a tile's own
     /// and the one it shows while pointed at, or a drop-down's options'.
     pub fn pictures(&self) -> impl Iterator<Item = &str> {
-        let own = matches!(self.kind, Kind::Image | Kind::Icon | Kind::Tile);
+        let own = matches!(
+            self.kind,
+            Kind::Image | Kind::Icon | Kind::Tile | Kind::Item
+        );
         let options = self.kind == Kind::Dropdown;
         [self.src.as_str(), self.hover_src.as_str()]
             .into_iter()
@@ -1467,7 +1477,7 @@ impl Cell {
 
     /// A picture that is a button: an image or a tile with an id.
     pub fn pressable(&self) -> bool {
-        matches!(self.kind, Kind::Image | Kind::Tile) && !self.id.is_empty()
+        matches!(self.kind, Kind::Image | Kind::Tile | Kind::Item) && !self.id.is_empty()
     }
 }
 
@@ -1582,6 +1592,7 @@ impl Default for Cell {
             width: None,
             height: None,
             selected: false,
+            round: false,
             hover_src: String::new(),
             hover_crop: None,
         }
@@ -1755,7 +1766,9 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
         Kind::Number if !cell.value.is_empty() && cell.value.trim().parse::<f64>().is_err() => {
             cell.value.clear();
         }
-        Kind::Icon | Kind::Image | Kind::Tile if source(&cell.src).is_none() => cell.src.clear(),
+        Kind::Icon | Kind::Image | Kind::Tile | Kind::Item if source(&cell.src).is_none() => {
+            cell.src.clear();
+        }
         _ => {}
     }
     if !cell.hover_src.is_empty() && source(&cell.hover_src).is_none() {
@@ -1786,7 +1799,7 @@ fn check_cell(cell: &mut Cell, depth: usize, most: usize) -> Result<(), String> 
     }
     match cell.kind {
         Kind::Section => check_rows(&mut cell.rows, depth + 1, most)?,
-        Kind::Setting => {
+        Kind::Setting | Kind::Item => {
             if depth + 1 > most {
                 return Err(format!("its containers nest deeper than {most} levels"));
             }
@@ -2394,6 +2407,35 @@ mod tests {
         assert!(
             tree.rows[0].cells[1].icons.is_empty(),
             "only a drop-down has them"
+        );
+    }
+
+    #[test]
+    fn a_lists_row_has_a_picture_words_and_actions() {
+        let tree = Tree::parse(
+            r#"{ "rows": [{ "cells": [
+                { "kind": "item", "src": "https://cdn.discordapp.com/icons/1/a.png", "round": true,
+                  "text": "Cool server", "description": "12 members",
+                  "cells": [{ "kind": "button", "id": "remove", "text": "Remove", "variant": "ghost" }] },
+                { "kind": "item", "id": "pick", "src": "file:///etc/passwd", "text": "Pick me" }
+            ] }] }"#,
+        )
+        .unwrap();
+        let [row, choice] = &tree.rows[0].cells[..] else {
+            panic!()
+        };
+        assert!(row.round && row.cells.len() == 1 && !row.pressable());
+        assert_eq!(
+            row.pictures().collect::<Vec<_>>(),
+            ["https://cdn.discordapp.com/icons/1/a.png"]
+        );
+        assert!(
+            choice.pressable() && choice.src.is_empty(),
+            "an address that isn't a picture's is cleared"
+        );
+        assert!(
+            Tree::parse(r#"{ "rows": [{ "cells": [{ "kind": "item", "id": "a b" }] }] }"#).is_err(),
+            "a pressable row's id is plain"
         );
     }
 

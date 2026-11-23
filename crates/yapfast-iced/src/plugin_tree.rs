@@ -253,6 +253,7 @@ fn wide(kind: Kind) -> bool {
             | Kind::Textarea
             | Kind::List
             | Kind::Setting
+            | Kind::Item
     )
 }
 
@@ -404,6 +405,7 @@ fn cell_body<'a, M: Clone + 'a>(
                 .view(paint.look)
         }
         Kind::Setting => setting(paint, cell, message),
+        Kind::Item => item(paint, cell, message),
         Kind::Toggle => {
             let checked = paint.local.checked(cell);
             let on = Some(set(if checked { "false" } else { "true" }.to_owned()));
@@ -720,6 +722,113 @@ fn setting<'a, M: Clone + 'a>(
         .into()
 }
 
+/// One row of a list: its picture (32 px with a line under its name, else
+/// 24), its name (15 px) and what's under it (13 px, muted) taking the room
+/// there is, and its actions at the end. With an id the whole row is a
+/// button, lit under the pointer and while chosen.
+fn item<'a, M: Clone + 'a>(
+    paint: Paint<'a>,
+    cell: &'a Cell,
+    message: &Sender<'a, M>,
+) -> Element<'a, M> {
+    let theme = paint.look.theme;
+    let side = if cell.description.is_empty() {
+        24.0
+    } else {
+        32.0
+    };
+    let mut words = column![
+        text(cell.text.clone())
+            .size(15)
+            .color(if cell.enabled {
+                theme.text
+            } else {
+                theme.muted
+            })
+            .wrapping(text::Wrapping::WordOrGlyph)
+    ]
+    .spacing(2)
+    .width(Length::Fill);
+    if !cell.description.is_empty() {
+        words = words.push(
+            text(cell.description.clone())
+                .size(13)
+                .color(theme.muted)
+                .wrapping(text::Wrapping::WordOrGlyph),
+        );
+    }
+    let mut line = row![].spacing(12).align_y(Alignment::Center);
+    if !cell.src.is_empty() {
+        let shown = drawn(paint, cell, &cell.src, cell.crop, (side, side));
+        line = line.push(shown.unwrap_or_else(|| initial(theme, cell, side)));
+    }
+    line = line.push(words);
+    let mut controls = row![].spacing(4).align_y(Alignment::Center);
+    for inner in &cell.cells {
+        controls = controls.push(trailing(paint, inner, message));
+    }
+    line = line.push(controls);
+    if !cell.pressable() {
+        return container(line).padding([4, 0]).width(Length::Fill).into();
+    }
+    let press = {
+        let message = message.clone();
+        let id = cell.id.clone();
+        cell.enabled.then(|| {
+            message(Act::Set {
+                id: id.clone(),
+                value: id,
+            })
+        })
+    };
+    let (hover, active) = (theme.row_hover, theme.active);
+    let selected = cell.selected;
+    button(line)
+        .padding([6, 8])
+        .width(Length::Fill)
+        .on_press_maybe(press)
+        .style(move |_, status| {
+            let lit = matches!(status, button::Status::Hovered | button::Status::Pressed);
+            button::Style {
+                background: if selected {
+                    Some(active.into())
+                } else {
+                    lit.then(|| hover.into())
+                },
+                border: iced::Border::default().rounded(6),
+                ..button::Style::default()
+            }
+        })
+        .into()
+}
+
+/// A list row's picture until it comes (or when it never will): its name's
+/// first letter on a faint ground, round when the picture would be, as
+/// Discord draws a server without an icon.
+fn initial<'a, M: Clone + 'a>(theme: &Theme, cell: &'a Cell, side: f32) -> Element<'a, M> {
+    let letter: String = cell
+        .text
+        .trim_start_matches(['#', '@'])
+        .chars()
+        .find(|character| character.is_alphanumeric())
+        .map(|character| character.to_uppercase().collect())
+        .unwrap_or_default();
+    let ground = theme.active;
+    let radius = if cell.round { side / 2.0 } else { 8.0 };
+    container(
+        text(letter)
+            .size(side * 0.45)
+            .font(BOLD)
+            .color(theme.secondary),
+    )
+    .width(side)
+    .height(side)
+    .align_x(Alignment::Center)
+    .align_y(Alignment::Center)
+    .style(move |_| style::rounded(ground, radius))
+    .into()
+}
+
 /// A control at a row's end: a button there is drawn small.
 fn trailing<'a, M: Clone + 'a>(
     paint: Paint<'a>,
@@ -950,6 +1059,11 @@ fn drawn<'a, M: 'a>(
         .content_fit(iced::ContentFit::Contain);
     if cell.pixelated {
         shown = shown.filter_method(image::FilterMethod::Nearest);
+    }
+    if cell.round {
+        shown = shown.border_radius(width.min(height) / 2.0);
+    } else if cell.kind == Kind::Item {
+        shown = shown.border_radius(8.0);
     }
     if let Some([x, y, width, height]) = crop {
         shown = shown.crop(iced::Rectangle {
