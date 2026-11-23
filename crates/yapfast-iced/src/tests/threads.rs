@@ -554,7 +554,7 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
         yapfast_discord::ready,
     };
 
-    let (mut app, _folder) = super::server::discord_server(0, |server, _| {
+    let (mut app, folder) = super::server::discord_server(0, |server, _| {
         let extra = ready::server(&serde_json::json!({
             "id": "10", "owner_id": "99", "properties": {"name": "Test"},
             "channels": [{"id": "15", "type": 15, "name": "ideas", "position": 2}],
@@ -578,9 +578,42 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
         .dispatch(Action::SelectRoom("discord:10:11".into()));
     let _ = app.sync();
 
-    for theme in ["bonfire", "catppuccin-latte"] {
-        app.theme = app.themes.find(theme).expect("a built-in theme");
-        let size = Size::new(crate::sidebar::width(&app.layout), app.shell.frame.height);
+    // A theme with taller rows and a wider gap between them: the stem
+    // runs on through what the connector's square leaves.
+    let source = folder.path().join("tall-rows");
+    std::fs::create_dir_all(&source).expect("theme source");
+    std::fs::write(
+        source.join(yapfast_core::themes::MANIFEST),
+        serde_json::to_vec(&serde_json::json!({
+            "theme_api": 1, "id": "dev.example.tall", "name": "Tall", "version": "1.0.0",
+            "variants": { "dark": {
+                "base": "bonfire",
+                "spacing": { "channel_row_height": 40 },
+                "layout": { "channel_rows": { "gap": 6 } }
+            } }
+        }))
+        .expect("manifest JSON"),
+    )
+    .expect("theme manifest");
+    let fetched = yapfast_core::themes::install::Fetched::local(&source).expect("local package");
+    let root = app.client.root().to_path_buf();
+    let tall = app
+        .themes
+        .install_fetched(&root, &app.layout, &fetched)
+        .expect("installed");
+
+    for (theme, height, gap) in [
+        ("bonfire", 32.0, 2.0),
+        ("catppuccin-latte", 32.0, 2.0),
+        (tall.as_str(), 40.0, 6.0),
+    ] {
+        app.theme = app.themes.find(theme).expect("the theme");
+        let _ = app.sync();
+        let pitch: f32 = height + gap;
+        let size = Size::new(
+            crate::sidebar::width(&app.layout, &app.theme),
+            app.shell.frame.height,
+        );
         let sidebar = crate::sidebar::view(&app.sidebar, app.ctx());
         let mut ui = Simulator::with_size(Settings::default(), size, sidebar);
         let mut bounds = |label: &str| {
@@ -608,17 +641,21 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
             let [first, last] = threads;
             let first_y = first.center().y;
             let last_y = last.center().y;
-            assert!((first_y - parent.center().y - 34.0).abs() < 0.01);
-            assert!((last_y - first_y - 34.0).abs() < 0.01);
+            assert!(
+                (first_y - parent.center().y - pitch).abs() < 0.01,
+                "{theme}"
+            );
+            assert!((last_y - first_y - pitch).abs() < 0.01, "{theme}");
             assert!((first.x - parent.x).abs() < 0.01 && (last.x - first.x).abs() < 0.01);
 
             // The titles start 36 px into the row and the stem is at 17 px.
             let stem = first.x - 19.0;
-            let start = first_y - 15.0;
+            let start = first_y - height / 2.0 - gap + 3.0;
+            let parent_foot = parent.center().y + height / 2.0;
             assert!(!spine(stem, start - 4.0), "starts below the parent face");
             assert!(
-                ground(stem, first_y - 18.0) && !ground(stem, first_y - 17.0),
-                "one pixel of space before the stem"
+                ground(stem, parent_foot) && !ground(stem, parent_foot + 1.0),
+                "{theme}: one pixel of space before the stem"
             );
             for y in (start * 2.0) as u32..((last_y - 6.0) * 2.0) as u32 {
                 assert!(spine(stem, y as f32 / 2.0), "{theme}: gap in stem at {y}");
@@ -642,7 +679,7 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
                 "the continuing arm curves below with the same radius"
             );
             assert!(
-                ground(stem, last_y + 3.0) && ground(stem, last_y + 17.0),
+                ground(stem, last_y + 3.0) && ground(stem, last_y + height / 2.0 + 1.0),
                 "the terminal arm has no stub"
             );
         }
