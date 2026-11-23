@@ -20,7 +20,7 @@ use yapfast_core::chat::Picture as CorePicture;
 
 use crate::{
     paint,
-    pictures::Player,
+    pictures::{MediaLook, Player},
     widgets::{Renderer, draw_picture},
 };
 
@@ -57,8 +57,9 @@ impl Players {
         size: Size,
         at: Rectangle,
         cover: bool,
+        media: MediaLook,
     ) -> Animated<'_> {
-        let animated = Animated::new(picture.clone(), size, at, cover, &self.playing);
+        let animated = Animated::new(picture.clone(), size, at, cover, media, &self.playing);
         self.shown.borrow_mut().insert(animated.key());
         animated
     }
@@ -102,6 +103,7 @@ pub struct Animated<'a> {
     opacity: f32,
     /// What shows until the first frame.
     still: Option<Handle>,
+    media: MediaLook,
     playing: &'a RefCell<HashMap<PlayKey, Playing>>,
 }
 
@@ -111,6 +113,7 @@ impl<'a> Animated<'a> {
         size: Size,
         at: Rectangle,
         cover: bool,
+        media: MediaLook,
         playing: &'a RefCell<HashMap<PlayKey, Playing>>,
     ) -> Self {
         Self {
@@ -121,6 +124,7 @@ impl<'a> Animated<'a> {
             radius: [0.0; 4],
             opacity: 1.0,
             still: None,
+            media,
             playing,
         }
     }
@@ -238,6 +242,12 @@ impl Animated<'_> {
             && due <= now + Duration::from_millis(4)
             && let Some(mut rgba) = entry.player.next(due.max(now))
         {
+            crate::pictures::apply_frame_media(
+                self.media,
+                &mut rgba,
+                self.picture.width,
+                self.picture.height,
+            );
             paint::to_native(&mut rgba);
             let (width, height) = (self.picture.width, self.picture.height);
             let (to_width, to_height) = (self.at.width as u32, self.at.height as u32);

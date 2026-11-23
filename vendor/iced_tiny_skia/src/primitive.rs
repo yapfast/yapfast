@@ -37,4 +37,17 @@ impl Primitive {
             height: bounds.height(),
         }
     }
+
+    /// Yapfast port (patch 27): the pixels the [`Primitive`] can touch: a
+    /// stroke's path bounds grown by half its width, and either grown by a
+    /// pixel for anti-aliasing. A straight stroke's path bounds have no
+    /// height (or width) and were dropped from a layer's extent.
+    pub fn drawn_bounds(&self) -> Rectangle {
+        let reach = match self {
+            Primitive::Fill { .. } => 0.0,
+            Primitive::Stroke { stroke, .. } => stroke.width / 2.0,
+        };
+
+        self.visible_bounds().expand(reach + 1.0)
+    }
 }

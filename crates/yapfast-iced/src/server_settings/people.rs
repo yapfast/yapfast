@@ -26,7 +26,6 @@ use crate::{
     app::Message,
     controls::{self, Kind, action},
     ctx::{Cx, Request},
-    dialog,
     elide::elide,
     fonts::{BOLD, SEMIBOLD},
     form,
@@ -886,9 +885,9 @@ impl<'a> View<'a> {
             ]
             .spacing(form::TIGHT),
         );
-        Some(dialog::panel(
-            theme,
-            body.into(),
+        Some(crate::theme_art::panel_dialog(
+            self.cx,
+            body,
             SECURITY,
             None,
             invite(InviteInput::CloseSecurity),
