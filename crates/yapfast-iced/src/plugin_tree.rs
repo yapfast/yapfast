@@ -1274,7 +1274,8 @@ fn picture_at<'a, M: Clone + 'a>(
             yapfast_core::plugins::ui::source(&cell.src),
             Some(yapfast_core::plugins::ui::Source::Web { .. })
         );
-    let label = if !worded {
+    // A small box has no room for words: only its ground shows.
+    let label = if !worded || width < 64.0 {
         String::new()
     } else if loading && cell.text.is_empty() {
         "Loading picture…".to_owned()
@@ -1286,6 +1287,7 @@ fn picture_at<'a, M: Clone + 'a>(
         .height(height)
         .align_x(Alignment::Center)
         .align_y(Alignment::Center)
+        .clip(true)
         .style(move |_| style::rounded(ground, 6))
         .into()
 }
