@@ -2397,21 +2397,25 @@ impl<'a> View<'a> {
             0.0
         };
         let ink = theme.token_colour("pill", theme.text);
+        // The pill keeps its place in the stack even while it's hidden, so
+        // the tile after it keeps its own: a pill coming as the pointer
+        // arrives would otherwise move the tile, and the press it had just
+        // taken, for a drag or a click, would be lost.
         let mut layers = stack![];
-        if pill > 0.0 {
+        {
             let (pill_x, pill_y, pill_width, pill_height, pill_corners) = if top_rail {
                 (
                     left + (tile_width - pill) / 2.0,
                     themed_top_height(self.cx.themes.package_layout(&theme.id)) - 4.0,
                     pill,
-                    4.0,
+                    if pill > 0.0 { 4.0 } else { 0.0 },
                     [4.0, 4.0, 0.0, 0.0],
                 )
             } else {
                 (
                     if right_rail { rail_width - 4.0 } else { 0.0 },
                     tile_top + (tile_height - pill) / 2.0,
-                    4.0,
+                    if pill > 0.0 { 4.0 } else { 0.0 },
                     pill,
                     if right_rail {
                         [4.0, 0.0, 0.0, 4.0]
@@ -2882,10 +2886,6 @@ impl<'a> View<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
 /// The colour the icon of the server `id` shows most, as RGB, for a folder
 /// made from it; none while it hasn't loaded. Its opaque pixels fall in
 /// coarse bins, each counted more the more colourful it is, so a logo's
@@ -2939,10 +2939,10 @@ fn main_colour(pixels: &[u8], bgra: bool) -> Option<u32> {
     Some((red as u32) << 16 | (green as u32) << 8 | blue as u32)
 }
 
-    fn item(id: String, kind: Kind) -> RailItem {
-        RailItem {
-            id,
-            name: String::new(),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
     #[test]
     fn a_folders_colour_is_what_its_icon_shows_most_colourfully() {
         // A red logo on a larger white ground, with see-through corners.
@@ -2964,6 +2964,10 @@ fn main_colour(pixels: &[u8], bgra: bool) -> Option<u32> {
         );
     }
 
+    fn item(id: String, kind: Kind) -> RailItem {
+        RailItem {
+            id,
+            name: String::new(),
             icon: None,
             kind,
             selected: false,
@@ -3038,7 +3042,6 @@ fn main_colour(pixels: &[u8], bgra: bool) -> Option<u32> {
         );
         assert_eq!(drop_at(&discord::server_id("4"), LIST_TOP - GAP), None);
     }
-}
 
     #[test]
     fn a_server_held_over_a_closed_folders_middle_opens_it() {
@@ -3081,3 +3084,4 @@ fn main_colour(pixels: &[u8], bgra: bool) -> Option<u32> {
         ));
         assert_eq!(held(&mut rail, "discord-folder:8".into(), middle), None);
     }
+}
