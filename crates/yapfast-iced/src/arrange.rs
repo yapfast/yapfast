@@ -61,8 +61,9 @@ pub struct Arranging {
     /// The dragged row's place, and where on it it was pressed.
     pub dragged: usize,
     grab: f32,
-    /// The pointer's height in the window.
+    /// The pointer's height in the window, and how far across.
     y: f32,
+    x: f32,
     /// The place the pointer is over.
     pub hovered: Option<usize>,
     pub(crate) droppable: Vec<bool>,
@@ -131,6 +132,16 @@ pub fn places(rows: &[SideRow], discord: bool, filtered: bool) -> Places {
     // Pinned channels come first, before a line.
     let mut pinned = rows.iter().any(|row| matches!(row, SideRow::Pinned));
     let mut folded = false;
+    // A category with voice channels folded behind Show All doesn't
+    // rearrange, as a folded category doesn't: its hidden rows hold
+    // places too.
+    let voice_folded: Vec<&str> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SideRow::VoiceMore { fold, shown, .. } if !shown => Some(fold.as_str()),
+            _ => None,
+        })
+        .collect();
     for (index, row) in rows.iter().enumerate() {
         let id = match row {
             SideRow::PinnedEnd => {
@@ -141,7 +152,7 @@ pub fn places(rows: &[SideRow], discord: bool, filtered: bool) -> Places {
             SideRow::Heading {
                 fold, collapsed, ..
             } => {
-                folded = *collapsed;
+                folded = *collapsed || voice_folded.contains(&fold.as_str());
                 Some(fold)
             }
             SideRow::Room(room) if !room.thread && !folded => Some(&room.id),
@@ -181,6 +192,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::At(at) => {
             if let Some(arranging) = &mut app.sidebar.arranging {
                 arranging.y = at.y;
+                arranging.x = at.x;
             }
             if let Some(moving) = &mut app.sidebar.moving_person {
                 moving.at = at;
@@ -253,6 +265,7 @@ fn start_arranging(app: &mut App, place: usize, grab: f32) -> Task<Message> {
         dragged: place,
         grab,
         y: app.pressed.get().y,
+        x: app.pressed.get().x,
         hovered: Some(place),
         droppable,
         category,
@@ -272,6 +285,15 @@ fn finish_arranging(app: &mut App) -> Task<Message> {
     let Some(arranging) = app.sidebar.arranging.take() else {
         return Task::none();
     };
+    // Out of the list onto the conversation's right half, a channel opens
+    // in split view instead.
+    let at = Point::new(arranging.x, arranging.y);
+    if let Some(room) = split_room(app, &arranging)
+        && crate::split_drag::over_zone(app, at)
+    {
+        app.client.dispatch(Action::OpenSplit(room));
+        return app.sync();
+    }
     let Some(onto) = arranging
         .hovered
         .filter(|onto| *onto != arranging.dragged && arranging.droppable[*onto])
@@ -285,6 +307,36 @@ fn finish_arranging(app: &mut App) -> Task<Message> {
         app.client.dispatch(Action::MoveChannel { room, landing });
     }
     app.sync()
+}
+
+/// The channel a drag to rearrange would open in split view, once the
+/// pointer leaves the list: a text channel split view can show, with rows
+/// dragging to split view on.
+fn split_room(app: &App, arranging: &Arranging) -> Option<String> {
+    if arranging.category
+        || arranging.voice
+        || !crate::split_drag::drags(&app.layout)
+        || arranging.x <= crate::conversation::chat_left(app)
+    {
+        return None;
+    }
+    let room = app.sidebar.places.ids.get(arranging.dragged)?;
+    let state = app.client.state();
+    (state.can_split(room) || state.selected.as_deref() == Some(room.as_str()))
+        .then(|| room.clone())
+}
+
+/// Where the pointer is, what's dragged and its icon, while a channel
+/// dragged to rearrange would open in split view if let go on the
+/// conversation's right half.
+pub fn split_target(app: &App) -> Option<(Point, &str, Icon)> {
+    let arranging = app.sidebar.arranging.as_ref()?;
+    split_room(app, arranging)?;
+    Some((
+        Point::new(arranging.x, arranging.y),
+        arranging.name.as_str(),
+        arranging.icon,
+    ))
 }
 
 /// Starts dragging `user` from the voice channel `place`, if their

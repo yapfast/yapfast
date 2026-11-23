@@ -77,6 +77,9 @@ pub struct Laid {
     pub cards: Vec<Vec<Body>>,
     /// The reply quote's single-line snippet, whitespace collapsed.
     pub reply: String,
+    /// The codes of the Discord invites its text links, whose cards show
+    /// under it; found once, as it's laid out.
+    pub invites: Vec<String>,
 }
 
 impl std::ops::Deref for Laid {
@@ -242,16 +245,22 @@ pub fn body_of(
         markdown::link_emoji(&mut body, &message.emoji, crate::picker::drawn);
         body
     };
-    let laid = |markdown: &str| markdown::parse(markdown, &[], mention, &message.item, |_| true);
+    // An embed's text colours its mentions and draws its custom emoji, as
+    // a webhook's or a bot's pings show in Discord's client.
+    let laid = |markdown: &str, mentions: &[yapfast_core::mention::Mentioned]| {
+        let mut body = markdown::parse(markdown, mentions, mention, &message.item, |_| true);
+        markdown::with_emoji(&mut body, &message.emoji);
+        body
+    };
     let embeds = message
         .embeds
         .iter()
         .map(|embed| EmbedText {
-            description: laid(&embed.description),
+            description: laid(&embed.description, &embed.mentions),
             fields: embed
                 .fields
                 .iter()
-                .map(|field| (laid(&field.name), laid(&field.value)))
+                .map(|field| (laid(&field.name, &[]), laid(&field.value, &field.mentions)))
                 .collect(),
         })
         .collect();
@@ -271,11 +280,20 @@ pub fn body_of(
         .as_ref()
         .map(|reply| reply.body.split_whitespace().collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
+    let invites = if message.deleted || message.blocked {
+        Vec::new()
+    } else {
+        yapfast_core::chat::invite_codes(&message.body)
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    };
     Laid {
         body,
         embeds,
         cards,
         reply,
+        invites,
     }
 }
 

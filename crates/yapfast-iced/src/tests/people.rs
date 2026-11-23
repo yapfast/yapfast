@@ -1467,3 +1467,94 @@ fn a_composer_key_is_kept_no_bigger_than_its_drawn_at() {
             .is_none()
     );
 }
+
+#[test]
+fn mod_view_opens_from_a_members_menu_beside_the_channel() {
+    use yapfast_core::{
+        application::{MenuChoice, ModPanel},
+        chat::{Event, JoinMethod, ListedMember, ModViewPart, RoleMember},
+    };
+    let (mut app, _folder) = preview();
+    // Alice, "1", is Staff with #general open; Dave, "4", below her, holds
+    // Crew.
+    app.client.app = yapfast_core::application::member_server(&["30"]);
+    change(&mut app, |_| {});
+    assert!(
+        app.client
+            .app
+            .person_choices("4")
+            .contains(&MenuChoice::ModView),
+        "offered to a moderator"
+    );
+    let _ = crate::person_menu::choose_person(
+        &mut app,
+        "4".into(),
+        person_menu::CONTEXT_MENU,
+        MenuChoice::ModView,
+        None,
+    );
+    assert!(crate::mod_view::shown(&app));
+    let has = |app: &App, words: &str| {
+        let mut ui = Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(crate::mod_view::WIDTH, 2000.0),
+            crate::mod_view::view(app.ctx()).expect("Mod View"),
+        );
+        ui.find(words).is_ok()
+    };
+    assert!(has(&app, "Dave"));
+    assert!(has(&app, "Kick") && has(&app, "Ban") && has(&app, "Crew"));
+    // Discord's answers fill it in.
+    let now = yapfast_core::clock::now_ms();
+    for part in [
+        ModViewPart::Activity(Ok([40, 2, 0])),
+        ModViewPart::Member(Ok(Some(ListedMember {
+            person: RoleMember {
+                id: "4".into(),
+                name: "Dave".into(),
+                username: Some("dave".into()),
+                avatar: String::new(),
+            },
+            roles: vec!["20".into()],
+            joined: now - 3 * 86_400_000,
+            timed_out_until: 0,
+            unusual_dms: true,
+            spammer: false,
+            quarantined: false,
+            joined_by: JoinMethod::Invite("abc".into()),
+            inviter: None,
+            bot: false,
+        }))),
+    ] {
+        app.client.apply(Event::ModViewLoaded {
+            server: "discord:10".into(),
+            user: "4".into(),
+            part,
+        });
+    }
+    let _ = app.sync();
+    assert!(has(&app, "40") && has(&app, "abc"));
+    assert!(has(&app, "Unusual DM Activity"));
+    // Without View Audit Log, as Discord's says.
+    assert!(has(&app, "This is Awkward"));
+    // All Granted Permissions lists what @everyone gives him.
+    let _ = app.update(Message::ModView(crate::mod_view::Event::Panel(
+        ModPanel::Permissions,
+    )));
+    assert!(has(&app, "View Channels"));
+    let _ = app.update(Message::ModView(crate::mod_view::Event::Panel(
+        ModPanel::Info,
+    )));
+    // Kick asks first, as from his menu.
+    let _ = app.update(Message::ModView(crate::mod_view::Event::Kick));
+    assert_eq!(
+        app.client
+            .state()
+            .person_dialog
+            .as_ref()
+            .map(|dialog| dialog.ask),
+        Some(PersonAsk::Kick)
+    );
+    let _ = app.update(Message::ModView(crate::mod_view::Event::Close));
+    assert!(!crate::mod_view::shown(&app));
+}

@@ -50,8 +50,10 @@ mod conversation;
 mod ctx;
 mod desktop;
 mod slot;
+mod split_drag;
 use yapfast_iced_kit::dialog;
 mod dialogs;
+mod downloads;
 mod edit;
 // build.rs packs Twemoji with it; here its test runs.
 #[cfg(test)]
@@ -83,7 +85,9 @@ mod members;
 mod menus;
 mod message;
 mod mfa;
+mod mod_view;
 mod paint;
+mod peek;
 mod people;
 mod person_menu;
 mod picker;
@@ -149,7 +153,7 @@ use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
 pub use desktop::{
-    Desktop, Drag, Heard, Notifier, Offered, PasteReader, PointerAt, Tell, Toggled, Tray,
+    Desktop, Drag, Heard, Notifier, Offered, PasteReader, PointerAt, SPLIT, Tell, Toggled, Tray,
     TrayChoice, UpdateChoices, UpdateStatus, Updates, UpdatesShown,
 };
 /// The window the desktop's parts act on, by its handles.

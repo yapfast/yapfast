@@ -49,6 +49,7 @@ fn profile(name: &str) -> ServerProfile {
         name: name.into(),
         description: String::new(),
         icon: None,
+        ..ServerProfile::default()
     }
 }
 
@@ -176,6 +177,7 @@ fn server_profile_saves_what_changed_and_waits_for_reset_or_save_to_leave() {
         name,
         description,
         icon,
+        ..
     } = saved(app.dispatch(Action::SaveServerSettings))
     else {
         panic!("Server Profile's change");

@@ -545,6 +545,139 @@ fn a_forums_row_counts_its_posts_mentions_and_the_server_counts_them_once() {
     assert_eq!(server.badge, "3", "the post's mentions count once");
 }
 
+/// The preview with another of its channels, "news", in split view beside
+/// the open one, holding one message.
+fn split_beside() -> (crate::app::App, tempfile::TempDir) {
+    let (mut app, folder) = preview();
+    app.layout.split_view = true;
+    change(&mut app, |state| {
+        state.split_view = true;
+        let mut news = (*state.rooms[0]).clone();
+        news.id = "news".into();
+        news.name = "news".into();
+        news.parent = None;
+        state.rooms.push(Arc::new(news));
+        state.aside = Some(Default::default());
+        let aside = state.aside.as_mut().expect("the split");
+        aside.room = "news".into();
+        aside.split = true;
+        aside.ready = true;
+        aside.history_start = true;
+        aside.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "n0".into(),
+            author: "Sam".into(),
+            body: "The patch is out".into(),
+            timestamp: 1,
+            ..Default::default()
+        })]);
+    });
+    (app, folder)
+}
+
+#[test]
+fn split_view_shows_a_channel_beside_the_open_one_and_keeps_it_for_the_next_start() {
+    let (mut app, _folder) = split_beside();
+    assert!(shows(&app, "The patch is out"));
+    assert!(app.aside.as_ref().is_some_and(|aside| aside.split));
+    assert!(shows(&app, "news"));
+    // Half the room beside the sidebar, apart from a thread's width.
+    let half = (app.window.width - crate::conversation::chat_left(&app)) / 2.0;
+    let width = crate::thread::aside_width(&app);
+    assert!(
+        (width - half).abs() < 1.0 || width < half,
+        "{width} against {half}"
+    );
+    assert_eq!(
+        app.layout.split_room.as_deref(),
+        Some("news"),
+        "kept for the next start"
+    );
+    // Ctrl+W closes it, and the next start opens none.
+    let _ = app.update(crate::app::Message::Thread(
+        crate::thread::Event::CloseSplit,
+    ));
+    assert!(app.aside.is_none());
+    assert_eq!(app.layout.split_room, None);
+}
+
+#[test]
+fn ctrl_tab_moves_typing_between_the_split_and_the_conversation() {
+    use crate::composer::Writing;
+    let (mut app, _folder) = split_beside();
+    assert_eq!(
+        app.composer.writing_last,
+        Writing::Aside,
+        "the split's as it opens"
+    );
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    assert_eq!(app.composer.writing_last, Writing::Draft);
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    assert_eq!(app.composer.writing_last, Writing::Aside);
+}
+
+#[test]
+fn a_dot_marks_the_split_when_someone_writes_there_while_typing_is_elsewhere() {
+    let (mut app, _folder) = split_beside();
+    let post = |app: &mut crate::app::App, item: &str, own: bool| {
+        change(app, |state| {
+            let aside = state.aside.as_mut().expect("the split");
+            let mut messages = (*aside.messages).clone();
+            messages.push(Arc::new(ChatMessage {
+                item: item.into(),
+                author: "Sam".into(),
+                body: "more news".into(),
+                timestamp: 2,
+                own,
+                ..Default::default()
+            }));
+            aside.messages = Arc::new(messages);
+        });
+    };
+    let dot = |app: &crate::app::App| app.aside.as_ref().is_some_and(|aside| aside.dot);
+    // Typing in the split, a new message there makes no dot.
+    post(&mut app, "n1", false);
+    assert!(!dot(&app));
+    // Typing in the conversation, it does, but not for one's own.
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    post(&mut app, "n2", true);
+    assert!(!dot(&app), "one's own");
+    post(&mut app, "n3", false);
+    assert!(dot(&app));
+    // Typing moving there takes it away.
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    assert!(!dot(&app));
+    // Off, there's none.
+    app.layout.split_dot = Some(false);
+    let _ = app.update(crate::app::Message::Thread(crate::thread::Event::OtherSide));
+    post(&mut app, "n4", false);
+    assert!(!dot(&app));
+}
+
+#[test]
+fn split_views_switches_reach_the_core_as_the_window_opens() {
+    let (mut app, _folder) = preview();
+    assert!(!app.layout.split_view, "off by default");
+    assert!(
+        app.layout
+            .actions()
+            .iter()
+            .any(|action| matches!(action, yapfast_core::application::Action::SplitView(false)))
+    );
+    app.layout.split_view = true;
+    app.layout.split_room = Some("news".into());
+    assert!(app.layout.actions().iter().any(|action| matches!(
+        action,
+        yapfast_core::application::Action::RestoreSplit(room) if room == "news"
+    )));
+    app.layout.split_restore = Some(false);
+    assert!(
+        !app.layout
+            .actions()
+            .iter()
+            .any(|action| matches!(action, yapfast_core::application::Action::RestoreSplit(_)))
+    );
+}
+
 #[test]
 fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
     use iced::{Color, Settings, Size};
@@ -684,4 +817,183 @@ fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
             );
         }
     }
+}
+
+#[test]
+fn a_voice_channels_chat_shows_beside_its_call() {
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.selected = Some("lounge".into());
+        state.voice_chat = false;
+        state.aside = Some(Default::default());
+        let aside = state.aside.as_mut().expect("the chat beside");
+        aside.room = "lounge".into();
+        aside.voice = true;
+        aside.ready = true;
+        aside.history_start = true;
+        aside.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "v0".into(),
+            author: "Sam".into(),
+            body: "Can you hear me?".into(),
+            timestamp: 1,
+            ..Default::default()
+        })]);
+    });
+    assert!(
+        crate::call::stage::voice_panel(&app),
+        "the call stays in the middle"
+    );
+    assert!(app.aside.as_ref().is_some_and(|aside| aside.voice));
+    assert!(shows(&app, "Can you hear me?"), "its chat beside it");
+}
+
+/// Presses on the sidebar row reading `name`, with `button`.
+fn press_row(app: &mut crate::app::App, name: &str, button: iced::mouse::Button) {
+    use iced::mouse;
+    interact(app, |ui| {
+        let row = ui
+            .find(name)
+            .expect("the row")
+            .visible_bounds()
+            .expect("in view");
+        let at = iced::Point::new(row.center_x(), row.center_y());
+        ui.point_at(at);
+        ui.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(button))]);
+    });
+}
+
+/// A server with two threads under #general, open with split view on.
+fn server_with_threads() -> (crate::app::App, tempfile::TempDir) {
+    use yapfast_core::{
+        application::{Action, Navigation},
+        yapfast_discord::ready,
+    };
+    let (mut app, folder) = super::server::discord_server(0, |server, _| {
+        let extra = ready::server(&serde_json::json!({
+            "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+            "threads": [
+                {"id": "41", "type": 11, "name": "Plans", "parent_id": "11", "guild_id": "10"},
+                {"id": "42", "type": 11, "name": "Notes", "parent_id": "11", "guild_id": "10"}
+            ]
+        }))
+        .expect("two threads");
+        server.threads.extend(extra.threads);
+        for thread in &mut server.threads {
+            thread.thread.as_mut().expect("thread details").joined = true;
+        }
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:11".into()));
+    app.layout.split_view = true;
+    change(&mut app, |state| state.split_view = true);
+    (app, folder)
+}
+
+/// A Discord DM with Quinn, listed with the DMs showing, split view on.
+fn dms_with_quinn() -> (crate::app::App, tempfile::TempDir) {
+    use yapfast_core::application::{Action, Navigation};
+    let (mut app, folder) = super::server::discord_server(0, |_, _| {});
+    app.layout.split_view = true;
+    change(&mut app, |state| {
+        state.split_view = true;
+        let general = state
+            .rooms
+            .iter()
+            .find(|room| room.id == "discord:10:11")
+            .expect("#general");
+        let mut quinn = (**general).clone();
+        quinn.id = "discord:900".into();
+        quinn.name = "Quinn Harlow".into();
+        quinn.direct = true;
+        quinn.parent = None;
+        state.rooms.push(Arc::new(quinn));
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::DirectMessages));
+    let _ = app.sync();
+    (app, folder)
+}
+
+#[test]
+fn a_middle_click_on_a_thread_or_a_dm_row_opens_it_in_split_view() {
+    let split = |app: &crate::app::App, room: &str| {
+        app.client
+            .state()
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.split && aside.room == room)
+    };
+    let (mut app, _folder) = server_with_threads();
+    assert!(shows(&app, "Plans"));
+    press_row(&mut app, "Plans", iced::mouse::Button::Middle);
+    assert!(split(&app, "discord:10:41"), "the thread beside");
+
+    let (mut app, _folder) = dms_with_quinn();
+    assert!(shows(&app, "Quinn Harlow"));
+    press_row(&mut app, "Quinn Harlow", iced::mouse::Button::Middle);
+    assert!(split(&app, "discord:900"), "the DM beside");
+}
+
+#[test]
+fn a_row_dragged_onto_the_conversations_right_half_opens_in_split_view() {
+    use crate::{app::Message, split_drag::Event};
+    let general = "discord:10:11";
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    change(&mut app, |state| {
+        state.selected = None;
+        state.split_view = true;
+    });
+    app.layout.split_view = true;
+    let right = iced::Point::new(
+        crate::conversation::chat_right(&app) - 20.0,
+        app.shell.frame.height - 100.0,
+    );
+    let left = iced::Point::new(crate::conversation::chat_left(&app) + 20.0, right.y);
+    let press = |app: &mut crate::app::App| {
+        let _ = app.update(Message::SplitDrag(Event::Press(
+            general.into(),
+            Box::new(Message::Nothing),
+        )));
+    };
+    let split = |app: &crate::app::App| {
+        app.client
+            .state()
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.split && aside.room == general)
+    };
+    // Escape mid-drag opens nothing; nor does letting go on the left half.
+    press(&mut app);
+    let _ = app.update(Message::SplitDrag(Event::At(right)));
+    assert!(crate::split_drag::view(&app).is_some(), "the drop zone");
+    let _ = app.update(Message::SplitDrag(Event::Cancel));
+    assert!(app.split_drag.is_none() && !split(&app));
+    press(&mut app);
+    let _ = app.update(Message::SplitDrag(Event::At(left)));
+    let _ = app.update(Message::SplitDrag(Event::Drop));
+    assert!(!split(&app), "the left half");
+    // Let go on the right half, it opens beside.
+    press(&mut app);
+    let _ = app.update(Message::SplitDrag(Event::At(right)));
+    let _ = app.update(Message::SplitDrag(Event::Drop));
+    assert!(split(&app));
+    // With its switch off, a press arms nothing.
+    let _ = app.update(Message::Thread(crate::thread::Event::CloseSplit));
+    app.layout.split_drag = Some(false);
+    press(&mut app);
+    assert!(app.split_drag.is_none());
+}
+
+#[test]
+fn a_thread_or_a_dm_row_pressed_arms_a_drag_toward_split_view() {
+    let armed = |app: &crate::app::App| app.split_drag.as_ref().map(|drag| drag.room.clone());
+    let (mut app, _folder) = server_with_threads();
+    press_row(&mut app, "Plans", iced::mouse::Button::Left);
+    assert_eq!(armed(&app).as_deref(), Some("discord:10:41"), "the thread");
+
+    let (mut app, _folder) = dms_with_quinn();
+    press_row(&mut app, "Quinn Harlow", iced::mouse::Button::Left);
+    assert_eq!(armed(&app).as_deref(), Some("discord:900"), "the DM");
 }

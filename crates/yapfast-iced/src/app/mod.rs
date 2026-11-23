@@ -192,6 +192,10 @@ pub struct App {
     pub seen_aside: Option<String>,
     pub drafts: crate::thread::Drafts,
     pub popovers: crate::header_popovers::Popovers,
+    /// The room peeked at while Alt is held over the sidebar.
+    pub peek: crate::peek::Peeking,
+    /// A row pressed while rows drag to split view.
+    pub split_drag: Option<crate::split_drag::SplitDrag>,
     pub modal: crate::bot_modal::Shown,
     pub searching: crate::search::Searching,
     /// The forum's form for a post, as typed (`forum.rs`).
@@ -283,6 +287,7 @@ impl App {
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
+            bar_under_frame: !cfg!(test),
             frame: Size::new(width / zoom, height / zoom),
             ..Default::default()
         };
@@ -353,6 +358,8 @@ impl App {
             seen_aside: None,
             drafts: Default::default(),
             popovers: Default::default(),
+            peek: Default::default(),
+            split_drag: None,
             modal: Default::default(),
             searching: Default::default(),
             forum_post: Default::default(),
@@ -550,7 +557,7 @@ impl App {
             }
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
-                Task::none()
+                crate::peek::follow(self)
             }
             Message::FontsLoaded => Task::none(),
             Message::SystemTheme(mode) => {
@@ -647,6 +654,9 @@ impl App {
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => crate::thread::update(self, event),
             Message::Popover(event) => crate::header_popovers::popover_event(self, event),
+            Message::ModView(event) => crate::mod_view::update(self, event),
+            Message::Peek(event) => crate::peek::update(self, event),
+            Message::SplitDrag(event) => crate::split_drag::update(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.modal.update(event, &mut cx)

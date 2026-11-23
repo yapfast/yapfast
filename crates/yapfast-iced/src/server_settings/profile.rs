@@ -5,13 +5,13 @@
 //! the bar saves.
 
 use iced::{
-    Alignment, Element, Length,
-    widget::{column, row, text},
+    Alignment, Background, Color, Element, Length, Padding,
+    widget::{button, column, container, row, stack, text},
 };
 use yapfast_core::{
     application::{
         AFK_TIMEOUTS, BOOSTED, BoostPage, DESCRIPTION_LIMIT, EngagementPage, ProfilePage,
-        SETUP_TIPS, ServerSettings, SettingsChoice, SettingsText, SettingsToggle, WELCOME,
+        SETUP_TIPS, ServerSettings, SettingsChoice, SettingsText, SettingsToggle, TRAITS, WELCOME,
         WELCOME_STICKER,
     },
     chat::ServerPicture,
@@ -24,6 +24,7 @@ use crate::{
     controls::{Kind, action},
     fonts::{BOLD, SEMIBOLD},
     form,
+    pictures::Icon,
 };
 
 /// The inactive timeouts' names, as [`AFK_TIMEOUTS`] lists them.
@@ -34,6 +35,52 @@ const TIMEOUTS: [&str; 5] = [
     "30 minutes",
     "1 hour",
 ];
+
+/// Discord's ten banner colours, as Server Profile offers them, each by
+/// the hex string Discord keeps and its name.
+pub const BANNERS: [(&str, &str); 10] = [
+    ("#0f0f0f", "Black"),
+    ("#ff2f9d", "Pink"),
+    ("#eb2f2c", "Red"),
+    ("#eb7c2c", "Orange"),
+    ("#eccb41", "Yellow"),
+    ("#804699", "Purple"),
+    ("#1daefd", "Blue"),
+    ("#62e7d3", "Teal"),
+    ("#507614", "Green"),
+    ("#363636", "Grey"),
+];
+/// The swatches across, one's height, and the preview's size.
+const SWATCHES_ACROSS: usize = 4;
+const SWATCH: f32 = 48.0;
+const PREVIEW: (f32, f32) = (320.0, 148.0);
+/// The traits across.
+const TRAITS_ACROSS: usize = 3;
+
+/// A hex string such as "#ff73fa", as RGB.
+fn hex_rgb(hex: &str) -> Option<u32> {
+    let digits = hex.strip_prefix('#')?;
+    (digits.len() == 6)
+        .then(|| u32::from_str_radix(digits, 16).ok())
+        .flatten()
+}
+
+/// Discord's banner ground for `tint`: darker at the top, lighter at the
+/// bottom, as it draws the swatches and the banner.
+fn banner_ground(tint: Color) -> Background {
+    let scale = |color: Color, by: f32| Color {
+        r: (color.r * by).min(1.0),
+        g: (color.g * by).min(1.0),
+        b: (color.b * by).min(1.0),
+        a: 1.0,
+    };
+    Background::Gradient(
+        iced::gradient::Linear::new(std::f32::consts::PI)
+            .add_stop(0.0, scale(tint, 1.0 / 1.3))
+            .add_stop(1.0, scale(tint, 1.25))
+            .into(),
+    )
+}
 
 /// Engagement's switches: each system message's bit and words.
 const SYSTEM_MESSAGES: [(u64, &str); 4] = [
@@ -131,6 +178,19 @@ impl<'a> View<'a> {
                 .into(),
             ]),
             form::group([
+                form::heading(theme, "BANNER"),
+                self.banner_preview(page, url, new),
+                self.banner_swatches(page, ready),
+            ]),
+            form::group([
+                form::heading(theme, "TRAITS"),
+                form::note(
+                    theme,
+                    "Add up to 5 traits to show off your server's interests and personality.",
+                ),
+                self.trait_fields(page, ready),
+            ]),
+            form::group([
                 form::heading(theme, "DESCRIPTION"),
                 form::area(
                     theme,
@@ -143,6 +203,162 @@ impl<'a> View<'a> {
                 ),
             ]),
         ])
+    }
+
+    /// The colour picked on a card, as invites show the server, before it's
+    /// saved: its banner in Discord's gradient, its icon and its name; a
+    /// Yapfast addition.
+    fn banner_preview(
+        self,
+        page: &'a ProfilePage,
+        url: Option<&'a str>,
+        new: Option<&'a std::sync::Arc<yapfast_core::chat::Picture>>,
+    ) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let tint = page.brand_color.as_deref().and_then(hex_rgb);
+        let banner_ground = match tint {
+            Some(rgb) => banner_ground(crate::style::hex(rgb)),
+            None => Background::Color(theme.raised),
+        };
+        let banner = container(iced::widget::Space::new())
+            .width(Length::Fill)
+            .height(64)
+            .style(move |_| container::Style {
+                background: Some(banner_ground),
+                ..container::Style::default()
+            });
+        let icon: Element<'a, Message> = match new {
+            Some(picture) => picture_box(
+                self.cx,
+                None,
+                Some(picture),
+                52.0,
+                52.0,
+                14.0,
+                column![].into(),
+            ),
+            None => self.cx.avatar(url, &page.name, 52.0, 14.0, 1.0),
+        };
+        let sidebar = theme.sidebar;
+        let ring = container(icon)
+            .padding(4)
+            .style(move |_| crate::style::rounded(sidebar, 18));
+        let words = column![
+            crate::elide::elide(page.name.as_str())
+                .size(16)
+                .font(BOLD)
+                .color(theme.text),
+            text("Preview").size(12).color(theme.muted),
+        ]
+        .spacing(2);
+        let (ground, line) = (theme.sidebar, theme.line);
+        // The stack takes the whole card, so the words under the icon
+        // aren't cut off at the bottom of the parts above them.
+        container(
+            stack![
+                column![banner],
+                crate::controls::placed(ring, 12.0, 36.0),
+                crate::controls::placed(container(words).width(PREVIEW.0 - 32.0), 16.0, 102.0),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill),
+        )
+        .width(PREVIEW.0)
+        .height(PREVIEW.1)
+        .clip(true)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(ground)),
+            border: iced::Border {
+                color: line,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .into()
+    }
+
+    /// Discord's ten banner colours, four across, each drawn as it draws
+    /// them; the one picked outlined in the accent.
+    fn banner_swatches(self, page: &'a ProfilePage, ready: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let picked = page.brand_color.as_deref();
+        let mut rows = column![].spacing(form::TIGHT);
+        for line in BANNERS.chunks(SWATCHES_ACROSS) {
+            let mut cells = row![].spacing(form::TIGHT);
+            for &(hex, name) in line {
+                let ground = hex_rgb(hex).map(|rgb| banner_ground(crate::style::hex(rgb)));
+                let chosen = picked == Some(hex);
+                let (accent, ink) = (theme.accent, theme.text);
+                let swatch =
+                    button(iced::widget::Space::new())
+                        .width(Length::FillPortion(1))
+                        .height(SWATCH)
+                        .on_press_maybe(ready.then(|| {
+                            message(Event::Write(SettingsText::BrandColor, hex.to_owned()))
+                        }))
+                        .style(move |_, status| button::Style {
+                            background: ground,
+                            border: iced::Border {
+                                color: if chosen {
+                                    accent
+                                } else {
+                                    Color { a: 0.5, ..ink }
+                                },
+                                width: if chosen {
+                                    2.0
+                                } else if status == button::Status::Hovered {
+                                    1.0
+                                } else {
+                                    0.0
+                                },
+                                radius: 8.0.into(),
+                            },
+                            ..button::Style::default()
+                        });
+                cells = cells.push(
+                    iced::widget::tooltip(
+                        swatch,
+                        crate::controls::tip(theme, name),
+                        iced::widget::tooltip::Position::Top,
+                    )
+                    .gap(4),
+                );
+            }
+            // A short last row keeps its cells the others' width.
+            for _ in line.len()..SWATCHES_ACROSS {
+                cells = cells.push(iced::widget::Space::new().width(Length::FillPortion(1)));
+            }
+            rows = rows.push(cells);
+        }
+        container(rows).max_width(PREVIEW.0 * 1.5).into()
+    }
+
+    /// The five traits' fields, three across, each by an id of its place,
+    /// so the one typed in keeps the keys as the page is built again.
+    fn trait_fields(self, page: &'a ProfilePage, ready: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let mut rows = column![].spacing(form::TIGHT);
+        for start in (0..TRAITS).step_by(TRAITS_ACROSS) {
+            let mut cells = row![].spacing(form::TIGHT);
+            for index in start..(start + TRAITS_ACROSS) {
+                let Some(written) = page.traits.get(index) else {
+                    cells = cells.push(iced::widget::Space::new().width(Length::FillPortion(1)));
+                    continue;
+                };
+                cells = cells.push(
+                    container(
+                        form::entry(theme, trait_id(index), "Trait", written.as_str())
+                            .on_input_maybe(ready.then_some(move |text| {
+                                message(Event::Write(SettingsText::Trait(index), text))
+                            })),
+                    )
+                    .width(Length::FillPortion(1)),
+                );
+            }
+            rows = rows.push(cells);
+        }
+        container(rows).padding(Padding::ZERO).into()
     }
 
     /// Engagement: the system messages' channel and switches (which wait
@@ -275,8 +491,9 @@ impl<'a> View<'a> {
         form::page(parts)
     }
 
-    /// Boost Perks: the level, the progress bar's switch, and the banner
-    /// and invite background, each with the level that unlocks it.
+    /// Boost Perks, as Discord's page lays it out: the level, the progress
+    /// bar's switch, then the banner and the invite background, each with
+    /// the level that unlocks it, lines between.
     pub(super) fn boost_page(
         self,
         core: &'a ServerSettings,
@@ -301,30 +518,34 @@ impl<'a> View<'a> {
                 (!core.saving).then(|| message(Event::Toggle(SettingsToggle::ProgressBar))),
             )
             .description(
-                "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).",
+                "Servers with the Boost progress bar enabled get more Boosts. This progress bar will display in your channel list, attached to your server name (or server banner if you have one set).",
             )
             .view(self.cx.look),
+            form::rule(theme),
             self.boost_background(
                 page,
                 ServerPicture::Banner,
                 2,
-                "SERVER BANNER BACKGROUND",
-                "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.",
+                "Server Banner Background",
+                "This image will display at the top of your channels list. The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.",
                 ready,
             ),
+            form::rule(theme),
             self.boost_background(
                 page,
                 ServerPicture::Splash,
                 1,
-                "SERVER INVITE BACKGROUND",
-                "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9.",
+                "Server Invite Background",
+                "This image will display when your server invite is viewed in a browser, as well as in invite confirmation screens and Server Onboarding. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9.",
                 ready,
             ),
         ])
     }
 
-    /// A banner or invite background: the picture at 16 by 9 (or the level
-    /// that unlocks it), with Upload and Remove.
+    /// A banner or invite background, as Discord's Boost Perks has it: its
+    /// title with the level it takes and what it's for on the left, with
+    /// Upload Background (and Remove) once the level unlocks it or "Unlocks
+    /// at Level N" before, and the picture at 16 by 9 on the right.
     fn boost_background(
         self,
         page: &'a BoostPage,
@@ -337,41 +558,78 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let (url, new) = page.picture(kind);
         let unlocked = page.unlocked(kind);
-        let empty = text(if unlocked {
-            "No image".to_owned()
-        } else {
-            format!("Unlocks at Level {level}")
-        })
-        .size(13)
-        .font(SEMIBOLD)
-        .color(theme.muted);
-        let mut buttons = column![action(
-            theme,
-            "Upload Background",
-            Kind::Plain,
-            (ready && unlocked).then(|| message(Event::Pick(kind))),
-        )]
-        .spacing(form::TIGHT);
-        if url.is_some() || new.is_some() {
-            buttons = buttons.push(action(
-                theme,
-                "Remove Background",
-                Kind::Ghost,
-                ready.then(|| message(Event::Remove(kind))),
-            ));
-        }
-        form::group([
-            form::heading(theme, heading),
-            form::note(theme, words),
+        let mut left = column![
             row![
-                picture_box(self.cx, url, new, 240.0, 135.0, 8.0, empty.into()),
-                buttons
+                text(heading).size(16).font(SEMIBOLD).color(theme.text),
+                level_pill(self.cx, level),
             ]
-            .spacing(form::GAP)
-            .align_y(Alignment::Center)
-            .into(),
-        ])
+            .spacing(8)
+            .align_y(Alignment::Center),
+            text(words).size(14).color(theme.secondary),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+        if unlocked {
+            let mut buttons = row![action(
+                theme,
+                "Upload Background",
+                Kind::Primary,
+                ready.then(|| message(Event::Pick(kind))),
+            )]
+            .spacing(8);
+            if url.is_some() || new.is_some() {
+                buttons = buttons.push(action(
+                    theme,
+                    "Remove",
+                    Kind::Ghost,
+                    ready.then(|| message(Event::Remove(kind))),
+                ));
+            }
+            left = left.push(container(buttons).padding(Padding::ZERO.top(4)));
+        } else {
+            left = left.push(
+                text(format!("Unlocks at Level {level}"))
+                    .size(14)
+                    .font(SEMIBOLD)
+                    .color(theme.muted),
+            );
+        }
+        // An empty box shows a picture's mark at its top right.
+        let mark = container(self.cx.look.glyph(Icon::Media, 24, theme.muted))
+            .width(Length::Fill)
+            .align_x(Alignment::End)
+            .padding(10)
+            .into();
+        row![
+            left,
+            picture_box(self.cx, url, new, 240.0, 135.0, 8.0, mark)
+        ]
+        .spacing(24)
+        .into()
     }
+}
+
+/// The boost level a perk takes, as Discord's pill beside its title shows
+/// it: a gem and "LVL 2".
+fn level_pill<'a>(cx: crate::ctx::Ctx<'a>, level: u8) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let ground = theme.hover;
+    container(
+        row![
+            cx.look.glyph(Icon::Gem, 12, theme.secondary),
+            text(format!("LVL {level}"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.text),
+        ]
+        .spacing(3)
+        .align_y(Alignment::Center),
+    )
+    .padding([0, 5])
+    .height(20)
+    .align_y(Alignment::Center)
+    .style(move |_| crate::style::rounded(ground, 10))
+    .into()
 }
 
 /// A list of channels as a page's dropdown shows it, `none` first, and the
@@ -388,4 +646,17 @@ fn channel_list(
         .and_then(|chosen| channels.iter().position(|(id, _)| id == chosen))
         .map_or(0, |index| index + 1);
     (names, index)
+}
+
+/// The id of the trait field at `index`, steady while the page is built
+/// again, so the one typed in keeps its focus.
+fn trait_id(index: usize) -> iced::widget::Id {
+    const IDS: [&str; TRAITS] = [
+        "server-trait-0",
+        "server-trait-1",
+        "server-trait-2",
+        "server-trait-3",
+        "server-trait-4",
+    ];
+    iced::widget::Id::new(IDS[index.min(TRAITS - 1)])
 }

@@ -87,6 +87,8 @@ roles. A ping reply puts the account in `mentions`, so it is a mention,
 highlighted always, as Discord's client does. A reply to its message with the
 ping off is highlighted too, but only while it's new: after the last message
 read when the channel or thread opened, by snowflake.
+The account's own message that names it is highlighted as well, as
+Discord's client does, though it counts as no mention.
 Each server in the rail shows its mentions as a count, and the DM button
 counts DM mentions and the friend requests waiting for an answer. A voice
 channel's unread chat marks its server in the rail only by mentions, as
@@ -206,6 +208,8 @@ Yapfast is back, rather than showing an error.
   The rail applies the move immediately from the last known server list.
   The update replaces the `guild_folders` field. A failed save restores the
   previous arrangement unless Discord has since sent a newer one.
+  A folder's menu leaves out Discord's Move to and Folder Settings; what it
+  offers is in [Notification settings](#notification-settings).
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`
@@ -251,7 +255,9 @@ Yapfast is back, rather than showing an error.
   message: Discord's servers read the linked page's Open Graph tags, often a
   moment after sending, and the preview arrives in a message update. A card
   shows the site, author, title, description, fields and footer behind a bar
-  of its colour, with its picture large for articles and videos and small
+  of its colour, the description's and fields' mentions coloured and custom
+  emoji drawn as in a message's text, as a webhook's or bot's pings show,
+  with its picture large for articles and videos and small
   beside the text otherwise. In the iced client the card on a dark theme is a
   darker ground (#242429) with a 1px line (#313137) round it that its 4px bar
   covers at the left, the bar #3a3a40 when the embed gives no colour; the
@@ -265,11 +271,23 @@ Yapfast is back, rather than showing an error.
   open in the browser. Other pictures, the thumbnail beside the text too,
   open in the image viewer, where a right click on the picture
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
-  menu does. A linked image or GIF
+  menu does. The arrows beside the picture, and the Left and Right keys, step
+  through every image of the conversation's loaded messages, not only the
+  clicked message's, round from the last to the first, a Yapfast addition.
+  A linked image or GIF
   shows with the message's images, without its address when that's all the
-  message says. Pictures come through Discord's
+  message says. A link straight to a video file, which Discord embeds as the
+  video alone, plays under the message as an attached video does, its first
+  frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
+- A bare link to a file sent on Discord (`cdn.discordapp.com` or
+  `media.discordapp.net` under `/attachments/{channel}/{id}/{name}`) shows
+  as an outline paperclip and its file name on a pill of the mention
+  colour, as Discord's client shows it (`links::attachment_name`); a masked
+  one keeps its words. The clip is the kit's icon (Lucide's paperclip)
+  drawn in the pill's colour, once for each size and colour, in the room of
+  a run of its own before the name's (`markdown::FilePart`), 4 px from it.
 - Discord's own links to a server, channel, message or person open that
   place in Yapfast, DM links included; an invite opens Join a Server first,
   an event link shows the scheduled event with its Interested button
@@ -497,7 +515,9 @@ Yapfast is back, rather than showing an error.
   The quote reads "@Name" in the author's role colour
   (`Reply.color`, from the member's roles when the original is known), in
   regular weight, before 13px text in the secondary colour, with any custom emoji
-  in its first line shown inline at 16px (falling back to `:name:` until loaded).
+  in its first line shown inline at 16px (falling back to `:name:` until loaded),
+  and its mentions coloured as its message colours them (`Reply.mentions`: those
+  the one line still holds, each in its role's colour or the mentions').
 - A picture in a message sits straight on the message background: a
   transparent PNG or GIF shows no backdrop, as in Discord. Only the
   loading skeleton draws a fill.
@@ -525,7 +545,8 @@ Yapfast is back, rather than showing an error.
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
-  wrote lately, and server members a search by name finds (the gateway's
+  wrote lately, this account among them as in Discord's client, and server
+  members a search by name finds (the gateway's
   member request with a query, as Discord's client does), then the roles
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's
@@ -1192,6 +1213,20 @@ Discord's do, built alike in `crates/yapfast-iced/src/place_menus.rs`
   heading names its first channel, and Yapfast finds the channel's category
   (`Application::category_of`); an empty category's heading names the
   category itself.
+
+A folder's menu changes its servers together, which Discord's own folder
+menu doesn't offer: `Action::ChangeNotifications` with the folder's id sends
+`DiscordCommand::FolderNotifications`, one `PATCH
+/users/@me/guilds/settings` with the same partial settings for each server,
+`{"guilds": {"<id>": {"muted": true, "mute_config": {...}}, ...}}`, the
+request Discord's client sends a server's own settings through. A mute with
+an end ends at the same moment for each. Discord answers with a
+USER_GUILD_SETTINGS_UPDATE for each server. A server right-clicked under
+Servers opens its own choices, which change that server alone with the
+same request its own menu sends.
+Mark folder as read marks every server's unread channels read, as each
+server's Mark as read does, which is what Discord's client does for a
+folder.
 
 ## Writing without permission
 

@@ -371,8 +371,16 @@ impl App {
         // come and go: the card, the suggestions, the picker, a menu, the
         // modal, each over the last.
         let mut layers = stack![base];
+        // A peek beside the sidebar, under everything that opens.
+        if let Some(peek) = crate::peek::view(self, self.ctx()) {
+            layers = layers.push(peek);
+        }
         if let Some(face) = crate::rail::drag_face(&self.rail, self.ctx()) {
             layers = layers.push(face);
+        }
+        // A row dragged toward split view: the drop zone and its copy.
+        if let Some(zone) = crate::split_drag::view(self) {
+            layers = layers.push(zone);
         }
         // A role's card, under the card of someone on it.
         if let Some(role) = crate::info_cards::role_layers(&self.cards, &self.profiles, self.ctx())

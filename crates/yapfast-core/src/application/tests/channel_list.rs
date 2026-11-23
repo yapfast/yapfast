@@ -431,6 +431,10 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
             CopyId
         ]
     );
+    // Its row offers Edit Channel while pointed at, as its menu does; a
+    // category's heading offers neither.
+    assert_eq!(app.channel_row_actions("discord:10:11"), (false, true));
+    assert_eq!(app.channel_row_actions("discord:10:4"), (false, false));
     assert_eq!(
         app.menu_choices("discord:10:4"),
         [
@@ -472,7 +476,7 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
     assert!(matches!(
         app.dispatch(Action::SaveChannel { kind: ChannelKind::Text, settings: named(" Plans  For Later ") }).as_slice(),
         [Effect::Backend(Command::Discord(DiscordCommand::CreateChannel {
-            server, kind: ChannelKind::Text, parent: None, copy_of: None, settings
+            server, kind: ChannelKind::Text, parent: None, copy_of: None, settings, keep: None
         }))] if server == "discord:10" && settings.name == "plans-for-later"
     ));
     assert!(
@@ -519,6 +523,73 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
     );
     app.dispatch(Action::CloseChannelDialog);
 
+    // From a category heading's "+": one inside it, of the kind chosen; a
+    // forum's name is lower case, as a text channel's, and a private one
+    // keeps this account in, as it hasn't every permission.
+    app.dispatch(Action::NewChannel {
+        place: "discord:10:4".into(),
+        kind: ChannelKind::Text,
+    });
+    let dialog = app.state.channel_dialog.clone().unwrap();
+    assert_eq!(
+        dialog.ask,
+        ChannelAsk::Create {
+            parent: Some("discord:10:4".into())
+        }
+    );
+    assert_eq!(dialog.name, "Talk");
+    let me = app
+        .discord
+        .as_ref()
+        .and_then(|snapshot| snapshot.user_id.clone());
+    assert!(me.is_some());
+    assert!(matches!(
+        app.dispatch(Action::SaveChannel {
+            kind: ChannelKind::Forum,
+            settings: ChannelSettings { private: true, ..named("Big Ideas") },
+        }).as_slice(),
+        [Effect::Backend(Command::Discord(DiscordCommand::CreateChannel {
+            kind: ChannelKind::Forum, parent: Some(parent), settings, keep, ..
+        }))] if parent == "discord:10:4" && settings.name == "big-ideas" && settings.private && *keep == me
+    ));
+    // Made, its Permissions open, ready to add who may see it.
+    app.apply(Event::ChannelSaved(Ok(Some("discord:10:11".into()))));
+    let screen = app
+        .state
+        .channel_settings
+        .clone()
+        .expect("its settings open");
+    assert_eq!(screen.room, "discord:10:11");
+    assert_eq!(screen.section, ChannelSection::Permissions);
+    assert!(
+        screen.permissions.adding.is_some(),
+        "with Add members or roles open"
+    );
+    app.dispatch(Action::ChannelSettings(ChannelInput::Adding(false)));
+    app.dispatch(Action::ChannelSettings(ChannelInput::Close));
+    assert!(app.state.channel_settings.is_none());
+    app.dispatch(Action::NewChannel {
+        place: "discord:10:4".into(),
+        kind: ChannelKind::Text,
+    });
+    assert!(
+        matches!(
+            app.dispatch(Action::SaveChannel {
+                kind: ChannelKind::Stage,
+                settings: named("Show")
+            })
+            .as_slice(),
+            [Effect::Backend(Command::Discord(
+                DiscordCommand::CreateChannel {
+                    kind: ChannelKind::Text,
+                    ..
+                }
+            ))]
+        ),
+        "a stage is a Community server's"
+    );
+    app.dispatch(Action::CloseChannelDialog);
+
     app.dispatch(Action::NewChannel {
         place: "discord:10".into(),
         kind: ChannelKind::Category,
@@ -551,6 +622,7 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
         topic: "Say hi".into(),
         slowmode: 10,
         nsfw: false,
+        ..Default::default()
     };
     app.apply(Event::ChannelLoaded {
         room: "discord:10:12".into(),

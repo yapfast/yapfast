@@ -29,7 +29,7 @@ mod role_input;
 mod roles;
 mod safety;
 
-use audit_log::Known;
+pub(crate) use audit_log::Known;
 pub use audit_log::{
     AUDIT_ACTIONS, AUDIT_PAGE, AuditInput, AuditKind, AuditLine, AuditLogPage, AuditRow,
     Span as AuditSpan, Words as AuditWords,
@@ -46,7 +46,7 @@ pub use invites::{InviteInput, InvitesPage, PAUSE_HOURS, SecurityDraft};
 pub use members::{MEMBER_PAGE_SIZES, MEMBER_SORTS, MEMBERS_CHUNK, MemberInput, MembersPage};
 pub use ownership::{DeleteAsk, Ownership, OwnershipInput, TransferAsk};
 pub use permissions::{PermissionGroup, PermissionInfo, ROLE_PERMISSIONS};
-pub use profile::{DESCRIPTION_LIMIT, ProfilePage, SettingsText};
+pub use profile::{DESCRIPTION_LIMIT, ProfilePage, SettingsText, TRAIT_LIMIT, TRAITS};
 pub use role_input::RoleInput;
 pub use roles::{
     ADD_MEMBERS_LIMIT, AddMembers, DEFAULT_ROLE_COLOR, PermissionLock, ROLE_COLORS,
@@ -383,6 +383,9 @@ impl Application {
         query: AuditQuery,
         result: Result<AuditLog, String>,
     ) {
+        if query.target.is_some() {
+            return self.mod_view_log(server, query, result);
+        }
         let asked = |settings: &ServerSettings| {
             settings.server == server
                 && matches!(&settings.page, Some(Page::AuditLog(page))

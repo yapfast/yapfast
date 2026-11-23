@@ -92,6 +92,10 @@ pub struct Shell {
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
+    /// Under the desktop's own title bar, or none, Discord's bar still
+    /// shows, without the window's buttons; the tests lay the window out
+    /// without it unless one asks.
+    pub bar_under_frame: bool,
     /// That the GPU failed to start, until the banner is dismissed.
     pub gpu_notice: bool,
 }
@@ -188,6 +192,11 @@ impl App {
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
+                if !focused {
+                    // Alt may be let go elsewhere.
+                    self.modifiers = iced::keyboard::Modifiers::default();
+                    return crate::peek::follow(self);
+                }
                 if focused {
                     return window::request_user_attention(id, None);
                 }
@@ -424,6 +433,12 @@ impl App {
                 // The notification of a newer release opens About.
                 if room == ABOUT {
                     return Task::batch([open, crate::updates::open_about(self)]);
+                }
+                // Its Open in split view: beside the open room.
+                if let Some(room) = room.strip_prefix(crate::desktop::SPLIT) {
+                    let closed = self.close_settings();
+                    self.client.dispatch(Action::OpenSplit(room.to_owned()));
+                    return Task::batch([open, closed, self.sync()]);
                 }
                 let closed = self.close_settings();
                 self.client.dispatch(Action::OpenChat(room));
@@ -736,7 +751,8 @@ impl App {
             && !focused
             && let Some(notifier) = &self.shell.notifier
         {
-            notifier.show(alert, prefs.notification_text.unwrap_or(true));
+            let split = notify_split(self, &alert.room);
+            notifier.show(alert, prefs.notification_text.unwrap_or(true), split);
         }
         task
     }
@@ -916,4 +932,12 @@ impl App {
             _ => None,
         })
     }
+}
+
+/// Whether a message's notification offers Open in split view: with split
+/// view and its notification button on, for a room split view can show.
+pub(crate) fn notify_split(app: &App, room: &str) -> bool {
+    app.layout.split_view
+        && app.layout.split_notify.unwrap_or(true)
+        && app.client.state().can_split(room)
 }

@@ -294,11 +294,16 @@ pub(crate) fn write_server_order(folders: &[&[u64]]) -> String {
 pub(crate) fn write_server_list(entries: &[Folder]) -> String {
     let mut message = Vec::new();
     for entry in entries {
+        // A server id that isn't a snowflake has no place in the list.
         let packed: Vec<u8> = entry
             .servers
             .iter()
-            .flat_map(|id| id.parse::<u64>().unwrap().to_le_bytes())
+            .filter_map(|id| id.parse::<u64>().ok())
+            .flat_map(u64::to_le_bytes)
             .collect();
+        if packed.is_empty() {
+            continue;
+        }
         let mut folder = Vec::new();
         put_bytes(&mut folder, FOLDER_GUILDS, &packed);
         if let Ok(id) = entry.id.parse::<u64>() {
@@ -326,7 +331,12 @@ pub(crate) fn write_server_list(entries: &[Folder]) -> String {
 }
 
 /// Builds a patch that moves a server. With `before` set, insert beside the
-/// target. Otherwise, put the server into the target's folder.
+/// target. Otherwise, put the server into the target's folder; a folder
+/// this makes takes `color`.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a drop's every part, as the rail sends it"
+)]
 pub(crate) fn file_server<'a>(
     list: &ServerList,
     joined: impl Iterator<Item = &'a str>,
@@ -335,6 +345,7 @@ pub(crate) fn file_server<'a>(
     target: &str,
     folder: bool,
     before: Option<bool>,
+    color: Option<u32>,
 ) -> Option<String> {
     if source_folder == folder && server == target {
         return None;
@@ -388,6 +399,8 @@ pub(crate) fn file_server<'a>(
     let source = entries
         .iter()
         .position(|entry| entry.servers.iter().any(|id| id == server))?;
+    // The folder the server leaves, which goes if only one is left in it.
+    let left = entries[source].id.clone();
     if let Some(before) = before {
         let nested = !folder && !entries[destination].id.is_empty();
         entries[source].servers.retain(|id| id != server);
@@ -405,6 +418,7 @@ pub(crate) fn file_server<'a>(
             );
         }
         entries.retain(|entry| !entry.servers.is_empty());
+        dissolve_if_alone(&mut entries, &left);
         return Some(write_server_list(&entries));
     }
     if source == destination {
@@ -418,13 +432,34 @@ pub(crate) fn file_server<'a>(
             }
         };
         entries[destination].id = id;
+        // A folder made here takes the colour the rail picked.
+        entries[destination].color = color;
     }
     entries[source].servers.retain(|id| id != server);
     entries[destination].servers.push(server.to_owned());
     if entries[source].servers.is_empty() {
         entries.remove(source);
     }
+    dissolve_if_alone(&mut entries, &left);
     Some(write_server_list(&entries))
+}
+
+/// The folder `left` (by its id), if a server leaving it left one server
+/// in it, goes, that server staying in its place on its own, as Discord's
+/// client takes such a folder apart. A folder that already held one server
+/// stays.
+fn dissolve_if_alone(entries: &mut [Folder], left: &str) {
+    if left.is_empty() {
+        return;
+    }
+    if let Some(entry) = entries
+        .iter_mut()
+        .find(|entry| entry.id == left && entry.servers.len() == 1)
+    {
+        entry.id.clear();
+        entry.name = None;
+        entry.color = None;
+    }
 }
 
 /// The values of a repeated `fixed64` field: packed, or one by one.
@@ -726,6 +761,97 @@ pub(crate) fn put_field(out: &mut Vec<u8>, number: u64, field: &Field<'_>) {
 mod tests {
     use super::*;
 
+    /// A server list as Discord's client writes it, byte for byte: a server
+    /// on its own (no id), a folder whose `Int64Value` id is negative (ten
+    /// bytes, as an id from another client can be), named and coloured, a
+    /// folder with the largest id Discord's client makes and nothing else,
+    /// and the old `guild_positions` after them. Read and written back,
+    /// its folders come out the same bytes, so no folder loses its id, name
+    /// or colour, and no server moves.
+    #[test]
+    fn a_server_list_from_discord_writes_back_unchanged() {
+        let single = |servers: &[u64]| {
+            let mut entry = Vec::new();
+            let packed: Vec<u8> = servers.iter().flat_map(|id| id.to_le_bytes()).collect();
+            put_bytes(&mut entry, FOLDER_GUILDS, &packed);
+            entry
+        };
+        let folder = |servers: &[u64], id: i64, name: Option<&str>, color: Option<u64>| {
+            let mut entry = single(servers);
+            let mut wrapper = Vec::new();
+            put_varint(&mut wrapper, 1 << 3 | VARINT);
+            put_varint(&mut wrapper, id as u64);
+            put_bytes(&mut entry, FOLDER_ID, &wrapper);
+            if let Some(name) = name {
+                let mut wrapper = Vec::new();
+                put_bytes(&mut wrapper, 1, name.as_bytes());
+                put_bytes(&mut entry, FOLDER_NAME, &wrapper);
+            }
+            if let Some(color) = color {
+                let mut wrapper = Vec::new();
+                put_varint(&mut wrapper, 1 << 3 | VARINT);
+                put_varint(&mut wrapper, color);
+                put_bytes(&mut entry, FOLDER_COLOR, &wrapper);
+            }
+            entry
+        };
+        let entries = [
+            single(&[30]),
+            folder(&[10, 40], -5, Some("Raid"), Some(0xed4245)),
+            folder(&[20, 50], 4_294_967_295, None, None),
+        ];
+        let mut folders = Vec::new();
+        for entry in &entries {
+            put_bytes(&mut folders, FOLDERS, entry);
+        }
+        let mut message = folders.clone();
+        let positions: Vec<u8> = [30u64, 10, 40, 20, 50]
+            .iter()
+            .flat_map(|id| id.to_le_bytes())
+            .collect();
+        put_bytes(&mut message, GUILD_POSITIONS, &positions);
+        let mut settings = Vec::new();
+        put_bytes(&mut settings, GUILD_FOLDERS, &message);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(settings);
+
+        let list = server_list(&encoded).unwrap();
+        assert_eq!(list.order, ["30", "10", "40", "20", "50"]);
+        assert_eq!(list.folders[0].id, (-5i64 as u64).to_string());
+        assert_eq!(list.folders[0].name.as_deref(), Some("Raid"));
+        assert_eq!(list.folders[0].color, Some(0xed4245));
+        assert_eq!(list.folders[1].id, "4294967295");
+        // Back in the rail's order, each server outside a folder alone.
+        let mut back = vec![Folder {
+            servers: vec!["30".into()],
+            ..Folder::default()
+        }];
+        back.extend(list.folders.iter().cloned());
+        let written = base64::engine::general_purpose::STANDARD
+            .decode(write_server_list(&back))
+            .unwrap();
+        assert_eq!(message_of(&written), folders, "the same bytes as Discord's");
+    }
+
+    /// The `guild_folders` message of settings bytes.
+    fn message_of(settings: &[u8]) -> Vec<u8> {
+        message(settings, GUILD_FOLDERS).unwrap().to_vec()
+    }
+
+    #[test]
+    fn a_server_id_that_isnt_a_snowflake_is_left_out_not_a_crash() {
+        let written = write_server_list(&[
+            Folder {
+                servers: vec!["abc".into()],
+                ..Folder::default()
+            },
+            Folder {
+                servers: vec!["1".into()],
+                ..Folder::default()
+            },
+        ]);
+        assert_eq!(server_list(&written).unwrap().order, ["1"]);
+    }
+
     #[test]
     fn reads_the_server_list_with_its_folders() {
         let folder = |id: &str, name: Option<&str>, color, servers: &[&str]| Folder {
@@ -765,6 +891,7 @@ mod tests {
                 target,
                 folder,
                 before,
+                None,
             )
         };
         let named = Folder {
@@ -799,6 +926,98 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_made_by_a_drop_takes_the_colour_given() {
+        let list = ServerList {
+            order: ["1", "2"].map(str::to_owned).into(),
+            folders: Vec::new(),
+        };
+        let made = file_server(
+            &list,
+            [].into_iter(),
+            "2",
+            false,
+            "1",
+            false,
+            None,
+            Some(0xdc1e28),
+        )
+        .unwrap();
+        let made = server_list(&made).unwrap();
+        assert_eq!(made.folders[0].servers, ["1", "2"]);
+        assert_eq!(made.folders[0].color, Some(0xdc1e28));
+        // A folder already there keeps its own colour.
+        let joined = file_server(
+            &ServerList {
+                order: ["1", "2", "3"].map(str::to_owned).into(),
+                folders: made.folders.clone(),
+            },
+            [].into_iter(),
+            "3",
+            false,
+            &made.folders[0].id,
+            true,
+            None,
+            Some(0x123456),
+        )
+        .unwrap();
+        assert_eq!(
+            server_list(&joined).unwrap().folders[0].color,
+            Some(0xdc1e28)
+        );
+    }
+
+    #[test]
+    fn a_folder_left_with_one_server_goes() {
+        let folder = Folder {
+            id: "42".into(),
+            name: Some("Pair".into()),
+            color: Some(0x112233),
+            servers: vec!["1".into(), "2".into()],
+        };
+        let list = ServerList {
+            order: ["1", "2", "3"].map(str::to_owned).into(),
+            folders: vec![folder],
+        };
+        let out = file_server(
+            &list,
+            [].into_iter(),
+            "2",
+            false,
+            "3",
+            false,
+            Some(false),
+            None,
+        )
+        .unwrap();
+        let out = server_list(&out).unwrap();
+        assert_eq!(out.order, ["1", "3", "2"]);
+        assert!(out.folders.is_empty(), "{:?}", out.folders);
+        // A folder of one the drop didn't leave stays a folder.
+        let lone = Folder {
+            id: "7".into(),
+            name: Some("Solo".into()),
+            color: None,
+            servers: vec!["4".into()],
+        };
+        let list = ServerList {
+            order: ["1", "4", "5"].map(str::to_owned).into(),
+            folders: vec![lone.clone()],
+        };
+        let out = file_server(
+            &list,
+            [].into_iter(),
+            "1",
+            false,
+            "5",
+            false,
+            Some(false),
+            None,
+        )
+        .unwrap();
+        assert_eq!(server_list(&out).unwrap().folders, [lone]);
+    }
+
+    #[test]
     fn moving_a_folder_keeps_its_id_metadata_and_servers() {
         let folder = Folder {
             id: "42".into(),
@@ -815,14 +1034,35 @@ mod tests {
             order: ["1", "2", "3", "4", "5"].map(str::to_owned).into(),
             folders: vec![folder.clone(), other.clone()],
         };
-        let patch =
-            file_server(&list, [].into_iter(), "42", true, "43", true, Some(false)).unwrap();
+        let patch = file_server(
+            &list,
+            [].into_iter(),
+            "42",
+            true,
+            "43",
+            true,
+            Some(false),
+            None,
+        )
+        .unwrap();
         let moved = server_list(&patch).unwrap();
         assert_eq!(moved.order, ["3", "4", "5", "1", "2"]);
         assert_eq!(moved.folders, [other, folder]);
 
-        assert!(file_server(&list, [].into_iter(), "42", true, "2", false, Some(false)).is_none());
-        assert!(file_server(&list, [].into_iter(), "42", true, "43", true, None).is_none());
+        assert!(
+            file_server(
+                &list,
+                [].into_iter(),
+                "42",
+                true,
+                "2",
+                false,
+                Some(false),
+                None
+            )
+            .is_none()
+        );
+        assert!(file_server(&list, [].into_iter(), "42", true, "43", true, None, None).is_none());
     }
 
     fn status_only(status: &str) -> String {

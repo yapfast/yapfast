@@ -43,6 +43,11 @@ pub struct Rail {
     pub items: Vec<RailItem>,
     pub scroll: crate::sync::Scroll,
     dragging: Option<Drag>,
+    /// The closed folder a drag is held over, whose timer opens it.
+    held: Option<String>,
+    /// Counts the drops, so the timer that takes the Undo away takes only
+    /// its own drop's.
+    undos: u64,
 }
 
 struct Drag {
@@ -83,6 +88,8 @@ impl Rail {
             items: Vec::new(),
             scroll: crate::sync::Scroll::new(height),
             dragging: None,
+            held: None,
+            undos: 0,
         }
     }
 }
@@ -155,6 +162,10 @@ const PILL_UNREAD: f32 = 8.0;
 const CARD_ROOMS: usize = 4;
 const CARD_FACES: usize = 6;
 const CARD_WIDTH: f32 = 220.0;
+/// How long a dragged server waits over a closed folder before it opens,
+/// and how long Undo shows after a drop.
+const OPEN_HELD: std::time::Duration = std::time::Duration::from_millis(600);
+const UNDO_FOR: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// What's done on the rail.
 #[derive(Clone, Debug)]
@@ -169,6 +180,13 @@ pub enum Event {
     DragAt(iced::Point),
     Drop,
     CancelDrag,
+    /// Held over a closed folder while dragging, long enough to open it.
+    OpenHeld(String),
+    /// Undo the last drop, from the line over the conversation.
+    Undo,
+    /// The Undo goes: six seconds after the drop it counts (or at once,
+    /// Dismissed).
+    UndoGone(Option<u64>),
     Folder(String),
     /// An unread DM on the rail opens.
     Dm(String),
@@ -176,6 +194,9 @@ pub enum Event {
     /// A right click on a server, a folder or an unread DM: its menu, where
     /// the pointer was pressed.
     Menu(String, iced::Point),
+    /// A middle click on a server or a folder marks it all read, as its
+    /// menu's Mark as read does.
+    MarkRead(String),
 }
 
 /// The DM home's marks.
@@ -622,6 +643,14 @@ struct Marks<'a> {
     /// A right click on it opens its menu.
     menu: bool,
     draggable: bool,
+    /// A middle click on it marks it read: a server's or a folder's tile.
+    read: bool,
+}
+
+/// The closed folder a drop would go into, which opens when held there.
+fn opens_when_held(drop: Destination<'_>) -> Option<String> {
+    (drop.before.is_none() && matches!(drop.item.kind, Kind::Folder { open: false, .. }))
+        .then(|| drop.target.to_owned())
 }
 
 impl Rail {
@@ -760,11 +789,47 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             if let Some(drag) = &mut app.rail.dragging {
                 drag.at = at;
             }
-            return Task::none();
+            // Held over a closed folder a moment, it opens, to drop between
+            // its servers, as Discord's does.
+            let held = View {
+                s: &app.rail,
+                cx: app.ctx(),
+            }
+            .destination()
+            .and_then(opens_when_held);
+            if held == app.rail.held {
+                return Task::none();
+            }
+            app.rail.held.clone_from(&held);
+            return match held {
+                Some(folder) => crate::after(OPEN_HELD, Message::Rail(Event::OpenHeld(folder))),
+                None => Task::none(),
+            };
         }
         Event::CancelDrag => {
             app.rail.dragging = None;
+            app.rail.held = None;
             return Task::none();
+        }
+        Event::OpenHeld(folder) => {
+            if app.rail.dragging.is_none()
+                || app.rail.held.as_deref() != Some(folder.as_str())
+                || app.layout.open_folders.contains(&folder)
+            {
+                return Task::none();
+            }
+            app.rail.held = None;
+            app.layout.open_folders.insert(folder);
+            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
+            app.rail.items = rail(app.client.state(), &app.layout.open_folders);
+            return Task::none();
+        }
+        Event::Undo => app.client.dispatch(Action::UndoRailMove),
+        Event::UndoGone(drop) => {
+            if drop.is_some_and(|drop| drop != app.rail.undos) {
+                return Task::none();
+            }
+            app.client.dispatch(Action::ForgetRailUndo);
         }
         Event::Drop => {
             let view = View {
@@ -775,12 +840,30 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 .destination()
                 .map(|drop| (drop.target.to_owned(), drop.before));
             if let (Some(drag), Some((target, before))) = (app.rail.dragging.take(), destination) {
+                // A server dropped on a server makes a folder of the two, in
+                // the colour the one under it shows most (a Yapfast
+                // addition; Discord's client always uses its default).
+                let color = (before.is_none()
+                    && discord::parse_folder(&drag.server).is_none()
+                    && discord::parse_server(&target).is_some())
+                .then(|| icon_colour(app.client.state(), &target))
+                .flatten();
                 app.client.dispatch(Action::FileServer {
                     server: drag.server,
                     target,
                     before,
+                    color,
                 });
+                // Undo shows for six seconds.
+                app.rail.undos += 1;
+                let undos = app.rail.undos;
+                app.rail.held = None;
+                return Task::batch([
+                    app.sync(),
+                    crate::after(UNDO_FOR, Message::Rail(Event::UndoGone(Some(undos)))),
+                ]);
             }
+            app.rail.held = None;
             return app.sync();
         }
         Event::Home => {
@@ -818,6 +901,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Menu(id, at) => {
             return crate::place_menus::open_place_menu(app, &id, at, false);
         }
+        Event::MarkRead(id) => app.client.dispatch(Action::MarkRead(id)),
     }
     app.sync()
 }
@@ -2123,6 +2207,7 @@ impl<'a> View<'a> {
                 && (matches!(item.kind, Kind::Folder { .. })
                     || (matches!(item.kind, Kind::Server | Kind::Nested { .. })
                         && discord::parse_server(&item.id).is_some())),
+            read: !matches!(item.kind, Kind::Add | Kind::Dm | Kind::Divider),
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.
@@ -2312,21 +2397,25 @@ impl<'a> View<'a> {
             0.0
         };
         let ink = theme.token_colour("pill", theme.text);
+        // The pill keeps its place in the stack even while it's hidden, so
+        // the tile after it keeps its own: a pill coming as the pointer
+        // arrives would otherwise move the tile, and the press it had just
+        // taken, for a drag or a click, would be lost.
         let mut layers = stack![];
-        if pill > 0.0 {
+        {
             let (pill_x, pill_y, pill_width, pill_height, pill_corners) = if top_rail {
                 (
                     left + (tile_width - pill) / 2.0,
                     themed_top_height(self.cx.themes.package_layout(&theme.id)) - 4.0,
                     pill,
-                    4.0,
+                    if pill > 0.0 { 4.0 } else { 0.0 },
                     [4.0, 4.0, 0.0, 0.0],
                 )
             } else {
                 (
                     if right_rail { rail_width - 4.0 } else { 0.0 },
                     tile_top + (tile_height - pill) / 2.0,
-                    4.0,
+                    if pill > 0.0 { 4.0 } else { 0.0 },
                     pill,
                     if right_rail {
                         [4.0, 0.0, 0.0, 4.0]
@@ -2512,6 +2601,11 @@ impl<'a> View<'a> {
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Rail(Event::Point(id.clone(), true)))
             .on_exit(Message::Rail(Event::Point(id.clone(), false)));
+        let hover = if marks.read {
+            hover.on_middle_press(Message::Rail(Event::MarkRead(id.clone())))
+        } else {
+            hover
+        };
         let tile: Element<'a, Message> = if marks.draggable {
             let server = id.clone();
             Drags::new(hover)
@@ -2792,9 +2886,83 @@ impl<'a> View<'a> {
     }
 }
 
+/// The colour the icon of the server `id` shows most, as RGB, for a folder
+/// made from it; none while it hasn't loaded. Its opaque pixels fall in
+/// coarse bins, each counted more the more colourful it is, so a logo's
+/// colour wins over a white or black ground; the winning bin's mean is the
+/// colour.
+fn icon_colour(state: &AppState, id: &str) -> Option<u32> {
+    let url = state
+        .servers
+        .iter()
+        .find(|server| server.id == id)?
+        .icon
+        .as_deref()?;
+    let picture = state.pictures.get(url)?;
+    let bgra = crate::pictures::byte_order(picture) == yapfast_core::dominant_colour::Order::Bgra;
+    main_colour(&picture.rgba, bgra)
+}
+
+/// The colour `pixels`, four bytes each, show most; see [`icon_colour`].
+fn main_colour(pixels: &[u8], bgra: bool) -> Option<u32> {
+    let mut bins = vec![(0u64, [0u64; 3]); 512];
+    for pixel in pixels.chunks_exact(4) {
+        if pixel[3] < 128 {
+            continue;
+        }
+        let rgb = if bgra {
+            [pixel[2], pixel[1], pixel[0]]
+        } else {
+            [pixel[0], pixel[1], pixel[2]]
+        };
+        let bin = rgb
+            .iter()
+            .fold(0, |bin, &value| bin << 3 | usize::from(value >> 5));
+        let entry = &mut bins[bin];
+        entry.0 += 1;
+        for (sum, value) in entry.1.iter_mut().zip(rgb) {
+            *sum += u64::from(value);
+        }
+    }
+    let score = |(count, sums): &(u64, [u64; 3])| {
+        let mean = sums.map(|sum| sum / (*count).max(1));
+        let high = mean.iter().copied().max().unwrap_or_default();
+        let low = mean.iter().copied().min().unwrap_or_default();
+        // Grey counts a fifth as much as a fully saturated colour.
+        count * (51 + (high - low))
+    };
+    let (count, sums) = bins
+        .iter()
+        .filter(|bin| bin.0 > 0)
+        .max_by_key(|bin| score(bin))?;
+    let [red, green, blue] = sums.map(|sum| sum / count);
+    Some((red as u32) << 16 | (green as u32) << 8 | blue as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folders_colour_is_what_its_icon_shows_most_colourfully() {
+        // A red logo on a larger white ground, with see-through corners.
+        let mut pixels = Vec::new();
+        pixels.extend([255, 255, 255, 255].repeat(60));
+        pixels.extend([220, 30, 40, 255].repeat(30));
+        pixels.extend([0, 0, 0, 0].repeat(10));
+        assert_eq!(super::main_colour(&pixels, false), Some(0xdc1e28));
+        // The same in tiny-skia's order.
+        let bgra: Vec<u8> = pixels
+            .chunks_exact(4)
+            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], pixel[3]])
+            .collect();
+        assert_eq!(super::main_colour(&bgra, true), Some(0xdc1e28));
+        assert_eq!(
+            super::main_colour(&[0, 0, 0, 0], false),
+            None,
+            "nothing opaque"
+        );
+    }
 
     fn item(id: String, kind: Kind) -> RailItem {
         RailItem {
@@ -2873,5 +3041,47 @@ mod tests {
             Some((first, Some(true)))
         );
         assert_eq!(drop_at(&discord::server_id("4"), LIST_TOP - GAP), None);
+    }
+
+    #[test]
+    fn a_server_held_over_a_closed_folders_middle_opens_it() {
+        let tint = FOLDER_COLOR;
+        let mut rail = Rail::new(600.0);
+        rail.items = vec![
+            item(discord::server_id("1"), Kind::Server),
+            item(
+                "discord-folder:9".into(),
+                Kind::Folder {
+                    open: false,
+                    tint,
+                    preview: Vec::new(),
+                },
+            ),
+        ];
+        let held = |rail: &mut Rail, server: String, y: f32| {
+            rail.dragging = Some(Drag {
+                server,
+                at: iced::Point::new(36.0, y),
+                grab: iced::Point::ORIGIN,
+            });
+            rail.destination(0.0).and_then(opens_when_held)
+        };
+        let middle = LIST_TOP + (TILE + GAP) + FOLDER / 2.0;
+        assert_eq!(
+            held(&mut rail, discord::server_id("1"), middle).as_deref(),
+            Some("discord-folder:9")
+        );
+        // Its edge drops beside it, and a folder never goes into one.
+        let edge = LIST_TOP + (TILE + GAP) + 1.0;
+        assert_eq!(held(&mut rail, discord::server_id("1"), edge), None);
+        rail.items.push(item(
+            "discord-folder:8".into(),
+            Kind::Folder {
+                open: false,
+                tint,
+                preview: Vec::new(),
+            },
+        ));
+        assert_eq!(held(&mut rail, "discord-folder:8".into(), middle), None);
     }
 }

@@ -145,6 +145,71 @@ impl<'a> Page<'a> {
                 prefs.strip_tracking.unwrap_or(true),
                 Pref::StripTracking,
             ),
+            self.flip(
+                "Peek at channels",
+                "Hold Alt over a channel or DM in the list to see its newest messages without opening it or marking it read.",
+                self.cx.layout.peek_channels,
+                Pref::PeekChannels,
+            ),
+            self.flip(
+                "Search DMs with the quick switcher",
+                "The box at the top of the DM list opens the quick switcher, as Discord's \"Find or start a conversation\" does, instead of filtering the list.",
+                self.cx.layout.dm_search_switcher,
+                Pref::DmSearchSwitcher,
+            ),
+            self.split_switches(),
         ])
+    }
+
+    /// Split view's switch, once a Discord account is linked, and while
+    /// it's on, the switches of its parts under it.
+    fn split_switches(self) -> Element<'a, Message> {
+        if !self.linked() {
+            return iced::widget::Space::new().into();
+        }
+        let layout = self.cx.layout;
+        let mut shown = iced::widget::column![self.flip(
+            "Split view",
+            "Open a channel or DM beside the open one, with its own messages and composer, from its menu.",
+            layout.split_view,
+            Pref::SplitView,
+        )];
+        if layout.split_view {
+            let parts = iced::widget::column![
+                self.flip(
+                    "Drag rows to open",
+                    "Drag a channel or DM out of the list onto the right half of the conversation.",
+                    layout.split_drag.unwrap_or(true),
+                    Pref::SplitDrag,
+                ),
+                self.flip(
+                    "Ctrl+click and middle click to open",
+                    "On a channel or DM in the list. Off, Ctrl+click opens it as a click does.",
+                    layout.split_click.unwrap_or(true),
+                    Pref::SplitClick,
+                ),
+                self.flip(
+                    "Reopen the split on start",
+                    "The channel or DM beside comes back the next time Yapfast opens.",
+                    layout.split_restore.unwrap_or(true),
+                    Pref::SplitRestore,
+                ),
+                self.flip(
+                    "Notification button",
+                    "A message's notification offers Open in split view beside Open, where the desktop shows buttons.",
+                    layout.split_notify.unwrap_or(true),
+                    Pref::SplitNotify,
+                ),
+                self.flip(
+                    "Unread dot",
+                    "A dot by the split's name when someone writes there while you type on the other side.",
+                    layout.split_dot.unwrap_or(true),
+                    Pref::SplitDot,
+                ),
+            ];
+            shown =
+                shown.push(iced::widget::container(parts).padding(iced::Padding::ZERO.left(24)));
+        }
+        shown.into()
     }
 }

@@ -105,6 +105,14 @@ pub enum SideRow {
         collapsed: bool,
     },
     Room(Box<Room>),
+    /// Discord's Show All at the end of a category whose empty voice
+    /// channels past the first three are folded, by what the category folds
+    /// by, with the names it hides; Hide Voice Channels once `shown`.
+    VoiceMore {
+        fold: String,
+        shown: bool,
+        hidden: Vec<String>,
+    },
     /// What the list says when it has no rows.
     Empty(&'static str),
 }
@@ -119,6 +127,7 @@ impl SideRow {
             SideRow::PinnedEnd => "pinned-end".into(),
             SideRow::Heading { fold, .. } => format!("heading:{fold}"),
             SideRow::Room(room) => room.id.clone(),
+            SideRow::VoiceMore { fold, .. } => format!("voice-more:{fold}"),
             SideRow::Empty(_) => "empty".into(),
         }
     }
@@ -147,6 +156,7 @@ impl SideRow {
                         GAP + room.people.len() as f32 * PERSON + 4.0
                     }
             }
+            SideRow::VoiceMore { .. } => ROW,
             SideRow::Empty(_) => 40.0,
         }
     }
@@ -242,13 +252,16 @@ pub fn room_icon(room: &ChatRoom) -> Icon {
 /// Requests, the heading and the DMs (pinned first), message requests and
 /// spam left to their screen; in a server its pinned channels under their
 /// heading, then each category's heading and channels, folded as
-/// `collapsed` says, a channel's threads after it. `filter` keeps the
-/// conversations whose names hold it.
+/// `collapsed` says, a channel's threads after it. Past a category's first
+/// three empty voice channels, the rest fold behind Show All, unless
+/// `voice_shown` has the category. `filter` keeps the conversations whose
+/// names hold it.
 pub fn sidebar(
     state: &AppState,
     categories: &[ListedCategory],
     collapsed: &HashMap<String, BTreeSet<String>>,
     filter: &str,
+    voice_shown: &HashMap<String, BTreeSet<String>>,
     dark: bool,
 ) -> Vec<SideRow> {
     sidebar_in(
@@ -257,6 +270,7 @@ pub fn sidebar(
         categories,
         collapsed,
         filter,
+        voice_shown,
         dark,
     )
 }
@@ -269,6 +283,7 @@ pub fn sidebar_in(
     categories: &[ListedCategory],
     collapsed: &HashMap<String, BTreeSet<String>>,
     filter: &str,
+    voice_shown: &HashMap<String, BTreeSet<String>>,
     dark: bool,
 ) -> Vec<SideRow> {
     let cosmetics = state.cosmetics;
@@ -575,6 +590,10 @@ pub fn sidebar_in(
                 .map(empty_heading),
         );
     }
+    if !direct {
+        let shown = server.and_then(|server| voice_shown.get(&server.id));
+        rows = fold_voice(rows, shown, voice_room);
+    }
     if !rows
         .iter()
         .any(|row| matches!(row, SideRow::Room(_) | SideRow::Heading { .. }))
@@ -589,4 +608,149 @@ pub fn sidebar_in(
         rows.push(SideRow::Empty(empty));
     }
     rows
+}
+
+/// How many of a category's empty voice channels show before Discord's
+/// Show All.
+pub const EMPTY_VOICE_SHOWN: usize = 3;
+
+/// Folds each category's empty voice channels past the first three behind
+/// Show All at its end, as Discord's channel list does, unless `shown` has
+/// the category, where Hide Voice Channels folds them again. One with
+/// people in it, the selected one, an unread one and the call this account
+/// is in always show, and count for none of the three. Pinned channels
+/// stay as they are.
+fn fold_voice(
+    rows: Vec<SideRow>,
+    shown: Option<&BTreeSet<String>>,
+    voice_room: Option<&str>,
+) -> Vec<SideRow> {
+    let mut listed = Vec::with_capacity(rows.len());
+    // The category the rows come under, its quiet voice channels so far
+    // and the names of those past the first three.
+    let mut group: Option<String> = None;
+    let mut quiet = 0;
+    let mut hidden: Vec<String> = Vec::new();
+    let mut pinned = false;
+    let close = |listed: &mut Vec<SideRow>, group: &Option<String>, hidden: &mut Vec<String>| {
+        if let Some(fold) = group
+            && !hidden.is_empty()
+        {
+            listed.push(SideRow::VoiceMore {
+                fold: fold.clone(),
+                shown: shown.is_some_and(|shown| shown.contains(fold)),
+                hidden: std::mem::take(hidden),
+            });
+        }
+        hidden.clear();
+    };
+    for row in rows {
+        match &row {
+            SideRow::Pinned => pinned = true,
+            SideRow::PinnedEnd => pinned = false,
+            SideRow::Heading { fold, .. } => {
+                close(&mut listed, &group, &mut hidden);
+                group = Some(fold.clone());
+                quiet = 0;
+            }
+            SideRow::Room(room)
+                if !pinned
+                    && group.is_some()
+                    && room.voice
+                    && !room.thread
+                    && !room.selected
+                    && !room.unread
+                    && room.people.is_empty()
+                    && voice_room != Some(room.id.as_str()) =>
+            {
+                quiet += 1;
+                if quiet > EMPTY_VOICE_SHOWN {
+                    hidden.push(room.name.clone());
+                    let unfolded = group
+                        .as_ref()
+                        .is_some_and(|fold| shown.is_some_and(|shown| shown.contains(fold)));
+                    if !unfolded {
+                        continue;
+                    }
+                }
+            }
+            _ => {}
+        }
+        listed.push(row);
+    }
+    close(&mut listed, &group, &mut hidden);
+    listed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn room(id: &str, voice: bool) -> SideRow {
+        SideRow::Room(Box::new(Room {
+            id: id.into(),
+            name: id.into(),
+            icon: Icon::Voice,
+            selected: false,
+            unread: false,
+            badge: String::new(),
+            posts: String::new(),
+            muted: false,
+            locked: false,
+            voice,
+            direct: false,
+            avatar: None,
+            presence: None,
+            status: Status::default(),
+            decoration: None,
+            nameplate: None,
+            style: None,
+            tag: None,
+            official: false,
+            wave: None,
+            voice_spot: None,
+            call: false,
+            pinned: false,
+            thread: false,
+            thread_continues: false,
+            has_threads: false,
+            people: Vec::new(),
+            started: None,
+            chat: false,
+            close: None,
+        }))
+    }
+
+    fn keys(rows: &[SideRow]) -> Vec<String> {
+        rows.iter().map(SideRow::key).collect()
+    }
+
+    #[test]
+    fn a_categorys_quiet_voice_channels_past_three_fold_behind_show_all() {
+        let heading = SideRow::Heading {
+            name: "Voice".into(),
+            fold: "cat".into(),
+            collapsed: false,
+        };
+        let mut rows = vec![heading, room("text", false)];
+        rows.extend(["a", "b", "c", "d", "e"].map(|id| room(id, true)));
+        // The call this account is in always shows, and counts for none.
+        let folded = fold_voice(rows.clone(), None, Some("b"));
+        assert_eq!(
+            keys(&folded),
+            ["heading:cat", "text", "a", "b", "c", "d", "voice-more:cat"]
+        );
+        assert!(matches!(
+            folded.last(),
+            Some(SideRow::VoiceMore { shown: false, hidden, .. }) if hidden == &["e"]
+        ));
+        // Shown, they all list, and the button hides them again.
+        let shown: BTreeSet<String> = ["cat".to_owned()].into();
+        let unfolded = fold_voice(rows, Some(&shown), None);
+        assert_eq!(unfolded.len(), 8, "the seven rows and Hide");
+        assert!(matches!(
+            unfolded.last(),
+            Some(SideRow::VoiceMore { shown: true, hidden, .. }) if hidden == &["d", "e"]
+        ));
+    }
 }

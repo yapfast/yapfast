@@ -13,7 +13,9 @@ has is open to this account. Each page shows only with its own
 permission:
 
 - Server Profile, with Manage Server: the server's name (2 to 100
-  characters), icon and description (up to 300).
+  characters), icon, banner colour, traits and description (up to 300). A
+  card above the banner colours, a Yapfast addition, previews the colour
+  picked with the server's icon and name before it's saved.
 - Engagement, with Manage Server: the channel system messages go to and
   which of them Discord sends, members' default notifications, and the
   inactive channel and its timeout.
@@ -63,7 +65,12 @@ brings, shows unless the draft changed the same field.
 
 Server Profile reads `GET /guilds/{id}/profile` and saves with `PATCH
 /guilds/{id}/profile`, as Discord's page does, with `name`,
-`description` and `icon`, a data URI or `null` to remove it; Discord
+`description`, `icon`, a data URI or `null` to remove it,
+`brand_color_primary`, one of Banner's ten swatches as a hex string, and
+`traits`, sent whole when one changes: up to five, each up to 24
+characters, `{emoji_id: null, emoji_name, emoji_animated: false, label,
+position}`, a trait keeping the Unicode emoji it had in its place (Yapfast
+has no picker for a new one); Discord
 answers with the profile and sends GUILD_UPDATE. Change Server Icon reads
 the picture off the UI thread as the [profile
 editor](people.md#editing-ones-server-profile) reads an avatar: the middle square,
@@ -256,8 +263,9 @@ The page holds the members fetched, and only the page shown has rows and
 asks for avatars.
 
 Left out, as with the rest of the plan's: the date, role, signal and join
-method filters, Prune, selecting members to ban several at once, the mod
-view, the count of members who joined since the page opened, and Show
+method filters, Prune, selecting members to ban several at once, a row's
+Open Mod View (Yapfast opens [Mod View](servers.md#mod-view) beside a
+channel), the count of members who joined since the page opened, and Show
 Members In Channel List.
 
 ## Invites
@@ -459,12 +467,22 @@ menu's Delete channel does. Leaving a page or the settings with unsaved
 changes shakes the bar, and the settings close once this account may
 change neither, or the channel is gone.
 
-Overview is the name, and for a text channel its topic, slowmode, one of
-Discord's from 0 to 6 hours, and age restriction; a voice channel or a
-category has only its name. A text channel's are read with `GET
+Overview is the name; for a text channel its topic; for a text or voice
+channel its slowmode, one of Discord's from 0 to 6 hours in a dropdown, and
+Content Visibility, Default or Age-Restricted Channel, as radio rows; and for
+a voice channel its Bitrate, a slider from 8 kbps to 96, or 128, 256 and 384
+kbps at boost levels 1 to 3, Video Quality, Auto or 720p
+(`video_quality_mode` 1 or 2), User Limit, a slider from none to 99, and
+Region Override, Automatic or one of Discord's regions (`rtc_region`). A
+category has only its name. A channel's are read with `GET
 /channels/{id}` as Overview opens, and saved with `PATCH /channels/{id}`.
+Discord's Spoiler Channel, and the Invites and Integrations pages, aren't
+there yet.
 Names are 1 to 100 characters, a text channel's lower case with dashes
-for spaces, and topics up to 1024, checked before asking.
+for spaces, and topics up to 1024, checked before asking. What's wrong, or
+why Discord refused a save, shows in red in the unsaved changes bar; a
+bitrate Discord refuses (50035, as when the server lost the boosts it was
+set with) says how far its voice channels go, in kbps.
 
 Permissions is Discord's Channel Permissions page:
 

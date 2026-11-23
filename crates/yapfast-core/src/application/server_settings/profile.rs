@@ -5,7 +5,7 @@
 use super::*;
 use crate::{
     application::profile_editor::PictureEdit,
-    chat::{ServerProfile, ServerSettingsChange},
+    chat::{ServerProfile, ServerSettingsChange, ServerTrait},
 };
 
 /// The longest name and description Discord takes, in characters, and the
@@ -13,12 +13,20 @@ use crate::{
 pub const NAME_LIMIT: usize = 100;
 pub const NAME_LEAST: usize = 2;
 pub const DESCRIPTION_LIMIT: usize = 300;
+/// How many traits a profile has room for, and the longest one Discord's
+/// client lets be written.
+pub const TRAITS: usize = 5;
+pub const TRAIT_LIMIT: usize = 24;
 
 /// A text of a settings page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettingsText {
     Name,
     Description,
+    /// The Banner's colour, as a hex string such as "#ff73fa".
+    BrandColor,
+    /// A trait's words, by its place.
+    Trait(usize),
 }
 
 /// Server Profile, with its draft.
@@ -29,14 +37,27 @@ pub struct ProfilePage {
     pub name: String,
     pub description: String,
     pub icon: PictureEdit,
+    pub brand_color: Option<String>,
+    /// Each of the five traits' words, empty for none; a trait keeps the
+    /// emoji it had.
+    pub traits: [String; TRAITS],
 }
 
 impl ProfilePage {
     pub(super) fn new(original: ServerProfile) -> Self {
+        let traits = std::array::from_fn(|index| {
+            original
+                .traits
+                .get(index)
+                .map(|found| found.label.clone())
+                .unwrap_or_default()
+        });
         Self {
             name: original.name.clone(),
             description: original.description.clone(),
             icon: PictureEdit::Keep,
+            brand_color: original.brand_color.clone(),
+            traits,
             original,
         }
     }
@@ -45,6 +66,12 @@ impl ProfilePage {
         match field {
             SettingsText::Name => self.name = text,
             SettingsText::Description => self.description = text,
+            SettingsText::BrandColor => self.brand_color = Some(text),
+            SettingsText::Trait(index) => {
+                if let Some(written) = self.traits.get_mut(index) {
+                    *written = text.chars().take(TRAIT_LIMIT).collect();
+                }
+            }
         }
     }
 
@@ -99,13 +126,38 @@ impl ProfilePage {
             PictureEdit::Reset => self.original.icon.is_some().then_some(None),
             PictureEdit::New(picked) => Some(Some(picked.clone())),
         };
-        (name.is_some() || description.is_some() || icon.is_some()).then_some(
-            ServerSettingsChange::Profile {
-                name,
-                description,
-                icon,
-            },
-        )
+        let brand_color = self
+            .brand_color
+            .clone()
+            .filter(|color| Some(color) != self.original.brand_color.as_ref());
+        // The traits written, in order, each with the emoji it had there.
+        let traits: Vec<ServerTrait> = self
+            .traits
+            .iter()
+            .enumerate()
+            .filter(|(_, label)| !label.trim().is_empty())
+            .map(|(index, label)| ServerTrait {
+                emoji: self
+                    .original
+                    .traits
+                    .get(index)
+                    .and_then(|found| found.emoji.clone()),
+                label: label.trim().to_owned(),
+            })
+            .collect();
+        let traits = (traits != self.original.traits).then_some(traits);
+        (name.is_some()
+            || description.is_some()
+            || icon.is_some()
+            || brand_color.is_some()
+            || traits.is_some())
+        .then_some(ServerSettingsChange::Profile {
+            name,
+            description,
+            icon,
+            brand_color,
+            traits,
+        })
     }
 }
 
@@ -118,7 +170,38 @@ mod tests {
             name: "Crew".into(),
             description: String::new(),
             icon: Some("https://cdn/icon.png".into()),
+            brand_color: None,
+            traits: vec![ServerTrait {
+                emoji: Some("\u{1F3AE}".into()),
+                label: "Games".into(),
+            }],
         })
+    }
+
+    #[test]
+    fn the_banner_colour_and_traits_change_only_when_written() {
+        let mut page = page();
+        page.write(SettingsText::Trait(0), "Games".into());
+        assert!(page.change().is_none());
+        page.write(SettingsText::BrandColor, "#ff73fa".into());
+        page.write(SettingsText::Trait(1), "x".repeat(40));
+        let Some(ServerSettingsChange::Profile {
+            brand_color,
+            traits,
+            name,
+            ..
+        }) = page.change()
+        else {
+            panic!("a change");
+        };
+        assert_eq!((brand_color.as_deref(), name), (Some("#ff73fa"), None));
+        let traits = traits.unwrap();
+        assert_eq!(
+            traits[0].emoji.as_deref(),
+            Some("\u{1F3AE}"),
+            "keeps its emoji"
+        );
+        assert_eq!(traits[1].label.chars().count(), TRAIT_LIMIT);
     }
 
     #[test]
@@ -133,6 +216,7 @@ mod tests {
             name,
             description,
             icon,
+            ..
         }) = page.change()
         else {
             panic!("a change");

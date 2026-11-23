@@ -16,7 +16,13 @@ Matrix voice, and, as Discord's client does, without showing the call: a second
 click on the channel, or its line in the dock, does that. Discord's client goes
 to the channel as it joins only when its chat has a mention, where it opens the
 chat, and from buttons that say so, such as Join Voice on a voice channel's
-popout, which Yapfast doesn't have. Calls start with the microphone on unless
+popout, which Yapfast doesn't have. A Discord voice channel's chat, from the
+bubble on its row, its menu or the header's Show chat, opens as Discord's
+does: beside the call, in the panel a thread opens in (`Aside::voice`), with
+the channel's name under a speech bubble and a close button, and the call
+stays in the middle, narrowed to the room left. Hide chat, or the close
+button, takes it away. A Matrix room's call room still shows its chat in
+place of its call. Calls start with the microphone on unless
 Settings turns that off, mute and deafen show in Discord, and a voice gate
 sends audio only during speech. Audio goes through `audio_io.rs`, PulseAudio
 on Linux and WASAPI on Windows, and libwebrtc's processing module; see the

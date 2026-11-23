@@ -236,7 +236,7 @@ fn role_chip<'a>(
 
 /// How long ago, as Discord's Members words it: `account` for Joined
 /// Discord, which counts in days at least.
-fn ago(seconds: u64, account: bool) -> String {
+pub(crate) fn ago(seconds: u64, account: bool) -> String {
     let plural = |count: u64, one: &str, other: &str| {
         format!("{count} {} ago", if count == 1 { one } else { other })
     };
@@ -287,7 +287,7 @@ fn countdown(expires: Option<u64>, now: u64) -> String {
 
 /// How a member joined, as Members' Join Method names it, and whether
 /// Discord doesn't say.
-fn join_method(joined: &JoinMethod) -> (String, bool) {
+pub(crate) fn join_method(joined: &JoinMethod) -> (String, bool) {
     let label = match joined {
         JoinMethod::Unknown => return ("Unknown".to_owned(), true),
         JoinMethod::Bot => "Bot Invite".to_owned(),

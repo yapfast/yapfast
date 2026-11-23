@@ -202,7 +202,16 @@ fn status_line(app: &App) -> Option<(Element<'_, Message>, bool)> {
 pub fn conversation(app: &App) -> Element<'_, Message> {
     if crate::call::stage::voice_panel(app) {
         // The stage alone takes the `call` surface (see `call_view`).
-        return crate::call::stage::call_view(app);
+        let call = crate::call::stage::call_view(app);
+        // A voice channel's chat, or a room in split view, beside its
+        // call, as the theme draws a pane beside the chat.
+        return match crate::thread::aside_view(app.ctx()) {
+            Some(aside) => row![call, themed_aside(app, aside)]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            None => call,
+        };
     }
     let outline = app.theme.outline_chat;
     let line = bar(outline, Length::Fill, 1);
@@ -215,7 +224,7 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
                 crate::friends::requests::requests_screen(app.ctx())
             }
         };
-        return column![
+        let friends: Element<'_, Message> = column![
             crate::friends::friends_header(app.ctx(), screen),
             line,
             page
@@ -223,6 +232,16 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .into();
+        // A room in split view stays beside the friends list.
+        if crate::thread::splits(app)
+            && let Some(aside) = crate::thread::aside_view(app.ctx())
+        {
+            return row![friends, themed_aside(app, aside)]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+        }
+        return friends;
     }
     if let Some(screen) = crate::browse_channels::view(app.ctx()) {
         return screen;
@@ -318,6 +337,12 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
             1.0,
             app.theme.outline,
         ));
+    } else if crate::mod_view::shown(app)
+        && let Some(panel) = crate::mod_view::view(app.ctx())
+    {
+        // In the member list's or the thread's place, as Discord's opens it,
+        // drawn as the theme draws a pane beside the chat.
+        body = body.push(themed_aside(app, panel));
     } else if let Some(aside) = crate::thread::aside_view(app.ctx()) {
         let aside = crate::theme_art::surface(
             aside,
@@ -396,6 +421,8 @@ pub fn chat_right(app: &App) -> f32 {
         - navigation
         - if crate::search::search_shown(app) {
             crate::search::WIDTH
+        } else if crate::mod_view::shown(app) {
+            crate::mod_view::WIDTH
         } else if crate::thread::aside_shown(app) {
             crate::thread::aside_width(app)
         } else if crate::header::members_shown(app)
@@ -418,6 +445,25 @@ pub fn chat_right(app: &App) -> f32 {
         } else {
             0.0
         }
+}
+
+/// A pane beside the conversation (a thread, a room in split view or a
+/// voice channel's chat) as the theme draws its Aside surface and outline.
+fn themed_aside<'a>(app: &'a App, aside: Element<'a, Message>) -> Element<'a, Message> {
+    let aside = crate::theme_art::surface(
+        aside,
+        app.ctx(),
+        yapfast_core::themes::package::art::ArtSurface::Aside,
+    );
+    crate::theme_art::outlined(
+        aside,
+        app.ctx(),
+        yapfast_core::themes::layout::BorderPlace::Panes,
+        "panel",
+        0.0,
+        1.0,
+        app.theme.outline,
+    )
 }
 
 #[cfg(test)]

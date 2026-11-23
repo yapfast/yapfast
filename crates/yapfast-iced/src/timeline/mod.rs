@@ -141,6 +141,9 @@ pub struct Timeline {
     pub found: crate::widgets::Found,
     /// Spoilers clicked, as `item/index`, while Yapfast runs.
     pub revealed: std::collections::HashSet<String>,
+    /// The invite whose card's link was copied last, by its code: its
+    /// button says so.
+    pub copied_invite: Option<String>,
     /// The core's last jump and jump to the first unread message that the
     /// timeline went to, and the message tinted for it.
     pub jumped: Option<(String, u64)>,
@@ -226,6 +229,7 @@ impl Timeline {
             edge: Edge::default(),
             found: Default::default(),
             revealed: Default::default(),
+            copied_invite: None,
             jumped: None,
             unread_jumped: 0,
             jump_lit: None,
@@ -340,6 +344,10 @@ pub enum Event {
     /// Newer messages after a window of older ones.
     Later,
     JumpUnread,
+    /// An invite card's Join (or Joined, which opens the server), and its
+    /// Copy link, by the invite's code.
+    JoinInvite(String),
+    CopyInvite(String),
     /// The banner's Mark as read.
     MarkRead,
     JumpPresent,
@@ -429,6 +437,15 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::Reveal(item, attachment) => reveal(app, &item, attachment),
         Event::Unfold(item) => unfold(app, &item),
+        Event::JoinInvite(code) => {
+            app.client.dispatch(Action::JoinInviteCard(code));
+            app.sync()
+        }
+        Event::CopyInvite(code) => {
+            let link = format!("https://discord.gg/{code}");
+            app.timeline.copied_invite = Some(code);
+            Task::batch([iced::clipboard::write(link), app.ask()])
+        }
         Event::ShowBlocked(item) => {
             app.timeline
                 .revealed

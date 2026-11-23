@@ -123,7 +123,7 @@ pub(super) fn command(
                         .await
                         .map(|roles| ServerSettingsPage::Roles(super::roles::page(roles))),
                     SettingsSection::AuditLog => discord
-                        .audit_log(&guild, None, None, None)
+                        .audit_log(&guild, None, None, None, None)
                         .await
                         .map(|log| ServerSettingsPage::AuditLog(super::audit_log::parse(&log))),
                     SettingsSection::Members => {
@@ -369,6 +369,15 @@ fn server_profile(profile: DiscordProfile) -> ServerProfile {
         name: profile.name,
         description: profile.description,
         icon: profile.icon,
+        brand_color: profile.brand_color,
+        traits: profile
+            .traits
+            .into_iter()
+            .map(|found| crate::chat::ServerTrait {
+                emoji: found.emoji,
+                label: found.label,
+            })
+            .collect(),
     }
 }
 
@@ -454,10 +463,33 @@ fn profile_body(change: &ServerSettingsChange) -> Value {
         name,
         description,
         icon,
+        brand_color,
+        traits,
     } = change
     else {
         return Value::Object(body);
     };
+    if let Some(color) = brand_color {
+        body.insert("brand_color_primary".into(), color.as_str().into());
+    }
+    // Discord's client sends the traits whole, each with its place, and an
+    // emoji by its Unicode name only.
+    if let Some(traits) = traits {
+        let traits: Vec<Value> = traits
+            .iter()
+            .enumerate()
+            .map(|(position, found)| {
+                serde_json::json!({
+                    "emoji_id": null,
+                    "emoji_name": found.emoji,
+                    "emoji_animated": false,
+                    "label": found.label,
+                    "position": position,
+                })
+            })
+            .collect();
+        body.insert("traits".into(), Value::Array(traits));
+    }
     if let Some(name) = name {
         body.insert("name".into(), name.as_str().into());
     }
@@ -481,8 +513,25 @@ mod tests {
             name: Some("Crew".into()),
             description: None,
             icon: Some(None),
+            brand_color: None,
+            traits: None,
         };
         assert_eq!(profile_body(&change), json!({"name": "Crew", "icon": null}));
+        let change = ServerSettingsChange::Profile {
+            name: None,
+            description: None,
+            icon: None,
+            brand_color: Some("#ff73fa".into()),
+            traits: Some(vec![crate::chat::ServerTrait {
+                emoji: None,
+                label: "Chill".into(),
+            }]),
+        };
+        assert_eq!(
+            profile_body(&change),
+            json!({"brand_color_primary": "#ff73fa", "traits": [{"emoji_id": null,
+                "emoji_name": null, "emoji_animated": false, "label": "Chill", "position": 0}]})
+        );
     }
 
     #[test]

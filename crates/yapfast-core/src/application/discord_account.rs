@@ -424,6 +424,9 @@ impl Application {
                 let Some(server) = dialog.server.clone() else {
                     return vec![];
                 };
+                if dialog.ask == PersonAsk::Ban {
+                    self.last_ban = Some((dialog.choice, text.clone()));
+                }
                 let change = members::change(dialog.ask, dialog.choice, text);
                 DiscordCommand::Member {
                     server,
@@ -610,6 +613,7 @@ impl Application {
         effects.extend(self.follow_channel_settings());
         effects.extend(self.mark_discord_read());
         effects.extend(self.mark_aside_read());
+        effects.extend(self.restore_split());
         // Posts that came to the forum on screen want their first messages.
         effects.extend(self.ask_starters());
         if emoji_changed {

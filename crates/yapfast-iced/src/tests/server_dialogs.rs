@@ -116,9 +116,22 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
 fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
     let (mut app, _folder) = discord_server(permission::MANAGE_CHANNELS, |_, _| {});
     choose(&mut app, SERVER, true, "Create channel");
-    for words in ["Create channel", "In Test", "CHANNEL TYPE", "CHANNEL NAME"] {
+    // Discord's Create Channel: its kinds with their lines, the name and
+    // Private Channel; announcement channels and stages are a Community
+    // server's.
+    for words in [
+        "Create Channel",
+        "Channel Type",
+        "Text",
+        "Voice",
+        "Forum",
+        "Hang out together with voice, video, and screen share",
+        "Channel Name",
+        "Private Channel",
+    ] {
         assert!(shows(&app, words), "{words}");
     }
+    assert!(!shows(&app, "Stage") && !shows(&app, "Announcement"));
     interact(&mut app, |ui| {
         ui.click(Id::new("channel-name")).expect("the name's field");
         ui.typewrite("plans");
@@ -139,7 +152,11 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
 
     // A category's is named, without the kinds.
     choose(&mut app, SERVER, true, "Create category");
-    assert!(shows(&app, "CATEGORY NAME") && !shows(&app, "CHANNEL TYPE"));
+    assert!(
+        shows(&app, "Category Name")
+            && shows(&app, "Private Category")
+            && !shows(&app, "Channel Type")
+    );
     press(&mut app, key::Named::Escape);
 
     // A copy starts from its channel's name.
@@ -157,6 +174,8 @@ fn channel_menus_and_their_dialog_make_change_and_delete_channels() {
             server_name: "Test".into(),
             name: "Talk".into(),
             kind: ChannelKind::Category,
+            community: false,
+            private: false,
             settings: Some(ChannelSettings::default()),
             saving: false,
             error: None,
@@ -324,7 +343,7 @@ fn a_categorys_plus_makes_a_channel_in_it() {
     )));
     let dialog = app.client.state().channel_dialog.clone().expect("open");
     assert_eq!(dialog.kind, ChannelKind::Text);
-    assert!(shows(&app, "In Talk"));
+    assert!(shows(&app, "in Talk"));
 }
 
 #[test]
@@ -336,13 +355,25 @@ fn a_voice_channels_chat_opens_from_its_row_and_its_header_goes_back() {
     )));
     let state = app.client.state();
     assert_eq!(state.selected.as_deref(), Some(lounge));
-    assert!(state.voice_chat, "its chat, not its call");
-    assert_eq!(app.header.voice_chat, Some(true));
-    assert!(!shows(&app, "Join voice"));
+    // A Discord voice channel's chat opens beside its call, as Discord's.
+    assert!(!state.voice_chat, "the call stays");
+    assert!(
+        state
+            .aside
+            .as_ref()
+            .is_some_and(|aside| aside.voice && aside.room == lounge),
+        "its chat beside it"
+    );
     let _ = app.update(Message::Side(crate::sidebar::Event::VoiceChat(false)));
-    assert!(!app.client.state().voice_chat);
-    assert_eq!(app.header.voice_chat, Some(false));
-    assert!(shows(&app, "Join voice"), "the call's view again");
+    assert!(
+        app.client
+            .state()
+            .aside
+            .as_ref()
+            .is_none_or(|aside| !aside.voice),
+        "Hide chat closes it"
+    );
+    assert!(shows(&app, "Join voice"), "the call's view");
 }
 
 #[test]

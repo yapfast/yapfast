@@ -20,14 +20,20 @@ it red instead, as Discord's does. Escape closes an open dropdown, then a
 dialog over the page, then the settings.
 
 - Server Profile (`profile.rs`): the name, the icon with Change and
-  Remove (the file dialog, then the core reads it), and the description
-  with what's left of its 300 characters.
+  Remove (the file dialog, then the core reads it), the banner colour
+  (Discord's ten swatches, `BANNERS`, four across, under a card that
+  previews the one picked with the icon and name), five trait fields three
+  across, each by a steady id (`server-trait-N`) so the one typed in keeps
+  the keys, and the description with what's left of its 300 characters.
 - Engagement: the system messages' channel and its four switches, which
   wait for a channel; the default notifications; the inactive channel and
   its timeout, which waits for one.
-- Boost Perks: the server's level, the progress bar's switch, and the
-  banner and invite background at 16 by 9, each with the level that
-  unlocks it.
+- Boost Perks, laid out as Discord's: the server's level, the progress
+  bar's switch, then, between lines, the banner and the invite background,
+  each its title with a gem and "LVL N" pill and what it's for on the left,
+  with Upload Background (and Remove) once the level unlocks it or
+  "Unlocks at Level N" before, and the picture at 16 by 9 on the right.
+  Discord's Unlock with Boosting sells boosts, so it isn't there.
 - Roles (`roles/`: the list, the editor and its members' tab each a
   file): @everyone's card,
   the search with Create Role, and the roles in their order with how many
@@ -113,12 +119,20 @@ Delete as they were while Discord was last online (the core names no page
 while it's away, and the sidebar stays as it was), takes the keys from the
 composer as it opens and gives them back when it closes. The form kit's
 `Unsaved` bar saves the page's draft, and leaving the page or the
-settings with changes shakes it. Escape closes Add, then the question,
+settings with changes shakes it; it says in red, in place of its warning,
+why the draft can't be saved or why Discord refused it
+(`Unsaved::view_saying`), which shows under the page only while there is
+no bar. Escape closes Add, then the question,
 then the settings.
 
-- Overview: the name, and for a text channel the topic, slowmode stepped
-  through Discord's intervals with the arrows either side of it, and the
-  Age-Restricted Channel switch.
+- Overview: the name, for a text or announcement channel the topic, for
+  those and a voice channel slowmode stepped through Discord's intervals
+  with the arrows either side of it and the Age-Restricted Channel switch,
+  and for a voice channel or stage Bitrate, a slider from 8 kbps up to 96,
+  or 128, 256 or 384 with the server's boosts, a voice channel's Video
+  Quality (Auto or 720p), User Limit, a slider from none (∞) to 99, and
+  Region Override, a list of Automatic and Discord's regions (the kit's
+  dropdown, open in the screen's own state).
 - Permissions (the page fills the frame and scrolls its own list): the
   notice of whether a channel's permissions follow its category, with
   Sync Now when they don't; Private Channel (or Category), which takes
