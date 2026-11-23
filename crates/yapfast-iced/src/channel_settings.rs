@@ -353,9 +353,13 @@ impl<'a> View<'a> {
                         "CHANNEL NAME"
                     },
                 ),
-                form::entry(theme, NAME, "", &draft.name)
-                    .on_input_maybe(ready.then_some(|text| input(ChannelInput::Name(text))))
-                    .into(),
+                yapfast_iced_kit::parts::show(
+                    theme,
+                    "field",
+                    0,
+                    form::entry(theme, NAME, "", &draft.name)
+                        .on_input_maybe(ready.then_some(|text| input(ChannelInput::Name(text)))),
+                ),
             ]),
         ];
         if core.kind == ChannelKind::Text {
@@ -367,14 +371,13 @@ impl<'a> View<'a> {
             parts.extend([
                 form::group([
                     form::heading(theme, "CHANNEL TOPIC"),
-                    form::entry(
+                    yapfast_iced_kit::parts::show(theme, "field", 0, form::entry(
                         theme,
                         TOPIC,
                         "Let everyone know how to use this channel!",
                         &draft.topic,
                     )
-                    .on_input_maybe(ready.then_some(|text| input(ChannelInput::Topic(text))))
-                    .into(),
+                    .on_input_maybe(ready.then_some(|text| input(ChannelInput::Topic(text))))),
                 ]),
                 form::group([
                     form::heading(theme, "SLOWMODE"),
@@ -854,10 +857,15 @@ impl<'a> View<'a> {
         let close = input(ChannelInput::Adding(false));
         let body = column![
             text("Add:").size(20).font(BOLD).color(theme.text),
-            controls::field(theme, ADD_SEARCH, "Role/Member", &adding.query, false, true)
-                .size(14)
-                .padding([10.9, 12.0])
-                .on_input(|text| input(ChannelInput::FindMembers(text))),
+            yapfast_iced_kit::parts::show(
+                theme,
+                "field",
+                0,
+                controls::field(theme, ADD_SEARCH, "Role/Member", &adding.query, false, true)
+                    .size(14)
+                    .padding([10.9, 12.0])
+                    .on_input(|text| input(ChannelInput::FindMembers(text)))
+            ),
             scroll_view(list)
                 .style(scrollbar(theme))
                 .height(Length::Fill),

@@ -341,10 +341,14 @@ pub(super) fn profile_body<'a>(
                     .into(),
                 None => content.into(),
             };
-            container(content)
-                .width(WIDTH)
-                .style(frame_style(inks, theme, theme.edge, 12.0, true))
-                .into()
+            yapfast_iced_kit::parts::show(
+                theme,
+                "profile.card",
+                0,
+                container(content)
+                    .width(WIDTH)
+                    .style(frame_style(inks, theme, theme.edge, 12.0, true)),
+            )
         }
         Mode::Side | Mode::Docked => content.into(),
     }

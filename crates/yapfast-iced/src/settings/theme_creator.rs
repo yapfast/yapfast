@@ -1528,13 +1528,16 @@ impl<'a> Page<'a> {
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let look = self.cx.look;
-        let mut bar = row![
+        let mut bar = row![yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
             form::field(theme, "creator-name", "Name your theme", name)
                 .on_input(on_name)
                 .on_submit_maybe(save.clone())
                 .padding([8, 12])
                 .width(Length::Fill)
-        ]
+        )]
         .spacing(8)
         .align_y(Alignment::Center);
         if let Some(can_undo) = undo {
@@ -2221,11 +2224,16 @@ impl<'a> Page<'a> {
                 |at| message(Event::HueDrag(at * 360.0)),
                 message(Event::HueDone),
             ),
-            form::field(theme, "creator-accent", "#ffbf47", &creator.accent_hex)
-                .on_input(|text| message(Event::Accent(text)))
-                .size(14)
-                .padding(8)
-                .width(104),
+            yapfast_iced_kit::parts::show(
+                theme,
+                "field",
+                0,
+                form::field(theme, "creator-accent", "#ffbf47", &creator.accent_hex)
+                    .on_input(|text| message(Event::Accent(text)))
+                    .size(14)
+                    .padding(8)
+                    .width(104)
+            ),
         ]
         .spacing(12)
         .align_y(Alignment::Center);

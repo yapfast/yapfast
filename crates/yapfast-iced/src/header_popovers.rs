@@ -541,6 +541,7 @@ impl<'a> View<'a> {
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let radius = theme.surface_radius("popout", RADIUS);
+        let part = theme.part("popout", 0);
         let tall = detail.is_some();
         let mut words = column![heading].spacing(2);
         if let Some(detail) = detail {
@@ -593,10 +594,16 @@ impl<'a> View<'a> {
                 Length::Shrink
             })
             .clip(true)
-            .style(move |_| container::Style {
-                shadow: theme.surface_shadow("popout", raised_shadow()),
-                ..crate::style::rounded(ground, radius)
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    part.as_ref(),
+                    container::Style {
+                        shadow: theme.surface_shadow("popout", raised_shadow()),
+                        ..crate::style::rounded(ground, radius)
+                    },
+                )
             });
+        let panel = yapfast_iced_kit::parts::show(theme, "popout", 0, panel);
         let panel = crate::theme_art::surface(panel, self.cx, surface);
         iced::widget::opaque(controls::edged(panel, edge, radius))
     }
@@ -1029,6 +1036,7 @@ impl<'a> View<'a> {
         } else {
             field
         };
+        let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
         let mut list = column![].spacing(2);
         for person in &self.s.people {
             let can_choose = !picker.adding && (person.chosen || chosen < room);

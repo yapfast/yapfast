@@ -199,10 +199,15 @@ impl<'a> View<'a> {
         let Some(draft) = &page.open else {
             return Space::new().into();
         };
-        let name = form::entry(theme, NAME, "", &draft.name)
-            .on_input_maybe(editable.then_some(|text| input(RoleInput::Name(text))));
+        let name = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            form::entry(theme, NAME, "", &draft.name)
+                .on_input_maybe(editable.then_some(|text| input(RoleInput::Name(text)))),
+        );
         column![
-            form::group([form::heading(theme, "ROLE NAME"), name.into()]),
+            form::group([form::heading(theme, "ROLE NAME"), name]),
             form::group([
                 form::heading(theme, "ROLE COLOR"),
                 form::note(
@@ -300,14 +305,18 @@ impl<'a> View<'a> {
             .size(14)
             .padding([9.0, 10.0])
             .width(SMALL_FIELD);
-        let hex_field: Element<'a, Message> = if editable {
-            field
-                .on_input(|text| local(Event::Hex(text)))
-                .on_submit(local(Event::ApplyHex))
-                .into()
-        } else {
-            field.into()
-        };
+        let hex_field: Element<'a, Message> = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            if editable {
+                field
+                    .on_input(|text| local(Event::Hex(text)))
+                    .on_submit(local(Event::ApplyHex))
+            } else {
+                field
+            },
+        );
         row![
             swatch(
                 hex(DEFAULT_ROLE_COLOR),
@@ -396,14 +405,18 @@ impl<'a> View<'a> {
             .size(14)
             .padding([9.0, 10.0])
             .width(SMALL_FIELD);
-        let field: Element<'a, Message> = if usable {
-            field
-                .on_input(|text| local(Event::Emoji(text)))
-                .on_submit(local(Event::UseEmoji))
-                .into()
-        } else {
-            field.into()
-        };
+        let field: Element<'a, Message> = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            if usable {
+                field
+                    .on_input(|text| local(Event::Emoji(text)))
+                    .on_submit(local(Event::UseEmoji))
+            } else {
+                field
+            },
+        );
         side = side.push(form::buttons([
             field,
             action(

@@ -92,12 +92,20 @@ impl App {
                 1.0,
                 self.theme.outline,
             );
-            container(rail)
-                .width(crate::rail::resolved_width(
-                    self.themes.package_layout(&self.theme.id),
-                    self.themes.chrome(&self.theme.id),
-                ))
-                .into()
+            let look = self.theme.part("rail", 0);
+            yapfast_iced_kit::parts::show(
+                &self.theme,
+                "rail",
+                0,
+                container(rail)
+                    .width(crate::rail::resolved_width(
+                        self.themes.package_layout(&self.theme.id),
+                        self.themes.chrome(&self.theme.id),
+                    ))
+                    .style(move |_| {
+                        yapfast_iced_kit::parts::style(look.as_ref(), Default::default())
+                    }),
+            )
         };
         let mut rail_view = Some(rail_view);
         let sidebar_content: Element<'_, Message> =
@@ -654,6 +662,7 @@ impl App {
         } else {
             theme.tooltip
         };
+        let part = theme.part("toast", 0);
         let note = container(
             iced::widget::text(format!("{:.0}%", self.shell.zoom * 100.0))
                 .size(15)
@@ -663,12 +672,18 @@ impl App {
         .padding([0, 14])
         .height(36)
         .align_y(iced::Alignment::Center)
-        .style(move |_| iced::widget::container::Style {
-            border: theme.surface_border("toast", 18.0, 0.0, iced::Color::TRANSPARENT),
-            shadow: theme.surface_shadow("toast", crate::style::raised_shadow()),
-            ..crate::style::rounded(tip, theme.surface_radius("toast", 18.0))
+        .style(move |_| {
+            yapfast_iced_kit::parts::style(
+                part.as_ref(),
+                iced::widget::container::Style {
+                    border: theme.surface_border("toast", 18.0, 0.0, iced::Color::TRANSPARENT),
+                    shadow: theme.surface_shadow("toast", crate::style::raised_shadow()),
+                    ..crate::style::rounded(tip, theme.surface_radius("toast", 18.0))
+                },
+            )
         });
         let note = crate::theme_art::surface(note, self.ctx(), surface);
+        let note = yapfast_iced_kit::parts::show(theme, "toast", 0, note);
         Some(
             column![
                 Space::new().height(crate::window_bar::bar_height(self) + ZOOM_NOTE_TOP),

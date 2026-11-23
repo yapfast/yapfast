@@ -1217,6 +1217,16 @@ fn author_line<'a>(
     if let Some(names) = content.map(|content| &content.names) {
         color = crate::people::themed_name_colour(names, Some(&message.sender), color, theme);
     }
+    let pointed = ctx.pointed.message.as_deref() == Some(message.item.as_str());
+    let hovered = if pointed {
+        yapfast_iced_kit::parts::HOVER
+    } else {
+        0
+    };
+    let look = theme.part("timeline.message.author", hovered);
+    let time_look = theme.part("timeline.message.time", hovered);
+    // A role's colour stays the person's: the part fades it, no more.
+    let color = yapfast_iced_kit::parts::ink(look.as_ref(), color);
     let author = ctx.themes.marked(
         &theme.id,
         yapfast_core::themes::chrome::Place::Author,
@@ -1227,19 +1237,24 @@ fn author_line<'a>(
         style.as_ref().and_then(crate::looks::NameLook::font),
     )
     .into_owned();
+    let shown_author = yapfast_iced_kit::parts::words(look.as_ref(), shown_author).into_owned();
     let hover = crate::theme_effects::name_hover_effect(ctx, &shown_author);
     // A name longer than its room (the bubble's share, or the lane, less
     // its time) ends in "…" rather than widening its bubble past it.
     let room = (content_width_of(ctx, index) - NAME_TIME_ROOM).max(48.0);
-    let name_size = theme.type_size("names", text_size(ctx));
+    let name_size =
+        yapfast_iced_kit::parts::size(look.as_ref(), theme.type_size("names", text_size(ctx)));
     let long = shown_author.chars().count() as f32 * name_size * 0.62 > room;
     let name_font = {
         let stock = style_font(style.as_ref().and_then(crate::looks::NameLook::font), 500);
-        if style.is_some() {
-            stock
-        } else {
-            theme.font("names", stock)
-        }
+        yapfast_iced_kit::parts::font(
+            look.as_ref(),
+            if style.is_some() {
+                stock
+            } else {
+                theme.font("names", stock)
+            },
+        )
     };
     let elided: Option<Element<'a, Message>> = long.then(|| {
         let mut words = crate::elide::elide(shown_author.clone())
@@ -1258,21 +1273,14 @@ fn author_line<'a>(
         container(words).max_width(room).into()
     });
     let mut name = Piece::new(
-        vec![span(shown_author).font({
-            let stock = style_font(style.as_ref().and_then(crate::looks::NameLook::font), 500);
-            if style.is_some() {
-                stock
-            } else {
-                theme.font("names", stock)
-            }
-        })],
+        vec![span(shown_author).font(name_font)],
         index,
         0,
         Message::Link,
         Message::Select,
     )
     .item(Some(ctx.row_item(index)))
-    .size(theme.type_size("names", text_size(ctx)), AUTHOR_LINE)
+    .size(name_size, AUTHOR_LINE)
     .color(color)
     .light(crate::theme_effects::text_light(
         ctx,
@@ -1323,6 +1331,7 @@ fn author_line<'a>(
         ];
         crate::widgets::Hover::new(name, under).into()
     };
+    let name = yapfast_iced_kit::parts::show(theme, "timeline.message.author", hovered, name);
     let mut line = row![person_menu(ctx, index, message, name)]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -1362,26 +1371,46 @@ fn author_line<'a>(
         .themes
         .marked_time(&theme.id, sent_time(ctx, index, message));
     let time = Piece::new(
-        vec![span(sent).font(theme.font("time", REGULAR))],
+        vec![
+            span(yapfast_iced_kit::parts::words(time_look.as_ref(), sent).into_owned()).font(
+                yapfast_iced_kit::parts::font(time_look.as_ref(), theme.font("time", REGULAR)),
+            ),
+        ],
         index,
         1,
         Message::Link,
         Message::Select,
     )
     .item(Some(ctx.row_item(index)))
-    .size(theme.type_size("time", text_size(ctx) - 4.0), 16.0)
+    .size(
+        yapfast_iced_kit::parts::size(
+            time_look.as_ref(),
+            theme.type_size("time", text_size(ctx) - 4.0),
+        ),
+        16.0,
+    )
     // Discord's dark theme draws the time in its channel list's grey.
-    .color(if theme.bonfire {
-        theme.channel_read
-    } else {
-        theme.muted
-    })
+    .color(yapfast_iced_kit::parts::ink(
+        time_look.as_ref(),
+        if theme.bonfire {
+            theme.channel_read
+        } else {
+            theme.muted
+        },
+    ))
     .selection(
         ctx.selected(index, 1),
         ctx.lanes.timeline.selecting,
         theme.token_colour("selection", theme.selection),
     );
-    line.push(time).height(AUTHOR_LINE).into()
+    line.push(yapfast_iced_kit::parts::show(
+        theme,
+        "timeline.message.time",
+        hovered,
+        time,
+    ))
+    .height(AUTHOR_LINE)
+    .into()
 }
 
 /// A body that folds, when long messages fold: once it's a few lines past

@@ -497,14 +497,19 @@ impl Marketplace {
 
     fn marketplace_view<'a>(&'a self, look: Look<'a>, themes: &'a Themes) -> Element<'a, Event> {
         let theme = look.theme;
-        let search = form::field(theme, SEARCH, "Search the marketplace", &self.query)
-            .on_input(Event::Search)
-            .padding(iced::Padding {
-                top: 9.0,
-                right: 36.0,
-                bottom: 9.0,
-                left: 12.0,
-            });
+        let search = yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
+            form::field(theme, SEARCH, "Search the marketplace", &self.query)
+                .on_input(Event::Search)
+                .padding(iced::Padding {
+                    top: 9.0,
+                    right: 36.0,
+                    bottom: 9.0,
+                    left: 12.0,
+                }),
+        );
         let search: Element<'a, Event> = iced::widget::stack![
             search,
             container(look.glyph(Icon::Search, 18, theme.muted))
@@ -739,6 +744,7 @@ impl Marketplace {
         if !finding {
             field = field.on_input(Event::Url).on_submit(Event::FindUrl);
         }
+        let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
         column![
             form::group([
                 form::heading(theme, "GITHUB REPOSITORY"),

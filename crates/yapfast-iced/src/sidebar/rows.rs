@@ -70,6 +70,30 @@ pub struct Room {
 
 impl Room {
     /// The row's own height, without the people under it.
+    /// Whether the theme hides it (`hidden` on its part in its states).
+    pub(crate) fn hidden(&self, theme: &crate::theme::Theme) -> bool {
+        use yapfast_iced_kit::parts;
+        let (name, states) = if self.direct {
+            (
+                "sidebar.dm-row",
+                parts::states(&[
+                    (parts::SELECTED, self.selected),
+                    (parts::UNREAD, self.unread),
+                ]),
+            )
+        } else {
+            (
+                "sidebar.channel-row",
+                parts::states(&[
+                    (parts::SELECTED, self.selected),
+                    (parts::UNREAD, self.unread),
+                    (parts::MUTED, self.muted),
+                ]),
+            )
+        };
+        theme.part(name, states).is_some_and(|look| look.hidden)
+    }
+
     pub(super) fn row_height(&self, theme: &crate::theme::Theme) -> f32 {
         // A theme's channel rows size channels; a DM keeps its own row.
         if self.direct {
@@ -132,6 +156,12 @@ impl SideRow {
         } else {
             gap
         };
+        // A row the theme hides takes no room, its gap with it.
+        if let SideRow::Room(room) = self
+            && room.hidden(theme)
+        {
+            return 0.0;
+        }
         gap + match self {
             SideRow::Screens { .. } => 9.0 + link_height(true) + GAP + link_height(true) + 6.0,
             SideRow::DmHeading => 40.0,

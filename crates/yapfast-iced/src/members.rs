@@ -362,13 +362,19 @@ pub(crate) enum Tops {
 }
 
 impl Tops {
-    pub(crate) fn new(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Self {
+    pub(crate) fn new(
+        lines: &[MemberLine],
+        pitch: f32,
+        heading: Option<f32>,
+        hidden: Hidden,
+    ) -> Self {
+        // Lines a theme hides take no room, so the tops go one by one.
         match heading.filter(|height| height + 2.0 != pitch) {
-            None => Self::Even {
+            None if !hidden.headings && !hidden.rows => Self::Even {
                 pitch,
                 count: lines.len(),
             },
-            Some(_) => Self::Each(line_tops(lines, pitch, heading)),
+            _ => Self::Each(line_tops(lines, pitch, heading, hidden)),
         }
     }
 
@@ -382,6 +388,7 @@ impl Tops {
             lines,
             pitch(theme, rows.and_then(|rows| rows.gap)),
             heading_height(rows),
+            Hidden::of(theme),
         )
     }
 
@@ -460,12 +467,19 @@ impl<'l> Walk<'l> {
 /// pitch, a heading its theme's own height (Zine's 42 px over 56 px rows,
 /// as Slint lays them) and the 2 px Slint keeps between it and the first
 /// member under it, else the pitch.
-fn line_tops(lines: &[MemberLine], pitch: f32, heading: Option<f32>) -> Vec<f32> {
+pub(crate) fn line_tops(
+    lines: &[MemberLine],
+    pitch: f32,
+    heading: Option<f32>,
+    hidden: Hidden,
+) -> Vec<f32> {
     let mut tops = Vec::with_capacity(lines.len() + 1);
     let mut top = TOP;
     tops.push(top);
     for line in lines {
         top += match line {
+            MemberLine::Heading { .. } if hidden.headings => 0.0,
+            MemberLine::Member(_) if hidden.rows => 0.0,
             MemberLine::Heading { .. } => heading.map_or(pitch, |height| height + 2.0),
             MemberLine::Member(_) => pitch,
         };
@@ -524,6 +538,24 @@ fn dot_at(face: f32, dot: Option<f32>, out: Option<f32>) -> Point {
 }
 
 /// A themed list's heading height, when it has its own.
+/// The member list's lines a theme hides (`hidden` on `members.heading` or
+/// `members.row` in its own values), which take no room.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Hidden {
+    pub headings: bool,
+    pub rows: bool,
+}
+
+impl Hidden {
+    pub(crate) fn of(theme: &crate::theme::Theme) -> Self {
+        let hidden = |name| theme.part(name, 0).is_some_and(|look| look.hidden);
+        Self {
+            headings: hidden("members.heading"),
+            rows: hidden("members.row"),
+        }
+    }
+}
+
 pub(crate) fn heading_height(
     theme_rows: Option<&yapfast_core::themes::lists::MemberRows>,
 ) -> Option<f32> {
@@ -1285,15 +1317,19 @@ impl<'a> View<'a> {
             &self.cx.look.theme.id,
             yapfast_core::themes::package::art::ArtSurface::Members,
         );
+        let part = self.cx.look.theme.part("members", 0);
         let list = container(row![bar(edge, 1, Length::Fill), list])
             .width(width(self.cx.layout, self.cx.look.theme))
             .height(Length::Fill)
             .style(move |_| {
-                if bare {
-                    container::Style::default()
-                } else {
-                    fill(ground)
-                }
+                yapfast_iced_kit::parts::style(
+                    part.as_ref(),
+                    if bare {
+                        container::Style::default()
+                    } else {
+                        fill(ground)
+                    },
+                )
             });
         // Its edge drags it wider or narrower, over the line.
         let theme = self.cx.look.theme;
@@ -1305,6 +1341,7 @@ impl<'a> View<'a> {
             Message::Members(Event::Resized),
             Message::Members(Event::ResetWidth),
         );
+        let list = yapfast_iced_kit::parts::show(theme, "members", 0, list);
         let panel: Element<'a, Message> = iced::widget::stack![list, splitter].into();
         if collapsed {
             mouse_area(panel)
@@ -1986,11 +2023,15 @@ impl<'a> View<'a> {
                 });
         let heading = crate::themes::list_case(headers.and_then(|headers| headers.case), &heading);
         let heading = theme.surface_words("label", &heading).into_owned();
-        let ink = headers
-            .and_then(|headers| headers.colour)
-            .map(crate::themes::argb)
-            .or_else(|| theme.surface_text("label"))
-            .unwrap_or_else(|| hex(HEADING));
+        let part = theme.part("members.heading", 0);
+        let ink = yapfast_iced_kit::parts::ink(
+            part.as_ref(),
+            headers
+                .and_then(|headers| headers.colour)
+                .map(crate::themes::argb)
+                .or_else(|| theme.surface_text("label"))
+                .unwrap_or_else(|| hex(HEADING)),
+        );
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(icon) = icon.and_then(|icon| self.cx.picture(icon, 20, 20, false)) {
             line = line.push(Pic::square(icon, 20.0));
@@ -2003,31 +2044,39 @@ impl<'a> View<'a> {
         let header_role = headers
             .and_then(|h| h.font)
             .map_or(stock_role, yapfast_core::themes::lists::FontRole::name);
-        let size = headers.and_then(|headers| headers.size).unwrap_or_else(|| {
-            if label_bar || headers.and_then(|h| h.font).is_some() {
-                theme.type_size(header_role, 14.0)
-            } else {
-                14.0
-            }
-        });
-        let header_font = crate::themes::list_font(
-            theme,
-            headers.and_then(|h| h.font),
-            stock_role,
-            headers.and_then(|h| h.weight),
-            MEDIUM,
+        let size = yapfast_iced_kit::parts::size(
+            part.as_ref(),
+            headers.and_then(|headers| headers.size).unwrap_or_else(|| {
+                if label_bar || headers.and_then(|h| h.font).is_some() {
+                    theme.type_size(header_role, 14.0)
+                } else {
+                    14.0
+                }
+            }),
+        );
+        let header_font = yapfast_iced_kit::parts::font(
+            part.as_ref(),
+            crate::themes::list_font(
+                theme,
+                headers.and_then(|h| h.font),
+                stock_role,
+                headers.and_then(|h| h.weight),
+                MEDIUM,
+            ),
         );
         let header_shadow = crate::themes::offset_shadow(headers.and_then(|h| h.shadow));
         // As Slint's member heading: the list's own heading shadow only;
         // the theme's `labels` light dresses Settings' section labels.
         let light = header_shadow;
         line = line.push(
-            crate::elide::elide(heading)
-                .size(size)
-                .font(header_font)
-                .color(ink)
-                .light(light)
-                .shrink(),
+            crate::elide::elide(
+                yapfast_iced_kit::parts::words(part.as_ref(), heading).into_owned(),
+            )
+            .size(size)
+            .font(header_font)
+            .color(ink)
+            .light(light)
+            .shrink(),
         );
         let border = theme.surface_border("label", 0.0, 0.0, Color::TRANSPARENT);
         let shadow = theme.surface_shadow("label", iced::Shadow::default());
@@ -2068,29 +2117,39 @@ impl<'a> View<'a> {
                     right: 0.0,
                 })
                 .height(height);
+            let body = yapfast_iced_kit::parts::show(theme, "members.heading", 0, body);
             return crate::theme_art::surface(body, self.cx, surface);
         }
         let mut body = container(line)
-            .padding(Padding {
-                top: if fill_width { 4.0 } else { 20.0 },
-                right: if fill_width { 6.0 } else { 0.0 },
-                bottom: 4.0,
-                left: headers
-                    .and_then(|headers| headers.inset)
-                    .unwrap_or(if fill_width { 6.0 } else { 8.0 }),
-            })
+            .padding(yapfast_iced_kit::parts::padding(
+                part.as_ref(),
+                Padding {
+                    top: if fill_width { 4.0 } else { 20.0 },
+                    right: if fill_width { 6.0 } else { 0.0 },
+                    bottom: 4.0,
+                    left: headers
+                        .and_then(|headers| headers.inset)
+                        .unwrap_or(if fill_width { 6.0 } else { 8.0 }),
+                },
+            ))
             .height(height)
             .align_y(Alignment::Center)
-            .style(move |_| container::Style {
-                background,
-                border,
-                shadow,
-                ..Default::default()
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    part.as_ref(),
+                    container::Style {
+                        background,
+                        border,
+                        shadow,
+                        ..Default::default()
+                    },
+                )
             });
         if fill_width {
             body = body.width(Length::Fill);
         }
-        let body: Element<'a, Message> = body.into();
+        let body: Element<'a, Message> =
+            yapfast_iced_kit::parts::show(theme, "members.heading", 0, body);
         let body = match headers.and_then(|headers| headers.frame.as_ref()) {
             Some(frame) => match crate::theme_art::tile_art(
                 self.cx,
@@ -2222,6 +2281,14 @@ impl<'a> View<'a> {
         // A theme's list ink beats its content colours, as on a grid tile.
         let themed_ink = list_name_ink(self.cx, themed, look);
         let color = themed_ink.map_or(stock_color, |colour| faded(colour, opacity));
+        let states = yapfast_iced_kit::parts::states(&[
+            (yapfast_iced_kit::parts::HOVER, pointed),
+            (yapfast_iced_kit::parts::SELECTED, selected),
+        ]);
+        let row_part = theme.part("members.row", states);
+        let name_part = theme.part("members.row.name", states);
+        // A role's colour stays the person's: the part fades it, no more.
+        let color = yapfast_iced_kit::parts::ink(name_part.as_ref(), color);
         let marked = self.cx.themes.marked(
             &theme.id,
             yapfast_core::themes::chrome::Place::Member,
@@ -2237,12 +2304,17 @@ impl<'a> View<'a> {
             .and_then(|rows| rows.font)
             .map_or("names", yapfast_core::themes::lists::FontRole::name);
         let name = self.cx.person_name(
-            marked.into_owned(),
+            yapfast_iced_kit::parts::words(name_part.as_ref(), marked).into_owned(),
             NameInk::new(
-                themed
-                    .and_then(|rows| rows.size)
-                    .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
-                themed.and_then(|rows| rows.weight).unwrap_or(500.0).round() as u16,
+                yapfast_iced_kit::parts::size(
+                    name_part.as_ref(),
+                    themed
+                        .and_then(|rows| rows.size)
+                        .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
+                ),
+                name_part.and_then(|part| part.weight).unwrap_or_else(|| {
+                    themed.and_then(|rows| rows.weight).unwrap_or(500.0).round() as u16
+                }),
                 color,
             )
             .font_role(name_role)
@@ -2274,6 +2346,7 @@ impl<'a> View<'a> {
             Some(ransom) => ransom,
             None => name,
         };
+        let name = yapfast_iced_kit::parts::show(theme, "members.row.name", states, name);
         let mut name_line = row![name].spacing(4).align_y(Alignment::Center);
         if let Some(presence) = look.presence
             && matches!(
@@ -2485,16 +2558,19 @@ impl<'a> View<'a> {
             }
         }
         let content = person
-            .padding(Padding {
-                top: 0.0,
-                right: if plate.is_some() {
-                    right.max(12.0)
-                } else {
-                    right
+            .padding(yapfast_iced_kit::parts::padding(
+                row_part.as_ref(),
+                Padding {
+                    top: 0.0,
+                    right: if plate.is_some() {
+                        right.max(12.0)
+                    } else {
+                        right
+                    },
+                    bottom: 0.0,
+                    left,
                 },
-                bottom: 0.0,
-                left,
-            })
+            ))
             .height(row_height(self.cx.look.theme));
         // The ground the nameplate fades into.
         let ground = if selected {
@@ -2544,22 +2620,27 @@ impl<'a> View<'a> {
                 .width(Length::Fill)
                 .height(row_height)
                 .clip(true)
-                .style(move |_| container::Style {
-                    background: if selected {
-                        frame.is_none().then(|| {
-                            if selected_decorated {
-                                Color::TRANSPARENT
+                .style(move |_| {
+                    yapfast_iced_kit::parts::style(
+                        row_part.as_ref(),
+                        container::Style {
+                            background: if selected {
+                                frame.is_none().then(|| {
+                                    if selected_decorated {
+                                        Color::TRANSPARENT
+                                    } else {
+                                        theme.token_colour("row-selected", MEMBER_OPEN)
+                                    }
+                                    .into()
+                                })
                             } else {
-                                theme.token_colour("row-selected", MEMBER_OPEN)
-                            }
-                            .into()
-                        })
-                    } else {
-                        pointed.then(|| MEMBER_HOVER.into())
-                    },
-                    border,
-                    shadow,
-                    ..Default::default()
+                                pointed.then(|| MEMBER_HOVER.into())
+                            },
+                            border,
+                            shadow,
+                            ..Default::default()
+                        },
+                    )
                 })
                 .into();
             let mut body = iced::widget::stack![body]
@@ -2598,7 +2679,8 @@ impl<'a> View<'a> {
             {
                 body = body.push(art);
             }
-            let body: Element<'a, Message> = body.into();
+            let body: Element<'a, Message> =
+                yapfast_iced_kit::parts::show(theme, "members.row", states, body);
             if selected && frame.is_none() {
                 crate::theme_art::surface(body, self.cx, selected_surface)
             } else {
@@ -2861,15 +2943,15 @@ mod tests {
         };
         // Stock, and a theme whose headings keep the pitch: no tops kept.
         for heading in [None, Some(PITCH - 2.0)] {
-            let tops = Tops::new(&lines, PITCH, heading);
+            let tops = Tops::new(&lines, PITCH, heading, super::Hidden::default());
             assert!(matches!(tops, Tops::Even { .. }));
             assert_eq!(tops.in_view(&scroll), scroll.range(lines.len(), PITCH, TOP));
             assert_eq!(tops.top(1000), TOP + 1000.0 * PITCH);
             assert_eq!(tops.end(), TOP + 5000.0 * PITCH);
         }
         // Headings of their own height: each line's top.
-        let tops = Tops::new(&lines, PITCH, Some(30.0));
-        let each = line_tops(&lines, PITCH, Some(30.0));
+        let tops = Tops::new(&lines, PITCH, Some(30.0), super::Hidden::default());
+        let each = line_tops(&lines, PITCH, Some(30.0), super::Hidden::default());
         assert!(matches!(tops, Tops::Each(_)));
         assert_eq!(tops.in_view(&scroll), lines_in_view(&each, &scroll));
         assert_eq!(tops.top(10), TOP + 10.0 * 32.0);

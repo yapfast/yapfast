@@ -184,6 +184,7 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
             .into();
         border
     });
+    let look = theme.part("timeline.actions", 0);
     let action = container(buttons).padding(3).style(move |_| {
         let mut style = crate::style::surface_panel(theme, "actions", ground, edge, 8.0);
         if custom_outline {
@@ -200,8 +201,9 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
         } else {
             theme.surface_shadow("actions", crate::style::hover_bar_shadow())
         };
-        style
+        yapfast_iced_kit::parts::style(look.as_ref(), style)
     });
+    let action = yapfast_iced_kit::parts::show(theme, "timeline.actions", 0, action);
     let action = crate::theme_art::surface(action, ctx, surface);
     let action: Element<'a, Message> = if decorated {
         let shadow = theme.surface_shadow("actions", crate::style::hover_bar_shadow());
@@ -211,11 +213,16 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
             .surface_radius("actions", 8.0)
             .min((BAR_BUTTON + 6.0) / 2.0);
         container(action)
-            .style(move |_| iced::widget::container::Style {
-                background: Some(paint),
-                border: iced::Border::default().rounded(radius),
-                shadow,
-                ..Default::default()
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(
+                    look.as_ref(),
+                    iced::widget::container::Style {
+                        background: Some(paint),
+                        border: iced::Border::default().rounded(radius),
+                        shadow,
+                        ..Default::default()
+                    },
+                )
             })
             .into()
     } else {

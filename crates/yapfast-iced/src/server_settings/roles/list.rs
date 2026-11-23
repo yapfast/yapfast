@@ -373,6 +373,7 @@ impl<'a> View<'a> {
             .padding(6)
             .width(MORE)
             .style(controls::menu_panel(self.cx.look.theme));
+        let panel = yapfast_iced_kit::parts::show(self.cx.look.theme, "menu", 0, panel);
         iced::widget::opaque(controls::themed_outline(
             panel,
             self.cx.look.theme,

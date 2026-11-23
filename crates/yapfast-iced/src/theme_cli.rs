@@ -1,7 +1,8 @@
-//! `yapfast theme check | install | new | export`, with no window: a
+//! `yapfast theme check | install | new | export | parts`, with no window: a
 //! theme's checks printed, a local folder installed, a theme's folder made
-//! from the template or from another theme, and one of the person's own
-//! colour themes written as a package. See docs/themes.md, "Making a theme".
+//! from the template or from another theme, one of the person's own colour
+//! themes written as a package, and the parts a theme can style. See
+//! docs/themes.md, "Making a theme" and "Named parts".
 
 use std::path::{Path, PathBuf};
 
@@ -21,7 +22,8 @@ use crate::layout::Layout;
 pub const USAGE: &str = "usage: yapfast theme check <folder> [--marketplace]
        yapfast theme install <folder> [--data-dir <folder>]
        yapfast theme new <name> [--light] [--from <theme>] [--author <name>] [--id <id>] [--dir <folder>] [--data-dir <folder>]
-       yapfast theme export <custom theme> <folder> [--author <name>] [--data-dir <folder>]";
+       yapfast theme export <custom theme> <folder> [--author <name>] [--data-dir <folder>]
+       yapfast theme parts [--json]";
 const CHECK_USAGE: &str = "usage: yapfast theme check <folder> [--marketplace]";
 const INSTALL_USAGE: &str = "usage: yapfast theme install <folder> [--data-dir <folder>]";
 const NEW_USAGE: &str = "usage: yapfast theme new <name> [--light] [--from <theme>] [--author <name>] [--id <id>] [--dir <folder>] [--data-dir <folder>]";
@@ -40,6 +42,7 @@ pub fn run(arguments: &[String]) -> i32 {
         "install" => install(rest),
         "new" => new(rest),
         "export" => export(rest),
+        "parts" => parts(&rest),
         _ => {
             eprintln!("{USAGE}");
             return 2;
@@ -78,6 +81,22 @@ impl From<String> for Stop {
 /// `usage` as what a command that wasn't understood says.
 fn usage(usage: &str) -> Stop {
     Stop::Usage(usage.to_owned())
+}
+
+const PARTS_USAGE: &str = "usage: yapfast theme parts [--json]";
+
+/// `theme parts [--json]`: every part a theme can style, with its states and
+/// properties; as JSON, with each part's stock colour tokens and each
+/// property's range too.
+fn parts(arguments: &[String]) -> Result<String, Stop> {
+    use yapfast_core::themes::parts;
+    match arguments {
+        [] => Ok(parts::listing()),
+        [json] if json == "--json" => serde_json::to_string_pretty(&parts::registry_json())
+            .map(|text| text + "\n")
+            .map_err(|error| Stop::Failed(error.to_string())),
+        _ => Err(usage(PARTS_USAGE)),
+    }
 }
 
 /// `theme check <folder> [--marketplace]`: the checks an install, and with

@@ -27,7 +27,14 @@ impl<'a> super::View<'a> {
     pub(super) fn dm_row(self, room: &'a Room) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let pointed = self.cx.pointed.side.as_deref() == Some(room.id.as_str());
+        let states = yapfast_iced_kit::parts::states(&[
+            (yapfast_iced_kit::parts::HOVER, pointed),
+            (yapfast_iced_kit::parts::SELECTED, room.selected),
+            (yapfast_iced_kit::parts::UNREAD, room.unread),
+        ]);
+        let look = theme.part("sidebar.dm-row", states);
         let (ink, opacity) = self.row_ink(room, pointed);
+        let ink = yapfast_iced_kit::parts::ink(look.as_ref(), ink);
         let row_ground = if room.selected {
             theme.active
         } else if pointed {
@@ -53,11 +60,15 @@ impl<'a> super::View<'a> {
         );
         let mut name = row![
             self.cx.person_name(
-                marked,
+                yapfast_iced_kit::parts::words(look.as_ref(), marked).into_owned(),
                 // As Slint's DM row: the window's face, not the theme's names.
                 NameInk {
                     font_role: "small",
-                    ..NameInk::new(15.0, 500, ink)
+                    ..NameInk::new(
+                        yapfast_iced_kit::parts::size(look.as_ref(), 15.0),
+                        look.and_then(|look| look.weight).unwrap_or(500),
+                        ink,
+                    )
                 }
                 .style(room.style.as_ref())
                 .key(&room.id),
@@ -149,6 +160,7 @@ impl<'a> super::View<'a> {
                 select,
                 Some(room.id.clone()),
                 false,
+                Some(("sidebar.dm-row", states)),
             );
         };
         // The plate fills the row to its edges and corners, so the row's
@@ -174,8 +186,15 @@ impl<'a> super::View<'a> {
             .width(Length::Fill)
             .height(height)
             .clip(true)
-            .style(move |_| rounded(row_ground, ROW_RADIUS));
-        self.row_presses(room.id.clone(), body.into(), select, Some(room.id.clone()))
+            .style(move |_| {
+                yapfast_iced_kit::parts::style(look.as_ref(), rounded(row_ground, ROW_RADIUS))
+            });
+        self.row_presses(
+            room.id.clone(),
+            yapfast_iced_kit::parts::show(theme, "sidebar.dm-row", states, body),
+            select,
+            Some(room.id.clone()),
+        )
     }
 
     /// Discord's OFFICIAL badge by its own account's name: blurple, a

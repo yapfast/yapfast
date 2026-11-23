@@ -772,7 +772,8 @@ pub fn apply(
     variants: &mut [(&str, Option<&mut Value>)],
 ) -> Result<(), Error> {
     for (path, value) in overrides {
-        let steps: Vec<&str> = path.split('.').collect();
+        let grouped = part_steps(path);
+        let steps: Vec<&str> = grouped.iter().map(String::as_str).collect();
         if let ["variants", mode, rest @ ..] = steps.as_slice() {
             // Another variant's change is no business of this one.
             let Some((_, target)) = variants.iter_mut().find(|(name, _)| name == mode) else {
@@ -800,6 +801,40 @@ pub fn apply(
         }
     }
     Ok(())
+}
+
+/// A path's steps, with a part's dotted name under `parts` kept as one
+/// step: `parts.menu.row.hover.ink` is the part `menu.row`'s, so an option
+/// can make it where the theme doesn't style that part yet. The longest
+/// registered name wins; a name Yapfast doesn't have runs to the first
+/// state or property, so the check can name it.
+fn part_steps(path: &str) -> Vec<String> {
+    let steps: Vec<&str> = path.split('.').collect();
+    let at = match steps.as_slice() {
+        ["variants", "dark" | "light", "parts", ..] => 3,
+        ["parts", ..] => 1,
+        _ => return steps.iter().map(|step| (*step).to_owned()).collect(),
+    };
+    let rest = &steps[at..];
+    let known = (1..=rest.len())
+        .rev()
+        .find(|take| super::parts::index(&rest[..*take].join(".")).is_some());
+    let take = known.unwrap_or_else(|| {
+        rest.iter()
+            .position(|step| {
+                super::parts::STATES.iter().any(|(_, name)| name == step)
+                    || super::parts::PROPS.iter().any(|(_, name, _)| name == step)
+            })
+            .unwrap_or(rest.len())
+            .max(1)
+            .min(rest.len())
+    });
+    let mut grouped: Vec<String> = steps[..at].iter().map(|step| (*step).to_owned()).collect();
+    if !rest.is_empty() {
+        grouped.push(rest[..take].join("."));
+        grouped.extend(rest[take..].iter().map(|step| (*step).to_owned()));
+    }
+    grouped
 }
 
 fn missing(path: &str) -> Error {
@@ -1012,6 +1047,28 @@ mod tests {
         let mut shared = json!({ "art": { "overlays": [{ "kind": "grain", "opacity": 0.08 }] } });
         apply(&overrides(&read, &choices), &mut shared, &mut []).unwrap();
         assert_eq!(shared["art"]["overlays"][0]["opacity"], json!(0.12));
+    }
+
+    #[test]
+    fn an_option_makes_a_dotted_part_where_the_theme_has_none() {
+        let mut shared = json!({ "parts": { "menu": { "radius": 2 } } });
+        let mut dark = json!({ "base": "yap" });
+        apply(
+            &vec![
+                ("parts.menu.row.hover.ink".to_owned(), json!("#ffffff")),
+                ("parts.menu.radius".to_owned(), json!(6)),
+                (
+                    "variants.dark.parts.sidebar.channel-row.ground".to_owned(),
+                    json!("#111111"),
+                ),
+            ],
+            &mut shared,
+            &mut [("dark", Some(&mut dark))],
+        )
+        .unwrap();
+        assert_eq!(shared["parts"]["menu.row"]["hover"]["ink"], "#ffffff");
+        assert_eq!(shared["parts"]["menu"]["radius"], 6);
+        assert_eq!(dark["parts"]["sidebar.channel-row"]["ground"], "#111111");
     }
 
     #[test]

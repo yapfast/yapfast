@@ -43,32 +43,37 @@ pub(super) fn banner_colour<'a>(
         .height(28)
         .style(move |_| crate::style::outlined(swatch_fill, line, 6.0));
     let (raised, danger) = (theme.raised, theme.danger);
-    let field = form::field(theme, COLOUR, "Default", &core.colour)
-        .size(14)
-        .padding(8)
-        .width(116)
-        .on_input(|text| message(Event::Write(ProfileText::Colour, text)))
-        .on_submit(message(Event::Picture(ProfilePicture::Banner)))
-        .style({
-            let (ink, hint, accent, selection) =
-                (theme.text, theme.muted, theme.accent, theme.selection);
-            move |_, status| text_input::Style {
-                background: if wrong { faded(danger, 0.16) } else { raised }.into(),
-                border: Border {
-                    color: faded(accent, 0.8),
-                    width: if matches!(status, text_input::Status::Focused { .. }) {
-                        1.0
-                    } else {
-                        0.0
+    let field = yapfast_iced_kit::parts::show(
+        theme,
+        "field",
+        0,
+        form::field(theme, COLOUR, "Default", &core.colour)
+            .size(14)
+            .padding(8)
+            .width(116)
+            .on_input(|text| message(Event::Write(ProfileText::Colour, text)))
+            .on_submit(message(Event::Picture(ProfilePicture::Banner)))
+            .style({
+                let (ink, hint, accent, selection) =
+                    (theme.text, theme.muted, theme.accent, theme.selection);
+                move |_, status| text_input::Style {
+                    background: if wrong { faded(danger, 0.16) } else { raised }.into(),
+                    border: Border {
+                        color: faded(accent, 0.8),
+                        width: if matches!(status, text_input::Status::Focused { .. }) {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        radius: 6.0.into(),
                     },
-                    radius: 6.0.into(),
-                },
-                icon: ink,
-                placeholder: hint,
-                value: ink,
-                selection,
-            }
-        });
+                    icon: ink,
+                    placeholder: hint,
+                    value: ink,
+                    selection,
+                }
+            }),
+    );
     let mut head = row![
         text("Banner color")
             .size(14)

@@ -15,6 +15,7 @@ pub mod form;
 pub mod frames;
 pub mod icons;
 pub mod look;
+pub mod parts;
 pub mod piece;
 pub mod popover;
 pub mod renderer;

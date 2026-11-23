@@ -791,17 +791,22 @@ fn chooser<'a>(
     if !open {
         return boxed.into();
     }
-    let search = crate::controls::field(
+    let search = yapfast_iced_kit::parts::show(
         theme,
-        iced::widget::Id::new(QUERY),
-        &placeholder,
-        &filters.query,
-        false,
-        true,
-    )
-    .on_input(|query| message(FiltersEvent::Query(query)))
-    .on_submit(message(FiltersEvent::Add(0)))
-    .size(15);
+        "field",
+        0,
+        crate::controls::field(
+            theme,
+            iced::widget::Id::new(QUERY),
+            &placeholder,
+            &filters.query,
+            false,
+            true,
+        )
+        .on_input(|query| message(FiltersEvent::Query(query)))
+        .on_submit(message(FiltersEvent::Add(0)))
+        .size(15),
+    );
     let mut list = column![search].spacing(2);
     let options = filters.options(ctx.state, server);
     if options.is_empty() {

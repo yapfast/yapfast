@@ -169,26 +169,30 @@ impl<'a> Page<'a> {
                 .into(),
             );
         }
-        parts.push(
+        parts.push(yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
             form::field(
                 theme,
                 "settings-game-executable",
                 "Executable name or full path",
                 &draft.executable,
             )
-            .on_input(|text| game_message(GameEvent::Executable(text)))
-            .into(),
-        );
-        parts.push(
+            .on_input(|text| game_message(GameEvent::Executable(text))),
+        ));
+        parts.push(yapfast_iced_kit::parts::show(
+            theme,
+            "field",
+            0,
             form::field(
                 theme,
                 "settings-game-name",
                 "Text after Playing (up to 128 characters)",
                 &draft.name,
             )
-            .on_input(|text| game_message(GameEvent::Name(text)))
-            .into(),
-        );
+            .on_input(|text| game_message(GameEvent::Name(text))),
+        ));
         if draft.invalid {
             parts.push(form::note(
                 theme,

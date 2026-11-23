@@ -124,6 +124,29 @@ impl<'a, M: Clone + 'a> Tile<'a, M> {
         self
     }
 
+    /// Styled by a theme's named part's `look` (`call.tile`), over its
+    /// surface's: its corners, border, shadow, and a solid ground where the
+    /// tile shows one.
+    pub fn part(mut self, look: Option<crate::parts::PartLook>) -> Self {
+        let Some(look) = look else {
+            return self;
+        };
+        self.radius = look.radius(self.radius);
+        self.border = look.border(self.border);
+        if look.radius.is_some() {
+            self.border.radius = self.radius.into();
+        }
+        self.shadow = look.shadow(self.shadow);
+        if let Some((_, border, _)) = &mut self.outline {
+            *border = self.border;
+        }
+        if let (Some(ground), Some(iced::Background::Color(colour))) = (self.ground, look.ground) {
+            let _ = ground;
+            self.ground = Some(look.fade(colour));
+        }
+        self
+    }
+
     /// The ring of someone speaking, in `color`.
     pub fn ring(mut self, color: Option<Color>) -> Self {
         self.ring = color;

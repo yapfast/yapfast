@@ -520,6 +520,7 @@ impl<'a> View<'a> {
                 .on_input(|name| emoji(EmojiInput::Name(name)))
                 .on_submit(emoji(EmojiInput::Finish));
         }
+        let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
         let mut body = column![
             text("Upload Emoji").size(20).font(BOLD).color(theme.text),
             stage,
@@ -856,6 +857,7 @@ impl<'a> View<'a> {
                     .on_input(move |typed| sticker(input(typed)))
                     .on_submit(sticker(StickerInput::Save));
             }
+            let field = yapfast_iced_kit::parts::show(theme, "field", 0, field);
             column![form::heading(theme, heading), field].spacing(6)
         };
         body = body

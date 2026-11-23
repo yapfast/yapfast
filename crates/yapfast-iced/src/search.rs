@@ -306,13 +306,24 @@ pub fn header_search<'a>(
     } else {
         (theme.line, theme.sunken)
     };
+    // The search box is the theme's `field` part, focused while it has
+    // the keys.
+    let states = if searching.focused {
+        yapfast_iced_kit::parts::FOCUSED
+    } else {
+        0
+    };
+    let look = theme.part("field", states);
     let field = container(row![input, end].spacing(4).align_y(Alignment::Center))
         .padding(Padding::ZERO.left(8).right(if typed { 2 } else { 5 }))
         .width(if used { BOX_USED } else { BOX })
         .height(BOX_HEIGHT)
         .align_y(Alignment::Center)
         .clip(true)
-        .style(move |_| crate::style::outlined(ground, line, 8.0));
+        .style(move |_| {
+            yapfast_iced_kit::parts::style(look.as_ref(), crate::style::outlined(ground, line, 8.0))
+        });
+    let field = yapfast_iced_kit::parts::show(theme, "field", states, field);
     Wrap::new(field, Placed(&searching.spot)).into()
 }
 

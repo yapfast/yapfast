@@ -688,6 +688,7 @@ fn resolve_package(
     metrics.readable_text = layout.readable_text;
     let Loaded {
         types,
+        part_pictures,
         icons,
         sounds,
         art,
@@ -702,6 +703,7 @@ fn resolve_package(
         window,
     );
     metrics.types = types;
+    metrics.part_pictures = part_pictures;
     metrics.decorations = art.decorations();
     metrics.tooltip = tooltip_surface(&art);
     let sound_prefs = layout.theme_sounds.get(&id).copied().unwrap_or_default();
@@ -747,6 +749,8 @@ fn resolve_package(
 /// and art.
 struct Loaded {
     types: HashMap<String, yapfast_iced_kit::theme::TypeStyle>,
+    /// Its parts' pictures, in `Parts::files`' order.
+    part_pictures: Vec<yapfast_iced_kit::parts::Picture>,
     icons: HashMap<String, yapfast_iced_kit::icons::Replacement>,
     sounds: ThemeSounds,
     art: ThemeArt,
@@ -771,6 +775,7 @@ fn load(
     if !live {
         return Loaded {
             types: HashMap::new(),
+            part_pictures: Vec::new(),
             icons: HashMap::new(),
             sounds: ThemeSounds::default(),
             art: ThemeArt {
@@ -782,10 +787,47 @@ fn load(
     }
     Loaded {
         types: typography(folder, resolved),
+        part_pictures: part_pictures(folder, resolved),
         icons: icons(folder, resolved, palette),
         sounds: sounds(folder, resolved, options, choices),
         art: theme_art(folder, resolved, performance, reduced_motion, window),
     }
+}
+
+/// Each picture the theme's parts name, decoded once. One that somehow
+/// can't be read after the checks stands in as a clear pixel, so the
+/// indices the looks hold stay right.
+fn part_pictures(folder: &Path, resolved: &Resolved) -> Vec<yapfast_iced_kit::parts::Picture> {
+    resolved
+        .parts
+        .files()
+        .iter()
+        .map(|file| {
+            let path = folder.join(file);
+            match yapfast_core::chat::decode_picture_at(&path, 4096, 4096) {
+                Some(picture) => {
+                    let rgba = picture_rgba(&picture);
+                    let (width, height) = rgba.dimensions();
+                    // In the renderer's own pixels, as every picture is.
+                    let mut pixels = rgba.into_raw();
+                    yapfast_iced_kit::canvas::to_native(&mut pixels);
+                    yapfast_iced_kit::parts::Picture {
+                        handle: iced::advanced::image::Handle::from_rgba(width, height, pixels),
+                        width,
+                        height,
+                    }
+                }
+                None => {
+                    tracing::warn!(picture = %file.display(), "an installed theme's part picture could not be decoded");
+                    yapfast_iced_kit::parts::Picture {
+                        handle: iced::advanced::image::Handle::from_rgba(1, 1, vec![0; 4]),
+                        width: 1,
+                        height: 1,
+                    }
+                }
+            }
+        })
+        .collect()
 }
 
 fn creator_font_bytes(file: &str) -> Option<&'static [u8]> {
@@ -2276,6 +2318,7 @@ fn apply_resolution(
     metrics.readable_text = readable;
     let Loaded {
         types,
+        part_pictures,
         icons,
         sounds,
         art,
@@ -2290,6 +2333,7 @@ fn apply_resolution(
         window,
     );
     metrics.types = types;
+    metrics.part_pictures = part_pictures;
     metrics.decorations = art.decorations();
     metrics.tooltip = tooltip_surface(&art);
     let cues_on = installed.sound_prefs.interface && installed.sound_prefs.volume > 0;
@@ -3555,7 +3599,62 @@ fn metrics(
         tooltip: None,
         hover_cue: false,
         press_cue: false,
+        parts: parts(&resolved.parts),
+        part_pictures: Vec::new(),
     }
+}
+
+/// Each named part the theme styles, worked out for every set of its states
+/// once, here, so the window only looks one up.
+fn parts(
+    parts: &yapfast_core::themes::parts::Parts,
+) -> HashMap<&'static str, yapfast_iced_kit::parts::PartTable> {
+    use yapfast_core::themes::parts::{Case, Fit, REGISTRY};
+    let pictures = parts.files();
+    parts
+        .rules
+        .iter()
+        .map(|(index, rules)| {
+            let info = &REGISTRY[*index];
+            let table = yapfast_iced_kit::parts::PartTable::new(info.states, |states| {
+                let (style, from) = rules.resolve(states);
+                yapfast_iced_kit::parts::PartLook {
+                    ground: style.ground.as_ref().map(paint),
+                    ink: style.ink.map(argb),
+                    border: style.border,
+                    border_colour: style.border_colour.map(argb),
+                    radius: style.radius,
+                    shadow: style.shadow.map(|shadow| shadow.map(self::shadow)),
+                    opacity: style.opacity,
+                    padding: style.padding,
+                    weight: style.weight,
+                    size_step: style.size_step,
+                    hidden: style.hidden == Some(true),
+                    case: style.case.map(|case| match case {
+                        Case::Upper => yapfast_iced_kit::parts::Case::Upper,
+                        Case::Lower => yapfast_iced_kit::parts::Case::Lower,
+                        Case::None => yapfast_iced_kit::parts::Case::None,
+                    }),
+                    italic: style.italic,
+                    picture: style.picture.as_ref().and_then(|picture| {
+                        let index = pictures.iter().position(|file| *file == picture.file)?;
+                        Some((
+                            u16::try_from(index).ok()?,
+                            match picture.fit {
+                                Fit::Cover => yapfast_iced_kit::parts::Fit::Cover,
+                                Fit::Contain => yapfast_iced_kit::parts::Fit::Contain,
+                                Fit::Tile => yapfast_iced_kit::parts::Fit::Tile,
+                            },
+                        ))
+                    }),
+                    icon_ink: style.icon_ink.map(argb),
+                    from_base: from.base,
+                    from_states: from.states,
+                }
+            });
+            (info.name, table)
+        })
+        .collect()
 }
 
 /// Loads each resolved theme font and keeps all typography tokens at
@@ -5091,6 +5190,144 @@ mod tests {
 
         let shown = shown.with_metrics(Arc::new(metrics(&resolved, Performance::Light, false)));
         assert_eq!(shown.motion(), yapfast_iced_kit::theme::Motion::default());
+    }
+
+    #[test]
+    fn a_packages_parts_reach_the_kit_resolved_for_each_state() {
+        use yapfast_iced_kit::parts::{HOVER, MUTED, PRESSED, SELECTED, UNREAD};
+        let package = yapfast_core::themes::Package::parse(
+            r##"{
+                "theme_api": 1, "id": "dev.example.parts", "name": "Parts", "version": "1.0.0",
+                "parts": {
+                    "sidebar.channel-row": {
+                        "radius": 4, "padding": [0, 12], "weight": 600,
+                        "hover": { "ground": "#2a2d33" },
+                        "selected": { "ground": "#383c44", "ink": "#ffffff" },
+                        "muted": { "opacity": 0.6 }
+                    },
+                    "menu.row": { "pressed": { "ground": "#101010" } }
+                },
+                "variants": { "dark": { "base": "yap" } }
+            }"##,
+        )
+        .expect("a package");
+        let resolved = package.resolve(Mode::Dark).expect("resolved");
+        let shown = theme("installed:dev.example.parts", &resolved_palette(&resolved));
+        let shown = shown.with_metrics(std::sync::Arc::new(metrics(
+            &resolved,
+            Performance::Light,
+            false,
+        )));
+        let rest = shown.part("sidebar.channel-row", 0).expect("styled");
+        assert_eq!(rest.radius, Some([4.0; 4]));
+        assert_eq!(rest.padding, Some([0.0, 12.0, 0.0, 12.0]));
+        assert_eq!(rest.ground, None);
+        assert!(rest.from_base && rest.from_states == 0);
+        let lit = shown.part("sidebar.channel-row", HOVER).unwrap();
+        assert_eq!(lit.ground, Some(argb(0xff2a_2d33).into()));
+        // Selected is laid over hover; muted's fade stays under it.
+        let both = shown
+            .part("sidebar.channel-row", HOVER | SELECTED | MUTED)
+            .unwrap();
+        assert_eq!(both.ground, Some(argb(0xff38_3c44).into()));
+        assert_eq!(both.ink, Some(argb(0xffff_ffff)));
+        assert_eq!(both.opacity, Some(0.6));
+        assert_eq!(both.from_states, HOVER | SELECTED | MUTED);
+        // A state the part doesn't take changes nothing.
+        assert_eq!(
+            shown.part("sidebar.channel-row", UNREAD | PRESSED),
+            Some(rest)
+        );
+        assert!(
+            shown
+                .part("menu.row", HOVER | PRESSED)
+                .unwrap()
+                .ground
+                .is_some()
+        );
+        // What the theme doesn't style has no look, and a theme with no
+        // parts none at all.
+        assert_eq!(shown.part("rail.server", HOVER), None);
+        let plain = theme("installed:dev.example.plain", &resolved_palette(&resolved));
+        let plain = plain.with_metrics(std::sync::Arc::new(
+            yapfast_iced_kit::theme::Metrics::default(),
+        ));
+        assert_eq!(plain.part("sidebar.channel-row", 0), None);
+    }
+
+    /// Every part the window styles is one the registry names, and every
+    /// part the registry names is styled somewhere in the window: the docs,
+    /// the check and the inspector name only parts that are really drawn.
+    #[test]
+    fn every_registered_part_is_drawn_and_every_drawn_part_is_registered() {
+        fn sources(folder: &Path, out: &mut Vec<(PathBuf, String)>) {
+            for entry in std::fs::read_dir(folder).expect("a source folder") {
+                let path = entry.expect("an entry").path();
+                if path.is_dir() {
+                    sources(&path, out);
+                } else if path.extension().is_some_and(|extension| extension == "rs") {
+                    let text = std::fs::read_to_string(&path).expect("a source file");
+                    out.push((path, text));
+                }
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut files = Vec::new();
+        sources(&root.join("src"), &mut files);
+        sources(&root.join("../yapfast-iced-kit/src"), &mut files);
+        let mut drawn = std::collections::BTreeSet::new();
+        for (path, text) in &files {
+            if path.ends_with("parts.rs") {
+                continue;
+            }
+            let mut at = 0;
+            while let Some(found) = text[at..].find('"') {
+                let start = at + found + 1;
+                let Some(length) = text[start..].find('"') else {
+                    break;
+                };
+                let literal = &text[start..start + length];
+                at = start + length + 1;
+                let before: String = text[..start - 1]
+                    .chars()
+                    .rev()
+                    .take(80)
+                    .filter(|c| !c.is_whitespace())
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                let named = before.ends_with(".part(")
+                    || before.ends_with("Some((")
+                    || ((before.contains("ByStatus::new(")
+                        || before.contains("show(")
+                        || before.contains("show_pointed(")
+                        || before.contains("Dress::"))
+                        && before.ends_with(','));
+                if named
+                    && !literal.is_empty()
+                    && literal
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b == b'.' || b == b'-')
+                    && (yapfast_core::themes::parts::find(literal).is_some()
+                        || before.ends_with(".part("))
+                {
+                    assert!(
+                        yapfast_core::themes::parts::find(literal).is_some(),
+                        "{} styles \"{literal}\", which parts::REGISTRY doesn't name",
+                        path.display()
+                    );
+                    drawn.insert(literal.to_owned());
+                }
+            }
+        }
+        for part in yapfast_core::themes::parts::REGISTRY {
+            assert!(
+                drawn.contains(part.name),
+                "parts::REGISTRY names \"{}\", which nothing in the window styles",
+                part.name
+            );
+        }
     }
 
     #[test]

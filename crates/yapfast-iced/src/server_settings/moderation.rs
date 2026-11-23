@@ -270,18 +270,23 @@ impl<'a> View<'a> {
         page: &'a BansPage,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        let field = crate::controls::field(
+        let field = yapfast_iced_kit::parts::show(
             theme,
-            "bans-search",
-            "Search Bans by User Id or Username",
-            &page.query,
-            false,
-            true,
-        )
-        .size(14)
-        .padding([10.9, 12.0])
-        .on_input(|query| ban(BanInput::Query(query)))
-        .on_submit(ban(BanInput::Search));
+            "field",
+            0,
+            crate::controls::field(
+                theme,
+                "bans-search",
+                "Search Bans by User Id or Username",
+                &page.query,
+                false,
+                true,
+            )
+            .size(14)
+            .padding([10.9, 12.0])
+            .on_input(|query| ban(BanInput::Query(query)))
+            .on_submit(ban(BanInput::Search)),
+        );
         let search = row![
             field,
             action(
