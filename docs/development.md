@@ -6,31 +6,38 @@ covers the toolchain, Cargo features and packaging in depth; the
 
 ## The development shell
 
-On NixOS, or anywhere with Nix, enter the pinned environment from the project
-folder:
+On Windows, use Cargo directly in PowerShell after installing the
+[native prerequisites](building.md#windows):
+
+```powershell
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+```
+
+On Linux, enter the pinned Nix environment from the project folder:
 
 ```sh
 nix develop path:./nix
-cargo run --locked
+cargo run --locked --profile fast
 ```
 
 `path:./nix` also works before files are tracked and keeps Cargo output out of
-the Nix source snapshot. Run the `cargo` commands below inside the shell;
+the Nix source snapshot. On Linux, run the `cargo` commands below inside the shell;
 [the shells](building.md#shells) says what each one provides. Local work
 builds with `--profile fast`.
 
 ```sh
 scripts/check --fast
-cargo build --locked --release
 ```
 
 `scripts/check` enters the Nix shell itself when Nix is installed; [building](building.md#checks)
-lists what it covers.
+lists what it covers. On Windows, run the native Cargo checks in
+[Contributing](../CONTRIBUTING.md#build-and-test).
 
 ## Try the UI without an account
 
 ```sh
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 ```
 
 Use the upper-left DM button for direct messages. Server buttons sit below it;
@@ -48,8 +55,10 @@ run `scripts/install-desktop-entry` once after a release build
 ([the app icon](packaging.md#the-app-icon)).
 
 Discord runs only against the fake server, `testing/fake_discord.ts`, in
-development; `scripts/ui-session start --discord` starts both on a private
-display ([seeing the app](building.md#seeing-the-app)).
+development. On Linux, `scripts/ui-session start --discord` starts both on a
+private display ([seeing the app](building.md#seeing-the-app)). On Windows,
+start the fake with Bun and run Cargo with the PowerShell environment setup in
+[Contributing](../CONTRIBUTING.md#build-and-test).
 
 ## Renderer
 
@@ -161,7 +170,10 @@ button selects microphone and speakers. The
 
 ## Windows
 
-Build the Windows packages from this Linux checkout:
+For development on Windows, build and run natively with Cargo as shown
+[above](#the-development-shell). Nix and Wine are not required.
+
+To produce the release packages from Linux, use the Nix cross-build:
 
 ```sh
 nix develop path:./nix#windows --command scripts/build-windows        # Discord release
