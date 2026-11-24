@@ -12,6 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "webrtc_ffmpeg.h"
+
 #include "dav1d/dav1d.h"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"

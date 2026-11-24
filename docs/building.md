@@ -186,10 +186,12 @@ files named here are in `crates/yapfast-core/native/`.
 
 File demuxing and audio use libwebrtc's FFmpeg; HEVC pictures use the
 separate decoder. Only plain values cross between the two FFmpeg builds,
-whose structs and symbols must stay separate. Check a symbol in the archive:
+whose structs and symbols must stay separate. On Linux, LiveKit prefixes
+Chromium's FFmpeg symbols with `LK_`. The two shims that use it include
+`webrtc_ffmpeg.h` so their declarations match. Check a symbol in the Linux archive:
 
 ```sh
-nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'
+nm "$LK_CUSTOM_WEBRTC/lib/libwebrtc.a" | grep ' T LK_avformat_open_input'
 ```
 
 On NixOS, a binary run outside `nix develop` opens NVENC only with

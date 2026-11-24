@@ -21,6 +21,7 @@ fn main() {
         "hevc.c",
         "video_hevc.c",
         "video_hevc.h",
+        "webrtc_ffmpeg.h",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
