@@ -31,8 +31,8 @@ struct yapfast_clip *yapfast_clip_new(unsigned width, unsigned height, unsigned 
   config.g_timebase.den = 1000;
   config.g_threads = threads;
   config.g_pass = VPX_RC_ONE_PASS;
-  /* Looking ahead lets libvpx add hidden reference frames. */
-  config.g_lag_in_frames = 25;
+  /* No lookahead lag so encoding finishes immediately without buffering frames in memory. */
+  config.g_lag_in_frames = 0;
   config.rc_end_usage = VPX_Q;
   config.rc_min_quantizer = 0;
   config.rc_max_quantizer = 63;
@@ -46,8 +46,8 @@ struct yapfast_clip *yapfast_clip_new(unsigned width, unsigned height, unsigned 
     return NULL;
   }
   vpx_codec_control(&clip->codec, VP8E_SET_CQ_LEVEL, quality);
-  vpx_codec_control(&clip->codec, VP8E_SET_CPUUSED, 2);
-  vpx_codec_control(&clip->codec, VP8E_SET_ENABLEAUTOALTREF, 1);
+  vpx_codec_control(&clip->codec, VP8E_SET_CPUUSED, 5);
+  vpx_codec_control(&clip->codec, VP8E_SET_ENABLEAUTOALTREF, 0);
   vpx_codec_control(&clip->codec, VP9E_SET_ROW_MT, 1);
   clip->width = width;
   clip->height = height;

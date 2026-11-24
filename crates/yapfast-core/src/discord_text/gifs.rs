@@ -415,9 +415,15 @@ async fn download_gif(
     Err(end)
 }
 
+/// At most two favourite thumbnails are encoded at once, so opening the picker
+/// doesn't saturate every CPU core.
+static THUMBNAIL_TURNS: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(2));
+
 /// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
 /// `width` wide, from what [`download_gif`] downloads.
 async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<PathBuf> {
+    let _turn = THUMBNAIL_TURNS.acquire().await.ok()?;
     let download = download_gif(discord, url, MAX_FAVORITE_BYTES, MAX_FAVORITE_BYTES)
         .await
         .ok()?;
