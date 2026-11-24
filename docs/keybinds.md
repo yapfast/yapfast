@@ -6,7 +6,8 @@ work in Discord and Matrix calls alike.
 
 ## Built-in window shortcuts
 
-Ctrl+/ opens Settings → Keybinds, which also lists the built-in shortcuts.
+Ctrl+/ opens Settings → Keybinds, which also lists the built-in shortcuts
+(Discord's Ctrl+/ shows the same list in a dialog of its own).
 They work while the window is focused, require the exact modifiers, ignore
 key repeat, and rest while recording a keybind. Custom watched keybinds take
 priority when they use the same keys, so a toggle runs only once. Chat
@@ -41,11 +42,12 @@ drag and drop, and speech shortcuts are not provided by these bindings.
 
 ## In settings
 
-Settings → Keybinds → Configure Global Keybinds opens the custom-keybind
-editor. Each compact row contains an action dropdown, its keys with an
-inline Record button (Stop while recording), delete and an enable switch.
-The full-width Add a Keybind button below adds an enabled row doing nothing
-(Unassigned) with no keys. Disabling a row preserves its action and keys,
+Settings → Keybinds lists them under Custom Keybinds, as Discord's page
+does. Each row has an action dropdown, its keys with an inline Record
+button (Stop while recording), delete and an enable switch, and Discord's
+words for what the action does under them. Add a Keybind, beside the
+title, adds an enabled row doing nothing (Unassigned) with no keys, as
+Discord's does. Disabling a row preserves its action and keys,
 but stops watching it; `enabled` is kept with the binding in `layout.json`,
 and older bindings without the field remain enabled.
 The actions offered are Discord's Push to Talk

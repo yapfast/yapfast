@@ -1286,15 +1286,15 @@ fn a_recorded_push_to_talk_key_is_named_and_kept() {
 fn keybinds_are_added_chosen_recorded_and_removed() {
     let (mut app, folder) = preview();
     open(&mut app, Section::Keybinds);
-    interact(&mut app, |ui| {
-        ui.click("Configure Global Keybinds")
-            .expect("configure keybinds");
-    });
     assert!(shows(&app, "Add a Keybind"));
     interact(&mut app, |ui| {
         ui.click("Add a Keybind").expect("the button");
     });
     assert!(shows(&app, "No Keybind Set"));
+    assert!(shows(
+        &app,
+        "This action doesn't do anything! Please choose one from the drop down."
+    ));
     let keybind = |event| crate::app::settings(Event::Keybind(event));
     use crate::settings::keybinds::{Event as KeybindEvent, Heard, Target};
     let _ = app.update(keybind(KeybindEvent::Action(0, 4)));

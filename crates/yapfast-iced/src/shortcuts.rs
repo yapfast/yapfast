@@ -236,65 +236,78 @@ pub fn update(app: &mut App, shortcut: Shortcut) -> Task<Message> {
     }
 }
 
-/// Also lists existing shortcuts; these allocate no persistent app state.
-pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
+/// The list's own shortcut, which Discord shows on its own above the
+/// groups.
+pub const HELP: (&str, &str) = ("Show Keyboard Shortcuts List", "Ctrl + /");
+
+/// A group of the list: its heading, what it says under it, and its
+/// shortcuts' words and keys.
+pub type Group = (
+    &'static str,
+    Option<&'static str>,
+    &'static [(&'static str, &'static str)],
+);
+
+/// The shortcuts Settings → Keybinds lists, in Discord's groups, order and
+/// words (its `TOGGLE_HOTKEYS` list), keeping those the app has.
+pub const GROUPS: &[Group] = &[
     (
-        "General",
+        "Messages",
+        Some(
+            "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.",
+        ),
         &[
-            ("Show keyboard shortcuts", "Ctrl + /"),
-            ("Quick switcher", "Ctrl + K"),
-            ("Search this channel", "Ctrl + F"),
-            ("Search all channels", "Ctrl + Shift + F"),
+            ("Edit Message", "E"),
+            ("Delete Message", "Backspace"),
+            ("Pin Message", "P"),
+            ("Add Reaction", "+"),
+            ("Reply", "R"),
+            ("Forward Message", "F"),
+            ("Copy Text", "Ctrl + C"),
+            ("Mark Unread", "Alt + Enter"),
+            ("Focus text area", "Esc"),
         ],
     ),
     (
         "Navigation",
+        None,
         &[
-            ("Previous / next server", "Ctrl + Alt + Up / Down"),
-            ("Back / forward", "Alt + Left / Right"),
-            ("Go to current call", "Ctrl + Alt + Shift + V"),
+            ("Navigate between servers", "Ctrl + Alt + Up / Down"),
+            (
+                "Navigate forward and backward in page history",
+                "Alt + Left / Right",
+            ),
+            ("Navigate to current call", "Ctrl + Shift + Alt + V"),
+            ("Toggle QuickSwitcher", "Ctrl + K"),
             ("Create or join a server", "Ctrl + Shift + N"),
         ],
     ),
     (
         "Chat",
+        None,
         &[
-            ("Toggle pins", "Ctrl + P"),
-            ("Toggle inbox", "Ctrl + I"),
-            ("Toggle members or voice chat", "Ctrl + U"),
+            ("Toggle pins popout", "Ctrl + P"),
+            ("Toggle inbox popout", "Ctrl + I"),
+            ("Toggle channel member list or voice text chat", "Ctrl + U"),
             ("Toggle emoji picker", "Ctrl + E"),
-            ("Toggle GIF picker (in composer)", "Ctrl + G"),
+            ("Toggle GIF picker", "Ctrl + G"),
             ("Toggle sticker picker", "Ctrl + S"),
+            ("Focus text area", "Type anywhere"),
             ("Upload a file", "Ctrl + Shift + U"),
             ("Copy channel link", "Ctrl + Shift + L"),
-            ("Focus composer", "Type anywhere"),
-            ("Close popup / cancel", "Esc"),
         ],
     ),
     (
-        "Messages (Alt + Up from composer)",
-        &[
-            ("Move between messages", "Up / Down"),
-            ("Edit own message", "E"),
-            ("Pin / unpin message", "P"),
-            ("Delete message", "Backspace / Delete"),
-            ("Add reaction", "+"),
-            ("Reply", "R"),
-            ("Forward", "F"),
-            ("Copy text", "Ctrl + C"),
-            ("Mark unread", "Alt + Enter"),
-            ("Return to composer", "Esc"),
-        ],
-    ),
-    (
-        "Voice and video",
+        "Voice and Video",
+        None,
         &[
             ("Toggle mute", "Ctrl + Shift + M"),
             ("Toggle deafen", "Ctrl + Shift + D"),
             ("Answer incoming call", "Ctrl + Enter"),
-            ("Start call in DM or group", "Ctrl + '"),
+            ("Start call in private message or group", "Ctrl + '"),
         ],
     ),
+    ("Miscellaneous", None, &[("Search", "Ctrl + F")]),
 ];
 
 #[cfg(test)]
@@ -315,6 +328,7 @@ mod tests {
         );
         assert_eq!(pressed(&Key::Character("t".into()), physical, chord), None);
     }
+
     #[test]
     fn ctrl_slash_takes_shift_where_the_layout_needs_it() {
         let slash = Key::Character("/".into());

@@ -49,13 +49,13 @@ recording. Each change is kept at once in
   a message (`Message::Keybinds`), kept by the root (`keybinds.rs`) for
   the note under the key whether Settings show or not.
   Record keybind records it as the Keybinds page records one (below).
-- Keybinds (`keybinds.rs`), as Discord's page: Add a Keybind, and each
-  keybind in a compact row with its action (Discord's six), its recorded
-  keys and an inline Record/Stop button, a delete button and an enable
-  switch. Add a Keybind spans the column below the rows. Disabling keeps
-  the recorded keys but removes the binding from the watcher. Each row
-  also says what the desktop gave it while the desktop runs them;
-  over them, where keybinds work. Recording takes the keys pressed
+- Keybinds (`keybinds.rs`), as Discord's page: Custom Keybinds with Add
+  a Keybind beside its title, and each keybind in a row with its action
+  (Discord's six), its recorded keys and an inline Record/Stop button, a
+  delete button and an enable switch, with Discord's words for what the
+  action does under it. Disabling keeps the recorded keys but removes the
+  binding from the watcher. Each row also says what the desktop gave it
+  while the desktop runs them; over them, where keybinds work. Recording takes the keys pressed
   together, wherever the keys are, up to four, showing them as they're
   pressed, and ends once they're all up again (or the focus goes);
   Escape, pressed first, stops without changing anything; on Windows
@@ -67,13 +67,14 @@ recording. Each change is kept at once in
   the page's as one list, started again as they change; a toggle's press
   comes as a message and mutes, deafens or switches the input mode as
   its button does. [Keybinds](../keybinds.md) has the rest.
-  The page starts with Custom Keybinds and a full-width Configure Global
-  Keybinds button that expands the editor above. Default Keybinds follows:
-  the shortcut-list key on its own, then Messages, Navigation, Chat, Voice
-  and video, and General. Each group is a rounded card with divided rows,
-  labels on the left and individual keycaps on the right; alternative
-  chords stack vertically. Colours follow the selected theme.
-  Ctrl+/ opens this page from the workspace. These shortcuts run
+  Default Keybinds follows, as Discord's list (`shortcuts::GROUPS`, its
+  words and order, keeping those the app has): the shortcut-list key on
+  its own, then Messages, Navigation, Chat, Voice and Video, and
+  Miscellaneous. Each group is a rounded card with divided rows, labels on
+  the left and individual keycaps on the right; alternative chords stack
+  vertically. Colours follow the selected theme.
+  Ctrl+/ opens this page from the workspace, where Discord opens a dialog
+  with the same list. These shortcuts run
   through `shortcuts.rs`, only in the focused window, including when a
   text field captures the key (but Ctrl+E a field took stays the
   field's, which opens the picker for it); chat actions wait while a dialog takes keys,

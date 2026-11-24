@@ -50,7 +50,6 @@ pub enum Heard {
 
 #[derive(Clone, Debug)]
 pub enum Event {
-    Configure,
     Enabled(usize, bool),
     Add,
     Remove(usize),
@@ -135,12 +134,6 @@ impl Settings {
                 binding.enabled = enabled;
                 self.record = None;
             }
-            Event::Configure => {
-                self.configure_keybinds = !self.configure_keybinds;
-                self.record = None;
-                self.open = None;
-                return;
-            }
             Event::Add => {
                 let id = keybinds.iter().map(|binding| binding.id).max().unwrap_or(0) + 1;
                 keybinds.push(Binding {
@@ -179,69 +172,50 @@ impl Settings {
 impl<'a> Page<'a> {
     pub(super) fn keybinds_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        // Discord's page: Custom Keybinds with Add a Keybind beside its
+        // title, then Default Keybinds, the list's own shortcut first.
+        let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
+            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+        });
         let mut custom = column![
-            section_title(theme, "Custom Keybinds"),
-            text("Custom keyboard shortcuts let you mute, deafen or talk from any app.")
-                .size(13)
-                .color(theme.secondary),
-            Space::new().height(8),
-            action(
-                theme,
-                if self.s.configure_keybinds {
-                    "Close Global Keybinds"
-                } else {
-                    "Configure Global Keybinds"
-                },
-                Kind::Primary,
-                Some(keybind_message(Event::Configure))
-            )
-            .wide(38.0),
-        ]
-        .spacing(8);
-        if self.s.configure_keybinds {
-            let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-                "Add a keybind, choose what it does, and record its keys.".to_owned()
-            });
-            custom = custom.push(form::note(theme, note));
-            for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {
-                custom = custom.push(self.keybind_row(row, binding));
-            }
-            custom = custom.push(
+            form::beside(
+                form::title(theme, "Custom Keybinds"),
                 action(
                     theme,
                     "Add a Keybind",
-                    Kind::Primary,
+                    Kind::Plain,
                     Some(keybind_message(Event::Add)),
-                )
-                .wide(38.0),
-            );
+                ),
+            ),
+            form::note(theme, note),
+        ]
+        .spacing(16);
+        if self.cx.layout.keybinds.is_empty() {
+            custom = custom.push(form::note(
+                theme,
+                "You haven't added any custom keybinds yet.",
+            ));
+        }
+        for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {
+            custom = custom.push(self.keybind_row(row, binding));
         }
         let defaults = column![
-            section_title(theme, "Default Keybinds"),
-            shortcut_card(theme, &[("Show Keyboard Shortcuts List", "Ctrl + /")]),
+            form::title(theme, "Default Keybinds"),
+            shortcut_card(theme, &[crate::shortcuts::HELP]),
         ]
         .spacing(24);
         let mut parts = column![custom, defaults].spacing(40);
-        // The help row stands alone, followed by the message actions as
-        // in Discord's list. Keep the labels shared with the actual list.
-        for index in [3, 1, 2, 4, 0] {
-            let (heading, shortcuts) = crate::shortcuts::GROUPS[index];
+        for &(heading, description, shortcuts) in crate::shortcuts::GROUPS {
             let mut group = column![
-                text(if index == 3 { "Messages" } else { heading })
+                text(heading)
                     .size(18)
                     .font(crate::fonts::SEMIBOLD)
                     .color(theme.text)
             ]
             .spacing(8);
-            if index == 3 {
-                group = group.push(text("These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.")
-                    .size(13).color(theme.secondary));
+            if let Some(description) = description {
+                group = group.push(text(description).size(13).color(theme.secondary));
             }
-            let shortcuts = if index == 0 {
-                &shortcuts[1..]
-            } else {
-                shortcuts
-            };
             group = group
                 .push(Space::new().height(8))
                 .push(shortcut_card(theme, shortcuts));
@@ -380,25 +354,20 @@ impl<'a> Page<'a> {
             binding.enabled,
             Some(keybind_message(Event::Enabled(row, !binding.enabled))),
         );
+        // Discord's row: the action, its keys, delete and the switch, with
+        // what the action does under them.
         let mut body = column![
             row![actions, keys, remove, toggle]
                 .spacing(8)
-                .align_y(Alignment::Center)
+                .align_y(Alignment::Center),
+            form::note(theme, binding.action.description()),
         ]
-        .spacing(4);
+        .spacing(8);
         if let Some(given) = self.cx.keybinds.given_note(&binding.shortcut_id()) {
             body = body.push(form::note(theme, given));
         }
         body.into()
     }
-}
-
-fn section_title<'a>(theme: &Theme, label: &'a str) -> Element<'a, Message> {
-    text(label)
-        .size(24)
-        .font(crate::fonts::SEMIBOLD)
-        .color(theme.text)
-        .into()
 }
 
 fn shortcut_card<'a>(theme: &Theme, shortcuts: &[(&'a str, &'a str)]) -> Element<'a, Message> {
