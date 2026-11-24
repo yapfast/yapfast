@@ -511,6 +511,7 @@ impl Application {
                 })
                 .collect();
             self.state.favorites_visible = snapshot.favorites.shown();
+            self.state.favorites_muted = snapshot.favorites.muted;
             self.state.list_changes = self.state.list_changes.wrapping_add(1);
         }
         self.state.discord_ignored = snapshot.ignored.clone();

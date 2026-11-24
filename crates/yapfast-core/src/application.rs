@@ -723,6 +723,8 @@ pub struct AppState {
     pub navigation: Navigation,
     pub channel_favorites: Vec<ChannelFavorite>,
     pub favorites_visible: bool,
+    /// Favorites muted as a whole: their tile shows mentions but no unread mark.
+    pub favorites_muted: bool,
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
     pub voice_chat: bool,

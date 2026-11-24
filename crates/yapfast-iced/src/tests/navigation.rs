@@ -1163,6 +1163,23 @@ fn favorites_keep_saved_category_order_and_open_real_conversations() {
         })
         .unwrap();
     assert_eq!((forum.posts.as_str(), forum.badge.as_str()), ("1", "2"));
+    // The tile counts the mentions of what's saved and its threads, as
+    // Discord's does, and is unread unless Favorites are muted.
+    let tile = |app: &App| {
+        crate::rail::rail(app.client.state(), &Default::default())
+            .into_iter()
+            .find(|item| item.id == "@favorites")
+            .unwrap()
+    };
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (true, "2".to_owned())
+    );
+    change(&mut app, |state| state.favorites_muted = true);
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (false, "2".to_owned())
+    );
     let _ = app.update(Message::Side(crate::sidebar::Event::Select(
         "discord:@me:42".into(),
     )));

@@ -14,6 +14,8 @@ keeps it with the account's existing snapshot.
 The rail's star opens Favorites when Discord's visibility setting permits it.
 Its channels, DMs and group DMs open with the usual navigation and voice behavior.
 Unread and mention badges follow the source conversation, including unread forum posts.
+The star's tile counts the mentions of the saved channels and their threads and
+shows an unread mark unless Favorites are muted, as Discord's tile does.
 Category names, channel nicknames (not for one-to-one DMs, which keep their
 person's name), positions and initial collapsed states come
 from Discord. Local category toggles don't modify Discord. Missing, inaccessible

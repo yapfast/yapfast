@@ -531,6 +531,32 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
     if state.discord_linked
         && (state.favorites_visible || state.navigation == Navigation::Favorites)
     {
+        // As Discord's client marks the tile: the mentions of the channels
+        // saved and of their threads, and unread unless Favorites are muted.
+        let saved: HashSet<&str> = state
+            .channel_favorites
+            .iter()
+            .filter(|entry| entry.reference)
+            .map(|entry| entry.id.as_str())
+            .collect();
+        let is_saved =
+            |room: &str| discord::parse_room(room).is_some_and(|(_, id)| saved.contains(id));
+        let (unread, mentions) = state
+            .rooms
+            .iter()
+            .filter(|room| {
+                !room.locked
+                    && !room.request
+                    && (is_saved(&room.id) || room.parent.as_deref().is_some_and(is_saved))
+            })
+            .fold((false, 0), |(unread, mentions), room| {
+                (
+                    unread
+                        || room.mentions > 0
+                        || (room.unread > 0 && !room.muted && !(room.voice && !room.direct)),
+                    mentions + room.mentions,
+                )
+            });
         items.insert(
             0,
             RailItem {
@@ -539,8 +565,8 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
                 icon: None,
                 kind: Kind::Server,
                 selected: state.navigation == Navigation::Favorites,
-                unread: false,
-                badge: String::new(),
+                unread: unread && !state.favorites_muted,
+                badge: count_badge(mentions),
                 call: false,
                 media: None,
                 busy: Busy::default(),
@@ -1839,7 +1865,7 @@ impl<'a> View<'a> {
             let theme = self.cx.look.theme;
             let ground = if lit { theme.raised } else { theme.rail };
             let (width, height) = self.tile_size();
-            return container(self.cx.look.glyph(Icon::StarFilled, 24, theme.text))
+            return container(self.cx.look.glyph(Icon::StarFilled, 20, theme.text))
                 .center_x(width)
                 .center_y(height)
                 .style(move |_| rounded(ground, RADIUS))
