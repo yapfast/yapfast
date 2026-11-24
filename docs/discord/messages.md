@@ -339,9 +339,11 @@ Yapfast is back, rather than showing an error.
   its cell. A right click on it offers Save Video, Copy Link and Open Link. The worker draws its pictures at the size they show: playing,
   the next ones come at a new size; paused, the one showing is redrawn,
   which moving back to it would hold up while playing. MP4, MOV and WebM
-  play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
-  8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound;
-  HEVC, which iPhones record, doesn't, as libwebrtc's FFmpeg lacks it.
+  play, with H264, VP8, VP9, AV1 or HEVC pictures in 4:2:0, 4:2:2 or 4:4:4
+  at 8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound.
+  HEVC uses the separate FFmpeg decoder on Windows and Linux x86-64.
+  MP4 and MOV display matrices with quarter turns and reflections are applied
+  to the picture and its display size.
   A WebM's transparency shows, at 8 bits: it's a second video, in each block's
   BlockAdditional, whose brightness is the picture's alpha, which
   `native/video.c` decodes with a second libvpx decoder when a packet has one.

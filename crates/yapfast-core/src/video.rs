@@ -1,5 +1,6 @@
 //! Video files, through native/video.c: MP4, MOV and WebM, with H264, VP8,
-//! VP9 or AV1 pictures and AAC, Opus, MP3, Vorbis or FLAC sound. Tenor and
+//! VP9, AV1 or HEVC (where `hevcdec` is available) pictures and AAC, Opus,
+//! MP3, Vorbis or FLAC sound. Tenor and
 //! Giphy GIFs reach Discord as MP4s, which Yapfast decodes into an animation as
 //! it does a GIF's frames; [`crate::video_player`] plays the rest.
 
@@ -441,6 +442,8 @@ mod tests {
             "gif-vp9.webm",
             "gif-av1.mp4",
             "gif-animated.avif",
+            #[cfg(hevcdec)]
+            "gif-hevc-10bit.mp4",
         ] {
             let data = fixture(name);
             let picture =
@@ -470,6 +473,53 @@ mod tests {
             let alpha = |x: usize, y: usize| frame[(y * 32 + x) * 4 + 3];
             assert!(alpha(4, 9) < 8, "left {}", alpha(4, 9));
             assert!(alpha(28, 9) > 247, "right {}", alpha(28, 9));
+        }
+    }
+
+    #[test]
+    fn applies_video_display_rotation() {
+        fn first(video: &mut Video<'_>, width: u32, height: u32) -> Vec<u8> {
+            loop {
+                if matches!(video.decode().unwrap(), Next::Picture(_)) {
+                    let mut rgba = vec![0; (width * height * 4) as usize];
+                    video.picture(&mut rgba, width, height).unwrap();
+                    return rgba;
+                }
+            }
+        }
+        let data = fixture("video-aac.mp4");
+        for (width, height) in [(160, 90), (32, 18)] {
+            let mut original = Video::open(std::io::Cursor::new(&data), false).unwrap();
+            let pixels = first(&mut original, width, height);
+            for degrees in [90, 180, 270] {
+                let data = fixture(&format!("video-rotate-{degrees}.mp4"));
+                let mut video = Video::open(std::io::Cursor::new(&data), true).unwrap();
+                let (out_width, out_height) = if degrees == 180 {
+                    assert_eq!((video.width, video.height), (160, 90));
+                    (width, height)
+                } else {
+                    assert_eq!((video.width, video.height), (90, 160));
+                    (height, width)
+                };
+                assert_eq!(video.sound, Some((44_100, 2)));
+                let rotated = first(&mut video, out_width, out_height);
+                for y in 0..height {
+                    for x in 0..width {
+                        // The metadata angle is counterclockwise.
+                        let (rx, ry) = match degrees {
+                            90 => (y, width - 1 - x),
+                            180 => (width - 1 - x, height - 1 - y),
+                            270 => (height - 1 - y, x),
+                            _ => unreachable!(),
+                        };
+                        let from = ((y * width + x) * 4) as usize;
+                        let to = ((ry * out_width + rx) * 4) as usize;
+                        assert_eq!(&rotated[to..to + 4], &pixels[from..from + 4]);
+                    }
+                }
+                video.seek(0).unwrap();
+                assert_eq!(first(&mut video, out_width, out_height), rotated);
+            }
         }
     }
 
@@ -511,6 +561,8 @@ mod tests {
             ("gif-av1-12bit.mp4", "gif-h264.mp4", 3.0),
             ("gif-vp9-10bit.webm", "gif-h264.mp4", 3.0),
             ("gif-h264-10bit.mp4", "gif-h264.mp4", 3.0),
+            #[cfg(hevcdec)]
+            ("gif-hevc-10bit.mp4", "gif-h264.mp4", 3.0),
             ("gif-h264-422.mp4", "gif-h264.mp4", 8.0),
             ("gif-h264-444.mp4", "gif-h264.mp4", 12.0),
             ("gif-vp9-422.webm", "gif-h264-422.mp4", 3.0),
@@ -555,8 +607,12 @@ mod tests {
 
     #[test]
     fn plays_pictures_and_sound_and_moves_back() {
-        for (name, rate, channels) in [("video-aac.mp4", 44_100, 2), ("video-opus.webm", 48_000, 1)]
-        {
+        for (name, rate, channels) in [
+            ("video-aac.mp4", 44_100, 2),
+            ("video-opus.webm", 48_000, 1),
+            #[cfg(hevcdec)]
+            ("video-hevc-opus.mp4", 48_000, 8),
+        ] {
             let data = fixture(name);
             let mut video = Video::open(std::io::Cursor::new(&data[..]), true).unwrap();
             assert_eq!((video.width, video.height), (160, 90), "{name}");

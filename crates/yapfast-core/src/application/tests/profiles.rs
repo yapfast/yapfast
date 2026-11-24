@@ -44,6 +44,7 @@ fn a_linked_discord_profile_loads_for_someone_not_listed() {
 /// Someone whose card opens off the member list's loaded rows gets their
 /// status from the presence Discord answers for the profile's server.
 #[test]
+#[cfg(feature = "discord")]
 fn a_profiles_presence_comes_from_its_server() {
     let mut app = discord_server();
     app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
