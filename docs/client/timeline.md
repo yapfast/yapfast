@@ -109,11 +109,12 @@ slash command, where one may write, is written in the composer
   picture clicked shows large (`image_viewer.rs`):
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
-  its bars; its name and place among the message's pictures, Save and
-  Close above, round buttons and the arrow keys stepping through them, a
-  note while the full one loads or why it can't; Escape, Close or a click
-  outside closes it, and the core lets go of it. A right click on a
-  picture or video, there or in the timeline, offers Copy Image, Save
+  its bars in the current window layout; its name and place among the
+  message's pictures, Save and Close above, round buttons and the arrow
+  keys stepping through them, a note while the full one loads or why it
+  can't; Escape, Close or a click outside closes it, and the core lets go
+  of it. A right click on a picture or video, there or in the timeline,
+  offers Copy Image, Save
   Image or Video, Copy Link and Open Link, after the message's own rows
   (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
@@ -127,8 +128,9 @@ slash command, where one may write, is written in the composer
   5 % a step (a touchpad by the part of a step it moved, a turn sideways
   not at all), and the last button shows it full screen in the viewer
   (`viewer::Viewer`), its name, Save and Exit full screen above it and the
-  same bar below, its frames made at the viewer's size. Full screen it
-  takes the keys (`playback::clip_key`): Space plays or pauses, Left and
+  same bar below. Its frames follow the viewer's size as the window
+  layout changes. In full screen it takes the keys
+  (`playback::clip_key`): Space plays or pauses, Left and
   Right move five seconds, Escape brings it back; a right click on it
   opens the video's rows of the menu alone.
 - Stickers show at 160 px, playing if they move (Lottie ones as the core

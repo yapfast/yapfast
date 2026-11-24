@@ -645,7 +645,13 @@ impl App {
         if let Some(edges) = crate::window_bar::resize_edges(self) {
             layers = layers.push(edges);
         }
-        crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset).into()
+        let frame =
+            crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset);
+        // A display change can alter the logical layout independently of
+        // a window resize event. Fit the overlays to the room iced lays out.
+        iced::widget::sensor(frame)
+            .on_resize(|size| Message::Shell(crate::shell::Event::Resized(size)))
+            .into()
     }
 
     /// The zoom level, a moment after it changes.
