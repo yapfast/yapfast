@@ -140,9 +140,12 @@ page: a role changed elsewhere shows unless the draft changed the same
 field, and one deleted elsewhere closes if it was open.
 
 Roles reads `GET /guilds/{id}` for the roles, boost level and features,
-and `GET /guilds/{id}/roles/member-counts`, and holds them only while it's
-open; members come by id, with names from those Yapfast already knows or
-asks the gateway for. It saves with:
+and `GET /guilds/{id}/roles/member-counts` when it opens. After creating,
+copying, deleting or editing a role, the page refreshes the roles and
+keeps the existing member counts. After granting or removing a role, the
+role's member list refreshes before the separate member count request.
+Members come by id, with names from
+those Yapfast already knows or asks the gateway for. It saves with:
 
 - `PATCH /guilds/{id}/roles`, `[{id, position}]`, only the roles that
   move; @everyone stays at 0.

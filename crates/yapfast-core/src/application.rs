@@ -4735,8 +4735,12 @@ impl Application {
                 server,
                 role,
                 result,
+            } => self.role_holders(server, role, result),
+            Event::RoleCount {
+                server,
+                role,
                 count,
-            } => self.role_holders(server, role, result, count),
+            } => self.role_count(&server, &role, count),
             Event::RoleCandidates {
                 server,
                 query,

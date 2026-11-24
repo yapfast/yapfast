@@ -761,6 +761,12 @@ enum Request {
         users: Vec<String>,
         reply: Option<oneshot::Sender<Vec<String>>>,
     },
+    MemberRole {
+        guild: String,
+        users: Vec<String>,
+        role: String,
+        add: bool,
+    },
     Search {
         guild: String,
         query: String,
@@ -2365,6 +2371,12 @@ impl Discord {
         Ok(server_settings::parse_roles_page(&settings?, &counts?))
     }
 
+    /// Refreshes the roles after a role change, which leaves membership counts intact.
+    pub async fn roles_without_member_counts(&self, guild: &str) -> Result<server_settings::Roles> {
+        let settings = self.api.guild(guild).await?;
+        Ok(server_settings::parse_roles_page(&settings, &Value::Null))
+    }
+
     /// How many members hold each role, by role id.
     pub async fn role_member_counts(&self, guild: &str) -> Result<HashMap<String, u64>> {
         let counts = self.api.role_member_counts(guild).await?;
@@ -2430,10 +2442,9 @@ impl Discord {
         role: &str,
         members: &[String],
     ) -> Result<()> {
-        self.api
-            .add_role_members(guild, role, members)
-            .await
-            .map(drop)
+        self.api.add_role_members(guild, role, members).await?;
+        self.member_role_changed(guild, members.to_vec(), role, true);
+        Ok(())
     }
 
     /// Takes a role from a member, as Manage Members does: by setting the
@@ -2446,7 +2457,9 @@ impl Discord {
             bail!("Yapfast doesn't know that member's roles yet. Try again.");
         }
         let kept: Vec<String> = held.iter().filter(|held| *held != role).cloned().collect();
-        self.api.set_member_roles(guild, user, &kept).await
+        self.api.set_member_roles(guild, user, &kept).await?;
+        self.member_role_changed(guild, vec![user.to_owned()], role, false);
+        Ok(())
     }
 
     /// Changes this account's main profile as Discord's client does:
@@ -3017,7 +3030,18 @@ impl Discord {
 
     /// Gives a member a role, or takes it away.
     pub async fn member_role(&self, guild: &str, user: &str, role: &str, add: bool) -> Result<()> {
-        self.api.member_role(guild, user, role, add).await
+        self.api.member_role(guild, user, role, add).await?;
+        self.member_role_changed(guild, vec![user.to_owned()], role, add);
+        Ok(())
+    }
+
+    fn member_role_changed(&self, guild: &str, users: Vec<String>, role: &str, add: bool) {
+        let _ = self.requests.send(Request::MemberRole {
+            guild: guild.to_owned(),
+            users,
+            role: role.to_owned(),
+            add,
+        });
     }
 
     /// Times a member out until `until_ms`, in Unix milliseconds, or with

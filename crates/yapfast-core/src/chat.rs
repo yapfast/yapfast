@@ -4630,8 +4630,12 @@ pub enum Event {
         server: String,
         role: String,
         result: Result<Vec<RoleMember>, String>,
-        /// How many hold it, after a change to them.
-        count: Option<u64>,
+    },
+    /// How many members hold a role after a membership change.
+    RoleCount {
+        server: String,
+        role: String,
+        count: u64,
     },
     /// The members [`RoleAction::FindMembers`] found for a text.
     RoleCandidates {
