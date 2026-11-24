@@ -2318,15 +2318,7 @@ impl<'a> View<'a> {
         } else {
             0.0
         };
-        // The open one's pill is the theme's "you are here" colour.
-        let ink = theme.token_colour(
-            "pill",
-            if marks.selected {
-                theme.rail_indicator
-            } else {
-                theme.text
-            },
-        );
+        let ink = theme.pill();
         let mut layers = stack![];
         if pill > 0.0 {
             let (pill_x, pill_y, pill_width, pill_height, pill_corners) = if top_rail {

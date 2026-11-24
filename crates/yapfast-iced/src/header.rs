@@ -374,11 +374,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     let border = theme.surface_border("header", 0.0, 0.0, iced::Color::TRANSPARENT);
     let shadow = theme.surface_shadow("header", iced::Shadow::default());
-    // The window's ground is the chat's; the header paints its own only
-    // where a theme gives it another (none built in does).
-    let background = theme
-        .surface_ground("header")
-        .or_else(|| (theme.header != theme.chat).then(|| theme.header.into()));
+    let background = theme.header_ground();
     let bar = container(head)
         .padding([0, 16])
         .width(Length::Fill)

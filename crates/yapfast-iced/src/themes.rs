@@ -1313,8 +1313,9 @@ impl Themes {
         {
             return theme;
         }
-        let (id, found) = palette::chosen(self.chosen.as_deref().or(Some(DEFAULT)), &self.custom);
-        theme(id, &found)
+        let (id, found, parts) =
+            palette::chosen(self.chosen.as_deref().or(Some(DEFAULT)), &self.custom);
+        custom_theme(id, &found, parts)
     }
 
     /// Gives `theme` its package's metrics as they are now. A resize
@@ -1399,7 +1400,10 @@ impl Themes {
     pub fn find(&self, id: &str) -> Option<Theme> {
         self.package(id)
             .map(|package| package.shown.clone())
-            .or_else(|| palette::lookup(id, &self.custom).map(|(id, found)| theme(id, &found)))
+            .or_else(|| {
+                palette::lookup(id, &self.custom)
+                    .map(|(id, found, parts)| custom_theme(id, &found, parts))
+            })
     }
 
     /// Resolves a checked creator draft into the ordinary package registry
@@ -4017,6 +4021,14 @@ macro_rules! from_palette {
 
 yapfast_iced_kit::for_theme_colours!(from_palette);
 
+/// [`theme`], with the parts a custom theme colours on its own.
+pub fn custom_theme(id: &str, colours: &palette::Theme, parts: palette::Parts) -> Theme {
+    let mut shown = theme(id, colours);
+    shown.own_pill = parts.pill.map(color);
+    shown.own_header = parts.header.map(color);
+    shown
+}
+
 /// The stock look protected screens show whatever theme is applied: sign-in,
 /// a link's confirmation and a theme's review. It has no package, so no art,
 /// overlays, icons, faces or motion of any theme come with it.
@@ -4184,6 +4196,7 @@ mod tests {
             name: "Companion".into(),
             base: "yap",
             theme: palette::YAP,
+            parts: Default::default(),
             creator: Some(spec),
             folder: Some(relative.into()),
         };
@@ -4262,6 +4275,7 @@ mod tests {
             name: "Palette only".into(),
             base: "yap",
             theme: palette::YAP,
+            parts: Default::default(),
             creator: None,
             folder: None,
         };
@@ -4303,6 +4317,7 @@ mod tests {
             name: "Layered".into(),
             base: "yap",
             theme: colours,
+            parts: Default::default(),
             creator: None,
             folder: Some(relative.into()),
         };
@@ -4331,6 +4346,7 @@ mod tests {
             name: "Recovered".into(),
             base: "yap",
             theme: palette::YAP,
+            parts: Default::default(),
             creator: Some(yapfast_core::themes::creator::Spec {
                 body: "slab".into(),
                 glass: true,
@@ -4358,6 +4374,7 @@ mod tests {
             name: "Gone".into(),
             base: "yap",
             theme: palette::YAP,
+            parts: Default::default(),
             creator: None,
             folder: None,
         };

@@ -429,8 +429,6 @@ macro_rules! for_theme_colours {
         reply_spine,
         tooltip,
         avatar,
-        rail_indicator,
-        header,
         }
     };
 }
@@ -471,6 +469,12 @@ macro_rules! declare_theme {
             pub selection: Color,
             /// A mention's colour without one of its own.
             pub mention: Color,
+            /// A custom theme's own colour for the rail's pills and the
+            /// header row's ground (`pill` and `header`, as a package
+            /// names them), where it sets one: see [`Theme::pill`] and
+            /// [`Theme::header_ground`].
+            pub own_pill: Option<Color>,
+            pub own_header: Option<Color>,
             /// What iced's own styles read: the theme's ground, text and
             /// accent.
             iced: iced::Theme,
@@ -498,6 +502,8 @@ macro_rules! declare_theme {
                     nav_open: Color::TRANSPARENT,
                     selection: Color::TRANSPARENT,
                     mention: Color::TRANSPARENT,
+                    own_pill: None,
+                    own_header: None,
                     iced: iced::Theme::Dark,
                     metrics: Shared(None),
                 }
@@ -716,6 +722,19 @@ impl Theme {
 
     pub fn token_colour(&self, token: &str, stock: Color) -> Color {
         self.package_colour(token).unwrap_or(stock)
+    }
+
+    /// The pills beside the rail's tiles: a package's `pill`, else a
+    /// custom theme's own, else the text colour.
+    pub fn pill(&self) -> Color {
+        self.token_colour("pill", self.own_pill.unwrap_or(self.text))
+    }
+
+    /// The header row's own ground: a package's `header` surface, else a
+    /// custom theme's own. None lets the chat's ground show under it.
+    pub fn header_ground(&self) -> Option<Background> {
+        self.surface_ground("header")
+            .or(self.own_header.map(Background::Color))
     }
 
     pub fn accent_text(&self) -> Color {
