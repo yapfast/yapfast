@@ -67,8 +67,11 @@ pub struct App {
     /// inbox's Mentions tab (`window_bar.rs`).
     pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
     /// Whether this account's recent mentions were asked for since Discord
-    /// came online (`window_bar.rs` asks as the Mentions tab first shows).
+    /// came online, or since the filter changed (`window_bar.rs` asks as
+    /// the Mentions tab shows), and the room open when they last were
+    /// (`sync.rs`).
     pub mentions_fetched: bool,
+    pub mentions_room: Option<String>,
     /// The Discord account `mention_hits` are of, and the recent mentions
     /// last seen, to tell a new fetch (`window_bar.rs`).
     pub mentions_of: Option<String>,
@@ -309,6 +312,7 @@ impl App {
             inbox: None,
             mention_hits: Default::default(),
             mentions_fetched: false,
+            mentions_room: None,
             mentions_of: None,
             mentions_seen: Default::default(),
             bar_drag: Default::default(),

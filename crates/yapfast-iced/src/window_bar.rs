@@ -7,7 +7,7 @@
 //! buttons, and neither moves nor resizes the window. The Inbox
 //! opens its popout under it: Unreads lists the channels and conversations
 //! with unread messages, and Mentions the messages that ping this account,
-//! filterable by what kind of ping they hold, each jumping to its message.
+//! under Discord's own filter menu, each jumping to its message.
 //!
 //! Whether Yapfast draws it is the desktop's way (`frame.rs`) until
 //! Appearance's "Use the system title bar" chooses. A window is made with
@@ -86,7 +86,8 @@ pub enum Event {
     Forward,
     Inbox,
     InboxTab(Tab),
-    InboxFilter(MentionFilter),
+    /// The Mentions tab's Filter button: its menu opened.
+    MentionsFilter,
     InboxOpen(String),
     /// A ping's own message opened: its room shows that message.
     InboxOpenMessage {
@@ -140,14 +141,13 @@ impl Tab {
 }
 
 /// The inbox popout while it's open: its tab, its rows, and the Mentions
-/// tab's filter, message cards and rooms with mentions but no message kept.
+/// tab's message cards and rooms with mentions but no message kept.
 #[derive(Default)]
 pub struct Inbox {
     pub tab: Tab,
     pub rows: Vec<InboxRow>,
     pub mentions: Vec<MentionRow>,
     pub more: Vec<InboxRow>,
-    pub filter: MentionFilter,
     /// Its list's viewport: only the rows near it are built.
     pub scroll: crate::sync::Scroll,
 }
@@ -165,26 +165,6 @@ pub struct InboxRow {
     pub mentions: u64,
 }
 
-/// What kind of ping a message holds for this account: a direct mention or
-/// a reply to its message, one of its roles, or @everyone or @here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MentionKind {
-    Direct,
-    Role,
-    Everyone,
-}
-
-impl MentionKind {
-    /// As its message's card names it.
-    pub fn tag(self) -> &'static str {
-        match self {
-            MentionKind::Direct => "direct",
-            MentionKind::Role => "role",
-            MentionKind::Everyone => "everyone",
-        }
-    }
-}
-
 /// A message that pings this account, kept while the window runs: the room
 /// it came in and the message itself.
 #[derive(Clone, Debug)]
@@ -196,104 +176,102 @@ pub struct MentionHit {
 /// How many pings the inbox keeps, newest first.
 pub const MAX_MENTIONS: usize = 100;
 
-/// The Mentions tab's filter: every ping, or only one kind.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum MentionFilter {
-    #[default]
-    All,
-    Direct,
-    Role,
-    Everyone,
+/// The Mentions tab's filter, as Discord's menu (navId "mentions-filter")
+/// sets it: whether @everyone and @here mentions count, whether role
+/// mentions do, and whether, inside a server, those of all servers list or
+/// only that server's. All on at first, as Discord's client starts; it
+/// keeps them on the device (`recentMentionFilterSettings` there,
+/// `layout.json` here), not with the account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct MentionFilter {
+    pub everyone: bool,
+    pub roles: bool,
+    pub all_servers: bool,
 }
+
+impl Default for MentionFilter {
+    fn default() -> Self {
+        Self {
+            everyone: true,
+            roles: true,
+            all_servers: true,
+        }
+    }
+}
+
+/// The filter menu's boxes, by their rows' keys, as Discord's client words
+/// them.
+pub const INCLUDE_EVERYONE: (&str, &str) = ("everyone", "Include @everyone mentions");
+pub const INCLUDE_ROLES: (&str, &str) = ("roles", "Include @role mentions");
+pub const INCLUDE_ALL_SERVERS: (&str, &str) = ("all-servers", "Include all servers");
 
 impl MentionFilter {
-    /// Whether a ping of this kind shows under the filter.
-    pub fn shows(self, kind: MentionKind) -> bool {
-        match self {
-            MentionFilter::All => true,
-            MentionFilter::Direct => kind == MentionKind::Direct,
-            MentionFilter::Role => kind == MentionKind::Role,
-            MentionFilter::Everyone => kind == MentionKind::Everyone,
+    /// What Discord is asked for under it, `server` being the one the open
+    /// room is in: that server only while "Include all servers" is off.
+    pub fn query(self, server: Option<&str>) -> yapfast_core::chat::MentionsQuery {
+        yapfast_core::chat::MentionsQuery {
+            everyone: self.everyone,
+            roles: self.roles,
+            server: server.filter(|_| !self.all_servers).map(str::to_owned),
         }
     }
 
-    /// The filter's chips, in the order the tab shows them.
-    pub fn chips() -> [MentionFilter; 4] {
-        [
-            MentionFilter::All,
-            MentionFilter::Direct,
-            MentionFilter::Role,
-            MentionFilter::Everyone,
-        ]
-    }
-
-    /// As its chip names it.
-    pub fn label(self) -> &'static str {
-        match self {
-            MentionFilter::All => "All",
-            MentionFilter::Direct => "Direct",
-            MentionFilter::Role => "@roles",
-            MentionFilter::Everyone => "@everyone",
+    /// Whether a ping (`message`, in `room`) shows under it, as Discord's
+    /// client filters the pings it keeps: one in another server than
+    /// `server` goes while only this server's list; then one that names
+    /// this account (`me`) or replies to it always shows, and one that
+    /// calls on it only with @everyone or @here, or only through a role,
+    /// shows while that kind is included. The message's text says which it
+    /// names; one that names none of them pinged it some other way, which
+    /// counts as naming it.
+    pub fn shows(
+        self,
+        message: &ChatMessage,
+        room: &str,
+        me: Option<&str>,
+        server: Option<&str>,
+    ) -> bool {
+        use yapfast_core::mention::Target;
+        if !message.mentions_me && !message.replies_to_me {
+            return false;
         }
-    }
-
-    /// As `layout.json` keeps it.
-    fn key(self) -> &'static str {
-        match self {
-            MentionFilter::All => "all",
-            MentionFilter::Direct => "direct",
-            MentionFilter::Role => "role",
-            MentionFilter::Everyone => "everyone",
+        if !self.all_servers
+            && let Some(server) = server
+            && server_of(room).as_deref() != Some(server)
+        {
+            return false;
         }
-    }
-
-    /// The filter a kept key names, or All.
-    fn of(key: Option<&str>) -> MentionFilter {
-        match key {
-            Some("direct") => MentionFilter::Direct,
-            Some("role") => MentionFilter::Role,
-            Some("everyone") => MentionFilter::Everyone,
-            _ => MentionFilter::All,
-        }
-    }
-
-    /// As its empty state names it.
-    pub fn empty(self) -> &'static str {
-        match self {
-            MentionFilter::All => "Nothing mentions you right now.",
-            MentionFilter::Direct => "No direct mentions right now.",
-            MentionFilter::Role => "No role mentions right now.",
-            MentionFilter::Everyone => "No @everyone mentions right now.",
-        }
+        let names = |wanted: &dyn Fn(&Target) -> bool| {
+            message
+                .mentions
+                .iter()
+                .any(|mentioned| wanted(&mentioned.target))
+        };
+        let everyone = names(&|target| matches!(target, Target::Everyone));
+        let role = names(&|target| matches!(target, Target::Role(_)));
+        let named =
+            names(&|target| matches!(target, Target::User(user) if Some(user.as_str()) == me));
+        named
+            || message.replies_to_me
+            || (!everyone && !role)
+            || (everyone && self.everyone)
+            || (role && self.roles)
     }
 }
 
-/// What kind of ping a message holds for this account (`me`, its Discord
-/// user id), if any: a mention of it by name, then @everyone or @here,
-/// then a role. Those name it as the message shows them; a ping its text
-/// doesn't show, as a reply's, counts as direct. A mention of someone
-/// else, or of a role it may lack, says nothing alone: what pinged it is
-/// [`ChatMessage::mentions_me`]. A `#channel` mention names no one.
-pub fn mention_kind(message: &ChatMessage, me: Option<&str>) -> Option<MentionKind> {
-    use yapfast_core::mention::Target;
-    if !message.mentions_me && !message.replies_to_me {
-        return None;
-    }
-    let names = |wanted: fn(&Target, Option<&str>) -> bool| {
-        message
-            .mentions
-            .iter()
-            .any(|mentioned| wanted(&mentioned.target, me))
-    };
-    if names(|target, me| matches!(target, Target::User(user) if Some(user.as_str()) == me)) {
-        Some(MentionKind::Direct)
-    } else if names(|target, _| matches!(target, Target::Everyone)) {
-        Some(MentionKind::Everyone)
-    } else if names(|target, _| matches!(target, Target::Role(_))) {
-        Some(MentionKind::Role)
-    } else {
-        Some(MentionKind::Direct)
-    }
+/// The Discord server a room is in; none for a DM or a Matrix room.
+pub fn server_of(room: &str) -> Option<String> {
+    use yapfast_core::discord;
+    discord::parse_room(room)
+        .filter(|(guild, _)| *guild != discord::DM_GUILD)
+        .map(|(guild, _)| discord::server_id(guild))
+}
+
+/// The Discord server the open room is in, where the filter menu offers
+/// "Include all servers".
+pub fn open_server(app: &App) -> Option<String> {
+    app.client.state().selected.as_deref().and_then(server_of)
 }
 
 /// One ping the Mentions tab shows: its message's card, and where it came
@@ -304,7 +282,6 @@ pub struct MentionRow {
     /// The channel, with its `#`, and its server.
     pub name: String,
     pub place: String,
-    pub kind: MentionKind,
     pub card: crate::found::Found,
 }
 
@@ -408,7 +385,6 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 Some(_) => None,
                 None => Some(Inbox {
                     tab: Tab::of(app.layout.inbox_tab.as_deref()),
-                    filter: MentionFilter::of(app.layout.mention_filter.as_deref()),
                     scroll: crate::sync::Scroll::new(INBOX_MOST),
                     ..Inbox::default()
                 }),
@@ -427,15 +403,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             inbox_sync(app);
             Task::none()
         }
-        Event::InboxFilter(filter) => {
-            if let Some(inbox) = &mut app.inbox {
-                inbox.filter = filter;
-            }
-            app.layout.mention_filter = Some(filter.key().into());
-            crate::layout::store(app.client.root(), "mention_filter", filter.key());
-            inbox_sync(app);
-            Task::none()
-        }
+        Event::MentionsFilter => open_filter_menu(app),
         Event::InboxOpen(room) => {
             app.inbox = None;
             app.client
@@ -542,20 +510,101 @@ pub fn choose_title_bar(app: &mut App, system: bool) -> Task<Message> {
     Task::batch([closed, opened])
 }
 
-/// Asks for this account's recent mentions, as Discord's client does the
-/// first time its Mentions tab shows, again after Discord went away and
-/// came back (`sync.rs`).
-fn fetch_mentions(app: &mut App) {
+/// Asks for this account's recent mentions under the tab's filter, as
+/// Discord's client does the first time its Mentions tab shows, again after
+/// Discord went away and came back, as a box of its filter changes, and
+/// while only one server's list, after another room opened (`sync.rs`).
+/// Outside a server, only one server's turns back into all servers', as
+/// Discord's client turns it back on asking without a server.
+pub fn fetch_mentions(app: &mut App) {
     let shown = app
         .inbox
         .as_ref()
         .is_some_and(|inbox| inbox.tab == Tab::Mentions);
-    if shown && !app.mentions_fetched && app.client.state().discord_online {
-        app.mentions_fetched = true;
-        app.client
-            .dispatch(yapfast_core::application::Action::LoadRecentMentions);
+    if !shown || app.mentions_fetched || !app.client.state().discord_online {
+        return;
     }
+    let server = open_server(app);
+    if !app.layout.mention_filter.all_servers && server.is_none() {
+        app.layout.mention_filter.all_servers = true;
+        store_filter(app);
+    }
+    app.mentions_fetched = true;
+    let query = app.layout.mention_filter.query(server.as_deref());
+    app.client
+        .dispatch(yapfast_core::application::Action::LoadRecentMentions(query));
 }
+
+/// Keeps the filter in `layout.json`, as Discord's client keeps it on the
+/// device.
+fn store_filter(app: &App) {
+    crate::layout::store(
+        app.client.root(),
+        MENTION_FILTER_KEY,
+        app.layout.mention_filter,
+    );
+}
+
+/// The filter's key in `layout.json`.
+pub const MENTION_FILTER_KEY: &str = "recent_mention_filter";
+
+/// Opens the Mentions tab's filter menu under its button, its right edge at
+/// the button's: its boxes as the filter stands, "Include all servers" only
+/// inside a server, as Discord's client offers them.
+fn open_filter_menu(app: &mut App) -> Task<Message> {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    let filter = app.layout.mention_filter;
+    let mut rows = vec![
+        (INCLUDE_EVERYONE, filter.everyone),
+        (INCLUDE_ROLES, filter.roles),
+    ];
+    if open_server(app).is_some() {
+        rows.push((INCLUDE_ALL_SERVERS, filter.all_servers));
+    }
+    let rows = rows
+        .into_iter()
+        .map(|((key, label), on)| MenuRow {
+            check: controls::Check::Box(on),
+            ..MenuRow::plain(MenuAct::MentionsFilter, label).key(key)
+        })
+        .collect();
+    // The button's top left, in the inbox's head at the panel's right.
+    let right = app.window.width - 8.0 - INBOX_SIDE;
+    let at = Point::new(
+        right - FILTER_MENU,
+        HEIGHT + 4.0 + (INBOX_HEAD - FILTER_BUTTON) / 2.0,
+    );
+    app.win.menu = Some(
+        Menu::new(at, rows)
+            .anchor(crate::widgets::Anchor::Span(FILTER_BUTTON))
+            .width(FILTER_MENU),
+    );
+    iced::widget::operation::focus(crate::app::NOBODY)
+}
+
+/// One of the filter menu's boxes changed: the filter is kept, and the
+/// mentions are asked for again under it, as Discord's client asks as soon
+/// as its filter changes.
+pub fn change_filter(app: &mut App, key: &str, on: bool) {
+    let filter = &mut app.layout.mention_filter;
+    match key {
+        k if k == INCLUDE_EVERYONE.0 => filter.everyone = on,
+        k if k == INCLUDE_ROLES.0 => filter.roles = on,
+        k if k == INCLUDE_ALL_SERVERS.0 => filter.all_servers = on,
+        _ => return,
+    }
+    store_filter(app);
+    app.mentions_fetched = false;
+    fetch_mentions(app);
+    inbox_sync(app);
+}
+
+/// The inbox's head: its height, its padding at the sides, the Filter
+/// button's side and the filter menu's width.
+const INBOX_HEAD: f32 = 48.0;
+const INBOX_SIDE: f32 = 16.0;
+const FILTER_BUTTON: f32 = 28.0;
+const FILTER_MENU: f32 = 240.0;
 
 /// Keeps the pings the open rooms hold for the inbox's Mentions tab, and
 /// says whether its list changed: a ping kept or edited, or a fetch of
@@ -641,10 +690,11 @@ pub fn inbox_sync(app: &mut App) {
         return;
     }
     // The cards laid out before, which a ping still showing keeps.
-    let (tab, filter, mut laid) = {
+    let (tab, mut laid) = {
         let inbox = app.inbox.as_mut().expect("open");
-        (inbox.tab, inbox.filter, std::mem::take(&mut inbox.mentions))
+        (inbox.tab, std::mem::take(&mut inbox.mentions))
     };
+    let (filter, server) = (app.layout.mention_filter, open_server(app));
     let state = app.client.state();
     let mentions_only = tab == Tab::Mentions;
     // Each channel's server, found once.
@@ -687,8 +737,8 @@ pub fn inbox_sync(app: &mut App) {
         .collect();
     // The Mentions tab's pings: those the open rooms brought and those
     // Discord's Mentions inbox sent, once each, the newest first, under its
-    // filter: where each came from, and what kind of ping it holds.
-    let mut pinged: Vec<(String, Arc<ChatMessage>, String, String, MentionKind)> = Vec::new();
+    // filter, and where each came from.
+    let mut pinged: Vec<(String, Arc<ChatMessage>, String, String)> = Vec::new();
     let mut covered: std::collections::HashSet<&str> = Default::default();
     if mentions_only {
         // The open rooms' first, as they may hold a newer edit.
@@ -720,17 +770,14 @@ pub fn inbox_sync(app: &mut App) {
             if pinged.len() >= MENTION_ROWS {
                 continue;
             }
-            let Some(kind) = mention_kind(message, me) else {
-                continue;
-            };
-            if !filter.shows(kind) {
+            if !filter.shows(message, room, me, server.as_deref()) {
                 continue;
             }
             let Some(listed) = rooms.get(room.as_str()) else {
                 continue;
             };
             let row = row_of(listed);
-            pinged.push((room.clone(), Arc::clone(message), row.name, row.place, kind));
+            pinged.push((room.clone(), Arc::clone(message), row.name, row.place));
         }
     }
     // Rooms with mentions but no message kept open below the pings, as
@@ -746,7 +793,7 @@ pub fn inbox_sync(app: &mut App) {
     // The pings' cards, laid out once rather than every frame or sync: one
     // already laid out for the same message stays.
     let mut mentions: Vec<MentionRow> = Vec::with_capacity(pinged.len());
-    for (room, message, name, place, kind) in pinged {
+    for (room, message, name, place) in pinged {
         let card = match laid
             .iter()
             .position(|kept| kept.room == room && Arc::ptr_eq(&kept.message, &message))
@@ -759,7 +806,6 @@ pub fn inbox_sync(app: &mut App) {
             message,
             name,
             place,
-            kind,
             card,
         });
     }
@@ -1119,6 +1165,12 @@ pub fn resize_edges(app: &App) -> Option<Element<'_, Message>> {
     Some(column![top, sides, bottom].into())
 }
 
+/// Whether the inbox popout shows: open, under Yapfast's own bar, over the
+/// workspace.
+pub fn inbox_shown(app: &App) -> bool {
+    app.inbox.is_some() && bar_height(app) > 0.0 && crate::signin::workspace(app)
+}
+
 /// The inbox popout under the bar's Inbox button, as Discord's: 440 px
 /// wide, Unreads and Mentions. Unreads lists the rooms with something
 /// waiting, a click going there; Mentions its pings' own messages under a
@@ -1126,7 +1178,7 @@ pub fn resize_edges(app: &App) -> Option<Element<'_, Message>> {
 /// no message kept below.
 pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     let inbox = app.inbox.as_ref()?;
-    if bar_height(app) == 0.0 || !crate::signin::workspace(app) {
+    if !inbox_shown(app) {
         return None;
     }
     let theme = &app.theme;
@@ -1151,16 +1203,29 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         ))
         .into()
     };
-    let head = row![
+    let mut head = row![
         text("Inbox").size(16).font(BOLD).color(theme.text),
         Space::new().width(Length::Fill),
         tab("Unreads", Tab::Unreads, 80.0),
         tab("Mentions", Tab::Mentions, 92.0),
     ]
     .spacing(8)
-    .padding([0, 16])
-    .height(48)
+    .padding([0.0, INBOX_SIDE])
+    .height(INBOX_HEAD)
     .align_y(Alignment::Center);
+    // Discord's Mentions tab puts its Filter button at the head's right,
+    // its menu opening under it.
+    if inbox.tab == Tab::Mentions {
+        head = head.push(
+            app.look()
+                .icon_button(
+                    Icon::FiltersHorizontal,
+                    "Filter",
+                    Message::Bar(Event::MentionsFilter),
+                )
+                .size(FILTER_BUTTON, 18),
+        );
+    }
     let body: Element<'_, Message> = if inbox.tab == Tab::Unreads {
         if inbox.rows.is_empty() {
             empty_inbox(
@@ -1189,50 +1254,28 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
                 .into()
         }
     } else {
-        // The Mentions tab: the filter strip, always visible so every
-        // filter stays reachable, even one that matches nothing, over the
-        // pings' cards. The strip hugs its labels; the empty margin is
-        // doing design work.
-        let mut segments = row![].spacing(0).align_y(Alignment::Center);
-        for chip in MentionFilter::chips() {
-            let selected = inbox.filter == chip;
-            segments = segments.push(
-                button(text(chip.label()).size(12).font(BOLD).color(if selected {
-                    theme.text
-                } else {
-                    theme.secondary
-                }))
-                .padding([3, 8])
-                .on_press(Message::Bar(Event::InboxFilter(chip)))
-                .style(lit_style(
-                    selected.then(|| theme.wash(0.12)),
-                    theme.wash(if selected { 0.12 } else { 0.06 }),
-                    3.0,
-                )),
-            );
-        }
-        let line = theme.line;
-        let strip = container(container(segments).padding(2).style(move |_| {
-            iced::widget::container::Style {
-                border: crate::style::edge(line, 4.0),
-                ..Default::default()
-            }
-        }))
-        .padding(iced::Padding {
-            top: 8.0,
-            left: 16.0,
-            right: 16.0,
-            bottom: 0.0,
-        });
-        let list: Element<'_, Message> = if inbox.mentions.is_empty() && inbox.more.is_empty() {
-            container(text(inbox.filter.empty()).size(12).color(theme.muted))
-                .padding(iced::Padding {
-                    top: 12.0,
-                    left: 16.0,
-                    right: 16.0,
-                    bottom: 0.0,
-                })
-                .into()
+        if inbox.mentions.is_empty() && inbox.more.is_empty() {
+            // As Discord's tab says it with nothing to list.
+            column![
+                text("You made it through everything!")
+                    .size(16)
+                    .font(BOLD)
+                    .color(theme.text),
+                text("Whenever someone mentions you it will be saved here for 7 days.")
+                    .size(14)
+                    .color(theme.muted)
+                    .align_x(Alignment::Center),
+            ]
+            .spacing(8)
+            .padding(iced::Padding {
+                top: 32.0,
+                left: 16.0,
+                right: 16.0,
+                bottom: 0.0,
+            })
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .into()
         } else {
             let mut list = column![].spacing(8).width(Length::Fill);
             for ping in &inbox.mentions {
@@ -1260,8 +1303,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             .style(scrollbar(theme))
             .height(Length::Fill)
             .into()
-        };
-        column![strip, list].into()
+        }
     };
     let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
     let decorated =
@@ -1314,8 +1356,8 @@ fn empty_inbox<'a>(theme: &'a crate::theme::Theme, words: &'a str) -> Element<'a
     .into()
 }
 
-/// A ping's message as the Mentions tab shows it: where it came from and
-/// what kind of ping it holds, over its card; a click jumps to it.
+/// A ping's message as the Mentions tab shows it: where it came from over
+/// its card; a click jumps to it.
 fn mention_card<'a>(app: &'a App, ping: &'a MentionRow) -> Element<'a, Message> {
     let theme = &app.theme;
     let mut where_ = row![elide(ping.name.as_str()).size(12).color(theme.secondary)];
@@ -1324,9 +1366,6 @@ fn mention_card<'a>(app: &'a App, ping: &'a MentionRow) -> Element<'a, Message> 
             .push(text("·").size(12).color(theme.muted))
             .push(elide(ping.place.as_str()).size(12).color(theme.muted));
     }
-    where_ = where_
-        .push(text("·").size(12).color(theme.muted))
-        .push(text(ping.kind.tag()).size(12).color(theme.muted));
     let jump = Message::Bar(Event::InboxOpenMessage {
         room: ping.room.clone(),
         item: ping.message.item.clone(),

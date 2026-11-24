@@ -14,6 +14,7 @@ use yapfast_core::application::Navigation;
 use super::{change, interact, preview, shows, unread};
 use crate::{
     app::{App, Message},
+    controls::Check,
     desktop::{ABOUT, Heard, Tray, TrayChoice},
     settings::Section,
     shell::Event,
@@ -308,29 +309,33 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
     let inbox = app.inbox.as_ref().expect("open");
     assert_eq!(inbox.mentions.len(), 3);
     assert!(
-        !inbox
-            .mentions
-            .iter()
-            .any(|row| row.kind == window_bar::MentionKind::Everyone),
-        "no everyone ping among them"
-    );
-    assert!(shows(&app, "Direct"), "the filter chips show");
-    assert!(shows(&app, "@roles"));
-    assert!(shows(&app, "@everyone"));
-    assert!(
         shows(&app, "#general"),
         "a room with mentions but no message kept still lists"
     );
-    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
-        window_bar::MentionFilter::Role,
-    )));
+    // The Filter button's menu: outside a Discord server, only its two
+    // kinds, both on at first.
+    let _ = app.update(Message::Bar(window_bar::Event::MentionsFilter));
+    assert_eq!(
+        filter_rows(&app),
+        [
+            ("Include @everyone mentions".to_owned(), Check::Box(true)),
+            ("Include @role mentions".to_owned(), Check::Box(true)),
+        ]
+    );
+    assert!(shows(&app, "Include @role mentions"), "over the inbox");
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    assert_eq!(
+        filter_rows(&app)[1],
+        ("Include @role mentions".to_owned(), Check::Box(false)),
+        "the menu stays, its box cleared"
+    );
     let inbox = app.inbox.as_ref().expect("open");
-    assert_eq!(inbox.mentions.len(), 1, "only the role ping shows");
-    assert_eq!(inbox.mentions[0].message.item, "d:10");
-    // Back to everything, for what comes next.
-    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
-        window_bar::MentionFilter::All,
-    )));
+    assert_eq!(inbox.mentions.len(), 2, "the role ping goes");
+    assert!(inbox.mentions.iter().all(|row| row.message.item != "d:10"));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    assert!(app.inbox.is_some(), "closing the menu leaves the inbox");
+    assert_eq!(app.inbox.as_ref().expect("open").mentions.len(), 3);
     // A ping's row jumps to its message rather than just its room.
     let room = app.client.state().selected.clone().expect("a room");
     let _ = app.update(Message::Bar(window_bar::Event::InboxOpenMessage {
@@ -402,32 +407,130 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
         Some("d:21"),
         "the older fetched reply sorts under the newer live ones"
     );
-    // The tab and its filter come back as they were left.
-    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
-        window_bar::MentionFilter::Role,
-    )));
+    // The tab comes back as it was left.
     let _ = app.update(Message::Bar(window_bar::Event::Inbox));
     assert!(app.inbox.is_none());
     let _ = app.update(Message::Bar(window_bar::Event::Inbox));
     let inbox = app.inbox.as_ref().expect("open");
     assert_eq!(inbox.tab, window_bar::Tab::Mentions);
-    assert_eq!(inbox.filter, window_bar::MentionFilter::Role);
     let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
         window_bar::Tab::Unreads,
-    )));
-    let _ = app.update(Message::Bar(window_bar::Event::InboxFilter(
-        window_bar::MentionFilter::All,
     )));
     let _ = app.update(Message::Bar(window_bar::Event::Inbox));
     let _ = app.update(Message::Bar(window_bar::Event::Inbox));
     let inbox = app.inbox.as_ref().expect("open");
     assert_eq!(inbox.tab, window_bar::Tab::Unreads);
-    assert_eq!(inbox.filter, window_bar::MentionFilter::All);
+}
+
+/// The open menu's rows: each label and its box.
+fn filter_rows(app: &App) -> Vec<(String, Check)> {
+    app.win
+        .menu
+        .as_ref()
+        .expect("a menu")
+        .rows
+        .iter()
+        .map(|row| (row.label.to_string(), row.check))
+        .collect()
 }
 
 #[test]
-fn a_ping_is_direct_when_it_names_this_account_whatever_else_it_names() {
-    use window_bar::{MentionKind, mention_kind};
+fn the_mentions_filter_asks_discord_as_its_client_does() {
+    use yapfast_core::chat::{Command, DiscordCommand, MentionsQuery};
+    let (mut app, folder) = super::server::discord_server(0, |_, _| {});
+    own_bar(&mut app);
+    let asked = |app: &mut App| -> Vec<MentionsQuery> {
+        std::mem::take(&mut app.client.sent)
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Discord(DiscordCommand::RecentMentions(query)) => Some(query),
+                _ => None,
+            })
+            .collect()
+    };
+    let menu = |app: &mut App| {
+        let _ = app.update(Message::Bar(window_bar::Event::MentionsFilter));
+        filter_rows(app)
+    };
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:11".into());
+    });
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    assert!(asked(&mut app).is_empty(), "not before the tab shows");
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Mentions,
+    )));
+    let all = MentionsQuery::default();
+    assert_eq!(
+        asked(&mut app),
+        std::slice::from_ref(&all),
+        "every kind, every server"
+    );
+    // Shown again, it asks no more.
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    assert!(asked(&mut app).is_empty());
+    // Inside a server the menu offers all servers too; each box asks again
+    // at once.
+    assert_eq!(
+        menu(&mut app),
+        [
+            ("Include @everyone mentions".to_owned(), Check::Box(true)),
+            ("Include @role mentions".to_owned(), Check::Box(true)),
+            ("Include all servers".to_owned(), Check::Box(true)),
+        ]
+    );
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(0)));
+    let quiet = MentionsQuery {
+        everyone: false,
+        ..all
+    };
+    assert_eq!(asked(&mut app), std::slice::from_ref(&quiet));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
+    let here = MentionsQuery {
+        server: Some("discord:10".into()),
+        ..quiet
+    };
+    assert_eq!(
+        asked(&mut app),
+        std::slice::from_ref(&here),
+        "this server only"
+    );
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // Only this server's: another channel opened asks again.
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:12".into());
+    });
+    assert_eq!(asked(&mut app), [here]);
+    // Outside a server the box isn't offered, and asking turns all servers
+    // back on, as Discord's client does.
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:5".into());
+    });
+    assert_eq!(asked(&mut app), [quiet]);
+    assert!(app.layout.mention_filter.all_servers);
+    assert_eq!(menu(&mut app).len(), 2);
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // All servers' list doesn't ask again for another channel.
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:11".into());
+    });
+    assert!(asked(&mut app).is_empty());
+    // The device keeps the filter, as Discord's client does.
+    crate::layout::flush(folder.path());
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).mention_filter,
+        window_bar::MentionFilter {
+            everyone: false,
+            roles: true,
+            all_servers: true,
+        }
+    );
+}
+
+#[test]
+fn the_mentions_filter_hides_what_it_leaves_out() {
+    use window_bar::MentionFilter;
     use yapfast_core::{
         chat::ChatMessage,
         mention::{Mentioned, Target},
@@ -449,32 +552,56 @@ fn a_ping_is_direct_when_it_names_this_account_whatever_else_it_names() {
     let me = Some("1");
     let (alice, bob) = (Target::User("1".into()), Target::User("2".into()));
     let mods = Target::Role("7".into());
-    let kind = |targets: &[Target], replies| mention_kind(&naming(targets, replies), me);
-    assert_eq!(
-        kind(&[mods.clone(), alice.clone()], false),
-        Some(MentionKind::Direct)
+    let all = MentionFilter::default();
+    let quiet = MentionFilter {
+        everyone: false,
+        roles: false,
+        ..all
+    };
+    let room = "discord:10:11";
+    let shows = |filter: MentionFilter, targets: &[Target], replies| {
+        filter.shows(&naming(targets, replies), room, me, Some("discord:10"))
+    };
+    for filter in [all, quiet] {
+        // Naming her, or replying to her, shows whatever else it names.
+        assert!(shows(filter, &[mods.clone(), alice.clone()], false));
+        assert!(shows(filter, &[Target::Everyone, alice.clone()], false));
+        assert!(shows(filter, std::slice::from_ref(&bob), true));
+        // A ping its text doesn't show counts as naming her.
+        assert!(shows(filter, &[], false));
+    }
+    assert!(shows(all, &[bob.clone(), mods.clone()], false));
+    assert!(!shows(quiet, &[bob, mods.clone()], false), "a role ping");
+    assert!(shows(all, &[Target::Everyone], false));
+    assert!(
+        !shows(quiet, &[Target::Everyone], false),
+        "an @everyone ping"
     );
-    assert_eq!(
-        kind(&[Target::Everyone, alice], false),
-        Some(MentionKind::Direct)
-    );
-    // Naming someone else says nothing: her role pinged her.
-    assert_eq!(
-        kind(&[bob.clone(), mods.clone()], false),
-        Some(MentionKind::Role)
-    );
-    assert_eq!(
-        kind(&[mods, Target::Everyone], false),
-        Some(MentionKind::Everyone)
-    );
-    // A reply that pings her names her nowhere in its text.
-    assert_eq!(kind(&[bob], true), Some(MentionKind::Direct));
-    assert_eq!(kind(&[], true), Some(MentionKind::Direct));
-    let quiet = ChatMessage {
-        mentions: naming(&[Target::User("1".into())], false).mentions,
+    let roles_only = MentionFilter {
+        everyone: false,
+        ..all
+    };
+    assert!(shows(roles_only, &[mods, Target::Everyone], false));
+    // Only this server's: another server's ping goes, unless no server is
+    // open.
+    let here = MentionFilter {
+        all_servers: false,
+        ..all
+    };
+    let elsewhere = naming(&[alice], false);
+    assert!(here.shows(&elsewhere, room, me, Some("discord:10")));
+    assert!(!here.shows(&elsewhere, "discord:20:21", me, Some("discord:10")));
+    assert!(!here.shows(&elsewhere, "discord:@me:5", me, Some("discord:10")));
+    assert!(here.shows(&elsewhere, "discord:20:21", me, None));
+    assert!(all.shows(&elsewhere, "discord:20:21", me, Some("discord:10")));
+    let quiet_message = ChatMessage {
+        mentions: elsewhere.mentions,
         ..Default::default()
     };
-    assert_eq!(mention_kind(&quiet, me), None, "nothing pinged her");
+    assert!(
+        !all.shows(&quiet_message, room, me, None),
+        "nothing pinged her"
+    );
 }
 
 #[test]
