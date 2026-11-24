@@ -291,4 +291,3 @@ export function parseColor(color: string | undefined): number {
   if (!/^[0-9a-f]{6}$/i.test(hex)) throw new Error(`env: colour "${color}" isn't #rrggbb`);
   return parseInt(hex, 16);
 }
-

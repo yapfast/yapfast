@@ -23,7 +23,7 @@ use tokio::{
 
 use crate::{
     congestion::{self, Controller},
-    rtp::{self, Assembler, Codec, Packetizer},
+    rtp::{self, Assembler, Codec, Orientation, Packetizer},
     stream::{self, StreamServer},
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
@@ -120,6 +120,8 @@ pub struct ReceivedFrame {
     pub codec: Codec,
     pub data: Vec<u8>,
     pub keyframe: bool,
+    /// How to turn the decoded picture upright, as the sender last said.
+    pub orientation: Orientation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -882,6 +884,27 @@ struct Video {
     assembler: Assembler,
     /// For receiver reports: the counts at the last one.
     reported: (u32, u32),
+    orientation: Orientation,
+}
+
+impl Video {
+    fn new(codec: Codec) -> Self {
+        Self {
+            reorder: rtp::Reorder::default(),
+            assembler: Assembler::new(codec),
+            reported: (0, 0),
+            orientation: Orientation::default(),
+        }
+    }
+
+    fn push(&mut self, packet: &rtp::Packet<'_>) -> rtp::Pushed {
+        // CVO normally rides on the last packet of a frame. Absence means
+        // keep the previous orientation; an explicit zero resets it.
+        if let Some(orientation) = packet.orientation {
+            self.orientation = orientation;
+        }
+        self.assembler.push(packet)
+    }
 }
 
 async fn receive_stream(
@@ -1042,11 +1065,7 @@ async fn receive_stream(
                     received.other += 1;
                     continue;
                 }
-                let video = incoming.entry(held.ssrc).or_insert_with(|| Video {
-                    reorder: rtp::Reorder::default(),
-                    assembler: Assembler::new(codec),
-                    reported: (0, 0),
-                });
+                let video = incoming.entry(held.ssrc).or_insert_with(|| Video::new(codec));
                 if video.assembler.codec() != codec {
                     video.assembler = Assembler::new(codec);
                 }
@@ -1065,7 +1084,7 @@ async fn receive_stream(
             let (ready, skipped) = video.reorder.ready(now);
             received.given_up += skipped;
             for held in ready {
-                let pushed = video.assembler.push(&held.packet());
+                let pushed = video.push(&held.packet());
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
                 received.frames += 1;
@@ -1078,6 +1097,7 @@ async fn receive_stream(
                     codec,
                     data,
                     keyframe: frame.keyframe,
+                    orientation: video.orientation,
                 };
                 if let Err(channel::TrySendError::Full(_)) = frames.try_send(frame) {
                     // The decoder is behind; the frames after this one
@@ -1113,6 +1133,38 @@ async fn receive_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mobile_stream_orientation_changes_and_returns_upright() {
+        let mut video = Video::new(Codec::H264);
+        let mut packetizer = Packetizer::new(7, Codec::H264);
+        let mut data = vec![0, 0, 0, 1, 0x65];
+        data.resize(3000, 1); // Several RTP packets per frame.
+        for (timestamp, update, expected) in [
+            (0, Some(1), 1),
+            (3000, None, 1),
+            (6000, Some(3), 3),
+            (9000, Some(0), 0),
+            (12000, None, 0),
+        ] {
+            let packets = packetizer.packets(&data, timestamp, true);
+            assert!(packets.len() > 1);
+            for (index, bytes) in packets.iter().enumerate() {
+                let mut packet = rtp::parse(bytes).unwrap();
+                if index == packets.len() - 1 {
+                    packet.orientation = update.map(Orientation::from_cvo);
+                }
+                let pushed = video.push(&packet);
+                if index == packets.len() - 1 {
+                    assert!(pushed.frame.is_some());
+                    assert_eq!(video.orientation.turns, expected);
+                } else {
+                    assert!(pushed.frame.is_none());
+                }
+            }
+        }
+        assert_eq!(Video::new(Codec::H264).orientation, Orientation::default());
+    }
 
     #[test]
     fn paces_frames_by_the_target() {

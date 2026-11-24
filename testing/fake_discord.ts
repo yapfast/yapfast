@@ -117,8 +117,11 @@
 // /channels/{id}/messages/search finds a DM's messages by their text, 25 at
 // a time, and GET /guilds/{id}/messages/search a server's, in the channels
 // channel_id names or in all of them; both take author_id, mentions, has
-// (has=poll among them), min_id, max_id and pinned too. The first search of each DM or server
-// answers 202, as Discord's does while it indexes it.
+// (has=poll among them, -link without links), author_type, link_hostname,
+// attachment_extension, attachment_filename, min_id, max_id, pinned and
+// sort_by/sort_order too. The first search of each DM or server answers
+// 202 with Retry-After: 1, as Discord's does while it indexes it. GET
+// /_control/searches lists each search's query string, oldest first.
 // POST /_control/typing makes Bob start typing in #general, or with ?dm in
 // his DM; GET /_control/typed lists the channels Alice said she was typing in.
 // GET /channels/{id}/messages takes `before`, `after` or `around` a snowflake,
@@ -438,6 +441,8 @@ const LOUNGE = "1400000000000000103";
 // A bot makes a room for whoever joins Create Room and moves them there.
 const CREATE_ROOM = "1400000000000000104";
 const ALICES_ROOM = "1400000000000000105";
+// The Leads' voice channel, hidden from Alice; see /_control/hidden-voice.
+const LEADS_ROOM = "1400000000000000107";
 // #ideas, a forum: its posts are threads.
 const FORUM = "1400000000000000106";
 const MODS = "1400000000000000110";
@@ -1811,17 +1816,34 @@ const pins = new Map<string, { message: Message; at: number }[]>([
   [WEEKEND, [{ message: hike, at: DM_START + 10_000 }]],
 ]);
 /** What a search's query string asks of a message, as Discord's search
- *  takes it: `content`, and each of `author_id`, `mentions` and `has`
- *  repeated for several, `min_id`, `max_id` and `pinned`. */
+ *  takes it: `content`, and each of `author_id`, `mentions`, `has`,
+ *  `author_type`, `link_hostname`, `attachment_extension` and
+ *  `attachment_filename` repeated for several, a `has` or `author_type`
+ *  with a leading `-` asking for messages without it, `min_id`, `max_id`
+ *  and `pinned`. */
 function searchFilter(url: URL): (message: Message) => boolean {
   const params = url.searchParams;
   const content = (params.get("content") ?? "").toLowerCase();
   const authors = params.getAll("author_id");
   const mentioned = params.getAll("mentions");
   const has = params.getAll("has");
+  const authorTypes = params.getAll("author_type");
+  const hosts = params.getAll("link_hostname").map((host) => host.toLowerCase());
+  const extensions = params.getAll("attachment_extension").map((extension) => extension.toLowerCase());
+  const filenames = params.getAll("attachment_filename").map((name) => name.toLowerCase());
   const min = params.get("min_id");
   const max = params.get("max_id");
   const pinned = params.get("pinned");
+  // The fake has no webhooks' messages.
+  const authorType = (message: Message) => (message.author.bot ? "bot" : "user");
+  const linksTo = (message: Message, host: string) =>
+    [...message.content.matchAll(/https?:\/\/([^\/\s]+)/g)].some(([, found]) => {
+      const name = found!.toLowerCase();
+      return name === host || name.endsWith(`.${host}`);
+    });
+  const asks = (values: string[], holds: (value: string) => boolean) =>
+    values.filter((value) => !value.startsWith("-")).every(holds) &&
+    values.filter((value) => value.startsWith("-")).every((value) => !holds(value.slice(1)));
   const carries = (message: Message, what: string) => {
     const types = message.files.map((file) => file.contentType);
     switch (what) {
@@ -1840,13 +1862,44 @@ function searchFilter(url: URL): (message: Message) => boolean {
     message.content.toLowerCase().includes(content) &&
     (!authors.length || authors.includes(message.author.id)) &&
     mentioned.every((id) => message.content.includes(`<@${id}>`)) &&
-    has.every((what) => carries(message, what)) &&
+    asks(has, (what) => carries(message, what)) &&
+    (!authorTypes.filter((type) => !type.startsWith("-")).length ||
+      authorTypes.includes(authorType(message))) &&
+    !authorTypes.includes(`-${authorType(message)}`) &&
+    hosts.every((host) => linksTo(message, host)) &&
+    extensions.every((extension) => message.files.some((file) => file.filename.toLowerCase().endsWith(`.${extension}`))) &&
+    filenames.every((name) => message.files.some((file) => file.filename.toLowerCase().includes(name))) &&
     (!min || BigInt(message.id) > BigInt(min)) &&
     (!max || BigInt(message.id) < BigInt(max)) &&
     (pinned === null || (pins.get(message.channel)?.some((pin) => pin.message.id === message.id) ?? false) === (pinned === "true"));
 }
-// DMs searched once, which Discord has indexed.
+// DMs and servers searched once, which Discord has indexed.
 const indexed = new Set<string>();
+/** Each message search's query string, as GET /_control/searches lists them. */
+const searches: string[] = [];
+/** Discord's answer while it indexes what's searched: 202, with the
+ *  Retry-After its client reads. */
+const stillIndexing = () =>
+  Response.json(
+    { message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 1 },
+    { status: 202, headers: { "Retry-After": "1" } },
+  );
+/** A search's page of what it found, newest first unless it asks for the
+ *  oldest; by relevance the fake keeps the newest first. */
+function searchPage(url: URL, found: Message[], wire: (message: Message) => unknown) {
+  if (url.searchParams.get("sort_by") === "timestamp" && url.searchParams.get("sort_order") === "asc") found.reverse();
+  const offset = Number(url.searchParams.get("offset") ?? 0);
+  const page = found.slice(offset, offset + 25);
+  return json({
+    analytics_id: "fake",
+    doing_deep_historical_index: false,
+    total_results: found.length,
+    messages: page.map((message) => [wire(message)]),
+    // The threads the page's messages are in, as Discord sends them.
+    threads: [...new Set(page.map((message) => message.channel))]
+      .flatMap((id) => (threads.has(id) ? [wireThread(threads.get(id)!)] : [])),
+  });
+}
 const readBob = post(DM_BOB, users.alice, "Yes, bringing snacks", DM_START + 180_000);
 post(DM_BOB, users.bob, "Great", DM_START + 240_000);
 post(DM_BOB, users.bob, "See you at nine", DM_START + 300_000);
@@ -2458,6 +2511,7 @@ function guildChannels(): GuildChannel[] {
     channel(LOUNGE, "Lounge", 2, 1, CATEGORY),
     channel(CREATE_ROOM, "Create Room", 2, 2, CATEGORY),
     ...(roomMade ? [channel(ALICES_ROOM, "Alice's room", 2, 3, CATEGORY)] : []),
+    ...(leadsRoomMade ? [leadsRoom()] : []),
     ...rooms.map((id, n) => channel(id, `room-${n + 1}`, 0, 2 + n, CATEGORY)),
     ...madeChannels.values(),
   ]
@@ -3606,6 +3660,27 @@ function endStream(key: string, reason: string) {
 
 /** Whether the bot made Alice's room. */
 let roomMade = false;
+
+// POST /_control/hidden-voice makes the Leads' voice channel, which only
+// Leads see, and moves Carol and Dave into it from the Lounge. Alice isn't a
+// Lead, so Discord sends it to her as it sends a channel she may not view:
+// with the OBFUSCATED flag (1 << 17), its name and topic as "___hidden___",
+// and who is in it all the same, in READY's voice states and
+// VOICE_STATE_UPDATE. POST /_control/voice-reset moves them back.
+let leadsRoomMade = false;
+
+/** The Leads' voice channel, as Discord sends it to Alice. */
+function leadsRoom() {
+  return {
+    ...guildChannel(LEADS_ROOM, "___hidden___", 2, 4, CATEGORY),
+    flags: bit(17),
+    topic: "___hidden___",
+    permission_overwrites: [
+      { id: GUILD, type: 0, allow: "0", deny: String(bit(10)) },
+      { id: LEADS, type: 0, allow: String(bit(10)), deny: "0" },
+    ],
+  };
+}
 
 /** The bot moves Alice from Create Room to her own room, making it the first
  *  time, which puts her call on another voice server. */
@@ -6789,18 +6864,12 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "GET" && (m = path.match(/^\/channels\/(\d+)\/messages\/search$/))) {
     const list = messages.get(m[1]!);
     if (!list || !privates.has(m[1]!)) return notFound("Unknown Channel", 10003);
+    searches.push(url.search.slice(1));
     if (!indexed.has(m[1]!)) {
       indexed.add(m[1]!);
-      return json({ message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 0 }, 202);
+      return stillIndexing();
     }
-    const offset = Number(url.searchParams.get("offset") ?? 0);
-    const found = list.filter(searchFilter(url)).reverse();
-    return json({
-      analytics_id: "fake",
-      doing_deep_historical_index: false,
-      total_results: found.length,
-      messages: found.slice(offset, offset + 25).map((message) => [wireMessage(message, origin)]),
-    });
+    return searchPage(url, list.filter(searchFilter(url)).reverse(), (message) => wireMessage(message, origin));
   }
 
   // Starting a thread from a message: a public one, or an announcement
@@ -6966,22 +7035,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     if (!channels.length) return notFound("Unknown Guild", 10004);
     const asked = url.searchParams.getAll("channel_id");
     if (asked.some((id) => !channels.includes(id))) return notFound("Unknown Channel", 10003);
+    searches.push(url.search.slice(1));
     if (!indexed.has(guild)) {
       indexed.add(guild);
-      return json({ message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 0 }, 202);
+      return stillIndexing();
     }
-    const offset = Number(url.searchParams.get("offset") ?? 0);
     const found = (asked.length ? asked : channels)
       .flatMap((id) => messages.get(id)!)
       .filter((message) => message.type === 0 || message.type === 19)
       .filter(searchFilter(url))
       .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
-    return json({
-      analytics_id: "fake",
-      doing_deep_historical_index: false,
-      total_results: found.length,
-      messages: found.slice(offset, offset + 25).map((message) => [{ ...wireMessage(message, origin), guild_id: guild }]),
-    });
+    return searchPage(url, found, (message) => ({ ...wireMessage(message, origin), guild_id: guild }));
   }
 
   // Each message request's latest message, for the requests list: 1 to 25
@@ -9049,6 +9113,20 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
     if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
+    if (req.method === "POST" && path === "/_control/hidden-voice") {
+      if (!leadsRoomMade) {
+        leadsRoomMade = true;
+        dispatch("CHANNEL_CREATE", guildChannels().find((made) => made.id === LEADS_ROOM));
+      }
+      for (const user of [users.carol.id, users.dave.id]) {
+        const before = voice.get(user);
+        if (!before) continue;
+        voice.set(user, { ...before, guild: GUILD, channel: LEADS_ROOM });
+        moved(user, before, origin);
+      }
+      syncVoiceStarted();
+      return new Response("Carol and Dave are in the Leads' hidden voice channel\n");
+    }
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.
@@ -9291,7 +9369,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/gateway-reconnect") {
       // Discord's op 7: the client should drop the connection and resume.
-      for (const ws of sockets) if (ws.data.identified) send(ws, 7, null);
+      for (const ws of sockets) {
+        if (!ws.data.identified) continue;
+        // Later dispatches belong to the replay, even before the old socket closes.
+        parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+        ws.data.identified = false;
+        send(ws, 7, null);
+      }
       return new Response("asked gateways to reconnect\n");
     }
     if (req.method === "POST" && path === "/_control/refresh-token") {
@@ -9498,6 +9582,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/reactor-removals") {
       return Response.json(reactorRemovals);
+    }
+    if (req.method === "GET" && path === "/_control/searches") {
+      return Response.json(searches);
     }
     if (req.method === "GET" && path === "/_control/thread-searches") {
       return Response.json(threadSearches);

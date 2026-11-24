@@ -4,12 +4,53 @@ Keys held together that do something in any app, as Discord's keybinds:
 push to talk, push to mute, toggling mute, deafen and the input mode. They
 work in Discord and Matrix calls alike.
 
+## Built-in window shortcuts
+
+Ctrl+/ opens Settings → Keybinds, which also lists the built-in shortcuts
+(Discord's Ctrl+/ shows the same list in a dialog of its own).
+They work while the window is focused, require the exact modifiers, ignore
+key repeat, and rest while recording a keybind. Custom watched keybinds take
+priority when they use the same keys, so a toggle runs only once. Chat
+shortcuts wait while a dialog or settings takes the keys; mute and deafen
+still work there, just like the account buttons.
+
+| Action | Shortcut |
+| --- | --- |
+| Toggle mute / deafen | Ctrl+Shift+M / Ctrl+Shift+D |
+| Toggle pins / inbox | Ctrl+P / Ctrl+I |
+| Toggle members or a voice channel's chat | Ctrl+U |
+| Toggle emoji / stickers | Ctrl+E / Ctrl+S |
+| Upload a file | Ctrl+Shift+U |
+| Copy channel link | Ctrl+Shift+L |
+| Previous / next server (including DM home) | Ctrl+Alt+Up / Down |
+| Create or join a server | Ctrl+Shift+N |
+| Go to current call | Ctrl+Alt+Shift+V |
+| Answer incoming call | Ctrl+Enter |
+| Start a DM or group call | Ctrl+' |
+
+Each action uses its existing UI handler and is offered only where its
+button is available. Out of a call, mute and deafen change how the next
+call starts. Letter shortcuts follow the active Latin layout, or the
+physical letter key with a non-Latin layout.
+
+The list also includes the existing quick switcher (Ctrl+K), search
+(Ctrl+F and Ctrl+Shift+F), history (Alt+Left/Right), GIF picker
+(Ctrl+G in the composer), typing to focus the composer, and message
+navigation. Alt+Up in the composer still enters the messages; P pins or
+unpins the focused message when permitted. Channel navigation, keyboard
+drag and drop, and speech shortcuts are not provided by these bindings.
+
 ## In settings
 
-Settings → Keybinds lists them as Discord's page does. "Add a Keybind" adds
-one doing nothing (Unassigned) with no keys, as Discord's does; each has an
-action, its keys with "Record keybind", a remove button, and Discord's words
-for what the action does. The actions offered are Discord's Push to Talk
+Settings → Keybinds lists them under Custom Keybinds, as Discord's page
+does. Each row has an action dropdown, its keys with an inline Record
+button (Stop while recording), delete and an enable switch, and Discord's
+words for what the action does under them. Add a Keybind, beside the
+title, adds an enabled row doing nothing (Unassigned) with no keys, as
+Discord's does. Disabling a row preserves its action and keys,
+but stops watching it; `enabled` is kept with the binding in `layout.json`,
+and older bindings without the field remain enabled.
+The actions offered are Discord's Push to Talk
 (Normal), Push to Mute, Toggle Mute, Toggle Deafen and Toggle VAD (push to
 talk or voice activity). Push to Talk does something only in push to talk,
 as in Discord, and is watched only then.
@@ -102,6 +143,21 @@ talk or push to mute holds, a timer checks every 250 ms and lets go of a key
 that's up. `YAPFAST_LOG=debug` logs a few key events that might be a bound key
 heard as another (a scan code of 0, or a bound key's virtual key with another
 scan code); other keys are never logged.
+
+The hooks heard nothing while Yapfast's own window had the focus, in every
+release up to 0.4.1 (issue #249): keybinds worked with another app in front
+and stopped as Yapfast came to the front. winit registers the process for raw
+keyboard and mouse input as its event loop starts, for device events Yapfast
+never reads, and Windows calls no low-level hook of a process registered so
+while one of its windows has the focus. So the hook's start removes that
+registration (`RIDEV_REMOVE`), and logs it. As a second line, the window's own
+key and side-button events go to the hook's thread, which runs keybinds by
+them until a hook has heard a bound key with Yapfast focused. Windows hands a
+key to the hook before the window, so each key counts once. If that ever
+happens the log says "the window's keys stand in". Wine calls the hooks
+whatever is registered, so neither half shows there: the raw-input cause
+comes from other programs' reports of the same symptom, not from a run on
+real Windows.
 
 Where none of these works, as on a wlroots desktop such as Sway, which has no
 GlobalShortcuts, the window's own key events stand in, so keybinds work while

@@ -14,7 +14,7 @@ use std::{
 };
 
 use iced::{
-    Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size, Theme,
+    Color, Element, Event, Font, Length, Pixels, Point, Rectangle, Size, Theme, Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget,
         graphics::text::{Paragraph, cosmic_text},
@@ -84,6 +84,71 @@ pub enum Part {
     Range((usize, usize), (usize, usize)),
 }
 
+/// Extra copies behind shaped text for a theme's shadow, glow,
+/// outline and embossed edge. This stays independent of the kit [`Theme`]
+/// so package-only decoration does not enlarge Wired's theme boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextLight {
+    pub shadow: Option<(Color, Vector)>,
+    pub glow: Option<(Color, f32)>,
+    pub outline: Option<(Color, f32)>,
+    pub emboss: bool,
+}
+
+pub(crate) fn draw_light(
+    renderer: &mut Renderer,
+    paragraph: &Paragraph,
+    at: Point,
+    viewport: Rectangle,
+    light: TextLight,
+) {
+    use iced::advanced::text::Renderer as _;
+
+    let mut draw = |offset: Vector, color: Color| {
+        renderer.fill_paragraph(paragraph, at + offset, color, viewport);
+    };
+    if let Some((color, offset)) = light.shadow {
+        draw(offset, color);
+    }
+    if light.emboss {
+        draw(
+            Vector::new(-1.0, -1.0),
+            Color::from_rgba8(255, 255, 255, 0.35),
+        );
+        draw(Vector::new(1.0, 1.0), Color::from_rgba8(0, 0, 0, 0.5));
+    }
+    let around = [
+        Vector::new(-1.0, 0.0),
+        Vector::new(1.0, 0.0),
+        Vector::new(0.0, -1.0),
+        Vector::new(0.0, 1.0),
+        Vector::new(-0.707, -0.707),
+        Vector::new(0.707, -0.707),
+        Vector::new(-0.707, 0.707),
+        Vector::new(0.707, 0.707),
+    ];
+    if let Some((color, reach)) = light.glow.filter(|(_, reach)| *reach > 0.0) {
+        // Slint builds the soft edge from a wide and a half-wide stroked
+        // copy in this colour (the theme's at a third of its alpha). Here
+        // each stroke is eight shifted copies, which pile up where they
+        // overlap: each takes the share that eight of them make up to it.
+        let each = Color {
+            a: 1.0 - (1.0 - color.a).powf(1.0 / around.len() as f32),
+            ..color
+        };
+        for radius in [reach, reach / 2.0] {
+            for direction in around {
+                draw(direction * radius, each);
+            }
+        }
+    }
+    if let Some((color, width)) = light.outline.filter(|(_, width)| *width > 0.0) {
+        for direction in around {
+            draw(direction * width, color);
+        }
+    }
+}
+
 impl Part {
     /// The part of `from..to` (in order) in the piece `row`, `part`.
     pub fn of(from: Mark, to: Mark, row: usize, part: PartNo) -> Self {
@@ -131,7 +196,12 @@ pub struct Piece<'a, M> {
     size: f32,
     line_height: f32,
     color: Color,
+    light: TextLight,
+    hover_effect: Option<crate::elide::HoverTextEffect>,
     fill: bool,
+    /// Wraps at the width it's given though it takes only its own width
+    /// (a bubble's words, which hug them).
+    wraps: bool,
     /// A press here starts a selection; the author's starts a click instead.
     starts: bool,
     /// A selection is being dragged: the pointer's place over this piece is
@@ -184,7 +254,10 @@ impl<'a, M> Piece<'a, M> {
             size: 16.0,
             line_height: 22.0,
             color: Color::WHITE,
+            light: TextLight::default(),
+            hover_effect: None,
             fill: false,
+            wraps: false,
             starts: true,
             dragging: false,
             selected: Part::None,
@@ -247,8 +320,27 @@ impl<'a, M> Piece<'a, M> {
         self
     }
 
+    /// Draws theme light behind this shaped paragraph without changing its
+    /// layout, links, selection or inline pictures.
+    pub fn light(mut self, light: TextLight) -> Self {
+        self.light = light;
+        self
+    }
+
+    pub fn hover_effect(mut self, effect: crate::elide::HoverTextEffect) -> Self {
+        self.hover_effect = Some(effect);
+        self
+    }
+
     pub fn fill(mut self) -> Self {
         self.fill = true;
+        self
+    }
+
+    /// Wraps its words at the width it's given, while it takes only the
+    /// width they need (see [`Piece::fill`] for one that takes it all).
+    pub fn wraps(mut self) -> Self {
+        self.wraps = true;
         self
     }
 
@@ -301,9 +393,18 @@ struct State {
     version: iced::advanced::graphics::text::Version,
     width: f32,
     paragraph: Paragraph,
+    /// The same glyph layout with every span's own colour cleared, so an
+    /// theme light pass can tint links, mentions and ordinary runs as
+    /// one silhouette without changing their shaping.
+    light: Paragraph,
     /// The last place reported while dragging, so moving within a glyph
     /// reports nothing.
     reported: Option<Mark>,
+    hovered: bool,
+    started: Option<std::time::Instant>,
+    hover_text: Option<String>,
+    hover_paragraph: Option<Paragraph>,
+    hover_light: Option<Paragraph>,
 }
 
 impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
@@ -328,7 +429,13 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
             version: Default::default(),
             width: -1.0,
             paragraph: Paragraph::default(),
+            light: Paragraph::default(),
             reported: None,
+            hovered: false,
+            started: None,
+            hover_text: None,
+            hover_paragraph: None,
+            hover_light: None,
         })
     }
 
@@ -344,7 +451,20 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
             .read()
             .expect("font system")
             .version();
+        // A scramble left over from an effect now off (Readable text, an
+        // unfocused window that rests), or from another author's text in a
+        // reused slot, is dropped: the plain text shows.
+        if (self.hover_effect.is_none() || state.stamp != self.stamp) && state.started.is_some() {
+            state.started = None;
+            state.hover_text = None;
+            state.hover_paragraph = None;
+            state.hover_light = None;
+        }
         if state.stamp != self.stamp || state.version != version {
+            let mut light_spans = self.spans.clone();
+            for span in &mut light_spans {
+                span.color = None;
+            }
             state.paragraph = Paragraph::with_spans(text::Text {
                 content: self.spans.as_slice(),
                 bounds: Size::new(width, f32::INFINITY),
@@ -354,7 +474,22 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                 align_x: text::Alignment::Default,
                 align_y: iced::alignment::Vertical::Top,
                 shaping: text::Shaping::Advanced,
-                wrapping: if self.fill {
+                wrapping: if self.fill || self.wraps {
+                    Wrapping::WordOrGlyph
+                } else {
+                    Wrapping::None
+                },
+            });
+            state.light = Paragraph::with_spans(text::Text {
+                content: light_spans.as_slice(),
+                bounds: Size::new(width, f32::INFINITY),
+                size: Pixels(self.size),
+                line_height: LineHeight::Absolute(Pixels(self.line_height)),
+                font: REGULAR,
+                align_x: text::Alignment::Default,
+                align_y: iced::alignment::Vertical::Top,
+                shaping: text::Shaping::Advanced,
+                wrapping: if self.fill || self.wraps {
                     Wrapping::WordOrGlyph
                 } else {
                     Wrapping::None
@@ -365,6 +500,7 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
             state.width = width;
         } else if state.width != width {
             state.paragraph.resize(Size::new(width, f32::INFINITY));
+            state.light.resize(Size::new(width, f32::INFINITY));
             state.width = width;
         }
         let bounds = state.paragraph.min_bounds();
@@ -466,38 +602,92 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
             Event::Window(iced::window::Event::RedrawRequested(now)) => {
                 for (index, moving) in &self.moving {
                     for region in state.paragraph.span_bounds(*index) {
+                        if region.x >= bounds.width {
+                            continue;
+                        }
                         let at = square_in(bounds, region).position();
                         if let Some(due) = moving.redraw(at, viewport, *now) {
                             shell.request_redraw_at(due);
                         }
                     }
                 }
-            }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) if self.dragging => {
-                // The pointer as the scrollable translates it (the event's own
-                // position is the window's).
-                let Some(position) = cursor.land().position() else {
-                    return;
-                };
-                // Over this piece, or beside it at its height: the text
-                // fills the row, so it takes the gutter and the margin; the
-                // author and time take only what's over them, and the time
-                // what's right of it.
-                let level = position.y >= bounds.y && position.y < bounds.y + bounds.height;
-                let beside = match self.part {
-                    part if part >= FIRST_PART => true,
-                    0 => position.x < bounds.x + bounds.width,
-                    _ => position.x >= bounds.x,
-                };
-                if level
-                    && beside
-                    && viewport.contains(position)
-                    && let Some(item) = &self.item
+                if let (Some(effect), Some(started)) = (self.hover_effect, state.started)
+                    && let Some(first) = self.spans.first()
                 {
-                    let mark = self.mark(&state.paragraph, position, bounds);
-                    if state.reported != Some(mark) {
-                        state.reported = Some(mark);
-                        shell.publish((self.on_select)(Select::To(mark, item.clone())));
+                    let elapsed = now.saturating_duration_since(started).as_secs_f32() * 1000.0;
+                    let (shown, active) =
+                        (effect.render)(&first.text, elapsed, effect.duration_ms, effect.seed);
+                    if active {
+                        if state.hover_text.as_deref() != Some(shown.as_str()) {
+                            let mut h_span = first.clone();
+                            h_span.text = std::borrow::Cow::Owned(shown.clone());
+                            let mut l_span = h_span.clone();
+                            l_span.color = None;
+                            let h_spans = [h_span];
+                            let l_spans = [l_span];
+                            let make = |s| {
+                                Paragraph::with_spans(text::Text {
+                                    content: s,
+                                    bounds: Size::new(state.width.max(1.0), f32::INFINITY),
+                                    size: Pixels(self.size),
+                                    line_height: LineHeight::Absolute(Pixels(self.line_height)),
+                                    font: REGULAR,
+                                    align_x: text::Alignment::Default,
+                                    align_y: iced::alignment::Vertical::Top,
+                                    shaping: text::Shaping::Advanced,
+                                    wrapping: Wrapping::None,
+                                })
+                            };
+                            state.hover_paragraph = Some(make(&h_spans));
+                            state.hover_light = Some(make(&l_spans));
+                            state.hover_text = Some(shown);
+                        }
+                        shell.request_redraw_at(*now + effect.every);
+                    } else {
+                        state.started = None;
+                        state.hover_text = None;
+                        state.hover_paragraph = None;
+                        state.hover_light = None;
+                    }
+                }
+            }
+            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if self.hover_effect.is_some() {
+                    let over = cursor.is_over(bounds);
+                    if over && !state.hovered {
+                        state.hovered = true;
+                        state.started = Some(std::time::Instant::now());
+                        shell.request_redraw();
+                    } else if !over && state.hovered {
+                        state.hovered = false;
+                    }
+                }
+                if self.dragging {
+                    // The pointer as the scrollable translates it (the event's own
+                    // position is the window's).
+                    let Some(position) = cursor.land().position() else {
+                        return;
+                    };
+                    // Over this piece, or beside it at its height: the text
+                    // fills the row, so it takes the gutter and the margin; the
+                    // author and time take only what's over them, and the time
+                    // what's right of it.
+                    let level = position.y >= bounds.y && position.y < bounds.y + bounds.height;
+                    let beside = match self.part {
+                        part if part >= FIRST_PART => true,
+                        0 => position.x < bounds.x + bounds.width,
+                        _ => position.x >= bounds.x,
+                    };
+                    if level
+                        && beside
+                        && viewport.contains(position)
+                        && let Some(item) = &self.item
+                    {
+                        let mark = self.mark(&state.paragraph, position, bounds);
+                        if state.reported != Some(mark) {
+                            state.reported = Some(mark);
+                            shell.publish((self.on_select)(Select::To(mark, item.clone())));
+                        }
                     }
                 }
             }
@@ -636,15 +826,30 @@ impl<M> Widget<M, Theme, Renderer> for Piece<'_, M> {
                 }
             }
         }
-        renderer.fill_paragraph(&state.paragraph, bounds.position(), self.color, *viewport);
+        let active_light = state.hover_light.as_ref().unwrap_or(&state.light);
+        let active_para = state.hover_paragraph.as_ref().unwrap_or(&state.paragraph);
+        draw_light(
+            renderer,
+            active_light,
+            bounds.position(),
+            *viewport,
+            self.light,
+        );
+        renderer.fill_paragraph(active_para, bounds.position(), self.color, *viewport);
         for (index, picture) in &self.pictures {
             for region in state.paragraph.span_bounds(*index) {
+                if region.x >= bounds.width {
+                    continue;
+                }
                 let at = square_in(bounds, region);
                 crate::widgets::draw_picture(renderer, picture, at, [0.0; 4], 1.0);
             }
         }
         for (index, moving) in &self.moving {
             for region in state.paragraph.span_bounds(*index) {
+                if region.x >= bounds.width {
+                    continue;
+                }
                 moving.draw(renderer, square_in(bounds, region).position());
             }
         }

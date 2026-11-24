@@ -60,9 +60,8 @@ pub struct Voice {
     /// The mic test: the microphone, as a call's processing leaves it,
     /// played back through the speakers.
     pub testing: bool,
-    /// Whether the call was muted before the test deafened it, while it
-    /// did, to put back as the test ends.
-    pub muted_before_test: Option<bool>,
+    /// The test deafened the call, to undeafen as the test ends.
+    pub test_deafened: bool,
     /// The call as the test last saw it: going on, and deafened.
     pub test_saw: (bool, bool),
     /// How many times the camera being tried started or stopped.
@@ -132,7 +131,7 @@ impl Settings {
         let voice = &cx.state().voice;
         self.voice.test_saw = (voice.active(), voice.deafened);
         if voice.active() && !voice.deafened {
-            self.voice.muted_before_test = Some(voice.muted);
+            self.voice.test_deafened = true;
             cx.dispatch(Action::Voice(Command::Deafen(true)));
         }
         self.voice.testing = true;
@@ -142,20 +141,16 @@ impl Settings {
     }
 
     /// Ends the mic test, if it runs: the call it deafened hears again,
-    /// muted as it was. The meter goes; [`Self::meter_gate`] starts it
-    /// again where its slider still shows.
+    /// muted as it was, as undeafening leaves it. The meter goes;
+    /// [`Self::meter_gate`] starts it again where its slider still shows.
     pub(super) fn end_mic_test(&mut self, cx: &mut Cx<'_>) {
         if !std::mem::take(&mut self.voice.testing) {
             return;
         }
         self.voice.gate = None;
-        let Some(muted) = self.voice.muted_before_test.take() else {
-            return;
-        };
         // Whether or not the backend has said the call is deafened yet.
-        if cx.state().voice.active() {
+        if std::mem::take(&mut self.voice.test_deafened) && cx.state().voice.active() {
             cx.dispatch(Action::Voice(Command::Deafen(false)));
-            cx.dispatch(Action::Voice(Command::Mute(muted)));
         }
     }
 
@@ -173,7 +168,7 @@ impl Settings {
         let hears = now == (true, false);
         if hears && (before == (true, true) || !before.0) {
             // Undeafened by hand: nothing to put back.
-            self.voice.muted_before_test = None;
+            self.voice.test_deafened = false;
             self.end_mic_test(cx);
             self.meter_gate(cx);
             cx.touch();
@@ -380,7 +375,7 @@ impl<'a> Page<'a> {
                 options,
                 current,
                 open == Some(drop),
-                Message::Settings(SettingsEvent::Drop(drop)),
+                crate::app::settings(SettingsEvent::Drop(drop)),
                 move |index| voice_message(Event::Device(drop, index)),
             )
             .view(self.cx.look)
@@ -676,7 +671,7 @@ impl<'a> Page<'a> {
                     names,
                     Some(chosen),
                     open == Some(Drop::Entrance),
-                    Message::Settings(SettingsEvent::Drop(Drop::Entrance)),
+                    crate::app::settings(SettingsEvent::Drop(Drop::Entrance)),
                     |index| voice_message(Event::EntranceServer(index)),
                 )
                 .view(self.cx.look),
@@ -699,16 +694,15 @@ impl<'a> Page<'a> {
                 false,
                 |sound| voice_message(Event::Entrance(Some(sound.id.clone()))),
             );
-            container(board)
-                .style(crate::controls::menu_panel(theme))
-                .into()
+            let panel = container(board).style(crate::controls::menu_panel(theme));
+            crate::controls::themed_outline(panel, theme, "menu", theme.menu_line, 1.0, 8.0)
         });
         let choose: Element<'a, Message> = crate::popover::Popover::new(
             action(
                 theme,
                 "Choose",
                 Kind::Plain,
-                nitro.then(|| Message::Settings(SettingsEvent::Drop(Drop::Start))),
+                nitro.then(|| crate::app::settings(SettingsEvent::Drop(Drop::Start))),
             ),
             board,
             crate::popover::Side::Below,
@@ -718,7 +712,7 @@ impl<'a> Page<'a> {
         ))
         .right()
         .gap(6.0)
-        .outside(Message::Settings(SettingsEvent::Drop(Drop::Start)))
+        .outside(crate::app::settings(SettingsEvent::Drop(Drop::Start)))
         .into();
         line.push(choose);
         if sound.is_some() {
@@ -1011,7 +1005,7 @@ fn notches(
 }
 
 fn voice_message(event: Event) -> Message {
-    Message::Settings(SettingsEvent::Voice(event))
+    crate::app::settings(SettingsEvent::Voice(event))
 }
 
 /// The gate meter's colours: green up to -18 dB, orange to -6 dB, red

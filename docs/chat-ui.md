@@ -1,5 +1,9 @@
 # Chat UI
 
+This guide describes shared chat behaviour and the current iced window.
+For the client modules, widgets and headless UI tests, start with
+[the client guide](client/README.md).
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and the window
 lays formatted text out itself (`crates/yapfast-iced/src/markdown.rs`).
@@ -42,7 +46,13 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   the focus again. A keyboard layout without Latin letters uses the key in
   K's place. Before a search it lists the last eight conversations opened
   this session, of either network, then the Discord places this account
-  uses most, fifteen at most and not the one open. A search lists up to 50
+  uses most, fifteen at most and not the one open, headed "Previous
+  Channels"; then, under "Mentions", the conversations that mention this
+  account and aren't listed already, most mentions first
+  (`AppState::switcher_mentions`). With "Search DMs with the quick
+  switcher" on (Settings > Messages, `dm_search_switcher`, off by default),
+  the DM list's box at its top is Discord's "Find or start a conversation",
+  a button that opens it, rather than a filter. A search lists up to 50
   conversations and servers, ranked as Forward To ranks them
   ([Forwarding](discord/messages.md#forwarding)), and those as good by name;
   `@` finds people, `#` text channels, `!` voice channels and `*` servers.
@@ -57,6 +67,20 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   what's typed. Escape in the box clears it and ends the search, keeping the
   focus there; in an empty box it lets go. A keyboard layout without Latin
   letters uses the key in F's place.
+- Peek at a channel or DM without opening it, a Yapfast addition that
+  Discord doesn't have. With "Peek at channels" on in Settings > Messages
+  (`peek_channels` in `layout.json`, off by default), holding Alt alone over
+  a row of the channel list or the DM list shows its newest six messages
+  beside the row, as the pins show them, newest at the bottom. Letting go
+  of Alt, or leaving the row, closes it, and its rows go. A channel Yapfast
+  keeps in memory and that's up to date answers from there; any other asks
+  Discord once for six (`GET /channels/{id}/messages?limit=6`), which aren't
+  kept, and its pictures show only if they're kept already. Nothing is
+  opened and no read goes to Discord: the peek reads no channel, so it stays
+  unread with its mentions. Not over the open channel, a locked one, a
+  voice channel without a chat, a forum or a Matrix room. Alt is read from the
+  window's modifier keys wherever the focus is, and counts as let go when
+  the window loses the focus.
 - Restore each server's last selected channel and the last selected DM. Yapfast
   keeps each server's channel in `layout.json`, so after a restart a server
   opens its last channel; a server opened for the first time shows its top one.
@@ -165,8 +189,8 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
 - Mention someone by typing `@` and picking from the room's members. The
   message links to them (`[Name](https://matrix.to/#/@user:server)`) and lists
   them in `m.mentions`, so their client notifies them. Who else is typing
-  shows just above the composer, gently pulsing, after three dots under the
-  avatars that rise in turn, and Yapfast tells the room while you type unless a
+  shows in its own strip over the composer, the names strong, after three
+  dots that pulse in turn, and Yapfast tells the room while you type unless a
   setting turns it off.
 - Hover or click a message for its toolbar: your three most used reactions, Add
   reaction, Edit on your own message or Reply on someone else's, Forward on a
@@ -355,7 +379,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   which stay as they were; one message is edited at a time. Saving text that
   is empty asks whether to delete the message, as Delete does, unless the
   message has files, and saving text that changed nothing just closes the
-  field. The thread beside the channel edits its messages the same way.
+  field. Saving turns the `@Name` of anyone the message mentioned back into
+  their mention, even someone no longer suggested (a name two of them share
+  stays text). The thread beside the channel edits its messages the same way.
   Starting an edit, from the message's Edit button, its menu, E, or Up in an empty
   composer, gives the field the keys and scrolls the row into view, and keeps
   it there as the field grows.
@@ -441,8 +467,11 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   reads the conversation and takes the banner away, leaving the divider. A
   Discord channel places it by message order; when every loaded message is
   unread, it opens on a window of the messages around the last read one,
-  where the bar counts those loaded with a plus ("50+ new messages"). A
-  Matrix room places it after the event its read receipt is on, once that
+  where the bar counts those loaded with a plus ("50+ new messages").
+  Replying from that window shows the newest messages, which can leave the
+  divider above everything loaded; the banner then stays, counting with a
+  plus, until the conversation is left, and clicking it brings the divider
+  back. A Matrix room places it after the event its read receipt is on, once that
   event is in the loaded timeline.
 - Highlight messages that call on the user with a faint gold tint and a gold
   edge on the left, as Discord does: a mention of them, of a Discord role
@@ -456,7 +485,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   always, as Discord's client does; one with its ping off only while it's
   new. Matrix's push rules decide which messages mention the user; a reply
   stays a mention when its text has their user ID or a link to it, or
-  @room. Their own messages are never highlighted. Yapfast counts unread
+  @room. Their own messages are highlighted only when they name the user
+  themselves on Discord, as Discord's client does, which never notifies of
+  them. Yapfast counts unread
   messages on this device; for a room that isn't open, sync often delivers
   only the newest event, so Yapfast shows that something is
   unread rather than how much.
@@ -512,7 +543,10 @@ both answer xdg-decoration with server-side, and only KWin draws one. So
 LXQt, LXDE,
 Budgie, Pantheon, Deepin, COSMIC, Unity and Enlightenment get Yapfast's bar,
 and a tiling compositor such as Hyprland, sway or niri, or any desktop not
-listed, keeps whatever the desktop draws, which may be nothing. "Use the
+listed, keeps whatever the desktop draws, which may be nothing. There, and
+under any desktop's title bar, Discord's bar stays without the window's
+buttons, as Discord's client always shows it: where you are, back and
+forward, Inbox and Help; it neither moves nor resizes the window. "Use the
 system title bar" in Appearance overrides it either way
 (`system_title_bar` in `layout.json`) and applies at once. Each window is
 made with the desktop's frame or without it, so the window is made again
@@ -644,7 +678,7 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews and folding long messages, notifications,
+  theme, audio devices, message text size, clock, link previews, folding long messages and peeking, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in
@@ -708,9 +742,9 @@ The window follows Discord's arrangement:
 
 DM Sans (SIL Open Font License, embedded in the binary; see
 `crates/yapfast-iced-kit/fonts/README.md`) sets all text in four weights and
-an italic. The palette is layered graphite with one
-marigold accent for selection and primary actions, red only for mentions and
-destructive actions, and green only for live voice. Avatars get one of eight
+an italic. The default theme is Bonfire; Yap uses layered graphite with a
+marigold accent for selection and primary actions. See [themes](themes.md)
+for the built-in palettes and custom themes. Avatars get one of eight
 tints from the person's name.
 
 Network operations run on the existing two-worker Tokio runtime. The UI
@@ -757,4 +791,9 @@ font for it, loaded the first time the shaper can't draw it (`char_fonts` in
 `fonts.rs`): fontconfig's best match on Linux; on Windows, which has no
 fontconfig, the first of Segoe UI, Segoe UI Symbol, Cambria Math, Segoe UI
 Historic, Gadugi, Ebrima, Microsoft Himalaya, MS Gothic, SimSun-ExtB and
-Segoe UI Emoji whose character map has it.
+Segoe UI Emoji whose character map has it. A Han ideograph, kana or hangul
+tries Microsoft YaHei, Microsoft JhengHei, Yu Gothic, Malgun Gothic and SimSun
+before those: the font for the locale's language, such as Yu Gothic for
+Japanese, lacks many of the others' ideographs, which showed as boxes beside
+the ones it has (issue #192). No CJK font is bundled, and one is opened only
+when a character falls through to it.

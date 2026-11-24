@@ -5,7 +5,7 @@
 //! while the pointer is on it.
 
 use iced::{
-    Alignment, Border, Color, Element, Length, Point, Size,
+    Alignment, Border, Color, Element, Length, Point, Shadow, Size,
     widget::{Space, button, container, mouse_area, pin, row, stack, text, tooltip},
 };
 
@@ -48,6 +48,11 @@ const BUTTON: f32 = 32.0;
 pub struct Tile<'a, M> {
     size: Size,
     radius: f32,
+    border: Border,
+    shadow: Shadow,
+    /// The theme, the solid border, and the surface whose dashed or dotted
+    /// outline (a theme's `borders`) draws instead of it.
+    outline: Option<(crate::theme::Theme, Border, String)>,
     ground: Option<Color>,
     content: Element<'a, M>,
     ring: Option<Color>,
@@ -70,6 +75,9 @@ impl<'a, M: Clone + 'a> Tile<'a, M> {
         Self {
             size,
             radius: RADIUS,
+            border: Border::default().rounded(RADIUS),
+            shadow: Shadow::default(),
+            outline: None,
             ground,
             content: content.into(),
             ring: None,
@@ -89,6 +97,30 @@ impl<'a, M: Clone + 'a> Tile<'a, M> {
     /// Square corners, as the large tile full screen has.
     pub fn square(mut self) -> Self {
         self.radius = 0.0;
+        self.border.radius = 0.0.into();
+        self
+    }
+
+    /// The tile's corners, after an installed theme's `call`/`stream`
+    /// surface has been resolved by the caller.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = radius;
+        self.border.radius = radius.into();
+        self
+    }
+
+    /// The complete shape of a call or stream tile from an installed
+    /// theme, including its outline and shadow.
+    pub fn surface(mut self, theme: &crate::theme::Theme, surface: &str) -> Self {
+        self.radius = theme.surface_radius(surface, RADIUS);
+        self.border = theme.surface_border(surface, RADIUS, 0.0, Color::TRANSPARENT);
+        self.shadow = theme.surface_shadow(surface, Shadow::default());
+        // Its own surface's dashed outline: a theme's `tile` outline dresses
+        // Settings' theme tiles, not a call's tiles (as Slint's).
+        self.outline = Some((theme.clone(), self.border, surface.to_owned()));
+        if theme.outline(surface).is_some() {
+            self.border.width = 0.0;
+        }
         self
     }
 
@@ -158,6 +190,9 @@ impl<'a, M: Clone + 'a> From<Tile<'a, M>> for Element<'a, M> {
     fn from(tile: Tile<'a, M>) -> Self {
         let Size { width, height } = tile.size;
         let radius = tile.radius;
+        let border = tile.border;
+        let shadow = tile.shadow;
+        let outline = tile.outline;
         let ground = tile.ground;
         let mut over = stack![].width(width).height(height);
         if let Some(ring) = tile.ring {
@@ -205,9 +240,16 @@ impl<'a, M: Clone + 'a> From<Tile<'a, M>> for Element<'a, M> {
             .clip(true)
             .style(move |_| container::Style {
                 background: ground.map(Into::into),
-                border: Border::default().rounded(radius),
+                border,
+                shadow,
                 ..Default::default()
             });
+        let face: Element<'a, M> = match outline.as_ref() {
+            Some((theme, fallback, place)) => {
+                controls::themed_outline(face, theme, place, fallback.color, fallback.width, radius)
+            }
+            None => face.into(),
+        };
         let mut area = mouse_area(face);
         if let Some(press) = tile.on_press {
             area = area.on_press(press);
@@ -245,8 +287,9 @@ pub fn chip<'a, M: Clone + 'a>(
         face = face.push(look.glyph(icon, 14, ink));
     }
     face = face.push(
+        // As Slint's tile chip: 14 px bold in the window's face.
         text(name)
-            .size(14)
+            .size(14.0)
             .font(BOLD)
             .color(Color::WHITE)
             .wrapping(text::Wrapping::None),
@@ -257,17 +300,27 @@ pub fn chip<'a, M: Clone + 'a>(
     if let Some(note) = note {
         face = face.push(
             text(note)
-                .size(13)
-                .color(theme.accent)
+                .size(theme.type_size("small", 13.0))
+                .font(theme.font("small", crate::fonts::REGULAR))
+                .color(theme.accent_text())
                 .wrapping(text::Wrapping::None),
         );
     }
+    // Slint's tile chip takes the theme's radii, not the `chip` shape
+    // (which dresses reaction chips): no border or shadow.
+    let border = iced::Border::default().rounded(theme.radius(6.0));
+    let shadow = Shadow::default();
     container(face)
         .padding([0, 8])
         .height(CHIP)
         .align_y(Alignment::Center)
         .clip(true)
-        .style(|_| rounded(GLASS, 6))
+        .style(move |_| container::Style {
+            background: Some(GLASS.into()),
+            border,
+            shadow,
+            ..Default::default()
+        })
         .into()
 }
 
@@ -281,15 +334,23 @@ pub fn glass_button<'a, M: Clone + 'a>(
     message: M,
 ) -> Element<'a, M> {
     let theme = look.theme;
-    let lit = crate::theme::mix(GLASS, theme.overlay, 0.9);
-    let face = button(look.glyph(icon, 20, Color::WHITE).boxed(BUTTON))
+    let lit = theme.token_colour(
+        "card-button-hover",
+        crate::theme::mix(GLASS, theme.overlay, 0.9),
+    );
+    let rest = theme.token_colour("card-button", GLASS);
+    let ink = theme.token_colour("card-button-icon", Color::WHITE);
+    let border = theme.surface_border("card-button", BUTTON / 2.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("card-button", Shadow::default());
+    let face = button(look.glyph(icon, 20, ink).boxed(BUTTON))
         .padding(0)
         .width(BUTTON)
         .height(BUTTON)
         .on_press(message)
         .style(move |_, status| button::Style {
-            background: Some(if lights(status) { lit } else { GLASS }.into()),
-            border: Border::default().rounded(BUTTON / 2.0),
+            background: Some(if lights(status) { lit } else { rest }.into()),
+            border,
+            shadow,
             ..Default::default()
         });
     tooltip(face, controls::tip(theme, label), tooltip::Position::Top)

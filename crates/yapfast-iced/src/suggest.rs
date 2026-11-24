@@ -501,13 +501,24 @@ pub fn suggestions_view<'a>(
             }
         }
     }
-    let (ground, edge) = (theme.raised, theme.edge);
-    Some(
+    let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+    let decorated =
+        ctx.themes.decorates(&theme.id, surface) || theme.package_paint(surface.ground()).is_some();
+    let (ground, edge) = (
+        if decorated {
+            iced::Color::TRANSPARENT
+        } else {
+            theme.raised
+        },
+        theme.edge,
+    );
+    Some(crate::theme_art::surface(
         container(list)
             .width(Length::Fill)
-            .style(move |_| crate::style::panel(ground, edge, 8.0))
-            .into(),
-    )
+            .style(move |_| crate::style::surface_panel(theme, "popout", ground, edge, 8.0)),
+        ctx,
+        surface,
+    ))
 }
 
 fn shown_suggestions<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Shown<'a>> {

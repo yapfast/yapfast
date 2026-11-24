@@ -13,8 +13,15 @@ scrolls them when the window is shorter than they are.
   closes): the banner's picture, else its colour, the theme's, or with
   neither the avatar's own colour, the avatar with its decoration and
   status, the name in its style with the server tag, and the badges; then
-  the custom status, the game played and for how long (to the minute),
-  and its 40 px rows: Edit Profile, the Discord status (its row shows the
+  the custom status, then live Rich Presence cards: the application's large
+  picture with its small badge, name, details and state. A game's elapsed
+  clock is green beside a controller and updates each second without
+  rebuilding the view; music with start and end times shows a progress bar.
+  Activity changes refresh these cards while the menu stays open, without
+  another profile request. Their artwork is requested only while open;
+  the plain detected game remains a fallback when no rich activity exists.
+  The menu scrolls when its cards and actions exceed the window's height.
+  Its 40 px rows follow: Edit Profile, the Discord status (its row shows the
   four to choose), Set or Change custom status, Copy User ID and User
   Settings.
 - Set a custom status (`status.rs`): an emoji from the picker (opened over

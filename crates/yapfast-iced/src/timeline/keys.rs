@@ -2,7 +2,7 @@
 //! composer moves into the messages at the newest, lit with its hover bar
 //! as the pointer would; the arrows, Page Up and Down, Home and End step;
 //! Enter (or the Menu key, or Shift+F10) opens its menu, + reacts, R
-//! replies, E edits one's own, Delete deletes, C copies its text, F
+//! replies, E edits one's own, P pins or unpins, Delete deletes, C copies its text, F
 //! forwards, Alt+Enter marks a Discord message unread, and Escape goes back
 //! to the composer. While it steps the window's focus is on nobody, so the
 //! keys come here.
@@ -128,6 +128,9 @@ pub fn browse_key(
         (_, "e") if message.own && message.can_edit && writes => {
             leave_messages(app);
             act(app, MenuAct::Edit)
+        }
+        (_, "p") if message.can_pin && !modifiers.command() && !modifiers.alt() => {
+            act(app, MenuAct::Pin)
         }
         (Some(Named::Delete | Named::Backspace), _) if message.can_delete && writes => {
             act(app, MenuAct::Delete)

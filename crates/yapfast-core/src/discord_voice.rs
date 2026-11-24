@@ -50,7 +50,7 @@ impl Share {
         } else {
             stream_worker::Source::Screen
         };
-        let (worker, frames, reports) = Worker::share(source, quality)?;
+        let (worker, frames, reports) = Worker::share(source, quality, state.stream_audio)?;
         state.sharing = Some(Sharing {
             phase: SharePhase::Choosing,
             frames: Arc::new(frames),
@@ -572,34 +572,40 @@ pub(crate) async fn call(
                         Some(Command::Mute(true)) => {
                             capture = None;
                             state.muted = true;
+                            state.unmute_on_undeafen = false;
                         }
-                        Some(Command::Mute(false)) => {
+                        Some(command @ (Command::Mute(false) | Command::Deafen(false))) => {
                             // Unmuting while deafened means wanting to talk, which needs hearing too.
+                            // Undeafening unmutes only one who wasn't muted when deafening.
+                            let unmute = std::mem::take(&mut state.unmute_on_undeafen)
+                                || matches!(command, Command::Mute(false));
                             if state.deafened {
                                 state.deafened = false;
                                 hearing.set_deafened(false);
                                 Watch::hear(&mut watch, true);
                             }
-                            match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
-                                Ok(opened) => {
-                                    capture = Some(opened);
-                                    state.muted = false;
-                                    state.error = None;
-                                }
-                                Err(error) => {
-                                    state.muted = true;
-                                    state.error = Some(error.to_string());
+                            if unmute {
+                                match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
+                                    Ok(opened) => {
+                                        capture = Some(opened);
+                                        state.muted = false;
+                                        state.error = None;
+                                    }
+                                    Err(error) => {
+                                        state.muted = true;
+                                        state.error = Some(error.to_string());
+                                    }
                                 }
                             }
                         }
-                        Some(Command::Deafen(deafened)) => {
-                            if deafened {
-                                capture = None;
-                                state.muted = true;
-                            }
-                            state.deafened = deafened;
-                            hearing.set_deafened(deafened);
-                            Watch::hear(&mut watch, !deafened);
+                        Some(command @ (Command::Deafen(true) | Command::DeafenUnmuted)) => {
+                            // The user's own mute stays as it was beneath the deafening, as in Discord's client.
+                            state.unmute_on_undeafen |= !state.muted || matches!(command, Command::DeafenUnmuted);
+                            capture = None;
+                            state.muted = true;
+                            state.deafened = true;
+                            hearing.set_deafened(true);
+                            Watch::hear(&mut watch, false);
                         }
                         Some(Command::Devices) => { let _ = devices(state); }
                         Some(Command::Microphone(id)) => {
@@ -646,6 +652,15 @@ pub(crate) async fn call(
                                 crate::voice::trim_after_call();
                             }
                             state.camera_phase = CameraPhase::Off;
+                        }
+                        Some(Command::StreamAudio(audio)) => {
+                            state.share_audio(audio);
+                            Chosen::write(remembered, state);
+                            if let Some(going) = share.as_mut()
+                                && let Err(error) = going.worker.tell(&stream_worker::Control::Audio(audio))
+                            {
+                                state.error = Some(format!("Could not change stream audio: {error:#}"));
+                            }
                         }
                         Some(Command::GoLive(quality)) => {
                             if share.is_none() {
@@ -755,6 +770,7 @@ pub(crate) async fn call(
                 }
                 report = next_report(&mut share) => {
                     match report {
+                        Some(Report::AudioError(error)) => state.error = Some(error),
                         Some(Report::Ready) => {
                             if let Some(sharing) = &state.sharing {
                                 sharing.frames.unlink();
@@ -899,7 +915,8 @@ pub(crate) async fn call(
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
-                            Report::Sharing { .. }
+                            Report::AudioError(_)
+                            | Report::Sharing { .. }
                             | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }

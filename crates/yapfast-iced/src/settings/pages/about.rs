@@ -62,7 +62,7 @@ impl<'a> Page<'a> {
                         "Copy version"
                     },
                     Kind::Plain,
-                    Some(Message::Settings(Event::CopyVersion)),
+                    Some(crate::app::settings(Event::CopyVersion)),
                 ),
             ),
         );

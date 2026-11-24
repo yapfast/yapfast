@@ -61,9 +61,19 @@ pub const END_PAD: f32 = 48.0;
 pub const GROUP_GAP: f32 = 18.0;
 const DIVIDED_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 1.0;
-/// The divider's line and what's on it, and the space under the last row.
+
+pub fn avatar(theme: &crate::theme::Theme) -> f32 {
+    theme.spacing().avatar_size.unwrap_or(AVATAR)
+}
+
+pub fn gutter(theme: &crate::theme::Theme) -> f32 {
+    let spacing = theme.spacing();
+    avatar(theme) + 2.0 * spacing.chat_padding.unwrap_or((GUTTER - AVATAR) / 2.0)
+}
+/// The divider's line and what's on it, and the space under the last row,
+/// over the typing strip, as Discord's.
 const DIVIDER: f32 = 26.0;
-const TAIL: f32 = 20.0;
+pub(crate) const TAIL: f32 = 8.0;
 /// A message's content is padded 2 px above and below.
 pub const CONTENT_PAD: f32 = 2.0;
 /// The history's edge: its button's line, Discord's welcome blocks.
@@ -82,8 +92,8 @@ const PRESENT_BAR: f32 = 50.0;
 /// Discord's dark theme: its gold (#ea9800) at 8.6% over the chat, 11%
 /// under the pointer, with a 2 px edge of the full gold. Fixed colours:
 /// Discord's gold doesn't follow the palette.
-const MENTIONED: Color = Color::from_rgba8(0xea, 0x98, 0x00, 0x16 as f32 / 255.0);
-const MENTIONED_HOVER: Color = Color::from_rgba8(0xea, 0x98, 0x00, 0x1c as f32 / 255.0);
+pub(crate) const MENTIONED: Color = Color::from_rgba8(0xea, 0x98, 0x00, 0x16 as f32 / 255.0);
+pub(crate) const MENTIONED_HOVER: Color = Color::from_rgba8(0xea, 0x98, 0x00, 0x1c as f32 / 255.0);
 const MENTION_GOLD: Color = Color::from_rgb8(0xea, 0x98, 0x00);
 const MENTION_EDGE: f32 = 2.0;
 /// The message a reply being written answers: blurple at 17% (21% under the
@@ -98,8 +108,8 @@ const FILE_CARD: f32 = 58.0;
 const EMBED: f32 = 90.0;
 /// An embed's pictures' room, for estimates.
 const EMBED_ROOM: f32 = 400.0;
-/// A message's thread's chip, for estimates.
-const THREAD_CHIP: f32 = 44.0;
+/// A message's thread's card and the 8 above it, for estimates.
+const THREAD_CARD: f32 = 64.0;
 /// The body font's average advance at 15 px, for wrapping estimates.
 const CHAR: f32 = 7.1;
 
@@ -318,6 +328,10 @@ pub fn row_item(app: &App, row: usize) -> Arc<str> {
 pub enum Event {
     /// The timeline's viewport, as its scrollable reports it.
     Scrolled(Viewport),
+    /// The timeline's size, as it's laid out: a list too short to scroll
+    /// reports no viewport when the window grows, nor one that isn't
+    /// scrolled when the window is made narrower.
+    Viewport(iced::Size),
     /// The timeline's rows built took other heights than they were given.
     Measured(Vec<(u64, f32)>),
     /// The history's Earlier messages button; the jump bars; a jump's
@@ -339,6 +353,9 @@ pub enum Event {
     ShowBlocked(Arc<str>),
     /// The pointer came onto or left a message, by its item.
     PointRow(Arc<str>, bool),
+    /// The pointer came onto or left the card of a message's thread, by
+    /// the message's item.
+    PointThread(Arc<str>, bool),
     /// A message's avatar or author was clicked, by the message's item.
     OpenAuthor(Arc<str>),
     /// A right click on a message, by its item, where the pointer is.
@@ -364,6 +381,22 @@ pub enum Event {
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => app.timeline_scrolled(viewport),
+        Event::Viewport(size) => {
+            if (app.timeline.height - size.height).abs() > 0.5 {
+                app.timeline.height = size.height;
+            }
+            // The window was made narrower or wider: the rows are measured
+            // again at the list's width, and what's sized from it (pictures,
+            // embeds) follows, as a scroll's report would do; else they kept
+            // the old width and ran past the list's edge.
+            if size.width > 0.0 && (size.width - app.timeline.width).abs() > 1.0 {
+                app.timeline.width = size.width;
+                app.timeline.heights.clear();
+                let same = app.timeline.messages.clone();
+                app.measure(&same, true);
+            }
+            Task::none()
+        }
         Event::Measured(heights) => scroll::measured(app, heights),
         Event::Earlier => {
             app.client.dispatch(Action::Earlier);
@@ -404,6 +437,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::PointRow(item, entered) => {
             crate::app::point(&mut app.pointed.message, item, entered);
+            app.ask()
+        }
+        Event::PointThread(item, entered) => {
+            crate::app::point(&mut app.pointed.thread, item, entered);
             app.ask()
         }
         Event::OpenAuthor(item) => match row_of(app, &item) {
@@ -465,37 +502,6 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.sync(),
                 iced::widget::operation::focus(crate::composer::COMPOSER),
             ])
-        }
-    }
-}
-
-/// A theme switch: the text laid out in the old theme's inks (its
-/// mentions', a notice's) is laid out again in the new one's, in the
-/// channel's timeline and the thread beside, the rows keeping their
-/// heights. A switch that keeps those inks costs nothing.
-pub fn recolour(app: &mut App, old: &crate::theme::Theme) {
-    let theme = &app.theme;
-    if (theme.mention, theme.text, theme.muted) == (old.mention, old.text, old.muted) {
-        return;
-    }
-    let (mention, ink, muted) = (rgb(theme.mention), rgb(theme.text), rgb(theme.muted));
-    let revealed = &app.timeline.revealed;
-    let lay = |message: &ChatMessage| {
-        Arc::new(body_of(message, mention, ink, muted, |spoiler| {
-            revealed.contains(&format!("{}/{spoiler}", message.item))
-        }))
-    };
-    for (look, message) in app
-        .timeline
-        .looks
-        .iter_mut()
-        .zip(app.timeline.messages.iter())
-    {
-        look.body = lay(message);
-    }
-    if let Some(aside) = &mut app.aside {
-        for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
-            look.body = lay(message);
         }
     }
 }
@@ -566,18 +572,27 @@ impl<'a> crate::ctx::Ctx<'a> {
                     + (aside.height - aside.total_height()).max(0.0)
                     - aside.view_top(),
             ),
-            _ => (
-                LanePlace {
-                    left: crate::conversation::navigation(self.layout),
-                    width: self.lanes.timeline.width,
-                    top: Some(self.lanes.timeline.place.get())
-                        .filter(|place| place.height > 0.0)
-                        .map_or(crate::header::HEIGHT + 1.0, |place| place.y),
-                },
-                self.lanes.timeline.tops.get(row).copied().unwrap_or(0.0)
-                    + (self.lanes.timeline.height - self.lanes.timeline.total_height()).max(0.0)
-                    - self.lanes.timeline.view_top(),
-            ),
+            _ => {
+                // Where the list really is, once it has been laid out: a
+                // theme's narrower chat is centred in its lane (Zine), so
+                // the list's left isn't the navigation's edge.
+                let place = Some(self.lanes.timeline.place.get())
+                    .filter(|place| place.width > 0.0 && place.height > 0.0);
+                (
+                    LanePlace {
+                        left: place.map_or_else(
+                            || crate::conversation::navigation_left_ctx(self),
+                            |place| place.x,
+                        ),
+                        width: self.lanes.timeline.width,
+                        top: place.map_or(crate::header::HEIGHT + 1.0, |place| place.y),
+                    },
+                    self.lanes.timeline.tops.get(row).copied().unwrap_or(0.0)
+                        + (self.lanes.timeline.height - self.lanes.timeline.total_height())
+                            .max(0.0)
+                        - self.lanes.timeline.view_top(),
+                )
+            }
         }
     }
 
@@ -592,6 +607,12 @@ impl<'a> crate::ctx::Ctx<'a> {
             None if row == 0 => self.lanes.timeline.edge.height(),
             None => 0.0,
         };
-        lane.top + top + edge + self.row_look(row).map_or(0.0, top_space)
+        let spacing = self.look.theme.spacing();
+        lane.top
+            + top
+            + edge
+            + self
+                .row_look(row)
+                .map_or(0.0, |look| top_space(look, spacing))
     }
 }

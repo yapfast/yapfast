@@ -87,11 +87,13 @@ impl Pointer {
                 use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
                 use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
                 let mut point = POINT { x: 0, y: 0 };
-                // SAFETY: the point outlives both calls, and a window gone
-                // meanwhile makes ScreenToClient fail rather than misbehave.
-                if unsafe { GetCursorPos(&mut point) } == 0
-                    || unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0
-                {
+                // SAFETY: point is writable for the duration of the call.
+                if unsafe { GetCursorPos(&mut point) } == 0 {
+                    return None;
+                }
+                // SAFETY: point is writable. An invalid window handle makes
+                // ScreenToClient report failure.
+                if unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0 {
                     return None;
                 }
                 (f64::from(point.x), f64::from(point.y))

@@ -20,6 +20,8 @@ pub const PREVIEW_HEIGHT: u32 = 400;
 /// The pictures a pinned message's or a search result's card shows at
 /// most; it names the rest.
 pub const FOUND_PICTURES: usize = 4;
+/// How many of a channel's newest messages peeking at it shows.
+pub const PEEK_MESSAGES: usize = 6;
 /// The image viewer shows pictures up to this size, so a full-size photo
 /// costs at most about 9 MiB while it's open.
 pub const VIEW_WIDTH: u32 = 1920;
@@ -92,8 +94,11 @@ pub struct ChatRoom {
     /// decides apart from sending: a read-only channel may still take
     /// reactions.
     pub reacts: Reacts,
-    /// A Discord channel or thread whose slowmode this account waits out
-    /// between messages.
+    /// A Discord channel's or thread's slowmode, the seconds each member
+    /// waits between messages; 0 without one.
+    pub slowmode: u32,
+    /// Whether this account waits out that slowmode, as those who may
+    /// bypass it don't.
     pub slowed: bool,
     /// When this account's timeout in the room's Discord server ends, in
     /// Unix milliseconds, while it lasts.
@@ -1213,13 +1218,16 @@ pub enum Delivery {
     Failed,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Reply {
     pub author: String,
     /// The address of the author's avatar, where the network gives one; see
     /// [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
     pub body: String,
+    /// The Discord custom emoji in `body`, which show as pictures once their
+    /// pictures arrive.
+    pub emoji: Vec<CustomEmoji>,
     /// The original message's item, to jump to it; none when it's gone.
     pub item: Option<String>,
     /// The author's role colour, where the network gives one.
@@ -1260,6 +1268,11 @@ pub struct ThreadLink {
     /// Its messages after the first, when Yapfast knows.
     pub messages: Option<u64>,
     pub archived: bool,
+    /// Its newest message, while Yapfast knows it.
+    pub recent: Option<RecentMessage>,
+    /// When it was last active, in Unix milliseconds: its newest message's
+    /// time, else its own start.
+    pub active_ms: u64,
 }
 
 /// A Discord thread as a channel's list of its threads shows it.
@@ -1344,6 +1357,9 @@ pub struct ThreadPerson {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct RecentMessage {
     pub author: ThreadPerson,
+    /// The server tag its author wears, which a message's thread card shows
+    /// after the name.
+    pub tag: Option<ServerTag>,
     /// Its text on one line, mentions and custom emoji as text.
     pub text: String,
 }
@@ -1370,6 +1386,35 @@ pub struct CustomEmoji {
 pub struct SearchHit {
     pub room: String,
     pub message: ChatMessage,
+    /// A thread it's in that isn't listed, as Discord sent it with the
+    /// results: its name, and its channel's room id.
+    pub thread: Option<(String, Option<String>)>,
+}
+
+/// The order a search's results come in, as its Sort menu offers them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchSort {
+    #[default]
+    Newest,
+    Oldest,
+    Relevant,
+}
+
+/// What a search came to.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Searched {
+    /// A page of the messages found, and how many in all, which may grow
+    /// while Discord is still `indexing_older` messages; `words` are what
+    /// Discord was asked to find, without the filters.
+    Page {
+        total: u32,
+        hits: Vec<SearchHit>,
+        words: String,
+        indexing_older: bool,
+    },
+    /// Discord is indexing what's searched: it'll be asked `again`, or it
+    /// was asked as often as its client asks.
+    Indexing { again: bool },
 }
 
 /// A Discord channel's topic, as its header shows it: Markdown with
@@ -1462,14 +1507,20 @@ pub struct Picture {
     pub animation: Option<Animation>,
 }
 
-/// A picture's RGBA pixels. Once the UI has said how to make its own buffers
-/// ([`set_pixel_buffers`]), they're made in one, which it shows without a
-/// copy; until then, and without a UI, they're a plain vector.
+/// A picture's pixels. Once the UI has said how to make its own buffers
+/// ([`set_pixel_buffers`]), they're made in one, in its format, which it shows
+/// without a copy; until then, and without a UI, they're a plain vector of
+/// straight RGBA. Anything leaving Yapfast takes [`Pixels::straight_rgba`].
 pub struct Pixels(Box<dyn PixelBuffer>);
 
-/// Memory a picture's RGBA pixels live in.
+/// Memory a picture's pixels live in.
 pub trait PixelBuffer: std::any::Any + Send + Sync {
     fn bytes(&self) -> &[u8];
+
+    /// The pixels as straight RGBA, whatever format the buffer keeps.
+    fn straight_rgba(&self) -> Vec<u8> {
+        self.bytes().to_vec()
+    }
 }
 
 impl PixelBuffer for Vec<u8> {
@@ -1499,6 +1550,12 @@ impl Pixels {
     /// The buffer the pixels are in, when it's a `T`.
     pub fn buffer<T: PixelBuffer>(&self) -> Option<&T> {
         (self.0.as_ref() as &dyn std::any::Any).downcast_ref()
+    }
+
+    /// A copy as straight RGBA, as files, the clipboard and notifications
+    /// take pictures: the UI's own buffers may keep another byte order.
+    pub fn straight_rgba(&self) -> Vec<u8> {
+        self.0.straight_rgba()
     }
 }
 
@@ -2003,8 +2060,10 @@ pub struct ChatMessage {
     pub deleted: bool,
     /// From someone this account blocked: it shows collapsed until asked for.
     pub blocked: bool,
+    /// From someone this account ignored: it shows collapsed until revealed.
+    pub ignored: bool,
     /// Mentions this account or a group it's in, other than as a reply to
-    /// its message. The timeline highlights it.
+    /// its message, or is its own naming it. The timeline highlights it.
     pub mentions_me: bool,
     /// Replies to this account's message, which the timeline highlights
     /// while it's new; see [`Self::highlighted`].
@@ -2125,6 +2184,13 @@ impl ChatMessage {
     /// client does, and a reply to this account's message while it's `new`.
     pub fn highlighted(&self, new: bool) -> bool {
         self.mentions_me || (self.replies_to_me && new)
+    }
+
+    /// Custom emoji shown by this message's body, reactions and reply quote.
+    pub fn all_emoji(&self) -> impl Iterator<Item = &CustomEmoji> {
+        self.emoji
+            .iter()
+            .chain(self.reply.iter().flat_map(|reply| &reply.emoji))
     }
 }
 
@@ -2926,6 +2992,13 @@ pub enum DiscordCommand {
     Pins {
         room: String,
     },
+    /// A Discord DM's or channel's newest [`PEEK_MESSAGES`], to peek at
+    /// without opening or reading it; [`Event::Peeked`] follows. A channel
+    /// kept in memory and up to date answers from there; any other is asked
+    /// for that many once, and nothing of them is kept.
+    Peek {
+        room: String,
+    },
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -2971,10 +3044,12 @@ pub enum DiscordCommand {
     },
     /// Look for messages a search box's `query`, filters and all, finds: in
     /// a Discord DM, by its room id, or a server, by its server id; a page
-    /// from the `offset`th found. [`Event::Found`] follows.
+    /// in `sort`'s order from the `offset`th found. [`Event::Found`]
+    /// follows, more than once while Discord indexes what's searched.
     Search {
         place: String,
         query: String,
+        sort: SearchSort,
         offset: u32,
     },
     /// Make a Discord group DM with these users, or with `room`, add them to
@@ -3195,6 +3270,14 @@ pub enum DiscordCommand {
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`;
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
+    /// Places a server in a folder or moves a server or folder beside a tile.
+    FileServer {
+        server: String,
+        source_folder: bool,
+        target: String,
+        folder: bool,
+        before: Option<bool>,
+    },
     /// Share the game the Discord account plays, or stop;
     /// [`Event::ShowGameSet`] follows.
     ShowGame(bool),
@@ -4186,6 +4269,14 @@ pub enum Event {
     },
     /// The layers of a profile effect a [`Profile::effect`] names.
     ProfileEffect(Arc<ProfileEffect>),
+    /// Someone's presence in the server their open profile is from, which
+    /// Discord answers apart from the profile.
+    ProfilePresence {
+        user: String,
+        presence: Presence,
+        activity: Option<String>,
+        activities: Activities,
+    },
     /// The layers of the frame of `user`'s profile, which the shop
     /// described after [`Event::Profile`] came.
     ProfileFrame {
@@ -4276,6 +4367,8 @@ pub enum Event {
     CustomStatusSet(Result<(), String>),
     /// Whether [`DiscordCommand::SetStatus`] changed it, or why not.
     StatusSet(Result<(), String>),
+    /// Whether the account's server folders were saved.
+    ServerFiled(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.
@@ -4287,6 +4380,12 @@ pub enum Event {
     JoinSoundSet(Result<(), String>),
     /// [`DiscordCommand::Unlink`] forgot the account.
     DiscordUnlinked,
+    /// [`DiscordCommand::Peek`]'s messages, oldest first, or why they didn't
+    /// come.
+    Peeked {
+        room: String,
+        result: Result<Vec<ChatMessage>, String>,
+    },
     /// [`DiscordCommand::Pins`]'s messages, the latest pinned first, or why
     /// they didn't come.
     Pins {
@@ -4321,13 +4420,13 @@ pub enum Event {
         room: String,
         result: Result<PostStarters, String>,
     },
-    /// What [`DiscordCommand::Search`] found: a page of messages, the newest
-    /// first, and how many in all; or why it couldn't search.
+    /// What [`DiscordCommand::Search`] came to, or why it couldn't search.
     Found {
         place: String,
         query: String,
+        sort: SearchSort,
         offset: u32,
-        result: Result<(u32, Vec<SearchHit>), String>,
+        result: Result<Searched, String>,
     },
     /// The open Discord channel's topic, when it opens and when it changes;
     /// none when it has none.
@@ -5147,20 +5246,45 @@ impl Animation {
 
 /// The first line of a Markdown body as plain text, for reply quotes.
 pub fn plain_snippet(markdown: &str) -> String {
-    use pulldown_cmark::{Event, Parser, TagEnd};
     let mut text = String::new();
+    first_line(markdown, |part, _| text.push_str(part));
+    text
+}
+
+/// A reply quote's first line as plain text, as [`plain_snippet`] has it,
+/// and those of `emoji` its text shows: each whose `:name:` is in the line
+/// out of code, which shows a name as text.
+pub fn reply_snippet(markdown: &str, mut emoji: Vec<CustomEmoji>) -> (String, Vec<CustomEmoji>) {
+    let mut text = String::new();
+    // The line's text with each piece of code as a mark no name holds.
+    let mut prose = String::new();
+    first_line(markdown, |part, code| {
+        text.push_str(part);
+        prose.push_str(if code { "\0" } else { part });
+    });
+    emoji.retain(|each| prose.contains(&each.text));
+    (text, emoji)
+}
+
+/// Hands `each` the text of a Markdown body's first line, piece by piece,
+/// and whether the piece is code.
+fn first_line(markdown: &str, mut each: impl FnMut(&str, bool)) {
+    use pulldown_cmark::{Event, Parser, TagEnd};
+    let mut any = false;
     for event in Parser::new(markdown) {
         match event {
-            Event::Text(part) | Event::Code(part) => text.push_str(&part),
-            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph)
-                if !text.is_empty() =>
-            {
-                break;
+            Event::Text(part) => {
+                any |= !part.is_empty();
+                each(&part, false);
             }
+            Event::Code(part) => {
+                any |= !part.is_empty();
+                each(&part, true);
+            }
+            Event::SoftBreak | Event::HardBreak | Event::End(TagEnd::Paragraph) if any => break,
             _ => {}
         }
     }
-    text
 }
 
 /// A Markdown body as plain text for a notification: its paragraphs and list items on

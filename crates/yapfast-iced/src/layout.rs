@@ -23,6 +23,7 @@ use yapfast_core::{
     chat::Sticker,
     keybinds::{Binding, Shortcut},
     theme::Custom,
+    themes::Performance,
 };
 
 pub use yapfast_core::layout_file::LAYOUT;
@@ -36,12 +37,43 @@ pub struct Layout {
     pub first_version: Option<String>,
     pub seen_new: Vec<String>,
     pub theme: Option<String>,
+    /// The theme shown before [`theme`](Self::theme), for Settings →
+    /// Themes' Back action. Turning a theme off keeps the one it replaced
+    /// here too.
+    pub previous_theme: Option<String>,
     pub custom_themes: Vec<Custom>,
+    /// Each installed theme's option values, by its `installed:` id. An
+    /// absent option keeps the package's default.
+    pub theme_options: BTreeMap<String, yapfast_core::themes::options::Choices>,
+    /// Installed themes allowed to restyle people's profiles and media.
+    /// This is opt-in per package, matching the Slint build's theme behaviour.
+    pub theme_content: BTreeSet<String>,
+    /// Per-installed-theme sound permissions where they differ from the
+    /// Slint build's defaults: notification replacements on, interface cues off,
+    /// interface volume 50%.
+    pub theme_sounds: BTreeMap<String, crate::themes::SoundPrefs>,
+    /// How much of an installed theme runs, and whether its motion stays
+    /// still. Colours and fonts apply at every setting.
+    pub theme_performance: Performance,
+    pub reduce_motion: bool,
+    /// Whether an installed theme's channel transition is allowed. Off by
+    /// default, matching the Slint build.
+    pub theme_transitions: bool,
+    /// Settings → Appearance → Readable text: reading roles use Wired's
+    /// stock face and weight while the rest of an installed theme remains.
+    pub readable_text: bool,
     /// The rail's open folders, by folder id.
     pub open_folders: BTreeSet<String>,
+    /// The one folder open in a theme's server tree that opens one at a
+    /// time (`expand: "one"`), kept apart so the rail's stay as they were.
+    pub tree_folder: Option<String>,
     /// Each server's collapsed categories, by server id: a Discord category
     /// by its room id, any other by its heading.
     pub collapsed: HashMap<String, BTreeSet<String>>,
+    /// A server tree's open and closed places where they differ from its
+    /// default (the open place open, the rest closed), by server id, or
+    /// [`crate::sidebar::tree::DMS`] for the direct messages.
+    pub tree_open: BTreeMap<String, bool>,
     pub members_hidden: bool,
     /// Copy ID shows in menus, as Discord's Developer Mode.
     pub developer_mode: bool,
@@ -50,6 +82,13 @@ pub struct Layout {
     pub deafen_on_join: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
+    /// Holding Alt over a channel or DM in the sidebar peeks at its newest
+    /// messages; off unless turned on.
+    pub peek_channels: bool,
+    /// The DM list's search is Discord's "Find or start a conversation"
+    /// button, which opens the quick switcher, instead of a filter; off
+    /// unless turned on.
+    pub dm_search_switcher: bool,
     /// DMs pinned to the top of the list, by room id, the first pinned
     /// first.
     pub pinned: Vec<String>,
@@ -66,6 +105,9 @@ pub struct Layout {
     pub members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
+    /// How wide the picture in the window's corner was dragged: the stream
+    /// watched, this account's screen or a camera.
+    pub corner_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,
@@ -88,6 +130,9 @@ pub struct Layout {
     pub sticker_favorites: Vec<KeptSticker>,
     /// The Keybinds page's keybinds, in its order.
     pub keybinds: Vec<Binding>,
+    /// Each place's searches, newest first, by server or DM id, as
+    /// Discord's box keeps them (`search_popout::HISTORY`).
+    pub search_history: HashMap<String, Vec<String>>,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,

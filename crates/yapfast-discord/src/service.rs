@@ -280,12 +280,75 @@ pub struct Reactor {
     pub me: bool,
 }
 
-/// Messages a search found: one page, the newest first, and how many it
-/// found in all.
+/// Messages a search found: one page, and how many it found in all.
 #[derive(Debug, Default)]
 pub struct Found {
     pub total: u32,
     pub messages: Vec<Message>,
+    /// Discord is still indexing older messages, so it may find more
+    /// later: its `doing_deep_historical_index`.
+    pub indexing_older: bool,
+    /// The words it was asked to find, its `content`.
+    pub words: String,
+    /// The threads its messages are in, as Discord sends them with it: each
+    /// one's id, name and channel.
+    pub threads: Vec<(String, String, Option<String>)>,
+}
+
+/// What a search came to: messages, or Discord still indexing what it
+/// searches after the client would have stopped asking.
+#[derive(Debug)]
+pub enum Searched {
+    Found(Found),
+    Indexing,
+}
+
+/// How many times a search asks again while Discord indexes what it
+/// searches, as its client does, and how long it waits when Discord
+/// doesn't say; and the longest it waits for one try whatever Discord says.
+const SEARCH_ATTEMPTS: u32 = 5;
+const SEARCH_RETRY: Duration = Duration::from_secs(5);
+const SEARCH_RETRY_MOST: Duration = Duration::from_secs(60);
+
+/// What a search's text is checked against: see [`Service::search_query`].
+/// Without `people`, it notes who's named and takes them all, to look them
+/// up before reading the text again.
+struct Lookup {
+    server: bool,
+    channels: Vec<(String, String)>,
+    me: Option<String>,
+    people: Option<HashMap<search::Who, Option<String>>>,
+    asked: std::cell::RefCell<Vec<search::Who>>,
+}
+
+impl search::Context for Lookup {
+    fn has_channels(&self) -> bool {
+        self.server
+    }
+
+    fn channels_named(&self, name: &str) -> Vec<String> {
+        self.channels
+            .iter()
+            .filter(|(known, _)| known == name)
+            .map(|(_, id)| id.clone())
+            .collect()
+    }
+
+    fn person(&self, who: &search::Who) -> Option<String> {
+        if *who == search::Who::Me {
+            return self.me.clone();
+        }
+        match &self.people {
+            Some(people) => people.get(who).cloned().flatten(),
+            None => {
+                let mut asked = self.asked.borrow_mut();
+                if !asked.contains(who) {
+                    asked.push(who.clone());
+                }
+                Some(String::new())
+            }
+        }
+    }
 }
 
 /// The longest a search waits in all while Discord indexes what it
@@ -607,6 +670,15 @@ pub enum Live {
     FavoriteSounds(Vec<String>),
 }
 
+/// Someone's presence in a server, as [`Discord::member_presence`] asks for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberPresence {
+    pub presence: Presence,
+    /// Their custom status, else what they're doing, on one line.
+    pub activity: Option<String>,
+    pub activities: crate::activity::Activities,
+}
+
 /// What a call needs to open the voice connection Discord assigned.
 #[derive(Clone)]
 pub struct VoiceServer {
@@ -627,7 +699,22 @@ impl std::fmt::Debug for VoiceServer {
     }
 }
 
+struct ServerListWrite {
+    patch: String,
+    previous: Arc<settings::ServerList>,
+    shown: Arc<settings::ServerList>,
+}
+
 enum Request {
+    FileServer {
+        server: String,
+        source_folder: bool,
+        target: String,
+        folder: bool,
+        before: Option<bool>,
+        reply: oneshot::Sender<Option<ServerListWrite>>,
+    },
+    RestoreServerList(ServerListWrite),
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -660,6 +747,12 @@ enum Request {
     View {
         guild: String,
         channel: Option<String>,
+    },
+    /// Asks for someone's presence in a server; `reply` hears it, or none.
+    Presence {
+        guild: String,
+        user: String,
+        reply: oneshot::Sender<Option<Value>>,
     },
     /// Asks for these members' server profiles; with `reply`, says when
     /// they arrived.
@@ -800,6 +893,7 @@ pub struct Discord {
     /// Changes to the status settings on their way; see
     /// [`Self::change_status_settings`].
     status_writes: Arc<StatusWrites>,
+    folder_writes: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// This account's changes to the settings' `status` on their way.
@@ -972,6 +1066,7 @@ impl Discord {
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
             status_writes: Arc::default(),
+            folder_writes: Arc::default(),
         })
     }
 
@@ -1413,6 +1508,16 @@ impl Discord {
             .collect()
     }
 
+    /// A channel's newest `limit` messages, oldest first, to peek at: a
+    /// server's channel, or with [`PRIVATE`] a DM. It reads nothing, and
+    /// keeps nothing of them but their authors' names.
+    pub async fn peek(&self, guild: &str, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let values = self.api.newest(channel, limit).await?;
+        let mut messages = self.learn_authors(guild, &values).await;
+        messages.sort_by_key(Message::order);
+        Ok(messages)
+    }
+
     /// A channel's pinned messages, the latest pinned first: a server's
     /// channel, or with [`PRIVATE`] a DM.
     pub async fn pins(&self, guild: &str, channel: &str) -> Result<Vec<Message>> {
@@ -1420,109 +1525,149 @@ impl Discord {
         Ok(self.learn_authors(guild, &values).await)
     }
 
-    /// A page of the messages a search finds, the newest first, from the
-    /// `offset`th: in the DM `channel` with [`PRIVATE`], or across a server.
-    /// `text` is what the search box took, filters and all; see
-    /// [`search::Query`]. Discord indexes a DM or a server the first time
-    /// it's searched, and asks to be asked again until it has.
+    /// A page of the messages a search finds, in `sort`'s order, from the
+    /// `offset`th: in the DM `channel` with [`PRIVATE`], or across a
+    /// server. `text` is what the search box took, filters and all, read as
+    /// [`search::Query`] reads it. Discord indexes a DM or a server the
+    /// first time it's searched and answers that it is, after which this
+    /// calls `indexing` and asks again, as often and as long as Discord's
+    /// client does.
     pub async fn search(
         &self,
         guild: &str,
         channel: Option<&str>,
         text: &str,
+        sort: search::Sort,
         offset: u32,
-    ) -> Result<Found> {
-        let query = search::Query::parse(text).map_err(|why| anyhow!(why))?;
-        if query.is_empty() {
-            bail!("Type something to search for.");
-        }
+        indexing: &(dyn Fn() + Send + Sync),
+    ) -> Result<Searched> {
         let in_server = server(guild);
         let channel = match (in_server, channel) {
             (Some(_), _) => "",
             (None, Some(channel)) => channel,
             (None, None) => bail!("Yapfast can't tell which DM to search."),
         };
-        let mut params = query.params();
-        for name in &query.channels {
-            let Some(guild) = in_server else {
-                bail!("in: picks a server's channels, and a DM has none.");
-            };
-            let id = self
-                .channel_named(guild, name)
-                .ok_or_else(|| anyhow!("This server has no channel called #{name}."))?;
-            params.push(("channel_id", id));
+        let params = self.search_query(guild, text).await.params();
+        if params.is_empty() {
+            bail!("Type something to search for.");
         }
-        for name in &query.from {
-            params.push(("author_id", self.person_named(guild, name).await?));
-        }
-        for name in &query.mentions {
-            params.push(("mentions", self.person_named(guild, name).await?));
-        }
-        let mut waited = Duration::ZERO;
-        loop {
-            let mut answer = self.api.search(in_server, channel, &params, offset).await?;
-            if let serde_json::Value::Array(pages) = answer["messages"].take() {
-                // Each result came with the messages around it, which Discord
-                // no longer sends; the first is the one found.
-                let values: Vec<_> = pages
-                    .into_iter()
-                    .filter_map(|mut page| page.get_mut(0).map(serde_json::Value::take))
-                    .collect();
-                return Ok(Found {
-                    total: answer["total_results"].as_u64().unwrap_or_default() as u32,
-                    messages: self.learn_authors(guild, &values).await,
-                });
-            }
-            if answer["code"].as_u64() != Some(INDEX_NOT_READY) {
-                break;
-            }
-            let Some(wait) = index_wait(&answer, &mut waited) else {
-                break;
-            };
-            tokio::time::sleep(wait).await;
-        }
-        Err(anyhow!(
-            "Discord is still getting these messages ready to search. Try again in a moment."
-        ))
-    }
-
-    /// The id of a server's text channel by its name, the same letters
-    /// first, as `in:` names it.
-    fn channel_named(&self, guild: &str, name: &str) -> Option<String> {
-        let snapshot = self.snapshots.borrow().clone();
-        let server = snapshot.servers.iter().find(|server| server.id == guild)?;
-        let channels = &server.text_channels;
-        channels
+        let words = params
             .iter()
-            .find(|channel| channel.name == name)
-            .or_else(|| {
-                channels
-                    .iter()
-                    .find(|channel| channel.name.eq_ignore_ascii_case(name))
-            })
-            .map(|channel| channel.id.clone())
-    }
-
-    /// The id of someone a search's `from:` or `mentions:` names: in a
-    /// server, the member Discord finds by it, as its search box asks; in
-    /// DMs, someone Yapfast knows by it. One called exactly that comes first.
-    async fn person_named(&self, guild: &str, name: &str) -> Result<String> {
-        let found = match server(guild) {
-            Some(guild) => self.search_members(guild, name).await?,
-            None => self.read_names().find_users(name),
-        };
-        let called = |id: &String| {
-            [self.name(guild, id), self.username(id)]
+            .find(|(name, _)| *name == "content")
+            .map(|(_, words)| words.clone())
+            .unwrap_or_default();
+        let mut attempts = 0;
+        loop {
+            let answer = self
+                .api
+                .search(in_server, channel, &params, sort, offset, attempts)
+                .await?;
+            let mut answer = match answer {
+                crate::api::Searched::Page(answer) => answer,
+                crate::api::Searched::Indexing(seconds) => {
+                    attempts += 1;
+                    if attempts > SEARCH_ATTEMPTS {
+                        return Ok(Searched::Indexing);
+                    }
+                    indexing();
+                    let wait = seconds
+                        .filter(|seconds| *seconds > 0)
+                        .map_or(SEARCH_RETRY, Duration::from_secs);
+                    tokio::time::sleep(wait.min(SEARCH_RETRY_MOST)).await;
+                    continue;
+                }
+            };
+            let threads = answer["threads"]
+                .as_array()
                 .into_iter()
                 .flatten()
-                .any(|known| known.eq_ignore_ascii_case(name))
+                .filter_map(|thread| {
+                    Some((
+                        thread["id"].as_str()?.to_owned(),
+                        thread["name"].as_str()?.to_owned(),
+                        thread["parent_id"].as_str().map(str::to_owned),
+                    ))
+                })
+                .collect();
+            let serde_json::Value::Array(pages) = answer["messages"].take() else {
+                bail!("could not understand Discord's answer");
+            };
+            // Each result came with the messages around it, which Discord
+            // no longer sends; the first is the one found.
+            let values: Vec<_> = pages
+                .into_iter()
+                .filter_map(|mut page| page.get_mut(0).map(serde_json::Value::take))
+                .collect();
+            return Ok(Searched::Found(Found {
+                total: answer["total_results"].as_u64().unwrap_or_default() as u32,
+                indexing_older: answer["doing_deep_historical_index"]
+                    .as_bool()
+                    .unwrap_or_default(),
+                words,
+                threads,
+                messages: self.learn_authors(guild, &values).await,
+            }));
+        }
+    }
+
+    /// Reads a search's text against what Yapfast knows here, as Discord's
+    /// box checks it: a server's channels and threads by name, and people
+    /// by username, those Yapfast doesn't know looked for among the
+    /// server's members.
+    async fn search_query(&self, guild: &str, text: &str) -> search::Query {
+        let in_server = server(guild);
+        let channels = in_server
+            .and_then(|guild| {
+                let snapshot = self.snapshots.borrow();
+                let server = snapshot.servers.iter().find(|server| server.id == guild)?;
+                let channels = server
+                    .text_channels
+                    .iter()
+                    .chain(&server.voice_channels)
+                    .chain(&server.threads);
+                Some(
+                    channels
+                        .map(|channel| (channel.name.clone(), channel.id.clone()))
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
+        let mut lookup = Lookup {
+            server: in_server.is_some(),
+            channels,
+            me: self.snapshots.borrow().user_id.clone(),
+            people: None,
+            asked: std::cell::RefCell::new(Vec::new()),
         };
-        found
-            .iter()
-            .find(|id| called(id))
-            .or(found.first())
-            .cloned()
-            .ok_or_else(|| anyhow!("Yapfast can't find anyone called {name} here."))
+        let now = chrono::Local::now();
+        search::Query::parse(text, &lookup, &now);
+        let mut people = HashMap::new();
+        for who in lookup.asked.take() {
+            let user = self.person_called(guild, &who).await;
+            people.insert(who, user);
+        }
+        lookup.people = Some(people);
+        search::Query::parse(text, &lookup, &now)
+    }
+
+    /// The user a search's `from:` or `mentions:` names by username: one
+    /// Yapfast knows, or in a server, a member Discord finds by it.
+    async fn person_called(&self, guild: &str, who: &search::Who) -> Option<String> {
+        let name = match who {
+            search::Who::Username(name) | search::Who::Tag(name, _) => name,
+            search::Who::Me => return self.snapshots.borrow().user_id.clone(),
+            search::Who::Id(id) => return Some(id.clone()),
+        };
+        if let Some(user) = self.read_names().user_called(name) {
+            return Some(user);
+        }
+        let found = self.search_members(server(guild)?, name).await.ok()?;
+        let names = self.read_names();
+        found.into_iter().find(|user| {
+            names
+                .username(user)
+                .is_some_and(|known| known.eq_ignore_ascii_case(name))
+        })
     }
 
     /// Makes a group DM with `users`; returns its channel id. The DM list
@@ -2500,6 +2645,35 @@ impl Discord {
             move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
             |now| Request::CustomStatus(now.custom.flatten()),
         )
+    }
+
+    /// Moves a server beside or into the target, or moves a whole folder.
+    pub async fn file_server(
+        &self,
+        server: &str,
+        source_folder: bool,
+        target: &str,
+        folder: bool,
+        before: Option<bool>,
+    ) -> Result<()> {
+        let _turn = self.folder_writes.lock().await;
+        let (reply, changed) = oneshot::channel();
+        let _ = self.requests.send(Request::FileServer {
+            server: server.to_owned(),
+            source_folder,
+            target: target.to_owned(),
+            folder,
+            before,
+            reply,
+        });
+        let Some(change) = changed.await.context("Discord isn't connected right now")? else {
+            return Ok(());
+        };
+        let result = self.api.set_user_settings(&change.patch).await;
+        if result.is_err() {
+            let _ = self.requests.send(Request::RestoreServerList(change));
+        }
+        result
     }
 
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere
@@ -3921,6 +4095,31 @@ impl Discord {
 
     /// The RGB colour of a member's name in a server: their highest coloured
     /// role's, once their roles are known.
+    /// Someone's presence in server `guild`, as Discord's client asks for
+    /// it when it opens their profile there: the member list has it only for
+    /// the rows it has loaded, so a card opened from a message had no
+    /// status. Asked over the gateway with the member (Request Guild
+    /// Members with `presences`), waiting a while; none in a DM, or when
+    /// Discord doesn't say.
+    pub async fn member_presence(&self, guild: &str, user: &str) -> Option<MemberPresence> {
+        let guild = server(guild)?;
+        let (reply, answer) = oneshot::channel();
+        let _ = self.requests.send(Request::Presence {
+            guild: guild.into(),
+            user: user.into(),
+            reply,
+        });
+        let presence = tokio::time::timeout(SEARCH_TIMEOUT, answer)
+            .await
+            .ok()?
+            .ok()??;
+        Some(MemberPresence {
+            presence: Presence::parse(&presence),
+            activity: crate::member_list::activity(&presence["activities"]),
+            activities: crate::activity::activities(&presence["activities"]),
+        })
+    }
+
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
     }

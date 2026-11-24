@@ -253,6 +253,48 @@ fn the_bell_and_a_channels_menu_offer_the_same_notification_choices() {
     assert_eq!(rows(&app)[2].1, "Only @mentions");
 }
 
+/// A theme whose menus have art lays it and a ground under the rows:
+/// a submenu still opens level with its row.
+#[test]
+fn a_submenu_opens_beside_its_row_in_a_menu_with_art() {
+    let (mut app, folder) = discord_server(0, |_, _| {});
+    let fetched = yapfast_core::themes::install::Fetched::new(
+        "https://github.com/ada/papery".into(),
+        String::new(),
+        "main".into(),
+        "0123456789abcdef0123456789abcdef01234567".into(),
+        yapfast_core::themes::check::Files {
+            manifest: r##"{ "theme_api": 1, "id": "dev.example.papery", "name": "Papery",
+                "version": "1.0.0",
+                "art": { "surfaces": { "menu": { "texture": "paper" } } },
+                "variants": { "dark": { "base": "yap" } } }"##
+                .into(),
+            ..Default::default()
+        },
+    )
+    .expect("a package");
+    yapfast_core::themes::install::Themes::open(folder.path())
+        .install(&fetched)
+        .expect("installed");
+    app.themes.refresh(folder.path(), &app.layout);
+    assert!(app.choose_theme("installed:dev.example.papery"));
+    let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
+    assert_eq!(
+        crate::theme_art::surface_content_index(app.ctx(), surface),
+        Some(2),
+        "over its art and its ground"
+    );
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    let _ = app.update(Message::Menu(crate::menus::Event::Light(2)));
+    let row = bounds(&app, "Notification settings");
+    let first = bounds(&app, "All messages");
+    assert!(first.x > row.x + row.width, "to the right of the menu");
+    assert!(
+        (first.y - row.y).abs() < 2.0,
+        "its first row level with the row: {first:?} {row:?}"
+    );
+}
+
 #[test]
 fn a_submenu_opens_beside_its_row_and_follows_the_keys() {
     let (mut app, _folder) = discord_server(0, |_, _| {});

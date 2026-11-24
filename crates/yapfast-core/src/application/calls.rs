@@ -263,7 +263,7 @@ impl Application {
         let connected = self.state.voice.phase == Phase::Connected;
         let sound = match &command {
             _ if !connected => None,
-            voice::Command::Deafen(true) => Some(Sound::Deafen),
+            voice::Command::Deafen(true) | voice::Command::DeafenUnmuted => Some(Sound::Deafen),
             // Unmuting undeafens too.
             voice::Command::Deafen(false) | voice::Command::Mute(false)
                 if self.state.voice.deafened =>
@@ -350,17 +350,28 @@ impl Application {
             voice::Command::Microphone(id) => self.state.voice.microphone = Some(id),
             voice::Command::Speaker(id) => self.state.voice.speaker = Some(id),
             voice::Command::Camera(id) => self.state.voice.camera = Some(id),
+            voice::Command::StreamAudio(audio) => self.state.voice.share_audio(audio),
             voice::Command::Mute(muted) => {
                 if !muted {
                     self.state.voice.deafened = false;
                 }
                 self.state.voice.muted = muted;
+                self.state.voice.unmute_on_undeafen = false;
             }
-            voice::Command::Deafen(deafened) => {
-                self.state.voice.deafened = deafened;
-                if deafened {
-                    self.state.voice.muted = true;
+            voice::Command::Deafen(false) => {
+                let voice = &mut self.state.voice;
+                voice.deafened = false;
+                // The user's own mute is as it was before deafening.
+                if std::mem::take(&mut voice.unmute_on_undeafen) {
+                    voice.muted = false;
                 }
+            }
+            command @ (voice::Command::Deafen(true) | voice::Command::DeafenUnmuted) => {
+                let voice = &mut self.state.voice;
+                voice.unmute_on_undeafen |=
+                    !voice.muted || matches!(command, voice::Command::DeafenUnmuted);
+                voice.deafened = true;
+                voice.muted = true;
             }
             _ => {}
         }

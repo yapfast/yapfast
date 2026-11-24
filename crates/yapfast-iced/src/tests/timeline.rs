@@ -17,6 +17,300 @@ use super::{
 };
 use crate::{app::Message, composer::COMPOSER};
 
+/// A preview using an installed package whose resolved layout is exercised
+/// by the real virtual timeline, rather than only inspecting its registry.
+fn themed_messages(layout: serde_json::Value) -> (crate::app::App, tempfile::TempDir) {
+    let folder = tempfile::tempdir_in(super::local()).expect("test folder");
+    let source = folder.path().join("timeline-theme");
+    std::fs::create_dir_all(&source).expect("theme source");
+    let manifest = serde_json::json!({
+        "theme_api": 1,
+        "id": "dev.example.timeline",
+        "name": "Timeline renderer",
+        "version": "1.0.0",
+        "variants": {
+            "dark": {
+                "base": "yap",
+                "colours": {
+                    "chat": "#000000",
+                    "raised": "#000000",
+                    "accent": "#8be9fd",
+                    "faint": "#00ff00"
+                },
+                "layout": layout
+            }
+        }
+    });
+    std::fs::write(
+        source.join(yapfast_core::themes::MANIFEST),
+        serde_json::to_vec(&manifest).expect("manifest JSON"),
+    )
+    .expect("theme manifest");
+    let fetched = yapfast_core::themes::install::Fetched::local(&source).expect("local package");
+    yapfast_core::themes::install::Themes::open(folder.path())
+        .install(&fetched)
+        .expect("installed package");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        br#"{"theme":"installed:dev.example.timeline"}"#,
+    )
+    .expect("chosen theme");
+    (super::start(&folder, true), folder)
+}
+
+/// Number of pixels near `colour` in a logical rectangle. The headless
+/// renderer draws at twice the window's logical scale.
+fn coloured_pixels(pixels: &[u8], width: u32, area: iced::Rectangle, colour: iced::Color) -> usize {
+    let [r, g, b, _] = colour.into_rgba8();
+    let scale = 2.0;
+    let left = (area.x.max(0.0) * scale) as usize;
+    let right = ((area.x + area.width).max(0.0) * scale) as usize;
+    let top = (area.y.max(0.0) * scale) as usize;
+    let bottom = ((area.y + area.height).max(0.0) * scale) as usize;
+    (top..bottom)
+        .flat_map(|y| (left..right).map(move |x| (y * width as usize + x) * 4))
+        .filter(|at| {
+            pixels.get(*at..*at + 3).is_some_and(|pixel| {
+                pixel
+                    .iter()
+                    .zip([r, g, b])
+                    .all(|(actual, wanted)| actual.abs_diff(wanted) <= 24)
+            })
+        })
+        .count()
+}
+
+#[test]
+fn a_resolved_bubble_gel_is_drawn_around_virtual_timeline_content() {
+    let (app, _folder) = themed_messages(serde_json::json!({
+        "messages": "bubbles",
+        "chat_avatars": false,
+        "bubbles": {
+            "padding": [14, 9],
+            "other": {
+                "ground": "#000000",
+                    "gloss": {
+                    "colour": "#b00000",
+                    "from": 1,
+                    "to": 1,
+                    "height": 0.8,
+                    "max": 96,
+                    "inset": [0, 0]
+                },
+                "rim": { "light": "#ff0000", "dark": "#ff0000" }
+            }
+        }
+    }));
+    let body = "Yep. I should be free after dinner.";
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let text = ui
+        .find(body)
+        .expect("the themed message")
+        .visible_bounds()
+        .expect("visible message");
+    let area = iced::Rectangle::new(
+        iced::Point::new(text.x - 14.0, text.y - 9.0),
+        iced::Size::new(text.width + 28.0, text.height + 18.0),
+    );
+    let (width, _, pixels) = drawn(&mut ui);
+    assert!(
+        coloured_pixels(&pixels, width, area, iced::Color::from_rgb8(176, 0, 0)) > 80,
+        "the resolved gloss and rims are present around the rendered message"
+    );
+}
+
+#[test]
+fn a_bubbles_reactions_sit_whole_under_the_bubble() {
+    use yapfast_core::chat::Reaction;
+    let (mut app, _folder) = themed_messages(serde_json::json!({
+        "messages": "bubbles",
+        "chat_avatars": false,
+        "bubbles": { "padding": [14, 9] }
+    }));
+    let body = "Yep. I should be free after dinner.";
+    let reaction = |key: &str, count| Reaction {
+        key: key.into(),
+        count,
+        mine: false,
+    };
+    react_to(
+        &mut app,
+        body,
+        vec![
+            reaction("wave", 3),
+            reaction("tada", 12),
+            reaction("eyes", 1),
+        ],
+    );
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let words = ui
+        .find(body)
+        .expect("the message")
+        .visible_bounds()
+        .expect("visible message");
+    for key in ["wave", "tada", "eyes"] {
+        let chip = ui.find(key).expect("the reaction");
+        let bounds = chip.bounds();
+        let shown = chip.visible_bounds().expect("a visible reaction");
+        // As Slint's: under the bubble (its words and their padding), not
+        // squeezed into its foot, and drawn whole.
+        assert!(
+            shown.y >= words.y + words.height + 9.0,
+            "{key} at {shown:?} sits under the bubble round {words:?}"
+        );
+        assert_eq!(
+            (shown.width.round(), shown.height.round()),
+            (bounds.width.round(), bounds.height.round()),
+            "{key} is drawn whole, not cut off"
+        );
+        assert!(
+            bounds.height <= crate::message::CHIP_HEIGHT,
+            "{key}'s emoji fits its chip"
+        );
+    }
+}
+
+#[test]
+fn a_narrower_window_lays_the_rows_out_at_the_new_width() {
+    let (mut app, _folder) = preview();
+    let wide = iced::Size::new(1200.0, 600.0);
+    let narrow = iced::Size::new(420.0, 600.0);
+    let _ = app.update(Message::Timeline(crate::timeline::Event::Viewport(wide)));
+    let before = crate::message::content_width_of(app.ctx(), 0);
+    // Made narrower without a scroll: no viewport is reported, only the
+    // list's new size.
+    let _ = app.update(Message::Timeline(crate::timeline::Event::Viewport(narrow)));
+    let after = crate::message::content_width_of(app.ctx(), 0);
+    assert!(before > narrow.width, "laid out wide first ({before})");
+    assert!(
+        after <= narrow.width,
+        "what's sized from the list's width (pictures, embeds) fits the narrower list ({after})"
+    );
+    // Every row is measured again at the new width.
+    assert!(!app.timeline.heights.is_empty());
+    let window = iced::Size::new(900.0, 700.0);
+    let mut ui = iced_test::Simulator::with_size(iced::Settings::default(), window, app.view());
+    let words = ui
+        .find("Yep. I should be free after dinner.")
+        .expect("a message")
+        .visible_bounds()
+        .expect("shown");
+    assert!(
+        words.x + words.width <= window.width + 0.5,
+        "the words wrap inside the narrower window: {words:?}"
+    );
+}
+
+#[test]
+fn a_bubbles_long_words_wrap_inside_a_narrow_window() {
+    let (mut app, _folder) = themed_messages(serde_json::json!({
+        "messages": "bubbles",
+        "bubbles": { "padding": [14, 9], "max_width": 40 }
+    }));
+    let long = "a long message that runs on and on so that a narrow window has to wrap it onto more lines than one rather than letting it run off the edge";
+    change(&mut app, |state| {
+        let messages = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                if message.author == "Riley" {
+                    message.body = long.into();
+                    message.formatted = false;
+                }
+                Arc::new(message)
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+    let window = iced::Size::new(900.0, 700.0);
+    let mut ui = iced_test::Simulator::with_size(iced::Settings::default(), window, app.view());
+    let words = ui
+        .find(long)
+        .expect("the long message")
+        .visible_bounds()
+        .expect("shown");
+    assert!(
+        words.x + words.width <= window.width + 0.5,
+        "a bubble's words wrap at the window's edge: {words:?}"
+    );
+    assert!(words.height > 30.0, "on more lines than one: {words:?}");
+    // And inside the bubble: the theme's share of the lane.
+    let lane = app.ctx().lane_place(0).0.width;
+    assert!(
+        words.width <= (960.0f32.min(lane) * 0.4).max(120.0),
+        "the words wrap at the bubble's width: {words:?} in a {lane} lane"
+    );
+}
+
+#[test]
+fn a_resolved_irc_rule_repeats_beside_every_message_line() {
+    let (mut app, _folder) = themed_messages(serde_json::json!({
+        "messages": "irc",
+        "irc": { "time_width": 0, "nick_width": 64, "separator": "█", "rule": true }
+    }));
+    let body = "rule line one\nrule line two\nrule line three";
+    change(&mut app, |state| {
+        let messages = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                if message.author == "Riley" {
+                    message.body = body.into();
+                    message.formatted = false;
+                }
+                Arc::new(message)
+            })
+            .collect();
+        state.messages = Arc::new(messages);
+    });
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let text = ui
+        .find(body)
+        .expect("the multiline IRC message")
+        .visible_bounds()
+        .expect("visible message");
+    let lower_rule = iced::Rectangle::new(
+        iced::Point::new(text.x - 28.0, text.y + text.height / 3.0),
+        iced::Size::new(24.0, text.height * 2.0 / 3.0),
+    );
+    let (width, _, pixels) = drawn(&mut ui);
+    assert!(
+        coloured_pixels(
+            &pixels,
+            width,
+            lower_rule,
+            iced::Color::from_rgb8(0, 255, 0)
+        ) > 20,
+        "the package separator continues through the wrapped lines"
+    );
+}
+
+#[test]
+fn a_logs_pictures_and_embeds_are_sized_from_its_text_column() {
+    let (mut app, _folder) = themed_messages(serde_json::json!({ "messages": "irc" }));
+    let lane = iced::Size::new(700.0, 600.0);
+    let _ = app.update(Message::Timeline(crate::timeline::Event::Viewport(lane)));
+    let ctx = app.ctx();
+    let row = (0..app.timeline.messages.len())
+        .find(|row| app.timeline.messages[*row].notice.is_none())
+        .expect("a message");
+    let left = crate::message::irc_column_left(ctx, &app.timeline.messages[row])
+        .expect("a log's text column");
+    let (place, _) = ctx.lane_place(row);
+    let room = crate::message::content_width_of(ctx, row);
+    assert!(left > 200.0, "the time, the nick and their gaps ({left})");
+    assert!(
+        left + room <= place.width,
+        "what's sized from the room fits the column ({left} + {room} in {})",
+        place.width
+    );
+}
+
 #[test]
 fn a_messages_menu_replies_to_it() {
     let (mut app, _folder) = preview();
@@ -116,13 +410,27 @@ fn the_history_edge_offers_earlier_messages_then_shows_them_loading() {
     // The page comes: older messages above, the newest still in view.
     let newest = app.timeline.messages.last().expect("messages").body.clone();
     change(&mut app, |state| {
-        let mut older = (*state.messages[0]).clone();
+        // The preview's first message may sit at the epoch: the history
+        // moves an hour on first, so the older message is older by its
+        // time and not only by its place in the list.
+        let lift = 3600 - state.messages[0].timestamp.min(3600);
+        let moved: Vec<_> = state
+            .messages
+            .iter()
+            .map(|message| {
+                let mut message = (**message).clone();
+                message.timestamp += lift;
+                Arc::new(message)
+            })
+            .collect();
+        let mut older = (*moved[0]).clone();
         older.id = "older".into();
         older.item = "older".into();
         older.body = "From long ago".into();
         older.timestamp -= 3600;
+        assert!(older.timestamp < moved[0].timestamp);
         let mut messages = vec![Arc::new(older)];
-        messages.extend(state.messages.iter().cloned());
+        messages.extend(moved);
         state.messages = Arc::new(messages);
         state.loading_history = false;
         state.history_start = true;
@@ -208,6 +516,33 @@ fn the_unread_bar_jumps_to_the_new_divider_out_of_view() {
 }
 
 #[test]
+fn the_unread_bar_stays_while_the_new_divider_is_above_whats_loaded() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 30);
+    change(&mut app, |state| {
+        // Discord's items, the newest loaded after a reply from a window of
+        // older ones: the first unread is older than all of them.
+        for (index, message) in Arc::make_mut(&mut state.messages).iter_mut().enumerate() {
+            let message = Arc::make_mut(message);
+            message.item = format!("d:{}", 1000 + index);
+        }
+        state.first_unread = Some("d:5".into());
+        state.caught_up = false;
+    });
+    assert!(!present(&app, "NEW"), "the divider isn't loaded");
+    let mut found = false;
+    interact(&mut app, |ui| {
+        found = starting(ui, "30+ new messages").is_some();
+    });
+    assert!(found, "the banner back to it stays");
+    change(&mut app, |state| state.first_unread = Some("d:2000".into()));
+    assert!(
+        !shows(&app, "Mark as read"),
+        "a divider past what's loaded shows no banner"
+    );
+}
+
+#[test]
 fn a_link_preview_and_a_file_show_in_their_cards() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
@@ -283,6 +618,29 @@ fn new_messages_leave_the_earlier_ones_being_read_where_they_are() {
     assert!(
         !shows(&app, "Message number 85"),
         "the newest is out of view"
+    );
+}
+
+#[test]
+fn a_view_in_the_room_under_the_last_message_follows_new_ones() {
+    let (mut app, _folder) = preview();
+    long_history(&mut app, 80);
+    // Up a few pixels, into the room under the last message, which a
+    // touchpad leaves easily.
+    scroll_up(&mut app, 5.0);
+    assert!(
+        app.timeline.at_end && app.timeline.from_end > 0.0,
+        "the last message is still all in view"
+    );
+    let new = numbered(&app, 80, 81);
+    change(&mut app, |state| {
+        let mut messages = (*state.messages).clone();
+        messages.extend(new);
+        state.messages = Arc::new(messages);
+    });
+    assert!(
+        app.timeline.at_end && app.timeline.from_end == 0.0,
+        "the view went to the end"
     );
 }
 
@@ -516,13 +874,13 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
     let (mut app, _folder) = preview();
     change(&mut app, |state| {
         let room = state.selected.clone().expect("an open room");
-        state.typing.insert(room, vec!["Sam".into()]);
+        state.typing.insert(room, vec!["Quill".into()]);
     });
     // The dots' pixels, now and a moment later.
     let moved = |app: &mut crate::app::App| {
         let mut moved = false;
         interact(app, |ui| {
-            let words = ui.find("Sam is typing...").expect("the typing line");
+            let words = ui.find("Quill").expect("the typing line");
             let words = words.visible_bounds().expect("in view");
             let dots = |ui: &mut iced_test::Simulator<'_, Message>| {
                 let (width, _, pixels) = drawn(ui);
@@ -533,13 +891,14 @@ fn the_typing_dots_hold_still_while_animations_dont_play() {
                     .collect::<Vec<_>>()
             };
             let before = dots(ui);
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            // Longer than the dots rest between pulses.
+            std::thread::sleep(std::time::Duration::from_millis(400));
             moved = dots(ui) != before;
         });
         moved
     };
     app.layout.prefs.animate = crate::layout::Animate::Always;
-    assert!(moved(&mut app), "they rise in turn");
+    assert!(moved(&mut app), "they pulse in turn");
     app.layout.prefs.animate = crate::layout::Animate::Never;
     assert!(!moved(&mut app));
 }
@@ -869,6 +1228,8 @@ fn shift_on_the_hover_bar_offers_create_thread_where_one_may_start() {
             name: "About it".into(),
             messages: None,
             archived: false,
+            recent: None,
+            active_ms: 0,
         }))]);
     });
     assert!(!starts(&app), "the message has its thread");
@@ -1237,4 +1598,381 @@ fn an_animated_custom_emoji_plays_in_text_and_its_reaction_with_one_player_for_i
         state.messages = Arc::new(messages);
     });
     assert_eq!(playing(&app), (Vec::new(), false));
+}
+
+#[test]
+fn reply_quotes_render_static_and_animated_custom_emoji_and_fall_back_until_loaded() {
+    use iced::Settings;
+    use iced_test::{Simulator, selector::Candidate};
+    use yapfast_core::chat::{ChatMessage, CustomEmoji, Picture, Pixels, Reply};
+
+    let (mut app, _folder) = preview();
+    let party = super::animated_emoji();
+    // Bright magenta static emoji so rendered pixels differ unmistakably from background.
+    let calm_rgba: Vec<u8> = [255u8, 0, 255, 255].repeat(64 * 64);
+    let calm = Arc::new(Picture {
+        width: 64,
+        height: 64,
+        rgba: Pixels::new(64, 64, calm_rgba),
+        ..Default::default()
+    });
+    let emoji = vec![
+        CustomEmoji {
+            text: ":AMkiss:".into(),
+            id: "1".into(),
+            animated: false,
+            usable: true,
+            picture: "https://cdn/emojis/1.png?size=64".into(),
+        },
+        CustomEmoji {
+            text: ":party:".into(),
+            id: "2".into(),
+            animated: true,
+            usable: true,
+            picture: "https://cdn/emojis/2.gif?size=64".into(),
+        },
+    ];
+    let message = ChatMessage {
+        item: "reply-target".into(),
+        author: "Kitty".into(),
+        body: "Looking at that reply".into(),
+        reply: Some(Reply {
+            author: "desu".into(),
+            body: "hi :AMkiss: and :party:!".into(),
+            emoji: emoji.clone(),
+            item: Some("orig".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![Arc::new(message)]);
+    });
+
+    // Until the emoji pictures arrive, the quote falls back cleanly to `:name:` text.
+    assert!(
+        shows(&app, "hi :AMkiss: and :party:!"),
+        "falls back to :name: text before pictures arrive"
+    );
+
+    // Once pictures arrive, the quote replaces `:name:` with inline emoji pictures
+    // and requests the animated player at the compact reply size.
+    change(&mut app, |state| {
+        state
+            .pictures
+            .insert(emoji[0].picture.clone(), calm.clone());
+        state
+            .pictures
+            .insert(emoji[1].picture.clone(), party.clone());
+    });
+    assert!(
+        !shows(&app, "hi :AMkiss: and :party:!"),
+        "literal :name: replaced once emoji pictures load"
+    );
+    assert!(
+        shows(&app, "hi \u{2003} and \u{2003}!"),
+        "inline emoji placeholders stay on one line with surrounding text"
+    );
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    super::redraw(&app);
+    let keys = app.win.pictures.players.keys();
+    let party_at = Arc::as_ptr(&party) as usize;
+    let calm_at = Arc::as_ptr(&calm) as usize;
+    let party_sizes: Vec<(u32, u32)> = keys
+        .iter()
+        .filter(|key| key.0 == party_at)
+        .map(|key| (key.1, key.2))
+        .collect();
+    assert_eq!(party_sizes, vec![(16, 16)]);
+    assert!(
+        !keys.iter().any(|key| key.0 == calm_at),
+        "static reply emoji has no player"
+    );
+
+    // Single-line layout stays within HEADER_LINE (22px) even with emojis and long text,
+    // and draws the emoji image in both dark and light themes.
+    for theme_cmd in [None, Some("theme sakura")] {
+        if let Some(cmd) = theme_cmd {
+            let _ = app.update(Message::Control(cmd.into()));
+        }
+        let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+        let reply_bounds = ui
+            .find(|candidate: Candidate<'_>| match candidate {
+                Candidate::Text {
+                    content: "hi \u{2003} and \u{2003}!",
+                    visible_bounds: Some(bounds),
+                    ..
+                } => Some(bounds),
+                _ => None,
+            })
+            .expect("reply text bounds");
+        assert!(
+            reply_bounds.height <= 22.0,
+            "reply quote stays single-line within HEADER_LINE: {}",
+            reply_bounds.height
+        );
+        let (width, height, rgba) = drawn(&mut ui);
+        let scale = 2.0;
+        let rx0 = (reply_bounds.x * scale) as usize;
+        let ry0 = (reply_bounds.y * scale) as usize;
+        let rx1 = ((reply_bounds.x + reply_bounds.width) * scale).ceil() as usize;
+        let ry1 = ((reply_bounds.y + reply_bounds.height) * scale).ceil() as usize;
+        let has_magenta = (ry0..ry1.min(height as usize)).any(|y| {
+            (rx0..rx1.min(width as usize)).any(|x| {
+                let at = (y * width as usize + x) * 4;
+                rgba[at] > 200 && rgba[at + 1] < 40 && rgba[at + 2] > 160
+            })
+        });
+        assert!(
+            has_magenta,
+            "static reply emoji renders its pixels in theme {}",
+            app.theme.id
+        );
+    }
+
+    // Replying to a message with custom emoji also renders in the composer reply bar.
+    let _ = app.update(Message::Control("theme bonfire".into()));
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![Arc::new(ChatMessage {
+            item: "original-with-emoji".into(),
+            author: "desu".into(),
+            body: "hey :AMkiss:".into(),
+            formatted: true,
+            emoji: vec![emoji[0].clone()],
+            can_reply: true,
+            ..Default::default()
+        })]);
+    });
+    interact(&mut app, |ui| right_click(ui, "hey \u{2003}"));
+    interact(&mut app, |ui| {
+        ui.click("Reply").expect("Reply");
+    });
+    assert!(
+        shows(&app, "Replying to desu: hey \u{2003}"),
+        "composer reply bar renders inline custom emoji placeholder"
+    );
+}
+
+/// Draws the window and applies what it reports, twice: the list's size
+/// comes as it's laid out, then the view built with it.
+fn settle(app: &mut crate::app::App) {
+    for _ in 0..2 {
+        interact(app, |ui| {
+            ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+                std::time::Instant::now(),
+            ))]);
+        });
+    }
+}
+
+/// How far the short history's last message ends above the list's foot,
+/// where the composer starts, and the list's height as the app holds it
+/// against the list's own.
+fn short_history_gap(app: &mut crate::app::App) -> (f32, f32, f32) {
+    settle(app);
+    let text = "This is the local preview. Pick a conversation on the left, or send a message below to try it out.";
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let list = timeline_box(&mut ui);
+    let last = ui
+        .find(text)
+        .expect("the last message")
+        .visible_bounds()
+        .expect("in view");
+    (
+        list.y + list.height - (last.y + last.height),
+        app.timeline.height,
+        list.height,
+    )
+}
+
+#[test]
+fn a_short_history_sits_on_the_composer_whatever_changes_the_lists_height() {
+    let (mut app, _folder) = preview();
+    let check = |app: &mut crate::app::App, after: &str| {
+        let (gap, held, real) = short_history_gap(app);
+        assert!(
+            (held - real).abs() < 1.0,
+            "after {after}: the list held as {held} px tall, but it's {real} px"
+        );
+        // The last row's own room under it (its tail and padding), no more.
+        assert!(
+            gap < 48.0,
+            "after {after}: {gap} px between the history and the composer"
+        );
+    };
+    check(&mut app, "starting");
+    // The window grows, then shrinks.
+    let frame = app.shell.frame;
+    app.shell.frame = iced::Size::new(frame.width, frame.height + 240.0);
+    check(&mut app, "the window growing");
+    app.shell.frame = iced::Size::new(frame.width, frame.height - 120.0);
+    check(&mut app, "the window shrinking");
+    app.shell.frame = frame;
+    check(&mut app, "the window back");
+    // Zoom in and back.
+    let _ = app.update(Message::Shell(crate::shell::Event::Zoom(
+        keyboard::Key::Character("=".into()),
+        key::Physical::Code(key::Code::Equal),
+    )));
+    check(&mut app, "zooming in");
+    let _ = app.update(Message::Shell(crate::shell::Event::Zoom(
+        keyboard::Key::Character("0".into()),
+        key::Physical::Code(key::Code::Digit0),
+    )));
+    check(&mut app, "zooming back");
+    // The member list hidden and shown.
+    app.layout.members_hidden = true;
+    check(&mut app, "hiding the member list");
+    app.layout.members_hidden = false;
+    check(&mut app, "showing the member list");
+    // The composer growing by lines, and back.
+    interact(&mut app, |ui| {
+        let _ = ui.click(Id::new(COMPOSER));
+        let _ = ui.typewrite("one");
+        for line in ["two", "three", "four"] {
+            ui.simulate([iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Named(key::Named::Enter),
+                modified_key: keyboard::Key::Named(key::Named::Enter),
+                physical_key: key::Physical::Code(key::Code::Enter),
+                location: keyboard::Location::Standard,
+                modifiers: keyboard::Modifiers::SHIFT,
+                text: Some("\n".into()),
+                repeat: false,
+            })]);
+            let _ = ui.typewrite(line);
+        }
+    });
+    check(&mut app, "the composer growing");
+}
+
+#[test]
+fn a_threads_card_shows_its_count_and_newest_message_as_discords_does() {
+    use yapfast_core::chat::{ChatMessage, RecentMessage, ThreadLink, ThreadPerson};
+    let (mut app, _folder) = preview();
+    let day_ago = app.minute * 1000 - 86_400_000 - 60_000;
+    let message_named = |name: &str, messages, recent| {
+        Arc::new(ChatMessage {
+            item: "d:50".into(),
+            id: "50".into(),
+            author: "Sam".into(),
+            body: "Let's talk about it".into(),
+            timestamp: 1,
+            thread: Some(ThreadLink {
+                room: "discord:10:1300000000000000000".into(),
+                name: name.into(),
+                messages,
+                archived: false,
+                recent,
+                active_ms: day_ago,
+            }),
+            ..Default::default()
+        })
+    };
+    let message = |messages, recent| message_named("About it", messages, recent);
+    let recent = RecentMessage {
+        author: ThreadPerson {
+            name: "David".into(),
+            ..Default::default()
+        },
+        tag: None,
+        text: "yeah, I take it".into(),
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![message(Some(1), Some(recent.clone()))]);
+    });
+    for words in [
+        "About it",
+        "1 Message \u{203a}",
+        "David",
+        "yeah, I take it",
+        "1d ago",
+    ] {
+        assert!(shows(&app, words), "{words:?} on the card");
+    }
+    // Before its first message, Discord's words for it.
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![message(Some(0), None)]);
+    });
+    assert!(shows(&app, "See Thread \u{203a}"));
+    assert!(shows(&app, "There are no messages in this thread yet."));
+    assert!(!shows(&app, "1d ago"));
+    // A long name gives way to the count, on a card 480 wide at most.
+    change(&mut app, |state| {
+        let name = "Official Claude Code Extension on Cursor ".repeat(4);
+        state.messages = Arc::new(vec![message_named(&name, Some(1), Some(recent))]);
+    });
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut left = None;
+    let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
+        if let iced_test::selector::Candidate::Text {
+            content, bounds, ..
+        } = candidate
+            && content == "Let's talk about it"
+        {
+            left = Some(bounds.x);
+        }
+        None::<()>
+    });
+    let left = left.expect("the message in view");
+    let count = super::last(&mut ui, "1 Message \u{203a}");
+    assert!(
+        count.x < left + 480.0,
+        "{count:?} past the card's 480 from {left}"
+    );
+}
+
+/// A link's card in a packaged theme is at most as wide as Discord's, the
+/// theme's ground under it included: the ground stops at the card's edge
+/// rather than running on to the timeline's right.
+#[test]
+fn a_cards_ground_in_a_packaged_theme_stops_at_the_cards_edge() {
+    let (mut app, _folder) = themed_messages(serde_json::json!({}));
+    assert!(app.theme.packaged());
+    // A wide window, whose timeline is far wider than a card.
+    app.shell.frame.width = 1600.0;
+    crate::window_bar::fit_window(&mut app);
+    change(&mut app, |state| {
+        let mut message = (**state.messages.last().expect("a message")).clone();
+        message.id = "card".into();
+        message.item = "card".into();
+        message.body = "Look at this".into();
+        message.reply = None;
+        message.reactions = Vec::new();
+        message.attachments = Vec::new();
+        message.embeds = vec![yapfast_core::chat::Embed {
+            provider: "Example".into(),
+            title: "Trip notes".into(),
+            url: "https://example.com/notes".into(),
+            ..Default::default()
+        }];
+        let mut messages = (*state.messages).clone();
+        messages.push(Arc::new(message));
+        state.messages = Arc::new(messages);
+    });
+    let frame = app.shell.frame;
+    let mut ui = iced_test::Simulator::with_size(iced::Settings::default(), frame, app.view());
+    let bounds = |ui: &mut iced_test::Simulator<'_, Message>, text: &str| {
+        ui.find(text)
+            .expect(text)
+            .visible_bounds()
+            .expect("in view")
+    };
+    let title = bounds(&mut ui, "Trip notes");
+    let said = bounds(&mut ui, "Look at this");
+    // Past the widest a card is, still in the timeline.
+    let past = title.x + 432.0 + 40.0;
+    assert!(past < crate::conversation::chat_right(&app) - 24.0);
+    let (width, _, pixels) = drawn(&mut ui);
+    let scale = width as f32 / frame.width;
+    let at = |x: f32, y: f32| {
+        let i = ((y * scale) as usize * width as usize + (x * scale) as usize) * 4;
+        pixels[i..i + 3].to_vec()
+    };
+    assert_eq!(
+        at(past, title.center_y()),
+        at(past, said.center_y()),
+        "beside the card, the chat's ground, as beside the message's text"
+    );
 }

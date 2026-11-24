@@ -127,6 +127,7 @@ fn discord_forwards_skip_the_note_in_slowmode_and_take_silent() {
         id: crate::discord::room_id("10", id),
         network: Network::Discord,
         capabilities: Network::Discord.capabilities(),
+        slowmode: if slowed { 30 } else { 0 },
         slowed,
         ..preview_room("x", id, false, 3)
     };
