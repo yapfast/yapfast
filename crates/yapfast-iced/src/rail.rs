@@ -176,6 +176,9 @@ pub enum Event {
     /// A right click on a server, a folder or an unread DM: its menu, where
     /// the pointer was pressed.
     Menu(String, iced::Point),
+    /// A middle click on a server or a folder marks it all read, as its
+    /// menu's Mark as read does.
+    MarkRead(String),
 }
 
 /// The DM home's marks.
@@ -622,6 +625,8 @@ struct Marks<'a> {
     /// A right click on it opens its menu.
     menu: bool,
     draggable: bool,
+    /// A middle click on it marks it read: a server's or a folder's tile.
+    read: bool,
 }
 
 impl Rail {
@@ -818,6 +823,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Menu(id, at) => {
             return crate::place_menus::open_place_menu(app, &id, at, false);
         }
+        Event::MarkRead(id) => app.client.dispatch(Action::MarkRead(id)),
     }
     app.sync()
 }
@@ -2123,6 +2129,7 @@ impl<'a> View<'a> {
                 && (matches!(item.kind, Kind::Folder { .. })
                     || (matches!(item.kind, Kind::Server | Kind::Nested { .. })
                         && discord::parse_server(&item.id).is_some())),
+            read: !matches!(item.kind, Kind::Add | Kind::Dm | Kind::Divider),
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.
@@ -2311,7 +2318,7 @@ impl<'a> View<'a> {
         } else {
             0.0
         };
-        let ink = theme.token_colour("pill", theme.text);
+        let ink = theme.pill();
         let mut layers = stack![];
         if pill > 0.0 {
             let (pill_x, pill_y, pill_width, pill_height, pill_corners) = if top_rail {
@@ -2512,6 +2519,11 @@ impl<'a> View<'a> {
             .interaction(iced::mouse::Interaction::Pointer)
             .on_enter(Message::Rail(Event::Point(id.clone(), true)))
             .on_exit(Message::Rail(Event::Point(id.clone(), false)));
+        let hover = if marks.read {
+            hover.on_middle_press(Message::Rail(Event::MarkRead(id.clone())))
+        } else {
+            hover
+        };
         let tile: Element<'a, Message> = if marks.draggable {
             let server = id.clone();
             Drags::new(hover)

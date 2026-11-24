@@ -460,7 +460,12 @@ impl App {
     /// keyboard's steps through messages, Ctrl+C for the
     /// timeline's selection, Escape for the first thing it closes, and
     /// typing and Ctrl+V for the composer.
-    pub fn key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
+    pub fn key(
+        &mut self,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
+        typed: Option<yapfast_iced_kit::field::Typed>,
+    ) -> Task<Message> {
         let named = match &key {
             keyboard::Key::Named(named) => Some(*named),
             _ => None,
@@ -504,7 +509,7 @@ impl App {
         if named == Some(key::Named::Escape) {
             return self.escape();
         }
-        crate::composer::type_anywhere(self, &key, modifiers)
+        crate::composer::type_anywhere(self, &key, modifiers, typed)
     }
 
     /// A key for a layer that takes them all: those with keys of their own
@@ -629,6 +634,9 @@ impl App {
                 self.win.menu = None;
                 crate::composer::refocus(self)
             }
+            // A setting's choices beside the share menu go first, as a
+            // menu's submenu does.
+            Layer::CallPopup if crate::call::popups::share::close_side(self) => Task::none(),
             Layer::CallPopup => {
                 crate::call::popups::close_popup(self);
                 crate::composer::refocus(self)

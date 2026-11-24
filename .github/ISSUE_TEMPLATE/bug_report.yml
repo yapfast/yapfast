@@ -1,0 +1,70 @@
+name: Bug report
+description: Report a reproducible problem in Yapfast.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before reporting a bug.
+        > **NEVER** share your Discord authentication token, email, passwords, or personal message content in issues.
+        > Please double-check what you’re about to send.
+  - type: input
+    id: version
+    attributes:
+      label: Yapfast version
+      description: Copy the version from About or `yapfast --version`. For a local build, include the commit.
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: System and installation
+      description: OS and version, installation method (AppImage, Windows ZIP, installer, source), and Linux display session (Wayland or X11), if applicable.
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Affected network
+      options:
+        - Discord
+        - Matrix
+        - Both
+        - Not network-specific
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Give the steps starting from opening Yapfast, and say how often the problem occurs.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include screenshots or a short recording for visual problems.
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Graphics, voice and streaming details
+      description: If relevant, include GPU and driver, renderer, audio devices, and the voice or streaming settings used.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and additional context
+      description: Paste relevant sanitized logs, error messages, or details about when this last worked.

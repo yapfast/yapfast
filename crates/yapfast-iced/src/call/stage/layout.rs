@@ -14,6 +14,9 @@ pub(super) const INSET: f32 = 24.0;
 pub(super) const ASPECT: f32 = 0.5625;
 
 pub(super) const WIDEST: f32 = 420.0;
+/// The narrowest tile a call of more than four still fits the stage with,
+/// before it scrolls instead: a name, its mute and its avatar still read.
+pub(super) const FITS: f32 = 120.0;
 
 /// The corner picture's size.
 pub const CORNER: Size = Size::new(320.0, 180.0);
@@ -210,6 +213,17 @@ pub fn tiles(
     while best_fit < count.min(4) && fitted(best_fit + 1) * 1.1 > fitted(best_fit) {
         best_fit += 1;
     }
+    // More people fit the stage too, in the columns that make their tiles
+    // largest, while those tiles stay at least FITS wide: a row cut off at
+    // the stage's foot hides its names under the controls. Past that, they
+    // take tiles 240 px wide and scroll.
+    let fit_all = (count > 4)
+        .then(|| {
+            (1..=count)
+                .max_by(|a, b| fitted(*a).total_cmp(&fitted(*b)))
+                .filter(|&columns| fitted(columns) >= FITS)
+        })
+        .flatten();
     let others = count - 1;
     let strip_width = if others == 0 {
         0.0
@@ -248,12 +262,14 @@ pub fn tiles(
     } else if count <= 4 {
         best_fit
     } else {
-        fewest
+        fit_all.unwrap_or(fewest)
     };
     let tile_width = if focusing {
         strip_width
     } else if count <= 4 {
         fitted(columns).max(160.0)
+    } else if fit_all.is_some() {
+        fitted(columns)
     } else {
         WIDEST.min((span - (columns as f32 - 1.0) * gap) / columns as f32)
     };
@@ -391,9 +407,33 @@ mod tests {
     }
 
     #[test]
+    fn up_to_nine_fit_the_stage_with_room_for_every_name() {
+        // A voice channel's stage in a 1120 by 760 window with the preview's
+        // line over it, and the ones beside: nobody is cut off at its foot.
+        for stage in [
+            Size::new(784.0, 572.0),
+            Size::new(1104.0, 712.0),
+            Size::new(564.0, 451.0),
+            Size::new(524.0, 452.0),
+        ] {
+            for count in [2, 4, 6, 9] {
+                let (grid, content) = tiles(count, None, stage, false, false);
+                assert!(content <= stage.height + 0.5, "{count} in {stage:?} scroll");
+                for tile in &grid {
+                    assert!(
+                        tile.y + tile.height <= stage.height,
+                        "{count} in {stage:?}: a tile runs past the foot"
+                    );
+                    assert!(tile.width >= FITS - 1.0, "{count} in {stage:?}: too small");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn many_tiles_scroll_and_only_those_in_sight_are_made() {
         let stage = Size::new(900.0, 500.0);
-        let (grid, content) = tiles(12, None, stage, false, false);
+        let (grid, content) = tiles(60, None, stage, false, false);
         assert!(content > stage.height, "taller than the stage");
         let last = *grid.last().unwrap();
         assert_eq!(shown_at(last, 0.0, stage.height, 1.0), None, "below");

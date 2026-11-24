@@ -396,8 +396,9 @@ fn activity_tab<'a>(
     let profile = look.profile();
     let mut list = column![].spacing(8);
     for activity in &look.activities {
-        list = list.push(crate::profile::activity::activity_card_view(
-            ctx, activity, inks, None,
+        list = list.push(activity_tile(
+            crate::profile::activity::activity_card_view(ctx, activity, inks, None, true, look.bot),
+            inks,
         ));
     }
     if !profile.recent.is_empty() {
@@ -637,8 +638,11 @@ pub(super) fn editor_tab_page<'a>(
                 list = list.push(note(inks.ink3, "Nothing going on right now."));
             }
             for activity in &look.activities {
-                list = list.push(crate::profile::activity::activity_card_view(
-                    ctx, activity, inks, None,
+                list = list.push(activity_tile(
+                    crate::profile::activity::activity_card_view(
+                        ctx, activity, inks, None, true, look.bot,
+                    ),
+                    inks,
                 ));
             }
             list
@@ -736,5 +740,22 @@ fn list_face<'a>(
     stack![face, placed(Pic::square(dot, 16.0), 20.0, 20.0)]
         .width(36)
         .height(36)
+        .into()
+}
+
+/// An activity's card on its tile, 12 px in, as the full profile's are.
+fn activity_tile<'a>(card: Element<'a, Message>, inks: &Inks) -> Element<'a, Message> {
+    let tile = inks.tile;
+    container(card)
+        .padding(12)
+        .width(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(tile.into()),
+            border: iced::Border {
+                radius: 8.0.into(),
+                ..iced::Border::default()
+            },
+            ..Default::default()
+        })
         .into()
 }

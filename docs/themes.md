@@ -326,8 +326,9 @@ chooses it. Export writes a shareable package folder including its manifest,
 licence, picture and fonts. The person remains responsible for permission to
 share pictures and imported fonts. Cancel, leaving Themes or closing settings
 shows the theme from before and removes the draft. The separate Colour editor
-keeps the earlier palette-only workflow: its hex fields accept `#rgb`,
-`#rrggbb` or `#rrggbbaa` and mark anything else. A saved theme's card has a
+keeps the earlier palette-only workflow: each colour's swatch opens a
+`ColourPad` card under it (keeping any alpha on `#rrggbbaa` tokens), and its
+hex field accepts `#rgb`, `#rrggbb` or `#rrggbbaa` and marks anything else. A saved theme's card has a
 pencil that opens it again to rename, change or delete it; deleting the chosen
 one shows Yap. Closing the window to the
 [tray](tray.md) closes Settings, so it drops the unsaved edit too.
@@ -346,6 +347,21 @@ them after the built-in ones and Themes shows them under Your themes:
   "folder": "themes/creator/1"
 }
 ```
+
+Besides the colours every theme has, a custom theme can colour two parts
+of the window on its own, by the names a theme package gives them: `pill`,
+the pills beside the rail's tiles (open, pointed at, unread), which a
+package sets as its `pill` colour, and `header`, the ground of the
+conversation's header row, which a package sets as `shape.header.ground`.
+Each follows a colour of the theme until it's set, as a package's extra
+colours follow theirs: the pill the text, the header the chat, whose ground
+then shows under the header as it does for every built-in theme. The colour
+editor lists them after the other colours; while one isn't set, its field
+shows the colour it follows and moves with it, so a new chat moves the
+header and a new text the pills. `layout.json` keeps one only once it's
+set, so a theme saved before they existed, or one that never set them,
+draws as before. Exported (`yapfast theme export`), and in a theme's
+folder, they're written by those package names, over any the folder gives.
 
 `base` is the built-in theme the first copy came from (a copy of a custom
 theme takes its base). Yapfast writes every colour, but a colour that's missing,
