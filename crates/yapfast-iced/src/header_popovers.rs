@@ -559,6 +559,7 @@ impl<'a> View<'a> {
         body: Element<'a, Message>,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let radius = theme.surface_radius("popout", RADIUS);
         let tall = detail.is_some();
         let mut words = column![heading].spacing(2);
         if let Some(detail) = detail {
@@ -582,6 +583,15 @@ impl<'a> View<'a> {
         } else {
             (theme.sidebar, theme.panel)
         };
+        // A theme package's popout art or ground shows through the frame.
+        let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+        let decorated = self.cx.themes.decorates(&theme.id, surface)
+            || theme.package_paint(surface.ground()).is_some();
+        let (ground, panel_ground) = if decorated {
+            (iced::Color::TRANSPARENT, iced::Color::TRANSPARENT)
+        } else {
+            (ground, panel_ground)
+        };
         let head = column![
             container(head)
                 .padding(Padding::ZERO.left(16).right(10))
@@ -598,7 +608,7 @@ impl<'a> View<'a> {
                 .style(move |_| {
                     crate::style::rounded(
                         panel_ground,
-                        crate::style::corners([RADIUS, RADIUS, 0.0, 0.0]),
+                        crate::style::corners([radius, radius, 0.0, 0.0]),
                     )
                 }),
             bar(theme.edge, Length::Fill, 1),
@@ -611,16 +621,17 @@ impl<'a> View<'a> {
             })
             .clip(true)
             .style(move |_| container::Style {
-                shadow: popover_shadow(),
-                ..crate::style::rounded(ground, RADIUS)
+                shadow: theme.surface_shadow("popout", popover_shadow()),
+                ..crate::style::rounded(ground, radius)
             });
+        let panel = crate::theme_art::surface(panel, self.cx, surface);
         // Bonfire's popovers have an edge a shade darker than its lines.
         let edge = if theme.bonfire {
             hex(0x29292c)
         } else {
             theme.edge
         };
-        iced::widget::opaque(controls::edged(panel, edge, RADIUS))
+        iced::widget::opaque(controls::edged(panel, edge, radius))
     }
 
     fn heading(self, words: &'a str) -> Element<'a, Message> {

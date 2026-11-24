@@ -135,13 +135,13 @@ change as you type each color.
 ### Games on your profile
 
 The game you play, found among your running programs on Linux, Windows and
-macOS, Steam's and Wine's included, and on Linux the Rich Presence games send,
-with details, elapsed time, images and buttons.
+macOS, Steam's and Wine's included, and on Linux and Windows the Rich Presence
+games send, with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
 does, and names games Yapfast doesn't know. See
 [game detection](docs/discord/people.md#game-detection) and
-[Rich Presence](docs/discord/people.md#linux-rich-presence).
+[Rich Presence](docs/discord/people.md#rich-presence).
 
 What your linked Spotify account plays shows as "Listening to Spotify" with only
 Yapfast open, from any player, as Discord's own "Display Spotify as your status"
@@ -434,18 +434,30 @@ UX to my muscle memory, so switching over hurts as little as it can.
 
 ## Build it yourself
 
-Yapfast builds inside a pinned [Nix](https://nixos.org) environment, which
-brings the right Rust, Clang and native libraries. From the project folder:
+On Windows, develop, build and test directly with Cargo. Install Visual
+Studio Build Tools with C++ and a Windows SDK, LLVM/Clang (including
+`clang-cl` and `libclang`) and NASM as described in the
+[native prerequisites](docs/building.md#windows), then run from the project
+folder in Developer PowerShell for VS:
+
+```powershell
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+cargo test --locked --profile fast --workspace
+```
+
+On Linux, use the pinned [Nix](https://nixos.org) environment, which brings
+the right Rust, Clang and native libraries. From the project folder:
 
 ```sh
 # Try the UI without an account
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 
 # Run it for real: Discord only, like the release
-nix develop path:./nix --command cargo run --locked
+nix develop path:./nix --command cargo run --locked --profile fast
 
 # With Matrix too
-nix develop path:./nix --command cargo run --locked --features matrix
+nix develop path:./nix --command cargo run --locked --profile fast --features matrix
 
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
@@ -453,6 +465,10 @@ nix develop path:./nix#windows --command scripts/build-windows
 # Format, lint and test everything
 scripts/check --fast
 ```
+
+The Windows commands use the Rust version pinned in `rust-toolchain.toml`.
+See [Contributing](CONTRIBUTING.md#build-and-test) for the complete checks
+on each system and for running against the fake Discord server.
 
 ### Without Nix
 

@@ -16,7 +16,7 @@ use crate::{
     style::rounded,
 };
 
-use super::{CHAT_BUTTON, DM_ROW, Event, ROW_RADIUS, Room};
+use super::{CHAT_BUTTON, Event, ROW_RADIUS, Room};
 
 impl<'a> super::View<'a> {
     /// A DM's row: the person's face with its decoration and presence, the
@@ -46,10 +46,23 @@ impl<'a> super::View<'a> {
                     Point::new(20.0, 20.0),
                 )
             }));
-        let mut name = row![self.cx.person_name(
+        let marked = self.cx.themes.marked(
+            &theme.id,
+            yapfast_core::themes::chrome::Place::Channel,
             &room.name,
-            NameInk::new(15.0, 500, ink).style(room.style.as_ref()),
-        )]
+        );
+        let mut name = row![
+            self.cx.person_name(
+                marked,
+                // As Slint's DM row: the window's face, not the theme's names.
+                NameInk {
+                    font_role: "small",
+                    ..NameInk::new(15.0, 500, ink)
+                }
+                .style(room.style.as_ref())
+                .key(&room.id),
+            )
+        ]
         .spacing(4)
         .align_y(Alignment::Center);
         if let Some((letters, badge)) = &room.tag {
@@ -90,7 +103,8 @@ impl<'a> super::View<'a> {
         } else if room.official && spot.is_none() {
             line = line.push(
                 text("Official Discord Message")
-                    .size(12)
+                    .size(theme.type_size("small", 12.0))
+                    .font(theme.font("small", crate::fonts::REGULAR))
                     .color(theme.muted)
                     .wrapping(text::Wrapping::None),
             );
@@ -124,15 +138,17 @@ impl<'a> super::View<'a> {
             face = face.push(count_pill(theme, &room.badge, ROW_COUNT, None));
         }
         let select = Some(Message::Side(Event::Select(room.id.clone())));
+        let height = room.row_height(theme);
         let Some((url, palette)) = room.nameplate.as_ref().filter(|_| pointed || room.selected)
         else {
-            return self.row_face(
+            return self.row_face_listed(
                 room.id.clone(),
                 face.into(),
-                DM_ROW,
+                height,
                 room.selected,
                 select,
                 Some(room.id.clone()),
+                false,
             );
         };
         // The plate fills the row to its edges and corners, so the row's
@@ -140,15 +156,15 @@ impl<'a> super::View<'a> {
         let plate = crate::members::nameplate(
             self.cx,
             url,
-            (DM_ROW, ROW_RADIUS),
+            (height, ROW_RADIUS),
             pointed,
             room.selected,
             1.0,
         );
         let plated = crate::widgets::PlateRow::new(
-            face.width(Length::Fill).padding([0, 8]).height(DM_ROW),
+            face.width(Length::Fill).padding([0, 8]).height(height),
             plate,
-            palette.map(crate::style::hex),
+            crate::members::themed_nameplate_palette(self.cx, palette.map(crate::style::hex)),
             row_ground,
             crate::members::plate_end(pointed, room.selected),
             1.0,
@@ -156,7 +172,7 @@ impl<'a> super::View<'a> {
         .radius(ROW_RADIUS);
         let body = container(plated)
             .width(Length::Fill)
-            .height(DM_ROW)
+            .height(height)
             .clip(true)
             .style(move |_| rounded(row_ground, ROW_RADIUS));
         self.row_presses(room.id.clone(), body.into(), select, Some(room.id.clone()))
@@ -170,7 +186,10 @@ impl<'a> super::View<'a> {
         container(
             row![
                 self.cx.look.glyph(Icon::Check, 12, theme.on_accent),
-                text("OFFICIAL").size(10).font(BOLD).color(theme.on_accent),
+                text("OFFICIAL")
+                    .size(10.0)
+                    .font(BOLD)
+                    .color(theme.on_accent),
             ]
             .spacing(2)
             .align_y(Alignment::Center),
@@ -191,7 +210,10 @@ impl<'a> super::View<'a> {
             container(
                 row![
                     self.cx.look.glyph(Icon::Hand, 14, ink),
-                    text("Wave").size(12).font(MEDIUM).color(ink),
+                    text("Wave")
+                        .size(theme.type_size("body", 12.0))
+                        .font(theme.font("body", MEDIUM))
+                        .color(ink),
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),

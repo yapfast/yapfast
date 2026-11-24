@@ -40,6 +40,7 @@ mod messages;
 mod mfa;
 mod new_post;
 mod oauth;
+mod peek;
 mod place_search;
 mod places;
 mod polls;
@@ -124,6 +125,12 @@ use profiles::{dm_profile, keep_board, names_games, same_board};
 /// and groups after them.
 const MENTION_SUGGESTIONS: usize = 8;
 const MENTION_GROUPS: usize = 4;
+
+/// The end of the typing line after two or more names.
+const ARE_TYPING: &str = " are typing...";
+
+/// Discord's client starts a slowmode's wait this much past its length.
+const SLOWMODE_MARGIN_MS: u64 = 100;
 
 const STOPPED: &str = "The connection has stopped. Restart Yapfast to restore your session.";
 
@@ -261,6 +268,15 @@ impl NewDm {
 pub struct Pins {
     pub room: String,
     /// The latest pinned first; `None` while they're on their way.
+    pub messages: Option<Result<Vec<ChatMessage>, String>>,
+}
+
+/// A room's newest messages, peeked at without opening or reading it, while
+/// the peek shows. They go when it closes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Peek {
+    pub room: String,
+    /// Oldest first; `None` while they're on their way.
     pub messages: Option<Result<Vec<ChatMessage>, String>>,
 }
 
@@ -672,6 +688,13 @@ pub struct AppState {
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
+    /// When this account may send again in a room whose slowmode it waits
+    /// out, in Unix milliseconds: its slowmode after a message of its own
+    /// went, as Discord's client guesses it.
+    pub slowmode_until: HashMap<String, u64>,
+    /// How many sends a slowmode's wait has held back, for the window to
+    /// flash the strip's countdown, as Discord's does.
+    pub slowmode_held: u64,
     /// The `@` or `#` word being typed in the composer, if any: its sigil and
     /// what follows it.
     pub mention_query: Option<(char, String)>,
@@ -772,6 +795,9 @@ pub struct AppState {
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
     pub pins: Option<Pins>,
+    /// The room peeked at, and its newest messages once they came, while
+    /// the peek shows.
+    pub peek: Option<Peek>,
     pub search: Option<Search>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
@@ -1106,11 +1132,20 @@ impl AppState {
     /// suits going through every room, as [`Self::in_scope`] for each
     /// doesn't with many servers.
     pub fn scoped_rooms(&self) -> impl Iterator<Item = &ChatRoom> {
-        let server = match &self.navigation {
+        self.rooms_in(&self.navigation)
+    }
+
+    /// [`Self::scoped_rooms`] for `navigation` rather than the open one: a
+    /// server tree lists the channels of servers it isn't in.
+    pub fn rooms_in<'a>(
+        &'a self,
+        navigation: &Navigation,
+    ) -> impl Iterator<Item = &'a ChatRoom> + use<'a> {
+        let server = match navigation {
             Navigation::DirectMessages => None,
             Navigation::Server(id) => self.servers.iter().find(|server| &server.id == id),
         };
-        let channels: Option<HashSet<&str>> = match &self.navigation {
+        let channels: Option<HashSet<&str>> = match navigation {
             Navigation::DirectMessages => None,
             Navigation::Server(_) => Some(
                 server
@@ -1144,21 +1179,61 @@ impl AppState {
             })
     }
 
-    /// Who else is typing in the open conversation, as the composer says it; empty
-    /// when nobody is.
-    pub fn typing_line(&self) -> String {
-        let names = self
-            .selected
+    /// Who else is typing in the open conversation, as the strip over the
+    /// composer says it, Discord's way: "Sam is typing...", "Sam and Riley
+    /// are typing...", "A, B and C are typing...", then "Several people are
+    /// typing...". Its pieces in order, each with whether it's a name (drawn
+    /// strong); empty when nobody is.
+    pub fn typing_line(&self) -> Vec<(&str, bool)> {
+        match self.typing_names() {
+            [] => Vec::new(),
+            [one] => vec![(one.as_str(), true), (" is typing...", false)],
+            [one, two] => vec![
+                (one.as_str(), true),
+                (" and ", false),
+                (two.as_str(), true),
+                (ARE_TYPING, false),
+            ],
+            [one, two, three] => vec![
+                (one.as_str(), true),
+                (", ", false),
+                (two.as_str(), true),
+                (" and ", false),
+                (three.as_str(), true),
+                (ARE_TYPING, false),
+            ],
+            _ => vec![("Several people", true), (ARE_TYPING, false)],
+        }
+    }
+
+    /// What the strip says in place of [`Self::typing_line`] when its one to
+    /// three names don't fit, as Discord's does: "Multiple people are
+    /// typing...". None when there's no such line to shorten.
+    pub fn typing_line_short(&self) -> Option<[(&'static str, bool); 2]> {
+        (1..=3)
+            .contains(&self.typing_names().len())
+            .then_some([("Multiple people", true), (ARE_TYPING, false)])
+    }
+
+    fn typing_names(&self) -> &[String] {
+        self.selected
             .as_ref()
             .and_then(|room| self.typing.get(room))
             .map(Vec::as_slice)
-            .unwrap_or_default();
-        match names {
-            [] => String::new(),
-            [one] => format!("{one} is typing..."),
-            [one, two] => format!("{one} and {two} are typing..."),
-            [one, two, three] => format!("{one}, {two} and {three} are typing..."),
-            _ => "Several people are typing...".into(),
+            .unwrap_or_default()
+    }
+
+    /// How long until this account may send in `room` again, its
+    /// slowmode's wait after its last message, at `now` (Unix
+    /// milliseconds); 0 when it may.
+    pub fn slowmode_wait(&self, room: &str, now: u64) -> u64 {
+        let slowed = self
+            .rooms
+            .iter()
+            .any(|listed| listed.id == room && listed.slowed && listed.slowmode > 0);
+        match self.slowmode_until.get(room) {
+            Some(until) if slowed => until.saturating_sub(now),
+            _ => 0,
         }
     }
 
@@ -1273,18 +1348,14 @@ impl AppState {
     }
 
     /// Who and what a message in the selected room may mention: its members, those
-    /// found by name and those who wrote lately, then its roles and groups. This
-    /// account isn't one of them.
+    /// found by name and those who wrote lately, this account among them as
+    /// in Discord's client, then its roles and groups.
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
         };
         let on_discord = Network::of(room) == Network::Discord;
-        let mut seen: HashSet<String> = [&self.discord_user, &self.account]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut candidates = Vec::new();
         let listed = self
             .members
@@ -1954,6 +2025,9 @@ pub enum Action {
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
     ShowPins(bool),
+    /// Peek at a room's newest messages without opening or reading it, as
+    /// holding Alt over it in the channel list asks, or stop.
+    Peek(Option<String>),
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -2057,6 +2131,11 @@ pub enum Action {
         body: Option<String>,
     },
     SetThreadPrivate(bool),
+    /// Add files to the form's first message, take the one at this index
+    /// out, or mark it as a spoiler or not.
+    StageFirst(Vec<PathBuf>),
+    UnstageFirst(usize),
+    ToggleFirstSpoiler(usize),
     /// Start the thread the form describes.
     CreateThread,
     /// Close the form, asking first if something was written; close it
@@ -2359,6 +2438,12 @@ pub enum Action {
     CloseStatusEditor,
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`.
     SetStatus(String),
+    /// Drops a Discord server or folder in the rail.
+    FileServer {
+        server: String,
+        target: String,
+        before: Option<bool>,
+    },
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
     /// Set how loud the Discord account's soundboard plays, on its slider
@@ -3719,6 +3804,7 @@ impl Application {
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
+            Action::Peek(room) => self.peek(room),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -3782,6 +3868,18 @@ impl Application {
             }
             Action::SetThreadPrivate(private) => {
                 self.set_thread_private(private);
+                vec![]
+            }
+            Action::StageFirst(paths) => {
+                self.stage_first(paths);
+                vec![]
+            }
+            Action::UnstageFirst(index) => {
+                self.unstage_first(index);
+                vec![]
+            }
+            Action::ToggleFirstSpoiler(index) => {
+                self.toggle_first_spoiler(index);
                 vec![]
             }
             Action::CreateThread => self.create_thread(),
@@ -4057,6 +4155,33 @@ impl Application {
             Action::CloseStatusEditor => {
                 self.state.status_editor = None;
                 vec![]
+            }
+            Action::FileServer {
+                server,
+                target,
+                before,
+            } => {
+                if self.state.preview || self.state.discord_user.is_none() || server == target {
+                    return vec![];
+                }
+                let source_folder = crate::discord::parse_folder(&server);
+                let Some(server) = source_folder.or_else(|| crate::discord::parse_server(&server))
+                else {
+                    return vec![];
+                };
+                let folder = crate::discord::parse_folder(&target);
+                let Some(id) = folder.or_else(|| crate::discord::parse_server(&target)) else {
+                    return vec![];
+                };
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::FileServer {
+                        server: server.to_owned(),
+                        source_folder: source_folder.is_some(),
+                        target: id.to_owned(),
+                        folder: folder.is_some(),
+                        before,
+                    },
+                ))]
             }
             Action::SetStatus(status) => {
                 if self.state.preview
@@ -4466,6 +4591,12 @@ impl Application {
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
+            Event::ProfilePresence {
+                user,
+                presence,
+                activity,
+                activities,
+            } => self.show_profile_presence(&user, presence, activity, activities),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -4505,6 +4636,7 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
+            Event::Peeked { room, result } => self.peeked(room, result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
@@ -4741,6 +4873,11 @@ impl Application {
             Event::CustomStatusSet(Ok(())) => {
                 self.state.status_editor = None;
             }
+            Event::ServerFiled(result) => {
+                if let Err(error) = result {
+                    self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
+                }
+            }
             Event::StatusSet(result) => {
                 if let Err(error) = result {
                     self.state.notice = Some(format!("Couldn't change your status: {error}"));
@@ -4856,6 +4993,7 @@ impl Application {
                 let files = std::mem::take(&mut self.sent_files);
                 match result {
                     Ok(()) => {
+                        self.slowmode_starts(&room);
                         if self.state.drafts.get(&room) == Some(&sent) {
                             self.state.drafts.remove(&room);
                         }

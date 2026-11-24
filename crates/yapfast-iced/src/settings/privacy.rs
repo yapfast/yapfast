@@ -62,11 +62,11 @@ pub enum Event {
 }
 
 fn event(event: Event) -> Message {
-    Message::Settings(SettingsEvent::Privacy(event))
+    crate::app::settings(SettingsEvent::Privacy(event))
 }
 
 fn pref(pref: Pref) -> Message {
-    Message::Settings(SettingsEvent::Pref(pref))
+    crate::app::settings(SettingsEvent::Pref(pref))
 }
 
 pub(super) fn update(event: Event, cx: &mut Cx<'_>) {
@@ -250,7 +250,7 @@ impl<'a> Page<'a> {
             switch(
                 label,
                 on,
-                Some(Message::Settings(SettingsEvent::Theme(
+                Some(crate::app::settings(SettingsEvent::Theme(
                     ThemeEvent::Profile(which, !on),
                 ))),
             )
@@ -340,7 +340,7 @@ impl<'a> Page<'a> {
                 switch(
                     "Share the game you play",
                     shown,
-                    Some(Message::Settings(SettingsEvent::Game(GameEvent::Show(!shown)))),
+                    Some(crate::app::settings(SettingsEvent::Game(GameEvent::Show(!shown)))),
                 )
                 .description("Uses the same Discord account setting as Game Activity. Changes apply to Discord too; a failed save restores the previous value.")
                 .view(self.cx.look),

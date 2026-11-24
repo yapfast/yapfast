@@ -456,7 +456,12 @@ impl<'a> View<'a> {
                 .into(),
             ]),
         ]);
-        Some(self.cx.look.framed(body, WIDE, message(Event::CloseInvite)))
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDE,
+            message(Event::CloseInvite),
+        ))
     }
 
     /// Join a Server, or the dialog a clicked invite link opens: the field
@@ -535,7 +540,7 @@ impl<'a> View<'a> {
         } else if join.member {
             "Open Server"
         } else if preview.is_some() {
-            "Join Server"
+            "Join in Browser"
         } else if join.from_link {
             ""
         } else {
@@ -579,7 +584,12 @@ impl<'a> View<'a> {
             );
         }
         body.push(buttons(row_));
-        Some(self.cx.look.framed(body, NARROW, message(Event::CloseJoin)))
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            NARROW,
+            message(Event::CloseJoin),
+        ))
     }
 
     /// Making, copying or deleting a channel or category: where it goes or
@@ -681,11 +691,12 @@ impl<'a> View<'a> {
             )
             .into(),
         ]));
-        Some(
-            self.cx
-                .look
-                .framed(body, WIDE, message(Event::CloseChannel)),
-        )
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDE,
+            message(Event::CloseChannel),
+        ))
     }
 
     /// Asks before leaving a server or group DM, in red; a group's offers
@@ -751,7 +762,12 @@ impl<'a> View<'a> {
             )
             .into(),
         ]));
-        Some(self.cx.look.framed(body, WIDE, message(Event::CloseLeave)))
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDE,
+            message(Event::CloseLeave),
+        ))
     }
 }
 
@@ -792,11 +808,12 @@ impl<'a> View<'a> {
                 .into(),
             ]),
         ];
-        Some(
-            self.cx
-                .look
-                .framed(body, WIDE, message(Event::MoveSync(None))),
-        )
+        Some(crate::theme_art::framed_dialog(
+            self.cx,
+            body,
+            WIDE,
+            message(Event::MoveSync(None)),
+        ))
     }
 }
 

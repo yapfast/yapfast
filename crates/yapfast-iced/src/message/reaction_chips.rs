@@ -64,6 +64,9 @@ pub fn reacts(ctx: crate::ctx::Ctx<'_>, index: usize) -> Reacts {
     room.map_or(Reacts::None, |room| ctx.state.reacts_in(room))
 }
 
+/// A reaction chip's emoji's size, as Slint's.
+const CHIP_EMOJI: f32 = 16.0;
+
 /// A message's reaction chips, on as many lines as the message's width
 /// asks. A click adds this account's reaction or takes it back, where it
 /// may react at all. Each has its tooltip from the start, so it knows the
@@ -75,6 +78,7 @@ pub(super) fn reactions<'a>(
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let clicks = message.can_react && reacts(ctx, index) != Reacts::None;
+    let radius = theme.surface_radius("chip", 8.0);
     let mut chips = Vec::with_capacity(message.reactions.len());
     for reaction in &message.reactions {
         // The accent's wash and edge when this account reacted.
@@ -85,7 +89,7 @@ pub(super) fn reactions<'a>(
                     a: 0.7,
                     ..theme.accent
                 },
-                theme.accent,
+                theme.accent_text(),
             )
         } else {
             (theme.raised, Color::TRANSPARENT, theme.secondary)
@@ -106,23 +110,46 @@ pub(super) fn reactions<'a>(
         {
             Pic::square(picture, REACTION_EMOJI as f32).into()
         } else {
-            text(reaction.key.as_str()).color(theme.text).into()
+            // Slint's 16 px emoji, centred in the chip's height so a tall
+            // emoji face never reaches its edge.
+            if theme.packaged() {
+                text(reaction.key.as_str())
+                    .size(CHIP_EMOJI)
+                    .line_height(iced::widget::text::LineHeight::Absolute(CHIP_HEIGHT.into()))
+                    .color(theme.text)
+                    .into()
+            } else {
+                text(reaction.key.as_str()).color(theme.text).into()
+            }
         };
+        let count_words = reaction.count.to_string();
+        let count_words = ctx.themes.label(
+            &theme.id,
+            yapfast_core::themes::chrome::Label::Reaction,
+            count_words.clone(),
+            &[("n", count_words.as_str())],
+        );
+        let count_font = ctx
+            .themes
+            .chrome(&theme.id)
+            .and_then(|chrome| chrome.font)
+            .map_or("body", yapfast_core::themes::package::Role::name);
         let chip = container(
             row![
                 face,
-                text(reaction.count.to_string())
+                text(count_words)
                     .size(14)
-                    .font(BOLD)
+                    .font(theme.font(count_font, BOLD))
                     .color(count)
             ]
-            .spacing(4)
+            // Main's 4 px with no theme; a theme's chips as Slint drew them.
+            .spacing(if theme.packaged() { 6 } else { 4 })
             .align_y(Alignment::Center),
         )
         .padding([0, 8])
         .height(CHIP_HEIGHT)
         .align_y(Alignment::Center)
-        .style(move |_| crate::style::outlined(ground, edge, 8.0));
+        .style(move |_| crate::style::outlined(ground, edge, radius));
         let mut chip = mouse_area(chip);
         if clicks {
             chip = chip
@@ -146,26 +173,32 @@ pub(super) fn reactions<'a>(
         let words = reaction_tip(ctx, &message.item, &reaction.key)
             .unwrap_or_else(|| Space::new().width(0).height(0).into());
         chips.push(
-            tooltip(chip, words, tooltip::Position::Top)
-                .gap(6)
-                .delay(Duration::from_millis(500))
-                .style(|_| container::Style::default())
-                .into(),
+            tooltip(
+                crate::theme_effects::reaction_stamp(chip, ctx, reaction.mine),
+                words,
+                tooltip::Position::Top,
+            )
+            .gap(6)
+            .delay(Duration::from_millis(500))
+            .style(|_| container::Style::default())
+            .into(),
         );
     }
     // Discord's button after the last reaction, which adds another.
     if message.can_react && reacts(ctx, index) == Reacts::Any {
         chips.push(add_chip(ctx, index, message));
     }
+    // Main's 4 px between chips with no theme; a theme's 6 px, as Slint's.
+    let gap = if ctx.look.theme.packaged() { 6 } else { 4 };
     Row::from_vec(chips)
-        .spacing(4)
+        .spacing(gap)
         .wrap()
-        .vertical_spacing(4)
+        .vertical_spacing(gap)
         .into()
 }
 
 /// The reaction chips' height.
-pub(super) const CHIP_HEIGHT: f32 = 30.0;
+pub const CHIP_HEIGHT: f32 = 30.0;
 
 /// The button after a message's reactions, 34 by 30, which opens the
 /// reaction picker; its edge shows under the pointer.
@@ -233,24 +266,30 @@ pub(super) fn reaction_tip<'a>(
             None => text(key.to_owned()).size(26).into(),
         }
     };
-    Some(
-        container(
-            row![
-                face,
-                text(words)
-                    .size(14)
-                    .font(MEDIUM)
-                    .color(theme.text)
-                    .width(Length::Shrink)
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-        )
-        .padding(16)
-        .max_width(288)
-        .style(controls::tip_style(theme))
-        .into(),
+    let tip = container(
+        row![
+            face,
+            text(words)
+                .size(14.0)
+                .font(MEDIUM)
+                .color(theme.token_colour("on-tooltip", theme.text))
+                .width(Length::Shrink)
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center),
     )
+    .padding(16)
+    .max_width(288)
+    .style(controls::tip_style(theme));
+    let tip = controls::tip_wrap(theme, tip);
+    Some(controls::themed_outline(
+        tip,
+        theme,
+        "tooltip",
+        theme.line,
+        1.0,
+        theme.surface_radius("tooltip", 6.0),
+    ))
 }
 
 #[cfg(test)]

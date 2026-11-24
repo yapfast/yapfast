@@ -175,19 +175,26 @@ impl yapfast_iced::Desktop for Shell {
             .map(|pointer| Box::new(pointer) as Box<dyn yapfast_iced::PointerAt>)
     }
 
-    fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell) {
+    fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell, unread: u8) {
         #[cfg(windows)]
-        if let Ok(handle) = window.window_handle()
-            && let raw_window_handle::RawWindowHandle::Win32(handle) = handle.as_raw()
-        {
-            crate::icon::set_on(handle.hwnd.get());
+        if let Some(hwnd) = win32(window) {
+            crate::icon::set_on(hwnd, unread);
         }
+        #[cfg(not(windows))]
+        let _ = unread;
         #[cfg(target_os = "linux")]
         watch_wayland_drops(window, tell);
         #[cfg(not(target_os = "linux"))]
         let _ = tell;
         #[cfg(not(any(windows, target_os = "linux")))]
         let _ = window;
+    }
+
+    #[cfg(windows)]
+    fn taskbar_unread(&self, window: &dyn yapfast_iced::Window, unread: u8) {
+        if let Some(hwnd) = win32(window) {
+            crate::icon::set_taskbar(hwnd, unread);
+        }
     }
 
     fn window_place(&self, window: &dyn yapfast_iced::Window) -> Option<[i32; 2]> {

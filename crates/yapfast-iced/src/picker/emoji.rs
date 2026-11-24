@@ -779,7 +779,7 @@ impl<'a> View<'a> {
         opacity: f32,
     ) -> Element<'a, Message> {
         let handle = match face {
-            Face::Unicode(key) => tab.picture(key, size),
+            Face::Unicode(key) => tab.picture(key, self.cx.pixels(size)),
             Face::Custom(emoji, _) => self.cx.picture(&emoji.picture, size, size, false),
         };
         match handle {

@@ -23,7 +23,7 @@ fn open(linked: bool) -> (App, tempfile::TempDir) {
             state.discord_user = Some("42".into());
         });
     }
-    let _ = app.update(Message::Settings(Event::Open(Section::Account)));
+    let _ = app.update(crate::app::settings(Event::Open(Section::Account)));
     app.client.sent.clear();
     (app, folder)
 }
@@ -88,7 +88,7 @@ fn account_server_chooser_opens_the_existing_server_profile_editor() {
     let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
     app.shell.frame.height = 2400.0;
     crate::window_bar::fit_window(&mut app);
-    let _ = app.update(Message::Settings(Event::Open(Section::Account)));
+    let _ = app.update(crate::app::settings(Event::Open(Section::Account)));
     app.client.sent.clear();
     interact(&mut app, |ui| {
         ui.click("Profiles").expect("Profiles");
@@ -142,7 +142,7 @@ fn account_server_chooser_has_an_empty_state_and_resets_when_leaving_its_tab() {
     });
     assert!(shows(&app, "Choose a server"));
     assert!(!shows(&app, "Close server list"));
-    let _ = app.update(Message::Settings(Event::AccountPage(
+    let _ = app.update(crate::app::settings(Event::AccountPage(
         AccountEvent::EditServer("discord:missing".into()),
     )));
     assert!(app.client.state().profile_editor.is_none());
@@ -157,7 +157,7 @@ fn account_server_chooser_rejects_unavailable_servers_including_stale_choices() 
     });
     app.shell.frame.height = 2400.0;
     crate::window_bar::fit_window(&mut app);
-    let _ = app.update(Message::Settings(Event::Open(Section::Account)));
+    let _ = app.update(crate::app::settings(Event::Open(Section::Account)));
     app.client.sent.clear();
     interact(&mut app, |ui| {
         ui.click("Profiles").expect("Profiles");
@@ -166,7 +166,7 @@ fn account_server_chooser_rejects_unavailable_servers_including_stale_choices() 
         ui.click("Choose a server").expect("the server chooser");
     });
     assert!(shows(&app, "No server profiles are available."));
-    let _ = app.update(Message::Settings(Event::AccountPage(
+    let _ = app.update(crate::app::settings(Event::AccountPage(
         AccountEvent::EditServer("discord:10".into()),
     )));
     assert!(app.client.state().profile_editor.is_none());
@@ -176,7 +176,7 @@ fn account_server_chooser_rejects_unavailable_servers_including_stale_choices() 
 #[test]
 fn the_existing_editor_labels_the_connections_article_as_help() {
     let (mut app, _folder) = open(true);
-    let _ = app.update(Message::Settings(Event::EditProfile));
+    let _ = app.update(crate::app::settings(Event::EditProfile));
     app.client.apply(yapfast_core::chat::Event::OwnProfile {
         server: None,
         result: Ok(yapfast_core::chat::OwnProfile {
@@ -220,7 +220,7 @@ fn account_workflow_buttons_have_honest_labels_and_safe_destinations() {
         (Tab::Billing, Workflow::Nitro),
         (Tab::Billing, Workflow::BillingHelp),
     ] {
-        let _ = app.update(Message::Settings(Event::AccountPage(AccountEvent::Show(
+        let _ = app.update(crate::app::settings(Event::AccountPage(AccountEvent::Show(
             tab,
         ))));
         let messages = {
@@ -231,7 +231,7 @@ fn account_workflow_buttons_have_honest_labels_and_safe_destinations() {
             ui.into_messages().collect::<Vec<_>>()
         };
         assert!(
-            matches!(messages.as_slice(), [Message::Settings(Event::AccountPage(AccountEvent::Open(actual)))] if *actual == workflow)
+            matches!(messages.as_slice(), [Message::Settings(event)] if matches!(&**event, Event::AccountPage(AccountEvent::Open(actual)) if *actual == workflow))
         );
         let url = workflow.url();
         if workflow == Workflow::Discord {
@@ -264,7 +264,7 @@ fn external_settings_explain_the_manual_navigation() {
         (Tab::Devices, "User Settings > Devices"),
         (Tab::Billing, "User Settings > Subscriptions"),
     ] {
-        let _ = app.update(Message::Settings(Event::AccountPage(AccountEvent::Show(
+        let _ = app.update(crate::app::settings(Event::AccountPage(AccountEvent::Show(
             tab,
         ))));
         assert!(shows(&app, path));

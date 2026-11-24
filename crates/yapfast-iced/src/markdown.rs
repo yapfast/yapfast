@@ -755,19 +755,38 @@ impl<'c> crate::ctx::Ctx<'c> {
     /// its cover.
     pub fn run_span<'a>(self, run: &'a Run, ink: Color) -> Span<'a, &'a str, Font> {
         let theme = self.look.theme;
-        let font = if run.code {
-            Font::MONOSPACE
+        let (role, font) = if run.code {
+            ("code", Font::MONOSPACE)
         } else {
-            Font {
-                style: if run.italic {
-                    FontStyle::Italic
-                } else {
-                    FontStyle::Normal
+            (
+                "body",
+                Font {
+                    style: if run.italic {
+                        FontStyle::Italic
+                    } else {
+                        FontStyle::Normal
+                    },
+                    ..if run.bold { BOLD } else { REGULAR }
                 },
-                ..if run.bold { BOLD } else { REGULAR }
-            }
+            )
         };
-        let mut piece = span(run.text.as_str()).font(font).strikethrough(run.strike);
+        let mut themed = theme.font(role, font);
+        // A theme's body weight is the plain run's; a bold run stays at
+        // least bold over it, as Slint's bold runs do.
+        if run.bold
+            && !run.code
+            && !matches!(
+                themed.weight,
+                iced::font::Weight::Bold
+                    | iced::font::Weight::ExtraBold
+                    | iced::font::Weight::Black
+            )
+        {
+            themed.weight = BOLD.weight;
+        }
+        let mut piece = span(run.text.as_str())
+            .font(themed)
+            .strikethrough(run.strike);
         if let Some(link) = run.link.as_deref() {
             piece = piece.link(link);
         }
@@ -785,7 +804,7 @@ impl<'c> crate::ctx::Ctx<'c> {
             // links and time) shows in the colour alone.
             if run.link.as_deref().is_some_and(pilled) {
                 piece = piece
-                    .background(Color { a: 0.16, ..color })
+                    .background(theme.token_colour("mention-chip", Color { a: 0.16, ..color }))
                     .border(crate::style::round(4))
                     .padding(Padding {
                         top: -1.5,
@@ -801,7 +820,7 @@ impl<'c> crate::ctx::Ctx<'c> {
         }
         if run.code {
             piece = piece
-                .background(theme.panel)
+                .background(theme.token_colour("code", theme.panel))
                 .border(crate::style::round(3))
                 .padding(Padding::from([0, 2]));
         }
@@ -839,7 +858,6 @@ impl<'c> crate::ctx::Ctx<'c> {
         edited: bool,
     ) -> (Element<'c, Message>, bool) {
         let theme = self.look.theme;
-        let mut parts = column![].width(Length::Fill);
         let inline_edited = edited
             && body
                 .parts
@@ -850,15 +868,24 @@ impl<'c> crate::ctx::Ctx<'c> {
         // results) they show their still.
         let plays = self.lanes.row_look(row).is_some();
         let last_part = body.parts.len().saturating_sub(1);
+        // In a theme's bubbles the words take only their own width, so the
+        // bubble hugs them.
+        let hugs = plays
+            && self
+                .themes
+                .package_layout(&theme.id)
+                .and_then(|layout| layout.messages)
+                == Some(yapfast_core::themes::layout::MessageStyle::Bubbles);
+        let mut parts = column![].width(if hugs { Length::Shrink } else { Length::Fill });
         for (index, part) in body.parts.iter().enumerate() {
             let number = first.saturating_add(
                 crate::piece::PartNo::try_from(index).unwrap_or(crate::piece::PartNo::MAX),
             );
             let ratio = look.line_height / look.size;
             let (size, ink) = match part.shape {
-                Shape::Heading(1) => (look.size * 1.5, theme.text),
-                Shape::Heading(2) => (look.size * 1.25, theme.text),
-                Shape::Heading(_) => (look.size, theme.text),
+                Shape::Heading(1) => (theme.type_size("headings", look.size * 1.5), theme.text),
+                Shape::Heading(2) => (theme.type_size("headings", look.size * 1.25), theme.text),
+                Shape::Heading(_) => (theme.type_size("headings", look.size), theme.text),
                 Shape::Subtext => (look.size * 0.875, theme.secondary),
                 Shape::Code => (look.size * 0.875, theme.text),
                 Shape::Text if part.quoted => (look.size, theme.secondary),
@@ -888,7 +915,7 @@ impl<'c> crate::ctx::Ctx<'c> {
                         return span.size(side);
                     }
                     match part.shape {
-                        Shape::Heading(_) => span.font(BOLD),
+                        Shape::Heading(_) => span.font(theme.font("headings", BOLD)),
                         Shape::Code => span.background(Color::TRANSPARENT),
                         _ => span,
                     }
@@ -901,6 +928,11 @@ impl<'c> crate::ctx::Ctx<'c> {
                         .color(theme.muted),
                 );
             }
+            let light_role = if matches!(part.shape, Shape::Heading(_)) {
+                yapfast_core::themes::package::art::TextRole::Headings
+            } else {
+                yapfast_core::themes::package::art::TextRole::Body
+            };
             let piece = Piece::new(spans, row, number, Message::Link, Message::Select)
                 .unlined(yapfast_core::emoji::card::LINK)
                 .item(self.lanes.row_look(row).map(|look| look.item.clone()))
@@ -908,28 +940,56 @@ impl<'c> crate::ctx::Ctx<'c> {
                 .moving(moving)
                 .size(size, (size * ratio).round())
                 .color(ink)
-                .fill()
+                .light(crate::theme_effects::text_light(self, light_role));
+            // A bubble's words hug them, and still wrap at the bubble's
+            // width when the window is narrower than they are long.
+            let piece = if hugs { piece.wraps() } else { piece.fill() };
+            let piece = piece
                 // Text in no timeline's row (a found card's) selects
                 // nothing: a press on it is the card's.
                 .starts(row != usize::MAX)
                 .selection(
                     self.lanes.selected(row, number),
                     self.lanes.timeline.selecting,
-                    theme.selection,
+                    theme.token_colour("selection", theme.selection),
                 )
                 .spot(self.link_spot)
                 .link_menu(|link| Message::Timeline(crate::timeline::Event::RowLink(link)));
             let shown: Element<'c, Message> = if part.shape == Shape::Code {
-                let (ground, line) = (theme.panel, theme.line);
-                container(piece)
+                let surface = yapfast_core::themes::package::art::ArtSurface::Code;
+                let decorated = self.themes.decorates(&theme.id, surface)
+                    || theme.package_paint("code").is_some();
+                let ground = if decorated {
+                    Color::TRANSPARENT
+                } else {
+                    theme.panel
+                };
+                let line = theme.line;
+                let mut border = theme.surface_border("code", 4.0, 1.0, line);
+                let outline_fallback = border;
+                if theme.outline("code").is_some() {
+                    border.width = 0.0;
+                }
+                let shadow = theme.surface_shadow("code", iced::Shadow::default());
+                let code = container(piece)
                     .padding(size / 2.0)
                     .width(Length::Fill)
                     .style(move |_| container::Style {
                         background: Some(ground.into()),
-                        border: crate::style::edge(line, 4.0),
+                        border,
+                        shadow,
                         ..container::Style::default()
-                    })
-                    .into()
+                    });
+                let code = crate::theme_art::surface(code, self, surface);
+                crate::theme_art::outlined(
+                    code,
+                    self,
+                    yapfast_core::themes::layout::BorderPlace::Code,
+                    "code",
+                    4.0,
+                    outline_fallback.width,
+                    outline_fallback.color,
+                )
             } else {
                 piece.into()
             };

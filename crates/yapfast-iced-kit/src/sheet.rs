@@ -27,6 +27,18 @@ pub const MARGIN: f32 = 48.0;
 pub const WIDEST: f32 = 1400.0;
 /// The card's corners, and the editor's bar's.
 pub const RADIUS: f32 = 12.0;
+
+/// The corner of a card's parts: stock, [`RADIUS`], under an edge drawn
+/// over them; under an installed theme, inside its 1 px edge
+/// ([`backdrop`]), the theme's card corner less the edge, so the parts'
+/// grounds end under the edge rather than at its outer arc.
+pub fn inner_radius(theme: &crate::theme::Theme) -> f32 {
+    if theme.packaged() {
+        (theme.radius(RADIUS) - 1.0).max(0.0)
+    } else {
+        RADIUS
+    }
+}
 pub const BAR_RADIUS: f32 = 8.0;
 /// How dark the window goes under a card.
 pub const DIM: Color = Color {
@@ -124,6 +136,7 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
 
     pub fn view(self, look: Look<'a>) -> Element<'a, M> {
         let theme = look.theme;
+        let inner = inner_radius(theme);
         let bottom = if self.bar.is_some() {
             BOTTOM_BAR
         } else {
@@ -159,8 +172,8 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         let close = column![
             controls_close(look, self.label, self.close.clone()),
             text("ESC")
-                .size(12)
-                .font(BOLD)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", BOLD))
                 .color(theme.muted)
                 .width(Length::Fill)
                 .align_x(Alignment::Center),
@@ -221,14 +234,15 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         )
         .width(NAV)
         .height(Length::Fill)
-        .style(move |_| rounded(sidebar, corners([RADIUS, 0.0, 0.0, RADIUS])));
+        .style(move |_| rounded(sidebar, corners([inner, 0.0, 0.0, inner])));
+        let chat = theme.chat;
         let card = container(row![
             nav,
             container(content).width(Length::Fill).height(Length::Fill)
         ])
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(move |_| rounded(chat, RADIUS));
+        .style(move |_| rounded(chat, inner));
         backdrop(theme, card, MARGIN, self.close)
     }
 }
@@ -335,7 +349,7 @@ pub fn nav_row<'a, M: Clone + 'a>(
             row![
                 look.glyph(icon, 20, icon_ink),
                 text(label)
-                    .size(15)
+                    .size(15.0)
                     .font(MEDIUM)
                     .wrapping(text::Wrapping::None)
             ]
@@ -385,20 +399,47 @@ pub fn backdrop<'a, M: Clone + 'a>(
     margin: f32,
     close: M,
 ) -> Element<'a, M> {
-    let (edge, ground) = (theme.edge, grounds(theme).1);
-    // Its parts round their own grounds to its corners; its edge goes over
-    // them. The ground under them is opaque, so its shadow is drawn only
-    // round it.
-    let card = container(controls::edged(card, edge, RADIUS))
-        .width(Length::Fill)
-        .max_width(WIDEST)
-        .height(Length::Fill)
-        .clip(true)
-        .style(move |_| {
-            crate::style::rounded(ground, RADIUS).shadow(crate::style::raised_shadow())
-        });
+    let (edge, ground) = (theme.edge, theme.chat);
+    let card: Element<'a, M> = if theme.packaged() {
+        // The card's ground and edge are one rounded shape at the theme's
+        // card corner, with its shadow; its parts lie 1 px inside the edge
+        // and round their grounds to `inner_radius`, so no part's ground
+        // shows past the edge's arc (two shapes edge to edge leave a light
+        // fringe where their soft edges meet).
+        let radius = theme.radius(RADIUS);
+        container(container(card).padding(1))
+            .width(Length::Fill)
+            .max_width(WIDEST)
+            .height(Length::Fill)
+            .clip(true)
+            .style(move |_| container::Style {
+                background: Some(ground.into()),
+                border: Border {
+                    color: edge,
+                    width: 1.0,
+                    radius: radius.into(),
+                },
+                shadow: crate::style::raised_shadow(),
+                ..Default::default()
+            })
+            .into()
+    } else {
+        // Stock: its parts round their own grounds to its corners; its edge
+        // goes over them. The ground under them is opaque, so its shadow
+        // is drawn only round it.
+        container(controls::edged(card, edge, RADIUS))
+            .width(Length::Fill)
+            .max_width(WIDEST)
+            .height(Length::Fill)
+            .clip(true)
+            .style(move |_| {
+                crate::style::rounded(ground, RADIUS).shadow(crate::style::raised_shadow())
+            })
+            .into()
+    };
+    let scrim = theme.token_colour("scrim", DIM);
     opaque(stack![
-        controls::dimmed(close, DIM),
+        controls::dimmed(close, scrim),
         // `margin` in from the whole window's edges, its top too, which the
         // window's title bar covers.
         container(crate::widgets::motion::grow(opaque(card)))
@@ -409,4 +450,27 @@ pub fn backdrop<'a, M: Clone + 'a>(
             .center_x(Length::Fill)
             .height(Length::Fill)
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{RADIUS, inner_radius};
+    use crate::theme::{Metrics, Theme};
+
+    #[test]
+    fn a_stock_cards_parts_keep_its_corner_and_a_themes_lie_inside_its_edge() {
+        let stock = Theme::new("test:sheet", true);
+        assert_eq!(inner_radius(&stock), RADIUS);
+        let metrics = Metrics {
+            radii: [None, None, Some(20.0)],
+            ..Metrics::default()
+        };
+        let dressed = stock.with_metrics(Arc::new(metrics));
+        assert_eq!(inner_radius(&dressed), dressed.radius(RADIUS) - 1.0);
+        // Even at Wired's corner, inside the edge.
+        let plain = Theme::new("test:sheet", true).with_metrics(Arc::new(Metrics::default()));
+        assert_eq!(inner_radius(&plain), RADIUS - 1.0);
+    }
 }

@@ -454,6 +454,40 @@ pub fn others(
     platform::others(skip, Box::new(heard), stop)
 }
 
+/// Captures only the application owning a window and its child processes.
+/// Unsupported platforms fail without falling back to a broader audio source.
+#[cfg(feature = "discord")]
+pub fn window_audio(
+    window: u64,
+    heard: impl FnMut(Heard<'_>) + Send + 'static,
+    stop: Arc<AtomicBool>,
+) -> Result<JoinHandle<()>> {
+    #[cfg(windows)]
+    {
+        platform::window_audio(window, Box::new(heard), stop)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, heard, stop);
+        anyhow::bail!("Application audio capture is only supported on Windows")
+    }
+}
+
+/// The program each of `windows` belongs to, by its file's name in lower
+/// case (`game.exe`), where the system names it: what an application chosen
+/// for a stream's sound is remembered by, as its windows' ids end with it.
+/// Only Windows names it.
+pub fn window_programs(windows: &[u64]) -> Vec<Option<String>> {
+    #[cfg(all(windows, feature = "discord"))]
+    {
+        platform::window_programs(windows)
+    }
+    #[cfg(not(all(windows, feature = "discord")))]
+    {
+        vec![None; windows.len()]
+    }
+}
+
 #[cfg(feature = "discord")]
 type Hear = Box<dyn FnMut(Heard<'_>) + Send>;
 

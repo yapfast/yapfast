@@ -28,7 +28,10 @@ pub struct Window {
 }
 
 impl Window {
-    pub fn new(pictures: Pictures) -> Self {
+    pub fn new(
+        pictures: Pictures,
+        icons: std::collections::HashMap<String, yapfast_iced_kit::icons::Replacement>,
+    ) -> Self {
         Self {
             menu: None,
             picker: Slot::default(),
@@ -37,7 +40,7 @@ impl Window {
             settings: Slot::default(),
             settings_section: crate::settings::Section::Account,
             pictures,
-            icons: Default::default(),
+            icons: crate::icons::Icons::new(icons),
         }
     }
 }

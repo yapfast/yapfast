@@ -147,9 +147,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         }
         Event::DismissNote => app.friends.note_closed = true,
         Event::Settings => {
-            return app.update(Message::Settings(crate::settings::Event::Open(
-                crate::settings::Section::Discord,
-            )));
+            return app.update(crate::app::settings(crate::settings::Event::Reopen));
         }
         Event::AddName(name) => {
             app.friends.add_name = name;
@@ -684,8 +682,8 @@ fn friend_row<'a>(
         )
         .dot(Some((presence, rgb(surface), Point::new(20.0, 20.0))));
     let name = crate::elide::elide(friend.name.as_str())
-        .size(16)
-        .font(BOLD)
+        .size(theme.type_size("names", 16.0))
+        .font(theme.font("names", BOLD))
         .color(theme.text);
     let status = Status::of(friend.activity.as_deref());
     let sub: Element<'a, Message> = match (spot, status.is_empty()) {
@@ -702,7 +700,8 @@ fn friend_row<'a>(
             .into()
         }
         (None, true) => text(presence_word(presence))
-            .size(13)
+            .size(theme.type_size("small", 13.0))
+            .font(theme.font("small", crate::fonts::REGULAR))
             .color(theme.muted)
             .into(),
     };

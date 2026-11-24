@@ -73,7 +73,7 @@ fn home<'a>(cx: Ctx<'a>, width: f32) -> Element<'a, Message> {
             theme,
             "Manage your subscription",
             Kind::Plain,
-            Some(Message::Settings(crate::settings::Event::Open(
+            Some(crate::app::settings(crate::settings::Event::Open(
                 Section::Account,
             ))),
         )

@@ -13,8 +13,15 @@ scrolls them when the window is shorter than they are.
   closes): the banner's picture, else its colour, the theme's, or with
   neither the avatar's own colour, the avatar with its decoration and
   status, the name in its style with the server tag, and the badges; then
-  the custom status, the game played and for how long (to the minute),
-  and its 40 px rows: Edit Profile, the Discord status (its row shows the
+  the custom status, then live Rich Presence cards: the application's large
+  picture with its small badge, name, details and state. A game's elapsed
+  clock is green beside a controller and updates each second without
+  rebuilding the view; music with start and end times shows a progress bar.
+  Activity changes refresh these cards while the menu stays open, without
+  another profile request. Their artwork is requested only while open;
+  the plain detected game remains a fallback when no rich activity exists.
+  The menu scrolls when its cards and actions exceed the window's height.
+  Its 40 px rows follow: Edit Profile, the Discord status (its row shows the
   four to choose), Set or Change custom status, Copy User ID and User
   Settings.
 - Set a custom status (`status.rs`): an emoji from the picker (opened over
@@ -50,10 +57,9 @@ Escape closes the dialog unless it is waiting for server creation.
   appears. Join with an invite opens the invite field from this dialog.
 - Join a Server, from Add a server or a clicked invite link: the
   field (Join's alone; Enter finds the invite), the server once found
-  with its icon and who is online, how joining goes (looking up, joining,
-  already in it, a captcha or a form to finish in the browser), and Find
-  Invite, Join Server or Open Server; Open the captcha again and Open in
-  browser go through the core to `browser.rs`.
+  with its icon and who is online, whether it is looking the invite up or
+  the account is in the server already, and Find Invite, Join in Browser
+  or Open Server; Join in Browser goes through the core to `browser.rs`.
 - Create channel (Text or Voice) and Create category, in the server or
   the category the menu was for, Duplicate channel with its name to change,
   and Delete channel or category in red, which Delete Channel in the

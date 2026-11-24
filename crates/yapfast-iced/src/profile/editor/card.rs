@@ -648,7 +648,7 @@ pub(super) fn editor_bio<'a>(
             ground: theme.sunken,
             text: theme.text,
             placeholder: theme.muted,
-            selection: theme.selection,
+            selection: theme.token_colour("selection", theme.selection),
         };
         let accent = theme.accent;
         let sunken = theme.sunken;

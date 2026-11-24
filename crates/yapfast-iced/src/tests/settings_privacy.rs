@@ -20,7 +20,7 @@ use crate::{
 fn open(app: &mut App, section: Section) {
     app.shell.frame.height = 2400.0;
     crate::window_bar::fit_window(app);
-    let _ = app.update(Message::Settings(Event::Open(section)));
+    let _ = app.update(crate::app::settings(Event::Open(section)));
 }
 
 fn linked(app: &mut App) {
@@ -42,8 +42,10 @@ fn handoff(app: &App, label: &str) -> Handoff {
     let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
     ui.click(label).expect(label);
     let mut messages = ui.into_messages();
-    let Some(Message::Settings(Event::Privacy(PrivacyEvent::Open(destination)))) = messages.next()
-    else {
+    let Some(Message::Settings(event)) = messages.next() else {
+        panic!("a browser handoff from {label}");
+    };
+    let Event::Privacy(PrivacyEvent::Open(destination)) = *event else {
         panic!("a browser handoff from {label}");
     };
     assert!(messages.next().is_none(), "one explicit action");
@@ -129,7 +131,7 @@ fn settings_privacy_pages_offer_explicit_official_browser_handoffs() {
 fn settings_privacy_sections_are_searchable_and_navigable() {
     let (mut app, _folder) = preview();
     open(&mut app, Section::Account);
-    let _ = app.update(Message::Settings(Event::Search("privacy".into())));
+    let _ = app.update(crate::app::settings(Event::Search("privacy".into())));
     assert!(!shows(&app, "Family Center"));
     click(&mut app, "Data & Privacy");
     assert_eq!(

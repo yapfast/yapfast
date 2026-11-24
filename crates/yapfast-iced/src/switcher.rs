@@ -77,6 +77,9 @@ pub struct Quick {
     /// The place Enter goes to.
     pub chosen: usize,
     pub places: Vec<Found>,
+    /// Where the conversations that mention this account start among
+    /// `places`, under their own heading, with nothing searched for.
+    pub mentions_at: Option<usize>,
     /// The search and the room lists they were found for.
     made_for: Option<(String, u64)>,
     /// How far down the list is scrolled.
@@ -100,8 +103,10 @@ pub struct Found {
 /// What a found place shows before its name.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Face {
-    /// A DM's or a server's picture, by its name's initial.
+    /// A DM's picture, by its name's initial: a circle.
     Avatar(Option<String>),
+    /// A server's icon, by its name's initials: a rounded square.
+    Server(Option<String>),
     /// A channel's icon.
     Icon(Icon),
 }
@@ -220,33 +225,34 @@ impl Quick {
                     .map(|channel| (channel.as_str(), server.name.as_str()))
             })
             .collect();
+        let found_room = |room: &yapfast_core::chat::ChatRoom| Found {
+            id: room.id.clone(),
+            name: room.name.clone(),
+            place: if room.direct {
+                "Direct message".to_owned()
+            } else {
+                servers
+                    .get(room.id.as_str())
+                    .map_or_else(|| "Channel".to_owned(), |name| (*name).to_owned())
+            },
+            category: if room.direct {
+                String::new()
+            } else {
+                room.category.clone()
+            },
+            unread: room.unread > 0 && !room.muted,
+            mentions: room.mentions,
+            face: if room.direct {
+                Face::Avatar(room.avatar.clone())
+            } else {
+                Face::Icon(crate::sidebar::room_icon(room))
+            },
+        };
         self.places = state
             .switcher_places()
             .iter()
             .map(|place| match place {
-                Place::Room(room) => Found {
-                    id: room.id.clone(),
-                    name: room.name.clone(),
-                    place: if room.direct {
-                        "Direct message".to_owned()
-                    } else {
-                        servers
-                            .get(room.id.as_str())
-                            .map_or_else(|| "Channel".to_owned(), |name| (*name).to_owned())
-                    },
-                    category: if room.direct {
-                        String::new()
-                    } else {
-                        room.category.clone()
-                    },
-                    unread: room.unread > 0 && !room.muted,
-                    mentions: room.mentions,
-                    face: if room.direct {
-                        Face::Avatar(room.avatar.clone())
-                    } else {
-                        Face::Icon(crate::sidebar::room_icon(room))
-                    },
-                },
+                Place::Room(room) => found_room(room),
                 Place::Server(server) => Found {
                     id: server.id.clone(),
                     name: server.name.clone(),
@@ -254,17 +260,24 @@ impl Quick {
                     category: String::new(),
                     unread: false,
                     mentions: 0,
-                    face: Face::Avatar(server.icon.clone()),
+                    face: Face::Server(server.icon.clone()),
                 },
             })
             .collect();
+        // With nothing searched for, as Discord's: the conversations that
+        // mention this account and aren't listed yet, under Mentions.
+        let mentioned = state.switcher_mentions();
+        self.mentions_at = (!mentioned.is_empty()).then_some(self.places.len());
+        self.places.extend(mentioned.into_iter().map(found_room));
         self.made_for = Some(made_for);
     }
 
     /// The list scrolled so the row the keys light shows.
     fn keep_chosen_in_view(&mut self, window: f32) -> Task<Message> {
         let height = list_height(window);
-        let top = self.chosen as f32 * PITCH;
+        // The Mentions heading takes a row's room above its rows.
+        let below = self.mentions_at.is_some_and(|at| self.chosen >= at);
+        let top = (self.chosen + usize::from(below)) as f32 * PITCH;
         let offset = if top < self.offset {
             top
         } else if top + PITCH > self.offset + height {
@@ -290,8 +303,8 @@ pub(crate) fn list_height(window: f32) -> f32 {
     ((window - 48.0).min(415.0) - 2.0 * 20.0 - 70.0 - 50.0 - 12.0 - 32.0).max(PITCH)
 }
 
-/// The quick switcher: a large search, Previous channels while it's
-/// empty, the places found, and how a search can be narrowed.
+/// The quick switcher: a large search, Previous channels and Mentions
+/// while it's empty, the places found, and how a search can be narrowed.
 pub fn switcher_view<'a>(quick: &'a Quick, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     View { s: quick, cx }.switcher()
 }
@@ -353,7 +366,7 @@ impl<'a> View<'a> {
             .on_input(|query| message(Event::Search(query)))
             .on_submit(message(Event::Go));
         let mut body = column![field].padding(20);
-        if query.is_empty() && !places.is_empty() {
+        if query.is_empty() && !places.is_empty() && self.s.mentions_at != Some(0) {
             body = body.push(
                 container(
                     text("Previous channels")
@@ -367,6 +380,14 @@ impl<'a> View<'a> {
         }
         let mut list = column![];
         for (index, place) in places.iter().enumerate() {
+            if self.s.mentions_at == Some(index) {
+                list = list.push(
+                    container(text("MENTIONS").size(12).font(BOLD).color(theme.muted))
+                        .height(PITCH)
+                        .align_y(Alignment::End)
+                        .padding(Padding::ZERO.bottom(8)),
+                );
+            }
             list = list.push(self.switcher_row(place, index == current));
         }
         if places.is_empty() && !query.is_empty() {
@@ -412,6 +433,11 @@ impl<'a> View<'a> {
             Face::Avatar(picture) => {
                 self.cx
                     .avatar(picture.as_deref(), &found.name, 20.0, 10.0, 1.0)
+            }
+            // A server's icon is a rounded square, as Discord draws it.
+            Face::Server(picture) => {
+                self.cx
+                    .avatar(picture.as_deref(), &found.name, 24.0, 8.0, 1.0)
             }
             Face::Icon(icon) => self.cx.look.glyph(*icon, 20, theme.faint).into(),
         };

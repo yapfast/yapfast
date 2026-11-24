@@ -463,3 +463,115 @@ fn uploads_name_their_destination_as_discord_does() {
     room(&mut app).parent = Some("general".into());
     assert_eq!(app.state.upload_destination(), "\"Sam\"", "a thread");
 }
+
+#[test]
+fn a_slowmode_waits_after_a_message_and_holds_one_sent_too_soon() {
+    let mut app = connected();
+    let slowmode = |app: &mut Application, slowmode: u32, slowed: bool| {
+        let room = app
+            .state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "dm")
+            .expect("the room");
+        let room = Arc::make_mut(room);
+        room.slowmode = slowmode;
+        room.slowed = slowed;
+    };
+    let sent = |app: &mut Application| {
+        app.dispatch(Action::SetDraft("Hi".into()));
+        send_command(app.dispatch(Action::Send));
+        app.apply(Event::SendResult {
+            room: "dm".into(),
+            body: "Hi".into(),
+            result: Ok(()),
+        });
+    };
+    let now = crate::clock::now_ms();
+    // One who may bypass it doesn't wait.
+    slowmode(&mut app, 30, false);
+    sent(&mut app);
+    assert_eq!(app.state.slowmode_wait("dm", now), 0);
+    // One held by it waits its 30 seconds, as Discord's client guesses.
+    slowmode(&mut app, 30, true);
+    sent(&mut app);
+    let wait = app.state.slowmode_wait("dm", now);
+    assert!((30_000..=31_000).contains(&wait), "{wait}");
+    // A message sent meanwhile stays in the composer, held back.
+    app.dispatch(Action::SetDraft("Too soon".into()));
+    assert!(app.dispatch(Action::Send).is_empty());
+    assert_eq!(app.state.draft(), "Too soon");
+    assert_eq!(app.state.slowmode_held, 1);
+    // Once it's over, or the slowmode is lifted, it goes.
+    assert_eq!(app.state.slowmode_wait("dm", now + 31_000), 0);
+    slowmode(&mut app, 0, false);
+    assert!(matches!(
+        send_command(app.dispatch(Action::Send)),
+        Command::Send { .. }
+    ));
+}
+
+/// An edit keeps mentioning someone the message mentioned even when they're
+/// no longer among the people to suggest (they left the server): their
+/// `@Name` goes back as `<@id>`, not as plain text. A name that only starts
+/// the same is left alone.
+#[test]
+#[cfg(feature = "discord")]
+fn an_edit_keeps_mentions_of_people_no_longer_suggested() {
+    use crate::mention::{Mentioned, Target};
+    let room = "discord:10:11";
+    let mut app = discord_server();
+    app.dispatch(Action::Open(room.into()));
+    let mut mine = message("d:5", true);
+    mine.body = "hi @Gone".into();
+    mine.mentions = vec![Mentioned {
+        text: "@Gone".into(),
+        target: Target::User("42".into()),
+        color: None,
+        at: vec![3],
+    }];
+    app.apply(Event::Timeline {
+        room: room.into(),
+        messages: timeline(vec![mine]),
+    });
+    app.dispatch(Action::Edit("d:5".into()));
+    app.dispatch(Action::SetEditText("hi @Gone and @Gonzo".into()));
+    assert_eq!(
+        edit_command(app.dispatch(Action::SaveEdit)),
+        ("d:5".into(), "hi <@42> and @Gonzo".into())
+    );
+}
+
+/// Two people the message mentioned under the same name (unknown people
+/// both show as `@Discord user`) can't be told apart in the edit's text, so
+/// neither is turned into a mention: the edit mustn't send `<@1>` twice.
+#[test]
+#[cfg(feature = "discord")]
+fn an_edit_leaves_a_name_two_mentioned_people_share_as_text() {
+    use crate::mention::{Mentioned, Target};
+    let room = "discord:10:11";
+    let mut app = discord_server();
+    app.dispatch(Action::Open(room.into()));
+    let mut mine = message("d:6", true);
+    mine.body = "@Discord user and @Discord user".into();
+    mine.mentions = ["1", "2"]
+        .into_iter()
+        .zip([0, 19])
+        .map(|(id, at)| Mentioned {
+            text: "@Discord user".into(),
+            target: Target::User(id.into()),
+            color: None,
+            at: vec![at],
+        })
+        .collect();
+    app.apply(Event::Timeline {
+        room: room.into(),
+        messages: timeline(vec![mine]),
+    });
+    app.dispatch(Action::Edit("d:6".into()));
+    app.dispatch(Action::SetEditText(
+        "@Discord user and @Discord user!".into(),
+    ));
+    let (_, body) = edit_command(app.dispatch(Action::SaveEdit));
+    assert_eq!(body, "@Discord user and @Discord user!");
+}

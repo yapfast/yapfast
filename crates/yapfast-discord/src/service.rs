@@ -670,6 +670,15 @@ pub enum Live {
     FavoriteSounds(Vec<String>),
 }
 
+/// Someone's presence in a server, as [`Discord::member_presence`] asks for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberPresence {
+    pub presence: Presence,
+    /// Their custom status, else what they're doing, on one line.
+    pub activity: Option<String>,
+    pub activities: crate::activity::Activities,
+}
+
 /// What a call needs to open the voice connection Discord assigned.
 #[derive(Clone)]
 pub struct VoiceServer {
@@ -690,7 +699,22 @@ impl std::fmt::Debug for VoiceServer {
     }
 }
 
+struct ServerListWrite {
+    patch: String,
+    previous: Arc<settings::ServerList>,
+    shown: Arc<settings::ServerList>,
+}
+
 enum Request {
+    FileServer {
+        server: String,
+        source_folder: bool,
+        target: String,
+        folder: bool,
+        before: Option<bool>,
+        reply: oneshot::Sender<Option<ServerListWrite>>,
+    },
+    RestoreServerList(ServerListWrite),
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -723,6 +747,12 @@ enum Request {
     View {
         guild: String,
         channel: Option<String>,
+    },
+    /// Asks for someone's presence in a server; `reply` hears it, or none.
+    Presence {
+        guild: String,
+        user: String,
+        reply: oneshot::Sender<Option<Value>>,
     },
     /// Asks for these members' server profiles; with `reply`, says when
     /// they arrived.
@@ -863,6 +893,7 @@ pub struct Discord {
     /// Changes to the status settings on their way; see
     /// [`Self::change_status_settings`].
     status_writes: Arc<StatusWrites>,
+    folder_writes: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// This account's changes to the settings' `status` on their way.
@@ -1035,6 +1066,7 @@ impl Discord {
             commands: kept_commands,
             autocompletes: interactions::Autocompletes::default(),
             status_writes: Arc::default(),
+            folder_writes: Arc::default(),
         })
     }
 
@@ -1474,6 +1506,16 @@ impl Discord {
                 })
             })
             .collect()
+    }
+
+    /// A channel's newest `limit` messages, oldest first, to peek at: a
+    /// server's channel, or with [`PRIVATE`] a DM. It reads nothing, and
+    /// keeps nothing of them but their authors' names.
+    pub async fn peek(&self, guild: &str, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let values = self.api.newest(channel, limit).await?;
+        let mut messages = self.learn_authors(guild, &values).await;
+        messages.sort_by_key(Message::order);
+        Ok(messages)
     }
 
     /// A channel's pinned messages, the latest pinned first: a server's
@@ -2623,6 +2665,35 @@ impl Discord {
             move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
             |now| Request::CustomStatus(now.custom.flatten()),
         )
+    }
+
+    /// Moves a server beside or into the target, or moves a whole folder.
+    pub async fn file_server(
+        &self,
+        server: &str,
+        source_folder: bool,
+        target: &str,
+        folder: bool,
+        before: Option<bool>,
+    ) -> Result<()> {
+        let _turn = self.folder_writes.lock().await;
+        let (reply, changed) = oneshot::channel();
+        let _ = self.requests.send(Request::FileServer {
+            server: server.to_owned(),
+            source_folder,
+            target: target.to_owned(),
+            folder,
+            before,
+            reply,
+        });
+        let Some(change) = changed.await.context("Discord isn't connected right now")? else {
+            return Ok(());
+        };
+        let result = self.api.set_user_settings(&change.patch).await;
+        if result.is_err() {
+            let _ = self.requests.send(Request::RestoreServerList(change));
+        }
+        result
     }
 
     /// Sets the status, `online`, `idle`, `dnd` or `invisible`, everywhere
@@ -4114,6 +4185,31 @@ impl Discord {
 
     /// The RGB colour of a member's name in a server: their highest coloured
     /// role's, once their roles are known.
+    /// Someone's presence in server `guild`, as Discord's client asks for
+    /// it when it opens their profile there: the member list has it only for
+    /// the rows it has loaded, so a card opened from a message had no
+    /// status. Asked over the gateway with the member (Request Guild
+    /// Members with `presences`), waiting a while; none in a DM, or when
+    /// Discord doesn't say.
+    pub async fn member_presence(&self, guild: &str, user: &str) -> Option<MemberPresence> {
+        let guild = server(guild)?;
+        let (reply, answer) = oneshot::channel();
+        let _ = self.requests.send(Request::Presence {
+            guild: guild.into(),
+            user: user.into(),
+            reply,
+        });
+        let presence = tokio::time::timeout(SEARCH_TIMEOUT, answer)
+            .await
+            .ok()?
+            .ok()??;
+        Some(MemberPresence {
+            presence: Presence::parse(&presence),
+            activity: crate::member_list::activity(&presence["activities"]),
+            activities: crate::activity::activities(&presence["activities"]),
+        })
+    }
+
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
     }

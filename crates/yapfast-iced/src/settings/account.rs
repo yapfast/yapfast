@@ -121,7 +121,7 @@ impl Workflow {
 }
 
 fn message(event: Event) -> Message {
-    Message::Settings(super::Event::AccountPage(event))
+    crate::app::settings(super::Event::AccountPage(event))
 }
 
 impl Settings {
@@ -284,7 +284,7 @@ impl<'a> Page<'a> {
                     theme,
                     "Edit main profile",
                     Kind::Plain,
-                    Some(Message::Settings(super::Event::EditProfile)),
+                    Some(crate::app::settings(super::Event::EditProfile)),
                 )
                 .into(),
             ]),

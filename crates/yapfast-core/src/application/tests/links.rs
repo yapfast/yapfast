@@ -182,34 +182,11 @@ fn join_a_server_shows_the_invite_and_joins_on_the_click() {
     let effects = app.dispatch(Action::JoinServer);
     assert!(matches!(
         effects.as_slice(),
-        [Effect::Backend(Command::Discord(DiscordCommand::JoinServer { preview, from_link: false }))]
-            if preview.code == "abc"
+        [Effect::OpenPage(page)] if page == "https://discord.gg/abc"
     ));
-    assert!(
-        app.dispatch(Action::JoinServer).is_empty(),
-        "one join at a time"
-    );
-    let effects = app.apply(Event::JoinCaptcha {
-        code: "abc".into(),
-        page: "http://127.0.0.1:1/captcha/x".into(),
-    });
-    assert!(matches!(effects.as_slice(), [Effect::OpenPage(page)] if page.ends_with("/x")));
-    assert!(matches!(
-        app.dispatch(Action::OpenJoinCaptcha).as_slice(),
-        [Effect::OpenPage(_)]
-    ));
-
-    // Joined: the dialog closes, and the invite's channel opens once
-    // Discord lists the server.
-    app.apply(Event::ServerJoined {
-        code: "abc".into(),
-        result: Ok(chat::JoinedServer {
-            server: "discord:20".into(),
-            room: "discord:20:21".into(),
-            form: false,
-        }),
-    });
     assert!(app.state.join.is_none());
+
+    // Once Discord lists the server, the pending open takes effect.
     let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
     let joined = yapfast_discord::ready::server(&serde_json::json!({
         "id": "20", "owner_id": "99",
@@ -247,7 +224,7 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
     assert!(app.state.join.is_none());
     assert_eq!(app.state.selected.as_deref(), Some("discord:10:13"));
 
-    // One she isn't in shows it, and Discord's refusal stays in the dialog.
+    // One she isn't in shows it, and Join opens the browser to accept it.
     app.dispatch(Action::OpenInviteLink("new".into()));
     app.apply(Event::InviteResolved {
         code: "new".into(),
@@ -256,36 +233,7 @@ fn an_invite_link_opens_the_server_or_the_dialog() {
     let effects = app.dispatch(Action::JoinServer);
     assert!(matches!(
         effects.as_slice(),
-        [Effect::Backend(Command::Discord(
-            DiscordCommand::JoinServer {
-                from_link: true,
-                ..
-            }
-        ))]
-    ));
-    app.apply(Event::ServerJoined {
-        code: "new".into(),
-        result: Err("Couldn't join the server: This server is full.".into()),
-    });
-    let join = app.state.join.clone().unwrap();
-    assert!(!join.joining);
-    assert!(join.error.unwrap().ends_with("full."));
-
-    // A server with a form to fill in sends it to Discord's web app.
-    app.dispatch(Action::JoinServer);
-    app.apply(Event::ServerJoined {
-        code: "new".into(),
-        result: Ok(chat::JoinedServer {
-            server: "discord:30".into(),
-            room: "discord:30:31".into(),
-            form: true,
-        }),
-    });
-    assert!(app.dispatch(Action::JoinServer).is_empty());
-    let effects = app.dispatch(Action::OpenJoinForm);
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::OpenPage(page)] if page == "https://discord.com/channels/30/31"
+        [Effect::OpenPage(page)] if page == "https://discord.gg/new"
     ));
     assert!(app.state.join.is_none());
 }

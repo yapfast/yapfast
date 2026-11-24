@@ -89,6 +89,7 @@ pub mod stream_audio;
 #[cfg(feature = "discord")]
 pub mod stream_worker;
 pub mod theme;
+pub mod themes;
 #[cfg(feature = "discord")]
 pub mod video;
 #[cfg(feature = "discord")]
@@ -114,6 +115,15 @@ pub fn default_directory() -> anyhow::Result<std::path::PathBuf> {
     directories::ProjectDirs::from("io.github", "yapfast", "Yapfast")
         .map(|dirs| dirs.data_local_dir().to_owned())
         .context("could not find an application data directory; pass --data-dir")
+}
+
+/// The person's Pictures folder, as the desktop names it: the XDG user
+/// directory on Linux, and the known folder on Windows and macOS, which
+/// follows a Pictures folder moved to OneDrive.
+pub fn pictures_directory() -> Option<std::path::PathBuf> {
+    directories::UserDirs::new()?
+        .picture_dir()
+        .map(std::path::Path::to_path_buf)
 }
 
 /// Keeps the cookies Discord sets, and the account as last seen, in `root`
