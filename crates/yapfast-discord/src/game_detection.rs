@@ -333,10 +333,6 @@ fn wine_executable(args: &[std::ffi::OsString]) -> Option<String> {
 
 impl Detector {
     fn new(catalog: Catalog, steam_roots: Vec<PathBuf>) -> Self {
-        // sysinfo normally caches an open /proc/<pid>/stat fd for each process.
-        // Detection runs infrequently, so keep no such per-process file handles.
-        #[cfg(target_os = "linux")]
-        sysinfo::set_open_files_limit(0);
         Self {
             seen: 0,
             catalog,

@@ -279,8 +279,8 @@ mod linux {
             "P7\nWIDTH {width}\nHEIGHT {height}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n"
         )
         .into_bytes();
-        for pixel in argb.chunks_exact(4) {
-            picture.extend_from_slice(&[pixel[1], pixel[2], pixel[3], pixel[0]]);
+        for &[alpha, red, green, blue] in argb.as_chunks::<4>().0 {
+            picture.extend_from_slice(&[red, green, blue, alpha]);
         }
         std::fs::write(path, picture).map_err(|error| zbus::Error::Failure(error.to_string()))?;
         println!("{width}x{height}");
