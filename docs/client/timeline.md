@@ -32,8 +32,13 @@ while it holds something and clears with its X; Enter searches the DM, or
 the channel's server. What it found shows beside the conversation in the
 member list's place (`search::view`), 420 px wide: how many, the newest
 first as found cards, a server's under their channels' names, Show more
-for the next page, a click jumping to the message in its room. Close,
-Escape or clearing the box ends the search and lets go of the cards.
+for the next page, a click jumping to the message in its room. A right
+click on a result opens its menu (`search::open_found_menu`): Copy Message
+Link, and with Developer Mode on Copy Message ID and Copy Author ID. Its
+rows carry what they copy in their `key` (`MenuAct::CopyTextLink`), as a
+result needn't be in the timeline; a result with no Discord id has no
+menu. Close, Escape or clearing the box ends the search and lets go of
+the cards.
 
 Over the timeline, and under the header of a voice channel's call
 (`banners::view`), stacked from the top: the

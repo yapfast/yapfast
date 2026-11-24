@@ -947,6 +947,15 @@ impl AppState {
         Some((format!("{}/{id}", network_link(room)), id.to_string()))
     }
 
+    /// A Discord message's link and id, as [`Self::message_link`] gives
+    /// them, from its room and item: for one found by a search, which
+    /// needn't be in the timeline. None for any other network's.
+    pub fn found_link(room: &str, item: &str) -> Option<(String, String)> {
+        let id = discord::item_order(item)?;
+        (Network::of(room) == Network::Discord)
+            .then(|| (format!("{}/{id}", network_link(room)), id.to_string()))
+    }
+
     /// Whether this account's devices can write to the selected room.
     pub fn can_write(&self) -> bool {
         !self.busy
