@@ -4,12 +4,53 @@ Keys held together that do something in any app, as Discord's keybinds:
 push to talk, push to mute, toggling mute, deafen and the input mode. They
 work in Discord and Matrix calls alike.
 
+## Built-in window shortcuts
+
+Ctrl+/ opens Settings → Keybinds, which also lists the built-in shortcuts
+(Discord's Ctrl+/ shows the same list in a dialog of its own).
+They work while the window is focused, require the exact modifiers, ignore
+key repeat, and rest while recording a keybind. Custom watched keybinds take
+priority when they use the same keys, so a toggle runs only once. Chat
+shortcuts wait while a dialog or settings takes the keys; mute and deafen
+still work there, just like the account buttons.
+
+| Action | Shortcut |
+| --- | --- |
+| Toggle mute / deafen | Ctrl+Shift+M / Ctrl+Shift+D |
+| Toggle pins / inbox | Ctrl+P / Ctrl+I |
+| Toggle members or a voice channel's chat | Ctrl+U |
+| Toggle emoji / stickers | Ctrl+E / Ctrl+S |
+| Upload a file | Ctrl+Shift+U |
+| Copy channel link | Ctrl+Shift+L |
+| Previous / next server (including DM home) | Ctrl+Alt+Up / Down |
+| Create or join a server | Ctrl+Shift+N |
+| Go to current call | Ctrl+Alt+Shift+V |
+| Answer incoming call | Ctrl+Enter |
+| Start a DM or group call | Ctrl+' |
+
+Each action uses its existing UI handler and is offered only where its
+button is available. Out of a call, mute and deafen change how the next
+call starts. Letter shortcuts follow the active Latin layout, or the
+physical letter key with a non-Latin layout.
+
+The list also includes the existing quick switcher (Ctrl+K), search
+(Ctrl+F and Ctrl+Shift+F), history (Alt+Left/Right), GIF picker
+(Ctrl+G in the composer), typing to focus the composer, and message
+navigation. Alt+Up in the composer still enters the messages; P pins or
+unpins the focused message when permitted. Channel navigation, keyboard
+drag and drop, and speech shortcuts are not provided by these bindings.
+
 ## In settings
 
-Settings → Keybinds lists them as Discord's page does. "Add a Keybind" adds
-one doing nothing (Unassigned) with no keys, as Discord's does; each has an
-action, its keys with "Record keybind", a remove button, and Discord's words
-for what the action does. The actions offered are Discord's Push to Talk
+Settings → Keybinds lists them under Custom Keybinds, as Discord's page
+does. Each row has an action dropdown, its keys with an inline Record
+button (Stop while recording), delete and an enable switch, and Discord's
+words for what the action does under them. Add a Keybind, beside the
+title, adds an enabled row doing nothing (Unassigned) with no keys, as
+Discord's does. Disabling a row preserves its action and keys,
+but stops watching it; `enabled` is kept with the binding in `layout.json`,
+and older bindings without the field remain enabled.
+The actions offered are Discord's Push to Talk
 (Normal), Push to Mute, Toggle Mute, Toggle Deafen and Toggle VAD (push to
 talk or voice activity). Push to Talk does something only in push to talk,
 as in Discord, and is watched only then.

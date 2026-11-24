@@ -539,11 +539,25 @@ impl App {
                 self.person.update(event, &mut cx)
             }
             Message::Dialog(event) => crate::dialogs::update(self, event),
+            Message::Shortcut(shortcut, physical, modifiers) => {
+                if crate::shortcuts::custom_owns(self, physical, modifiers) {
+                    Task::none()
+                } else {
+                    crate::shortcuts::update(self, shortcut)
+                }
+            }
             Message::Key(key, modifiers) => {
                 let typed = yapfast_iced_kit::field::Typed::of(&key, modifiers);
                 self.key(key, modifiers, typed)
             }
             Message::Pressed(key, modifiers, physical, typed) => {
+                // Built-ins have a subscription of their own, including
+                // captured presses. Do not also edit/step a focused message.
+                if self.recording_keybind()
+                    || crate::shortcuts::pressed(&key, physical, modifiers).is_some()
+                {
+                    return Task::none();
+                }
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
                 // A shortcut's letter, where the layout has no Latin ones
                 // (Cyrillic, Greek, Thai), is the key's in a layout that does.

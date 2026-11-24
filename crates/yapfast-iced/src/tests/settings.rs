@@ -1479,6 +1479,7 @@ fn keybinds_are_added_chosen_recorded_and_removed() {
     interact(&mut app, |ui| {
         ui.click("Add a Keybind").expect("the button");
     });
+    assert!(shows(&app, "No Keybind Set"));
     assert!(shows(
         &app,
         "This action doesn't do anything! Please choose one from the drop down."
@@ -1513,6 +1514,15 @@ fn keybinds_are_added_chosen_recorded_and_removed() {
             .iter()
             .any(|watched| watched.id == "keybind-1")
     );
+    let _ = app.update(keybind(KeybindEvent::Enabled(0, false)));
+    assert!(app.keybinds.watched.is_empty());
+    assert_eq!(stored(&folder)["keybinds"][0]["enabled"], false);
+    assert!(
+        app.layout.keybinds[0].keys.is_some(),
+        "disabling preserves the keys"
+    );
+    let _ = app.update(keybind(KeybindEvent::Enabled(0, true)));
+    assert_eq!(app.keybinds.watched.len(), 1);
     // As the account card's button: out of a call, the next one starts
     // deafened.
     let deafened =
