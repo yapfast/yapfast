@@ -1141,7 +1141,18 @@ fn favorites_keep_saved_category_order_and_open_real_conversations() {
             _ => None,
         })
         .collect();
-    assert_eq!(labels, ["Friends", "First", "Second", "Top level"]);
+    // The channels in no category come first, as in Discord's client, and a
+    // one-to-one DM keeps its person's name.
+    let dm = app
+        .client
+        .state()
+        .rooms
+        .iter()
+        .find(|room| room.id == "discord:@me:41")
+        .unwrap()
+        .name
+        .clone();
+    assert_eq!(labels, ["Top level", "Friends", dm.as_str(), "Second"]);
     let forum = app
         .sidebar
         .rows

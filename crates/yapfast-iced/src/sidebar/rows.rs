@@ -650,10 +650,15 @@ fn favorite_rows(
         .filter(|entry| entry.category)
         .map(|entry| entry.id.as_str())
         .collect();
+    // As Discord's client lists them: the channels in no category first, then
+    // each category in its order; in each, voice channels after the rest.
     let mut children: HashMap<&str, Vec<_>> = HashMap::new();
     let mut roots = Vec::new();
+    let mut headings = Vec::new();
     for entry in &state.channel_favorites {
-        if entry.reference && categories.contains(entry.parent.as_str()) {
+        if entry.category {
+            headings.push(entry);
+        } else if entry.reference && categories.contains(entry.parent.as_str()) {
             children
                 .entry(entry.parent.as_str())
                 .or_default()
@@ -662,9 +667,15 @@ fn favorite_rows(
             roots.push(entry);
         }
     }
-    roots.sort_by_key(|entry| (entry.position, &entry.id));
+    let voice = |entry: &yapfast_core::application::ChannelFavorite| {
+        rooms
+            .get(entry.id.as_str())
+            .is_some_and(|room| room.voice && !room.direct)
+    };
+    roots.sort_by_key(|entry| (voice(entry), entry.position, &entry.id));
+    headings.sort_by_key(|entry| (entry.position, &entry.id));
     for group in children.values_mut() {
-        group.sort_by_key(|entry| (entry.position, &entry.id));
+        group.sort_by_key(|entry| (voice(entry), entry.position, &entry.id));
     }
     let make_row = |entry: &yapfast_core::application::ChannelFavorite, collapsed: bool| {
         if !entry.reference {
@@ -674,7 +685,9 @@ fn favorite_rows(
             .get(entry.id.as_str())
             .copied()
             .filter(|room| !room.locked && !room.request)?;
-        let name = if entry.name.is_empty() {
+        // Discord's client names a one-to-one DM by its person, whatever
+        // its nickname in Favorites.
+        let name = if entry.name.is_empty() || (room.direct && room.person.is_some()) {
             &room.name
         } else {
             &entry.name
@@ -694,22 +707,21 @@ fn favorite_rows(
         row.close = None;
         Some(SideRow::Room(Box::new(row)))
     };
-    let mut rows = Vec::new();
-    for entry in roots {
-        if entry.category {
-            // Local toggles override the saved fold without rewriting categories.
-            let collapsed = query.is_empty()
-                && (entry.collapsed ^ folded.is_some_and(|set| set.contains(&entry.id)));
-            rows.push(SideRow::Heading {
-                name: entry.name.clone(),
-                fold: entry.id.clone(),
-                collapsed,
-            });
-            if let Some(group) = children.get(entry.id.as_str()) {
-                rows.extend(group.iter().filter_map(|entry| make_row(entry, collapsed)));
-            }
-        } else if let Some(row) = make_row(entry, false) {
-            rows.push(row);
+    let mut rows: Vec<SideRow> = roots
+        .into_iter()
+        .filter_map(|entry| make_row(entry, false))
+        .collect();
+    for entry in headings {
+        // Local toggles override the saved fold without rewriting categories.
+        let collapsed = query.is_empty()
+            && (entry.collapsed ^ folded.is_some_and(|set| set.contains(&entry.id)));
+        rows.push(SideRow::Heading {
+            name: entry.name.clone(),
+            fold: entry.id.clone(),
+            collapsed,
+        });
+        if let Some(group) = children.get(entry.id.as_str()) {
+            rows.extend(group.iter().filter_map(|entry| make_row(entry, collapsed)));
         }
     }
     if rows.is_empty() {

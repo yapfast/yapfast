@@ -14,10 +14,13 @@ keeps it with the account's existing snapshot.
 The rail's star opens Favorites when Discord's visibility setting permits it.
 Its channels, DMs and group DMs open with the usual navigation and voice behavior.
 Unread and mention badges follow the source conversation, including unread forum posts.
-Category names, channel nicknames, positions and initial collapsed states come
+Category names, channel nicknames (not for one-to-one DMs, which keep their
+person's name), positions and initial collapsed states come
 from Discord. Local category toggles don't modify Discord. Missing, inaccessible
 and message-request channels stay out of the list; their saved references survive
-all writes. A reference whose category is missing appears at the top level.
+all writes. A reference whose category is missing appears at the top level. As in
+Discord's client, the channels in no category come first, then each category in
+its order, and voice channels follow the rest in each.
 
 A connected account can right-click a channel or accepted DM to add or remove it.
 As in Discord's client, a new reference goes at the top level after every entry
