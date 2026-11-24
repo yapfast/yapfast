@@ -1,0 +1,360 @@
+//! Built-in shortcuts for the focused window. Custom global keybinds
+//! remain the desktop watcher's responsibility.
+
+use iced::{
+    Task,
+    keyboard::{Key, Modifiers, key},
+};
+use yapfast_core::application::Navigation;
+
+use crate::{
+    app::{App, Message},
+    picker::{Tab, Target},
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shortcut {
+    Help,
+    Mute,
+    Deafen,
+    Pins,
+    Inbox,
+    Members,
+    Emoji,
+    Stickers,
+    Upload,
+    CopyLink,
+    JoinServer,
+    CurrentCall,
+    Answer,
+    StartCall,
+    Server(bool),
+}
+
+/// A configured desktop binding has priority, so its toggle cannot run
+/// twice when the same chord also has a built-in action.
+pub fn custom_owns(app: &App, physical: key::Physical, modifiers: Modifiers) -> bool {
+    if app.keybinds.watched.is_empty() {
+        return false;
+    }
+    let Some(code) = crate::keybinds::known_scancode(physical) else {
+        return false;
+    };
+    app.keybinds.watched.iter().any(|watched| {
+        if let Some(status) = &app.keybinds.status {
+            use yapfast_core::keybinds::Reach;
+            match status.reach {
+                Reach::Asking => return false,
+                Reach::Desktop
+                    if !status
+                        .given
+                        .get(&watched.id)
+                        .is_some_and(|keys| !keys.is_empty()) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+        let mut has_key = false;
+        watched
+            .keys
+            .keys()
+            .iter()
+            .all(|key| match yapfast_core::keybinds::modifier(key.scancode) {
+                Some((_, _, "CTRL")) => modifiers.control(),
+                Some((_, _, "SHIFT")) => modifiers.shift(),
+                Some((_, _, "ALT")) => modifiers.alt(),
+                Some((_, _, "LOGO")) => modifiers.logo(),
+                _ => {
+                    has_key |= key.scancode == code;
+                    key.scancode == code
+                }
+            })
+            && has_key
+    })
+}
+
+/// A press the window heard, wherever the keys are, as a built-in; but a
+/// field's own Ctrl+E (the composer's or an edit's, which opens the picker
+/// for it) isn't taken twice, which would open the picker and shut it.
+pub fn heard(
+    key: &Key,
+    physical: key::Physical,
+    modifiers: Modifiers,
+    status: iced::event::Status,
+) -> Option<Message> {
+    pressed(key, physical, modifiers)
+        .filter(|shortcut| *shortcut != Shortcut::Emoji || status == iced::event::Status::Ignored)
+        .map(|shortcut| Message::Shortcut(shortcut, physical, modifiers))
+}
+
+/// Exact modifiers keep AltGr, text editing and larger chords separate.
+pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Option<Shortcut> {
+    use Shortcut::*;
+    let ctrl = Modifiers::CTRL;
+    let shift = ctrl | Modifiers::SHIFT;
+    let alt = ctrl | Modifiers::ALT;
+    let call = shift | Modifiers::ALT;
+    // Discord binds Ctrl+/ and Ctrl+' with Shift too, where a layout
+    // needs Shift for the character.
+    if modifiers == ctrl || modifiers == shift {
+        if key.as_ref() == Key::Character("/") {
+            return Some(Help);
+        }
+        if key.as_ref() == Key::Character("'") {
+            return Some(StartCall);
+        }
+    }
+    if modifiers == ctrl && key == &Key::Named(key::Named::Enter) {
+        return Some(Answer);
+    }
+    if modifiers == alt {
+        return match key {
+            Key::Named(key::Named::ArrowUp) => Some(Server(false)),
+            Key::Named(key::Named::ArrowDown) => Some(Server(true)),
+            _ => None,
+        };
+    }
+    if modifiers != ctrl && modifiers != shift && modifiers != call {
+        return None;
+    }
+    let letter = key.to_latin(physical)?.to_ascii_lowercase();
+    match (modifiers, letter) {
+        (m, 'p') if m == ctrl => Some(Pins),
+        (m, 'i') if m == ctrl => Some(Inbox),
+        (m, 'u') if m == ctrl => Some(Members),
+        (m, 'e') if m == ctrl => Some(Emoji),
+        (m, 's') if m == ctrl => Some(Stickers),
+        (m, 'm') if m == shift => Some(Mute),
+        (m, 'd') if m == shift => Some(Deafen),
+        (m, 'u') if m == shift => Some(Upload),
+        (m, 'l') if m == shift => Some(CopyLink),
+        (m, 'n') if m == shift => Some(JoinServer),
+        (m, 'v') if m == call => Some(CurrentCall),
+        _ => None,
+    }
+}
+
+pub fn update(app: &mut App, shortcut: Shortcut) -> Task<Message> {
+    use Shortcut::*;
+    if !crate::signin::workspace(app) || app.recording_keybind() {
+        return Task::none();
+    }
+    // Voice controls work while a dialog is open, like the account buttons.
+    match shortcut {
+        Mute => return crate::account::update(app, crate::account::Event::Mute),
+        Deafen => return crate::account::update(app, crate::account::Event::Deafen),
+        Help => {
+            return app.settings_event(crate::settings::Event::Open(
+                crate::settings::Section::Keybinds,
+            ));
+        }
+        _ => {}
+    }
+    if app.keys_held() {
+        return Task::none();
+    }
+    match shortcut {
+        Pins if app.header.can_pin => {
+            crate::header_popovers::popover_event(app, crate::header_popovers::Event::Pins)
+        }
+        Inbox => crate::window_bar::update(app, crate::window_bar::Event::Inbox),
+        Members if app.header.voice_chat.is_some() => {
+            let show = !app.header.voice_chat.unwrap_or(false);
+            crate::sidebar::update(app, crate::sidebar::Event::VoiceChat(show))
+        }
+        Members if app.header.members_available => {
+            crate::members::update(app, crate::members::Event::Toggle)
+        }
+        Emoji | Stickers if crate::composer::composer_look(app.ctx()).enabled => {
+            if shortcut == Stickers && !app.client.state().can_pick_gifs() {
+                return Task::none();
+            }
+            crate::picker::open_picker(
+                app,
+                Target::Composer,
+                if shortcut == Emoji {
+                    Tab::Emoji
+                } else {
+                    Tab::Stickers
+                },
+            )
+        }
+        Upload if crate::composer::composer_look(app.ctx()).attach => crate::composer::update(
+            app,
+            crate::composer::Event::Uploads(crate::uploads::Event::Attach),
+        ),
+        CopyLink => {
+            let Some(room) = app.client.state().selected.clone() else {
+                return Task::none();
+            };
+            crate::place_menus::choose_place(
+                app,
+                room,
+                yapfast_core::application::MenuChoice::CopyLink,
+            )
+        }
+        JoinServer => crate::rail::update(app, crate::rail::Event::Join),
+        CurrentCall => crate::call::update(app, crate::call::Event::OpenCall),
+        Answer => {
+            let room = crate::call::ringing(app.client.state())
+                .next()
+                .map(|room| room.id.clone());
+            match room {
+                Some(room) => crate::call::update(app, crate::call::Event::Answer(room, true)),
+                None => Task::none(),
+            }
+        }
+        StartCall if app.header.can_call && app.header.can_join => {
+            crate::call::update(app, crate::call::Event::Start(false))
+        }
+        Server(forward) => {
+            // Borrow the existing server order; allocate only the chosen id.
+            let state = app.client.state();
+            let current = match &state.navigation {
+                Navigation::Server(id) => state.servers.iter().position(|server| server.id == *id),
+                _ => None,
+            };
+            let count = state.servers.len();
+            let next = match (current, forward) {
+                (Some(index), true) if index + 1 < count => Some(index + 1),
+                (Some(index), false) => index.checked_sub(1),
+                (None, true) if count > 0 => Some(0),
+                (None, false) if count > 0 => Some(count - 1),
+                _ => None,
+            };
+            match next {
+                Some(index) => {
+                    let id = state.servers[index].id.clone();
+                    crate::rail::update(app, crate::rail::Event::Server(id))
+                }
+                None => crate::rail::update(app, crate::rail::Event::Home),
+            }
+        }
+        _ => Task::none(),
+    }
+}
+
+/// The list's own shortcut, which Discord shows on its own above the
+/// groups.
+pub const HELP: (&str, &str) = ("Show Keyboard Shortcuts List", "Ctrl + /");
+
+/// A group of the list: its heading, what it says under it, and its
+/// shortcuts' words and keys.
+pub type Group = (
+    &'static str,
+    Option<&'static str>,
+    &'static [(&'static str, &'static str)],
+);
+
+/// The shortcuts Settings → Keybinds lists, in Discord's groups, order and
+/// words (its `TOGGLE_HOTKEYS` list), keeping those the app has.
+pub const GROUPS: &[Group] = &[
+    (
+        "Messages",
+        Some(
+            "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.",
+        ),
+        &[
+            ("Edit Message", "E"),
+            ("Delete Message", "Backspace"),
+            ("Pin Message", "P"),
+            ("Add Reaction", "+"),
+            ("Reply", "R"),
+            ("Forward Message", "F"),
+            ("Copy Text", "Ctrl + C"),
+            ("Mark Unread", "Alt + Enter"),
+            ("Focus text area", "Esc"),
+        ],
+    ),
+    (
+        "Navigation",
+        None,
+        &[
+            ("Navigate between servers", "Ctrl + Alt + Up / Down"),
+            (
+                "Navigate forward and backward in page history",
+                "Alt + Left / Right",
+            ),
+            ("Navigate to current call", "Ctrl + Shift + Alt + V"),
+            ("Toggle QuickSwitcher", "Ctrl + K"),
+            ("Create or join a server", "Ctrl + Shift + N"),
+        ],
+    ),
+    (
+        "Chat",
+        None,
+        &[
+            ("Toggle pins popout", "Ctrl + P"),
+            ("Toggle inbox popout", "Ctrl + I"),
+            ("Toggle channel member list or voice text chat", "Ctrl + U"),
+            ("Toggle emoji picker", "Ctrl + E"),
+            ("Toggle GIF picker", "Ctrl + G"),
+            ("Toggle sticker picker", "Ctrl + S"),
+            ("Focus text area", "Type anywhere"),
+            ("Upload a file", "Ctrl + Shift + U"),
+            ("Copy channel link", "Ctrl + Shift + L"),
+        ],
+    ),
+    (
+        "Voice and Video",
+        None,
+        &[
+            ("Toggle mute", "Ctrl + Shift + M"),
+            ("Toggle deafen", "Ctrl + Shift + D"),
+            ("Answer incoming call", "Ctrl + Enter"),
+            ("Start call in private message or group", "Ctrl + '"),
+        ],
+    ),
+    ("Miscellaneous", None, &[("Search", "Ctrl + F")]),
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shortcuts_require_exact_modifiers_and_follow_non_latin_layouts() {
+        let m = Key::Character("m".into());
+        let physical = key::Physical::Code(key::Code::KeyM);
+        let chord = Modifiers::CTRL | Modifiers::SHIFT;
+        assert_eq!(pressed(&m, physical, chord), Some(Shortcut::Mute));
+        assert_eq!(pressed(&m, physical, Modifiers::CTRL), None);
+        assert_eq!(pressed(&m, physical, chord | Modifiers::ALT), None);
+        assert_eq!(
+            pressed(&Key::Character("ь".into()), physical, chord),
+            Some(Shortcut::Mute)
+        );
+        assert_eq!(pressed(&Key::Character("t".into()), physical, chord), None);
+    }
+
+    #[test]
+    fn ctrl_slash_takes_shift_where_the_layout_needs_it() {
+        let slash = Key::Character("/".into());
+        let physical = key::Physical::Code(key::Code::Digit7);
+        assert_eq!(
+            pressed(&slash, physical, Modifiers::CTRL),
+            Some(Shortcut::Help)
+        );
+        assert_eq!(
+            pressed(&slash, physical, Modifiers::CTRL | Modifiers::SHIFT),
+            Some(Shortcut::Help)
+        );
+    }
+
+    #[test]
+    fn a_fields_own_ctrl_e_is_not_taken_twice() {
+        use iced::event::Status;
+        let e = Key::Character("e".into());
+        let physical = key::Physical::Code(key::Code::KeyE);
+        let shortcut = |key: &Key, status| match heard(key, physical, Modifiers::CTRL, status) {
+            Some(Message::Shortcut(shortcut, ..)) => Some(shortcut),
+            _ => None,
+        };
+        assert_eq!(shortcut(&e, Status::Captured), None);
+        assert_eq!(shortcut(&e, Status::Ignored), Some(Shortcut::Emoji));
+        let p = Key::Character("p".into());
+        assert_eq!(shortcut(&p, Status::Captured), Some(Shortcut::Pins));
+    }
+}

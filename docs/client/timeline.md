@@ -70,7 +70,8 @@ A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
 a file's card (its name and size), link previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
-thumbnail and footer), stickers, a poll, a voice message, an app's
+thumbnail and footer; as wide as what's in it, up to 432 px, and a theme's
+ground, art and outline under the card stop at its edge too), stickers, a poll, a voice message, an app's
 components, and reactions. The author line has the name (in its role
 colour, else the brightest white), the server tag, a green star for an
 author who joined the server in the last week (`new_member`; not a bot, not
@@ -208,7 +209,8 @@ slash command, where one may write, is written in the composer
   composer lands on the newest, lit with its hover bar and a 3 px
   marigold edge down its left (`Lanes::keyed`); the arrows, Page
   Up and Down, Home and End step; Enter (or the Menu key, or Shift+F10)
-  opens its menu, + reacts, R replies, E edits, Delete deletes, C copies,
+  opens its menu, + reacts, R replies, E edits, P pins or unpins,
+  Delete or Backspace deletes, C copies,
   F forwards, Alt+Enter marks it unread, and Escape goes back to the
   composer. A press anywhere but on the list takes the keys from the
   messages too (`follow_press`, before each update, against the list's

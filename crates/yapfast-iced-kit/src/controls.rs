@@ -881,6 +881,30 @@ impl crate::look::Look<'_> {
         press: M,
         height: f32,
     ) -> Element<'a, M> {
+        self.menu_row(item, None, light, press, height)
+    }
+
+    /// A row that opens its choices, with the one chosen now after its
+    /// label in the muted ink, cut off where it's longer than its room:
+    /// `Audio    All applications >`.
+    pub fn menu_item_valued<'a, M: Clone + 'a>(
+        self,
+        item: Item<'a>,
+        value: std::borrow::Cow<'a, str>,
+        light: Light,
+        press: M,
+    ) -> Element<'a, M> {
+        self.menu_row(item, Some(value), light, press, ITEM)
+    }
+
+    fn menu_row<'a, M: Clone + 'a>(
+        self,
+        item: Item<'a>,
+        value: Option<std::borrow::Cow<'a, str>>,
+        light: Light,
+        press: M,
+        height: f32,
+    ) -> Element<'a, M> {
         let theme = self.theme;
         let lit = light == Light::Lit(true);
         // Discord tints a destructive row under the pointer reddish and
@@ -927,7 +951,20 @@ impl crate::look::Look<'_> {
             .into(),
             None => label.into(),
         };
-        let mut face = face.push(container(words).width(Length::Fill).clip(true));
+        let mut face = match value {
+            None => face.push(container(words).width(Length::Fill).clip(true)),
+            // The label whole, and the value in what's left.
+            Some(value) => face.push(words).push(
+                container(
+                    text(value)
+                        .size(14.0)
+                        .color(theme.muted)
+                        .wrapping(text::Wrapping::None),
+                )
+                .align_right(Length::Fill)
+                .clip(true),
+            ),
+        };
         if let Check::Box(ticked) = item.check {
             face = face.push(self.checkbox(ticked, lit));
         }

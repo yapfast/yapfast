@@ -170,6 +170,18 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
     own.max(boosted)
 }
 
+/// The longest message this account may send or edit to, in characters, by
+/// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
+/// Nitro (2) alone, whose perks are the only ones in Discord's client with
+/// `INCREASED_MESSAGE_LENGTH`; 2,000 without, or with Nitro Classic (1) or
+/// Nitro Basic (3).
+pub fn message_limit(premium_type: u8) -> usize {
+    match premium_type {
+        2 => 4000,
+        _ => 2000,
+    }
+}
+
 /// Discord answered a download with this error status.
 #[derive(Debug)]
 pub struct Refused(pub StatusCode);
@@ -541,6 +553,16 @@ impl Api {
         if let Some((side, id)) = from {
             let _ = write!(path, "&{side}={id}");
         }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// A channel's newest `limit` messages, newest first, as a glance at it
+    /// takes them: no read acknowledgement goes with them.
+    pub async fn newest(&self, channel: &str, limit: usize) -> Result<Vec<Value>> {
+        let path = format!("/channels/{channel}/messages?limit={limit}");
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(messages) => Ok(messages),
             _ => bail!("could not understand Discord's answer"),
@@ -2862,6 +2884,15 @@ mod tests {
         assert_eq!(upload_limit(0, Some(2)), 50 * MIB);
         assert_eq!(upload_limit(0, Some(3)), 100 * MIB);
         assert_eq!(upload_limit(2, Some(3)), 500 * MIB, "the larger wins");
+    }
+
+    #[test]
+    fn message_limits_follow_nitro() {
+        use super::message_limit;
+        assert_eq!(message_limit(0), 2000, "without Nitro");
+        assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
+        assert_eq!(message_limit(1), 2000, "nor has Nitro Classic");
+        assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
     #[test]

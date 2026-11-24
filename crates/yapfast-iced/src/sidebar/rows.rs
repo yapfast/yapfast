@@ -436,7 +436,7 @@ pub fn sidebar_in(
             if room.person.is_none() {
                 Status::words(format!("{} members", room.members))
             } else {
-                Status::of(room.activity.as_deref())
+                Status::activity(&room.activities, room.activity.as_deref())
             }
         } else {
             Status::default()

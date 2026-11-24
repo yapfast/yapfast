@@ -851,23 +851,13 @@ fn a_group_dm_lists_its_members() {
 fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
     let (mut app, _folder) = preview();
     let playing = yapfast_core::chat::Activity {
-        kind: yapfast_core::chat::ActivityKind::Playing,
-        name: "Stardew Valley".into(),
-        details: None,
-        state: None,
-        party: None,
-        party_id: None,
         application_id: Some("stardew".into()),
-        start: None,
-        end: None,
-        large_image: None,
-        large_text: None,
-        small_image: None,
-        small_text: None,
-        url: None,
-        link: None,
-        emoji: None,
+        ..yapfast_core::chat::Activity::new(
+            yapfast_core::chat::ActivityKind::Playing,
+            "Stardew Valley",
+        )
     };
+
     change(&mut app, |state| {
         let mut ann = friend("1", "Ann", Presence::Online);
         ann.activities = Arc::from([playing]);
@@ -1167,6 +1157,7 @@ fn select_and_copy(app: &mut App, line: iced::Rectangle) -> (Vec<String>, iced::
             c,
             keyboard::Modifiers::CTRL,
             physical,
+            None,
         ))));
     }
     (written, status)

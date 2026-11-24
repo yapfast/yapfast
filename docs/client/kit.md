@@ -83,11 +83,11 @@ and the app uses them with its one `Message`, so nothing is mapped:
   none), whose wheel and touchpad move it smoothly
   (`widgets::flick`, the motion, tested alone). A `Smooth` round iced's
   scrollable takes the wheel's events a `Claim` round what it holds
-  marks as nobody's, and moves the scrollable on the window's frames
-  through an operation (`scroll_by`), so the scrollable's own reports go
-  on as they did; `swipe` is a touchpad's move for tests. On the CPU a
-  moving list asks for at most 60 frames a second (the display's own rate
-  on the GPU): each frame draws the whole list again.
+  marks as nobody's. It applies touchpad deltas as they arrive and animates
+  wheel notches on the window's frames, both through `scroll_by`. The
+  scrollable reports its position on redraw. `swipe` is a touchpad move
+  for tests. On the CPU a moving list asks for at most 60 frames a second
+  (the display's own rate on the GPU): each frame draws the whole list again.
 - `widgets::Autoscroll`: round the whole window, a middle click's
   autoscroll of the list under it (see Autoscroll in
   [the window](window.md#the-window-and-the-desktop)).
@@ -178,8 +178,10 @@ and the app uses them with its one `Message`, so nothing is mapped:
   saturation, brightness and hue, kept as `Hsv`), the virtualized `Rows` (rows across
   the list, or with `Rows::place` boxes of their own), the anchored
   overlays `Place` (at a corner, the pointer, over a point, or with
-  `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch`, `RightPress` and
-  `Holds` (a child that keeps the pointer's moves over it from what it floats over; `Rows`
+  `Anchor::Span` under a button or above it) and `Above`, `PlateRow`, `Watch`, `RightPress`,
+  `Grip` (a child whose pointer takes another shape over a part of it, and a left press there
+  sends its message before the child hears of it) and `Holds` (a
+  child that keeps the pointer's moves over it from what it floats over; `Rows`
   hands events to its last row first, as a stack does), and `Settle` (a
   scrollable whose scroll reports go on only when they matter).
 - `widgets::gauge` and `widgets::live_text`: a box painted from what it
@@ -227,7 +229,10 @@ and the app uses them with its one `Message`, so nothing is mapped:
   `controls::heading` a popup's heading; `controls::choices` a row of
   choices, one picked; `controls::Check` and `Look::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
-- `widgets::Hover`: a layer shown over its child only under the pointer.
+- `widgets::Hover`: a layer shown over its child only under the pointer,
+  over a shade of its own if it's given one (`shade`), drawn a pixel past
+  the child and cut back by the layer's edge, so the child's last row keeps
+  it.
 - `widgets::Selectable`: text that selects on its own, as a read-only
   field does (a profile's name and username): a press and drag select,
   a double press a word and a triple the line (a drag after either goes
@@ -264,8 +269,8 @@ and the app uses them with its one `Message`, so nothing is mapped:
   box, "Press a key..." while recording), `field` (a form's text field),
   `entry` (a single-line field 40 px tall), `area` (a text several
   lines high with what's left of it),
-  `colour_row` (a swatch, its name and its hex), `colour_card` (a
-  colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
+  `colour_row` (a swatch, with an optional `picker` popover, its name and its
+  hex), `colour_card` (a colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
   `mark`. The `Unsaved` bar is an editor's bar once something changed, which

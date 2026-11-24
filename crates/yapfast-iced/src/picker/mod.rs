@@ -303,6 +303,9 @@ impl Picker {
                 Task::none()
             }
             Event::Pressed => Task::none(),
+            // Ctrl+E in the search toggles the emoji back off, as Ctrl+E
+            // (`shortcuts`) does elsewhere.
+            Event::Field(field::Event::Emoji) if tab == Tab::Emoji => self.ask_close(cx),
             Event::Field(field::Event::Escape) => match tab {
                 Tab::Gifs => self.gifs_escape(cx),
                 _ => self.ask_close(cx),

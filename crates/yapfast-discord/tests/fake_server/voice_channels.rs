@@ -374,3 +374,65 @@ async fn knows_when_voice_channels_calls_started() {
     assert!(snapshot.servers.iter().any(|known| known.id == guild));
     assert_eq!(asked(), serde_json::json!([guild, guild]));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn hidden_voice_channels_show_who_is_in_them() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("hidden_voice_channels_show_who_is_in_them").await;
+    const LEADS_ROOM: &str = "1400000000000000107";
+    // Discord sends a voice channel Alice may not view obfuscated, and who
+    // is in it all the same.
+    let hidden = |snapshot: &Snapshot| {
+        let server = &snapshot.servers[0];
+        let channel = server
+            .voice_channels()
+            .find(|channel| channel.id == LEADS_ROOM)?;
+        let people: Vec<(String, bool, bool)> = snapshot
+            .voice
+            .get(LEADS_ROOM)?
+            .iter()
+            .map(|member| (member.name.clone(), member.muted, member.deafened))
+            .collect();
+        Some((
+            channel.name.clone(),
+            channel.topic.is_none(),
+            channel.marks.access,
+            people,
+        ))
+    };
+    let expected = Some((
+        "No Access".to_owned(),
+        true,
+        Access::Hidden,
+        vec![
+            ("Carol".to_owned(), true, false),
+            ("Dave".to_owned(), true, true),
+        ],
+    ));
+    post_control(server, "/_control/hidden-voice", "");
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        hidden(snapshot).is_some_and(|(_, _, _, people)| people.len() == 2)
+    })
+    .await;
+    assert_eq!(hidden(&snapshot), expected);
+    // As READY sends it, identified again.
+    post_control(server, "/_control/refresh-token", "");
+    timeout(WAIT, async {
+        while control(server, "GET", "/_control/sessions", "") != r#"{"identifies":2,"resumes":0}"#
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the session didn't identify again");
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot.status == Status::Online && hidden(snapshot).is_some()
+    })
+    .await;
+    assert_eq!(hidden(&snapshot), expected);
+}
