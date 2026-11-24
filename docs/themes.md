@@ -348,6 +348,21 @@ them after the built-in ones and Themes shows them under Your themes:
 }
 ```
 
+Besides the colours every theme has, a custom theme can colour two parts
+of the window on its own, by the names a theme package gives them: `pill`,
+the pills beside the rail's tiles (open, pointed at, unread), which a
+package sets as its `pill` colour, and `header`, the ground of the
+conversation's header row, which a package sets as `shape.header.ground`.
+Each follows a colour of the theme until it's set, as a package's extra
+colours follow theirs: the pill the text, the header the chat, whose ground
+then shows under the header as it does for every built-in theme. The colour
+editor lists them after the other colours; while one isn't set, its field
+shows the colour it follows and moves with it, so a new chat moves the
+header and a new text the pills. `layout.json` keeps one only once it's
+set, so a theme saved before they existed, or one that never set them,
+draws as before. Exported (`yapfast theme export`), and in a theme's
+folder, they're written by those package names, over any the folder gives.
+
 `base` is the built-in theme the first copy came from (a copy of a custom
 theme takes its base). Yapfast writes every colour, but a colour that's missing,
 such as one added in a later version, or that isn't a colour, takes the

@@ -1125,6 +1125,7 @@ impl Settings {
             name,
             base,
             theme,
+            parts: Default::default(),
             creator: Some(spec),
             folder: Some(relative),
         };

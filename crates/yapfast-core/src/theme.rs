@@ -658,23 +658,24 @@ pub fn find(id: &str) -> Option<&'static BuiltIn> {
     BUILT_IN.iter().find(|theme| theme.id == id)
 }
 
-/// A theme Appearance offers, built in or the person's own, and its id.
-pub fn lookup<'a>(id: &str, custom: &'a [Custom]) -> Option<(&'a str, Theme)> {
+/// A theme Appearance offers, built in or the person's own, its id, and
+/// the parts it colours on its own (none for a built-in one).
+pub fn lookup<'a>(id: &str, custom: &'a [Custom]) -> Option<(&'a str, Theme, Parts)> {
     find(id)
-        .map(|built_in| (built_in.id, built_in.theme))
+        .map(|built_in| (built_in.id, built_in.theme, Parts::default()))
         .or_else(|| {
             custom
                 .iter()
                 .find(|custom| custom.id == id)
-                .map(|custom| (custom.id.as_str(), custom.theme))
+                .map(|custom| (custom.id.as_str(), custom.theme, custom.parts))
         })
 }
 
-/// The theme a layout chose, and its id: Yap when it chose none, or one
-/// this version doesn't have or the person deleted.
-pub fn chosen<'a>(id: Option<&str>, custom: &'a [Custom]) -> (&'a str, Theme) {
+/// The theme a layout chose, its id and its own parts: Yap when it chose
+/// none, or one this version doesn't have or the person deleted.
+pub fn chosen<'a>(id: Option<&str>, custom: &'a [Custom]) -> (&'a str, Theme, Parts) {
     id.and_then(|id| lookup(id, custom))
-        .unwrap_or((BUILT_IN[0].id, YAP))
+        .unwrap_or((BUILT_IN[0].id, YAP, Parts::default()))
 }
 
 /// A colour's name as `layout.json` has it.
@@ -721,6 +722,45 @@ pub fn hex(colour: Colour) -> String {
     }
 }
 
+/// Parts of the window a custom theme can colour apart from the rest, by the
+/// names a theme package gives the same parts: `pill`, the pills beside the
+/// rail's tiles (a package's colour of that name), and `header`, the ground of
+/// the conversation's header row (a package's `header` surface). Each follows
+/// one of the theme's colours until it's set, as a package's extra colours
+/// follow theirs: the pill the text, the header the chat. Unset, the window
+/// draws them as it does for a built-in theme.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Parts {
+    pub pill: Option<Colour>,
+    pub header: Option<Colour>,
+}
+
+impl Parts {
+    /// Each part's name as `layout.json` writes it, in the order of
+    /// [`Self::own`].
+    pub const TOKENS: [&str; 2] = ["pill", "header"];
+
+    /// The colour of the theme each part follows until it's set, in the
+    /// order of [`Self::TOKENS`].
+    pub const FOLLOWS: [&str; 2] = ["text", "chat"];
+
+    /// Part `index`'s own colour, if the theme sets one.
+    pub fn own(&self, index: usize) -> Option<Option<Colour>> {
+        [self.pill, self.header].get(index).copied()
+    }
+
+    pub fn own_mut(&mut self, index: usize) -> Option<&mut Option<Colour>> {
+        [&mut self.pill, &mut self.header].into_iter().nth(index)
+    }
+
+    /// The colour part `index` shows on `theme`: its own, else the colour
+    /// it follows.
+    pub fn shown(&self, index: usize, theme: &Theme) -> Option<Colour> {
+        self.own(index)?
+            .or_else(|| theme.by_token(Self::FOLLOWS[index]))
+    }
+}
+
 /// One of the person's own themes, as a layout keeps it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Custom {
@@ -731,6 +771,8 @@ pub struct Custom {
     /// any it doesn't name, such as one added since it was saved.
     pub base: &'static str,
     pub theme: Theme,
+    /// The parts it colours on its own; the rest follow its colours.
+    pub parts: Parts,
     /// What the Slint theme creator was told. Keeping it here is required
     /// even before iced exposes every creator control: rewriting
     /// `custom_themes` must never discard an existing creator draft.
@@ -762,12 +804,21 @@ impl From<Stored> for Custom {
         let base = find(&stored.base).unwrap_or(&BUILT_IN[0]);
         let mut theme = base.theme;
         theme.dark = stored.dark.unwrap_or(theme.dark);
+        // A part the theme doesn't name follows the theme's own colour, not
+        // its base's, so a theme saved before it existed looks as it did.
+        let mut parts = Parts::default();
         for (token, text) in &stored.colours {
-            if let (Some(slot), Some(colour)) = (
-                token_index(token).and_then(|index| theme.colour_mut(index)),
-                parse(text),
-            ) {
+            let Some(colour) = parse(text) else {
+                continue;
+            };
+            if let Some(slot) = token_index(token).and_then(|index| theme.colour_mut(index)) {
                 *slot = colour;
+            } else if let Some(slot) = Parts::TOKENS
+                .iter()
+                .position(|part| part == token)
+                .and_then(|index| parts.own_mut(index))
+            {
+                *slot = Some(colour);
             }
         }
         Self {
@@ -775,6 +826,7 @@ impl From<Stored> for Custom {
             name: stored.name,
             base: base.id,
             theme,
+            parts,
             creator: stored.creator,
             folder: stored.folder.filter(|folder| !folder.trim().is_empty()),
         }
@@ -787,6 +839,14 @@ impl From<&Custom> for Stored {
             .iter()
             .enumerate()
             .filter_map(|(index, name)| Some((token(name), hex(custom.theme.colour(index)?))))
+            .chain(
+                Parts::TOKENS
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, part)| {
+                        Some(((*part).to_owned(), hex(custom.parts.own(index)??)))
+                    }),
+            )
             .collect();
         Self {
             id: custom.id.clone(),
@@ -849,6 +909,7 @@ pub struct Start<'a> {
     pub base: &'static str,
     pub name: &'a str,
     pub theme: Theme,
+    pub parts: Parts,
 }
 
 /// What a new theme can start as: every theme Appearance offers, in its
@@ -861,12 +922,14 @@ pub fn starts(custom: &[Custom]) -> impl Iterator<Item = Start<'_>> {
             base: built_in.id,
             name: built_in.name,
             theme: built_in.theme,
+            parts: Parts::default(),
         })
         .chain(custom.iter().map(|custom| Start {
             id: &custom.id,
             base: custom.base,
             name: &custom.name,
             theme: custom.theme,
+            parts: custom.parts,
         }))
 }
 
@@ -899,6 +962,84 @@ mod tests {
             custom.theme
         );
         assert_eq!(chosen(Some("gone"), &[custom]).0, "yap");
+    }
+
+    #[test]
+    fn a_custom_theme_saved_before_its_own_parts_keeps_its_look() {
+        // Plum changed its chat and text, and has no pill or header: they
+        // show its own text and chat, not Nord's.
+        let stored = r##"{"id": "custom:1", "name": "Plum", "base": "nord",
+            "colours": {"chat": "#2a1a3a", "text": "#f0e0ff"}}"##;
+        let custom: Custom = serde_json::from_str(stored).unwrap();
+        assert_eq!(custom.parts, Parts::default());
+        assert_eq!(
+            custom.parts.shown(0, &custom.theme),
+            Some(Colour::rgb(0xf0e0ff))
+        );
+        assert_eq!(
+            custom.parts.shown(1, &custom.theme),
+            Some(Colour::rgb(0x2a1a3a))
+        );
+        let written = serde_json::to_value(&custom).unwrap();
+        assert!(written["colours"].get("pill").is_none(), "still follows");
+        assert!(written["colours"].get("header").is_none(), "still follows");
+    }
+
+    #[test]
+    fn a_custom_themes_own_parts_are_kept_by_a_packages_names() {
+        let stored = r##"{"id": "custom:2", "name": "Frame", "base": "nord",
+            "colours": {"chat": "#000000", "header": "#0a141d", "pill": "#d5a85a"}}"##;
+        let custom: Custom = serde_json::from_str(stored).unwrap();
+        assert_eq!(custom.parts.header, Some(Colour::rgb(0x0a141d)));
+        assert_eq!(custom.parts.pill, Some(Colour::rgb(0xd5a85a)));
+        assert_eq!(
+            chosen(Some("custom:2"), std::slice::from_ref(&custom)).2,
+            custom.parts
+        );
+        let written = serde_json::to_value(&custom).unwrap();
+        assert_eq!(written["colours"]["header"], "#0a141d");
+        assert_eq!(written["colours"]["pill"], "#d5a85a");
+        let again: Custom = serde_json::from_value(written).unwrap();
+        assert_eq!(again, custom);
+    }
+
+    #[test]
+    fn a_part_follows_its_colour_until_its_set() {
+        let mut theme = find("nord").unwrap().theme;
+        let mut parts = Parts::default();
+        theme.text = Colour::rgb(0x112233);
+        theme.chat = Colour::rgb(0x445566);
+        assert_eq!(parts.shown(0, &theme), Some(theme.text));
+        assert_eq!(parts.shown(1, &theme), Some(theme.chat));
+        parts.header = Some(Colour::rgb(0x0a141d));
+        theme.chat = Colour::rgb(0x778899);
+        theme.text = Colour::rgb(0xaabbcc);
+        assert_eq!(
+            parts.shown(0, &theme),
+            Some(theme.text),
+            "the pill still follows"
+        );
+        assert_eq!(parts.shown(1, &theme), Some(Colour::rgb(0x0a141d)));
+        assert_eq!(parts.shown(2, &theme), None);
+    }
+
+    #[test]
+    fn parts_follow_what_a_package_has_them_follow() {
+        use crate::themes::package::{self, art::ArtSurface};
+        for token in Parts::TOKENS {
+            assert_eq!(token_index(token), None, "{token} isn't a palette colour");
+        }
+        // A package's `pill` follows its text, and a bare header shows the
+        // chat's ground.
+        assert!(package::EXTRA_COLOURS.contains(&Parts::TOKENS[0]));
+        assert_eq!(package::follows(Parts::TOKENS[0]), Some(Parts::FOLLOWS[0]));
+        assert_eq!(
+            package::Surface::named(Parts::TOKENS[1]),
+            Some(package::Surface::Header)
+        );
+        assert_eq!(ArtSurface::Header.ground(), Parts::FOLLOWS[1]);
+        // No built-in theme has parts of its own.
+        assert!(starts(&[]).all(|start| start.parts == Parts::default()));
     }
 
     #[test]
