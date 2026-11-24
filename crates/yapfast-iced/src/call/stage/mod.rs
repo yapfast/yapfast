@@ -33,6 +33,18 @@ pub use layout::{
 /// The room a voice channel's stage leaves for the line over it and the
 /// controls under it.
 pub const CONTROLS: f32 = 111.0;
+/// What a tile's name chip takes at its foot, with its margin.
+const CHIP_ROOM: f32 = 40.0;
+/// How wide the Watch stream pill draws, its 13 px bold words and padding.
+const WATCH_PILL: f32 = 112.0;
+
+/// About how wide a tile's name chip draws: 14 px bold, a mark's 20 px each,
+/// LIVE's 44, and its padding. Enough to tell whether Watch stream fits
+/// beside it.
+fn chip_width(name: &str, marks: usize, live: bool) -> f32 {
+    16.0 + name.chars().count() as f32 * 8.5 + marks as f32 * 20.0 + if live { 44.0 } else { 0.0 }
+}
+
 /// The controls' row under the stage: 8 px over the buttons, 16 under.
 const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
 /// The Hide/Show Members capsule (`60 × 32`), 8 px into the strip's top
@@ -86,6 +98,11 @@ pub fn stage_size(app: &App) -> Size {
     if full_shown(app) {
         return app.window;
     }
+    // Banners over the call (the preview's line, a notice) take from its
+    // height, so the size it was last laid out at wins over the sum below.
+    if let Some(seen) = app.call.stage_seen.get() {
+        return seen;
+    }
     // A theme's floating panes stand `gap` in from the window's top and
     // foot.
     let below_header =
@@ -106,6 +123,11 @@ pub fn stage_size(app: &App) -> Size {
 /// The stage's tiles, the one shown large, where each goes, and how tall
 /// they are together.
 pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
+    stage_in(app, stage_size(app))
+}
+
+/// The same on a stage of `size`.
+fn stage_in(app: &App, size: Size) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
     let voice = &app.client.state().voice;
     let stage = Stage::of(voice);
     let slots = stage.slots();
@@ -114,7 +136,7 @@ pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
     let (tiles, content) = tiles(
         slots.len(),
         focused,
-        stage_size(app),
+        size,
         full,
         !full && crate::call::members_hidden(app),
     );
@@ -189,10 +211,13 @@ pub fn place_videos(app: &mut App) {
     }
     // In the window's pixels.
     let scale = app.device_scale();
-    let corner_pixels = (
-        (CORNER.width * scale).round() as u32,
-        (CORNER.height * scale).round() as u32,
-    );
+    let corner_pixels = {
+        let size = crate::call::corner::corner_size(app);
+        (
+            (size.width * scale).round() as u32,
+            (size.height * scale).round() as u32,
+        )
+    };
     for (place, slot) in slots.iter().enumerate() {
         let Slot::Person(index) = *slot else {
             continue;
@@ -355,9 +380,10 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
         bottom: 0.0,
     })
     .height(CONTROLS - CONTROLS_HEIGHT);
-    let size = stage_size(app);
+    // The stage takes the height left between the line and the controls,
+    // so the controls always sit under the tiles, whatever shows above.
     let stage: Element<'_, Message> = if full_shown(app) {
-        Space::new().width(size.width).height(size.height).into()
+        Space::new().width(Length::Fill).height(Length::Fill).into()
     } else {
         stage_view(app)
     };
@@ -383,7 +409,9 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
     } else {
         stage.into()
     };
-    column![line, stage, call_controls(app)].into()
+    column![line, stage, call_controls(app)]
+        .height(Length::Fill)
+        .into()
 }
 
 /// What the line over the stage, or a channel's Join, says of the call.
@@ -492,9 +520,20 @@ fn join_view(app: &App) -> Element<'_, Message> {
 /// than it, with the Hide/Show Members toggle when a tile is focused
 /// beside others.
 pub fn stage_view(app: &App) -> Element<'_, Message> {
-    let size = stage_size(app);
+    if full_shown(app) {
+        return stage_at(app, app.window);
+    }
+    iced::widget::responsive(move |size| {
+        app.call.stage_seen.set(Some(size));
+        stage_at(app, size)
+    })
+    .into()
+}
+
+/// The stage laid out at `size`, the room the window gives it.
+fn stage_at(app: &App, size: Size) -> Element<'_, Message> {
     let full = full_shown(app);
-    let (slots, focused, tiles, content) = stage(app);
+    let (slots, focused, tiles, content) = stage_in(app, size);
     let has_strip = has_strip(app);
     // A click beside the large tile shows the grid again.
     let beside = if focused.is_some() && !full {
@@ -690,7 +729,15 @@ fn stage_tile(
                 // Their picture until their camera's first frame, as
                 // without one; a camera whose frames stop keeps its
                 // last.
-                let side = (size.height * 0.45).min(80.0).round();
+                // On a small tile the picture sits above the name's chip
+                // rather than behind it: the chip's 40 px are left free.
+                let small = size.height < 200.0;
+                let below = if small { CHIP_ROOM } else { 16.0 };
+                let mut side = (size.height * 0.45).min(80.0);
+                if small {
+                    side = side.min(size.height - below - 8.0).max(16.0);
+                }
+                let side = side.round();
                 let opacity = if person.connected { 1.0 } else { 0.5 };
                 let avatar = app.ctx().avatar(
                     person.avatar.as_deref(),
@@ -700,7 +747,7 @@ fn stage_tile(
                     opacity,
                 );
                 let content = container(avatar).center(Length::Fill).padding(Padding {
-                    bottom: 16.0,
+                    bottom: below,
                     ..Padding::ZERO
                 });
                 (content.into(), theme.raised)
@@ -715,6 +762,7 @@ fn stage_tile(
             if person.deafened {
                 marks.push((Icon::HeadphoneOff, theme.danger));
             }
+            let marks_count = marks.len();
             let said = status(person);
             let note =
                 (!matches!(said, "Muted" | "Deafened" | "Speaking" | "Listening")).then_some(said);
@@ -726,7 +774,25 @@ fn stage_tile(
             if person.local && voice.camera_phase == voice::CameraPhase::Starting {
                 tile = tile.top_left(tile::pill("Starting camera...", GLASS, Color::WHITE));
             }
-            if streams_here && !watched {
+            if streams_here && !watched && size.height < 200.0 {
+                // A small tile keeps its picture where its neighbours' are:
+                // Watch stream goes on the chip's line, opposite it, or as
+                // its icon alone where both don't fit.
+                let chip = chip_width(&person.user, marks_count, live);
+                let room = size.width - 2.0 * 10.0 - 8.0;
+                let corner: Element<'_, Message> = if room >= chip + WATCH_PILL {
+                    // As tall as the chip, so the two share its line.
+                    tile::pill("Watch stream", theme.danger, theme.on_danger)
+                } else {
+                    tile::glass_button(
+                        app.look(),
+                        Icon::Eye,
+                        "Watch stream",
+                        Message::Call(Event::Watch(person.id.clone())),
+                    )
+                };
+                tile = tile.bottom_right(corner);
+            } else if streams_here && !watched {
                 tile = tile.top_right(tile::pill("Watch stream", theme.danger, theme.on_danger));
             }
             tile

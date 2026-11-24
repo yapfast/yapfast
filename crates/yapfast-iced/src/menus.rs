@@ -277,10 +277,10 @@ impl MenuRow {
 /// A submenu's width, the composer's menu's.
 pub const SUB_WIDTH: f32 = FIELD_WIDTH;
 /// Between a menu and its submenu.
-const SUB_GAP: f32 = 4.0;
+pub(crate) const SUB_GAP: f32 = 4.0;
 /// A menu's padding, which lifts a submenu so its first row is level with
 /// the row that opened it.
-const PAD: f32 = 9.0;
+pub(crate) const PAD: f32 = 9.0;
 
 /// What's done in the open menu, its submenu and a message's hover bar.
 #[derive(Clone, Debug)]

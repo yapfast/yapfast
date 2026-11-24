@@ -1,6 +1,7 @@
 //! What opens from the call's controls, above the control: the device menus
-//! (with the microphone's level and noise suppression), the share menu, the
-//! soundboard; and someone's voice menu, their volumes over their rows.
+//! (with the microphone's level and noise suppression), the share menu
+//! (with a setting's choices beside it), the soundboard; and someone's
+//! voice menu, their volumes over their rows.
 
 use std::borrow::Cow;
 
@@ -97,8 +98,13 @@ pub fn close_popup(app: &mut App) {
 }
 
 /// The popup open from a control, above it.
-pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
+pub fn call_popup_view<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    window_width: f32,
+) -> Option<Element<'a, Message>> {
     let popup = ctx.call.popup?;
+    // A setting's choices beside the share menu.
+    let mut beside = None;
     let (panel, width) = match popup {
         Popup::Input => (
             crate::call::popups::device::device_menu(ctx, true),
@@ -110,11 +116,13 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         ),
         Popup::Share => {
             let share = ctx.call.share.as_ref()?;
-            let width = if share.screens.is_empty() {
+            let width = if share.screens.is_empty() && share.windows.is_empty() {
                 SHARE_NARROW
             } else {
                 SHARE_WIDE
-            };
+            }
+            .min((window_width - 16.0).max(48.0));
+            beside = crate::call::popups::share::side_list(ctx, share);
             (
                 crate::call::popups::share::share_menu(ctx, share, width),
                 width,
@@ -139,21 +147,43 @@ pub fn call_popup_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         }
     };
     let spot = ctx.call.spot.get();
-    let panel = container(panel)
+    let at = Point::new(spot.x - 6.0, spot.y - 6.0);
+    let mut place =
+        Place::new(opaque(popup_panel(ctx, panel, width)), at, 8.0).anchor(Anchor::Bottom);
+    // They stand beside their row as a menu's submenu beside its: on the
+    // right, or the left without room, and the menu doesn't move for them.
+    if let Some((list, width, row)) = beside {
+        // Through the outline, where the theme draws one, and the panel
+        // to the menu's parts.
+        let mut path = Vec::from_iter(ctx.look.theme.outline("menu").map(|_| 0));
+        path.push(0);
+        path.extend(row);
+        place = place.beside(
+            opaque(popup_panel(ctx, list, width)),
+            path,
+            crate::menus::PAD,
+            crate::menus::SUB_GAP,
+        );
+    }
+    Some(place.into())
+}
+
+/// A popup's panel, `width` wide.
+fn popup_panel<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    content: Element<'a, Message>,
+    width: f32,
+) -> Element<'a, Message> {
+    let panel = container(content)
         .width(width)
         .style(menu_panel(ctx.look.theme));
-    let panel = crate::controls::themed_outline(
+    crate::controls::themed_outline(
         panel,
         ctx.look.theme,
         "menu",
         ctx.look.theme.menu_line,
         1.0,
         8.0,
-    );
-    Some(
-        Place::new(opaque(panel), Point::new(spot.x - 6.0, spot.y - 6.0), 8.0)
-            .anchor(Anchor::Bottom)
-            .into(),
     )
 }
 

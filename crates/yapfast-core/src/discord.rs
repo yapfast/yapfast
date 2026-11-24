@@ -2899,21 +2899,39 @@ mod tests {
                     _ => access(Access::Join),
                 },
             )],
-            voice: [(
-                "11".to_owned(),
-                vec![yapfast_discord::service::VoiceMember {
-                    user_id: "2".into(),
-                    name: "Ann".into(),
-                    avatar: "ann.png".into(),
-                    muted: true,
-                    deafened: false,
-                    streaming: true,
-                    video: false,
-                    elsewhere: false,
-                    server_muted: false,
-                    server_deafened: false,
-                }],
-            )]
+            voice: [
+                (
+                    "11".to_owned(),
+                    vec![yapfast_discord::service::VoiceMember {
+                        user_id: "2".into(),
+                        name: "Ann".into(),
+                        avatar: "ann.png".into(),
+                        muted: true,
+                        deafened: false,
+                        streaming: true,
+                        video: false,
+                        elsewhere: false,
+                        server_muted: false,
+                        server_deafened: false,
+                    }],
+                ),
+                // Discord sends who is in a hidden voice channel too.
+                (
+                    "13".to_owned(),
+                    vec![yapfast_discord::service::VoiceMember {
+                        user_id: "3".into(),
+                        name: "Bea".into(),
+                        avatar: "bea.png".into(),
+                        muted: false,
+                        deafened: true,
+                        streaming: false,
+                        video: false,
+                        elsewhere: false,
+                        server_muted: false,
+                        server_deafened: false,
+                    }],
+                ),
+            ]
             .into(),
             ..Default::default()
         };
@@ -2957,6 +2975,13 @@ mod tests {
         );
         let (rooms, _) = index(&snapshot, true);
         assert!(rooms.len() == 6 && rooms[2].locked && rooms[5].locked);
+        // A hidden voice channel lists who is in it, as a voice channel
+        // does, though it can't be joined.
+        assert_eq!(rooms[5].id, "discord:10:13");
+        assert!(rooms[5].voice && rooms[5].join_locked);
+        assert_eq!(rooms[5].people.len(), 1);
+        assert_eq!(rooms[5].people[0].name, "Bea");
+        assert!(rooms[5].people[0].deafened && rooms[5].members == 1);
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
     }

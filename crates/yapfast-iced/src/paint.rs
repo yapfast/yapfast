@@ -21,31 +21,50 @@ use crate::{fonts::TWEMOJI, looks::NameLook};
 /// which stands 5 px taller (its picture is 16 by 21, drawn 5 px higher),
 /// and offline's `faint` dot with a hole, which invisible shows too. Where
 /// offline shows no dot (lists of members), the caller leaves it off.
-pub fn status_dot(presence: Presence, ring: u32, live: u32, faint: u32) -> Option<Canvas> {
+/// Drawn at `scale` window pixels to the view's unit (the display's scale
+/// times the zoom), to be shown at its 16 units.
+pub fn status_dot(
+    presence: Presence,
+    ring: u32,
+    live: u32,
+    faint: u32,
+    scale: f32,
+) -> Option<Canvas> {
     let ring = Ink(ring, 1.0);
+    let pixels = |units: u32| crate::pictures::window_pixels(units, scale);
+    // Each length in the dot's own 16 units, at the canvas's pixels.
+    let sx = |units: f32| units * pixels(16) as f32 / 16.0;
     if presence == Presence::Mobile {
-        let mut canvas = Canvas::new(16, 21);
-        canvas.rounded(0.0, 0.0, 16.0, 21.0, 4.0, ring);
-        canvas.rounded(3.0, 3.0, 10.0, 15.0, 2.0, Ink(live, 1.0));
-        canvas.rounded(5.0, 5.0, 6.0, 9.0, 1.0, ring);
-        canvas.circle(7.0, 15.0, 2.0, ring);
+        let mut canvas = Canvas::new(pixels(16), pixels(21));
+        let sy = |units: f32| units * pixels(21) as f32 / 21.0;
+        canvas.rounded(0.0, 0.0, sx(16.0), sy(21.0), sx(4.0), ring);
+        canvas.rounded(
+            sx(3.0),
+            sy(3.0),
+            sx(10.0),
+            sy(15.0),
+            sx(2.0),
+            Ink(live, 1.0),
+        );
+        canvas.rounded(sx(5.0), sy(5.0), sx(6.0), sy(9.0), sx(1.0), ring);
+        canvas.circle(sx(7.0), sy(15.0), sx(2.0), ring);
         return Some(canvas);
     }
-    let mut canvas = Canvas::new(16, 16);
-    canvas.circle(0.0, 0.0, 16.0, ring);
+    let mut canvas = Canvas::new(pixels(16), pixels(16));
+    canvas.circle(0.0, 0.0, sx(16.0), ring);
     match presence {
-        Presence::Online => canvas.circle(3.0, 3.0, 10.0, Ink(live, 1.0)),
+        Presence::Online => canvas.circle(sx(3.0), sx(3.0), sx(10.0), Ink(live, 1.0)),
         Presence::Idle => {
-            canvas.circle(2.0, 2.0, 12.0, Ink(0xf0b232, 1.0));
-            canvas.circle(1.0, 1.0, 7.0, ring);
+            canvas.circle(sx(2.0), sx(2.0), sx(12.0), Ink(0xf0b232, 1.0));
+            canvas.circle(sx(1.0), sx(1.0), sx(7.0), ring);
         }
         Presence::DoNotDisturb => {
-            canvas.circle(3.0, 3.0, 10.0, Ink(0xf23f43, 1.0));
-            canvas.rounded(5.0, 7.0, 6.0, 2.0, 1.0, ring);
+            canvas.circle(sx(3.0), sx(3.0), sx(10.0), Ink(0xf23f43, 1.0));
+            canvas.rounded(sx(5.0), sx(7.0), sx(6.0), sx(2.0), sx(1.0), ring);
         }
         Presence::Offline => {
-            canvas.circle(3.0, 3.0, 10.0, Ink(faint, 1.0));
-            canvas.circle(6.0, 6.0, 4.0, ring);
+            canvas.circle(sx(3.0), sx(3.0), sx(10.0), Ink(faint, 1.0));
+            canvas.circle(sx(6.0), sx(6.0), sx(4.0), ring);
         }
         Presence::Mobile => return None,
     }
@@ -563,7 +582,7 @@ mod tests {
 
     #[test]
     fn a_presence_dot_is_drawn_for_each_presence() {
-        let mobile = status_dot(Presence::Mobile, 0, LIVE_TEST, 0).expect("drawn");
+        let mobile = status_dot(Presence::Mobile, 0, LIVE_TEST, 0, 1.0).expect("drawn");
         assert_eq!((mobile.width, mobile.height), (16, 21));
         for presence in [
             Presence::Online,
@@ -571,9 +590,24 @@ mod tests {
             Presence::DoNotDisturb,
             Presence::Offline,
         ] {
-            let dot = status_dot(presence, 0, LIVE_TEST, 0).expect("drawn");
+            let dot = status_dot(presence, 0, LIVE_TEST, 0, 1.0).expect("drawn");
             assert_eq!((dot.width, dot.height), (16, 16));
         }
+    }
+
+    #[test]
+    fn a_presence_dot_is_drawn_at_the_windows_pixels() {
+        // At 110%, 16 units span 17.6 pixels and 21 span 23.1.
+        let dot = status_dot(Presence::Online, 0, LIVE_TEST, 0, 1.1).expect("drawn");
+        assert_eq!((dot.width, dot.height), (18, 18));
+        let mobile = status_dot(Presence::Mobile, 0, LIVE_TEST, 0, 1.1).expect("drawn");
+        assert_eq!((mobile.width, mobile.height), (18, 23));
+        // The ring still reaches the edges and the middle is the live green.
+        let alpha = |x: u32, y: u32| dot.pixels[((y * dot.width + x) * 4 + 3) as usize];
+        assert!(alpha(9, 0) > 200);
+        assert_eq!(alpha(0, 0), 0);
+        let middle = ((9 * dot.width + 9) * 4) as usize;
+        assert_eq!(dot.pixels[middle..middle + 3], [0x7e, 0xcf, 0x3e]);
     }
 
     const LIVE_TEST: u32 = 0x3ecf7e;

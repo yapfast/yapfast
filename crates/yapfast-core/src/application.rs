@@ -40,6 +40,7 @@ mod messages;
 mod mfa;
 mod new_post;
 mod oauth;
+mod peek;
 mod place_search;
 mod places;
 mod polls;
@@ -264,6 +265,15 @@ impl NewDm {
 pub struct Pins {
     pub room: String,
     /// The latest pinned first; `None` while they're on their way.
+    pub messages: Option<Result<Vec<ChatMessage>, String>>,
+}
+
+/// A room's newest messages, peeked at without opening or reading it, while
+/// the peek shows. They go when it closes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Peek {
+    pub room: String,
+    /// Oldest first; `None` while they're on their way.
     pub messages: Option<Result<Vec<ChatMessage>, String>>,
 }
 
@@ -768,6 +778,9 @@ pub struct AppState {
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
     pub pins: Option<Pins>,
+    /// The room peeked at, and its newest messages once they came, while
+    /// the peek shows.
+    pub peek: Option<Peek>,
     pub search: Option<Search>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
@@ -1317,18 +1330,14 @@ impl AppState {
     }
 
     /// Who and what a message in the selected room may mention: its members, those
-    /// found by name and those who wrote lately, then its roles and groups. This
-    /// account isn't one of them.
+    /// found by name and those who wrote lately, this account among them as
+    /// in Discord's client, then its roles and groups.
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
         };
         let on_discord = Network::of(room) == Network::Discord;
-        let mut seen: HashSet<String> = [&self.discord_user, &self.account]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut candidates = Vec::new();
         let listed = self
             .members
@@ -1977,6 +1986,9 @@ pub enum Action {
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
     ShowPins(bool),
+    /// Peek at a room's newest messages without opening or reading it, as
+    /// holding Alt over it in the channel list asks, or stop.
+    Peek(Option<String>),
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -3734,6 +3746,7 @@ impl Application {
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
+            Action::Peek(room) => self.peek(room),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -4513,6 +4526,12 @@ impl Application {
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
+            Event::ProfilePresence {
+                user,
+                presence,
+                activity,
+                activities,
+            } => self.show_profile_presence(&user, presence, activity, activities),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -4552,6 +4571,7 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
+            Event::Peeked { room, result } => self.peeked(room, result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),

@@ -441,6 +441,8 @@ const LOUNGE = "1400000000000000103";
 // A bot makes a room for whoever joins Create Room and moves them there.
 const CREATE_ROOM = "1400000000000000104";
 const ALICES_ROOM = "1400000000000000105";
+// The Leads' voice channel, hidden from Alice; see /_control/hidden-voice.
+const LEADS_ROOM = "1400000000000000107";
 // #ideas, a forum: its posts are threads.
 const FORUM = "1400000000000000106";
 const MODS = "1400000000000000110";
@@ -2509,6 +2511,7 @@ function guildChannels(): GuildChannel[] {
     channel(LOUNGE, "Lounge", 2, 1, CATEGORY),
     channel(CREATE_ROOM, "Create Room", 2, 2, CATEGORY),
     ...(roomMade ? [channel(ALICES_ROOM, "Alice's room", 2, 3, CATEGORY)] : []),
+    ...(leadsRoomMade ? [leadsRoom()] : []),
     ...rooms.map((id, n) => channel(id, `room-${n + 1}`, 0, 2 + n, CATEGORY)),
     ...madeChannels.values(),
   ]
@@ -3657,6 +3660,27 @@ function endStream(key: string, reason: string) {
 
 /** Whether the bot made Alice's room. */
 let roomMade = false;
+
+// POST /_control/hidden-voice makes the Leads' voice channel, which only
+// Leads see, and moves Carol and Dave into it from the Lounge. Alice isn't a
+// Lead, so Discord sends it to her as it sends a channel she may not view:
+// with the OBFUSCATED flag (1 << 17), its name and topic as "___hidden___",
+// and who is in it all the same, in READY's voice states and
+// VOICE_STATE_UPDATE. POST /_control/voice-reset moves them back.
+let leadsRoomMade = false;
+
+/** The Leads' voice channel, as Discord sends it to Alice. */
+function leadsRoom() {
+  return {
+    ...guildChannel(LEADS_ROOM, "___hidden___", 2, 4, CATEGORY),
+    flags: bit(17),
+    topic: "___hidden___",
+    permission_overwrites: [
+      { id: GUILD, type: 0, allow: "0", deny: String(bit(10)) },
+      { id: LEADS, type: 0, allow: String(bit(10)), deny: "0" },
+    ],
+  };
+}
 
 /** The bot moves Alice from Create Room to her own room, making it the first
  *  time, which puts her call on another voice server. */
@@ -9089,6 +9113,20 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
     if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
+    if (req.method === "POST" && path === "/_control/hidden-voice") {
+      if (!leadsRoomMade) {
+        leadsRoomMade = true;
+        dispatch("CHANNEL_CREATE", guildChannels().find((made) => made.id === LEADS_ROOM));
+      }
+      for (const user of [users.carol.id, users.dave.id]) {
+        const before = voice.get(user);
+        if (!before) continue;
+        voice.set(user, { ...before, guild: GUILD, channel: LEADS_ROOM });
+        moved(user, before, origin);
+      }
+      syncVoiceStarted();
+      return new Response("Carol and Dave are in the Leads' hidden voice channel\n");
+    }
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.
@@ -9331,7 +9369,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/gateway-reconnect") {
       // Discord's op 7: the client should drop the connection and resume.
-      for (const ws of sockets) if (ws.data.identified) send(ws, 7, null);
+      for (const ws of sockets) {
+        if (!ws.data.identified) continue;
+        // Later dispatches belong to the replay, even before the old socket closes.
+        parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+        ws.data.identified = false;
+        send(ws, 7, null);
+      }
       return new Response("asked gateways to reconnect\n");
     }
     if (req.method === "POST" && path === "/_control/refresh-token") {

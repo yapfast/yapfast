@@ -75,18 +75,22 @@ pub fn watched(layout: &Layout) -> Vec<Watched> {
             action: Action::PushToTalk,
             keys: keys.clone(),
         });
-    let others = layout.keybinds.iter().filter_map(|binding| {
-        let keys = binding.keys.clone()?;
-        match binding.action {
-            Action::Unassigned => None,
-            Action::PushToTalk if !talking => None,
-            action => Some(Watched {
-                id: binding.shortcut_id(),
-                action,
-                keys,
-            }),
-        }
-    });
+    let others = layout
+        .keybinds
+        .iter()
+        .filter(|binding| binding.enabled)
+        .filter_map(|binding| {
+            let keys = binding.keys.clone()?;
+            match binding.action {
+                Action::Unassigned => None,
+                Action::PushToTalk if !talking => None,
+                action => Some(Watched {
+                    id: binding.shortcut_id(),
+                    action,
+                    keys,
+                }),
+            }
+        });
     talk.chain(others).collect()
 }
 
@@ -254,7 +258,7 @@ pub fn window_talk_keys() -> iced::Subscription<Message> {
 }
 
 /// [`scancode`], the last key's kept, as it searches winit's table.
-fn known_scancode(physical: key::Physical) -> Option<u32> {
+pub(crate) fn known_scancode(physical: key::Physical) -> Option<u32> {
     static LAST: Mutex<Option<(key::Physical, Option<u32>)>> = Mutex::new(None);
     let mut last = LAST
         .lock()

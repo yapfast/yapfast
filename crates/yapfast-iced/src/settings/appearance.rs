@@ -4,8 +4,8 @@
 //! Cancel puts the theme from before back. See docs/themes.md.
 
 use iced::{
-    Alignment, Border, Color, Element, Length,
-    widget::{Space, button, column, container, row, stack, text},
+    Alignment, Border, Color, Element, Length, Task,
+    widget::{Id, Space, button, column, container, operation, row, stack, text},
 };
 use yapfast_core::{
     application::Action,
@@ -16,18 +16,21 @@ use yapfast_core::{
 use super::{Drop, Event as SettingsEvent, Page, Section, Settings, theme_marketplace};
 use crate::{
     app::Message,
-    controls::{Kind, action, lights, placed},
+    controls::{self, Kind, action, lights, placed},
     ctx::{Cx, Pref as Shown, Request},
     fonts::{BOLD, MEDIUM},
     form::{self, switch},
     pictures::Icon,
     themes::color,
+    widgets::{ColourPad, Hsv, hsv_rgb, rgb_hsv},
 };
 
 /// A theme's tile: at least this wide, this tall, this far apart.
 const TILE: f32 = 150.0;
 const TILE_HEIGHT: f32 = 124.0;
 const TILE_GAP: f32 = 12.0;
+/// The open colour picker's code field.
+pub(crate) const COLOUR_CODE: &str = "theme-colour-code";
 
 /// The theme editor while it's open: the theme as edited, each colour's
 /// text and whether it's wrong, its name, and what it started from.
@@ -36,14 +39,22 @@ pub struct Editor {
     pub editing: Option<String>,
     pub base: &'static str,
     pub theme: palette::Theme,
+    /// The parts it colours on its own. One not set follows its colour, so
+    /// a new chat or text colour moves it too until it's given its own.
+    pub parts: palette::Parts,
     pub name: String,
-    /// Each colour's field, in `Theme::NAMES`' order: its name as
-    /// `layout.json` has it, its text and whether it's a colour.
+    /// Each colour's field, in `Theme::NAMES`' order and then the parts' in
+    /// `Parts::TOKENS`': its name as `layout.json` has it, its text and
+    /// whether it's a colour.
     pub fields: Vec<(String, String, bool)>,
     /// The theme a new one started as, among `palette::starts`.
     pub start: usize,
     /// Delete was pressed once; the next press deletes.
     pub confirming: bool,
+    /// Which colour's picker is open (by index in `fields`), and its HSV
+    /// while open so hue isn't lost on grey or black.
+    pub picker: Option<usize>,
+    pub hsv: Hsv,
 }
 
 impl Editor {
@@ -51,16 +62,20 @@ impl Editor {
         editing: Option<String>,
         base: &'static str,
         theme: palette::Theme,
+        parts: palette::Parts,
         name: String,
     ) -> Self {
         let mut editor = Self {
             editing,
             base,
             theme,
+            parts,
             name,
             fields: Vec::new(),
             start: 0,
             confirming: false,
+            picker: None,
+            hsv: [0.0; 3],
         };
         editor.fill();
         editor
@@ -70,15 +85,57 @@ impl Editor {
     fn fill(&mut self) {
         self.fields = palette::Theme::NAMES
             .iter()
+            .map(|name| palette::token(name))
+            .chain(palette::Parts::TOKENS.iter().map(|&part| part.to_owned()))
             .enumerate()
-            .filter_map(|(index, name)| {
-                Some((
-                    palette::token(name),
-                    palette::hex(self.theme.colour(index)?),
-                    false,
-                ))
-            })
+            .filter_map(|(index, token)| Some((token, palette::hex(self.colour(index)?), false)))
             .collect();
+    }
+
+    /// Field `index`'s colour as the window shows it: a part not set shows
+    /// the colour it follows.
+    fn colour(&self, index: usize) -> Option<palette::Colour> {
+        match index.checked_sub(palette::Theme::NAMES.len()) {
+            None => self.theme.colour(index),
+            Some(part) => self.parts.shown(part, &self.theme),
+        }
+    }
+
+    /// Gives field `index` `colour`; a part takes it as its own. Returns
+    /// whether the window's colours changed.
+    fn set(&mut self, index: usize, colour: palette::Colour) -> bool {
+        if self.colour(index) == Some(colour) {
+            return false;
+        }
+        match index.checked_sub(palette::Theme::NAMES.len()) {
+            None => {
+                let Some(slot) = self.theme.colour_mut(index) else {
+                    return false;
+                };
+                *slot = colour;
+                self.follow();
+            }
+            Some(part) => {
+                let Some(slot) = self.parts.own_mut(part) else {
+                    return false;
+                };
+                *slot = Some(colour);
+            }
+        }
+        true
+    }
+
+    /// The fields of the parts not set show the colours they follow.
+    fn follow(&mut self) {
+        let first = palette::Theme::NAMES.len();
+        for part in 0..palette::Parts::TOKENS.len() {
+            if self.parts.own(part) == Some(None)
+                && let Some(colour) = self.parts.shown(part, &self.theme)
+                && let Some(field) = self.fields.get_mut(first + part)
+            {
+                (field.1, field.2) = (palette::hex(colour), false);
+            }
+        }
     }
 
     /// Takes a colour's text as typed: the theme takes it if it's a colour.
@@ -89,13 +146,30 @@ impl Editor {
             return false;
         };
         (field.1, field.2) = (text, parsed.is_none());
-        match (parsed, self.theme.colour_mut(index)) {
-            (Some(colour), Some(slot)) if *slot != colour => {
-                *slot = colour;
-                true
+        if self.picker == Some(index)
+            && let Some(colour) = parsed
+        {
+            let rgb = colour.rgb_part();
+            if rgb != hsv_rgb(self.hsv) {
+                self.hsv = rgb_hsv(rgb);
             }
-            _ => false,
         }
+        parsed.is_some_and(|colour| self.set(index, colour))
+    }
+
+    /// Takes a colour chosen on the picker's pad, preserving the token's
+    /// existing alpha channel (e.g. `#rrggbbaa` tokens like `accent-soft`).
+    /// Returns whether the theme changed.
+    fn pick_hsv(&mut self, index: usize, hsv: Hsv) -> bool {
+        let Some(alpha) = self.colour(index).map(palette::Colour::alpha) else {
+            return false;
+        };
+        let colour = palette::Colour::from_argb((u32::from(alpha) << 24) | hsv_rgb(hsv));
+        let changed = self.set(index, colour);
+        if let Some(field) = self.fields.get_mut(index) {
+            (field.1, field.2) = (palette::hex(colour), false);
+        }
+        changed
     }
 
     fn valid(&self) -> bool {
@@ -124,6 +198,10 @@ pub enum Event {
     Edit(String),
     Start(usize),
     Colour(usize, String),
+    /// Opens or closes a colour's picker (`Some(index)` toggles it, `None` closes).
+    Picker(Option<usize>),
+    /// A colour chosen on the open picker's pad.
+    Hsv(Hsv),
     Dark(bool),
     Name(String),
     Save,
@@ -253,31 +331,34 @@ impl Settings {
                     Some(custom.id.clone()),
                     custom.base,
                     custom.theme,
+                    custom.parts,
                     custom.name.clone(),
                 );
                 self.open_editor(editor, cx);
             }
             Event::Start(index) => {
                 let starts: Vec<_> = palette::starts(&cx.themes.custom)
-                    .map(|start| (start.base, start.theme, copy_name(start.name)))
+                    .map(|start| (start.base, start.theme, start.parts, copy_name(start.name)))
                     .collect();
                 let Some(editor) = self.editor.as_mut() else {
                     return iced::Task::none();
                 };
-                let Some((base, theme, name)) = starts.get(index).cloned() else {
+                let Some((base, theme, parts, name)) = starts.get(index).cloned() else {
                     return iced::Task::none();
                 };
                 // It takes the new start's name too, unless the person
                 // named it.
                 if starts
                     .get(editor.start)
-                    .is_some_and(|before| before.2 == editor.name)
+                    .is_some_and(|before| before.3 == editor.name)
                 {
                     editor.name = name;
                 }
                 editor.base = base;
                 editor.theme = theme;
+                editor.parts = parts;
                 editor.start = index;
+                editor.picker = None;
                 editor.fill();
                 self.open = None;
                 self.show_edited(cx);
@@ -288,6 +369,34 @@ impl Settings {
                     .as_mut()
                     .is_some_and(|editor| editor.edit(index, text));
                 if changed {
+                    self.show_edited(cx);
+                }
+            }
+            Event::Picker(which) => {
+                let Some(editor) = self.editor.as_mut() else {
+                    return Task::none();
+                };
+                self.open = None;
+                match which {
+                    Some(index) if editor.picker != Some(index) => {
+                        if let Some(colour) = editor.colour(index) {
+                            editor.picker = Some(index);
+                            editor.hsv = rgb_hsv(colour.rgb_part());
+                            return operation::focus(Id::new(COLOUR_CODE));
+                        }
+                    }
+                    _ => editor.picker = None,
+                }
+            }
+            Event::Hsv(hsv) => {
+                let Some(editor) = self.editor.as_mut() else {
+                    return Task::none();
+                };
+                let Some(index) = editor.picker else {
+                    return Task::none();
+                };
+                editor.hsv = hsv;
+                if editor.pick_hsv(index, hsv) {
                     self.show_edited(cx);
                 }
             }
@@ -320,6 +429,7 @@ impl Settings {
                     start.id.to_owned(),
                     start.base,
                     start.theme,
+                    start.parts,
                     copy_name(start.name),
                 )
             })
@@ -328,8 +438,8 @@ impl Settings {
             .iter()
             .position(|(id, ..)| id == current)
             .unwrap_or(0);
-        let (_, base, theme, name) = starts[start].clone();
-        let mut editor = Editor::new(None, base, theme, name);
+        let (_, base, theme, parts, name) = starts[start].clone();
+        let mut editor = Editor::new(None, base, theme, parts, name);
         editor.start = start;
         self.open_editor(editor, cx);
     }
@@ -349,7 +459,7 @@ impl Settings {
             return;
         };
         let id = editor.editing.as_deref().unwrap_or("editing");
-        self.preview = Some(crate::themes::theme(id, &editor.theme));
+        self.preview = Some(crate::themes::custom_theme(id, &editor.theme, editor.parts));
         cx.request(Request::Changed(Shown::Theme));
     }
 
@@ -383,6 +493,7 @@ impl Settings {
             Some(saved) => {
                 saved.name = name;
                 saved.theme = editor.theme;
+                saved.parts = editor.parts;
                 saved.id.clone()
             }
             None => {
@@ -392,6 +503,7 @@ impl Settings {
                     name,
                     base: editor.base,
                     theme: editor.theme,
+                    parts: editor.parts,
                     creator: None,
                     folder: None,
                 });
@@ -783,14 +895,9 @@ impl<'a> Page<'a> {
                 form::heading(theme, "EVERY COLOUR"),
                 form::note(
                     theme,
-                    "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it.",
+                    "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",
                 ),
-                super::theme_creator::colour_rows(
-                    theme,
-                    &editor.fields,
-                    &editor.theme,
-                    |index, text| theme_message(Event::Colour(index, text)),
-                ),
+                picker_colour_rows(theme, editor),
             ]));
             column(parts).spacing(24).into()
         };
@@ -935,4 +1042,64 @@ impl<'a> Page<'a> {
         .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
         .view(self.cx.look)
     }
+}
+
+/// The editor's colour rows: `colour_rows` with each swatch opening a colour
+/// picker under it.
+fn picker_colour_rows<'a>(
+    theme: &'a crate::theme::Theme,
+    editor: &'a Editor,
+) -> Element<'a, Message> {
+    iced::widget::responsive(move |size| {
+        let columns = if size.width >= super::theme_creator::TWO_COLUMNS {
+            2
+        } else {
+            1
+        };
+        let per = editor.fields.len().div_ceil(columns);
+        let mut line = row![].spacing(super::theme_creator::COLOUR_GAP);
+        for column_index in 0..columns {
+            let mut cells = column![];
+            for index in column_index * per..((column_index + 1) * per).min(editor.fields.len()) {
+                let (name, hex, wrong) = &editor.fields[index];
+                let shown = editor.colour(index).map_or(Color::TRANSPARENT, color);
+                let open = editor.picker == Some(index);
+                let card = open.then(|| {
+                    let mut code = form::field(theme, COLOUR_CODE, "#rrggbb", hex)
+                        .on_input(move |text| theme_message(Event::Colour(index, text)))
+                        .on_submit(theme_message(Event::Picker(None)));
+                    if *wrong {
+                        code = code.style(controls::field_style(
+                            theme,
+                            Color {
+                                a: 0.16,
+                                ..theme.danger
+                            },
+                            true,
+                        ));
+                    }
+                    form::colour_card(
+                        theme,
+                        ColourPad::new(editor.hsv, |hsv| theme_message(Event::Hsv(hsv))),
+                        code,
+                    )
+                });
+                cells = cells.push(
+                    form::colour_row(theme, name, shown, hex, *wrong, move |text| {
+                        theme_message(Event::Colour(index, text))
+                    })
+                    .picker(
+                        open,
+                        theme_message(Event::Picker(Some(index))),
+                        card,
+                        theme_message(Event::Picker(None)),
+                    ),
+                );
+            }
+            line = line.push(container(cells).width(Length::FillPortion(1)));
+        }
+        line.into()
+    })
+    .height(Length::Shrink)
+    .into()
 }

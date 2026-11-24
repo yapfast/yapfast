@@ -82,6 +82,13 @@ pub struct Layout {
     pub deafen_on_join: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
+    /// Holding Alt over a channel or DM in the sidebar peeks at its newest
+    /// messages; off unless turned on.
+    pub peek_channels: bool,
+    /// The DM list's search is Discord's "Find or start a conversation"
+    /// button, which opens the quick switcher, instead of a filter; off
+    /// unless turned on.
+    pub dm_search_switcher: bool,
     /// DMs pinned to the top of the list, by room id, the first pinned
     /// first.
     pub pinned: Vec<String>,
@@ -98,6 +105,9 @@ pub struct Layout {
     pub members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
+    /// How wide the picture in the window's corner was dragged: the stream
+    /// watched, this account's screen or a camera.
+    pub corner_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,

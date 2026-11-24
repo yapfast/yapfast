@@ -192,6 +192,8 @@ pub struct App {
     pub seen_aside: Option<String>,
     pub drafts: crate::thread::Drafts,
     pub popovers: crate::header_popovers::Popovers,
+    /// The room peeked at while Alt is held over the sidebar.
+    pub peek: crate::peek::Peeking,
     pub modal: crate::bot_modal::Shown,
     pub searching: crate::search::Searching,
     /// The forum's form for a post, as typed (`forum.rs`).
@@ -216,6 +218,8 @@ impl App {
     /// What views read besides their own state.
     /// The theme, icons and room the kit draws with.
     pub fn look(&self) -> crate::look::Look<'_> {
+        // Icons are drawn at the window's pixels, as the zoom has them now.
+        self.win.icons.set_scale(self.device_scale());
         crate::look::Look {
             theme: &self.theme,
             icons: &self.win.icons,
@@ -283,6 +287,7 @@ impl App {
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
+            bar_under_frame: !cfg!(test),
             frame: Size::new(width / zoom, height / zoom),
             ..Default::default()
         };
@@ -353,6 +358,7 @@ impl App {
             seen_aside: None,
             drafts: Default::default(),
             popovers: Default::default(),
+            peek: Default::default(),
             modal: Default::default(),
             searching: Default::default(),
             forum_post: Default::default(),
@@ -533,8 +539,25 @@ impl App {
                 self.person.update(event, &mut cx)
             }
             Message::Dialog(event) => crate::dialogs::update(self, event),
-            Message::Key(key, modifiers) => self.key(key, modifiers),
-            Message::Pressed(key, modifiers, physical) => {
+            Message::Shortcut(shortcut, physical, modifiers) => {
+                if crate::shortcuts::custom_owns(self, physical, modifiers) {
+                    Task::none()
+                } else {
+                    crate::shortcuts::update(self, shortcut)
+                }
+            }
+            Message::Key(key, modifiers) => {
+                let typed = yapfast_iced_kit::field::Typed::of(&key, modifiers);
+                self.key(key, modifiers, typed)
+            }
+            Message::Pressed(key, modifiers, physical, typed) => {
+                // Built-ins have a subscription of their own, including
+                // captured presses. Do not also edit/step a focused message.
+                if self.recording_keybind()
+                    || crate::shortcuts::pressed(&key, physical, modifiers).is_some()
+                {
+                    return Task::none();
+                }
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
                 // A shortcut's letter, where the layout has no Latin ones
                 // (Cyrillic, Greek, Thai), is the key's in a layout that does.
@@ -544,13 +567,13 @@ impl App {
                     }
                     _ => key,
                 };
-                let task = self.key(key, modifiers);
+                let task = self.key(key, modifiers, typed);
                 self.talk_pressed = false;
                 task
             }
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
-                Task::none()
+                crate::peek::follow(self)
             }
             Message::FontsLoaded => Task::none(),
             Message::SystemTheme(mode) => {
@@ -647,6 +670,7 @@ impl App {
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => crate::thread::update(self, event),
             Message::Popover(event) => crate::header_popovers::popover_event(self, event),
+            Message::Peek(event) => crate::peek::update(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.modal.update(event, &mut cx)

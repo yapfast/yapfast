@@ -57,7 +57,7 @@ serde.workspace = true
 serde_json.workspace = true
 # The code Discord's phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false }
-# Discord's captcha page, where xdg-open isn't there.
+# Opens pages where neither xdg-open nor gio is installed.
 webbrowser = "1"
 # The file dialog files to attach are chosen in, through the desktop's
 # portal on Linux.
