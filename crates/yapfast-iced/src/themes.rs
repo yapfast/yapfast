@@ -1069,21 +1069,8 @@ impl Themes {
                     // merge the palette currently edited in layout.json on
                     // top, exactly as the Slint build's export/apply path does.
                     if custom.creator.is_none() {
-                        let colours: Vec<_> = palette::Theme::TOKENS
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(index, token)| {
-                                Some((*token, custom.theme.colour(index)?.argb()))
-                            })
-                            .collect();
-                        files.manifest = package::export_with(
-                            &custom.name,
-                            "",
-                            custom.base,
-                            custom.theme.dark,
-                            &colours,
-                            Some(&files.manifest),
-                        )?;
+                        files.manifest =
+                            package::export_custom(custom, "", Some(&files.manifest))?;
                     }
                     let report = check::check(&files, Strictness::Install);
                     if let Some(reason) = report.reason() {
