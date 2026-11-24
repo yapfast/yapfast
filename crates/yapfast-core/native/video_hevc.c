@@ -24,6 +24,9 @@ struct yapfast_file_hevc *yapfast_file_hevc_new(unsigned threads, const uint8_t 
   if (size < 0 || (size > 0 && !extra)) return NULL;
   struct yapfast_file_hevc *decoder = calloc(1, sizeof *decoder);
   if (!decoder) return NULL;
+  /* This FFmpeg's log, which video.c's quieting of libwebrtc's doesn't
+   * reach: errors only, as hevc.c has it. */
+  av_log_set_level(AV_LOG_ERROR);
   const AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
   decoder->context = codec ? avcodec_alloc_context3(codec) : NULL;
   decoder->packet = av_packet_alloc();
