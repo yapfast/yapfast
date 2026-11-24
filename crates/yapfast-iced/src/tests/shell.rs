@@ -412,6 +412,58 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
 }
 
 #[test]
+fn a_ping_is_direct_when_it_names_this_account_whatever_else_it_names() {
+    use window_bar::{MentionKind, mention_kind};
+    use yapfast_core::{
+        chat::ChatMessage,
+        mention::{Mentioned, Target},
+    };
+    let naming = |targets: &[Target], replies: bool| ChatMessage {
+        mentions_me: true,
+        replies_to_me: replies,
+        mentions: targets
+            .iter()
+            .map(|target| Mentioned {
+                text: "@someone".into(),
+                target: target.clone(),
+                color: None,
+                at: vec![0],
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let me = Some("1");
+    let (alice, bob) = (Target::User("1".into()), Target::User("2".into()));
+    let mods = Target::Role("7".into());
+    let kind = |targets: &[Target], replies| mention_kind(&naming(targets, replies), me);
+    assert_eq!(
+        kind(&[mods.clone(), alice.clone()], false),
+        Some(MentionKind::Direct)
+    );
+    assert_eq!(
+        kind(&[Target::Everyone, alice], false),
+        Some(MentionKind::Direct)
+    );
+    // Naming someone else says nothing: her role pinged her.
+    assert_eq!(
+        kind(&[bob.clone(), mods.clone()], false),
+        Some(MentionKind::Role)
+    );
+    assert_eq!(
+        kind(&[mods, Target::Everyone], false),
+        Some(MentionKind::Everyone)
+    );
+    // A reply that pings her names her nowhere in its text.
+    assert_eq!(kind(&[bob], true), Some(MentionKind::Direct));
+    assert_eq!(kind(&[], true), Some(MentionKind::Direct));
+    let quiet = ChatMessage {
+        mentions: naming(&[Target::User("1".into())], false).mentions,
+        ..Default::default()
+    };
+    assert_eq!(mention_kind(&quiet, me), None, "nothing pinged her");
+}
+
+#[test]
 fn under_the_own_title_bar_clicks_land_on_what_they_point_at() {
     let (mut app, _folder) = preview();
     own_bar(&mut app);

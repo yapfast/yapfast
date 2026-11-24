@@ -268,27 +268,31 @@ impl MentionFilter {
     }
 }
 
-/// What kind of ping a message holds for this account, if any: @everyone
-/// or @here first, then a role, then a direct mention or a reply. A
-/// `#channel` mention names no one, so it counts as none.
-pub fn mention_kind(message: &ChatMessage) -> Option<MentionKind> {
+/// What kind of ping a message holds for this account (`me`, its Discord
+/// user id), if any: a mention of it by name, then @everyone or @here,
+/// then a role. Those name it as the message shows them; a ping its text
+/// doesn't show, as a reply's, counts as direct. A mention of someone
+/// else, or of a role it may lack, says nothing alone: what pinged it is
+/// [`ChatMessage::mentions_me`]. A `#channel` mention names no one.
+pub fn mention_kind(message: &ChatMessage, me: Option<&str>) -> Option<MentionKind> {
     use yapfast_core::mention::Target;
-    let mut role = false;
-    let mut direct = message.replies_to_me;
-    for mentioned in &message.mentions {
-        match mentioned.target {
-            Target::Everyone => return Some(MentionKind::Everyone),
-            Target::Role(_) => role = true,
-            Target::User(_) => direct = true,
-            Target::Channel(_) => {}
-        }
+    if !message.mentions_me && !message.replies_to_me {
+        return None;
     }
-    if role {
-        Some(MentionKind::Role)
-    } else if direct || message.mentions_me {
+    let names = |wanted: fn(&Target, Option<&str>) -> bool| {
+        message
+            .mentions
+            .iter()
+            .any(|mentioned| wanted(&mentioned.target, me))
+    };
+    if names(|target, me| matches!(target, Target::User(user) if Some(user.as_str()) == me)) {
         Some(MentionKind::Direct)
+    } else if names(|target, _| matches!(target, Target::Everyone)) {
+        Some(MentionKind::Everyone)
+    } else if names(|target, _| matches!(target, Target::Role(_))) {
+        Some(MentionKind::Role)
     } else {
-        None
+        Some(MentionKind::Direct)
     }
 }
 
@@ -715,7 +719,7 @@ pub fn inbox_sync(app: &mut App) {
     let mut pinged: Vec<(String, Arc<ChatMessage>, String, String, MentionKind)> = Vec::new();
     if mentions_only {
         for hit in &app.mention_hits {
-            let Some(kind) = mention_kind(&hit.message) else {
+            let Some(kind) = mention_kind(&hit.message, state.discord_user.as_deref()) else {
                 continue;
             };
             if !filter.shows(kind) {
