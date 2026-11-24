@@ -987,33 +987,43 @@ impl<'a> Page<'a> {
         }
         let slots = self.cx.state.plugin_slots.as_deref();
         let showing = self.cx.state.plugin_activity.as_ref();
-        let rows: Vec<Element<'a, Message>> = matching
-            .into_iter()
-            .map(|plugin| {
-                let page = !plugin.settings.schema.settings.is_empty()
-                    || slots.is_some_and(|slots| {
-                        slots
-                            .drawn_by(&plugin.id, yapfast_core::plugins::slots::Slot::SettingsPage)
-                            .is_some()
-                    });
-                let row = installed_row(look, plugin, page);
-                // The activity a plugin shows on the profile, which everyone
-                // sees, is said under it here, where it can be turned off.
-                match showing.filter(|shown| shown.plugin.as_str() == plugin.id) {
-                    Some(shown) => column![
-                        row,
-                        form::note(
-                            theme,
-                            format!("Showing \"{}\" as your activity on Discord", shown.name),
-                        )
-                    ]
-                    .spacing(4)
-                    .into(),
-                    None => row,
-                }
-            })
-            .collect();
-        parts.push(list_card(theme, rows));
+        let row_of = |plugin: &Installed| -> Element<'a, Message> {
+            let page = !plugin.settings.schema.settings.is_empty()
+                || slots.is_some_and(|slots| {
+                    slots
+                        .drawn_by(&plugin.id, yapfast_core::plugins::slots::Slot::SettingsPage)
+                        .is_some()
+                });
+            let row = installed_row(look, plugin, page);
+            // The activity a plugin shows on the profile, which everyone
+            // sees, is said under it here, where it can be turned off.
+            match showing.filter(|shown| shown.plugin.as_str() == plugin.id) {
+                Some(shown) => column![
+                    row,
+                    form::note(
+                        theme,
+                        format!("Showing \"{}\" as your activity on Discord", shown.name),
+                    )
+                ]
+                .spacing(4)
+                .into(),
+                None => row,
+            }
+        };
+        // Plugins that are on come first, under their own heading; the rest
+        // follow in their own group.
+        let (on, off): (Vec<&Installed>, Vec<&Installed>) =
+            matching.into_iter().partition(|plugin| plugin.enabled);
+        for (heading, group) in [("TURNED ON", on), ("TURNED OFF", off)] {
+            if group.is_empty() {
+                continue;
+            }
+            parts.push(form::heading(
+                theme,
+                format!("{heading} \u{b7} {}", group.len()),
+            ));
+            parts.push(list_card(theme, group.into_iter().map(row_of).collect()));
+        }
         parts
     }
 
