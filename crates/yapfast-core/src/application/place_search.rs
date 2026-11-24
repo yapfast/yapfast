@@ -500,6 +500,40 @@ impl AppState {
         found.truncate(FOUND);
         found
     }
+
+    /// What the quick switcher lists under Mentions with nothing searched
+    /// for, as Discord's does after the channels opened lately: the
+    /// conversations that mention this account, other than those
+    /// [`switcher_places`](Self::switcher_places) already lists, most
+    /// mentions first.
+    pub fn switcher_mentions(&self) -> Vec<&ChatRoom> {
+        if self
+            .switcher
+            .as_deref()
+            .is_none_or(|query| !query.trim().is_empty())
+        {
+            return vec![];
+        }
+        let listed = self.switcher_places();
+        let mut mentioned: Vec<&ChatRoom> = self
+            .rooms
+            .iter()
+            .map(Arc::as_ref)
+            .filter(|room| {
+                room.mentions > 0
+                    && !room.locked
+                    && room.category != discord::REQUESTS
+                    && room.category != discord::SPAM
+                    && Some(room.id.as_str()) != self.selected.as_deref()
+                    && !listed
+                        .iter()
+                        .any(|place| matches!(place, Place::Room(known) if known.id == room.id))
+            })
+            .collect();
+        mentioned.sort_by_key(|room| std::cmp::Reverse(room.mentions));
+        mentioned.truncate(FOUND);
+        mentioned
+    }
 }
 
 #[cfg(test)]

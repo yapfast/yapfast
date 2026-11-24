@@ -406,6 +406,7 @@ mod server;
 mod server_dialogs;
 mod settings;
 mod shell;
+mod shortcuts;
 mod signin;
 mod threads;
 mod timeline;

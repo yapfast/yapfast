@@ -1193,7 +1193,7 @@ fn format_notes(notes: &[String]) -> String {
         .join("\n");
     if notes.len() > MOST_NOTES {
         shown += "\nand ";
-        shown += &(notes.len() - MOST_NOTES).to_string();
+        shown.push_str(&(notes.len() - MOST_NOTES).to_string());
         shown += " more";
     }
     shown

@@ -53,7 +53,7 @@ use crate::{
 
 use appearance::Editor;
 #[cfg(test)]
-pub use appearance::Event as ThemeEvent;
+pub(crate) use appearance::{COLOUR_CODE as THEME_COLOUR_CODE, Event as ThemeEvent};
 pub(crate) use font::FontEvent;
 
 /// What a theme editor's change sends.
@@ -324,6 +324,11 @@ impl Settings {
             Event::Search(query) => self.query = query,
             Event::Drop(drop) => {
                 self.open = (self.open != Some(drop)).then_some(drop);
+                if self.open.is_some()
+                    && let Some(editor) = self.editor.as_mut()
+                {
+                    editor.picker = None;
+                }
                 // What opened may show pictures, such as the entrance
                 // sounds' soundboard.
                 cx.touch();
@@ -379,10 +384,15 @@ impl Settings {
         Task::none()
     }
 
-    /// Escape closes an open dropdown, stops recording a key, then closes
-    /// Settings.
+    /// Escape closes an open dropdown or colour picker, stops recording a
+    /// key, then closes Settings.
     pub fn escape(&mut self, cx: &mut Cx<'_>) {
         if self.open.take().is_some() {
+            return;
+        }
+        if let Some(editor) = self.editor.as_mut()
+            && editor.picker.take().is_some()
+        {
             return;
         }
         if self.record.take().is_some() {

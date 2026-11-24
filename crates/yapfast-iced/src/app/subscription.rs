@@ -29,8 +29,13 @@ impl App {
                 key,
                 modifiers,
                 physical_key,
+                text,
                 ..
-            } => Some(Message::Pressed(key, modifiers, physical_key)),
+            } => {
+                let typed =
+                    yapfast_iced_kit::field::Typed::from_key_text(&key, modifiers, text.as_deref());
+                Some(Message::Pressed(key, modifiers, physical_key, typed))
+            }
             keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
@@ -65,10 +70,11 @@ impl App {
             iced::system::theme_changes().map(Message::SystemTheme),
             drops,
             sizes,
-            zooms,
-            crate::window_bar::history_keys(),
             Self::shell_subscription(),
         ];
+        if !self.recording_keybind() {
+            subscriptions.extend([zooms, crate::window_bar::history_keys()]);
+        }
         // `--theme-dev`: its folder looked at twice a second, as Slint's,
         // off the window's thread; a message comes only when it changed.
         if let Some(folder) = self.themes.dev_folder() {
@@ -131,6 +137,7 @@ impl App {
                     keyboard::Key::Character("t".into()),
                     modifiers,
                     physical_key,
+                    None,
                 ))
             }
             _ => None,
@@ -138,7 +145,17 @@ impl App {
         // Ctrl+K opens the quick switcher wherever the keys are, and Ctrl+F
         // or Ctrl+Shift+F goes to the conversation's search, as Discord's
         // binds are: Ctrl+F fills in a server channel's `in:` first.
-        if crate::signin::workspace(self) {
+        if crate::signin::workspace(self) && !self.recording_keybind() {
+            subscriptions.push(iced::event::listen_with(|event, status, _| match event {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    physical_key,
+                    modifiers,
+                    repeat: false,
+                    ..
+                }) => crate::shortcuts::heard(&key, physical_key, modifiers, status),
+                _ => None,
+            }));
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
                     key,
@@ -193,8 +210,9 @@ impl App {
             subscriptions.extend(crate::typing::subscription(self));
         }
         subscriptions.push(crate::away::away_subscription(self));
+        subscriptions.extend(crate::peek::subscription(self));
         subscriptions.push(crate::keybinds::window_talk_keys());
-        if self.call.grab.is_some() {
+        if self.call.grab.is_some() || self.call.resize.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     Some(Message::Call(crate::call::Event::DragTo(position)))

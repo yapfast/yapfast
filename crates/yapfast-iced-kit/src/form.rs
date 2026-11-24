@@ -765,58 +765,144 @@ pub fn colour_card<'a, M: Clone + 'a>(
     )
 }
 
+/// A colour's picker popover on a [`ColourRow`]: whether it's open, what
+/// toggles it, the card shown when open, and what a press outside sends.
+struct ColourPicker<'a, M> {
+    open: bool,
+    toggle: M,
+    card: Option<Element<'a, M>>,
+    close: M,
+}
+
+/// A row of an editor's colours, made with [`colour_row`].
+pub struct ColourRow<'a, M> {
+    theme: &'a Theme,
+    name: &'a str,
+    colour: Color,
+    hex: &'a str,
+    wrong: bool,
+    on_input: Box<dyn Fn(String) -> M + 'a>,
+    picker: Option<ColourPicker<'a, M>>,
+}
+
 /// A colour in an editor: a swatch, its name (with "Not a colour" under it
 /// while its text isn't one), and its hex in a field tinted red while it's
-/// wrong.
+/// wrong. With [`ColourRow::picker`], clicking the swatch opens a popover
+/// under it.
 pub fn colour_row<'a, M: Clone + 'a>(
-    theme: &Theme,
+    theme: &'a Theme,
     name: &'a str,
     colour: Color,
     hex: &'a str,
     wrong: bool,
     on_input: impl Fn(String) -> M + 'a,
-) -> Element<'a, M> {
-    let edge = theme.line;
-    let swatch = container(Space::new())
-        .width(28)
-        .height(28)
-        .style(move |_| container::Style {
-            background: Some(colour.into()),
-            border: crate::style::edge(edge, 6.0),
-            ..Default::default()
-        });
-    let mut words = column![
-        text(name)
-            .size(14)
-            .color(theme.text)
-            .wrapping(text::Wrapping::None)
-    ];
-    if wrong {
-        words = words.push(text("Not a colour").size(12).color(theme.danger));
+) -> ColourRow<'a, M> {
+    ColourRow {
+        theme,
+        name,
+        colour,
+        hex,
+        wrong,
+        on_input: Box::new(on_input),
+        picker: None,
     }
-    let ground = if wrong {
-        Color {
-            a: 0.16,
-            ..theme.danger
+}
+
+impl<'a, M: Clone + 'a> ColourRow<'a, M> {
+    /// Clicking the swatch opens `card` under it; `toggle` flips it and
+    /// `close` runs on a press outside.
+    pub fn picker(mut self, open: bool, toggle: M, card: Option<Element<'a, M>>, close: M) -> Self {
+        self.picker = Some(ColourPicker {
+            open,
+            toggle,
+            card,
+            close,
+        });
+        self
+    }
+
+    pub fn view(self) -> Element<'a, M> {
+        let theme = self.theme;
+        let edge = theme.line;
+        let colour = self.colour;
+        let swatch: Element<'a, M> = match self.picker {
+            Some(picker) => {
+                let (accent, faint) = (theme.accent, theme.faint);
+                let open = picker.open;
+                let face = button(Space::new())
+                    .width(28)
+                    .height(28)
+                    .on_press(picker.toggle)
+                    .style(move |_, status| button::Style {
+                        background: Some(colour.into()),
+                        border: Border {
+                            color: if open {
+                                accent
+                            } else if lights(status) {
+                                faint
+                            } else {
+                                edge
+                            },
+                            width: if open { 2.0 } else { 1.0 },
+                            radius: 6.0.into(),
+                        },
+                        ..Default::default()
+                    });
+                Popover::new(face, picker.card, Side::Below)
+                    .width(Width::Own(COLOUR_CARD))
+                    .gap(6.0)
+                    .outside(picker.close)
+                    .into()
+            }
+            None => container(Space::new())
+                .width(28)
+                .height(28)
+                .style(move |_| container::Style {
+                    background: Some(colour.into()),
+                    border: crate::style::edge(edge, 6.0),
+                    ..Default::default()
+                })
+                .into(),
+        };
+        let mut words = column![
+            text(self.name)
+                .size(14)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None)
+        ];
+        if self.wrong {
+            words = words.push(text("Not a colour").size(12).color(theme.danger));
         }
-    } else {
-        theme.sunken
-    };
-    let field = text_input("", hex)
-        .on_input(on_input)
-        .size(14)
-        .padding(8)
-        .width(116)
-        .style(controls::field_style(theme, ground, true));
-    row![
-        swatch,
-        container(words).width(Length::Fill).clip(true),
-        field
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center)
-    .height(46)
-    .into()
+        let ground = if self.wrong {
+            Color {
+                a: 0.16,
+                ..theme.danger
+            }
+        } else {
+            theme.sunken
+        };
+        let field = text_input("", self.hex)
+            .on_input(self.on_input)
+            .size(14)
+            .padding(8)
+            .width(116)
+            .style(controls::field_style(theme, ground, true));
+        row![
+            swatch,
+            container(words).width(Length::Fill).clip(true),
+            field
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .height(46)
+        .into()
+    }
+}
+
+impl<'a, M: Clone + 'a> From<ColourRow<'a, M>> for Element<'a, M> {
+    fn from(row: ColourRow<'a, M>) -> Self {
+        row.view()
+    }
 }
 
 /// A card on the sidebar's ground, as My account's and About's: 16 px in,

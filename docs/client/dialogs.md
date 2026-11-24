@@ -51,10 +51,9 @@ Escape closes it.
   Max number of uses, starting from the link's, for Generate a new link.
 - Join a Server, from the rail's button or a clicked invite link: the
   field (Join's alone; Enter finds the invite), the server once found
-  with its icon and who is online, how joining goes (looking up, joining,
-  already in it, a captcha or a form to finish in the browser), and Find
-  Invite, Join Server or Open Server; Open the captcha again and Open in
-  browser go through the core to `browser.rs`.
+  with its icon and who is online, whether it is looking the invite up or
+  the account is in the server already, and Find Invite, Join in Browser
+  or Open Server; Join in Browser goes through the core to `browser.rs`.
 - Create channel (Text or Voice) and Create category, in the server or
   the category the menu was for, Duplicate channel with its name to change,
   and Delete channel or category in red, which Delete Channel in the

@@ -47,6 +47,9 @@ pub struct Activity {
     /// When it started and when it ends, in Unix milliseconds.
     pub start: Option<u64>,
     pub end: Option<u64>,
+    /// When Discord was told of it, in Unix milliseconds: a card with no
+    /// start counts from here, as Discord's does.
+    pub created: Option<u64>,
     /// The addresses of its large and small pictures, and what they name.
     pub large_image: Option<Box<str>>,
     pub large_text: Option<Box<str>>,
@@ -58,91 +61,203 @@ pub struct Activity {
     pub link: Option<Box<str>>,
     /// A Hang status's emoji: Unicode, or a custom one as `<:name:id>`.
     pub emoji: Option<Box<str>>,
+    /// Which of its words the line under a name shows, as the activity's
+    /// `status_display_type` says: its name, state or details; none when
+    /// it doesn't say.
+    pub display: Option<Display>,
+    /// The console it's played on, which its card's heading names.
+    pub console: Option<Console>,
+}
+
+/// Which words of an activity the line under a name shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Display {
+    Name,
+    State,
+    Details,
+}
+
+/// A console Discord heads a game's card with: "Playing on Xbox".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Console {
+    Xbox,
+    PlayStation,
 }
 
 impl Activity {
-    /// The line Discord shows under a name for it, as for a member with no
-    /// custom status, such as "Playing Factorio"; none for a Hang status.
+    /// An activity of `kind` named `name` and nothing more, which tests
+    /// and the core's own cards fill in.
+    pub fn new(kind: Kind, name: &str) -> Self {
+        Self {
+            kind,
+            name: name.into(),
+            details: None,
+            state: None,
+            party: None,
+            party_id: None,
+            application_id: None,
+            start: None,
+            end: None,
+            created: None,
+            large_image: None,
+            large_text: None,
+            small_image: None,
+            small_text: None,
+            url: None,
+            link: None,
+            emoji: None,
+            display: None,
+            console: None,
+        }
+    }
+
+    /// The words Discord's client shows for it under a name, beside its
+    /// icon: the game, the stream's title, a Spotify song's artists, or
+    /// what its `status_display_type` picks. None for a Hang status.
+    pub fn short(&self) -> Option<String> {
+        if self.kind == Kind::Hang {
+            return None;
+        }
+        let name = &*self.name;
+        let mut words = match self.kind {
+            Kind::Streaming => self.details.as_deref().unwrap_or(name),
+            _ => name,
+        };
+        match self.display {
+            Some(Display::Name) => words = name,
+            Some(Display::State) => words = self.state.as_deref().unwrap_or(words),
+            Some(Display::Details) => words = self.details.as_deref().unwrap_or(words),
+            None => {}
+        }
+        if self.kind == Kind::Playing {
+            return Some(words.to_owned());
+        }
+        if self.spotify()
+            && let Some(state) = &self.state
+        {
+            return Some(artists(state));
+        }
+        Some(words.to_owned())
+    }
+
+    /// The line Discord shows for it, as the subline's tooltip says it
+    /// and as a member with no custom status is summed up, such as
+    /// "Playing Factorio"; none for a Hang status.
     pub fn line(&self) -> Option<String> {
+        let words = self.short()?;
         Some(match self.kind {
-            Kind::Playing => format!("Playing {}", self.name),
-            Kind::Streaming => format!(
-                "Streaming {}",
-                self.details.as_deref().unwrap_or(&self.name)
-            ),
-            Kind::Listening => format!("Listening to {}", self.name),
-            Kind::Watching => format!("Watching {}", self.name),
-            Kind::Competing => format!("Competing in {}", self.name),
+            Kind::Playing => format!("Playing {words}"),
+            Kind::Streaming => format!("Streaming {words}"),
+            Kind::Listening => format!("Listening to {words}"),
+            Kind::Watching => format!("Watching {words}"),
+            Kind::Competing => format!("Competing in {words}"),
             Kind::Hang => return None,
         })
     }
 
     /// Spotify's song, as Discord's card shows it: titled by the song, then
-    /// by whom and on which album.
+    /// by whom.
     pub fn spotify(&self) -> bool {
         self.kind == Kind::Listening && &*self.name == "Spotify" && self.application_id.is_none()
     }
 
-    /// What Discord heads its card with, such as "Listening to Spotify".
-    pub fn heading(&self) -> String {
-        match self.kind {
-            Kind::Playing => "Playing".into(),
-            Kind::Streaming => "Streaming".into(),
-            Kind::Listening => format!("Listening to {}", self.name),
-            Kind::Watching => "Watching".into(),
-            Kind::Competing => "Competing in".into(),
-            Kind::Hang => "Hanging out".into(),
-        }
+    /// What Discord heads its card with: "Playing", "Listening to Spotify",
+    /// "Watching", or "Competing in" with the name once there are
+    /// details. None for a Hang status, which has no card.
+    pub fn heading(&self) -> Option<String> {
+        let named = |verb: &str| match self.details {
+            Some(_) => format!("{verb} {}", self.name),
+            None => verb.to_owned(),
+        };
+        Some(match self.kind {
+            Kind::Playing => match self.console {
+                Some(Console::Xbox) => "Playing on Xbox".into(),
+                Some(Console::PlayStation) => "Playing on PlayStation".into(),
+                None => "Playing".into(),
+            },
+            Kind::Streaming => match &*self.name {
+                "Twitch" | "YouTube" => format!("Streaming {}", self.name),
+                _ => "Streaming".into(),
+            },
+            Kind::Listening => named("Listening to"),
+            Kind::Watching => named("Watching"),
+            Kind::Competing => named("Competing in"),
+            Kind::Hang => return None,
+        })
     }
 }
 
-/// How the one line under a name shows an activity, as Discord's member list
-/// does: a small icon for its kind, then the custom status after a bullet,
-/// or the activity's own name when there is no custom status.
+/// A Spotify song's artists as Discord lists them: its state's "; "
+/// between names becomes ", ".
+pub fn artists(state: &str) -> String {
+    state.split("; ").collect::<Vec<_>>().join(", ")
+}
+
+/// The activities Discord gives cards and counts on a subline: no Hang
+/// status, and one of each application or name, the first.
+pub fn shown(activities: &[Activity]) -> Vec<&Activity> {
+    let mut shown: Vec<&Activity> = Vec::new();
+    for activity in activities
+        .iter()
+        .filter(|activity| activity.kind != Kind::Hang)
+    {
+        let seen = shown.iter().any(|kept| {
+            (kept.application_id.is_some() && kept.application_id == activity.application_id)
+                || kept.name == activity.name
+        });
+        if !seen {
+            shown.push(activity);
+        }
+    }
+    shown
+}
+
+/// How the one line under a name shows an activity, as Discord's member
+/// list, DM list and account panel do: the first activity's icon, its
+/// words when there's no custom status, how many more there are, then a
+/// bullet before the custom status.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Subline {
-    /// 0 for none, then 1 a controller (playing), 2 a music note
-    /// (listening), 3 a screen (watching), 4 a camera (streaming) and 5 a
-    /// trophy (competing).
+    /// 0 for none, then 1 a controller (playing or competing), 2 a music
+    /// note (listening) and 3 a screen (watching or streaming), all in the
+    /// online green as Discord draws them.
     pub icon: u8,
     /// A bullet follows the icon: the line is a custom status.
     pub bullet: bool,
-    /// What replaces the line, the activity's name; none keeps the line.
+    /// What replaces the line, the activity's own words; none keeps the
+    /// line.
     pub name: Option<String>,
+    /// How many activities there are past the first, shown as "+2".
+    pub more: u8,
 }
 
 /// The [`Subline`] for someone's activities and the line
 /// [`crate::member_list::activity`] wrote for them.
 pub fn subline(activities: &[Activity], line: Option<&str>) -> Subline {
-    let Some(first) = activities
-        .iter()
-        .find(|activity| activity.kind != Kind::Hang)
-    else {
+    let shown = shown(activities);
+    let Some(first) = shown.first() else {
         return Subline::default();
     };
     let icon = match first.kind {
-        Kind::Playing => 1,
+        Kind::Playing | Kind::Competing => 1,
         Kind::Listening => 2,
-        Kind::Watching => 3,
-        Kind::Streaming => 4,
-        Kind::Competing => 5,
+        Kind::Watching | Kind::Streaming => 3,
         Kind::Hang => 0,
     };
-    if line.is_some() && line == first.line().as_deref() {
-        let name = match first.kind {
-            Kind::Streaming => first.details.as_deref().unwrap_or(&first.name),
-            _ => &first.name,
-        };
+    let more = u8::try_from(shown.len() - 1).unwrap_or(u8::MAX);
+    if line.is_none_or(|line| line.is_empty()) || line == first.line().as_deref() {
         Subline {
             icon,
             bullet: false,
-            name: Some(name.to_owned()),
+            name: first.short(),
+            more,
         }
     } else {
         Subline {
             icon,
-            bullet: line.is_some_and(|line| !line.is_empty()),
+            bullet: true,
             name: None,
+            more,
         }
     }
 }
@@ -295,6 +410,18 @@ fn activity(activity: &Value) -> Option<Activity> {
         url: text("url").filter(|url| url.starts_with("https://")),
         link: spotify_link(activity),
         emoji,
+        created: time(&activity["created_at"]),
+        display: match activity["status_display_type"].as_u64() {
+            Some(0) => Some(Display::Name),
+            Some(1) => Some(Display::State),
+            Some(2) => Some(Display::Details),
+            _ => None,
+        },
+        console: match activity["platform"].as_str() {
+            Some("xbox") => Some(Console::Xbox),
+            Some("ps4" | "ps5") => Some(Console::PlayStation),
+            _ => None,
+        },
         application_id,
     })
 }
@@ -460,6 +587,16 @@ mod tests {
 
     use super::*;
 
+    /// Each of `values` read on its own: a presence keeps five.
+    fn one_each(values: &Value) -> Vec<Activity> {
+        values
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|value| activities(&json!([value])).to_vec())
+            .collect()
+    }
+
     #[test]
     fn subline_names_the_activity_without_a_status_and_bullets_a_status() {
         let parsed = activities(&json!([
@@ -471,7 +608,8 @@ mod tests {
             Subline {
                 icon: 1,
                 bullet: false,
-                name: Some("Factorio".into())
+                name: Some("Factorio".into()),
+                more: 0,
             }
         );
         let with = subline(&parsed, Some("IT, AI and Games"));
@@ -480,15 +618,129 @@ mod tests {
             Subline {
                 icon: 1,
                 bullet: true,
-                name: None
+                name: None,
+                more: 0,
             }
         );
-        assert!(!subline(&parsed, None).bullet);
+        assert_eq!(
+            subline(&parsed, None).name.as_deref(),
+            Some("Factorio"),
+            "no custom status: the activity's words"
+        );
         assert_eq!(subline(&[], Some("brb")), Subline::default());
-        let music = activities(&json!([{"type": 2, "name": "Spotify"}]));
-        assert_eq!(subline(&music, Some("Listening to Spotify")).icon, 2);
         let hang = activities(&json!([{"type": 6, "state": "custom", "details": "Chilling"}]));
         assert_eq!(subline(&hang, Some("Chilling")), Subline::default());
+    }
+
+    /// Each kind's icon and words under a name, as Discord's
+    /// ActivityStatus (web module 566903 and 835072) picks them.
+    #[test]
+    fn subline_words_and_icons_follow_discords_activity_status() {
+        let parsed = one_each(&json!([
+            {"type": 0, "name": "Factorio", "details": "Building"},
+            {"type": 1, "name": "Twitch", "details": "Speedrun", "url": "https://twitch.tv/ann"},
+            {"type": 2, "name": "Spotify", "details": "Song", "state": "Ann; Bo"},
+            {"type": 2, "name": "Good Looking", "details": "Baby, I'm high octane"},
+            {"type": 3, "name": "YouTube", "details": "A video"},
+            {"type": 5, "name": "Arena", "details": "Finals"},
+        ]));
+        let words: Vec<_> = parsed
+            .iter()
+            .map(|activity| {
+                (
+                    subline(std::slice::from_ref(activity), None).icon,
+                    activity.short(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            words,
+            [
+                (1, Some("Factorio".into())),
+                (3, Some("Speedrun".into())),
+                (2, Some("Ann, Bo".into())),
+                (2, Some("Good Looking".into())),
+                (3, Some("YouTube".into())),
+                (1, Some("Arena".into())),
+            ]
+        );
+        assert_eq!(parsed[2].line().as_deref(), Some("Listening to Ann, Bo"));
+        assert_eq!(subline(&parsed, None).more, 5, "+5 past the first");
+        let named = one_each(&json!([
+            {"type": 1, "name": "Twitch", "details": "Speedrun", "status_display_type": 0},
+        ]));
+        assert_eq!(
+            named[0].short().as_deref(),
+            Some("Twitch"),
+            "0 asks for the name"
+        );
+        let shown = activities(&json!([
+            {"type": 2, "name": "Music", "details": "Song", "state": "Artist", "status_display_type": 1},
+            {"type": 2, "name": "Music", "details": "Song", "state": "Artist", "status_display_type": 2},
+            {"type": 2, "name": "Music", "details": "Song", "status_display_type": 1},
+        ]));
+        assert_eq!(shown[0].short().as_deref(), Some("Artist"));
+        assert_eq!(shown[1].short().as_deref(), Some("Song"));
+        assert_eq!(
+            shown[2].short().as_deref(),
+            Some("Music"),
+            "no state: the name"
+        );
+        assert_eq!(subline(&shown, None).more, 0, "one card per name");
+    }
+
+    /// The card headings of Discord's web module 770689.
+    #[test]
+    fn headings_name_the_app_only_once_there_are_details() {
+        let parsed = one_each(&json!([
+            {"type": 0, "name": "Halo"},
+            {"type": 0, "name": "Halo", "platform": "xbox"},
+            {"type": 0, "name": "Astro", "platform": "ps5"},
+            {"type": 1, "name": "Twitch", "url": "https://twitch.tv/ann"},
+            {"type": 1, "name": "Mine", "url": "https://twitch.tv/ann"},
+            {"type": 2, "name": "Good Looking", "details": "Baby"},
+            {"type": 2, "name": "Radio"},
+            {"type": 3, "name": "YouTube", "details": "A video"},
+            {"type": 3, "name": "Films"},
+            {"type": 5, "name": "Arena", "details": "Finals"},
+            {"type": 5, "name": "Cup"},
+            {"type": 6, "name": "Hang Status", "state": "chilling"},
+        ]));
+        let headings: Vec<_> = parsed.iter().map(Activity::heading).collect();
+        let want = [
+            Some("Playing"),
+            Some("Playing on Xbox"),
+            Some("Playing on PlayStation"),
+            Some("Streaming Twitch"),
+            Some("Streaming"),
+            Some("Listening to Good Looking"),
+            Some("Listening to"),
+            Some("Watching YouTube"),
+            Some("Watching"),
+            Some("Competing in Arena"),
+            Some("Competing in"),
+            None,
+        ];
+        assert_eq!(
+            headings,
+            want.map(|heading| heading.map(str::to_owned)).to_vec()
+        );
+    }
+
+    #[test]
+    fn shown_leaves_out_hang_and_repeats() {
+        let parsed = activities(&json!([
+            {"type": 6, "name": "Hang Status", "state": "chilling"},
+            {"type": 0, "name": "Halo", "application_id": "1"},
+            {"type": 0, "name": "Halo 2", "application_id": "1"},
+            {"type": 2, "name": "Spotify"},
+            {"type": 2, "name": "Spotify", "details": "Again"},
+        ]));
+        let names: Vec<_> = shown(&parsed)
+            .iter()
+            .map(|activity| &*activity.name)
+            .collect();
+        assert_eq!(names, ["Halo", "Spotify"]);
     }
 
     #[test]
@@ -515,7 +767,8 @@ mod tests {
             game.small_image.as_deref(),
             Some("https://media.discordapp.net/external/a/b.png")
         );
-        assert_eq!(game.heading(), "Playing");
+        assert_eq!(game.heading().as_deref(), Some("Playing"));
+        assert_eq!(game.created, None);
     }
 
     #[test]
@@ -547,7 +800,7 @@ mod tests {
             {"type": 6, "name": "Hang Status", "state": "custom", "details": "Cooking",
              "emoji": {"name": "🍳"}},
         ]));
-        assert_eq!(parsed[0].heading(), "Listening to Spotify");
+        assert_eq!(parsed[0].heading().as_deref(), Some("Listening to Spotify"));
         assert!(parsed[0].spotify());
         assert_eq!(parsed[0].link, None, "a song without its id links nowhere");
         assert_eq!(
@@ -599,6 +852,7 @@ mod tests {
         assert_eq!(icon_application(icon), Some("42"));
         assert_eq!(parsed[0].line().as_deref(), Some("Playing Factorio"));
         assert_eq!(parsed[1].line().as_deref(), Some("Streaming Speedrun"));
+        assert_eq!(parsed[1].heading().as_deref(), Some("Streaming Twitch"));
         assert_eq!(parsed[1].url.as_deref(), Some("https://twitch.tv/ann"));
         assert_eq!(parsed[2].url, None, "only web addresses open");
         let found = json!({"id": "42", "icon": "abc"});
