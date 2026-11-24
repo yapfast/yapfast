@@ -51,8 +51,11 @@
             nasm
           ];
           buildInputs = libraries;
-          # rustc links with its own rust-lld, which skips the Nix ld wrapper
-          # that would put libstdc++'s directory in the binary's runpath.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = pkgs.writeShellScript "yapfast-linker" ''
+            exec ${pkgs.llvmPackages_21.clang}/bin/clang --ld-path=${pkgs.mold}/bin/mold "$@"
+          '';
+          # Keep native libraries available when the linker bypasses the Nix
+          # ld wrapper that would add their directories to the binary's runpath.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";
