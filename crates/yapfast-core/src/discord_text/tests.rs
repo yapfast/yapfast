@@ -1131,72 +1131,7 @@ async fn a_channel_reopened_in_step_with_live_events_asks_for_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
-async fn a_thread_beside_the_open_channel_shows_its_own_pages() {
-    let discord = fake_discord().await;
-    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
-    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
-    let mut channels = Channels::default();
-    let general = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
-    let plans = discord
-        .snapshots()
-        .borrow()
-        .servers
-        .iter()
-        .flat_map(|server| &server.threads)
-        .find(|thread| thread.name == "Plans")
-        .map(|thread| discord::room_id(FAKE_GUILD, &thread.id))
-        .expect("the fake's Plans thread");
-    command(
-        Command::Open(general.clone()),
-        Ok(&discord),
-        &mut channels,
-        &done,
-        &events,
-    );
-    command(
-        Command::Aside(Some(plans.clone())),
-        Ok(&discord),
-        &mut channels,
-        &done,
-        &events,
-    );
-    // What was kept on disk shows at once; the page Discord sends follows.
-    while received.try_recv().is_ok() {}
-    let authors = until(
-        &discord,
-        &mut channels,
-        &done,
-        &mut finished,
-        &mut received,
-        |event| match event {
-            Event::Timeline { room, messages } if *room == plans => Some(
-                messages
-                    .iter()
-                    .map(|message| message.author.clone())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
-        },
-    )
-    .await;
-    assert!(
-        authors.iter().any(|author| author == "Carol"),
-        "{authors:?}"
-    );
-    assert_eq!(channels.open.as_ref().unwrap().room, general);
-    command(
-        Command::Aside(None),
-        Ok(&discord),
-        &mut channels,
-        &done,
-        &events,
-    );
-    assert!(channels.aside.is_none());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
-async fn a_thread_beside_the_open_channel_plays_its_videos() {
+async fn a_thread_beside_the_open_channel_loads_its_page_and_owns_its_video() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -1239,9 +1174,9 @@ async fn a_thread_beside_the_open_channel_plays_its_videos() {
     control.read_to_string(&mut answer).await.unwrap();
     assert!(answer.contains("video posted"), "{answer}");
 
-    chat.command(Command::Open(general), &events);
+    chat.command(Command::Open(general.clone()), &events);
     chat.command(Command::Aside(Some(plans.clone())), &events);
-    let (item, index) = until(
+    let (item, index, has_carol) = until(
         &chat.discord,
         &mut chat.channels,
         &chat.done,
@@ -1254,15 +1189,18 @@ async fn a_thread_beside_the_open_channel_plays_its_videos() {
                         .attachments
                         .iter()
                         .position(|attachment| attachment.video)?;
-                    Some((message.item.clone(), index))
+                    let has_carol = messages.iter().any(|message| message.author == "Carol");
+                    Some((message.item.clone(), index, has_carol))
                 })
             }
             _ => None,
         },
     )
     .await;
-    // A test binary can't be the video's worker, which is no matter here: what
-    // this asks is whether the thread's video was found.
+    assert!(has_carol, "the thread page includes Carol's message");
+    assert_eq!(chat.channels.open.as_ref().unwrap().room, general);
+    // Check that the thread owns a playback session. The video player tests
+    // exercise decoding separately.
     chat.command(
         Command::PlayVideo {
             room: plans.clone(),
@@ -1279,18 +1217,21 @@ async fn a_thread_beside_the_open_channel_plays_its_videos() {
             Event::Video(video) => video,
             _ => None,
         })
-        .expect("the video started");
+        .expect("the video state was published");
     assert_eq!(
         (playing.room.as_str(), playing.item.as_str()),
         (plans.as_str(), item.as_str())
     );
-    assert_ne!(
-        playing.error.as_deref(),
-        Some("This video is no longer available.")
+    assert!(playing.error.is_none(), "{:?}", playing.error);
+    assert!(
+        chat.video.is_some(),
+        "the thread owns an active playback session"
     );
 
     // Closing the thread stops its video.
     chat.command(Command::Aside(None), &events);
+    assert!(chat.channels.aside.is_none());
+    assert_eq!(chat.channels.open.as_ref().unwrap().room, general);
     assert!(chat.video.is_none());
     assert!(
         std::iter::from_fn(|| received.try_recv().ok())
