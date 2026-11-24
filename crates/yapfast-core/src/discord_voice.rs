@@ -654,7 +654,8 @@ pub(crate) async fn call(
                             state.camera_phase = CameraPhase::Off;
                         }
                         Some(Command::StreamAudio(audio)) => {
-                            state.stream_audio = audio;
+                            state.share_audio(audio);
+                            Chosen::write(remembered, state);
                             if let Some(going) = share.as_mut()
                                 && let Err(error) = going.worker.tell(&stream_worker::Control::Audio(audio))
                             {

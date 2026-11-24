@@ -473,6 +473,21 @@ pub fn window_audio(
     }
 }
 
+/// The program each of `windows` belongs to, by its file's name in lower
+/// case (`game.exe`), where the system names it: what an application chosen
+/// for a stream's sound is remembered by, as its windows' ids end with it.
+/// Only Windows names it.
+pub fn window_programs(windows: &[u64]) -> Vec<Option<String>> {
+    #[cfg(all(windows, feature = "discord"))]
+    {
+        platform::window_programs(windows)
+    }
+    #[cfg(not(all(windows, feature = "discord")))]
+    {
+        vec![None; windows.len()]
+    }
+}
+
 #[cfg(feature = "discord")]
 type Hear = Box<dyn FnMut(Heard<'_>) + Send>;
 

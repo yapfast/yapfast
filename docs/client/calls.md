@@ -47,14 +47,27 @@ The call's views and what they do are in `call/`.
   the microphone's level, measured only while the menu shows and read
   as it's drawn, and the
   noise suppression kind.
-- Go Live's menu shows screen and window previews two to a row, followed
-  by the system dialog where supported and the available cameras. The
-  preview worker exits when it finishes or the menu closes. The same
-  scroll area holds audio, resolution, frame rate and encoding, with the
-  action button always in view. Escape, a second click, another popup or
-  leaving the call cancels a pending source listing. While live, audio
-  changes apply immediately. Pick a source and select Switch to change
-  the video.
+- Go Live's menu (`call/popups/share.rs`) lists what to share: screen and
+  window previews two to a row, the system dialog where supported and the
+  available cameras, which scroll past two rows of previews. The preview
+  worker exits when it finishes or the menu closes. Under them, always in
+  view, each setting is one row that names what's chosen (Audio,
+  Resolution, Frame rate), then Higher quality's checkbox and the action
+  button. The pointer on a setting's row, or a click, opens its choices
+  beside the menu, level with the row, the one chosen ticked: a context
+  menu's submenu, placed by the same `Place::beside`, on the right or the
+  left without room. The menu neither moves nor changes size for them.
+  One list shows at a time; a choice is taken and its list closes, as it
+  does with the pointer on Higher quality, a source picked, or Escape,
+  which closes the menu only after. The audio's list scrolls where many
+  windows are open. The audio chosen is the call's at once and is kept
+  for the next start; on Windows an application is kept by its program
+  and found again by a window it has as the menu opens, and everything
+  is shared while it isn't running
+  ([Go Live](../discord/go-live.md)). While live only Audio has a row,
+  and its changes apply immediately; pick a source and select Switch to
+  change the video. Escape, a second click, another popup or leaving the
+  call cancels a pending source listing.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.

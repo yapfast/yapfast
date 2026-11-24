@@ -204,6 +204,9 @@ fn wayland_session(kind: Option<&str>, wayland_display: bool) -> bool {
 pub struct Shareable {
     pub source: Source,
     pub title: String,
+    /// The program a window belongs to, where the system names it
+    /// ([`crate::audio_io::window_programs`]).
+    pub program: Option<String>,
 }
 
 /// What Yapfast can share: the screens, then the windows, unless
@@ -214,6 +217,7 @@ pub fn shareable() -> Vec<Shareable> {
     listed.extend(crate::camera::list().into_iter().map(|device| Shareable {
         source: Source::Camera(device.id),
         title: device.name,
+        program: None,
     }));
     listed
 }
@@ -235,6 +239,7 @@ fn screens_and_windows() -> Vec<Shareable> {
             } else {
                 format!("Screen {}", index + 1)
             },
+            program: None,
         });
     // The console belongs to its host, so libwebrtc lists it as another
     // application's window.
@@ -243,14 +248,22 @@ fn screens_and_windows() -> Vec<Shareable> {
     let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
     #[cfg(not(windows))]
     let console = 0;
-    let windows = sources(DesktopCaptureSourceType::Window)
+    let windows: Vec<(u64, String)> = sources(DesktopCaptureSourceType::Window)
         .into_iter()
         .filter_map(|window| {
             let title = window.title();
-            (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
-                source: Source::Window(window.id()),
-                title,
-            })
+            (!title.trim().is_empty() && window.id() != console).then(|| (window.id(), title))
+        })
+        .collect();
+    let ids: Vec<u64> = windows.iter().map(|(id, _)| *id).collect();
+    let programs = crate::audio_io::window_programs(&ids);
+    let windows = windows
+        .into_iter()
+        .zip(programs)
+        .map(|((id, title), program)| Shareable {
+            source: Source::Window(id),
+            title,
+            program,
         });
     screens.chain(windows).collect()
 }

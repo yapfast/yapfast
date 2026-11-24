@@ -1,4 +1,7 @@
-//! Go Live's menu: screens, windows, cameras, audio and stream quality.
+//! Go Live's menu: the screens, windows and cameras to share, then a row
+//! for each of the stream's settings (its audio, resolution and frame rate)
+//! that names what's chosen and opens its choices beside it, as a context
+//! menu's submenu, so the menu keeps its size and place.
 
 use crate::widgets::scroll_view;
 use std::{
@@ -12,7 +15,7 @@ use std::{
 use iced::{
     Alignment, Border, Element, Length, Padding, Task,
     advanced::image::Handle,
-    widget::{button, column, container, operation, row, text},
+    widget::{button, column, container, mouse_area, operation, row, text},
 };
 use yapfast_core::{
     application::Action,
@@ -23,8 +26,9 @@ use yapfast_core::{
 use crate::call::{Event, Popup};
 use crate::{
     app::{App, Message, NOBODY},
-    controls::{self, Check, heading},
+    controls::{self, Check, Item, Light, heading},
     fonts::BOLD,
+    menus::{PAD, SUB_WIDTH},
     pictures::Icon,
 };
 
@@ -34,6 +38,37 @@ pub(super) const SHARE_NARROW: f32 = 240.0;
 
 /// A preview in the share menu, in pixels.
 const GLANCE: (u32, u32) = (240, 135);
+
+/// The tallest the sources get before they scroll: two rows of screens
+/// or windows and the top of a third.
+const SOURCES_TALLEST: f32 = 400.0;
+/// The tallest a setting's choices get before they scroll, as with many
+/// windows to take the audio from.
+const SIDE_TALLEST: f32 = 400.0;
+/// The line between the sources and the settings, as a menu's separator.
+const SEPARATOR: f32 = 17.0;
+/// Between two of the settings' rows.
+const ROW_GAP: f32 = 2.0;
+/// Higher quality's row, with its second line.
+const TOGGLE: f32 = 44.0;
+/// The settings' rows among the menu's parts: the sources, the line, the
+/// rows, the button.
+const SETTINGS: usize = 2;
+
+/// A setting of the stream whose row opens its choices beside it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Setting {
+    Audio,
+    Resolution,
+    FrameRate,
+}
+
+const RESOLUTIONS: [(Resolution, &str); 3] = [
+    (Resolution::P720, "720p"),
+    (Resolution::P1080, "1080p"),
+    (Resolution::Source, "Source"),
+];
+const FRAME_RATES: [u32; 3] = [15, 30, 60];
 
 /// The share menu's sources and choices.
 pub struct Share {
@@ -54,7 +89,49 @@ pub struct Share {
     preview_stop: Arc<AtomicBool>,
     audio: StreamAudio,
     audio_options: Vec<(StreamAudio, String)>,
-    audio_windows_open: bool,
+    /// The setting whose choices show beside its row.
+    pub side: Option<Setting>,
+}
+
+impl Share {
+    /// The settings with a row, in the rows' order: a stream that's live
+    /// keeps its quality, so only its audio changes.
+    fn settings(&self) -> &'static [Setting] {
+        if self.switching {
+            &[Setting::Audio]
+        } else {
+            &[Setting::Audio, Setting::Resolution, Setting::FrameRate]
+        }
+    }
+
+    /// How tall the settings' rows are together, the line over them too.
+    fn settings_height(&self) -> f32 {
+        let rows = self.settings().len() as f32;
+        let toggle = if self.switching {
+            0.0
+        } else {
+            ROW_GAP + TOGGLE
+        };
+        SEPARATOR + rows * controls::ITEM + (rows - 1.0) * ROW_GAP + toggle
+    }
+
+    /// What `setting` is set to, as its row names it.
+    fn value(&self, setting: Setting) -> std::borrow::Cow<'_, str> {
+        match setting {
+            Setting::Audio => self
+                .audio_options
+                .iter()
+                .find(|(audio, _)| *audio == self.audio)
+                .map_or("", |(_, title)| title.as_str())
+                .into(),
+            Setting::Resolution => RESOLUTIONS
+                .iter()
+                .find(|(resolution, _)| *resolution == self.quality.resolution)
+                .map_or("", |(_, label)| label)
+                .into(),
+            Setting::FrameRate => format!("{} fps", self.quality.fps).into(),
+        }
+    }
 }
 
 impl Drop for Share {
@@ -80,8 +157,9 @@ pub enum ShareEvent {
     /// A picture from this listing, keyed by source kind and id.
     Picture(u64, Source, Handle),
     Pick(usize),
+    /// A setting's choices open beside its row, or close.
+    Side(Option<Setting>),
     Audio(StreamAudio),
-    ToggleAudioWindows,
     Resolution(Resolution),
     Fps(u32),
     HighQuality,
@@ -176,90 +254,130 @@ fn glance(
     })
 }
 
+/// Opens the menu with what was listed. `applications` is whether the
+/// stream's audio can be one application's, picked by its window: on
+/// Windows.
+pub(crate) fn list(
+    app: &mut App,
+    count: u64,
+    listing: &Listing,
+    applications: bool,
+) -> Task<Message> {
+    // Only the listing the menu waits for, in a call.
+    if app.call.share_listing != Some(count) || !app.client.state().voice.active() {
+        return Task::none();
+    }
+    app.call.share_listing = None;
+    let (mut screens, mut windows, mut cameras) = (vec![], vec![], vec![]);
+    for listed in &listing.0 {
+        match listed.source {
+            Source::Display(_) => screens.push(listed),
+            Source::Camera(_) => cameras.push(listed),
+            Source::Window(_) => windows.push(listed),
+            _ => {}
+        }
+    }
+    let screen_ids = screens
+        .iter()
+        .filter_map(|listed| match listed.source {
+            Source::Display(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    let window_ids = windows
+        .iter()
+        .filter_map(|listed| match listed.source {
+            Source::Window(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    // Where the system's dialog picks a screen or window, the
+    // menu's first choice asks it, before the cameras.
+    let dialog = yapfast_core::stream_worker::portal_picks();
+    let sources = screens
+        .iter()
+        .chain(&windows)
+        .map(|listed| listed.source.clone())
+        .chain(dialog.then_some(Source::Screen))
+        .chain(cameras.iter().map(|listed| listed.source.clone()))
+        .collect();
+    let voice = &app.client.state().voice;
+    let switching = voice.sharing.is_some();
+    let mut audio = voice.stream_audio;
+    let mut audio_options = vec![
+        (StreamAudio::Off, "No audio".into()),
+        (StreamAudio::All, "All applications".into()),
+    ];
+    if applications {
+        audio_options.extend(windows.iter().filter_map(|listed| match listed.source {
+            Source::Window(id) => Some((StreamAudio::Window(id), listed.title.clone())),
+            _ => None,
+        }));
+    }
+    // The application chosen earlier, in this run or one before, is
+    // found again by a window it has now, unless one of its windows is
+    // the choice already. Not while live: a stream's audio changes only
+    // when asked.
+    let chosen = matches!(audio, StreamAudio::Window(_))
+        && audio_options.iter().any(|(option, _)| *option == audio);
+    let found = voice
+        .stream_app
+        .as_ref()
+        .filter(|_| applications && !switching && !chosen)
+        .and_then(|program| {
+            windows.iter().find_map(|listed| match listed.source {
+                Source::Window(id) if listed.program.as_ref() == Some(program) => {
+                    Some(StreamAudio::Window(id))
+                }
+                _ => None,
+            })
+        });
+    if let Some(found) = found {
+        audio = found;
+    }
+    if !audio_options.iter().any(|(option, _)| *option == audio) {
+        audio_options.push((audio, "Unavailable application".into()));
+    }
+    let preview_stop = Arc::new(AtomicBool::new(false));
+    let share = Share {
+        screens: screens
+            .iter()
+            .map(|listed| (listed.title.clone(), None))
+            .collect(),
+        windows: windows
+            .iter()
+            .map(|listed| (listed.title.clone(), None))
+            .collect(),
+        cameras: cameras.iter().map(|listed| listed.title.clone()).collect(),
+        sources,
+        dialog,
+        pick: (!switching).then_some(0),
+        quality: voice.quality,
+        switching,
+        count,
+        preview_stop: preview_stop.clone(),
+        audio,
+        audio_options,
+        side: None,
+    };
+    app.call.share = Some(share);
+    app.call.popup = Some(Popup::Share);
+    let mut tasks = vec![
+        glance(count, screen_ids, window_ids, preview_stop),
+        operation::focus(NOBODY),
+    ];
+    if let Some(found) = found {
+        app.client
+            .dispatch(Action::Voice(Command::StreamAudio(found)));
+        tasks.push(app.sync());
+    }
+    Task::batch(tasks)
+}
+
 pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Message> {
     match event {
         ShareEvent::Listed(count, listing) => {
-            // Only the listing the menu waits for, in a call.
-            if app.call.share_listing != Some(count) || !app.client.state().voice.active() {
-                return Task::none();
-            }
-            app.call.share_listing = None;
-            let (mut screens, mut windows, mut cameras) = (vec![], vec![], vec![]);
-            for listed in &listing.0 {
-                match listed.source {
-                    Source::Display(_) => screens.push(listed),
-                    Source::Camera(_) => cameras.push(listed),
-                    Source::Window(_) => windows.push(listed),
-                    _ => {}
-                }
-            }
-            let screen_ids = screens
-                .iter()
-                .filter_map(|listed| match listed.source {
-                    Source::Display(id) => Some(id),
-                    _ => None,
-                })
-                .collect();
-            let window_ids = windows
-                .iter()
-                .filter_map(|listed| match listed.source {
-                    Source::Window(id) => Some(id),
-                    _ => None,
-                })
-                .collect();
-            // Where the system's dialog picks a screen or window, the
-            // menu's first choice asks it, before the cameras.
-            let dialog = yapfast_core::stream_worker::portal_picks();
-            let sources = screens
-                .iter()
-                .chain(&windows)
-                .map(|listed| listed.source.clone())
-                .chain(dialog.then_some(Source::Screen))
-                .chain(cameras.iter().map(|listed| listed.source.clone()))
-                .collect();
-            let voice = &app.client.state().voice;
-            let switching = voice.sharing.is_some();
-            let audio = voice.stream_audio;
-            let mut audio_options = vec![
-                (StreamAudio::Off, "No audio".into()),
-                (StreamAudio::All, "All applications".into()),
-            ];
-            #[cfg(windows)]
-            audio_options.extend(windows.iter().filter_map(|listed| match listed.source {
-                Source::Window(id) => Some((StreamAudio::Window(id), listed.title.clone())),
-                _ => None,
-            }));
-            if !audio_options.iter().any(|(option, _)| *option == audio) {
-                audio_options.push((audio, "Unavailable application".into()));
-            }
-            let preview_stop = Arc::new(AtomicBool::new(false));
-            let share = Share {
-                screens: screens
-                    .iter()
-                    .map(|listed| (listed.title.clone(), None))
-                    .collect(),
-                windows: windows
-                    .iter()
-                    .map(|listed| (listed.title.clone(), None))
-                    .collect(),
-                cameras: cameras.iter().map(|listed| listed.title.clone()).collect(),
-                sources,
-                dialog,
-                pick: (!switching).then_some(0),
-                quality: voice.quality,
-                switching,
-                count,
-                preview_stop: preview_stop.clone(),
-                audio,
-                audio_options,
-                audio_windows_open: false,
-            };
-            app.call.share = Some(share);
-            app.call.popup = Some(Popup::Share);
-            return Task::batch([
-                glance(count, screen_ids, window_ids, preview_stop),
-                operation::focus(NOBODY),
-            ]);
+            return list(app, count, &listing, cfg!(windows));
         }
         ShareEvent::Picture(count, source, handle) => {
             if let Some(share) = &mut app.call.share
@@ -279,34 +397,41 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
         ShareEvent::Pick(pick) => {
             if let Some(share) = &mut app.call.share {
                 share.pick = Some(pick);
+                share.side = None;
             }
         }
+        ShareEvent::Side(side) => {
+            if let Some(share) = &mut app.call.share {
+                share.side = side.filter(|setting| share.settings().contains(setting));
+            }
+        }
+        // A choice made beside a row closes its list. The audio's is
+        // the call's at once, live or not, and remembered.
         ShareEvent::Audio(audio) => {
             if let Some(share) = &mut app.call.share {
                 share.audio = audio;
+                share.side = None;
                 app.client
                     .dispatch(Action::Voice(Command::StreamAudio(audio)));
                 return app.sync();
             }
         }
-        ShareEvent::ToggleAudioWindows => {
-            if let Some(share) = &mut app.call.share {
-                share.audio_windows_open = !share.audio_windows_open;
-            }
-        }
         ShareEvent::Resolution(resolution) => {
             if let Some(share) = &mut app.call.share {
                 share.quality.resolution = resolution;
+                share.side = None;
             }
         }
         ShareEvent::Fps(fps) => {
             if let Some(share) = &mut app.call.share {
                 share.quality.fps = fps;
+                share.side = None;
             }
         }
         ShareEvent::HighQuality => {
             if let Some(share) = &mut app.call.share {
                 share.quality.high_quality = !share.quality.high_quality;
+                share.side = None;
             }
         }
         ShareEvent::Go => {
@@ -335,7 +460,8 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
     Task::none()
 }
 
-/// The share menu scrolls all choices together above the Go Live or Switch button.
+/// The share menu: the sources, which scroll, over the settings' rows and
+/// the Go Live or Switch button, which stay in view.
 pub(super) fn share_menu<'a>(
     ctx: crate::ctx::Ctx<'a>,
     share: &'a Share,
@@ -411,107 +537,52 @@ pub(super) fn share_menu<'a>(
             ));
         }
     }
-    choices = choices.push(heading(theme, "STREAM AUDIO", 8.0));
-    if share.switching {
-        choices = choices.push(
-            text("Audio changes apply immediately")
-                .size(12)
-                .color(theme.secondary),
+    // Each setting in a row that names what's chosen; its choices open
+    // beside it ([`side_list`]), so nothing here moves.
+    let event = |event| Message::Call(Event::Share(event));
+    let mut settings = column![].spacing(ROW_GAP);
+    for &setting in share.settings() {
+        let item = Item {
+            label: match setting {
+                Setting::Audio => "Audio",
+                Setting::Resolution => "Resolution",
+                Setting::FrameRate => "Frame rate",
+            }
+            .into(),
+            icon: None,
+            danger: false,
+            slot: false,
+            disabled: false,
+            subtitle: None,
+            check: Check::Submenu,
+        };
+        // Lit while its choices show, as a menu's row with its submenu.
+        let light = if share.side == Some(setting) {
+            Light::Lit(true)
+        } else {
+            Light::Pointer
+        };
+        let open = event(ShareEvent::Side(Some(setting)));
+        settings = settings.push(
+            mouse_area(
+                ctx.look
+                    .menu_item_valued(item, share.value(setting), light, open.clone()),
+            )
+            .on_enter(open),
         );
     }
-    let audio_choice = |audio, title: &'a str, subtitle| {
-        crate::call::popups::popup_row(
-            ctx,
-            title,
-            subtitle,
-            None,
-            if audio == share.audio {
-                Check::Current
-            } else {
-                Check::None
-            },
-            Some(Message::Call(Event::Share(ShareEvent::Audio(audio)))),
-        )
-    };
-    for (audio, title) in share.audio_options.iter().take(2) {
-        let subtitle =
-            (*audio == StreamAudio::All).then_some("Excludes Yapfast's own audio".into());
-        choices = choices.push(audio_choice(*audio, title, subtitle));
-    }
-    let window_audio = &share.audio_options[2..];
-    if !window_audio.is_empty() {
-        let selected = window_audio
-            .iter()
-            .find_map(|(audio, title)| (*audio == share.audio).then_some(title.as_str().into()));
-        choices = choices.push(crate::call::popups::popup_row(
-            ctx,
-            "Select audio from window",
-            selected,
-            Some(if share.audio_windows_open {
-                Icon::ChevronDown
-            } else {
-                Icon::ChevronRight
-            }),
-            Check::None,
-            Some(Message::Call(Event::Share(ShareEvent::ToggleAudioWindows))),
-        ));
-        if share.audio_windows_open {
-            for (audio, title) in window_audio {
-                choices = choices.push(audio_choice(*audio, title, None));
-            }
-        }
-    }
     if !share.switching {
-        let quality = share.quality;
-        choices = choices.push(heading(theme, "RESOLUTION", 8.0));
-        for (resolution, label) in [
-            (Resolution::P720, "720p"),
-            (Resolution::P1080, "1080p"),
-            (Resolution::Source, "Source"),
-        ] {
-            let check = if quality.resolution == resolution {
-                Check::Current
-            } else {
-                Check::None
-            };
-            choices = choices.push(crate::call::popups::popup_row(
+        settings = settings.push(
+            mouse_area(crate::call::popups::popup_row(
                 ctx,
-                label,
+                "Higher quality",
+                Some("Sharper, at twice the CPU".into()),
                 None,
-                None,
-                check,
-                Some(Message::Call(Event::Share(ShareEvent::Resolution(
-                    resolution,
-                )))),
-            ));
-        }
-        choices = choices.push(heading(theme, "FRAME RATE", 8.0));
-        for fps in [15, 30, 60] {
-            let check = if quality.fps == fps {
-                Check::Current
-            } else {
-                Check::None
-            };
-            choices = choices.push(crate::call::popups::popup_row(
-                ctx,
-                format!("{fps} fps"),
-                None,
-                None,
-                check,
-                Some(Message::Call(Event::Share(ShareEvent::Fps(fps)))),
-            ));
-        }
-        choices =
-            choices
-                .push(heading(theme, "ENCODING", 8.0))
-                .push(crate::call::popups::popup_row(
-                    ctx,
-                    "Higher quality",
-                    Some("Sharper, at twice the CPU".into()),
-                    None,
-                    Check::Box(quality.high_quality),
-                    Some(Message::Call(Event::Share(ShareEvent::HighQuality))),
-                ));
+                Check::Box(share.quality.high_quality),
+                Some(event(ShareEvent::HighQuality)),
+            ))
+            .on_enter(event(ShareEvent::Side(None))),
+        );
     }
     let label = if share.switching { "Switch" } else { "Go Live" };
     let start: Element<'a, Message> = controls::action(
@@ -527,12 +598,16 @@ pub(super) fn share_menu<'a>(
     )
     .wide(38.0)
     .into();
-    // The tallest the choices get: from the window's top margin to
-    // the control, less the button's room.
+    // The tallest the sources get: from the window's top margin to the
+    // control, less the room of what's under them.
     let spot = ctx.call.spot.get();
-    let tallest = (spot.y - 6.0 - 8.0 - 12.0 - 52.0).clamp(80.0, 496.0);
+    let under = share.settings_height() + 52.0;
+    let tallest = (spot.y - 6.0 - 8.0 - 12.0 - under).clamp(80.0, SOURCES_TALLEST);
+    // The settings' rows are the part at [`SETTINGS`].
     column![
-        container(scroll_view(choices).height(Length::Fill)).height(tallest),
+        container(scroll_view(choices).height(Length::Shrink)).max_height(tallest),
+        controls::menu_separator(theme),
+        settings,
         container(start).padding(Padding {
             top: 10.0,
             left: 4.0,
@@ -542,6 +617,97 @@ pub(super) fn share_menu<'a>(
     ]
     .padding(6)
     .into()
+}
+
+/// The open setting's choices, the one chosen ticked, and the place of its
+/// row among the menu's parts, which they stand beside. Built only while
+/// they show.
+pub(super) fn side_list<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    share: &'a Share,
+) -> Option<(Element<'a, Message>, f32, Vec<usize>)> {
+    let setting = share.side?;
+    let row = share.settings().iter().position(|&row| row == setting)?;
+    let theme = ctx.look.theme;
+    let choice = |label: std::borrow::Cow<'a, str>, subtitle, chosen: bool, event| {
+        let item = Item {
+            label,
+            icon: None,
+            danger: false,
+            slot: true,
+            disabled: false,
+            subtitle,
+            check: if chosen { Check::Current } else { Check::None },
+        };
+        ctx.look
+            .context_item(item, Light::Pointer, Message::Call(Event::Share(event)))
+    };
+    let mut rows = column![].padding(PAD);
+    match setting {
+        Setting::Audio => {
+            if share.switching {
+                rows = rows.push(
+                    container(
+                        text("Changes apply immediately")
+                            .size(12)
+                            .color(theme.secondary),
+                    )
+                    .padding(Padding {
+                        top: 2.0,
+                        right: 8.0,
+                        bottom: 6.0,
+                        left: 8.0,
+                    }),
+                );
+            }
+            for (audio, title) in &share.audio_options {
+                let subtitle =
+                    (*audio == StreamAudio::All).then_some("Excludes Yapfast's own audio".into());
+                rows = rows.push(choice(
+                    title.as_str().into(),
+                    subtitle,
+                    *audio == share.audio,
+                    ShareEvent::Audio(*audio),
+                ));
+            }
+        }
+        Setting::Resolution => {
+            for (resolution, label) in RESOLUTIONS {
+                rows = rows.push(choice(
+                    label.into(),
+                    None,
+                    resolution == share.quality.resolution,
+                    ShareEvent::Resolution(resolution),
+                ));
+            }
+        }
+        Setting::FrameRate => {
+            for fps in FRAME_RATES {
+                rows = rows.push(choice(
+                    format!("{fps} fps").into(),
+                    None,
+                    fps == share.quality.fps,
+                    ShareEvent::Fps(fps),
+                ));
+            }
+        }
+    }
+    let tallest = SIDE_TALLEST.min(ctx.look.window.height - 16.0);
+    let list = container(scroll_view(rows).height(Length::Shrink))
+        .max_height(tallest)
+        .into();
+    // As wide as a menu's submenu, whichever the setting: all three open
+    // on the same side.
+    Some((list, SUB_WIDTH, vec![SETTINGS, row]))
+}
+
+/// Closes the open setting's choices, as Escape does before it closes the
+/// menu. Whether any were open.
+pub fn close_side(app: &mut App) -> bool {
+    app.call
+        .share
+        .as_mut()
+        .is_some_and(|share| share.side.take().is_some())
 }
 
 /// A screen or window in the share menu: its picture, once taken, over its name.

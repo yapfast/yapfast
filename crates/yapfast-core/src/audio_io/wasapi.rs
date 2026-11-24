@@ -587,7 +587,7 @@ impl Input {
 }
 
 #[cfg(feature = "discord")]
-pub use others::{others, window_audio};
+pub use others::{others, window_audio, window_programs};
 
 /// Other applications' sound, through process loopback: one stream of
 /// everything the system plays but Yapfast's own processes, from Windows 10's
@@ -666,6 +666,52 @@ mod others {
             "Cannot share Yapfast's own audio"
         );
         capture(Some(process), heard, stop)
+    }
+
+    /// The program each of `windows` belongs to, by its file's name in
+    /// lower case, from one look at the running processes.
+    pub fn window_programs(windows: &[u64]) -> Vec<Option<String>> {
+        use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::GetWindowThreadProcessId};
+        let processes: Vec<u32> = windows
+            .iter()
+            .map(|&window| {
+                let mut process = 0;
+                // SAFETY: the handle is only queried; an invalid window
+                // leaves the process zero.
+                let _ = unsafe {
+                    GetWindowThreadProcessId(HWND(window as usize as *mut _), Some(&mut process))
+                };
+                process
+            })
+            .collect();
+        let mut programs = vec![None; windows.len()];
+        // SAFETY: a snapshot this function owns, and entries sized as asked.
+        unsafe {
+            let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+                return programs;
+            };
+            let mut entry = PROCESSENTRY32W {
+                dwSize: size_of::<PROCESSENTRY32W>() as u32,
+                ..Default::default()
+            };
+            let mut found = Process32FirstW(snapshot, &mut entry).is_ok();
+            while found {
+                let process = entry.th32ProcessID;
+                if process != 0 && processes.contains(&process) {
+                    let length = entry.szExeFile.iter().position(|&unit| unit == 0);
+                    let name = String::from_utf16_lossy(&entry.szExeFile[..length.unwrap_or(260)])
+                        .to_lowercase();
+                    for (program, owner) in programs.iter_mut().zip(&processes) {
+                        if *owner == process {
+                            *program = Some(name.clone());
+                        }
+                    }
+                }
+                found = Process32NextW(snapshot, &mut entry).is_ok();
+            }
+            let _ = CloseHandle(snapshot);
+        }
+        programs
     }
 
     fn capture(
@@ -877,5 +923,49 @@ mod others {
             parent
         };
         parent.unwrap_or(own)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use windows::{
+            Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+            },
+            core::w,
+        };
+
+        /// A window of this process is known by the test program's own
+        /// file name, and what's no window by nothing.
+        #[test]
+        fn a_window_is_known_by_its_programs_name() {
+            // SAFETY: a message-only window of a system class, which shows
+            // nothing and is destroyed below.
+            let window = unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    None,
+                    WINDOW_STYLE(0),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .expect("a window");
+            let id = window.0 as usize as u64;
+            let programs = super::window_programs(&[0, id, id]);
+            // SAFETY: the window made above.
+            let _ = unsafe { DestroyWindow(window) };
+            let own = std::env::current_exe().expect("this program");
+            let own = own.file_name().expect("its name").to_string_lossy();
+            assert_eq!(programs[0], None, "no window");
+            assert_eq!(programs[1].as_deref(), Some(own.to_lowercase().as_str()));
+            assert_eq!(programs[1], programs[2]);
+        }
     }
 }
