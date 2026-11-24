@@ -113,8 +113,12 @@ impl Application {
         vec![]
     }
 
-    /// Joins by the invite the dialog shows, or opens its server for a
-    /// member.
+    /// Opens the invite the dialog shows in the browser, where Discord's
+    /// web app joins it, and its channel here once the server lists; or
+    /// opens the server for a member. Accounts were signed out everywhere
+    /// after an in-app join, so `DiscordCommand::JoinServer`, with the
+    /// captcha and form steps below, is left unreached until it matches
+    /// Discord's client.
     pub(super) fn join_server(&mut self) -> Vec<Effect> {
         let Some(join) = self
             .state
