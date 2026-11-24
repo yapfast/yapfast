@@ -138,7 +138,20 @@ pub const DEFAULT_REACTIONS: [&str; 4] = ["👍", "❤️", "😂", "🎉"];
 pub enum Navigation {
     #[default]
     DirectMessages,
+    Favorites,
     Server(String),
+}
+
+/// A saved Discord channel reference or Favorites category.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChannelFavorite {
+    pub id: String,
+    pub name: String,
+    pub reference: bool,
+    pub category: bool,
+    pub parent: String,
+    pub position: u32,
+    pub collapsed: bool,
 }
 
 /// The dialog for starting a DM, while it's open.
@@ -708,6 +721,8 @@ pub struct AppState {
     /// them.
     pub people_changes: u64,
     pub navigation: Navigation,
+    pub channel_favorites: Vec<ChannelFavorite>,
+    pub favorites_visible: bool,
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
     pub voice_chat: bool,
@@ -1088,9 +1103,20 @@ impl AppState {
             .any(|place| Some(place) != current.as_ref() && self.place_exists(place))
     }
 
+    pub fn is_channel_favorite(&self, room: &str) -> bool {
+        discord::parse_room(room).is_some_and(|(_, id)| {
+            self.channel_favorites
+                .iter()
+                .any(|entry| entry.reference && entry.id == id)
+        })
+    }
+
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
         match &self.navigation {
             Navigation::DirectMessages => room.direct,
+            Navigation::Favorites => {
+                !room.locked && !room.request && self.is_channel_favorite(&room.id)
+            }
             Navigation::Server(id) => {
                 !room.direct
                     && self
@@ -1123,12 +1149,19 @@ impl AppState {
         &'a self,
         navigation: &Navigation,
     ) -> impl Iterator<Item = &'a ChatRoom> + use<'a> {
+        let favorites = (*navigation == Navigation::Favorites).then(|| {
+            self.channel_favorites
+                .iter()
+                .filter(|entry| entry.reference)
+                .map(|entry| entry.id.as_str())
+                .collect::<HashSet<_>>()
+        });
         let server = match navigation {
-            Navigation::DirectMessages => None,
+            Navigation::DirectMessages | Navigation::Favorites => None,
             Navigation::Server(id) => self.servers.iter().find(|server| &server.id == id),
         };
         let channels: Option<HashSet<&str>> = match navigation {
-            Navigation::DirectMessages => None,
+            Navigation::DirectMessages | Navigation::Favorites => None,
             Navigation::Server(_) => Some(
                 server
                     .map(|server| server.channels.iter().map(String::as_str).collect())
@@ -1146,19 +1179,24 @@ impl AppState {
             })
             .map(|room| room.parent.as_deref().unwrap_or(&room.id))
             .collect();
-        self.rooms
-            .iter()
-            .map(Arc::as_ref)
-            .filter(move |room| match &channels {
-                None => room.direct,
-                Some(channels) => {
-                    !room.direct
-                        && channels.contains(room.id.as_str())
-                        && !(hide_muted && self.hidden_muted(room))
-                        && !(room.unlisted
-                            && !shown.contains(room.parent.as_deref().unwrap_or(&room.id)))
+        self.rooms.iter().map(Arc::as_ref).filter(move |room| {
+            if let Some(favorites) = &favorites {
+                !room.locked
+                    && !room.request
+                    && discord::parse_room(&room.id).is_some_and(|(_, id)| favorites.contains(id))
+            } else {
+                match &channels {
+                    None => room.direct,
+                    Some(channels) => {
+                        !room.direct
+                            && channels.contains(room.id.as_str())
+                            && !(hide_muted && self.hidden_muted(room))
+                            && !(room.unlisted
+                                && !shown.contains(room.parent.as_deref().unwrap_or(&room.id)))
+                    }
                 }
-            })
+            }
+        })
     }
 
     /// Who else is typing in the open conversation, as the strip over the
@@ -1716,6 +1754,10 @@ pub enum Action {
     /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
     DismissEphemeral(String),
     Navigate(Navigation),
+    FavoriteChannel {
+        room: String,
+        favorite: bool,
+    },
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
     /// server, as their menus do.
@@ -3860,6 +3902,7 @@ impl Application {
                 self.change_notifications(place, change)
             }
             Action::PinChannel { room, pinned } => self.pin_channel(room, pinned),
+            Action::FavoriteChannel { room, favorite } => self.favorite_channel(room, favorite),
             Action::MoveChannel { room, landing } => self.move_channel(room, landing),
             Action::AnswerMoveSync(sync) => self.answer_move_sync(sync),
             Action::FollowChannel { room, follow } => self.follow_channel(room, follow),
@@ -4797,6 +4840,11 @@ impl Application {
             Event::CustomStatusSet(Ok(())) => {
                 self.state.status_editor = None;
             }
+            Event::ChannelFavorited(result) => {
+                if let Err(error) = result {
+                    self.state.notice = Some(format!("Couldn't save your Favorites: {error}"));
+                }
+            }
             Event::ServerFiled(result) => {
                 if let Err(error) = result {
                     self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
@@ -5296,7 +5344,7 @@ impl Application {
             .iter()
             .filter_map(|(navigation, room)| match navigation {
                 Navigation::Server(server) => Some((server.clone(), room.clone())),
-                Navigation::DirectMessages => None,
+                Navigation::DirectMessages | Navigation::Favorites => None,
             })
             .collect()
     }

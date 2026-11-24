@@ -22,6 +22,8 @@ pub enum MenuChoice {
     /// Keep a DM at the top of the DM list on this device, or stop.
     Pin,
     Unpin,
+    AddFavorite,
+    RemoveFavorite,
     /// Start a DM's call, or join the one going on.
     Call,
     /// Write this account's note on a Discord DM's other person, or the
@@ -281,6 +283,18 @@ impl AppState {
                 MenuChoice::Unpin
             } else {
                 MenuChoice::Pin
+            });
+        }
+        if room.network == Network::Discord
+            && !room.locked
+            && !room.request
+            && !self.preview
+            && self.discord_online
+        {
+            choices.push(if self.is_channel_favorite(id) {
+                MenuChoice::RemoveFavorite
+            } else {
+                MenuChoice::AddFavorite
             });
         }
         if room.direct && !connected && self.can_join_voice(id) {
@@ -716,6 +730,20 @@ impl Application {
     }
 
     /// Pins a listed DM to the top of the DM list, or unpins it.
+    pub(super) fn favorite_channel(&self, room: String, favorite: bool) -> Vec<Effect> {
+        let choice = if favorite {
+            MenuChoice::AddFavorite
+        } else {
+            MenuChoice::RemoveFavorite
+        };
+        if !self.state.menu_choices(&room).contains(&choice) {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::FavoriteChannel { room, favorite },
+        ))]
+    }
+
     pub(super) fn pin(&mut self, room: String, pinned: bool) -> Vec<Effect> {
         let choice = if pinned {
             MenuChoice::Pin

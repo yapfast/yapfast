@@ -385,6 +385,9 @@ pub struct Snapshot {
     /// in [`Self::servers`], in the folder's order.
     #[serde(default)]
     pub folders: Vec<settings::Folder>,
+    /// Shared until the account's Favorites change, including empty updates.
+    #[serde(default)]
+    pub favorites: Arc<crate::favorites::Favorites>,
     /// DMs and group DMs, the latest conversation first. Each DM, and each
     /// list of people below, is shared between snapshots while it stays the
     /// same.
@@ -715,6 +718,7 @@ enum Request {
         reply: oneshot::Sender<Option<ServerListWrite>>,
     },
     RestoreServerList(ServerListWrite),
+    Favorites(String),
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -894,6 +898,7 @@ pub struct Discord {
     /// [`Self::change_status_settings`].
     status_writes: Arc<StatusWrites>,
     folder_writes: Arc<tokio::sync::Mutex<()>>,
+    favorite_writes: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// This account's changes to the settings' `status` on their way.
@@ -1067,6 +1072,7 @@ impl Discord {
             autocompletes: interactions::Autocompletes::default(),
             status_writes: Arc::default(),
             folder_writes: Arc::default(),
+            favorite_writes: Arc::default(),
         })
     }
 
@@ -2645,6 +2651,41 @@ impl Discord {
             move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
             |now| Request::CustomStatus(now.custom.flatten()),
         )
+    }
+
+    /// Changes Discord's account-wide list. Serialize read/modify/write operations
+    /// so rapid edits in this client cannot replace one another. Publish only
+    /// after success; gateway updates also refresh this field on other clients.
+    pub async fn favorite_channel(&self, channel: &str, favorite: bool) -> Result<()> {
+        let _turn = self.favorite_writes.lock().await;
+        let id = channel.parse::<u64>().context("Invalid channel")?;
+        let kind = {
+            let snapshot = self.snapshots.borrow();
+            if let Some(dm) = snapshot.conversations.iter().find(|dm| dm.id == channel) {
+                if dm.request || dm.spam {
+                    bail!("Accept the message request first");
+                }
+                if dm.group { 3 } else { 1 }
+            } else {
+                snapshot
+                    .servers
+                    .iter()
+                    .flat_map(|server| server.channels())
+                    .find(|known| known.id == channel)
+                    .and_then(|known| known.channel_type)
+                    .filter(|kind| *kind != 4)
+                    .context("That channel is unavailable")? as u32
+            }
+        };
+        let current = self.api.user_settings().await?;
+        if let Some(patch) = crate::favorites::change(&current, id, kind, favorite)? {
+            self.api.set_user_settings(&patch).await?;
+        }
+        // Reconcile with the server instead of installing a possibly stale
+        // local patch after a concurrent USER_SETTINGS_PROTO_UPDATE.
+        let current = self.api.user_settings().await?;
+        let _ = self.requests.send(Request::Favorites(current));
+        Ok(())
     }
 
     /// Moves a server beside or into the target, or moves a whole folder.

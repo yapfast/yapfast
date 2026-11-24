@@ -1053,3 +1053,99 @@ fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
     let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
     assert!(app.client.state().peek.is_none());
 }
+
+#[test]
+fn favorites_keep_saved_category_order_and_open_real_conversations() {
+    use crate::sidebar::SideRow;
+    use yapfast_core::{
+        application::{ChannelFavorite, MenuChoice},
+        network::Network,
+    };
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_linked = true;
+        state.discord_online = true;
+        state.favorites_visible = true;
+        for (index, room) in state.rooms.iter_mut().take(3).enumerate() {
+            let room = std::sync::Arc::make_mut(room);
+            room.id = format!("discord:@me:{}", index + 41);
+            room.network = Network::Discord;
+            room.direct = true;
+            room.locked = false;
+            room.request = false;
+            room.unread = 0;
+            room.people.clear();
+        }
+        state.channel_favorites = vec![
+            ChannelFavorite {
+                id: "900".into(),
+                name: "Friends".into(),
+                category: true,
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "42".into(),
+                name: "Second".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 1,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "41".into(),
+                name: "First".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "43".into(),
+                name: "Top level".into(),
+                reference: true,
+                position: 1,
+                ..Default::default()
+            },
+        ];
+        state.list_changes += 1;
+    });
+    let _ = app.update(Message::Rail(crate::rail::Event::Server(
+        "@favorites".into(),
+    )));
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    let labels: Vec<_> = app
+        .sidebar
+        .rows
+        .iter()
+        .filter_map(|row| match row {
+            SideRow::Heading { name, .. } => Some(name.as_str()),
+            SideRow::Room(room) => Some(room.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, ["Friends", "First", "Second", "Top level"]);
+    let _ = app.update(Message::Side(crate::sidebar::Event::Select(
+        "discord:@me:42".into(),
+    )));
+    assert_eq!(
+        app.client.state().selected.as_deref(),
+        Some("discord:@me:42")
+    );
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    assert!(
+        app.client
+            .state()
+            .menu_choices("discord:@me:42")
+            .contains(&MenuChoice::RemoveFavorite)
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Toggle("900".into())));
+    assert!(app.sidebar.rows.iter().any(|row| matches!(
+        row,
+        SideRow::Heading {
+            collapsed: true,
+            ..
+        }
+    )));
+}

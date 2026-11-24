@@ -3271,6 +3271,10 @@ pub enum DiscordCommand {
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
     /// Places a server in a folder or moves a server or folder beside a tile.
+    FavoriteChannel {
+        room: String,
+        favorite: bool,
+    },
     FileServer {
         server: String,
         source_folder: bool,
@@ -4369,6 +4373,7 @@ pub enum Event {
     StatusSet(Result<(), String>),
     /// Whether the account's server folders were saved.
     ServerFiled(Result<(), String>),
+    ChannelFavorited(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.
