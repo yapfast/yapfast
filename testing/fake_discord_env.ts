@@ -179,6 +179,7 @@ export type InVoice = {
   stream?: string | true;
   /** Muted or deafened by a moderator. */
   serverMute?: boolean;
+  suppress?: boolean;
   serverDeaf?: boolean;
 };
 

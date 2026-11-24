@@ -544,6 +544,7 @@ pub fn sidebar_in(
                             muted: person.muted,
                             deafened: person.deafened,
                             server_muted: person.server_muted,
+                            speaking_blocked: person.speaking_blocked,
                             server_deafened: person.server_deafened,
                             streaming: person.streaming,
                             video: person.video.is_some(),

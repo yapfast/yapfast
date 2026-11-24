@@ -1194,15 +1194,17 @@ fn discord_participants(
                     member.deafened
                 },
                 server_muted: member.server_muted,
+                speaking_blocked: member.speaking_blocked,
                 server_deafened: member.server_deafened,
-                speaking: if local {
-                    talking && !state.muted
-                } else {
-                    member
-                        .user_id
-                        .parse()
-                        .is_ok_and(|user: u64| speaking.contains(&user))
-                },
+                speaking: !member.speaking_blocked
+                    && if local {
+                        talking && !state.muted
+                    } else {
+                        member
+                            .user_id
+                            .parse()
+                            .is_ok_and(|user: u64| speaking.contains(&user))
+                    },
                 connected: true,
                 problem: None,
                 avatar: Some(member.avatar.clone()),
@@ -1231,6 +1233,7 @@ fn discord_participants(
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 speaking: false,
                 connected: false,

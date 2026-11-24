@@ -2160,7 +2160,7 @@ const readStates = new Map<string, { last: string; mentions: number }>([
 // `mute` and `deaf` are the server's, which a moderator sets.
 type VoiceState = {
   guild: string | null; channel: string; self_mute: boolean; self_deaf: boolean; session: string; self_stream?: boolean; self_video?: boolean;
-  mute?: boolean; deaf?: boolean;
+  mute?: boolean; deaf?: boolean; suppress?: boolean;
 };
 /** The session of Alice's other client, such as her phone. */
 const OTHER_CLIENT = "voice-alice-phone";
@@ -2227,7 +2227,7 @@ function wireVoiceState(userId: string, state: VoiceState | undefined, left: str
     self_stream: state?.self_stream ?? false,
     mute: state?.mute ?? false,
     deaf: state?.deaf ?? false,
-    suppress: false,
+    suppress: state?.suppress ?? false,
     request_to_speak_timestamp: null,
   };
 }
@@ -3465,6 +3465,7 @@ function gatewayMessage(ws: Socket, text: string) {
           session: ws.data.session,
           self_stream: before?.channel === channel && before.self_stream,
           self_video: !!d.self_video,
+          suppress: before?.channel === channel && before.suppress,
         });
       } else {
         voice.delete(ALICE);
@@ -8618,7 +8619,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
           join(user);
           voice.set(user.id, {
             guild: id, channel: channelId, self_mute: !!seat.mute, self_deaf: !!seat.deaf, session: `voice-${user.id}`,
-            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf,
+            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf, suppress: !!seat.suppress,
           });
           if (!seat.stream) continue;
           const key = streamKey(id, channelId, user.id);

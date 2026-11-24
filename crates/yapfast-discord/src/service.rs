@@ -67,6 +67,7 @@ pub struct VoiceMember {
     /// Muted or deafened by the server, which a moderator chose, and
     /// Discord's client shows in red.
     pub server_muted: bool,
+    pub speaking_blocked: bool,
     pub server_deafened: bool,
     /// Sharing their screen with Go Live.
     pub streaming: bool,
