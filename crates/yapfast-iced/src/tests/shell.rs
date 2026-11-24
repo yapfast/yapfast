@@ -288,6 +288,15 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
                 false,
             ),
             ping("d:11", "as said above", vec![], true),
+            // A reply that didn't ping her isn't a mention.
+            Arc::new(ChatMessage {
+                id: "d:12".into(),
+                item: "d:12".into(),
+                body: "agreed".into(),
+                timestamp: 1_700_000_000,
+                replies_to_me: true,
+                ..Default::default()
+            }),
         ]);
     });
     assert_eq!(app.mention_hits.len(), 3, "the open room's pings kept"); // A room with mentions but no message kept still lists as a row.

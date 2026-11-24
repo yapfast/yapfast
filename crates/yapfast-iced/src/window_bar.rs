@@ -572,13 +572,15 @@ pub fn mentions_sync(app: &mut App) -> bool {
     // isn't kept yet, without holding the state's borrow.
     let (fresh, fetched_new): (Vec<(String, Arc<ChatMessage>)>, usize) = {
         let state = app.client.state();
+        // As Discord's Mentions inbox lists them: what pinged this account,
+        // not a reply that didn't ping it, nor its own message.
         let mut live = Vec::new();
         if let Some(room) = state.selected.clone() {
             live.extend(
                 state
                     .messages
                     .iter()
-                    .filter(|message| message.mentions_me || message.replies_to_me)
+                    .filter(|message| message.mentions_me && !message.own)
                     .map(|message| (room.clone(), Arc::clone(message))),
             );
         }
@@ -587,7 +589,7 @@ pub fn mentions_sync(app: &mut App) -> bool {
                 aside
                     .messages
                     .iter()
-                    .filter(|message| message.mentions_me || message.replies_to_me)
+                    .filter(|message| message.mentions_me && !message.own)
                     .map(|message| (aside.room.clone(), Arc::clone(message))),
             );
         }
