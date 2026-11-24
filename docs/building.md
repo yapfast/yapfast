@@ -3,8 +3,10 @@
 ## Shells
 
 On Windows, build, run and test directly with Cargo in PowerShell; see
-[Windows](#windows) for prerequisites. On Linux, use Nix for development,
-building and testing. Three Nix shells cover that work:
+[Windows](#windows) for prerequisites. On Linux, Nix brings the pinned
+toolchain and libraries for development, building and testing
+([without Nix](../README.md#without-nix) works too). Three Nix shells cover
+that work:
 
 - `nix develop path:./nix` is the Linux development shell. Run every `cargo` command
   in it, as `nix develop path:./nix --command cargo ...`. It also provides

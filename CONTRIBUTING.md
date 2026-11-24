@@ -41,9 +41,10 @@ The configuration files linked there define the rules.
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
 flows from the window to `application/`.
 
-On Linux, use `nix develop path:./nix` for the pinned toolchain and libraries,
-and run the Cargo commands below inside that shell. On Windows, use Cargo
-directly in PowerShell with the native prerequisites in
+On Linux, `nix develop path:./nix` gives you the pinned toolchain and
+libraries; run the Cargo commands below inside that shell. Nix is optional:
+without it, [Without Nix](README.md#without-nix) lists what Linux needs. On
+Windows, use Cargo directly in PowerShell with the native prerequisites in
 [Building](docs/building.md#windows); Nix is not required.
 Build with the `fast` profile, and format before you check:
 
