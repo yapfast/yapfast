@@ -42,8 +42,9 @@ use crate::{
     decode::Decoder,
     encode::{self, Effort, Encoder},
     frames::{Frames, Writer},
+    picture::{I420, Turn},
     stream_audio,
-    voice::{Resolution, StreamQuality, StreamStats},
+    voice::{Resolution, StreamAudio, StreamQuality, StreamStats},
 };
 
 /// The argument that starts Yapfast as a stream worker.
@@ -83,6 +84,8 @@ pub enum Job {
     /// frames file at `frames`.
     Share {
         source: Source,
+        #[serde(default)]
+        audio: StreamAudio,
         frames: PathBuf,
         width: u32,
         height: u32,
@@ -125,11 +128,13 @@ pub enum Job {
         speakers: Option<String>,
         volume: f32,
     },
-    /// Takes a picture of each screen in `screens`, by the ids [`shareable`]
+    /// Takes a picture of each screen and window, by the ids [`shareable`]
     /// listed them with, scaled down to fit `width` by `height`, for the
     /// share menu to show. Each comes as a [`Report::Screen`].
     Glance {
         screens: Vec<u64>,
+        #[serde(default)]
+        windows: Vec<u64>,
         width: u32,
         height: u32,
     },
@@ -199,6 +204,9 @@ fn wayland_session(kind: Option<&str>, wayland_display: bool) -> bool {
 pub struct Shareable {
     pub source: Source,
     pub title: String,
+    /// The program a window belongs to, where the system names it
+    /// ([`crate::audio_io::window_programs`]).
+    pub program: Option<String>,
 }
 
 /// What Yapfast can share: the screens, then the windows, unless
@@ -209,6 +217,7 @@ pub fn shareable() -> Vec<Shareable> {
     listed.extend(crate::camera::list().into_iter().map(|device| Shareable {
         source: Source::Camera(device.id),
         title: device.name,
+        program: None,
     }));
     listed
 }
@@ -230,6 +239,7 @@ fn screens_and_windows() -> Vec<Shareable> {
             } else {
                 format!("Screen {}", index + 1)
             },
+            program: None,
         });
     // The console belongs to its host, so libwebrtc lists it as another
     // application's window.
@@ -238,14 +248,22 @@ fn screens_and_windows() -> Vec<Shareable> {
     let console = unsafe { windows::Win32::System::Console::GetConsoleWindow() }.0 as u64;
     #[cfg(not(windows))]
     let console = 0;
-    let windows = sources(DesktopCaptureSourceType::Window)
+    let windows: Vec<(u64, String)> = sources(DesktopCaptureSourceType::Window)
         .into_iter()
         .filter_map(|window| {
             let title = window.title();
-            (!title.trim().is_empty() && window.id() != console).then(|| Shareable {
-                source: Source::Window(window.id()),
-                title,
-            })
+            (!title.trim().is_empty() && window.id() != console).then(|| (window.id(), title))
+        })
+        .collect();
+    let ids: Vec<u64> = windows.iter().map(|(id, _)| *id).collect();
+    let programs = crate::audio_io::window_programs(&ids);
+    let windows = windows
+        .into_iter()
+        .zip(programs)
+        .map(|((id, title), program)| Shareable {
+            source: Source::Window(id),
+            title,
+            program,
         });
     screens.chain(windows).collect()
 }
@@ -294,6 +312,8 @@ pub enum Control {
     /// stream goes on with the one shared until then, and when the dialog is
     /// cancelled.
     Switch(Source),
+    /// Change outgoing audio independently of the picture.
+    Audio(StreamAudio),
     /// Play a watched stream's sound, or not, as being deafened changes.
     Hear(bool),
     /// Play a watched stream's or a video's sound this loud.
@@ -331,6 +351,8 @@ fn as_it_comes() -> f32 {
 pub enum Report {
     /// The worker opened the frames file.
     Ready,
+    /// Audio could not be captured; video continues without it.
+    AudioError(String),
     /// Frames are flowing, at this size after scaling.
     Sharing { width: u32, height: u32 },
     /// Sharing: the video reaches the stream server. Watching: the first
@@ -358,6 +380,9 @@ pub enum Report {
     /// [`Job::Glance`]: RGBA pixels, `width` by `height`.
     Screen {
         id: u64,
+        /// A window thumbnail, rather than a display thumbnail.
+        #[serde(default)]
+        window: bool,
         width: u32,
         height: u32,
         #[serde(with = "base64_pixels")]
@@ -367,8 +392,41 @@ pub enum Report {
     Ended { error: Option<String> },
 }
 
+/// Tells Windows this process works in the displays' own pixels. Windows
+/// gives a process that doesn't say so the pointer's place, and the screens'
+/// places, scaled down by the display's scale, while a shared screen's
+/// pictures come at full size: at 150 % libwebrtc would draw the pointer two
+/// thirds of the way to where it is. Yapfast's window says so through winit;
+/// the worker has no window. Windows 10 before 1703 lacks the call, so it's
+/// looked up rather than linked.
+#[cfg(windows)]
+fn see_real_pixels() {
+    use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+    use windows::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
+    use windows::core::{s, w};
+    type SetProcessDpiAwarenessContext = unsafe extern "system" fn(DPI_AWARENESS_CONTEXT) -> i32;
+    // SAFETY: user32 stays loaded while the process runs, and the function
+    // by that name has that signature.
+    unsafe {
+        let Ok(user32) = GetModuleHandleW(w!("user32.dll")) else {
+            return;
+        };
+        let Some(set) = GetProcAddress(user32, s!("SetProcessDpiAwarenessContext")) else {
+            return;
+        };
+        let set: SetProcessDpiAwarenessContext = std::mem::transmute(set);
+        if set(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) == 0 {
+            tracing::warn!("the stream worker works in scaled pixels");
+        }
+    }
+}
+
 /// Runs this process as a stream worker until its job ends.
 pub fn run() -> Result<()> {
+    #[cfg(windows)]
+    see_real_pixels();
     // The stream connection uses TLS; nothing else here has started it.
     let _ = crate::init_tls();
     if std::env::var_os(FRAME_LINES).is_some() {
@@ -421,6 +479,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
     let result = job.and_then(|job| match job {
         Job::Share {
             source,
+            audio,
             frames,
             width,
             height,
@@ -433,7 +492,12 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 writer: Writer::open(&frames)?,
                 controls: received,
                 server: None,
-                sound: source != Source::TestPattern,
+                sound: if source == Source::TestPattern {
+                    StreamAudio::Off
+                } else {
+                    audio
+                },
+                audio_error: None,
                 video: None,
                 fps,
                 effort,
@@ -494,11 +558,12 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
         }
         Job::Glance {
             screens,
+            windows,
             width,
             height,
         } => {
             report(Report::Ready);
-            glance(&screens, width, height, &stop, report);
+            glance(&screens, &windows, width, height, &stop, report);
             Ok(())
         }
     });
@@ -514,9 +579,9 @@ struct Sink {
     controls: channel::Receiver<Control>,
     /// The server to send to from the next frame, which gives the stream its size.
     server: Option<StreamServer>,
-    /// Whether to share other applications' sound too: not for the test
-    /// pattern.
-    sound: bool,
+    /// Outgoing audio, independent of the shared video source.
+    sound: StreamAudio,
+    audio_error: Option<String>,
     video: Option<Video>,
     fps: u32,
     effort: Effort,
@@ -536,7 +601,7 @@ struct Video {
     sender: StreamSender,
     encoder: Encoder,
     /// Other applications' sound, while sharing a screen.
-    _sound: Option<stream_audio::Capture>,
+    sound: Option<stream_audio::Capture>,
     /// When the stream last reported how it goes out, and the bytes it had
     /// sent then.
     measured: (Instant, u64),
@@ -606,9 +671,10 @@ impl Sink {
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;
             let sender = StreamSender::start(server, width, height, self.fps, offers)?;
-            let sound = if self.sound {
-                stream_audio::Capture::start(sender.sound())
+            let sound = if self.sound != StreamAudio::Off {
+                stream_audio::Capture::start(sender.sound(), self.sound)
                     .inspect_err(|error| {
+                        self.audio_error = Some(format!("Could not share stream audio: {error:#}"));
                         tracing::warn!(error = format!("{error:#}"), "sharing without sound");
                     })
                     .ok()
@@ -618,7 +684,7 @@ impl Sink {
             self.video = Some(Video {
                 sender,
                 encoder,
-                _sound: sound,
+                sound,
                 measured: (Instant::now(), 0),
             });
         }
@@ -748,8 +814,26 @@ impl Sink {
             match control {
                 Control::Send(server) => self.server = Some(server),
                 Control::Switch(source) => switch = Some(source),
+                Control::Audio(audio) => {
+                    self.sound = audio;
+                    if let Some(video) = self.video.as_mut() {
+                        // Stop capture and discard its buffered samples before switching.
+                        video.sound = None;
+                        if audio != StreamAudio::Off {
+                            video.sound = stream_audio::Capture::start(video.sender.sound(), audio)
+                                .inspect_err(|error| {
+                                    self.audio_error =
+                                        Some(format!("Could not share stream audio: {error:#}"));
+                                })
+                                .ok();
+                        }
+                    }
+                }
                 _ => {}
             }
+        }
+        if let Some(error) = self.audio_error.take() {
+            report(Report::AudioError(error));
         }
         match self.video.as_ref().map(|video| video.sender.link()) {
             Some(Link::Connected) if !self.streaming => {
@@ -827,6 +911,26 @@ struct Sound {
     controls: channel::Receiver<Control>,
 }
 
+fn show_stream_picture(
+    writer: &mut Writer,
+    picture: I420<'_>,
+    turn: Turn,
+    maximum: (u32, u32),
+    scratch: &mut Vec<u8>,
+    turned: &mut Vec<u8>,
+) -> (u32, u32) {
+    let (width, height) = turn.upright(picture.width, picture.height);
+    let size = if writer.fits(width, height) && width <= maximum.0 && height <= maximum.1 {
+        (width, height)
+    } else {
+        fit(width, height, maximum.0, maximum.1)
+    };
+    writer.write(size.0, size.1, |pixels| {
+        picture.to_rgba_turned(scratch, turned, pixels, size, turn);
+    });
+    size
+}
+
 /// Shows someone's stream: whole frames from the connection, decoded, then
 /// scaled down if they don't fit, and plays its sound.
 fn watch(
@@ -851,7 +955,7 @@ fn watch(
     let mut decoder: Option<Decoder> = None;
     // A frame that doesn't fit scales through this, a picture of the size
     // shown; one that does goes straight into the shared frame.
-    let mut scratch = vec![];
+    let (mut scratch, mut turned) = (vec![], vec![]);
     let mut shown = false;
     let mut failures = 0u64;
     while !stop.load(Ordering::Relaxed) {
@@ -896,15 +1000,17 @@ fn watch(
                 continue;
             }
         };
-        let (width, height) = (picture.width, picture.height);
-        if writer.fits(width, height) && width <= max_width && height <= max_height {
-            writer.write(width, height, |pixels| picture.to_rgba(pixels));
-        } else {
-            let (width, height) = fit(width, height, max_width, max_height);
-            writer.write(width, height, |pixels| {
-                picture.i420().to_rgba(&mut scratch, pixels, width, height);
-            });
-        }
+        let (width, height) = show_stream_picture(
+            &mut writer,
+            picture.i420(),
+            Turn {
+                turns: frame.orientation.turns,
+                flip: frame.orientation.flip,
+            },
+            (max_width, max_height),
+            &mut scratch,
+            &mut turned,
+        );
         if !shown {
             shown = true;
             tracing::info!(width, height, codec = ?frame.codec, "showing the stream");
@@ -1320,20 +1426,25 @@ fn picture_of(frame: &livekit::webrtc::desktop_capturer::DesktopFrame) -> I420Bu
 /// before showing the last it took, or none.
 const GLANCE_WAIT: Duration = Duration::from_millis(1500);
 
-/// Takes a picture of each of `screens`, as [`Job::Glance`] asks. A screen
-/// that gives none goes without, and the rest still come.
+/// Takes one thumbnail per display or window. Unavailable sources are skipped
+/// so a closed or minimized window does not prevent the remaining previews.
 fn glance(
     screens: &[u64],
+    windows: &[u64],
     max_width: u32,
     max_height: u32,
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) {
-    for &id in screens {
+    for (id, window) in screens
+        .iter()
+        .map(|&id| (id, false))
+        .chain(windows.iter().map(|&id| (id, true)))
+    {
         if stop.load(Ordering::Relaxed) {
             return;
         }
-        match glance_at(id, stop) {
+        match glance_at(id, window, stop) {
             Ok(Some(mut picture)) => {
                 let (width, height) = fit(picture.width(), picture.height(), max_width, max_height);
                 if (width, height) != (picture.width(), picture.height()) {
@@ -1343,6 +1454,7 @@ fn glance(
                 to_rgba(&picture, &mut rgba);
                 report(Report::Screen {
                     id,
+                    window,
                     width,
                     height,
                     rgba,
@@ -1354,14 +1466,16 @@ fn glance(
     }
 }
 
-/// A picture of the screen listed by `id`, at its own size.
-fn glance_at(id: u64, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
+/// A picture of the display or window listed by `id`, at its own size.
+fn glance_at(id: u64, window: bool, stop: &AtomicBool) -> Result<Option<I420Buffer>> {
     use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
     };
-    let mut capturer = DesktopCapturer::new(DesktopCapturerOptions::new(
-        DesktopCaptureSourceType::Screen,
-    ))
+    let mut capturer = DesktopCapturer::new(DesktopCapturerOptions::new(if window {
+        DesktopCaptureSourceType::Window
+    } else {
+        DesktopCaptureSourceType::Screen
+    }))
     .context("Screen sharing isn't available on this system.")?;
     let source = capturer
         .get_source_list()
@@ -1435,12 +1549,14 @@ impl Worker {
     pub fn share(
         source: Source,
         quality: StreamQuality,
+        audio: StreamAudio,
     ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
         let source = picked(source);
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT)?;
         let (width, height) = bounds(quality.resolution);
         let job = Job::Share {
             source,
+            audio,
             frames: frames.path().context("the video frames file has no name")?,
             width,
             height,
@@ -1461,11 +1577,13 @@ impl Worker {
     /// [`Report::Ended`].
     pub fn glance(
         screens: Vec<u64>,
+        windows: Vec<u64>,
         width: u32,
         height: u32,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Report>)> {
         Self::start(&Job::Glance {
             screens,
+            windows,
             width,
             height,
         })
@@ -1789,6 +1907,51 @@ impl Drop for Worker {
 mod tests {
     use super::*;
 
+    #[test]
+    fn shows_mobile_streams_upright_when_the_phone_turns() {
+        // Left half dark, right half light, sent as landscape pixels.
+        let y: Vec<_> = (0..32)
+            .map(|index| if index % 8 < 4 { 16 } else { 235 })
+            .collect();
+        let (u, v) = ([128; 8], [128; 8]);
+        let picture = I420 {
+            width: 8,
+            height: 4,
+            y: &y,
+            u: &u,
+            v: &v,
+            strides: [8, 4, 4],
+        };
+        for maximum in [(8, 8), (8, 4)] {
+            let frames = Frames::create(maximum.0, maximum.1).unwrap();
+            let mut writer = Writer::open(&frames.path().unwrap()).unwrap();
+            let (mut scratch, mut turned) = (vec![], vec![]);
+            // Landscape, both portrait directions, upside down, then back.
+            for turns in [0, 1, 3, 2, 0] {
+                let size = show_stream_picture(
+                    &mut writer,
+                    picture,
+                    Turn { turns, flip: false },
+                    maximum,
+                    &mut scratch,
+                    &mut turned,
+                );
+                let expected = if turns % 2 == 1 {
+                    if maximum.1 == 4 { (2, 4) } else { (4, 8) }
+                } else {
+                    (8, 4)
+                };
+                assert_eq!(size, expected);
+                let shown = frames
+                    .take(|width, height, rgba| {
+                        ((width, height), rgba[0] > 128, rgba[rgba.len() - 4] > 128)
+                    })
+                    .unwrap();
+                assert_eq!(shown, (expected, turns >= 2, turns < 2));
+            }
+        }
+    }
+
     /// A worker that dies without a [`Report::Ended`] logs a warning with
     /// how it ended and the job it had, and the UI still gets the popup's
     /// error.
@@ -1813,6 +1976,7 @@ mod tests {
             unsafe { std::env::set_var("YAPFAST_STREAM_WORKER", &worker) };
             let (worker, mut reports) = Worker::start(&Job::Glance {
                 screens: vec![],
+                windows: vec![],
                 width: 320,
                 height: 180,
             })
@@ -1900,7 +2064,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: StreamAudio::Off,
+            audio_error: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -1933,7 +2098,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: StreamAudio::Off,
+            audio_error: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -1963,6 +2129,43 @@ mod tests {
     }
 
     #[test]
+    fn changes_stream_audio_without_switching_or_stopping_video() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: StreamAudio::All,
+            audio_error: None,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        for audio in [StreamAudio::Off, StreamAudio::Window(42), StreamAudio::All] {
+            controls.send(Control::Audio(audio)).unwrap();
+            assert_eq!(
+                sink.check(&mut |_| {}).unwrap(),
+                None,
+                "audio never switches video"
+            );
+            assert_eq!(
+                sink.sound, audio,
+                "applies before the server is connected too"
+            );
+            let mut picture = I420Buffer::new(320, 180);
+            sink.frame(&mut picture).unwrap();
+            assert!(frames.take(|width, height, _| (width, height)).is_some());
+        }
+    }
+
+    #[test]
     fn switches_to_the_last_source_asked_for() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let (controls, received) = channel::channel();
@@ -1970,7 +2173,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: StreamAudio::Off,
+            audio_error: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -1997,7 +2201,8 @@ mod tests {
             writer: Writer::open(&frames.path().unwrap()).unwrap(),
             controls: received,
             server: None,
-            sound: false,
+            sound: StreamAudio::Off,
+            audio_error: None,
             video: None,
             fps: 30,
             effort: Effort::Light,
@@ -2037,6 +2242,7 @@ mod tests {
     fn serves_a_test_pattern_until_stopped() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
+            audio: StreamAudio::All,
             source: Source::TestPattern,
             frames: frames.path().unwrap(),
             width: PREVIEW_WIDTH,
@@ -2086,6 +2292,7 @@ mod tests {
             .expect("the test pattern camera is listed");
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
+            audio: StreamAudio::All,
             source: camera.source.clone(),
             frames: frames.path().unwrap(),
             width: PREVIEW_WIDTH,
@@ -2141,6 +2348,7 @@ mod tests {
     fn a_screen_picture_survives_its_report_line() {
         let report = Report::Screen {
             id: 7,
+            window: false,
             width: 2,
             height: 1,
             rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
@@ -2148,6 +2356,66 @@ mod tests {
         let line = serde_json::to_string(&report).unwrap();
         assert!(line.contains(r#""rgba":"/wAA/wAA//8=""#), "{line}");
         assert_eq!(serde_json::from_str::<Report>(&line).unwrap(), report);
+        let window = Report::Screen {
+            id: 7,
+            window: true,
+            width: 2,
+            height: 1,
+            rgba: vec![255; 8],
+        };
+        assert_eq!(
+            serde_json::from_str::<Report>(&serde_json::to_string(&window).unwrap()).unwrap(),
+            window
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a desktop with capturable application windows"]
+    fn glances_at_the_listed_windows() {
+        let windows: Vec<u64> = shareable()
+            .into_iter()
+            .filter_map(|listed| match listed.source {
+                Source::Window(id) => Some(id),
+                _ => None,
+            })
+            .take(8)
+            .collect();
+        assert!(!windows.is_empty(), "no application window is available");
+        let job = Job::Glance {
+            screens: vec![],
+            windows: windows.clone(),
+            width: 240,
+            height: 135,
+        };
+        let (input, mut feed) = std::io::pipe().unwrap();
+        writeln!(feed, "{}", serde_json::to_string(&job).unwrap()).unwrap();
+        let mut pictured = vec![];
+        serve(
+            Box::new(BufReader::new(input)),
+            &mut |report| match report {
+                Report::Screen {
+                    id,
+                    window,
+                    width,
+                    height,
+                    rgba,
+                } => {
+                    assert!(window, "window previews must not be routed to displays");
+                    assert!(windows.contains(&id));
+                    assert!(width > 0 && width <= 240 && height > 0 && height <= 135);
+                    assert_eq!(rgba.len(), (width * height * 4) as usize);
+                    pictured.push(id);
+                }
+                Report::Ended { error } => assert!(error.is_none(), "{error:?}"),
+                _ => {}
+            },
+        );
+        eprintln!(
+            "Captured {} of {} window thumbnails",
+            pictured.len(),
+            windows.len()
+        );
+        assert!(!pictured.is_empty(), "no application provided a preview");
     }
 
     /// Takes a picture of each listed screen, as the share menu shows them.
@@ -2167,6 +2435,7 @@ mod tests {
         assert!(!screens.is_empty(), "no screen");
         let job = Job::Glance {
             screens: screens.clone(),
+            windows: vec![],
             width: 320,
             height: 180,
         };
@@ -2181,6 +2450,7 @@ mod tests {
             .filter_map(|report| match report {
                 Report::Screen {
                     id,
+                    window: false,
                     width,
                     height,
                     rgba,
@@ -2221,6 +2491,7 @@ mod tests {
         for source in sources.clone() {
             let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
             let job = Job::Share {
+                audio: StreamAudio::All,
                 source: source.clone(),
                 frames: frames.path().unwrap(),
                 width: PREVIEW_WIDTH,
@@ -2274,6 +2545,7 @@ mod tests {
         let [screen, window] = sources;
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
         let job = Job::Share {
+            audio: StreamAudio::All,
             source: screen,
             frames: frames.path().unwrap(),
             width: PREVIEW_WIDTH,
@@ -2309,6 +2581,7 @@ mod tests {
         // A window closed since it was listed.
         let frames = Frames::create(16, 16).unwrap();
         let gone = Job::Share {
+            audio: StreamAudio::All,
             source: Source::Window(u64::MAX),
             frames: frames.path().unwrap(),
             width: 16,

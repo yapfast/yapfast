@@ -685,7 +685,9 @@ pub fn profile_editor_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, M
             .width(card_width)
             .height(card_height)
             .clip(true)
-            .style(crate::profile::frame_style(inks, theme.edge, 12.0, true))
+            .style(crate::profile::frame_style(
+                inks, theme, theme.edge, 12.0, true,
+            ))
     ];
     if main {
         card = card.push(

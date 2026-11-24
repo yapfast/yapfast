@@ -41,6 +41,41 @@ fn a_linked_discord_profile_loads_for_someone_not_listed() {
     assert_eq!(view.profile.handle, "nia");
 }
 
+/// Someone whose card opens off the member list's loaded rows gets their
+/// status from the presence Discord answers for the profile's server.
+#[test]
+#[cfg(feature = "discord")]
+fn a_profiles_presence_comes_from_its_server() {
+    let mut app = discord_server();
+    app.dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.dispatch(Action::Open("discord:10:11".into()));
+    app.dispatch(Action::ShowProfile {
+        user: "4242".into(),
+        large: false,
+    });
+    assert_eq!(app.state.profile.as_ref().unwrap().profile.presence, None);
+    app.apply(Event::ProfilePresence {
+        user: "4242".into(),
+        presence: chat::Presence::Idle,
+        activity: Some("brb".into()),
+        activities: Default::default(),
+    });
+    let profile = &app.state.profile.as_ref().unwrap().profile;
+    assert_eq!(profile.presence, Some(chat::Presence::Idle));
+    assert_eq!(profile.activity.as_deref(), Some("brb"));
+    app.apply(Event::ProfilePresence {
+        user: "1".into(),
+        presence: chat::Presence::Online,
+        activity: None,
+        activities: Default::default(),
+    });
+    assert_eq!(
+        app.state.profile.as_ref().unwrap().profile.presence,
+        Some(chat::Presence::Idle),
+        "someone else's goes nowhere"
+    );
+}
+
 #[test]
 fn matrix_profiles_show_what_the_member_list_knows() {
     let mut app = connected();

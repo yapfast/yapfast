@@ -145,6 +145,18 @@ impl<'a> Page<'a> {
                 prefs.strip_tracking.unwrap_or(true),
                 Pref::StripTracking,
             ),
+            self.flip(
+                "Peek at channels",
+                "Hold Alt over a channel or DM in the list to see its newest messages without opening it or marking it read.",
+                self.cx.layout.peek_channels,
+                Pref::PeekChannels,
+            ),
+            self.flip(
+                "Search DMs with the quick switcher",
+                "The box at the top of the DM list opens the quick switcher, as Discord's \"Find or start a conversation\" does, instead of filtering the list.",
+                self.cx.layout.dm_search_switcher,
+                Pref::DmSearchSwitcher,
+            ),
         ])
     }
 }

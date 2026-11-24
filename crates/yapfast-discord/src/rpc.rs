@@ -1,14 +1,11 @@
-//! Linux Discord RPC over IPC, for games and tools using discord-rpc/arRPC.
+//! Discord RPC over local IPC, for games and tools using discord-rpc/arRPC.
 //! Protocol: https://docs.discord.food/topics/rpc#ipc-transport.
 //! Only local Rich Presence is exposed; account/voice control needs OAuth2
 //! and is deliberately unsupported here.
 
 use std::{
-    collections::{HashMap, HashSet},
-    fs::{File, Metadata},
-    io,
-    os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
-    path::{Path, PathBuf},
+    collections::{HashMap, HashSet, VecDeque},
+    path::PathBuf,
     sync::Arc,
     time::Duration,
 };
@@ -16,8 +13,7 @@ use std::{
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{UnixListener, UnixStream},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{mpsc, watch},
     task::JoinSet,
 };
@@ -27,11 +23,20 @@ use crate::{
     service::{Snapshot, Status},
 };
 
+#[cfg(target_os = "linux")]
+#[path = "rpc/linux.rs"]
+mod transport;
+#[cfg(windows)]
+#[path = "rpc/windows.rs"]
+mod transport;
+use transport::{Socket, Stream, runtime_directory};
+
 const MAX_PACKET: usize = 64 * 1024;
 /// The most image addresses a client's images are kept for: a music player
 /// shows a new cover with each song.
 const KEPT_IMAGES: usize = 32;
 const MAX_CLIENTS: usize = 16;
+const MAX_PENDING: usize = 4;
 const WAIT: Duration = Duration::from_secs(15);
 
 pub(crate) fn start(
@@ -63,112 +68,8 @@ pub(crate) fn start(
     receiver
 }
 
-fn runtime_directory() -> PathBuf {
-    ["XDG_RUNTIME_DIR", "TMPDIR", "TMP", "TEMP"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .find(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-}
-
-/// The lock coordinates Yapfast processes; probing the socket also respects
-/// Discord and other RPC servers, which do not take our lock.
-struct Socket {
-    listener: UnixListener,
-    path: PathBuf,
-    identity: Metadata,
-    _lock: File,
-}
-
-impl Socket {
-    async fn bind(directory: &Path) -> Result<Self> {
-        let uid = std::fs::metadata("/proc/self")?.uid();
-        for slot in 0..10 {
-            let path = directory.join(format!("discord-ipc-{slot}"));
-            let lock_path = directory.join(format!("yapfast-discord-ipc-{slot}.lock"));
-            use std::os::unix::fs::OpenOptionsExt;
-            let lock = match File::options()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&lock_path)
-            {
-                Ok(lock) => lock,
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    // A replaced lock must neither follow a symlink nor
-                    // block opening a FIFO.
-                    let Ok(lock) = File::options()
-                        .write(true)
-                        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                        .open(&lock_path)
-                    else {
-                        continue;
-                    };
-                    let metadata = lock.metadata()?;
-                    let link = std::fs::symlink_metadata(&lock_path)?;
-                    if !link.is_file() || metadata.uid() != uid || !same_file(&metadata, &link) {
-                        continue;
-                    }
-                    lock
-                }
-                Err(_) => continue,
-            };
-            if lock.try_lock().is_err() {
-                continue;
-            }
-            if let Ok(metadata) = std::fs::symlink_metadata(&path) {
-                if !metadata.file_type().is_socket() || metadata.uid() != uid {
-                    continue;
-                }
-                // A live server with a full backlog must not block a Tokio
-                // worker while we look for a free slot.
-                match tokio::time::timeout(Duration::from_millis(100), UnixStream::connect(&path))
-                    .await
-                {
-                    Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => {
-                        if !std::fs::symlink_metadata(&path)
-                            .is_ok_and(|now| same_file(&metadata, &now))
-                        {
-                            continue;
-                        }
-                        std::fs::remove_file(&path)?;
-                    }
-                    _ => continue,
-                }
-            }
-            let Ok(listener) = UnixListener::bind(&path) else {
-                continue;
-            };
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-            let identity = std::fs::symlink_metadata(&path)?;
-            return Ok(Self {
-                listener,
-                path,
-                identity,
-                _lock: lock,
-            });
-        }
-        bail!("no free Discord IPC socket in {}", directory.display())
-    }
-}
-
-fn same_file(left: &Metadata, right: &Metadata) -> bool {
-    left.ino() == right.ino() && left.dev() == right.dev()
-}
-
-impl Drop for Socket {
-    fn drop(&mut self) {
-        if std::fs::symlink_metadata(&self.path).is_ok_and(|now| same_file(&self.identity, &now)) {
-            let _ = std::fs::remove_file(&self.path);
-        }
-        // Leave the lock inode in place: unlinking a locked file would let
-        // another process create a second independent lock for the same slot.
-    }
-}
-
 async fn serve(
-    socket: Socket,
+    mut socket: Socket,
     api: Arc<Api>,
     snapshots: watch::Receiver<Arc<Snapshot>>,
     activity: &watch::Sender<Option<Arc<Value>>>,
@@ -182,15 +83,13 @@ async fn serve(
         let removed = tokio::select! {
             biased;
             () = activity.closed() => break,
-            accepted = socket.listener.accept(), if clients.len() < MAX_CLIENTS => {
-                let Ok((stream, _)) = accepted else {
+            Some(done) = clients.join_next(), if !clients.is_empty() => done.ok(),
+            accepted = socket.accept(), if clients.len() < MAX_CLIENTS => {
+                let Ok(stream) = accepted else {
                     // Out of descriptors, say: wait rather than end RPC for good.
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     continue;
                 };
-                if !stream.peer_cred().is_ok_and(|peer| peer.uid() == socket.identity.uid()) {
-                    continue;
-                }
                 next += 1;
                 let id = next;
                 connected.insert(id);
@@ -217,7 +116,6 @@ async fn serve(
                 }
                 None
             }
-            Some(done) = clients.join_next(), if !clients.is_empty() => done.ok(),
         };
         if let Some(id) = removed {
             connected.remove(&id);
@@ -233,19 +131,47 @@ async fn serve(
             }
         });
     }
-    // Dropping JoinSet aborts clients, and Socket removes only our own inode.
+    // Dropping JoinSet aborts clients; Socket releases the listener.
 }
 
-async fn read(stream: &mut UnixStream) -> Result<(u32, Vec<u8>)> {
-    let opcode = stream.read_u32_le().await?;
-    let size = stream.read_u32_le().await? as usize;
-    ensure!(size <= MAX_PACKET, "RPC packet too large");
-    let mut payload = vec![0; size];
-    stream.read_exact(&mut payload).await?;
-    Ok((opcode, payload))
+/// Keeps partial framing across select! cancellations while an HTTP lookup
+/// finishes. No extra reader task or polling timer per connected app.
+#[derive(Default)]
+struct Packets {
+    header: [u8; 8],
+    header_read: usize,
+    payload: Vec<u8>,
+    payload_read: usize,
 }
 
-async fn write(stream: &mut UnixStream, opcode: u32, payload: &[u8]) -> Result<()> {
+impl Packets {
+    async fn read(&mut self, stream: &mut (impl AsyncRead + Unpin)) -> Result<(u32, Vec<u8>)> {
+        while self.header_read < self.header.len() {
+            let read = stream.read(&mut self.header[self.header_read..]).await?;
+            ensure!(read > 0, "RPC client disconnected");
+            self.header_read += read;
+        }
+        let opcode = u32::from_le_bytes(self.header[..4].try_into()?);
+        let size = u32::from_le_bytes(self.header[4..].try_into()?) as usize;
+        ensure!(size <= MAX_PACKET, "RPC packet too large");
+        self.payload.resize(size, 0);
+        while self.payload_read < size {
+            let read = stream.read(&mut self.payload[self.payload_read..]).await?;
+            ensure!(read > 0, "RPC client disconnected");
+            self.payload_read += read;
+        }
+        self.header_read = 0;
+        self.payload_read = 0;
+        Ok((opcode, std::mem::take(&mut self.payload)))
+    }
+}
+
+#[cfg(test)]
+async fn read(stream: &mut (impl AsyncRead + Unpin)) -> Result<(u32, Vec<u8>)> {
+    Packets::default().read(stream).await
+}
+
+async fn write(stream: &mut (impl AsyncWrite + Unpin), opcode: u32, payload: &[u8]) -> Result<()> {
     tokio::time::timeout(WAIT, async {
         stream.write_u32_le(opcode).await?;
         stream.write_u32_le(payload.len() as u32).await?;
@@ -255,18 +181,19 @@ async fn write(stream: &mut UnixStream, opcode: u32, payload: &[u8]) -> Result<(
     Ok(())
 }
 
-async fn send(stream: &mut UnixStream, value: Value) -> Result<()> {
+async fn send(stream: &mut (impl AsyncWrite + Unpin), value: Value) -> Result<()> {
     write(stream, 1, &serde_json::to_vec(&value)?).await
 }
 
 async fn connection(
-    mut stream: UnixStream,
+    mut stream: Stream,
     api: Arc<Api>,
     snapshots: watch::Receiver<Arc<Snapshot>>,
     updates: mpsc::Sender<(u64, Option<Arc<Value>>)>,
     id: u64,
 ) -> Result<()> {
-    let (opcode, payload) = tokio::time::timeout(WAIT, read(&mut stream)).await??;
+    let mut packets = Packets::default();
+    let (opcode, payload) = tokio::time::timeout(WAIT, packets.read(&mut stream)).await??;
     let handshake: Value = serde_json::from_slice(&payload)?;
     let client = handshake["client_id"].as_str().unwrap_or_default();
     if opcode != 0 || handshake["v"] != 1 || !snowflake(client) {
@@ -306,12 +233,21 @@ async fn connection(
         "data":{"v":1,"config":{"cdn_host":"cdn.discordapp.com","api_endpoint":"//discord.com/api","environment":"production"},"user":user}})).await?;
     let mut assets = None;
     let mut images = Assets::new();
+    let (mut input, mut output) = tokio::io::split(stream);
+    let mut pending = VecDeque::<(u32, Vec<u8>)>::new();
+    let mut pending_bytes = 0;
     loop {
-        let (opcode, payload) = read(&mut stream).await?;
+        let (opcode, payload) = match pending.pop_front() {
+            Some((opcode, payload)) => {
+                pending_bytes -= payload.len();
+                (opcode, payload)
+            }
+            None => packets.read(&mut input).await?,
+        };
         match opcode {
             2 => return Ok(()),
             3 => {
-                write(&mut stream, 4, &payload).await?;
+                write(&mut output, 4, &payload).await?;
                 continue;
             }
             4 => continue,
@@ -324,14 +260,14 @@ async fn connection(
         let nonce = &packet["nonce"];
         if cmd != "SET_ACTIVITY" {
             send(
-                &mut stream,
+                &mut output,
                 json!({"cmd":cmd,"nonce":nonce,"evt":"ERROR",
                 "data":{"code":4002,"message":"Only SET_ACTIVITY is supported"}}),
             )
             .await?;
             continue;
         }
-        let result = async {
+        let resolve = async {
             let args = &packet["args"];
             ensure!(
                 args["pid"].as_u64().is_some_and(|pid| pid > 0),
@@ -345,15 +281,24 @@ async fn connection(
                 return Ok(None);
             }
             let pictures = &args["activity"]["assets"];
-            let (addresses, keys): (Vec<&str>, Vec<&str>) = ["large_image", "small_image"]
+            let mut addresses = Vec::new();
+            let mut named_assets = false;
+            for image in ["large_image", "small_image"]
                 .iter()
                 .filter_map(|key| pictures[key].as_str())
-                .partition(|image| web_address(image, 512));
-            let addresses: Vec<&str> = addresses
-                .into_iter()
-                .filter(|address| !images.contains_key(*address))
-                .collect();
-            if assets.is_none() && !keys.is_empty() {
+            {
+                if web_address(image, usize::MAX) {
+                    ensure!(image.len() <= 512, "image address is too long");
+                    if !images.contains_key(image) && !addresses.contains(&image) {
+                        addresses.push(image);
+                    }
+                } else {
+                    // Asset ids already have their gateway form; only named
+                    // keys need an HTTP lookup.
+                    named_assets |= !snowflake(image);
+                }
+            }
+            if assets.is_none() && named_assets {
                 let response = tokio::time::timeout(WAIT, api.rpc_assets(&client)).await??;
                 assets = Some(asset_lookup(&response)?);
             }
@@ -362,28 +307,49 @@ async fn connection(
                 let response =
                     tokio::time::timeout(WAIT, api.rpc_external_assets(&client, &addresses))
                         .await??;
-                if images.len() + addresses.len() > KEPT_IMAGES {
-                    images.clear();
-                }
-                images.extend(external_lookup(&response)?);
+                remember_images(&mut images, &response, pictures)?;
             }
             normalize(&args["activity"], &client, &name, assets.as_ref(), &images)
                 .map(|value| Some(Arc::new(value)))
-        }
-        .await;
+        };
+        tokio::pin!(resolve);
+        let result = loop {
+            tokio::select! {
+                // Read disconnects/CLOSE even while Discord resolves images
+                // or holds the HTTP request back behind a rate limit. With
+                // the queue full, stop reading: the app waits, as before,
+                // rather than losing its connection and its activity.
+                received = packets.read(&mut input),
+                    if pending.len() < MAX_PENDING && pending_bytes < MAX_PACKET =>
+                {
+                    let (opcode, payload) = received?;
+                    match opcode {
+                        2 => return Ok(()),
+                        3 => write(&mut output, 4, &payload).await?,
+                        4 => {},
+                        1 => {
+                            pending_bytes += payload.len();
+                            pending.push_back((opcode, payload));
+                        }
+                        _ => bail!("invalid RPC opcode"),
+                    }
+                }
+                result = &mut resolve => break result,
+            }
+        };
         match result {
             Ok(value) => {
                 // Bound queued updates even when games publish very frequently.
                 updates.send((id, value.clone())).await?;
                 send(
-                    &mut stream,
+                    &mut output,
                     json!({"cmd":cmd,"nonce":nonce,"evt":null,"data":value}),
                 )
                 .await?;
             }
             Err(error) => {
                 send(
-                    &mut stream,
+                    &mut output,
                     json!({"cmd":cmd,"nonce":nonce,"evt":"ERROR",
                     "data":{"code":4000,"message":error.to_string()}}),
                 )
@@ -401,6 +367,21 @@ fn snowflake(value: &str) -> bool {
 }
 
 type Assets = HashMap<String, String>;
+
+/// Evict older covers without evicting a cached image this very activity
+/// still uses, such as the artist badge beside a new album cover.
+fn remember_images(images: &mut Assets, response: &Value, pictures: &Value) -> Result<()> {
+    let new = external_lookup(response)?;
+    if images.len() + new.len() > KEPT_IMAGES {
+        images.retain(|url, _| {
+            ["large_image", "small_image"]
+                .iter()
+                .any(|key| pictures[key].as_str() == Some(url))
+        });
+    }
+    images.extend(new);
+    Ok(())
+}
 
 fn web_address(text: &str, longest: usize) -> bool {
     text.len() <= longest && (text.starts_with("https://") || text.starts_with("http://"))
@@ -602,7 +583,12 @@ mod tests {
     use super::*;
     use crate::own_activity::merge;
 
+    #[cfg(target_os = "linux")]
+    use {std::os::unix::fs::PermissionsExt, tokio::net::UnixListener};
+
+    #[cfg(target_os = "linux")]
     struct Directory(PathBuf);
+    #[cfg(target_os = "linux")]
     impl Directory {
         fn new() -> Self {
             static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -615,6 +601,7 @@ mod tests {
             Self(path)
         }
     }
+    #[cfg(target_os = "linux")]
     impl Drop for Directory {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -669,6 +656,55 @@ mod tests {
     }
 
     #[test]
+    fn keeps_a_music_players_track_and_display_preference() {
+        // The wire fields used by Liner's @xhayper/discord-rpc client.
+        let shown = normalize(
+            &json!({
+                "name":"Artist", "type":2, "details":"Track", "state":"Artist",
+                "status_display_type":1,
+                "timestamps":{"start":1700000000_u64,"end":1700000180_u64},
+                "buttons":[{"label":"Listen on Liner","url":"https://link.tryliner.fun/track?id=1"}]
+            }),
+            "1561339119617974362",
+            "Liner",
+            None,
+            &Assets::new(),
+        )
+        .unwrap();
+        assert_eq!(shown["type"], 2);
+        assert_eq!(shown["name"], "Liner");
+        assert_eq!(shown["details"], "Track");
+        assert_eq!(shown["state"], "Artist");
+        assert_eq!(shown["status_display_type"], 1);
+        assert_eq!(shown["timestamps"]["end"], 1700000180000_u64);
+        assert_eq!(shown["buttons"][0], "Listen on Liner");
+    }
+
+    #[test]
+    fn rotating_covers_keeps_the_current_activities_cached_artist_image() {
+        let artist = "https://example.com/artist.png";
+        let cover = "https://example.com/new-cover.png";
+        let mut images = Assets::from([(artist.into(), "mp:artist".into())]);
+        for n in 1..KEPT_IMAGES {
+            images.insert(
+                format!("https://example.com/old-{n}.png"),
+                format!("mp:old-{n}"),
+            );
+        }
+        let activity = json!({"type":2,"assets":{"large_image":cover,"small_image":artist}});
+        remember_images(
+            &mut images,
+            &json!([{"url":cover,"external_asset_path":"external/new-cover"}]),
+            &activity["assets"],
+        )
+        .unwrap();
+        let shown = normalize(&activity, "42", "Liner", None, &images).unwrap();
+        assert_eq!(shown["assets"]["small_image"], "mp:artist");
+        assert_eq!(shown["assets"]["large_image"], "mp:external/new-cover");
+        assert_eq!(images.len(), 2);
+    }
+
+    #[test]
     fn rejects_invalid_activity_without_losing_the_previous_one() {
         for value in [
             json!([]),
@@ -711,6 +747,7 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn leaves_live_sockets_alone_and_reclaims_stale_ones() {
         let directory = Directory::new();
@@ -730,6 +767,7 @@ mod tests {
         assert!(reclaimed.path.ends_with("discord-ipc-0"));
     }
 
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn does_not_remove_a_replacement_or_follow_a_lock_symlink() {
         let directory = Directory::new();
@@ -749,7 +787,7 @@ mod tests {
 
     #[tokio::test]
     async fn framing_handles_partial_reads_and_rejects_oversize_before_allocating() {
-        let (mut client, mut server) = UnixStream::pair().unwrap();
+        let (mut client, mut server) = tokio::io::duplex(64);
         let writer = tokio::spawn(async move {
             for byte in [1, 0, 0, 0, 2, 0, 0, 0, b'{', b'}'] {
                 client.write_all(&[byte]).await.unwrap();
@@ -767,5 +805,131 @@ mod tests {
                 .contains("too large")
         );
         writer.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn framing_keeps_partial_headers_and_payloads_when_a_lookup_finishes() {
+        let (mut client, mut stream) = tokio::io::duplex(64);
+        let mut packets = Packets::default();
+        let frame = [1, 0, 0, 0, 4, 0, 0, 0, b't', b'e', b's', b't'];
+        for part in [&frame[..3], &frame[3..10]] {
+            client.write_all(part).await.unwrap();
+            // The HTTP side wins select! while a partial packet is buffered.
+            let reading = packets.read(&mut stream);
+            tokio::pin!(reading);
+            assert!(futures_util::poll!(&mut reading).is_pending());
+        }
+        client.write_all(&frame[10..]).await.unwrap();
+        assert_eq!(
+            packets.read(&mut stream).await.unwrap(),
+            (1, b"test".to_vec())
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_busy_app_waits_for_a_slow_image_lookup_instead_of_losing_its_connection() {
+        use tokio::net::{TcpListener, UnixStream};
+
+        let http = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut api = Api::anonymous().unwrap();
+        api.base = format!("http://{}", http.local_addr().unwrap());
+        let (looking_up, mut lookup_started) = watch::channel(false);
+        let (release, released) = watch::channel(false);
+        let http_worker = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = http.accept().await.unwrap();
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(stream.read_u8().await.unwrap());
+                }
+                let body = if request.starts_with(b"POST /applications/22/external-assets ") {
+                    // Discord holds the image lookup back, as behind a rate limit.
+                    looking_up.send_replace(true);
+                    released.clone().wait_for(|go| *go).await.unwrap();
+                    r#"[{"url":"https://example.com/cover.png","external_asset_path":"external/cover"}]"#
+                } else {
+                    r#"{"name":"Fixture"}"#
+                };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(body.as_bytes()).await.unwrap();
+            }
+        });
+        let (_snapshots, snapshots) = watch::channel(Arc::new(Snapshot {
+            status: Status::Online,
+            user_id: Some("42".into()),
+            ..Default::default()
+        }));
+        let (updates, mut published) = mpsc::channel(32);
+        let (mut app, served) = UnixStream::pair().unwrap();
+        let server = tokio::spawn(connection(served, Arc::new(api), snapshots, updates, 1));
+
+        let handshake = serde_json::to_vec(&json!({"v":1,"client_id":"22"})).unwrap();
+        write(&mut app, 0, &handshake).await.unwrap();
+        let (_, ready) = read(&mut app).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&ready).unwrap()["evt"],
+            "READY"
+        );
+        let set = |nonce: &str, assets: Value| {
+            serde_json::to_vec(&json!({"cmd":"SET_ACTIVITY","nonce":nonce,
+                "args":{"pid":2,"activity":{"details":nonce,"assets":assets}}}))
+            .unwrap()
+        };
+        write(
+            &mut app,
+            1,
+            &set(
+                "cover",
+                json!({"large_image":"https://example.com/cover.png"}),
+            ),
+        )
+        .await
+        .unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            lookup_started.wait_for(|started| *started),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        // More updates than the queue holds while the lookup is stuck.
+        let nonces: Vec<String> = (0..=MAX_PENDING + 1)
+            .map(|n| format!("update-{n}"))
+            .collect();
+        for nonce in &nonces {
+            write(&mut app, 1, &set(nonce, json!({}))).await.unwrap();
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        release.send_replace(true);
+
+        for nonce in std::iter::once("cover").chain(nonces.iter().map(String::as_str)) {
+            let (opcode, payload) = tokio::time::timeout(Duration::from_secs(2), read(&mut app))
+                .await
+                .expect("the app gets an answer")
+                .expect("the connection stays open");
+            assert_eq!(opcode, 1);
+            let answer: Value = serde_json::from_slice(&payload).unwrap();
+            assert_eq!(answer["nonce"], nonce);
+            assert!(answer["evt"].is_null(), "{answer}");
+            assert_eq!(answer["data"]["details"], nonce);
+        }
+        let mut shown = Vec::new();
+        while let Ok((_, Some(activity))) = published.try_recv() {
+            shown.push(activity["details"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(shown.len(), nonces.len() + 1);
+        assert_eq!(shown.last(), nonces.last());
+        drop(app);
+        tokio::time::timeout(Duration::from_secs(1), server)
+            .await
+            .unwrap()
+            .unwrap()
+            .ok();
+        http_worker.abort();
     }
 }

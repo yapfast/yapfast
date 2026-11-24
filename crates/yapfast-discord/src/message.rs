@@ -543,6 +543,14 @@ impl Message {
         named || everyone || role
     }
 
+    /// Whether the timeline highlights it for `me`: as it calls on them,
+    /// or, being their own, as it names them, which Discord's client
+    /// highlights all the same though it never notifies of it.
+    pub fn highlights_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
+        self.names_me(me, marks)
+            || (self.author_id == me && self.mentions.iter().any(|user| user == me))
+    }
+
     /// Whether it replies to a message of `me`'s, not being its own.
     pub fn replies_to(&self, me: &str) -> bool {
         self.author_id != me
@@ -1942,6 +1950,15 @@ impl Names {
             .collect();
         found.sort();
         found.into_iter().map(|(_, _, id)| id).collect()
+    }
+
+    /// The known user whose username is `username`, any letter case, as a
+    /// search's `from:` names them.
+    pub fn user_called(&self, username: &str) -> Option<String> {
+        self.usernames
+            .iter()
+            .find(|(_, known)| known.eq_ignore_ascii_case(username))
+            .map(|(user, _)| user.to_string())
     }
 
     /// A user's display name or username, outside any server.
@@ -3554,6 +3571,12 @@ mod tests {
         let own = message(json!({"author": {"id": "1", "username": "alice"},
             "mention_everyone": true}));
         assert!(!own.mentions_me(me, Some(&server)));
+        assert!(!own.highlights_me(me, Some(&server)));
+        // Naming herself, it's highlighted though it doesn't call on her.
+        let named = message(json!({"author": {"id": "1", "username": "alice"},
+            "mentions": [{"id": "1", "username": "alice"}], "content": "<@1>"}));
+        assert!(!named.mentions_me(me, Some(&server)));
+        assert!(named.highlights_me(me, Some(&server)));
         // A DM has no server: @everyone means nothing there.
         assert!(!message(json!({"mention_everyone": true})).mentions_me(me, None));
     }
@@ -3656,5 +3679,52 @@ mod tests {
         assert_eq!(ago(-90 * day), "in 3 months");
         assert_eq!(ago(320 * day), "a year ago");
         assert_eq!(ago(3 * 365 * day), "3 years ago");
+    }
+
+    #[test]
+    fn replies_preserve_static_and_animated_custom_emoji_markup() {
+        let message = parse(&json!({
+            "id": "1300000000000000010",
+            "channel_id": "11",
+            "type": 19,
+            "content": "replying",
+            "author": {"id": "1", "username": "me"},
+            "referenced_message": {
+                "id": "1300000000000000001",
+                "author": {"id": "2", "username": "desu"},
+                "content": "<:AMkiss:123> and <a:party:7>",
+            },
+        }))
+        .unwrap();
+        let Some(Reply::Message { content, .. }) = message.reply else {
+            panic!("expected reply message");
+        };
+        assert_eq!(content, "<:AMkiss:123> and <a:party:7>");
+        assert_eq!(
+            custom_emoji(&content),
+            [
+                CustomEmoji {
+                    name: "AMkiss".into(),
+                    id: "123".into(),
+                    animated: false,
+                },
+                CustomEmoji {
+                    name: "party".into(),
+                    id: "7".into(),
+                    animated: true,
+                },
+            ]
+        );
+        let original = Message {
+            id: "42".into(),
+            author_id: "2".into(),
+            author: "desu".into(),
+            content,
+            ..Default::default()
+        };
+        assert!(matches!(
+            Reply::quoting(&original),
+            Reply::Message { content, .. } if content == "<:AMkiss:123> and <a:party:7>"
+        ));
     }
 }

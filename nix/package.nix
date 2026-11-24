@@ -11,19 +11,6 @@ let
   toolchain = pkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
   rustPlatform = pkgs.makeRustPlatform { cargo = toolchain; rustc = toolchain; };
   id = "io.github.yapfast.Yapfast";
-  deepFilterHash = "sha256-JxvK5/PX29o23Pq9cNpTSyuAB7j9HszzDGHC2fOw74Y=";
-  # deep_filter embeds a model from its repository's models/ folder, outside
-  # the crate, which vendoring leaves out; this is the commit Cargo.lock pins.
-  deepFilter =
-    let
-      lock = lib.importTOML ../Cargo.lock;
-      source = (lib.findFirst (p: p.name == "deep_filter") null lock.package).source;
-    in
-    pkgs.fetchgit {
-      url = "https://github.com/Rikorose/DeepFilterNet";
-      rev = lib.last (lib.splitString "#" source);
-      hash = deepFilterHash;
-    };
 in
 rustPlatform.buildRustPackage {
   pname = "yapfast";
@@ -33,6 +20,8 @@ rustPlatform.buildRustPackage {
     root = ../.;
     fileset = lib.fileset.unions [
       ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
+      # A workspace member, which cargo reads even though the build leaves it out.
+      ../testing/hosts/Cargo.toml ../testing/tray_host.rs ../testing/record_host.rs
     ];
   };
   cargoLock = {
@@ -40,7 +29,6 @@ rustPlatform.buildRustPackage {
     # One crate per Git repository and commit; update a hash with the commit.
     outputHashes = {
       "const_panic-0.2.15" = "sha256-zEmo8lKncnNhn2LL5aRT95AZD/LqjmNcRg2qTKXLcic=";
-      "deep_filter-0.5.7-pre" = deepFilterHash;
       "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
       "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";
     };
@@ -65,10 +53,6 @@ rustPlatform.buildRustPackage {
   // lib.optionalAttrs (commit != "") { YAPFAST_COMMIT = commit; }
   // lib.optionalAttrs (date != "") { YAPFAST_COMMIT_DATE = date; }
   // lib.optionalAttrs release { YAPFAST_RELEASE = "1"; };
-  preBuild = ''
-    chmod u+w "$NIX_BUILD_TOP/cargo-vendor-dir"
-    install -Dm644 ${deepFilter}/models/DeepFilterNet3_onnx.tar.gz -t "$NIX_BUILD_TOP/cargo-vendor-dir/models"
-  '';
   # The tests need a display and the fake Discord server.
   doCheck = false;
   # buildRustPackage turns off the release profile's strip and leaves it to
@@ -80,10 +64,13 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/linux/${id}.desktop -t "$out/share/applications"
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and
-    # NixOS keeps the GPU driver's in /run/opengl-driver.
+    # NixOS keeps the GPU driver's in /run/opengl-driver. fc-match finds the
+    # system's font for a script or character the UI font lacks; the
+    # system's own comes first, and NixOS may have none on its PATH.
     wrapProgram "$out/bin/yapfast" \
       --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath native.runtimeLibraries} \
-      --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib
+      --suffix LD_LIBRARY_PATH : /run/opengl-driver/lib \
+      --suffix PATH : ${lib.makeBinPath [ pkgs.fontconfig ]}
   '';
   meta = {
     description = "Native Discord client that stays light on memory";

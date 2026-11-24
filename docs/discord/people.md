@@ -228,25 +228,101 @@ threads](servers.md#a-channels-list-of-threads).
 - Search, as in Discord, looks through the DM in a DM, with `GET
   /channels/{id}/messages/search`, and through the whole server in a server
   channel, with `GET /guilds/{id}/messages/search`; the box says "Search"
-  and the DM's or the server's name. Results come 25 a page, newest first,
-  each of `messages` a list whose first is the one found; they take the
-  member list's or the profile's place, and Show more loads the next page.
-  Discord indexes a DM or a server the first time it's searched, answering
-  202 with code 110000 and a `retry_after`; Yapfast asks again up to five
-  times.
-- The box takes Discord's filters with the words (`yapfast_discord::search`):
-  `from:` and `mentions:` someone, `in:` a channel of the server, `has:`
-  link, embed, poll, file, video, image, sound, sticker or forward,
-  `before:`, `after:` and `during:` a day such as 2026-10-13, and
-  `pinned:true`. A value with spaces goes in quotes. Yapfast sends them as
-  Discord's client does, each repeated for several: `author_id`, `mentions`,
-  `channel_id`, `has` (`snapshot` for forwards), `min_id` and `max_id`, the
-  snowflakes of the day's local midnights, and `pinned`. `in:` names a text
-  channel by its name; `from:` and `mentions:` find the member through the
-  gateway's member search in a server, as the box's suggestions do, and
-  among the people Yapfast knows in a DM, someone called exactly that first. A
-  name nobody has, or a filter Discord doesn't take, says so in place of
-  results.
+  and the DM's or the server's name. Results come 25 a page, each of
+  `messages` a list whose first is the one found, in the order `sort_by`
+  and `sort_order` ask: `timestamp`/`desc` for Newest, which each new search
+  from the box starts with, `timestamp`/`asc` for Oldest, `relevance`/`desc`
+  for Most Relevant. They take the member list's or the profile's place,
+  under "N Results" ("No Results", "1 Result", "Searching…" while the first
+  page comes, its count kept while the same search runs again) and the
+  Sort menu, which searches again from the first page and does nothing
+  while one is on its way; a search from the box starts at Newest. Pages
+  are numbered under the results as Discord's are (25 a page, `offset`,
+  no `limit`; Back, five numbers with the first and last and gaps, Next;
+  at most 400 pages, with Discord's warning on the last), each new page
+  from its top. The words searched for are highlighted in the results and
+  in the channels' names, as Discord's highlighter picks them: split at
+  anything but ASCII letters, digits and `_`, common words left out, and a
+  word marked when its Porter stem is one of theirs (`search_words`), but
+  not in code blocks. Results from people blocked or ignored are hidden
+  behind Discord's "We've hidden 1 result from users you've blocked."
+  row, which shows them. On the first page, ten results or more of which
+  three in four are bots' or webhooks', with no `authorType:` yet, Discord's
+  hint adds `authorType: user` and searches. Nothing found says "We
+  searched far and wide. Unfortunately, no results were found."; a failed
+  search "We dropped the magnifying glass. Can you try searching again?";
+  `doing_deep_historical_index` puts "Indexing" by the count. Results in
+  a thread or forum post Yapfast hasn't opened are headed by its name from
+  the answer's `threads`, with its channel beside it. Discord indexes
+  a DM or a server the first time it's searched, answering 202 with code
+  110000; as its client does, Yapfast waits the `Retry-After` header's whole
+  seconds (5 s without one), asks again with `attempts=N`, and after a
+  sixth 202 stops and shows that Discord is still indexing.
+  `doing_deep_historical_index` on a page says older messages are still
+  being indexed.
+- The box reads Discord's filters as its client's tokenizer does
+  (`yapfast_discord::search`). A key may start anywhere, even inside a
+  word, any letter case, and its answer may follow a space: `from:` and
+  `mentions:` an id of 17 to 19 digits, `@me`, an old `name#1234` or a
+  username; `in:` a channel, voice channel or thread of the server by its
+  exact name, `#` first if you like, in quotes with backslash escapes when
+  it has spaces, or by id, every channel of that name; `has:` image, video,
+  link, file, embed, sound, poll, sticker or forward, and `authorType:`
+  user, bot or webhook, each in small letters, a `-` first for messages
+  without it; `pinned:true` or `false`; `linkFrom:`, `fileType:` and
+  `fileName:` any word; `before:`, `after:` and `during:` (or `on:`)
+  today, yesterday, week (from Sunday), month, year, a month or weekday
+  (of this year or week), a year since 2015, or a day as 2026-10-13 or
+  2026-10. Yapfast sends them as the client does, each name where it first
+  comes, its values once each: `author_id`, `mentions`, `channel_id`,
+  `has` (`snapshot` for forwards), `author_type`, `link_hostname`,
+  `attachment_extension`, `attachment_filename`, `pinned`, and `min_id`
+  and `max_id`, the snowflakes of the period's local midnights, the last
+  date for each. An answer that doesn't check out, such as a username
+  nobody has or `has:Image`, is words; the rest of the words, each once,
+  are `content`. A box holding only keys asks nothing and isn't searched.
+  `from:` and `mentions:` find a username among the people Yapfast knows,
+  then in a server through the gateway's member search.
+- The box draws its filters as Discord's pills: each key in semibold and
+  each answer that checks out joined to it, in Discord's token inks on
+  Bonfire. Backspace or Delete takes a key, or a `has:`, `pinned:` or
+  `authorType:` answer, whole; names, channels and dates go a letter at a
+  time. It holds 512 characters at most, one line that scrolls sideways
+  to the caret, and widens while it has the keys. Escape clears it, or
+  when empty lets go of the keys.
+- While the box has the keys, Discord's popout opens under it. Empty, it
+  offers the Filters the place has ("From a specific user" `from:`, "Sent
+  in a specific channel" `in:` in a server only, "Includes a specific type
+  of data" `has:`, "Mentions a specific user" `mentions:`), which a click
+  puts in at the caret, and the place's History: its last five searches,
+  each started search kept as the client keeps them (one already there
+  goes first, one that goes on from the newest replaces it), in
+  `layout.json` per server or DM, with "Clear Search History". With words
+  typed it offers "Search for" them, then the people and the server's
+  channels the word under the caret may be, three of each under "From
+  User", "In Channel" and "Mentions User", which turn the word into that
+  filter. After a key it lists that filter's answers, ten at most with the
+  first lit: `@me` and people for `from:` and `mentions:` (the place's
+  members and authors and those the member search finds; in a one-to-one
+  DM its other person), the server's channels, voice channels and threads
+  for `in:` (the open one first), `has:`'s nine, `authorType:`'s three,
+  `pinned:`'s two; a date's key shows a calendar from 2015-05-15 to today.
+  An answer, a day or a history row searches at once. Up and Down light a
+  row and wrap, Enter takes the lit one or searches, and a search closes
+  the popout until the box is typed in again.
+- Discord's Filters dialog opens from the popout's "More filters" (dates,
+  author type, and more) and "Add search filters" rows and from the
+  results' "Filters" button, which counts the search's filters ("Filters
+  (2)"). It reads the box into From, In (in a server), Has, Mentions, Date,
+  Author Type and Pinned, each with Discord's label and line under it;
+  each but Pinned takes several, chosen from a list under it, and Date up
+  to four rows of Before, After or During a day from a calendar. "Clear
+  Filters (N)" empties them; "Apply Filters", lit once something changed,
+  writes the box as Discord's dialog does, from, mentions, in, has, dates,
+  author type and pinned, then the words, and searches, or closes the
+  results when nothing's left. A filter that would take the search past
+  512 characters isn't added: "Unable to add filter" / "You have reached
+  the maximum length for a search query." / "Back to editing".
 - A server's results are headed by the channel they're in, and the search
   stays open in the server's channels. Clicking a result in another
   channel opens it on the messages around the result
@@ -996,23 +1072,31 @@ this account saves its own.
 `scripts/ui-session do 'pick avatar PATH'` chooses a picture in the editor,
 as its file chooser would.
 
-## Linux Rich Presence
+## Rich Presence
 
-Games and tools on Linux tell Discord what they're doing through its local
-RPC socket, which the discord-rpc library and Discord's game SDK use. While
-the account shares its game ([game detection](#game-detection)), Yapfast
-serves that socket itself, so no bridge such as arRPC needs to run. Windows'
-named pipes and the macOS socket aren't served yet.
+Games and tools on Linux and Windows tell Discord what they're doing through
+its local RPC socket or named pipe, which the discord-rpc library and
+Discord's game SDK use. While the account shares its game
+([game detection](#game-detection)), Yapfast
+serves that IPC endpoint itself, so no bridge such as arRPC needs to run. The
+macOS socket isn't served yet.
 
-The socket is the first free `discord-ipc-0` to `discord-ipc-9` in
+On Windows, Yapfast serves the first free `\\.\pipe\discord-ipc-0` to
+`\\.\pipe\discord-ipc-9` in byte mode and rejects remote clients. It reserves
+the pipe name before accepting clients, so it never adds an instance to
+another program's pipe. Each connection has its own instance, and Windows
+releases the pipe when its last handle closes. Music players such as Liner
+can publish their current track as a Listening activity through this pipe.
+
+On Linux, the socket is the first free `discord-ipc-0` to `discord-ipc-9` in
 `XDG_RUNTIME_DIR`, or else in `TMPDIR`, `TMP`, `TEMP` or `/tmp`. A socket
 another program serves, such as Discord's own app, stays that program's, and
 a game that only tries `discord-ipc-0` talks to it instead. A socket left by
 an ended program of the same user is taken over. The socket has mode `0600`
-and takes only that user's programs. `YAPFAST_DISCORD_RPC=0` turns it off,
-and `YAPFAST_DISCORD_RPC_DIR` puts it in another directory, for Wine or a
-sandboxed game that can't see the runtime directory; Yapfast doesn't change
-sandbox permissions or set up Wine's bridge.
+and takes only that user's programs. `YAPFAST_DISCORD_RPC=0` turns RPC off
+on both platforms. On Linux, `YAPFAST_DISCORD_RPC_DIR` puts it in another
+directory, for Wine or a sandboxed game that can't see the runtime directory;
+Yapfast doesn't change sandbox permissions or set up Wine's bridge.
 
 Yapfast answers the handshake with READY, PING with PONG, and CLOSE and
 SET_ACTIVITY, where `activity: null` clears the activity; other commands get
@@ -1021,7 +1105,9 @@ an error. As Discord's desktop client does when a game connects, it asks
 first time the game names an image, `GET /oauth2/applications/{id}/assets`
 for its images' ids. Images given by https address go to
 `POST /applications/{id}/external-assets` and show through the media proxy
-as `mp:` assets; each client's last 32 addresses are kept. Timestamps in
+as `mp:` assets; each client's cache holds up to 32 addresses. When it fills,
+older images are dropped while keeping both pictures the current activity
+uses. Timestamps in
 seconds become the gateway's milliseconds, and buttons become labels with
 their addresses in the activity's `metadata`. Playing, Listening, Watching
 and Competing activities show. Yapfast copies only the fields it knows, so a
@@ -1032,6 +1118,17 @@ disconnects, the one before shows again, and once none is left, the game
 detection found. The activity lasts through reconnecting to the gateway and
 is never saved. Presence updates keep to Discord's limit, as every other
 presence change does.
+
+Disconnects and CLOSE are read while an image lookup is in flight, so closing
+an application restores the previous RPC activity without waiting for HTTP
+or the game detector's next scan. Completed clients are removed before queued
+updates are applied. If no RPC activity remains, the process detector verifies
+its fallback immediately; a closed application needs no second periodic scan
+before another running application takes its place. Local cards follow this,
+subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+obeys the Gateway limit of five presence updates per 20 seconds. At most four
+commands and 64 KiB of payload wait behind an in-flight lookup per client;
+exceeding that bound closes the connection.
 
 ## Listening to Spotify
 

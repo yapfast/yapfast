@@ -19,7 +19,7 @@ use iced::{
 use crate::look::Look;
 use crate::{
     controls::{self, Check, Item, Light, lights},
-    fonts::{BOLD, SEMIBOLD},
+    fonts::{BOLD, REGULAR, SEMIBOLD},
     icons::Icon,
     popover::{Popover, Side, Width},
     style::rounded,
@@ -50,7 +50,11 @@ pub fn title<'a, M: Clone + 'a>(
     theme: &Theme,
     label: impl text::IntoFragment<'a>,
 ) -> Element<'a, M> {
-    text(label).size(24).font(BOLD).color(theme.text).into()
+    text(label)
+        .size(theme.title_size(24.0))
+        .font(theme.font("headings", BOLD))
+        .color(theme.text)
+        .into()
 }
 
 /// A group's heading: 12 px bold capitals in the muted ink.
@@ -59,8 +63,8 @@ pub fn heading<'a, M: Clone + 'a>(
     label: impl text::IntoFragment<'a>,
 ) -> Element<'a, M> {
     text(label)
-        .size(12)
-        .font(BOLD)
+        .size(theme.type_size("labels", 12.0))
+        .font(theme.font("labels", BOLD))
         .color(theme.muted)
         .wrapping(text::Wrapping::None)
         .into()
@@ -71,7 +75,12 @@ pub fn note<'a, M: Clone + 'a>(
     theme: &Theme,
     words: impl text::IntoFragment<'a>,
 ) -> Element<'a, M> {
-    note_in(words, theme.muted)
+    text(words)
+        .size(theme.type_size("body", 13.0))
+        .font(theme.font("body", REGULAR))
+        .color(theme.muted)
+        .width(Length::Fill)
+        .into()
 }
 
 /// A [`note`] in another ink: an error's, the accent's.
@@ -84,7 +93,10 @@ pub fn note_in<'a, M: Clone + 'a>(
 
 /// What went wrong, on a form or a dialog: 14 px in the danger's ink.
 pub fn error<'a>(theme: &Theme, words: impl text::IntoFragment<'a>) -> iced::widget::Text<'a> {
-    text(words).size(14).color(theme.danger)
+    text(words)
+        .size(theme.type_size("body", 14.0))
+        .font(theme.font("body", REGULAR))
+        .color(theme.danger)
 }
 
 /// The line between a page's parts.
@@ -154,7 +166,7 @@ pub fn new_tag<'a, M: Clone + 'a>(theme: &crate::theme::Theme) -> Element<'a, M>
     container(
         text("NEW")
             .size(10)
-            .font(crate::fonts::BOLD)
+            .font(theme.font("small", crate::fonts::BOLD))
             .color(theme.on_accent),
     )
     .padding([0, 5])
@@ -361,10 +373,12 @@ pub fn tri_line<'a, M: Clone + 'a>(
 /// it's on.
 pub fn toggle<'a, M: Clone + 'a>(theme: &Theme, on: bool, message: Option<M>) -> Element<'a, M> {
     let enabled = message.is_some();
+    let toggle_off = theme.token_colour("toggle-off", theme.field);
+    let knob_off = theme.token_colour("knob-off", theme.secondary);
     let knob_ink = match (enabled, on) {
         (false, _) => theme.faint,
         (true, true) => theme.on_accent,
-        (true, false) => theme.secondary,
+        (true, false) => knob_off,
     };
     let knob = container(Space::new())
         .width(KNOB)
@@ -377,6 +391,17 @@ pub fn toggle<'a, M: Clone + 'a>(theme: &Theme, on: bool, message: Option<M>) ->
         theme.accent_hover,
         theme.line,
     );
+    let border = theme.surface_border(
+        "toggle",
+        TOGGLE_HEIGHT / 2.0,
+        1.0,
+        if on && enabled {
+            Color::TRANSPARENT
+        } else {
+            line
+        },
+    );
+    let shadow = theme.surface_shadow("toggle", iced::Shadow::default());
     button(
         container(knob)
             .width(Length::Fill)
@@ -394,20 +419,13 @@ pub fn toggle<'a, M: Clone + 'a>(theme: &Theme, on: bool, message: Option<M>) ->
             (false, _, _) => field,
             (true, true, false) => accent,
             (true, true, true) => accent_hover,
-            (true, false, false) => field,
+            (true, false, false) => toggle_off,
             (true, false, true) => active,
         };
         button::Style {
             background: Some(ground.into()),
-            border: Border {
-                color: if on && enabled {
-                    Color::TRANSPARENT
-                } else {
-                    line
-                },
-                width: 1.0,
-                radius: (TOGGLE_HEIGHT / 2.0).into(),
-            },
+            border,
+            shadow,
             ..Default::default()
         }
     })
@@ -614,11 +632,12 @@ pub fn options<'a, M: Clone + 'a>(
         });
         let words = column![
             text(choice.title)
-                .size(15)
+                .size(15.0)
                 .font(SEMIBOLD)
                 .color(faded(choice.colour.unwrap_or(theme.text))),
             text(choice.description)
-                .size(13)
+                .size(theme.type_size("small", 13.0))
+                .font(theme.font("small", REGULAR))
                 .color(faded(theme.secondary))
                 .width(Length::Fill),
         ]
@@ -655,11 +674,15 @@ pub fn readout<'a, M: Clone + 'a>(
 ) -> container::Container<'a, M> {
     let value = value.into();
     let (shown, ink, font) = if value.is_empty() {
-        (empty.into(), theme.muted, iced::Font::default())
+        (
+            empty.into(),
+            theme.token_colour("placeholder", theme.muted),
+            theme.font("body", REGULAR),
+        )
     } else {
         (value, theme.text, SEMIBOLD)
     };
-    let (sunken, accent) = (theme.sunken, theme.accent);
+    let (sunken, accent) = (theme.sunken, theme.token_colour("focus-ring", theme.accent));
     container(
         text(shown)
             .size(14)
@@ -742,68 +765,161 @@ pub fn colour_card<'a, M: Clone + 'a>(
     )
 }
 
+/// A colour's picker popover on a [`ColourRow`]: whether it's open, what
+/// toggles it, the card shown when open, and what a press outside sends.
+struct ColourPicker<'a, M> {
+    open: bool,
+    toggle: M,
+    card: Option<Element<'a, M>>,
+    close: M,
+}
+
+/// A row of an editor's colours, made with [`colour_row`].
+pub struct ColourRow<'a, M> {
+    theme: &'a Theme,
+    name: &'a str,
+    colour: Color,
+    hex: &'a str,
+    wrong: bool,
+    on_input: Box<dyn Fn(String) -> M + 'a>,
+    picker: Option<ColourPicker<'a, M>>,
+}
+
 /// A colour in an editor: a swatch, its name (with "Not a colour" under it
 /// while its text isn't one), and its hex in a field tinted red while it's
-/// wrong.
+/// wrong. With [`ColourRow::picker`], clicking the swatch opens a popover
+/// under it.
 pub fn colour_row<'a, M: Clone + 'a>(
-    theme: &Theme,
+    theme: &'a Theme,
     name: &'a str,
     colour: Color,
     hex: &'a str,
     wrong: bool,
     on_input: impl Fn(String) -> M + 'a,
-) -> Element<'a, M> {
-    let edge = theme.line;
-    let swatch = container(Space::new())
-        .width(28)
-        .height(28)
-        .style(move |_| container::Style {
-            background: Some(colour.into()),
-            border: crate::style::edge(edge, 6.0),
-            ..Default::default()
-        });
-    let mut words = column![
-        text(name)
-            .size(14)
-            .color(theme.text)
-            .wrapping(text::Wrapping::None)
-    ];
-    if wrong {
-        words = words.push(text("Not a colour").size(12).color(theme.danger));
+) -> ColourRow<'a, M> {
+    ColourRow {
+        theme,
+        name,
+        colour,
+        hex,
+        wrong,
+        on_input: Box::new(on_input),
+        picker: None,
     }
-    let ground = if wrong {
-        Color {
-            a: 0.16,
-            ..theme.danger
+}
+
+impl<'a, M: Clone + 'a> ColourRow<'a, M> {
+    /// Clicking the swatch opens `card` under it; `toggle` flips it and
+    /// `close` runs on a press outside.
+    pub fn picker(mut self, open: bool, toggle: M, card: Option<Element<'a, M>>, close: M) -> Self {
+        self.picker = Some(ColourPicker {
+            open,
+            toggle,
+            card,
+            close,
+        });
+        self
+    }
+
+    pub fn view(self) -> Element<'a, M> {
+        let theme = self.theme;
+        let edge = theme.line;
+        let colour = self.colour;
+        let swatch: Element<'a, M> = match self.picker {
+            Some(picker) => {
+                let (accent, faint) = (theme.accent, theme.faint);
+                let open = picker.open;
+                let face = button(Space::new())
+                    .width(28)
+                    .height(28)
+                    .on_press(picker.toggle)
+                    .style(move |_, status| button::Style {
+                        background: Some(colour.into()),
+                        border: Border {
+                            color: if open {
+                                accent
+                            } else if lights(status) {
+                                faint
+                            } else {
+                                edge
+                            },
+                            width: if open { 2.0 } else { 1.0 },
+                            radius: 6.0.into(),
+                        },
+                        ..Default::default()
+                    });
+                Popover::new(face, picker.card, Side::Below)
+                    .width(Width::Own(COLOUR_CARD))
+                    .gap(6.0)
+                    .outside(picker.close)
+                    .into()
+            }
+            None => container(Space::new())
+                .width(28)
+                .height(28)
+                .style(move |_| container::Style {
+                    background: Some(colour.into()),
+                    border: crate::style::edge(edge, 6.0),
+                    ..Default::default()
+                })
+                .into(),
+        };
+        let mut words = column![
+            text(self.name)
+                .size(14)
+                .color(theme.text)
+                .wrapping(text::Wrapping::None)
+        ];
+        if self.wrong {
+            words = words.push(text("Not a colour").size(12).color(theme.danger));
         }
-    } else {
-        theme.sunken
-    };
-    let field = text_input("", hex)
-        .on_input(on_input)
-        .size(14)
-        .padding(8)
-        .width(116)
-        .style(controls::field_style(theme, ground, true));
-    row![
-        swatch,
-        container(words).width(Length::Fill).clip(true),
-        field
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center)
-    .height(46)
-    .into()
+        let ground = if self.wrong {
+            Color {
+                a: 0.16,
+                ..theme.danger
+            }
+        } else {
+            theme.sunken
+        };
+        let field = text_input("", self.hex)
+            .on_input(self.on_input)
+            .size(14)
+            .padding(8)
+            .width(116)
+            .style(controls::field_style(theme, ground, true));
+        row![
+            swatch,
+            container(words).width(Length::Fill).clip(true),
+            field
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .height(46)
+        .into()
+    }
+}
+
+impl<'a, M: Clone + 'a> From<ColourRow<'a, M>> for Element<'a, M> {
+    fn from(row: ColourRow<'a, M>) -> Self {
+        row.view()
+    }
 }
 
 /// A card on the sidebar's ground, as My account's and About's: 16 px in,
 /// round corners.
 pub fn card<'a, M: Clone + 'a>(theme: &Theme, body: impl Into<Element<'a, M>>) -> Element<'a, M> {
-    let ground = theme.sidebar;
+    // The sidebar's paint, a theme's gradient included, as Slint's
+    // `Theme.sidebar-fill`.
+    let ground = theme.surface_paint("sidebar");
+    let radius = theme.radius(8.0);
     container(body)
         .padding(16)
         .width(Length::Fill)
-        .style(move |_| rounded(ground, 8))
+        .style(move |_| container::Style {
+            background: Some(ground),
+            border: iced::Border::default().rounded(radius),
+            ..Default::default()
+        })
         .into()
 }
 
@@ -977,8 +1093,8 @@ pub fn area<'a, M: Clone + 'a>(
     let colors = crate::field::Colors {
         ground: theme.sunken,
         text: if enabled { theme.text } else { theme.muted },
-        placeholder: theme.muted,
-        selection: theme.selection,
+        placeholder: theme.token_colour("placeholder", theme.muted),
+        selection: theme.token_colour("selection", theme.selection),
     };
     let field = crate::field::Field::new(
         draft,
@@ -988,12 +1104,16 @@ pub fn area<'a, M: Clone + 'a>(
         colors,
     )
     .enabled(enabled)
-    .size(14.0)
+    .size(theme.type_size("body", 14.0))
+    .font(theme.font("body", REGULAR))
     .line_height(AREA_LINE)
     .lines(AREA_LINES)
     .padding(iced::Padding::from([8.0, 10.0]))
     .radius(AREA_RADIUS)
-    .ring(crate::style::faded(theme.accent, 0.8));
+    .ring(crate::style::faded(
+        theme.token_colour("focus-ring", theme.accent),
+        0.8,
+    ));
     let sunken = theme.sunken;
     let count = if left < 0 {
         text(format!("Too long by {}", -left))

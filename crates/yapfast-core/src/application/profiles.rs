@@ -279,6 +279,27 @@ impl Application {
         }
     }
 
+    /// Gives the profiles on screen of `user` their presence in the server
+    /// they're from, which comes apart from the profile.
+    pub(super) fn show_profile_presence(
+        &mut self,
+        user: &str,
+        presence: crate::chat::Presence,
+        activity: Option<String>,
+        activities: crate::chat::Activities,
+    ) {
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .filter_map(Option::as_mut)
+            .filter(|view| view.profile.id == user)
+            .map(Arc::make_mut)
+        {
+            view.profile.presence = Some(presence);
+            view.profile.activity.clone_from(&activity);
+            view.profile.activities = activities.clone();
+        }
+    }
+
     /// A tab of the full profile opened: it asks Discord once for what it
     /// shows, and only for the full profile, never for a card.
     pub(super) fn open_profile_tab(&mut self, tab: ProfileTab) -> Vec<Effect> {

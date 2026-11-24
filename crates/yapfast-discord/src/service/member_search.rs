@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 use super::tracker::Tracker;
@@ -20,6 +21,8 @@ const FOUND: u64 = 10;
 #[derive(Default)]
 pub(super) struct MemberSearches {
     waiting: HashMap<String, oneshot::Sender<Vec<String>>>,
+    /// Presences asked for, by nonce: whose, and who waits for it.
+    presences: HashMap<String, (String, oneshot::Sender<Option<Value>>)>,
     nonce: u64,
 }
 
@@ -54,7 +57,32 @@ impl MemberSearches {
             return Ok(());
         }
         let nonce = self.wait(reply);
-        gateway.request_members(guild, users, Some(&nonce)).await
+        gateway
+            .request_members(guild, users, Some(&nonce), false)
+            .await
+    }
+
+    /// Asks Discord for `user`'s presence in `guild`, as its client does
+    /// for a profile it opens there; `reply` hears it, or none.
+    pub(super) async fn presence(
+        &mut self,
+        gateway: &mut Gateway,
+        guild: &str,
+        user: &str,
+        reply: oneshot::Sender<Option<Value>>,
+    ) -> Result<()> {
+        if gateway.members_held(guild) {
+            let _ = reply.send(None);
+            return Ok(());
+        }
+        self.nonce += 1;
+        let nonce = format!("yapfast-presence-{}", self.nonce);
+        self.presences.retain(|_, (_, reply)| !reply.is_closed());
+        self.presences
+            .insert(nonce.clone(), (user.to_owned(), reply));
+        gateway
+            .request_members(guild, &[user.to_owned()], Some(&nonce), true)
+            .await
     }
 
     /// A new nonce, whose chunk `reply` waits for.
@@ -73,11 +101,28 @@ impl MemberSearches {
     pub(super) fn answer(&mut self, tracker: &mut Tracker, event: &Dispatch) -> Option<bool> {
         if event.event == Event::RateLimited {
             // Discord dropped the request this nonce was for.
-            let reply = event.data["meta"]["nonce"]
-                .as_str()
-                .and_then(|nonce| self.waiting.remove(nonce))?;
+            let nonce = event.data["meta"]["nonce"].as_str()?;
+            if let Some((_, reply)) = self.presences.remove(nonce) {
+                let _ = reply.send(None);
+                return Some(false);
+            }
+            let reply = self.waiting.remove(nonce)?;
             let _ = reply.send(Vec::new());
             return Some(false);
+        }
+        if let Some((user, reply)) = event.data["nonce"]
+            .as_str()
+            .and_then(|nonce| self.presences.remove(nonce))
+        {
+            let changed = tracker.apply(&event.event, &event.data);
+            let presence = event.data["presences"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|presence| presence["user"]["id"] == user.as_str())
+                .cloned();
+            let _ = reply.send(presence);
+            return Some(changed);
         }
         let reply = event.data["nonce"]
             .as_str()

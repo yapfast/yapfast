@@ -12,7 +12,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa, scheduled_event,
+    mfa, scheduled_event, search,
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -100,6 +100,14 @@ pub enum MembersSearch {
     Indexing(f64),
 }
 
+/// What a search of messages gave: Discord's page, or its answer that it's
+/// still indexing, with the whole seconds its `Retry-After` asks to wait.
+#[derive(Debug)]
+pub enum Searched {
+    Page(Value),
+    Indexing(Option<u64>),
+}
+
 /// How many audit log entries Audit Log fetches at a time, as Discord's
 /// client does; a page this full may have older ones.
 pub const AUDIT_PAGE: usize = 50;
@@ -160,6 +168,18 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
         _ => 0,
     };
     own.max(boosted)
+}
+
+/// The longest message this account may send or edit to, in characters, by
+/// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
+/// Nitro (2) alone, whose perks are the only ones in Discord's client with
+/// `INCREASED_MESSAGE_LENGTH`; 2,000 without, or with Nitro Classic (1) or
+/// Nitro Basic (3).
+pub fn message_limit(premium_type: u8) -> usize {
+    match premium_type {
+        2 => 4000,
+        _ => 2000,
+    }
 }
 
 /// Discord answered a download with this error status.
@@ -496,7 +516,7 @@ impl Api {
 
     /// The application a game's Rich Presence names, for its name, as the
     /// desktop client asks when a game connects.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_application(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/rpc");
         self.json(self.request(Method::GET, &path)).await
@@ -504,7 +524,7 @@ impl Api {
 
     /// Discord's media proxy's names for images a game's Rich Presence gives
     /// by address, as the desktop client asks for them.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_external_assets(&self, id: &str, urls: &[&str]) -> Result<Value> {
         let path = format!("/applications/{id}/external-assets");
         self.json(with_json(
@@ -515,7 +535,7 @@ impl Api {
     }
 
     /// The images an application uploaded, by name, for its Rich Presence.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_assets(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/assets");
         self.json(self.request(Method::GET, &path)).await
@@ -533,6 +553,16 @@ impl Api {
         if let Some((side, id)) = from {
             let _ = write!(path, "&{side}={id}");
         }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// A channel's newest `limit` messages, newest first, as a glance at it
+    /// takes them: no read acknowledgement goes with them.
+    pub async fn newest(&self, channel: &str, limit: usize) -> Result<Vec<Value>> {
+        let path = format!("/channels/{channel}/messages?limit={limit}");
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(messages) => Ok(messages),
             _ => bail!("could not understand Discord's answer"),
@@ -1053,29 +1083,55 @@ impl Api {
         }
     }
 
-    /// Discord's answer to a search of messages, the newest first, from the
+    /// Discord's answer to a search of messages in `sort`'s order, from the
     /// `offset`th; see [`crate::service::Found`]. With a server, it searches
     /// the server, in the channels `params` names with `channel_id`, or all
     /// of them; without one, the DM `channel`. `params` are the rest of the
     /// query string, such as `content`, `author_id` and `has`, each name
-    /// repeated for several values, as Discord's client sends them.
+    /// repeated for several values, as Discord's client sends them. After
+    /// Discord answered that it's still indexing, `attempts` counts the
+    /// answers so far, which the client sends again with each try.
     pub async fn search(
         &self,
         guild: Option<&str>,
         channel: &str,
         params: &[(&str, String)],
+        sort: search::Sort,
         offset: u32,
-    ) -> Result<Value> {
+        attempts: u32,
+    ) -> Result<Searched> {
         let mut query = String::new();
-        for (name, value) in params {
+        for (name, value) in params.iter().chain(&sort.params()) {
             let _ = write!(query, "{name}={}&", encode(value));
         }
         let _ = write!(query, "offset={offset}");
+        if attempts > 0 {
+            let _ = write!(query, "&attempts={attempts}");
+        }
         let path = match guild {
             Some(guild) => format!("/guilds/{guild}/messages/search?{query}"),
             None => format!("/channels/{channel}/messages/search?{query}"),
         };
-        self.json(self.request(Method::GET, &path)).await
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            // The client reads whole seconds from the header, as parseInt.
+            let seconds = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| {
+                    let digits = value.trim().split('.').next()?;
+                    digits.parse::<u64>().ok()
+                });
+            return Ok(Searched::Indexing(seconds));
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        let page =
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?;
+        Ok(Searched::Page(page))
     }
 
     /// Discord's answer to a search of a channel's threads, as its client's
@@ -2828,6 +2884,15 @@ mod tests {
         assert_eq!(upload_limit(0, Some(2)), 50 * MIB);
         assert_eq!(upload_limit(0, Some(3)), 100 * MIB);
         assert_eq!(upload_limit(2, Some(3)), 500 * MIB, "the larger wins");
+    }
+
+    #[test]
+    fn message_limits_follow_nitro() {
+        use super::message_limit;
+        assert_eq!(message_limit(0), 2000, "without Nitro");
+        assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
+        assert_eq!(message_limit(1), 2000, "nor has Nitro Classic");
+        assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
     #[test]

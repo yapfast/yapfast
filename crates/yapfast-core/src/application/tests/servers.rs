@@ -259,15 +259,19 @@ fn a_server_search_stays_open_in_its_channels_and_jumps_into_them() {
     let hit = |room: &str, item: &str| chat::SearchHit {
         room: room.into(),
         message: message(item, false),
+        thread: None,
     };
     app.apply(Event::Found {
         place: "discord:10".into(),
         query: "plan".into(),
+        sort: chat::SearchSort::Newest,
         offset: 0,
-        result: Ok((
-            2,
-            vec![hit("discord:10:13", "d:7"), hit("discord:10:11", "d:5")],
-        )),
+        result: Ok(chat::Searched::Page {
+            total: 2,
+            hits: vec![hit("discord:10:13", "d:7"), hit("discord:10:11", "d:5")],
+            words: "plan".into(),
+            indexing_older: false,
+        }),
     });
     assert_eq!(app.state.search_shown().unwrap().results.len(), 2);
 

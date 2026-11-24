@@ -360,7 +360,12 @@ pub(super) fn found_in(discord: &Discord, room: &str, messages: &[Message]) -> V
 
 /// Messages a search found in a server, or with [`yapfast_discord::ready::PRIVATE`]
 /// in DMs, as [`found`] shows them, each with its room.
-pub(super) fn hits_in(discord: &Discord, guild: &str, messages: &[Message]) -> Vec<SearchHit> {
+pub(super) fn hits_in(
+    discord: &Discord,
+    guild: &str,
+    messages: &[Message],
+    threads: &[(String, String, Option<String>)],
+) -> Vec<SearchHit> {
     let snapshot = discord.snapshots().borrow().clone();
     let server = snapshot
         .servers
@@ -372,6 +377,15 @@ pub(super) fn hits_in(discord: &Discord, guild: &str, messages: &[Message]) -> V
         .map(|message| SearchHit {
             room: discord::room_id(guild, &message.channel_id),
             message: found(discord, server, message),
+            thread: threads
+                .iter()
+                .find(|(id, ..)| *id == message.channel_id)
+                .map(|(_, name, parent)| {
+                    let parent = parent
+                        .as_deref()
+                        .map(|parent| discord::room_id(guild, parent));
+                    (name.clone(), parent)
+                }),
         })
         .collect()
 }
@@ -416,6 +430,24 @@ pub(super) fn custom_emoji(message: &Message) -> Vec<CustomEmoji> {
         }
     }
     found
+}
+
+/// A reply quote's first line as plain text, with the Discord custom emoji
+/// that appear in it (each once, with its static or animated picture URL).
+pub(super) fn reply_snippet(
+    discord: &Discord,
+    server: Option<&yapfast_discord::ready::Server>,
+    content: &str,
+) -> (String, Vec<CustomEmoji>) {
+    reply_snippet_with(|text| discord.render(server, text), content)
+}
+
+fn reply_snippet_with(
+    render: impl FnOnce(&str) -> String,
+    content: &str,
+) -> (String, Vec<CustomEmoji>) {
+    let hidden = crate::spoiler::hide(content);
+    crate::chat::reply_snippet(&render(&hidden), emoji_in(&hidden))
 }
 
 /// The custom emoji in Discord's markup.
@@ -960,5 +992,25 @@ mod tests {
             "{}",
             still[0].picture
         );
+    }
+
+    #[test]
+    fn reply_snippets_keep_static_and_animated_custom_emoji_for_the_first_line() {
+        let names = yapfast_discord::message::Names::default();
+        let (body, emoji) = reply_snippet_with(
+            |text| names.render(None, text),
+            "**hi** <:AMkiss:123> <a:party:7> `<:code:5>` ||<:secret:9>||\n<:line2:8>",
+        );
+        // One in code shows its name, as the message's text does.
+        assert_eq!(body, "hi :AMkiss: :party: :code: (spoiler)");
+        assert_eq!(emoji.len(), 2);
+        assert_eq!(emoji[0].text, ":AMkiss:");
+        assert_eq!(emoji[0].id, "123");
+        assert!(!emoji[0].animated);
+        assert!(emoji[0].picture.contains("/emojis/123.png"));
+        assert_eq!(emoji[1].text, ":party:");
+        assert_eq!(emoji[1].id, "7");
+        assert!(emoji[1].animated);
+        assert!(emoji[1].picture.contains("/emojis/7.gif"));
     }
 }

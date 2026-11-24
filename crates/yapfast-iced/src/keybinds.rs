@@ -75,18 +75,22 @@ pub fn watched(layout: &Layout) -> Vec<Watched> {
             action: Action::PushToTalk,
             keys: keys.clone(),
         });
-    let others = layout.keybinds.iter().filter_map(|binding| {
-        let keys = binding.keys.clone()?;
-        match binding.action {
-            Action::Unassigned => None,
-            Action::PushToTalk if !talking => None,
-            action => Some(Watched {
-                id: binding.shortcut_id(),
-                action,
-                keys,
-            }),
-        }
-    });
+    let others = layout
+        .keybinds
+        .iter()
+        .filter(|binding| binding.enabled)
+        .filter_map(|binding| {
+            let keys = binding.keys.clone()?;
+            match binding.action {
+                Action::Unassigned => None,
+                Action::PushToTalk if !talking => None,
+                action => Some(Watched {
+                    id: binding.shortcut_id(),
+                    action,
+                    keys,
+                }),
+            }
+        });
     talk.chain(others).collect()
 }
 
@@ -209,10 +213,10 @@ pub(crate) fn scancode(physical: key::Physical) -> Option<u32> {
     })
 }
 
-/// The window's own keys for push to talk: each key's scan code going down
-/// or up, and the focus going, to the root crate, which holds the key only
-/// while no global key works. No message: the filter calls the root crate
-/// and returns nothing.
+/// The window's own keys for keybinds: each key's scan code and each side
+/// button going down or up, and the focus going, to the root crate, which
+/// runs keybinds by them only while nothing else hears the key. No message:
+/// the filter calls the root crate and returns nothing.
 pub fn window_talk_keys() -> iced::Subscription<Message> {
     iced::event::listen_with(|event, _, _| {
         let desktop = crate::desktop::desktop();
@@ -232,6 +236,20 @@ pub fn window_talk_keys() -> iced::Subscription<Message> {
                     talk(Some(code), false);
                 }
             }
+            // Mouse 4 and 5, which keybinds hold on Windows.
+            #[cfg(windows)]
+            iced::Event::Mouse(
+                event @ (iced::mouse::Event::ButtonPressed(button)
+                | iced::mouse::Event::ButtonReleased(button)),
+            ) => {
+                let code = match button {
+                    iced::mouse::Button::Back => yapfast_core::keybinds::MOUSE_4,
+                    iced::mouse::Button::Forward => yapfast_core::keybinds::MOUSE_5,
+                    _ => return None,
+                };
+                let pressed = matches!(event, iced::mouse::Event::ButtonPressed(_));
+                talk(Some(code), pressed);
+            }
             iced::Event::Window(iced::window::Event::Unfocused) => talk(None, false),
             _ => {}
         }
@@ -240,7 +258,7 @@ pub fn window_talk_keys() -> iced::Subscription<Message> {
 }
 
 /// [`scancode`], the last key's kept, as it searches winit's table.
-fn known_scancode(physical: key::Physical) -> Option<u32> {
+pub(crate) fn known_scancode(physical: key::Physical) -> Option<u32> {
     static LAST: Mutex<Option<(key::Physical, Option<u32>)>> = Mutex::new(None);
     let mut last = LAST
         .lock()

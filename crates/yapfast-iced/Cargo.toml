@@ -26,6 +26,10 @@ yapfast-iced-kit = { path = "../yapfast-iced-kit" }
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
 tokio.workspace = true
 tracing.workspace = true
+# Installed themes and the marketplace are fetched from their checked GitHub
+# addresses on the core's background runtime.
+reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
+rustls.workspace = true
 # Pinned: vendor/iced_tiny_skia and vendor/iced_wgpu are 0.14's, patched.
 # `tokio` only because iced wants an executor feature; its futures run on
 # the core's runtime instead (`lib.rs`, `Exec`).
@@ -53,7 +57,7 @@ serde.workspace = true
 serde_json.workspace = true
 # The code Discord's phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false }
-# Discord's captcha page, where xdg-open isn't there.
+# Opens pages where neither xdg-open nor gio is installed.
 webbrowser = "1"
 # The file dialog files to attach are chosen in, through the desktop's
 # portal on Linux.
@@ -63,6 +67,11 @@ rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 # Both already in the tree through iced.
 winit = { version = "0.30.13", default-features = false }
 xkeysym = "0.2.1"
+# Installed-theme layers bake theme blur/blend settings once when loaded.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+# Reviewed-theme trials keep checked files in a private temporary folder for
+# their 30-second lifetime, without installing them.
+tempfile.workspace = true
 
 # What build.rs packs Twemoji's pictures into a font with.
 [build-dependencies]
@@ -74,4 +83,3 @@ png = "0.18"
 # The headless simulator for the UI tests; see docs/client/tests.md.
 iced_test = "=0.14.0"
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord", "test-fixtures"] }
-tempfile.workspace = true
