@@ -75,7 +75,8 @@ recording. Each change is kept at once in
   chords stack vertically. Colours follow the selected theme.
   Ctrl+/ opens this page from the workspace. These shortcuts run
   through `shortcuts.rs`, only in the focused window, including when a
-  text field captures the key; chat actions wait while a dialog takes keys,
+  text field captures the key (but Ctrl+E a field took stays the
+  field's, which opens the picker for it); chat actions wait while a dialog takes keys,
   and all built-ins rest while recording.
 - Messages: a message as the clock and text size show it; the text size
   (which the timeline's text takes), the clock and its seconds, the date's

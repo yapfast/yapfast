@@ -75,6 +75,20 @@ pub fn custom_owns(app: &App, physical: key::Physical, modifiers: Modifiers) -> 
     })
 }
 
+/// A press the window heard, wherever the keys are, as a built-in; but a
+/// field's own Ctrl+E (the composer's or an edit's, which opens the picker
+/// for it) isn't taken twice, which would open the picker and shut it.
+pub fn heard(
+    key: &Key,
+    physical: key::Physical,
+    modifiers: Modifiers,
+    status: iced::event::Status,
+) -> Option<Message> {
+    pressed(key, physical, modifiers)
+        .filter(|shortcut| *shortcut != Shortcut::Emoji || status == iced::event::Status::Ignored)
+        .map(|shortcut| Message::Shortcut(shortcut, physical, modifiers))
+}
+
 /// Exact modifiers keep AltGr, text editing and larger chords separate.
 pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Option<Shortcut> {
     use Shortcut::*;
@@ -298,5 +312,19 @@ mod tests {
             Some(Shortcut::Mute)
         );
         assert_eq!(pressed(&Key::Character("t".into()), physical, chord), None);
+    }
+    #[test]
+    fn a_fields_own_ctrl_e_is_not_taken_twice() {
+        use iced::event::Status;
+        let e = Key::Character("e".into());
+        let physical = key::Physical::Code(key::Code::KeyE);
+        let shortcut = |key: &Key, status| match heard(key, physical, Modifiers::CTRL, status) {
+            Some(Message::Shortcut(shortcut, ..)) => Some(shortcut),
+            _ => None,
+        };
+        assert_eq!(shortcut(&e, Status::Captured), None);
+        assert_eq!(shortcut(&e, Status::Ignored), Some(Shortcut::Emoji));
+        let p = Key::Character("p".into());
+        assert_eq!(shortcut(&p, Status::Captured), Some(Shortcut::Pins));
     }
 }

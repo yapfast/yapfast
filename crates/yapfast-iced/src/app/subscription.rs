@@ -146,15 +146,14 @@ impl App {
         // or Ctrl+Shift+F goes to the conversation's search, as Discord's
         // binds are: Ctrl+F fills in a server channel's `in:` first.
         if crate::signin::workspace(self) && !self.recording_keybind() {
-            subscriptions.push(iced::event::listen_with(|event, _, _| match event {
+            subscriptions.push(iced::event::listen_with(|event, status, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
                     key,
                     physical_key,
                     modifiers,
                     repeat: false,
                     ..
-                }) => crate::shortcuts::pressed(&key, physical_key, modifiers)
-                    .map(|shortcut| Message::Shortcut(shortcut, physical_key, modifiers)),
+                }) => crate::shortcuts::heard(&key, physical_key, modifiers, status),
                 _ => None,
             }));
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
