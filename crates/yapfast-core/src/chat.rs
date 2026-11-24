@@ -30,7 +30,9 @@ pub const VIEW_HEIGHT: u32 = 1200;
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.
 #[cfg(feature = "discord")]
-pub use yapfast_discord::activity::{Activities, Activity, Kind as ActivityKind};
+pub use yapfast_discord::activity::{
+    Activities, Activity, ActivityButton, Kind as ActivityKind, RichButtons,
+};
 
 /// Only Discord says what people are doing.
 #[cfg(not(feature = "discord"))]
@@ -3348,6 +3350,14 @@ pub enum DiscordCommand {
     ProfileRecent {
         user: String,
     },
+    /// The addresses of someone's Rich Presence buttons, by the activity's
+    /// session and application, read-only, as a click on one that came
+    /// without its address asks; [`Event::ActivityLinks`] follows.
+    ActivityLinks {
+        user: String,
+        session: String,
+        application: String,
+    },
     /// This account's profile for its editor: in a Discord server, by its
     /// server id, or its main profile; [`Event::OwnProfile`] follows.
     OwnProfile {
@@ -4307,6 +4317,15 @@ pub enum Event {
     ProfileRecent {
         user: String,
         recent: Vec<RecentActivity>,
+    },
+    /// The addresses [`DiscordCommand::ActivityLinks`] asked for of `user`'s
+    /// activity in `session` of `application`, in the buttons' order (none
+    /// for a button Discord gave none), or why they didn't come.
+    ActivityLinks {
+        user: String,
+        session: String,
+        application: String,
+        result: Result<Vec<Option<String>>, String>,
     },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.

@@ -2457,6 +2457,11 @@ pub enum Action {
     ActivityCardsHidden(bool),
     /// A tab of the full profile opened.
     OpenProfileTab(ProfileTab),
+    /// One of someone's Rich Presence buttons clicked: its address opens
+    /// after the question a link to outside asks. As Discord's client finds
+    /// it: in the presence's own metadata, else in what Discord gave for the
+    /// person's activity, else asked of Discord.
+    OpenActivityButton(ActivityButtonPress),
     /// The account's card opened: ask for its own profile, which it draws from.
     LoadOwnProfile,
     /// Pick the server whose tag to wear in the profile editor; empty for none.
@@ -2508,6 +2513,21 @@ pub enum Action {
     CloseRole,
 }
 
+/// A Rich Presence button clicked on someone's activity card: whose it is,
+/// the activity's session and application, by which Discord gives its
+/// buttons' addresses, which button, whether the presence carried metadata
+/// (which Discord's client then reads the address from rather than asking),
+/// and the address it gave.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ActivityButtonPress {
+    pub user: String,
+    pub session: Option<String>,
+    pub application: Option<String>,
+    pub index: usize,
+    pub metadata: bool,
+    pub url: Option<String>,
+}
+
 /// An adapter executes these effects with the shared backend, then applies its events.
 pub enum Effect {
     Start(chat::Start),
@@ -2527,6 +2547,10 @@ pub enum Effect {
     StopDiscordLink,
     /// Open this web page in the browser.
     OpenPage(String),
+    /// Ask before opening this address outside Yapfast, as a masked link
+    /// does: a Rich Presence button's, which Discord's client opens as
+    /// untrusted.
+    AskToOpen(String),
     /// Put this picture, a file as it was downloaded, on the clipboard.
     CopyPicture(Vec<u8>),
     /// Film for a preview call with the camera with this id, or the first,
@@ -2653,6 +2677,9 @@ pub struct Application {
     /// member list as they were left, shown again at once on going back
     /// while the backend sends them afresh.
     shown: Vec<Shown>,
+    /// The addresses Discord gave for people's activities' Rich Presence
+    /// buttons, for this account.
+    activity_links: profiles::ActivityLinks,
 }
 
 /// A message to someone, held until their DM is open and ready to send.
@@ -4242,6 +4269,7 @@ impl Application {
                 vec![]
             }
             Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::OpenActivityButton(press) => self.open_activity_button(press),
             Action::LoadOwnProfile => self.load_own_profile(),
             Action::OpenWishlist => self.open_wishlist(),
             Action::ChooseServerTag(server) => {
@@ -4518,6 +4546,12 @@ impl Application {
             Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
+            Event::ActivityLinks {
+                user,
+                session,
+                application,
+                result,
+            } => return self.activity_links_came(&user, &session, &application, result),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
             Event::ProfilePresence {

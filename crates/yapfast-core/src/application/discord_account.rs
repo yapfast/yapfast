@@ -468,6 +468,9 @@ impl Application {
             });
         }
         self.state.discord_linked = true;
+        if self.state.discord_user != snapshot.user_id {
+            self.forget_activity_links();
+        }
         self.state.discord_user.clone_from(&snapshot.user_id);
         self.state.discord_presence =
             Some(snapshot.presence.clone()).filter(|presence| !presence.is_empty());
@@ -683,6 +686,7 @@ impl Application {
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
         self.forget_activity_feed();
+        self.forget_activity_links();
         #[cfg(feature = "discord")]
         {
             self.state.discord_names = None;

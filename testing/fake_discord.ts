@@ -149,6 +149,12 @@
 // as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
+// Bob's Factorio has two Rich Presence buttons, "Join the factory" and "Mod
+// list", whose labels alone his presence carries, with its session_id, as
+// others' presences mostly come. GET
+// /users/{id}/sessions/{session}/activities/{application}/metadata answers
+// both addresses for his session's Factorio, and 204 with nothing for any
+// other; GET /_control/activity-metadata-reads counts those requests.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -3073,6 +3079,11 @@ function readySupplemental() {
 // Factorio, as Discord knows the game: Bob plays it, and its icon comes
 // from GET /applications/public and the CDN's /app-icons/.
 const FACTORIO = "1400000000000000900";
+// The gateway session Bob plays Factorio in, which his buttons' addresses
+// are asked by, and those addresses.
+const BOB_SESSION = "b0b5e551000000000000000000fac70f";
+const FACTORIO_BUTTONS = ["https://factorio.com/", "https://mods.factorio.com/"];
+let activityMetadataReads = 0;
 const applications: Record<string, { id: string; name: string; icon: string | null }> = {
   [FACTORIO]: { id: FACTORIO, name: "Factorio", icon: "factorioicon" },
 };
@@ -3085,7 +3096,11 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.alice.id]: { status: "online", activities: [] },
   [users.bob.id]: {
     status: "dnd",
-    activities: [{ type: 0, name: "Factorio", application_id: FACTORIO, timestamps: { start: fakeStarted - 42 * 60_000 } }],
+    activities: [{
+      type: 0, name: "Factorio", application_id: FACTORIO, session_id: BOB_SESSION,
+      timestamps: { start: fakeStarted - 42 * 60_000 },
+      buttons: ["Join the factory", "Mod list"],
+    }],
   },
   [users.carol.id]: {
     status: "idle",
@@ -6458,6 +6473,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     });
   }
 
+  // The addresses behind someone's Rich Presence buttons, as the client asks
+  // for them on a click: Bob's Factorio has both, anything else none.
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/sessions\/([^/]+)\/activities\/([^/]+)\/metadata$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    activityMetadataReads += 1;
+    if (m[1] === users.bob.id && m[2] === BOB_SESSION && m[3] === FACTORIO) {
+      return json({ button_urls: FACTORIO_BUTTONS });
+    }
+    return empty();
+  }
+
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.
   if (method === "POST" && path === "/users/@me/channels") {
@@ -9302,6 +9328,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/list-requests") return Response.json(listRequests);
     if (path === "/_control/note-reads") return Response.json(noteReads);
     if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/activity-metadata-reads") return Response.json(activityMetadataReads);
     if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
     if (req.method === "POST" && path === "/_control/note-elsewhere") {
       const id = url.searchParams.get("user") ?? "";
