@@ -436,7 +436,13 @@ pub fn profile_sync(app: &mut App) -> Task<Message> {
     let core = &app.client.app;
     let state = &core.state;
     let panel_view = state.panel_profile.as_ref().filter(|_| state.profile_panel);
-    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), None, link);
+    // An open card follows the person's presence as it changes: the core
+    // copied it into the profile as it opened.
+    let shown_live = state
+        .profile
+        .as_ref()
+        .and_then(|view| live_of(state, &view.profile.id));
+    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), shown_live, link);
     let live = panel_view
         .and(state.selected_room())
         .map(|room| look::Live {
@@ -482,8 +488,12 @@ fn account_card_sync(app: &mut App, link: u32) {
         app.profiles.account = None;
         return;
     };
-    if let Some((kept, _)) = &app.profiles.account
+    // One's own activities change as this account shares them, such as a
+    // song's line: the card follows them too.
+    let live = live_of(state, &profile.id);
+    if let Some((kept, shown)) = &app.profiles.account
         && Arc::ptr_eq(kept, profile)
+        && shown.look.live == live
     {
         return;
     }
@@ -491,8 +501,53 @@ fn account_card_sync(app: &mut App, link: u32) {
         profile: chat::Profile::clone(profile),
         ..Default::default()
     });
-    let look = Look::new(state, &view, None, &[], link);
+    let look = Look::new(state, &view, live, &[], link);
     app.profiles.account = Some((profile.clone(), Shown::new(look)));
+}
+
+/// What the core knows of person `id` now, for an open card: one's own
+/// activities as this account shares them, else the member list's, a
+/// friend's or their DM's presence and activities. None when nothing
+/// lists them, and the card keeps what it opened with.
+pub(crate) fn live_of(state: &yapfast_core::application::AppState, id: &str) -> Option<look::Live> {
+    if id.is_empty() {
+        return None;
+    }
+    if state.discord_user.as_deref() == Some(id) {
+        return Some(look::Live {
+            presence: None,
+            activity: None,
+            activities: state.discord_activities.clone(),
+        });
+    }
+    let members = state
+        .members
+        .as_ref()
+        .and_then(|members| members.as_ref().ok());
+    if let Some(member) = members.and_then(|members| members.iter().find(|member| member.id == id))
+    {
+        return Some(look::Live {
+            presence: member.presence,
+            activity: member.activity.clone(),
+            activities: member.activities.clone(),
+        });
+    }
+    if let Some(friend) = state.friends.iter().find(|friend| friend.id == id) {
+        return Some(look::Live {
+            presence: friend.presence,
+            activity: friend.activity.clone(),
+            activities: friend.activities.clone(),
+        });
+    }
+    state
+        .rooms
+        .iter()
+        .find(|room| room.direct && room.person.as_deref() == Some(id))
+        .map(|room| look::Live {
+            presence: room.presence,
+            activity: room.activity.clone(),
+            activities: room.activities.clone(),
+        })
 }
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and

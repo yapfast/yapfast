@@ -3035,20 +3035,7 @@ fn decoded_art(folder: &Path, layer: &art::Layer) -> Option<image::RgbaImage> {
 }
 
 fn picture_rgba(picture: &yapfast_core::chat::Picture) -> image::RgbaImage {
-    use yapfast_core::dominant_colour::Order;
-    let mut rgba = picture.rgba.to_vec();
-    if crate::pictures::byte_order(picture) == Order::Bgra {
-        for pixel in rgba.chunks_exact_mut(4) {
-            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-            let straight = |value: u8| match a {
-                0 => 0,
-                255 => value,
-                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
-            };
-            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
-        }
-    }
-    image::RgbaImage::from_raw(picture.width, picture.height, rgba)
+    image::RgbaImage::from_raw(picture.width, picture.height, picture.rgba.straight_rgba())
         .expect("decoded art has its declared dimensions")
 }
 

@@ -946,3 +946,35 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
     let _ = crate::call::update(&mut app, Event::Leave);
     assert!(app.call.members_hidden.contains(&room));
 }
+
+/// Up to nine people fit the stage under the preview's line and over the
+/// controls: every one's name shows whole, none cut off at the stage's foot
+/// or behind the controls, in a small window and a large one.
+#[test]
+fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
+    let names = ["Ada", "Bea", "Cy", "Dot", "Eli", "Fay", "Gus", "Hal", "Ivy"];
+    for (width, height) in [(900.0, 640.0), (1120.0, 760.0), (1440.0, 900.0)] {
+        let (mut app, _folder, _) = in_call();
+        app.shell.frame = Size::new(width, height);
+        crate::window_bar::fit_window(&mut app);
+        super::change(&mut app, |state| {
+            let voice = &mut state.voice;
+            let mut template = voice.participants[0].clone();
+            template.local = false;
+            template.video = None;
+            template.streaming = false;
+            voice.participants.truncate(1);
+            for (index, name) in names.iter().enumerate().skip(1) {
+                let mut person = template.clone();
+                person.id = format!("person-{index}");
+                person.person = person.id.clone();
+                person.user = (*name).to_owned();
+                voice.participants.push(person);
+            }
+        });
+        let local = app.client.state().voice.participants[0].user.clone();
+        for name in names.iter().skip(1).chain([&local.as_str()]) {
+            assert!(shows(&app, name), "{name} in {width}x{height}");
+        }
+    }
+}

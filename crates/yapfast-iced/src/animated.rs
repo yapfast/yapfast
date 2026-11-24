@@ -250,7 +250,12 @@ impl Animated<'_> {
             );
             paint::to_native(&mut rgba);
             let (width, height) = (self.picture.width, self.picture.height);
-            let (to_width, to_height) = (self.at.width as u32, self.at.height as u32);
+            // At the window's pixels, so the renderer copies it in unstretched.
+            let scale = crate::widgets::pixel_scale();
+            let (to_width, to_height) = (
+                crate::pictures::window_pixels(self.at.width as u32, scale),
+                crate::pictures::window_pixels(self.at.height as u32, scale),
+            );
             entry.frame = Some(if (width, height) == (to_width, to_height) {
                 Handle::from_rgba(width, height, rgba)
             } else {

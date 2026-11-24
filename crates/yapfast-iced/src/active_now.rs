@@ -430,7 +430,14 @@ fn card(
 fn doing(activity: &Activity) -> String {
     match activity.kind {
         ActivityKind::Playing => activity.name.to_string(),
-        _ => activity.line().unwrap_or_else(|| activity.name.to_string()),
+        ActivityKind::Streaming => format!(
+            "Streaming {}",
+            activity.details.as_deref().unwrap_or(&activity.name)
+        ),
+        ActivityKind::Listening => format!("Listening to {}", activity.name),
+        ActivityKind::Watching => format!("Watching {}", activity.name),
+        ActivityKind::Competing => format!("Competing in {}", activity.name),
+        ActivityKind::Hang => activity.name.to_string(),
     }
 }
 
