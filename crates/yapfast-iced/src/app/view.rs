@@ -434,7 +434,9 @@ impl App {
         if let Some(viewer) = crate::call::corner::clip_viewer(self) {
             layers = layers.push(viewer);
         }
-        if let Some(popup) = crate::call::popups::call_popup_view(self.ctx()) {
+        if let Some(popup) =
+            crate::call::popups::call_popup_view(self.ctx(), self.shell.frame.width)
+        {
             layers = layers
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);

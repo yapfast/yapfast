@@ -9369,7 +9369,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/gateway-reconnect") {
       // Discord's op 7: the client should drop the connection and resume.
-      for (const ws of sockets) if (ws.data.identified) send(ws, 7, null);
+      for (const ws of sockets) {
+        if (!ws.data.identified) continue;
+        // Later dispatches belong to the replay, even before the old socket closes.
+        parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+        ws.data.identified = false;
+        send(ws, 7, null);
+      }
       return new Response("asked gateways to reconnect\n");
     }
     if (req.method === "POST" && path === "/_control/refresh-token") {

@@ -2,7 +2,12 @@
 //! custom themes, preferences are kept across a restart, a device is chosen
 //! in Voice & video, and push to talk's key is recorded and kept.
 
-use iced::keyboard::{Key, Location, key};
+use iced::{
+    Point,
+    keyboard::{Key, Location, key},
+    mouse,
+    widget::Id,
+};
 use yapfast_core::voice;
 
 use super::{change, interact, local, preview, shows, start};
@@ -11,7 +16,9 @@ use crate::{
         App, Message,
         layers::{Layer, Popup},
     },
-    settings::{Event, Section, voice::Event as VoiceEvent},
+    settings::{
+        Event, Section, THEME_COLOUR_CODE, ThemeEvent, appearance_event, voice::Event as VoiceEvent,
+    },
 };
 
 /// Settings on a section, in a window tall enough to show its whole page.
@@ -1065,6 +1072,188 @@ fn creator_save_migrates_an_external_folder_without_touching_it() {
 }
 
 #[test]
+fn the_theme_editors_colour_picker_opens_picks_and_dismisses() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let chat = yapfast_core::theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let picker = |app: &App| {
+        app.win
+            .settings
+            .get()
+            .and_then(|settings| settings.editor.as_ref())
+            .and_then(|editor| editor.picker)
+    };
+    let swatch_at = |ui: &mut iced_test::Simulator<'_, Message>, name: &str| {
+        let label = ui
+            .find(name)
+            .expect(name)
+            .visible_bounds()
+            .expect("in view");
+        Point::new(label.x - 10.0 - 14.0, label.center_y())
+    };
+    let click_at = |ui: &mut iced_test::Simulator<'_, Message>, point: Point| {
+        ui.point_at(point);
+        ui.simulate([
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+        ]);
+    };
+
+    // Clicking a colour's swatch opens its ColourPad card under it.
+    assert_eq!(picker(&app), None);
+    interact(&mut app, |ui| {
+        let swatch = swatch_at(ui, "chat");
+        click_at(ui, swatch);
+    });
+    assert_eq!(picker(&app), Some(chat));
+
+    // Clicking on the ColourPad's hue strip and square updates the hex
+    // field and live preview immediately.
+    let before = app.theme.chat;
+    interact(&mut app, |ui| {
+        let code = ui
+            .find(Id::new(THEME_COLOUR_CODE))
+            .expect("the picker's code field")
+            .bounds();
+        // One third across the hue strip (10 px tall, 14 px above the code field).
+        click_at(ui, Point::new(code.x + code.width / 3.0, code.y - 19.0));
+        // Upper-right of the saturation/brightness square (150 px tall, 34 px above code).
+        click_at(ui, Point::new(code.x + code.width - 2.0, code.y - 180.0));
+    });
+    assert_ne!(app.theme.chat, before, "live preview updated from pad");
+    let pad_hex = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .fields[chat]
+        .1
+        .clone();
+    assert!(shows(&app, &pad_hex), "hex field updated from pad");
+
+    // Exact HSV picks update hex + preview, and hue stays while on black/grey.
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([240.0, 1.0, 0.5])));
+    assert_eq!(app.theme.chat, crate::style::hex(0x000080));
+    assert!(shows(&app, "#000080"));
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([120.0, 0.0, 0.0])));
+    assert_eq!(app.theme.chat, crate::style::hex(0x000000));
+    let hsv_hue = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .hsv[0];
+    assert_eq!(hsv_hue, 120.0, "hue kept while on black");
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([120.0, 1.0, 1.0])));
+    assert_eq!(app.theme.chat, crate::style::hex(0x00ff00));
+
+    // Typing a hex code into the picker's field updates the preview and pad.
+    interact(&mut app, |ui| {
+        ui.click(Id::new(THEME_COLOUR_CODE))
+            .expect("the picker's code field");
+        ui.tap_key(Key::Named(key::Named::End));
+        for _ in 0..7 {
+            ui.tap_key(Key::Named(key::Named::Backspace));
+        }
+        ui.typewrite("#123456");
+    });
+    assert_eq!(app.theme.chat, crate::style::hex(0x123456));
+    assert!(shows(&app, "#123456"));
+
+    // Clicking outside the popover dismisses the picker without closing Settings.
+    interact(&mut app, |ui| {
+        click_at(ui, Point::new(10.0, 10.0));
+    });
+    assert_eq!(picker(&app), None);
+    assert!(app.win.settings.is_open());
+    assert_eq!(app.theme.chat, crate::style::hex(0x123456));
+
+    // Reopening and pressing Escape closes the picker first, then Settings.
+    interact(&mut app, |ui| {
+        let swatch = swatch_at(ui, "chat");
+        click_at(ui, swatch);
+    });
+    assert_eq!(picker(&app), Some(chat));
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert_eq!(picker(&app), None);
+    assert!(app.win.settings.is_open(), "Settings stays open");
+    let _ = app.update(Message::Key(
+        Key::Named(key::Named::Escape),
+        Default::default(),
+    ));
+    assert!(!app.win.settings.is_open());
+}
+
+#[test]
+fn the_theme_colour_picker_preserves_alpha_on_translucent_tokens() {
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let accent_soft = yapfast_core::theme::Theme::NAMES
+        .iter()
+        .position(|name| *name == "accent_soft")
+        .expect("accent_soft");
+    let _ = app.update(appearance_event(ThemeEvent::Picker(Some(accent_soft))));
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([120.0, 1.0, 1.0])));
+    let hex = &app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .fields[accent_soft]
+        .1;
+    assert_eq!(hex, "#00ff0026", "alpha kept on translucent token");
+    assert_eq!(
+        app.theme.accent_soft,
+        iced::Color::from_rgba8(0, 255, 0, f32::from(0x26u8) / 255.0)
+    );
+    // Shorthand #rgb and #rrggbbaa work too, and picking preserves the typed alpha.
+    let _ = app.update(appearance_event(ThemeEvent::Colour(
+        accent_soft,
+        "#345".into(),
+    )));
+    assert_eq!(app.theme.accent_soft, crate::style::hex(0x334455));
+    let _ = app.update(appearance_event(ThemeEvent::Colour(
+        accent_soft,
+        "#11223380".into(),
+    )));
+    let _ = app.update(appearance_event(ThemeEvent::Hsv([0.0, 1.0, 1.0])));
+    let hex = &app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .expect("editor")
+        .fields[accent_soft]
+        .1;
+    assert_eq!(hex, "#ff000080");
+    // Switching the Start From template closes any open picker.
+    let _ = app.update(appearance_event(ThemeEvent::Start(0)));
+    assert_eq!(
+        app.win
+            .settings
+            .get()
+            .and_then(|settings| settings.editor.as_ref())
+            .and_then(|editor| editor.picker),
+        None
+    );
+}
+
+#[test]
 fn preferences_are_kept_across_a_restart() {
     let (mut app, folder) = preview();
     // The newest message sent at a time of its own, as Discord's are.
@@ -1290,6 +1479,7 @@ fn keybinds_are_added_chosen_recorded_and_removed() {
     interact(&mut app, |ui| {
         ui.click("Add a Keybind").expect("the button");
     });
+    assert!(shows(&app, "No Keybind Set"));
     assert!(shows(
         &app,
         "This action doesn't do anything! Please choose one from the drop down."
@@ -1324,6 +1514,15 @@ fn keybinds_are_added_chosen_recorded_and_removed() {
             .iter()
             .any(|watched| watched.id == "keybind-1")
     );
+    let _ = app.update(keybind(KeybindEvent::Enabled(0, false)));
+    assert!(app.keybinds.watched.is_empty());
+    assert_eq!(stored(&folder)["keybinds"][0]["enabled"], false);
+    assert!(
+        app.layout.keybinds[0].keys.is_some(),
+        "disabling preserves the keys"
+    );
+    let _ = app.update(keybind(KeybindEvent::Enabled(0, true)));
+    assert_eq!(app.keybinds.watched.len(), 1);
     // As the account card's button: out of a call, the next one starts
     // deafened.
     let deafened =

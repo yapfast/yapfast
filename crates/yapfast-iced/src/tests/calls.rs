@@ -251,7 +251,26 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
         assert!(ui.find("Entire screen").is_ok());
         ui.click("Window 1").expect("a window to pick");
     });
-    assert_eq!(app.call.share.as_ref().map(|share| share.pick), Some(2));
+    assert_eq!(
+        app.call.share.as_ref().and_then(|share| share.pick),
+        Some(2)
+    );
+
+    // Window 1 and the screen have the same numeric ID. A picture is applied
+    // only to its source kind and only to the listing that requested it.
+    for preview_count in [count + 1, count] {
+        let _ = crate::call::update(
+            &mut app,
+            Event::Share(ShareEvent::Picture(
+                preview_count,
+                Source::Window(1),
+                iced::advanced::image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+            )),
+        );
+        let share = app.call.share.as_ref().expect("share menu");
+        assert!(share.screens[0].1.is_none());
+        assert_eq!(share.windows[1].1.is_some(), preview_count == count);
+    }
 }
 
 #[test]
@@ -742,29 +761,8 @@ fn a_window_closed_with_the_large_tile_full_screen_opens_again_as_a_window() {
 }
 
 #[test]
-fn switching_with_only_the_systems_dialog_opens_it_with_no_menu() {
-    use crate::call::popups::Share;
-    let share = |switching, dialog, cameras: &[&str]| Share {
-        screens: vec![],
-        windows: vec![],
-        cameras: cameras.iter().map(|&camera| camera.into()).collect(),
-        sources: vec![],
-        dialog,
-        pick: 0,
-        quality: Default::default(),
-        switching,
-    };
-    assert!(share(true, true, &[]).dialog_alone());
-    assert!(
-        !share(false, true, &[]).dialog_alone(),
-        "Go Live's menu has the quality"
-    );
-    assert!(
-        !share(true, true, &["Webcam"]).dialog_alone(),
-        "a camera to pick"
-    );
-    assert!(!share(true, false, &[]).dialog_alone());
-    // Listed so while sharing, nothing opens and nothing waits.
+fn stream_audio_can_change_while_sharing_without_picking_a_new_source() {
+    use crate::call::ShareEvent;
     let (mut app, _folder, _) = in_call();
     super::change(&mut app, |state| {
         state.voice.sharing = Some(voice::Sharing {
@@ -782,12 +780,17 @@ fn switching_with_only_the_systems_dialog_opens_it_with_no_menu() {
             std::sync::Arc::new(crate::call::Listing(vec![])),
         )),
     );
-    if yapfast_core::stream_worker::portal_picks() {
-        assert_eq!(app.call.popup, None, "the dialog, no menu");
-        assert!(app.call.share.is_none());
-    } else {
-        assert_eq!(app.call.popup, Some(Popup::Share));
-    }
+    assert_eq!(app.call.popup, Some(Popup::Share));
+    assert_eq!(app.call.share.as_ref().and_then(|share| share.pick), None);
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(ShareEvent::Audio(voice::StreamAudio::Off)),
+    );
+    assert_eq!(
+        app.client.state().voice.stream_audio,
+        voice::StreamAudio::Off
+    );
+    assert_eq!(app.call.popup, Some(Popup::Share));
 }
 
 #[test]

@@ -269,8 +269,8 @@ and the app uses them with its one `Message`, so nothing is mapped:
   box, "Press a key..." while recording), `field` (a form's text field),
   `entry` (a single-line field 40 px tall), `area` (a text several
   lines high with what's left of it),
-  `colour_row` (a swatch, its name and its hex), `colour_card` (a
-  colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
+  `colour_row` (a swatch, with an optional `picker` popover, its name and its
+  hex), `colour_card` (a colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
   are `controls::choices` (`choices_within` for a wider row), sliders
   `controls::Slider` with `step`, `shown` (the value in other words) and
   `mark`. The `Unsaved` bar is an editor's bar once something changed, which

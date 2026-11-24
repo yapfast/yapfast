@@ -2,9 +2,13 @@
 
 ## Shells
 
-Three Nix shells cover the work:
+On Windows, build, run and test directly with Cargo in PowerShell; see
+[Windows](#windows) for prerequisites. On Linux, Nix brings the pinned
+toolchain and libraries for development, building and testing
+([without Nix](../README.md#without-nix) works too). Three Nix shells cover
+that work:
 
-- `nix develop path:./nix` is the development shell. Run every `cargo` command
+- `nix develop path:./nix` is the Linux development shell. Run every `cargo` command
   in it, as `nix develop path:./nix --command cargo ...`. It also provides
   `bun` for the fake Discord.
 - `nix-shell --impure testing/display/shell.nix` adds Weston,
@@ -174,12 +178,15 @@ files named here are in `crates/yapfast-core/native/`.
   with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
   through libwebrtc's capture module.
 - `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
-  and the HEVC decoder for watched H265 streams, in `hevc.c`.
+  and the HEVC decoder for watched H265 streams, in `hevc.c`, and video
+  attachments, in `video_hevc.c`. HEVC file playback is enabled on targets
+  where this library is built (currently Windows and Linux x86-64).
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 
-Playing a file never touches `vendor/ffmpeg-src`, so what plays is what
-libwebrtc's FFmpeg was built with. Check a symbol in the archive:
+File demuxing and audio use libwebrtc's FFmpeg; HEVC pictures use the
+separate decoder. Only plain values cross between the two FFmpeg builds,
+whose structs and symbols must stay separate. Check a symbol in the archive:
 
 ```sh
 nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'
@@ -403,22 +410,44 @@ its linker also writes a RUNPATH of `$PWD/outputs/out/lib` and Nix store
 folders into the binary; the [AppImage](packaging.md#linux-appimage) avoids both by
 building in the Nix sandbox.
 
-The supported and packaged build route remains the Linux MSVC cross-build.
-A native Windows build is for development only: it names this machine's folders
-and must not be shipped. It needs Rust 1.100, Visual Studio C++ tools and the
-Windows 10/11 SDK, LLVM with `clang-cl`, `llvm-rc` and `libclang` on `PATH`
-(the SDK's `rc.exe` can replace `llvm-rc`), and NASM on `PATH`. bindgen, which
-`thorvg-sys` runs, finds `libclang` only through `LIBCLANG_PATH`, `llvm-config
---prefix` or `LIBRARY_PATH`, never `PATH`, so set `LIBCLANG_PATH` to LLVM's
-`bin` where `llvm-config` is not on `PATH`. A network connection is needed
-once for the libwebrtc archive.
+On Windows, use native Cargo for development, builds and tests; Nix is not
+required. Published packages are still made by the Linux MSVC cross-build.
+A native development build names this machine's folders and must not be
+shipped. Install these prerequisites before running Cargo:
+
+- Rust through rustup. Use the `x86_64-pc-windows-msvc` toolchain pinned in
+  `rust-toolchain.toml`.
+- Visual Studio Build Tools with the **Desktop development with C++**
+  workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
+  These supply the MSVC linker, headers and libraries; Cargo alone does not.
+- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll` and preferably
+  `llvm-rc`. Standalone LLVM or Visual Studio's **C++ Clang tools for Windows**
+  can supply `clang-cl`; ensure `libclang.dll` is installed too. The SDK's
+  `rc.exe` can replace `llvm-rc`.
+- NASM, available on `PATH`, for FFmpeg's x86-64 assembly.
+
+Use **Developer PowerShell for VS** so the MSVC tools and SDK are available,
+and add LLVM's `bin` directory to `PATH`. bindgen, which `thorvg-sys` runs,
+finds `libclang` only through `LIBCLANG_PATH`, `llvm-config --prefix` or
+`LIBRARY_PATH`, never `PATH`. For a default standalone LLVM installation,
+set it in the same PowerShell session:
+
+```powershell
+$env:Path = "C:\Program Files\LLVM\bin;$env:Path"
+$env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+```
+
+Adjust both paths if LLVM is installed elsewhere. A network connection is
+needed once for the libwebrtc archive.
 `vendor/ffmpeg-src/build.rs` and `crates/yapfast-core/build.rs` select
 `clang-cl` for MSVC targets only when `CC`/`CXX` are unset, because FFmpeg's x86
 assembly and the camera shim's Clang warning flags need it; an explicitly
 selected compiler wins.
 
 ```powershell
-cargo build --release
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+cargo test --locked --profile fast -p yapfast-core history
 ```
 
 The downloadable package needs none of these tools to run.

@@ -1119,18 +1119,16 @@ mod tests {
     #[test]
     fn a_character_no_font_has_gets_the_systems_font_once() {
         crate::testing::install_fonts();
-        let name = "\u{1d51f}\u{1d51e}\u{1d531}";
-        // Windows returns candidates; the first file may not cover these glyphs.
-        let Some((file, _)) = char_fonts(&['𝔟']).into_iter().find(|(file, index)| {
-            std::fs::read(file).is_ok_and(|data| {
-                ttf_parser::Face::parse(&data, *index)
-                    .is_ok_and(|face| name.chars().all(|c| face.glyph_index(c).is_some()))
-            })
+        let name = "𝔟";
+        let Some(file) = char_fonts(&['𝔟']).into_iter().find_map(|(file, index)| {
+            let bytes = std::fs::read(&file).ok()?;
+            let face = ttf_parser::Face::parse(&bytes, index).ok()?;
+            face.glyph_index('𝔟')?;
+            Some(std::path::PathBuf::from(file))
         }) else {
             eprintln!("no system font has 𝔟; nothing to test");
             return;
         };
-        let file = std::path::PathBuf::from(file);
         assert!(
             shape(name, 400, false).iter().all(|(glyph, _)| *glyph == 0),
             "boxes before"
