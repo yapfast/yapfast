@@ -227,7 +227,8 @@ and the app uses them with its one `Message`, so nothing is mapped:
   round controls, the DM call's answer buttons and the dock's buttons;
   `controls::live_pill` LIVE; `controls::Slider` a volume slider;
   `controls::heading` a popup's heading; `controls::choices` a row of
-  choices, one picked; `controls::Check` and `Look::checkbox` a menu row's
+  choices, one picked, that wraps onto even lines when its options' words
+  don't fit; `controls::Check` and `Look::checkbox` a menu row's
   tick or checkbox, and `Item::subtitle` a second line under its label.
 - `widgets::Hover`: a layer shown over its child only under the pointer,
   over a shade of its own if it's given one (`shade`), drawn a pixel past
@@ -271,7 +272,14 @@ and the app uses them with its one `Message`, so nothing is mapped:
   lines high with what's left of it),
   `colour_row` (a swatch, with an optional `picker` popover, its name and its
   hex), `colour_card` (a colour's `widgets::ColourPad` over its code) and `card`. Rows of choices
-  are `controls::choices` (`choices_within` for a wider row), sliders
+  are `controls::choices` (`choices_within` for a wider row): each option
+  takes a share of its line as long as its words, and when one's words,
+  bold as when chosen, are wider than its share, the options go onto as
+  few lines as hold them all, kept in order and as even as they can be
+  (`choice_lines`). Each option's words are measured once
+  (`choice_words`), and again after the font system's version moves. The
+  lines fit the room the row is given (a `responsive`), up to its widest,
+  so a narrow window wraps them too. Sliders are
   `controls::Slider` with `step`, `shown` (the value in other words) and
   `mark`. The `Unsaved` bar is an editor's bar once something changed, which
   `Shake` shakes red after leaving was refused (`Shake::start` takes the
