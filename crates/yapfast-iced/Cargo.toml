@@ -57,6 +57,8 @@ serde.workspace = true
 serde_json.workspace = true
 # The code Discord's phone app scans to link an account.
 qrcode = { version = "0.14", default-features = false }
+# Opens pages where neither xdg-open nor gio is installed.
+webbrowser = "1"
 # The file dialog files to attach are chosen in, through the desktop's
 # portal on Linux.
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
@@ -70,10 +72,6 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # Reviewed-theme trials keep checked files in a private temporary folder for
 # their 30-second lifetime, without installing them.
 tempfile.workspace = true
-
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-# Use the default browser on platforms without the Linux desktop openers.
-webbrowser = "1"
 
 # What build.rs packs Twemoji's pictures into a font with.
 [build-dependencies]

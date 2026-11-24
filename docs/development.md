@@ -44,7 +44,8 @@ native fields.
 When testing links from a Linux desktop, use `--data-dir` to isolate Yapfast's
 files and keep the desktop's normal XDG environment. Yapfast uses `xdg-open`,
 or `gio open` when `xdg-open` is unavailable, to open web links and CAPTCHA
-pages in the configured default browser.
+pages in the configured default browser. Without either it falls back to the
+`webbrowser` crate, which reads `$BROWSER` first.
 
 Closing the window leaves Yapfast running in the system tray, with any call,
 where its icon opens it again or quits; without a tray it quits Yapfast
