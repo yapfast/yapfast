@@ -1,11 +1,11 @@
 //! Yapfast's icon in the system tray, which keeps Yapfast running with its window
 //! closed: a StatusNotifierItem on Linux, on the session bus Yapfast is given,
 //! and a notification-area icon on Windows. Clicking it opens the window; its
-//! menu opens Yapfast, leaves a call and quits.
+//! menu opens Yapfast, leaves a call, checks for updates, restarts and quits.
 
 use std::cell::Cell;
 
-/// The xdg-activation token of the tray click or Open Yapfast that is
+/// The xdg-activation token of the tray click or Yapfast menu item that is
 /// opening the window, which lets a Wayland window come to the front.
 #[cfg(target_os = "linux")]
 static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -32,6 +32,8 @@ pub fn take_activation_token() -> Option<String> {
 pub enum Choice {
     Open,
     Disconnect,
+    CheckForUpdates,
+    Restart,
     Quit,
     /// A tray came or went, which decides what closing the window does.
     Available,
@@ -305,10 +307,13 @@ mod linux {
                 }
                 .into()
             };
-            let mut menu = vec![item("Open Yapfast", Choice::Open)];
+            let mut menu = vec![item("Yapfast", Choice::Open)];
             if self.shown.call {
                 menu.push(item("Disconnect", Choice::Disconnect));
             }
+            menu.push(MenuItem::Separator);
+            menu.push(item("Check for updates", Choice::CheckForUpdates));
+            menu.push(item("Restart app", Choice::Restart));
             menu.push(MenuItem::Separator);
             menu.push(item("Quit", Choice::Quit));
             menu
@@ -349,10 +354,11 @@ mod windows {
                 WindowsAndMessaging::{
                     AppendMenuW, CreateIcon, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
                     DestroyIcon, DestroyMenu, DestroyWindow, GetCursorPos, GetSystemMetrics, HICON,
-                    MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassW, RegisterWindowMessageW,
-                    SM_CXSMICON, SetForegroundWindow, SetMenuDefaultItem, TPM_NONOTIFY,
-                    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU,
-                    WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPED,
+                    MENUINFO, MF_SEPARATOR, MF_STRING, MIM_STYLE, MNS_NOCHECK, PostMessageW,
+                    RegisterClassW, RegisterWindowMessageW, SM_CXSMICON, SetForegroundWindow,
+                    SetMenuDefaultItem, SetMenuInfo, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+                    TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP,
+                    WM_USER, WNDCLASSW, WS_OVERLAPPED,
                 },
             },
         },
@@ -368,7 +374,9 @@ mod windows {
     const NIN_KEYSELECT: u32 = WM_USER + 1;
     const OPEN: usize = 1;
     const DISCONNECT: usize = 2;
-    const QUIT: usize = 3;
+    const CHECK_FOR_UPDATES: usize = 3;
+    const RESTART: usize = 4;
+    const QUIT: usize = 5;
 
     thread_local! {
         /// What the hidden window's procedure needs: the tray runs on the UI
@@ -572,10 +580,25 @@ mod windows {
         // this thread.
         let picked = unsafe {
             let menu = CreatePopupMenu();
-            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
+            if menu.is_null() {
+                return;
+            }
+            SetMenuInfo(
+                menu,
+                &MENUINFO {
+                    cbSize: size_of::<MENUINFO>() as u32,
+                    fMask: MIM_STYLE,
+                    dwStyle: MNS_NOCHECK,
+                    ..std::mem::zeroed()
+                },
+            );
+            AppendMenuW(menu, MF_STRING, OPEN, w!("Yapfast"));
             if call {
                 AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
             }
+            AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            AppendMenuW(menu, MF_STRING, CHECK_FOR_UPDATES, w!("Check for updates"));
+            AppendMenuW(menu, MF_STRING, RESTART, w!("Restart app"));
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             AppendMenuW(menu, MF_STRING, QUIT, w!("Quit"));
             SetMenuDefaultItem(menu, OPEN as u32, 0);
@@ -599,6 +622,8 @@ mod windows {
         match picked {
             OPEN => choose(Choice::Open),
             DISCONNECT => choose(Choice::Disconnect),
+            CHECK_FOR_UPDATES => choose(Choice::CheckForUpdates),
+            RESTART => choose(Choice::Restart),
             QUIT => choose(Choice::Quit),
             _ => {}
         }

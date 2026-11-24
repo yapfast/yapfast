@@ -421,6 +421,10 @@ impl App {
                 self.client.dispatch(Action::Voice(voice::Command::Leave));
                 self.sync()
             }
+            Heard::Tray(TrayChoice::CheckForUpdates) => {
+                crate::updates::update(self, crate::updates::Event::CheckNow)
+            }
+            Heard::Tray(TrayChoice::Restart) => self.restart(),
             Heard::Tray(TrayChoice::Quit) => self.quit(),
             Heard::Tray(TrayChoice::Available) => {
                 let available = self
@@ -689,6 +693,11 @@ impl App {
         self.win.pictures.forget();
         self.win.icons.forget();
         settled
+    }
+
+    pub fn restart(&mut self) -> Task<Message> {
+        crate::exit_for(crate::Exit::Restart);
+        self.quit()
     }
 
     /// Ends Yapfast: the icon goes first, rather than when the desktop next

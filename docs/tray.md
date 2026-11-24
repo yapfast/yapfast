@@ -3,8 +3,11 @@
 Closing the window leaves Yapfast running in the system tray: the session, a call, notifications, ringing and sounds go on. The
 tray icon is Yapfast's logo in Yap's marigold, with a red dot cut into its
 corner while a mention or a DM waits unread, as Discord counts them. Clicking
-it opens the window. Its menu has Open Yapfast, Disconnect during a call, and
-Quit.
+it opens the window. The menu offers Yapfast, Disconnect during a call,
+Check for updates, Restart app and Quit. Check for updates runs the same
+one-time check as Check now in Settings → About, where the result appears
+when opened. Restart app leaves any call and opens a new Yapfast window with
+the saved settings.
 
 Settings → Advanced has "Close to tray", on unless turned off
 (`close_to_tray` in `layout.json`). Off, or with no tray to show the icon,
@@ -156,9 +159,10 @@ AppIndicator extension; without it closing quits.
 
 On Wayland a window comes to the front only with an xdg-activation token
 from input the compositor saw. KDE Plasma sends one just before a click on the
-icon or Open Yapfast, and Yapfast raises the window with it, as it does with
-a later start's token. Without one, as with Waybar, Yapfast asks the compositor
-through winit's `request_user_attention`, and the compositor decides:
+icon or the Yapfast menu item. Yapfast raises the window with
+that token, as it does with a later start's token. Without one, as with
+Waybar, Yapfast asks through winit's `request_user_attention`, and the
+compositor decides:
 Hyprland marks the window urgent, or focuses it with
 `misc:focus_on_activate`.
 
@@ -167,9 +171,11 @@ Hyprland marks the window urgent, or focuses it with
 The icon is `Shell_NotifyIconW` through `windows-sys`, already in the tree for
 winit, on a hidden window of the UI thread, whose messages winit's loop
 dispatches. A left click opens Yapfast; a right click shows the menu at the
-pointer with `TrackPopupMenu`. When Explorer starts again it sends
-`TaskbarCreated`, and Yapfast adds the icon again. If the notification area
-won't take the icon, closing quits.
+pointer with `TrackPopupMenu`, without reserving a column for check marks.
+Yapfast stops listening and releases the folder lock before starting its
+replacement. When Explorer starts again it sends `TaskbarCreated`, and
+Yapfast adds the icon again. If the notification area won't take the icon,
+closing quits.
 
 The bar is a cross-build and Wine (`scripts/build-windows`, see
 [the Windows beta](windows-beta.md)). On real Windows, check:
@@ -177,8 +183,10 @@ The bar is a cross-build and Wine (`scripts/build-windows`, see
 - the icon is crisp at 100%, 125%, 150% and 200% scaling, and its dot shows
   for an unread DM or a mention;
 - a left click opens the window, at its size and place, on the same
-  conversation; a right click shows Open Yapfast, Disconnect in a call, and
-  Quit, which closes when clicking elsewhere;
+  conversation, and a right click shows the tray menu without a column for
+  check marks. Clicking elsewhere dismisses it;
+- Check for updates starts a check while the window stays closed. Restart app and
+  Advanced's Restart Yapfast each open a new window;
 - a call keeps going with the window closed, and Disconnect ends it;
 - Task Manager's Memory column drops when the window closes, and stays down
   for a minute;

@@ -79,6 +79,20 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
     );
 }
 
+#[test]
+fn checking_for_updates_from_the_tray_keeps_the_window_closed() {
+    let (mut app, _folder) = preview();
+    with_tray(&mut app, true);
+    let id = app.shell.window.expect("the window");
+    let _ = app.update(Message::Shell(Event::CloseRequested(id)));
+    assert!(app.shell.window.is_none());
+
+    heard(&mut app, Heard::Tray(TrayChoice::CheckForUpdates));
+
+    assert!(app.shell.window.is_none());
+    assert!(!app.win.settings.is_open());
+}
+
 /// A theme being edited in Themes, a colour changed: what the window
 /// shows until it's saved or cancelled; and the colour it had.
 fn editing_a_theme(app: &mut App) -> iced::Color {

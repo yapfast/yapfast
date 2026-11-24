@@ -5,8 +5,8 @@
 //! The commands it knows: `stats` (glibc's heap to the log), `trim` (free
 //! heap back to the system), `close` (as the window's close button: to the
 //! tray, or quit), `destroy` (the window dropped without giving its memory
-//! back, which `trim` then does), `open` and `create` (as the tray's Open
-//! Yapfast), `quit`, `hide` and `show`, `stage PATH` and `stage-aside PATH`
+//! back, which `trim` then does), `open` and `create` (as the tray's Yapfast
+//! item), `quit`, `hide` and `show`, `stage PATH` and `stage-aside PATH`
 //! (a file for the next message), `pick KIND PATH` (a picture for a profile
 //! or a server's settings), `theme ID` (a theme, built in or custom, as
 //! Appearance chooses it).

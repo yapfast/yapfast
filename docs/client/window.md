@@ -51,7 +51,7 @@ window-control file (`YAPFAST_UI_TEST_CONTROL`, `control_file.rs`):
 `stats` logs the allocator's figures, `trim` gives back
 free heap, `hide` and `show` hide and show the window, `close` and `quit`
 end it, `destroy` drops the window without giving its memory back,
-`open` and `create` open it as the tray's Open Yapfast does, `theme ID`
+`open` and `create` open it as the tray's Yapfast item does, `theme ID`
 chooses a theme and keeps it, and `stage`, `stage-aside` and `pick` go to
 the core.
 
@@ -60,7 +60,7 @@ the core.
 The client runs as an iced daemon (`lib.rs`, `shell.rs`): it lives without
 a window, so closing to the tray drops the window, its renderer, its
 widgets and every picture made to draw (`pictures::Pictures`), and the
-tray's Open Yapfast makes a new one at the size it had.
+tray's Yapfast item makes a new one at the size it had.
 The window's size while it isn't maximized, and whether it was, are kept
 in `layout.json` (`placement`, in the desktop's own units, so the zoom
 doesn't change them) as either changes, and the next start opens with
@@ -89,8 +89,8 @@ tell the window what they hear through a `Tell`, from threads of their
 own, which a stream hands to the event loop as messages; nothing polls.
 
 - The tray (`shell.rs`): its icon, with the unread dot for a mention or an
-  unread DM, and Disconnect in its menu during a call; Open Yapfast, and a
-  click on it, brings the window back with the click's activation token.
+  unread DM, and Disconnect in its menu during a call. Clicking the icon or
+  the Yapfast menu item brings the window back with the click's activation token.
   Closing to it closes Settings as their own button does, and the call's
   popup with the microphone its level reads; the call's cameras make no
   frames and its clocks don't tick until the window is back.
