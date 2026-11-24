@@ -537,3 +537,40 @@ fn a_store_button_on_a_bots_message_without_its_app_opens_the_bots_store() {
         "the bot's store"
     );
 }
+
+/// The size of a picture a handle holds.
+fn held(handle: &iced::advanced::image::Handle) -> (u32, u32) {
+    match handle {
+        iced::advanced::image::Handle::Rgba { width, height, .. } => (*width, *height),
+        _ => panic!("pictures are pixels"),
+    }
+}
+
+#[test]
+fn pictures_are_fitted_at_the_windows_pixels() {
+    let (mut app, _folder) = preview();
+    let picture = Arc::new(Picture {
+        width: 64,
+        height: 64,
+        rgba: Pixels::new(64, 64, vec![200; 64 * 64 * 4]),
+        ..Default::default()
+    });
+    let at_100 = held(&app.ctx().fit(&picture, 20, 20, false).expect("fitted"));
+    assert_eq!(at_100, (20, 20));
+    // At 110% a 20-unit emoji spans 22 pixels, so it's made at 22, not
+    // stretched there by the renderer.
+    app.shell.zoom = 1.1;
+    let at_110 = held(&app.ctx().fit(&picture, 20, 20, false).expect("fitted"));
+    assert_eq!(at_110, (22, 22));
+    // One that came at the window's pixels is shown as it is.
+    let exact = Arc::new(Picture {
+        width: 22,
+        height: 22,
+        rgba: Pixels::new(22, 22, vec![200; 22 * 22 * 4]),
+        ..Default::default()
+    });
+    assert_eq!(
+        held(&app.ctx().fit(&exact, 20, 20, false).expect("own")),
+        (22, 22)
+    );
+}

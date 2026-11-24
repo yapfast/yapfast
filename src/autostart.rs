@@ -247,7 +247,7 @@ mod windows {
             })
             .collect();
         let value = wide(&line.join(" "));
-        // SAFETY: names and value are terminated UTF-16; value.len() * 2 describes its live buffer.
+        // SAFETY: the key and name are NUL-terminated, and value holds the stated byte count.
         let status = unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -269,7 +269,7 @@ mod windows {
     }
 
     fn delete(key: &str) -> io::Result<()> {
-        // SAFETY: both terminated UTF-16 names live through the call; HKCU is a predefined key.
+        // SAFETY: both NUL-terminated strings live through the registry call.
         let status = unsafe {
             RegDeleteKeyValueW(
                 HKEY_CURRENT_USER,
@@ -287,7 +287,8 @@ mod windows {
     fn query(key: &str, kind: u32) -> Option<Vec<u8>> {
         let (key, name) = (wide(key), wide(super::NAME));
         let mut size = 0u32;
-        // SAFETY: names are terminated UTF-16; null data requests only the size, written to size.
+        // SAFETY: the strings are NUL-terminated and size is writable. Null data
+        // requests the required buffer size.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -303,7 +304,7 @@ mod windows {
             return None;
         }
         let mut data = vec![0u8; size as usize];
-        // SAFETY: data holds size bytes and size is writable; both UTF-16 names remain live.
+        // SAFETY: the strings are NUL-terminated and data is writable for size bytes.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -363,7 +364,7 @@ mod windows {
             );
             // Task Manager turns it off with an odd first byte.
             let disabled = [3u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-            // SAFETY: names are terminated UTF-16 and disabled holds disabled.len() readable bytes.
+            // SAFETY: the key and name are NUL-terminated, and disabled holds the stated byte count.
             let status = unsafe {
                 RegSetKeyValueW(
                     HKEY_CURRENT_USER,

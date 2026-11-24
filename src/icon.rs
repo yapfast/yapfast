@@ -54,36 +54,71 @@ pub fn window_icon() -> Option<Rgba> {
 #[cfg(windows)]
 pub const RESOURCE: u16 = 1;
 
-/// Gives a window made without an icon the title bar's small icon and the
-/// taskbar's large one from the executable, each loaded at the size Windows
-/// draws it rather than scaled from one picture.
+/// Gives a new window its title bar icon and the current taskbar icon.
 #[cfg(windows)]
-pub fn set_on(hwnd: isize) {
+pub fn set_on(hwnd: windows_sys::Win32::Foundation::HWND, unread: u8) {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{ICON_SMALL, SM_CXSMICON};
+
+    static SMALL: OnceLock<isize> = OnceLock::new();
+    set(hwnd, ICON_SMALL, *SMALL.get_or_init(|| load(SM_CXSMICON)));
+    set_taskbar(hwnd, unread);
+}
+
+#[cfg(windows)]
+pub fn set_taskbar(hwnd: windows_sys::Win32::Foundation::HWND, unread: u8) {
+    use std::sync::OnceLock;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, ICON_BIG, SM_CXICON};
+
+    // The window borrows these handles. Lazily keep one for each label,
+    // including after the window closes to the tray and opens again.
+    static ICONS: [OnceLock<isize>; 11] = [const { OnceLock::new() }; 11];
+    let unread = unread.min(10);
+    let icon = *ICONS[usize::from(unread)].get_or_init(|| {
+        if unread == 0 {
+            return load(SM_CXICON);
+        }
+        // SAFETY: GetSystemMetrics takes only the metric constant.
+        let size = unsafe { GetSystemMetrics(SM_CXICON) };
+        crate::tray::taskbar_icon(size as u32, unread) as isize
+    });
+    let icon = if icon == 0 {
+        *ICONS[0].get_or_init(|| load(SM_CXICON))
+    } else {
+        icon
+    };
+    set(hwnd, ICON_BIG, icon);
+}
+
+#[cfg(windows)]
+fn load(metric: i32) -> isize {
     use windows_sys::Win32::{
         System::LibraryLoader::GetModuleHandleW,
-        UI::WindowsAndMessaging::{
-            GetSystemMetrics, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW,
-            SM_CXICON, SM_CXSMICON, SendMessageW, WM_SETICON,
-        },
+        UI::WindowsAndMessaging::{GetSystemMetrics, IMAGE_ICON, LR_DEFAULTCOLOR, LoadImageW},
     };
-    // SAFETY: the window is the caller's, alive across the calls; the icons
-    // are loaded from this executable's own resources and stay with it.
+    // SAFETY: the resource is an icon in this executable and is addressed
+    // by its integer ID.
     unsafe {
-        let module = GetModuleHandleW(std::ptr::null());
-        for (which, metric) in [(ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)] {
-            let side = GetSystemMetrics(metric);
-            let icon = LoadImageW(
-                module,
-                RESOURCE as usize as *const u16,
-                IMAGE_ICON,
-                side,
-                side,
-                LR_DEFAULTCOLOR,
-            );
-            if !icon.is_null() {
-                SendMessageW(hwnd as _, WM_SETICON, which as usize, icon as isize);
-            }
-        }
+        let side = GetSystemMetrics(metric);
+        LoadImageW(
+            GetModuleHandleW(std::ptr::null()),
+            RESOURCE as usize as *const u16,
+            IMAGE_ICON,
+            side,
+            side,
+            LR_DEFAULTCOLOR,
+        ) as isize
+    }
+}
+
+#[cfg(windows)]
+fn set(hwnd: windows_sys::Win32::Foundation::HWND, which: u32, icon: isize) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_SETICON};
+
+    if icon != 0 {
+        // SAFETY: the caller holds the live window and the icon is cached
+        // for the lifetime of the process.
+        unsafe { SendMessageW(hwnd, WM_SETICON, which as usize, icon) };
     }
 }
 

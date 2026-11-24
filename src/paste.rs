@@ -593,7 +593,7 @@ fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
 /// The existing local files a `text/uri-list` names.
 #[cfg_attr(
     not(target_os = "linux"),
-    allow(dead_code, reason = "only Linux clipboards supply text/uri-list")
+    allow(dead_code, reason = "the Linux clipboard supplies text/uri-list")
 )]
 pub fn files(list: &str) -> Vec<PathBuf> {
     list.lines()

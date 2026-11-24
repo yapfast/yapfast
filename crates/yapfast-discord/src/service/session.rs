@@ -543,6 +543,31 @@ impl Session<'_> {
                 self.publisher.changed();
                 Ok(())
             }
+            Request::FileServer {
+                server,
+                source_folder,
+                target,
+                folder,
+                before,
+                reply,
+            } => {
+                let change =
+                    self.tracker
+                        .file_server(&server, source_folder, &target, folder, before);
+                if change.is_some() {
+                    self.publisher
+                        .publish(&mut self.tracker, &self.shared.lists);
+                }
+                let _ = reply.send(change);
+                Ok(())
+            }
+            Request::RestoreServerList(change) => {
+                if self.tracker.restore_server_list(change) {
+                    self.publisher
+                        .publish(&mut self.tracker, &self.shared.lists);
+                }
+                Ok(())
+            }
             Request::Status(status) => {
                 self.tracker.status = status;
                 self.publisher.changed();
@@ -580,9 +605,12 @@ impl Session<'_> {
                     self.searches.members(gateway, &guild, users, reply).await?;
                 }
                 for users in chunks {
-                    gateway.request_members(&guild, users, None).await?;
+                    gateway.request_members(&guild, users, None, false).await?;
                 }
                 Ok(())
+            }
+            Request::Presence { guild, user, reply } => {
+                self.searches.presence(gateway, &guild, &user, reply).await
             }
         }
     }

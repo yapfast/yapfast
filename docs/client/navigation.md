@@ -14,6 +14,12 @@ rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
 (unavailable in a Discord outage)".
+On the standard left rail, drag a Discord server onto another server to
+create a folder, or onto an existing folder to add it. The dragged icon
+follows the pointer. An outline
+marks a tile that will take the server, and a line marks an insertion point
+between tiles. Drag a folder by its icon to move it with all its servers.
+Discord saves the resulting folders and order to your account.
 The speaker is green while this account is in a call there, and grey
 while others are in a Discord server's voice channels. It follows
 Discord's server list (GuildMediaStateStore): a screen when someone
@@ -37,6 +43,15 @@ only for the call this account is in, as Discord's does.
 A right click on a server, a folder or an unread DM opens its menu, the
 one its row in the sidebar opens; a folder's marks its servers read, and
 it has none while they are.
+A middle click on a server or a folder marks it all read, as its menu's
+Mark as read does.
+
+With Peek at channels on (Settings → Messages, `peek_channels`), holding Alt
+alone over a channel or DM row shows its newest messages beside the
+sidebar (`peek.rs`), as found cards, newest at the bottom; the row is asked
+for once the pointer stays on it 120 ms, and letting go of Alt, leaving the
+row or the window losing the focus closes it. The pointer's place is
+followed only while Alt is held with the switch on.
 
 The sidebar's right edge and the member list's left are each a kit
 `Splitter` laid over the panel's edge (`app/view.rs`, `members.rs`): a drag
@@ -49,7 +64,10 @@ never the panels' own widths.
 The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels,
 voice and DM rows each a file) shows, on the DM
 home, the search field (which keeps the DMs whose names hold its text,
-and empties as the rail goes elsewhere),
+and empties as the rail goes elsewhere), or with "Search DMs with the
+quick switcher" on (`dm_search_switcher`, off by default) "Find or start a
+conversation", a button drawn as a field that opens the quick switcher, as
+Discord's does,
 Friends and Requests (rows 38 px tall, in the navigation greys), "Direct
 Messages" and each DM with its person's
 presence, the voice channel they're in (a click goes to it, in its

@@ -228,6 +228,8 @@ impl<'a> crate::ctx::Ctx<'a> {
             _ => Rectangle::with_size(size),
         };
         let (width, height) = (at.width as u32, at.height as u32);
+        // The window's pixels it covers, which a copy is made at.
+        let pixels = (self.pixels(width), self.pixels(height));
         // A still that fills the whole box and is opaque hides its ground.
         let mut hidden = false;
         let inner: Element<'_, Message> = match shown {
@@ -258,18 +260,23 @@ impl<'a> crate::ctx::Ctx<'a> {
                 .animated(picture, size, at, fit == Fit::Cover, self.media_look())
                 .radius(radius)
                 .into(),
-            Some(picture) if (picture.width, picture.height) == (width, height) => {
-                let handle = self
-                    .fit(picture, width, height, false)
-                    .expect("nonzero picture");
+            // At its own size in the view or in the window's pixels, the
+            // core's own pixels: one made at the view's size is left for the
+            // renderer to stretch to the zoom, rather than copied here on the
+            // window's thread (or blank until the fitter's copy comes).
+            Some(picture)
+                if [(width, height), (pixels.0, pixels.1)]
+                    .contains(&(picture.width, picture.height)) =>
+            {
+                let handle = self.own_size(picture);
                 hidden = at.size() == size && self.pictures.opaque(picture);
                 Pic::new(handle, size).at(at).radius(radius).into()
             }
             Some(picture) => {
                 match self.pictures.fitter.borrow_mut().get(
                     picture,
-                    width,
-                    height,
+                    pixels.0,
+                    pixels.1,
                     fit == Fit::Cover,
                     self.media_look(),
                 ) {

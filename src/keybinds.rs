@@ -209,7 +209,7 @@ impl Matcher {
     /// having matched its keys itself.
     #[cfg_attr(
         not(target_os = "linux"),
-        allow(dead_code, reason = "only Linux portals report matched bindings")
+        allow(dead_code, reason = "the Linux portal supplies matched shortcuts")
     )]
     fn set(&mut self, binding: usize, down: bool, out: Out<'_>) {
         let Some(compiled) = self.bindings.get(binding) else {
