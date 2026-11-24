@@ -787,8 +787,9 @@ pub struct AppState {
     pub search: Option<Search>,
     /// This account's recent Discord mentions, each with its room, the
     /// newest first, as its Mentions inbox lists them; see
-    /// [`DiscordCommand::RecentMentions`].
-    pub recent_mentions: Vec<(String, ChatMessage)>,
+    /// [`DiscordCommand::RecentMentions`]. Each fetch that adds one makes
+    /// a new list, so a view can tell it changed by its pointer.
+    pub recent_mentions: Arc<Vec<(String, Arc<ChatMessage>)>>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
     /// The Discord forum on screen.

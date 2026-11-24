@@ -343,12 +343,13 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
         app.client.state().jump.is_some(),
         "jumped to the ping's message"
     );
-    // What the startup fetch brings joins the same stash: its rooms need
-    // no visit before their pings list and jump.
+    // What the fetch brings lists with them: its rooms need no visit
+    // before their pings list and jump.
     change(&mut app, |state| {
-        state.recent_mentions.push((
+        let fetched = Arc::make_mut(&mut state.recent_mentions);
+        fetched.push((
             "general".into(),
-            ChatMessage {
+            Arc::new(ChatMessage {
                 id: "d:20".into(),
                 item: "d:20".into(),
                 author: "Bob".into(),
@@ -356,13 +357,13 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
                 timestamp: 1_700_000_100,
                 mentions_me: true,
                 ..Default::default()
-            },
+            }),
         ));
         // A fetched reply holds no `<@id>` in its text, as the fetch path
         // marks it from its metadata.
-        state.recent_mentions.push((
+        fetched.push((
             "general".into(),
-            ChatMessage {
+            Arc::new(ChatMessage {
                 id: "d:21".into(),
                 item: "d:21".into(),
                 author: "Bob".into(),
@@ -370,10 +371,14 @@ fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
                 timestamp: 1_699_999_900,
                 replies_to_me: true,
                 ..Default::default()
-            },
+            }),
         ));
     });
-    assert_eq!(app.mention_hits.len(), 5, "the fetched pings kept");
+    assert_eq!(
+        app.mention_hits.len(),
+        3,
+        "the fetched pings stay the fetch's"
+    );
     let _ = app.update(Message::Bar(window_bar::Event::Inbox));
     let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
         window_bar::Tab::Mentions,

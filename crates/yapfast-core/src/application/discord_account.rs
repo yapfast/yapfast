@@ -459,22 +459,21 @@ impl Application {
         match result {
             Ok(mentions) => {
                 let fetched = mentions.len();
-                for (room, message) in mentions {
-                    if !self
-                        .state
-                        .recent_mentions
-                        .iter()
-                        .any(|(_, kept)| kept.item == message.item)
-                    {
-                        self.state.recent_mentions.push((room, message));
-                    }
+                let kept = &self.state.recent_mentions;
+                let new: Vec<_> = mentions
+                    .into_iter()
+                    .filter(|(_, message)| !kept.iter().any(|(_, kept)| kept.item == message.item))
+                    .map(|(room, message)| (room, Arc::new(message)))
+                    .collect();
+                if !new.is_empty() {
+                    let kept = Arc::make_mut(&mut self.state.recent_mentions);
+                    kept.extend(new);
+                    // A newer fetch goes before the older ones, which a
+                    // stable sort keeps in their order: Discord's, newest
+                    // first.
+                    kept.sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
+                    kept.truncate(RECENT_MENTIONS);
                 }
-                // A newer fetch goes before the older ones, which a stable
-                // sort keeps in their order: Discord's, newest first.
-                self.state
-                    .recent_mentions
-                    .sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
-                self.state.recent_mentions.truncate(RECENT_MENTIONS);
                 tracing::info!(
                     fetched,
                     kept = self.state.recent_mentions.len(),

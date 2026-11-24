@@ -308,13 +308,6 @@ pub struct MentionRow {
     pub card: crate::found::Found,
 }
 
-impl MentionRow {
-    /// Whether it's the same ping showing the same message.
-    fn same(&self, room: &str, message: &ChatMessage) -> bool {
-        self.room == room && self.message.as_ref() == message
-    }
-}
-
 /// The press that may move the window, and where it was.
 #[derive(Default)]
 pub struct Drag {
@@ -564,95 +557,65 @@ fn fetch_mentions(app: &mut App) {
     }
 }
 
-/// The inbox's rows for its tab, from what the client already knows:
-/// the channels and conversations with unread messages, muted ones only
-/// for a mention, and the pings the open rooms hold.
+/// Keeps the pings the open rooms hold for the inbox's Mentions tab, and
+/// says whether its list changed: a ping kept or edited, or a fetch of
+/// recent mentions. It runs on every sync, so it costs nothing when
+/// nothing pinged.
 pub fn mentions_sync(app: &mut App) -> bool {
-    // What the open rooms hold, and what the startup fetch brought that
-    // isn't kept yet, without holding the state's borrow.
-    let (fresh, fetched_new): (Vec<(String, Arc<ChatMessage>)>, usize) = {
-        let state = app.client.state();
+    let state = app.client.state();
+    let hits = &mut app.mention_hits;
+    let fetched = !Arc::ptr_eq(&app.mentions_seen, &state.recent_mentions);
+    if fetched {
+        app.mentions_seen = Arc::clone(&state.recent_mentions);
+    }
+    let live = state
+        .selected
+        .iter()
+        .flat_map(|room| state.messages.iter().map(move |message| (room, message)))
+        .chain(state.aside.iter().flat_map(|aside| {
+            aside
+                .messages
+                .iter()
+                .map(move |message| (&aside.room, message))
+        }))
         // As Discord's Mentions inbox lists them: what pinged this account,
         // not a reply that didn't ping it, nor its own message.
-        let mut live = Vec::new();
-        if let Some(room) = state.selected.clone() {
-            live.extend(
-                state
-                    .messages
-                    .iter()
-                    .filter(|message| message.mentions_me && !message.own)
-                    .map(|message| (room.clone(), Arc::clone(message))),
-            );
-        }
-        if let Some(aside) = &state.aside {
-            live.extend(
-                aside
-                    .messages
-                    .iter()
-                    .filter(|message| message.mentions_me && !message.own)
-                    .map(|message| (aside.room.clone(), Arc::clone(message))),
-            );
-        }
-        let fetched: Vec<(String, Arc<ChatMessage>)> = state
-            .recent_mentions
-            .iter()
-            .filter(|(_, message)| {
-                !app.mention_hits
-                    .iter()
-                    .any(|hit| hit.message.item == message.item)
-            })
-            .map(|(room, message)| (room.clone(), Arc::new(message.clone())))
-            .collect();
-        let fetched_new = fetched.len();
-        (fetched.into_iter().chain(live).collect(), fetched_new)
-    };
-    if fetched_new > 0 {
-        tracing::info!(fetched_new, "kept fetched pings");
-    }
-    let mut changed = false;
-    for (room, message) in fresh {
-        let at = app
-            .mention_hits
-            .iter()
-            .position(|hit| hit.message.item == message.item);
-        match at {
-            Some(0)
-                if app.mention_hits[0].room == room
-                    && Arc::ptr_eq(&app.mention_hits[0].message, &message) => {}
-            Some(index) => {
-                app.mention_hits.remove(index);
-                app.mention_hits.push_front(MentionHit { room, message });
-                changed = true;
+        .filter(|(_, message)| message.mentions_me && !message.own);
+    let mut added = false;
+    let mut edited = false;
+    for (room, message) in live {
+        match hits.iter().position(|hit| hit.message.item == message.item) {
+            Some(at) if Arc::ptr_eq(&hits[at].message, message) => {}
+            Some(at) => {
+                hits[at].message = Arc::clone(message);
+                edited = true;
             }
+            // When full, one older than all kept would only go again.
+            None if hits.len() >= MAX_MENTIONS
+                && hits
+                    .back()
+                    .is_some_and(|oldest| oldest.message.timestamp >= message.timestamp) => {}
             None => {
-                app.mention_hits.push_front(MentionHit { room, message });
-                changed = true;
+                hits.push_back(MentionHit {
+                    room: room.clone(),
+                    message: Arc::clone(message),
+                });
+                added = true;
             }
         }
     }
-    // Newest first, by when each was sent: a ping a newly opened channel
-    // brings sorts under the newer ones rather than jumping the queue.
-    let before: Vec<String> = app
-        .mention_hits
-        .iter()
-        .map(|hit| hit.message.item.clone())
-        .collect();
-    app.mention_hits.make_contiguous().sort_by(|a, b| {
-        b.message
-            .timestamp
-            .cmp(&a.message.timestamp)
-            .then_with(|| mention_order(&b.message.item).cmp(&mention_order(&a.message.item)))
-    });
-    if app.mention_hits.len() > MAX_MENTIONS {
-        app.mention_hits.truncate(MAX_MENTIONS);
+    if added {
+        // Newest first, by when each was sent: a ping a newly opened
+        // channel brings sorts under the newer ones.
+        hits.make_contiguous().sort_by(|a, b| {
+            b.message
+                .timestamp
+                .cmp(&a.message.timestamp)
+                .then_with(|| mention_order(&b.message.item).cmp(&mention_order(&a.message.item)))
+        });
+        hits.truncate(MAX_MENTIONS);
     }
-    let after: Vec<String> = app
-        .mention_hits
-        .iter()
-        .map(|hit| hit.message.item.clone())
-        .collect();
-    changed = changed || before != after;
-    changed
+    added || edited || fetched
 }
 
 /// Where a kept ping falls, newest first: its message's snowflake.
@@ -672,9 +635,10 @@ pub fn inbox_sync(app: &mut App) {
     if app.inbox.is_none() {
         return;
     }
-    let (tab, filter) = {
-        let inbox = app.inbox.as_ref().expect("open");
-        (inbox.tab, inbox.filter)
+    // The cards laid out before, which a ping still showing keeps.
+    let (tab, filter, mut laid) = {
+        let inbox = app.inbox.as_mut().expect("open");
+        (inbox.tab, inbox.filter, std::mem::take(&mut inbox.mentions))
     };
     let state = app.client.state();
     let mentions_only = tab == Tab::Mentions;
@@ -716,41 +680,56 @@ pub fn inbox_sync(app: &mut App) {
         .filter(|room| room.mentions > 0 || (!mentions_only && room.unread > 0 && !room.muted))
         .map(|room| row_of(room.as_ref()))
         .collect();
-    // The Mentions tab's pings, newest first, under its filter: where each
-    // came from, and what kind of ping it holds.
+    // The Mentions tab's pings: those the open rooms brought and those
+    // Discord's Mentions inbox sent, once each, the newest first, under its
+    // filter: where each came from, and what kind of ping it holds.
     let mut pinged: Vec<(String, Arc<ChatMessage>, String, String, MentionKind)> = Vec::new();
+    let mut covered: std::collections::HashSet<&str> = Default::default();
     if mentions_only {
-        for hit in &app.mention_hits {
-            let Some(kind) = mention_kind(&hit.message, state.discord_user.as_deref()) else {
+        // The open rooms' first, as they may hold a newer edit.
+        let mut all: Vec<(&String, &Arc<ChatMessage>)> = app
+            .mention_hits
+            .iter()
+            .map(|hit| (&hit.room, &hit.message))
+            .chain(
+                state
+                    .recent_mentions
+                    .iter()
+                    .map(|(room, message)| (room, message)),
+            )
+            .collect();
+        all.sort_by(|(_, a), (_, b)| {
+            b.timestamp
+                .cmp(&a.timestamp)
+                .then_with(|| mention_order(&b.item).cmp(&mention_order(&a.item)))
+        });
+        let mut seen: std::collections::HashSet<&str> = Default::default();
+        let me = state.discord_user.as_deref();
+        for (room, message) in all {
+            if !seen.insert(message.item.as_str()) {
+                continue;
+            }
+            // What counts as kept doesn't depend on the filter: a filter
+            // hides pings, it doesn't turn their rooms back into rows.
+            covered.insert(room.as_str());
+            if pinged.len() >= MENTION_ROWS {
+                continue;
+            }
+            let Some(kind) = mention_kind(message, me) else {
                 continue;
             };
             if !filter.shows(kind) {
                 continue;
             }
-            let Some(room) = rooms.get(hit.room.as_str()) else {
+            let Some(listed) = rooms.get(room.as_str()) else {
                 continue;
             };
-            let row = row_of(room);
-            pinged.push((
-                hit.room.clone(),
-                Arc::clone(&hit.message),
-                row.name,
-                row.place,
-                kind,
-            ));
-            if pinged.len() >= MENTION_ROWS {
-                break;
-            }
+            let row = row_of(listed);
+            pinged.push((room.clone(), Arc::clone(message), row.name, row.place, kind));
         }
     }
     // Rooms with mentions but no message kept open below the pings, as
-    // rows. What counts as kept doesn't depend on the filter: a filter
-    // hides pings, it doesn't turn their rooms back into rows.
-    let covered: std::collections::HashSet<&str> = app
-        .mention_hits
-        .iter()
-        .map(|hit| hit.room.as_str())
-        .collect();
+    // rows.
     let more: Vec<InboxRow> = if mentions_only {
         rows.iter()
             .filter(|row| row.mentions > 0 && !covered.contains(row.id.as_str()))
@@ -759,10 +738,17 @@ pub fn inbox_sync(app: &mut App) {
     } else {
         Vec::new()
     };
-    // The pings' cards, laid out once here rather than every frame.
+    // The pings' cards, laid out once rather than every frame or sync: one
+    // already laid out for the same message stays.
     let mut mentions: Vec<MentionRow> = Vec::with_capacity(pinged.len());
     for (room, message, name, place, kind) in pinged {
-        let card = crate::found::found(app, Arc::clone(&message));
+        let card = match laid
+            .iter()
+            .position(|kept| kept.room == room && Arc::ptr_eq(&kept.message, &message))
+        {
+            Some(at) => laid.swap_remove(at).card,
+            None => crate::found::found(app, Arc::clone(&message)),
+        };
         mentions.push(MentionRow {
             room,
             message,
@@ -776,14 +762,7 @@ pub fn inbox_sync(app: &mut App) {
     if rows != inbox.rows {
         inbox.rows = rows;
     }
-    let same = mentions.len() == inbox.mentions.len()
-        && mentions
-            .iter()
-            .zip(inbox.mentions.iter())
-            .all(|(made, kept)| kept.room == made.room && kept.same(&made.room, &made.message));
-    if !same {
-        inbox.mentions = mentions;
-    }
+    inbox.mentions = mentions;
     if more != inbox.more {
         inbox.more = more;
     }
