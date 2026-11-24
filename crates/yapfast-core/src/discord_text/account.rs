@@ -301,7 +301,25 @@ pub(super) fn command(
                             }
                         }
                     };
-                    tokio::join!(effect_task, badges_task, note_task, frame_task);
+                    // Their presence there, which the member list knows only
+                    // for the rows it has loaded, as Discord's client asks.
+                    let presence_task = async {
+                        if let Some(found) = discord.member_presence(&guild, &user).await {
+                            let _ = events.send(Event::ProfilePresence {
+                                user: user.clone(),
+                                presence: discord::presence(found.presence),
+                                activity: found.activity,
+                                activities: found.activities,
+                            });
+                        }
+                    };
+                    tokio::join!(
+                        effect_task,
+                        badges_task,
+                        note_task,
+                        frame_task,
+                        presence_task
+                    );
                 });
             }
             (discord, _) => {

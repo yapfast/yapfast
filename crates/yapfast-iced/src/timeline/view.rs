@@ -929,6 +929,21 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
         .into()
 }
 
+/// Whether the first unread message is older than every loaded one, by
+/// Discord's snowflakes.
+fn unread_earlier(
+    state: &yapfast_core::application::AppState,
+    messages: &[Arc<ChatMessage>],
+) -> bool {
+    let order = yapfast_core::discord::item_order;
+    state
+        .first_unread
+        .as_deref()
+        .and_then(order)
+        .zip(messages.first().and_then(|first| order(&first.item)))
+        .is_some_and(|(unread, first)| unread < first)
+}
+
 /// Until the newest message is read, Discord's banner across the top: how
 /// much is new and since when, which jumps to the first on a click, and Mark
 /// as read at its right end. Measured: 34 px tall, square at the top and
@@ -938,9 +953,16 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
     if state.caught_up {
         return None;
     }
-    let index = ctx.lanes.timeline.unread_index(ctx.state)?;
+    let messages = &ctx.lanes.timeline.messages;
+    let label = match ctx.lanes.timeline.unread_index(ctx.state) {
+        Some(index) => unread_label(&messages[index..], state.detached),
+        // Sending from a window of older messages shows the newest, which
+        // can leave the divider above what's loaded: the banner back to it
+        // stays until the conversation is left, as the divider would.
+        None if unread_earlier(state, messages) => unread_label(messages, true),
+        None => return None,
+    };
     let theme = ctx.look.theme;
-    let label = unread_label(&ctx.lanes.timeline.messages[index..], state.detached);
     let ink = theme.on_accent;
     let jump = button(
         container(

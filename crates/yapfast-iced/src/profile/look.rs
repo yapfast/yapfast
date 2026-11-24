@@ -97,20 +97,33 @@ pub struct Look {
     pub wishlist_note: &'static str,
 }
 
-/// One of someone's activities, written out for its card.
+/// One of someone's activities, written out for its card as Discord's
+/// client lays it out: a heading, a title, up to two lines, then small
+/// lines with an icon (the party, an episode, how long it's run) or a
+/// song's bar.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ActivityLook {
-    /// "PLAYING", "LISTENING TO SPOTIFY" and the like.
+    /// "Playing", "Listening to Spotify" and the like, as Discord writes it.
     pub heading: String,
+    /// The bold title: a game's name, else the details, else the name.
     pub name: String,
     pub name_emoji: Option<String>,
-    pub details: String,
-    pub state: String,
+    /// The lines under the title, in order.
+    pub lines: Vec<String>,
+    /// The party's line, "In a match (2 of 4)", beside a group icon.
+    pub party: Option<String>,
+    /// A show's episode, "S1E2", beside a topics icon.
+    pub episode: Option<String>,
+    /// How long it has run: counted from `since` (Unix seconds), never
+    /// past `until`, beside the kind's `icon` (1 controller, 2 music,
+    /// 3 screen) in the online green.
+    pub since: Option<u64>,
+    pub until: Option<u64>,
+    pub icon: u8,
+    /// A song's or show's start and end, in Unix seconds, for its bar.
+    pub bar: Option<(u64, u64)>,
     pub large: Option<String>,
     pub small: Option<String>,
-    /// When it started and ends, in Unix seconds.
-    pub start: Option<u64>,
-    pub end: Option<u64>,
     /// A stream's address, and what the title opens.
     pub url: Option<String>,
     pub link: Option<String>,
@@ -311,57 +324,141 @@ fn status_of(line: &str, activities: &Activities) -> Status {
 }
 
 fn activity_looks(activities: &Activities) -> Vec<ActivityLook> {
-    activities.iter().map(activity_look).collect()
+    yapfast_core::yapfast_discord::activity::shown(activities)
+        .into_iter()
+        .filter_map(activity_look)
+        .collect()
 }
 
-/// An activity as its card shows it.
-pub(crate) fn activity_look(activity: &Activity) -> ActivityLook {
+/// An activity as its card shows it, as Discord's web client's activity
+/// card (and Spotify's own card) lays it out; none for a Hang status,
+/// which Discord gives no card.
+pub fn activity_look(activity: &Activity) -> Option<ActivityLook> {
+    use yapfast_core::chat::ActivityKind as Kind;
+    let heading = activity.heading()?;
     let text = |text: &Option<Box<str>>| text.as_deref().map(str::to_owned);
-    // A Hang status's emoji goes before its words, as a status's does.
-    let name = match &activity.emoji {
-        Some(emoji) => format!("{emoji} {}", activity.name),
-        None => activity.name.to_string(),
-    };
-    let (name_emoji, name) = yapfast_core::discord::status_parts(&name);
-    let state = match (&activity.state, activity.party) {
-        (Some(state), Some((size, most))) => {
-            i18n::fill(tr("{} ({} of {})"), &[&state, &size, &most])
-        }
-        (None, Some((size, most))) => i18n::fill(tr("{0} of {1}"), &[&size, &most]),
-        (state, None) => state.as_deref().unwrap_or_default().to_owned(),
-    };
-    // Spotify's card is titled by the song, then by whom and on which album.
-    let (name, details, state) = if activity.spotify() {
-        let after = |words: &'static str, text: &Option<Box<str>>| {
-            text.as_deref()
-                .map_or(String::new(), |text| i18n::fill(tr(words), &[&text]))
-        };
+    let (name_emoji, name) = yapfast_core::discord::status_parts(&activity.name);
+    let name = name.to_owned();
+    let details = text(&activity.details);
+    let state = text(&activity.state);
+    let spotify = activity.spotify();
+    // The title, then the lines under it.
+    let (title, lines) = if spotify {
         (
-            activity.details.as_deref().unwrap_or(name).to_owned(),
-            // `later` for the catalog; shown through `tr` in `after`.
-            after(i18n::later("by {}"), &activity.state),
-            after(i18n::later("on {}"), &activity.large_text),
+            details.unwrap_or(name),
+            state
+                .map(|state| yapfast_core::yapfast_discord::activity::artists(&state))
+                .into_iter()
+                .collect(),
         )
+    } else if activity.kind == Kind::Playing {
+        // A game's state goes on the party's line once it has a party.
+        let state = state.filter(|_| activity.party.is_none());
+        (name, [details, state].into_iter().flatten().collect())
     } else {
+        // A Watching card's picture's words show only as an episode.
+        let large = text(&activity.large_text).filter(|_| activity.kind != Kind::Watching);
         (
-            name.to_owned(),
-            activity.details.as_deref().unwrap_or_default().to_owned(),
-            state,
+            details.unwrap_or(name),
+            [state, large].into_iter().flatten().collect(),
         )
     };
-    ActivityLook {
-        heading: activity.heading().to_uppercase(),
-        game: activity.kind == yapfast_core::chat::ActivityKind::Playing,
-        name,
+    let party = (activity.kind == Kind::Playing)
+        .then(|| party_line(activity.state.as_deref(), activity.party))
+        .flatten();
+    let episode = (activity.kind == Kind::Watching)
+        .then(|| episode(activity.large_text.as_deref()?))
+        .flatten();
+    let seconds = |ms: u64| ms / 1000;
+    let bar = match (activity.start, activity.end) {
+        (Some(start), Some(end))
+            if matches!(activity.kind, Kind::Listening | Kind::Watching) && end > start =>
+        {
+            Some((seconds(start), seconds(end)))
+        }
+        _ => None,
+    };
+    // Streams have no timer; the rest count from their start, or from when
+    // Discord heard of them, unless a bar shows.
+    let since = (bar.is_none() && activity.kind != Kind::Streaming)
+        .then(|| activity.start.or(activity.created).map(seconds))
+        .flatten();
+    // The picture: its own, else the small one in its place, as Discord's
+    // shows it; Spotify's card has no small one.
+    let (large, small) = match (text(&activity.large_image), text(&activity.small_image)) {
+        (Some(large), small) => (Some(large), small.filter(|_| !spotify)),
+        (None, small) => (small, None),
+    };
+    Some(ActivityLook {
+        heading,
+        name: title,
         name_emoji,
-        details,
-        state,
-        large: text(&activity.large_image),
-        small: text(&activity.small_image),
-        start: activity.start.map(|ms| ms / 1000),
-        end: activity.end.map(|ms| ms / 1000),
-        url: text(&activity.url),
+        lines,
+        party,
+        episode,
+        since,
+        until: activity.end.map(seconds),
+        icon: match activity.kind {
+            Kind::Listening => 2,
+            Kind::Watching => 3,
+            _ => 1,
+        },
+        bar,
+        game: activity.kind == Kind::Playing,
+        large,
+        small,
+        url: text(&activity.url).filter(|_| activity.kind == Kind::Streaming),
         link: text(&activity.link),
+    })
+}
+
+/// A game's party line as Discord writes it: its state, then "(2 of 4)",
+/// or "(2)" with no most; none without a party.
+fn party_line(state: Option<&str>, party: Option<(u64, u64)>) -> Option<String> {
+    let (size, most) = party?;
+    let count = match (size, most) {
+        (size, most) if size > 0 && most > 0 => {
+            Some(i18n::fill(tr("{0} of {1}"), &[&size, &most]))
+        }
+        (size, _) if size > 0 => Some(size.to_string()),
+        _ => None,
+    };
+    match (state, count) {
+        (Some(state), Some(count)) => Some(format!("{state} ({count})")),
+        (state, count) => state.map(str::to_owned).or(count),
+    }
+}
+
+/// "S1E2" for a picture's words holding "Season 1, Episode 2" (any
+/// words, as Discord's `/\w+ (\d+), \w+ (\d+)/` finds them), as its
+/// Watching card shows them; none for other words.
+fn episode(words: &str) -> Option<String> {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    words.match_indices(", ").find_map(|(at, _)| {
+        let (before, after) = (&words[..at], &words[at + 2..]);
+        let season_at = before.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        let season = &before[season_at..];
+        let named = before[..season_at].strip_suffix(' ')?;
+        (!season.is_empty() && named.ends_with(word)).then_some(())?;
+        let rest = after.trim_start_matches(word);
+        (rest.len() < after.len()).then_some(())?;
+        let number = rest.strip_prefix(' ')?;
+        let episode = &number[..number.len()
+            - number
+                .trim_start_matches(|c: char| c.is_ascii_digit())
+                .len()];
+        (!episode.is_empty()).then(|| format!("S{season}E{episode}"))
+    })
+}
+
+/// How long an activity has run, as Discord's timer writes it: `4:05`, or
+/// `1:04:05` past an hour.
+pub fn timer(seconds: u64) -> String {
+    let (hours, minutes, rest) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{rest:02}")
+    } else {
+        format!("{minutes}:{rest:02}")
     }
 }
 
@@ -519,5 +616,185 @@ impl Inks {
                 alpha(false, 0.12)
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use yapfast_core::yapfast_discord::activity::activities;
+
+    use super::*;
+
+    /// The card of one activity read from Discord's JSON.
+    fn card(value: serde_json::Value) -> Option<ActivityLook> {
+        activity_look(&activities(&json!([value]))[0])
+    }
+
+    /// Its heading, title and lines, as the card shows them.
+    fn words(look: &ActivityLook) -> (&str, &str, Vec<&str>) {
+        (
+            &look.heading,
+            &look.name,
+            look.lines.iter().map(String::as_str).collect(),
+        )
+    }
+
+    // Each case follows Discord's web client's activity card (module
+    // 802880 `e0`: title `ee`, second line `et`, third line `en`; the
+    // small lines of module 282197 and 78871) and its Spotify card
+    // (module 960549 `K`).
+
+    #[test]
+    fn a_game_is_titled_by_its_name_then_details_and_state() {
+        let game = card(json!({"type": 0, "name": "Factorio", "details": "Building",
+            "state": "Nauvis", "timestamps": {"start": 1_000_000}}))
+        .unwrap();
+        assert_eq!(
+            words(&game),
+            ("Playing", "Factorio", vec!["Building", "Nauvis"])
+        );
+        assert_eq!((game.since, game.icon, game.bar), (Some(1000), 1, None));
+        assert!(game.game);
+        let bare = card(json!({"type": 0, "name": "Factorio"})).unwrap();
+        assert_eq!(words(&bare), ("Playing", "Factorio", vec![]));
+        assert_eq!(bare.since, None, "no start and no created_at: no timer");
+    }
+
+    #[test]
+    fn a_games_party_takes_its_state_to_its_own_line() {
+        let party = card(json!({"type": 0, "name": "Halo", "details": "Slayer",
+            "state": "In a match", "party": {"size": [2, 4]}}))
+        .unwrap();
+        assert_eq!(words(&party), ("Playing", "Halo", vec!["Slayer"]));
+        assert_eq!(party.party.as_deref(), Some("In a match (2 of 4)"));
+        let bare = card(json!({"type": 0, "name": "Halo", "party": {"size": [3, 0]}})).unwrap();
+        assert_eq!(bare.party.as_deref(), Some("3"));
+        assert_eq!(party_line(None, Some((0, 0))), None);
+    }
+
+    #[test]
+    fn a_stream_is_titled_by_its_details_then_state_and_picture_words() {
+        let stream = card(json!({"type": 1, "name": "Twitch", "details": "Speedrun",
+            "state": "Celeste", "url": "https://twitch.tv/ann",
+            "assets": {"large_text": "Chapter 7"}, "timestamps": {"start": 5000}}))
+        .unwrap();
+        assert_eq!(
+            words(&stream),
+            ("Streaming Twitch", "Speedrun", vec!["Celeste", "Chapter 7"])
+        );
+        assert_eq!(stream.since, None, "streams have no timer");
+        assert_eq!(stream.url.as_deref(), Some("https://twitch.tv/ann"));
+        let untitled =
+            card(json!({"type": 1, "name": "Mine", "url": "https://twitch.tv/ann"})).unwrap();
+        assert_eq!(words(&untitled), ("Streaming", "Mine", vec![]));
+    }
+
+    #[test]
+    fn another_apps_song_is_titled_by_its_details_then_state_and_album() {
+        // A picture of Discord on a phone, 2026-11-22.
+        let song = card(
+            json!({"type": 2, "name": "Good Looking", "application_id": "1",
+            "details": "Baby, I'm high octane", "state": "Fever in a shock wave",
+            "assets": {"large_text": "Good Looking"},
+            "timestamps": {"start": 1_000, "end": 181_000}}),
+        )
+        .unwrap();
+        assert_eq!(
+            words(&song),
+            (
+                "Listening to Good Looking",
+                "Baby, I'm high octane",
+                vec!["Fever in a shock wave", "Good Looking"]
+            )
+        );
+        assert_eq!((song.bar, song.since), (Some((1, 181)), None));
+        let no_details = card(json!({"type": 2, "name": "Radio", "state": "Live"})).unwrap();
+        assert_eq!(words(&no_details), ("Listening to", "Radio", vec!["Live"]));
+        let started =
+            card(json!({"type": 2, "name": "Radio", "timestamps": {"start": 9000}})).unwrap();
+        assert_eq!(
+            (started.since, started.icon, started.bar),
+            (Some(9), 2, None)
+        );
+    }
+
+    #[test]
+    fn spotify_lists_the_artists_and_no_album() {
+        let song = card(json!({"type": 2, "name": "Spotify", "details": "Song",
+            "state": "Ann; Bo", "sync_id": "6kkwzB6hXLIONkEk9JciA6",
+            "assets": {"large_image": "spotify:ab67616d0000b273", "large_text": "Album",
+                "small_image": "spotify:x"},
+            "timestamps": {"start": 1_000, "end": 181_000}}))
+        .unwrap();
+        assert_eq!(
+            words(&song),
+            ("Listening to Spotify", "Song", vec!["Ann, Bo"])
+        );
+        assert!(song.link.is_some(), "the title opens the song");
+        assert_eq!(song.small, None, "Spotify's card has no small picture");
+        assert_eq!(song.bar, Some((1, 181)));
+    }
+
+    #[test]
+    fn watching_shows_no_third_line_but_an_episode() {
+        let show = card(json!({"type": 3, "name": "Crunchy", "details": "A show",
+            "state": "Dubbed", "assets": {"large_text": "Season 1, Episode 2"},
+            "timestamps": {"start": 1_000}}))
+        .unwrap();
+        assert_eq!(words(&show), ("Watching Crunchy", "A show", vec!["Dubbed"]));
+        assert_eq!(show.episode.as_deref(), Some("S1E2"));
+        assert_eq!((show.since, show.icon), (Some(1), 3));
+        let film =
+            card(json!({"type": 3, "name": "Films", "assets": {"large_text": "Dune"}})).unwrap();
+        assert_eq!(words(&film), ("Watching", "Films", vec![]));
+        assert_eq!(film.episode, None);
+        assert_eq!(
+            episode("My show - Season 10, Episode 3 (HD)").as_deref(),
+            Some("S10E3")
+        );
+        assert_eq!(episode("Season one, Episode 3"), None);
+    }
+
+    #[test]
+    fn competing_is_titled_by_its_details_then_state_and_picture_words() {
+        let cup = card(json!({"type": 5, "name": "Arena", "details": "Finals",
+            "state": "Round 2", "assets": {"large_text": "Gold"}, "created_at": 4000}))
+        .unwrap();
+        assert_eq!(
+            words(&cup),
+            ("Competing in Arena", "Finals", vec!["Round 2", "Gold"])
+        );
+        assert_eq!(cup.since, Some(4), "no start: counted from created_at");
+    }
+
+    #[test]
+    fn hang_status_has_no_card_and_repeats_show_once() {
+        assert_eq!(
+            card(json!({"type": 6, "name": "Hang Status", "state": "chilling"})),
+            None
+        );
+        let looks = activity_looks(&activities(&json!([
+            {"type": 6, "name": "Hang Status", "state": "chilling"},
+            {"type": 0, "name": "Halo"},
+            {"type": 0, "name": "Halo", "details": "again"},
+        ])));
+        assert_eq!(looks.len(), 1);
+    }
+
+    #[test]
+    fn a_small_picture_alone_takes_the_big_ones_place() {
+        let small = card(json!({"type": 0, "name": "Game",
+            "assets": {"small_image": "mp:external/a/b.png"}}))
+        .unwrap();
+        assert!(small.large.is_some());
+        assert_eq!(small.small, None);
+    }
+
+    #[test]
+    fn timers_read_as_discords() {
+        assert_eq!(timer(65), "1:05");
+        assert_eq!(timer(3_725), "1:02:05");
+        assert_eq!(clock(65), "01:05");
     }
 }

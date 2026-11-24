@@ -27,6 +27,15 @@ struct Pending {
     reply: oneshot::Sender<Result<VoiceServer>>,
     session_id: Option<String>,
     server: Option<(String, String)>,
+    /// What came while it waited, for the log if it times out, never for
+    /// the join itself: this session's voice state in the join's channel,
+    /// this session's for no channel or another (a leave just before),
+    /// this account's other sessions', and voice servers still being
+    /// allocated (no endpoint).
+    in_channel: bool,
+    elsewhere: u32,
+    other_sessions: u32,
+    allocating: u32,
 }
 
 impl Pending {
@@ -37,6 +46,22 @@ impl Pending {
             Some(guild) => data["guild_id"] == guild,
             None => data["guild_id"].is_null() && data["channel_id"] == self.channel.as_str(),
         }
+    }
+
+    /// What Discord said while the join waited, so a join that times out
+    /// says which half never came. No ids.
+    fn heard(&self) -> String {
+        let said = |came: bool| if came { "came" } else { "never came" };
+        format!(
+            "its voice state {}, the voice server {}; {} of this session's voice \
+             state(s) for no channel or another, {} from other sessions, {} voice \
+             server(s) still allocating",
+            said(self.in_channel),
+            said(self.server.is_some()),
+            self.elsewhere,
+            self.other_sessions,
+            self.allocating,
+        )
     }
 }
 
@@ -62,6 +87,10 @@ impl VoiceJoin {
             reply,
             session_id: None,
             server: None,
+            in_channel: false,
+            elsewhere: 0,
+            other_sessions: 0,
+            allocating: 0,
         };
         if let Some(previous) = self.pending.replace(pending) {
             let _ = previous
@@ -113,6 +142,14 @@ impl VoiceJoin {
                         .is_none_or(|session| data["session_id"] == session) =>
             {
                 waiting.session_id = data["session_id"].as_str().map(str::to_owned);
+                if data["channel_id"] == waiting.channel.as_str() {
+                    waiting.in_channel = true;
+                } else {
+                    waiting.elsewhere += 1;
+                }
+            }
+            Event::VoiceStateUpdate if data["user_id"] == me && waiting.answers(data) => {
+                waiting.other_sessions += 1;
             }
             // The endpoint is null while Discord is still allocating a server.
             Event::VoiceServerUpdate if waiting.answers(data) => {
@@ -120,6 +157,8 @@ impl VoiceJoin {
                     (data["token"].as_str(), data["endpoint"].as_str())
                 {
                     waiting.server = Some((token.into(), endpoint.into()));
+                } else {
+                    waiting.allocating += 1;
                 }
             }
             _ => {}
@@ -141,6 +180,12 @@ impl VoiceJoin {
     /// Gives up on the join once Discord took too long to assign a server.
     pub(super) async fn timed_out(&mut self) {
         self.deadline.as_mut().await;
+        if let Some(waiting) = &self.pending {
+            tracing::warn!(
+                heard = waiting.heard(),
+                "Discord didn't answer a voice join in time"
+            );
+        }
         self.fail("Discord didn't assign a voice server. Try again.");
     }
 
@@ -194,9 +239,70 @@ mod tests {
             reply,
             session_id: None,
             server: None,
+            in_channel: false,
+            elsewhere: 0,
+            other_sessions: 0,
+            allocating: 0,
         };
         assert!(waiting.answers(&json!({"guild_id": null, "channel_id": "20"})));
         assert!(!waiting.answers(&json!({"guild_id": null, "channel_id": "21"})));
         assert!(!waiting.answers(&json!({"guild_id": "10", "channel_id": "20"})));
+    }
+
+    /// A join that times out says what came meanwhile: here the leave's own
+    /// reply from this session (no channel, as a switch within a server
+    /// sends), another session's voice state and a voice server still being
+    /// allocated, but neither half of this join's answer.
+    #[tokio::test]
+    async fn a_join_that_times_out_says_what_came() {
+        let tracker = Tracker::from_ready(
+            "1".into(),
+            &json!({"session_id": "here", "user": {"id": "1"}}),
+            Default::default(),
+        );
+        let (reply, _answer) = oneshot::channel();
+        let mut join = VoiceJoin::new();
+        join.start("10".into(), "11".into(), reply);
+        let dispatch = |event, data| Dispatch { event, data };
+        let state = |session: &str, channel: Value| json!({"guild_id": "10", "user_id": "1", "channel_id": channel, "session_id": session});
+        join.apply(
+            &tracker,
+            &dispatch(Event::VoiceStateUpdate, state("here", Value::Null)),
+        );
+        join.apply(
+            &tracker,
+            &dispatch(Event::VoiceStateUpdate, state("phone", json!("11"))),
+        );
+        join.apply(
+            &tracker,
+            &dispatch(
+                Event::VoiceServerUpdate,
+                json!({"guild_id": "10", "token": "t", "endpoint": null}),
+            ),
+        );
+        assert!(join.waiting());
+        let heard = join.pending.as_ref().unwrap().heard();
+        assert_eq!(
+            heard,
+            "its voice state never came, the voice server never came; 1 of this \
+             session's voice state(s) for no channel or another, 1 from other \
+             sessions, 1 voice server(s) still allocating"
+        );
+        assert!(
+            !heard.contains("here") && !heard.contains("phone"),
+            "no ids"
+        );
+        // This session's state in the channel is its voice state.
+        join.apply(
+            &tracker,
+            &dispatch(Event::VoiceStateUpdate, state("here", json!("11"))),
+        );
+        assert!(
+            join.pending
+                .as_ref()
+                .unwrap()
+                .heard()
+                .starts_with("its voice state came")
+        );
     }
 }

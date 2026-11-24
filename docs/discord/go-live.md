@@ -73,8 +73,8 @@ A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
 Linux, its DirectShow filter on Windows). The share menu lists the cameras
 [the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
 screens and windows; on Wayland, where the portal picks a screen or window, a
-"Screen or window" choice comes first, and switching with no camera listed
-goes straight to the dialog. The worker films the camera through the same
+"Screen or window" choice comes first. The menu stays available while live
+so audio can be changed without opening the portal again. The worker films the camera through the same
 capture module (`camera::Camera::open_at`), asking for the stream's
 resolution and frame rate rather than the call camera's 720p at 30, and
 copies each picture into one buffer it keeps for the next before the encoder
@@ -128,7 +128,10 @@ doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. The menu lists every screen, window and camera, and is never taller than
 the window: where they don't all fit, as with many windows open or the window
-short or zoomed, the choices scroll as one above Go Live, which stays in view.
+short or zoomed, they scroll above the settings and Go Live, which stay in
+view. Each setting is one row naming what's chosen, whose choices open beside
+it: Audio, then Resolution and Frame rate in the order of the settings menu of
+Discord's Go Live dialog (`id:"resolution"`, `id:"frame-rate"`).
 Larger screens, and those of another shape, are scaled down to fit. Yapfast
 caps them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
@@ -189,7 +192,30 @@ quality 92. The worker reports it as a data URI, and Yapfast uploads it with
 later, up to three times; a newer still replaces an upload not done yet, and
 stopping the share cancels it.
 
-A shared screen carries the sound every other application plays, as Discord's
+The share menu's Audio choices apply before Go Live and immediately
+while sharing, independently of the video source: No audio, All applications,
+or on Windows an application selected by its window title. The latter captures
+the window's owning process and its child processes using WASAPI's include
+process-tree mode. This shares an application's audio, not an individual browser
+tab or one window within the same process. A closed or unsupported window gives
+an audio error and keeps the video running without falling back to all applications.
+Choosing No audio stops and releases capture; choosing another source opens a
+fresh capture on the same stream connection.
+
+Yapfast remembers the choice with the stream's quality (`devices.json`, its
+`audio`), as Discord's client keeps its Share Audio switch with the resolution
+and frame rate (`soundshareEnabled` in its `ApplicationStreamingSettingsStore`).
+A window's id ends with its window, so an application is remembered by its
+program's file name, such as `game.exe` (`audio_io::window_programs`, kept in
+`voice::State::stream_app`). When the share menu lists the windows, before
+going live, a window of that program becomes the choice. While the application
+isn't running, as it may not be after a restart, All applications is shared
+and shown as the choice, and the application stays remembered until another
+choice is made. A window chosen in this run that has closed, with no other
+window of its program open, shows as Unavailable application. A live stream's
+audio changes only when it's chosen.
+
+By default a shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the
 applications). On Linux, PulseAudio or PipeWire's
@@ -209,6 +235,17 @@ update on; it can't leave other Discord clients out. Other systems share
 video only for now, and so does the test pattern. Two ignored tests check the capture against the
 machine's sound server with a quiet tone: another process's is heard, and
 Yapfast's own is not.
+
+On Windows, the opt-in `captures_and_encodes_selected_application_audio_on_windows`
+test plays two quiet tones in separate processes and checks all-app capture,
+isolation of each selected application, reopening capture, and an Opus round
+trip. Run it with working speakers in a desktop session:
+
+```sh
+cargo test -p yapfast-core --features discord captures_and_encodes_selected_application_audio_on_windows -- --ignored --nocapture --test-threads=1
+```
+
+This checks the local Windows capture and codec path, not delivery through Discord.
 
 Each video packet carries the one-byte extensions a Discord client sends: a
 transport-wide sequence number (id 5), playout delay (6), screen content
@@ -265,6 +302,9 @@ libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
 archive (`native/av1.c`), a picture out for each frame in, or H265 with the
 HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
 libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames.
+When a mobile sender signals its orientation in RTP, the viewer keeps the
+last signaled orientation for that video source and applies it before display.
+The upright dimensions determine how the picture fits in the shared frame.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor

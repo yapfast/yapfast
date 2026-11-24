@@ -250,10 +250,6 @@ msgstr ""
 msgid "Account"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/keybinds.rs
-msgid "ACTION"
-msgstr ""
-
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "ACTIVE INVITE LINKS"
 msgstr ""
@@ -554,6 +550,10 @@ msgstr ""
 msgid "Attach files"
 msgstr ""
 
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Audio"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Audit Log"
 msgstr ""
@@ -682,6 +682,10 @@ msgstr ""
 msgid "Browse channels"
 msgstr ""
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Browse themes"
+msgstr ""
+
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
 msgstr ""
@@ -692,10 +696,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "By making a channel private, only select members and roles will have access to view or connect to this channel."
-msgstr ""
-
-#: crates/yapfast-iced/src/profile/look.rs
-msgid "by {}"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/stage/mod.rs
@@ -710,7 +710,7 @@ msgstr ""
 msgid "CAMERAS"
 msgstr ""
 
-#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
+#: crates/yapfast-iced/src/bot_modal.rs crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/channel_settings.rs crates/yapfast-iced/src/dialogs.rs crates/yapfast-iced/src/friends/requests.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/message/mod.rs crates/yapfast-iced/src/mfa.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/polls.rs crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/server_settings/expressions.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/server_settings/roles/members.rs crates/yapfast-iced/src/server_settings/roles/mod.rs crates/yapfast-iced/src/settings/pages/games.rs crates/yapfast-iced/src/settings/updates.rs crates/yapfast-iced/src/status.rs crates/yapfast-iced/src/switcher.rs
 msgid "Cancel"
 msgstr ""
 
@@ -974,10 +974,6 @@ msgstr ""
 msgid "Colour"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/appearance.rs
-msgid "COLOURS"
-msgstr ""
-
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Colours and effects don't show in servers, and may look different across Discord."
 msgstr ""
@@ -1170,6 +1166,10 @@ msgstr ""
 msgid "CUSTOM GAMES"
 msgstr ""
 
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Custom Keybinds"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
 msgstr ""
@@ -1224,6 +1224,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "Default ({})"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Default Keybinds"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
@@ -1447,7 +1451,7 @@ msgid "e.g.: cat hug"
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/appearance.rs
-msgid "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."
+msgid "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
@@ -1502,10 +1506,6 @@ msgstr ""
 msgid "Edit Sticker"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/appearance.rs
-msgid "EDIT THEME"
-msgstr ""
-
 #: crates/yapfast-iced/src/profile/name_style.rs
 msgid "Effect"
 msgstr ""
@@ -1532,10 +1532,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/call/details.rs
 msgid "Encoder:"
-msgstr ""
-
-#: crates/yapfast-iced/src/call/popups/share.rs
-msgid "ENCODING"
 msgstr ""
 
 #: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/polls.rs
@@ -1624,6 +1620,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/sidebar/top.rs
 msgid "Events"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "EVERY COLOUR"
 msgstr ""
 
 #: crates/yapfast-iced/src/suggest.rs
@@ -1839,7 +1839,7 @@ msgid "Forwarded"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/popups/share.rs
-msgid "FRAME RATE"
+msgid "Frame rate"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs
@@ -2042,6 +2042,14 @@ msgstr ""
 msgid "Ignore"
 msgstr ""
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Ignored message."
+msgstr ""
+
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Ignored user"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "IMAGE"
 msgstr ""
@@ -2206,10 +2214,6 @@ msgstr ""
 msgid "Join muted and hang out."
 msgstr ""
 
-#: crates/yapfast-iced/src/server_dialogs.rs
-msgid "Join Server"
-msgstr ""
-
 #: crates/yapfast-iced/src/call/dm.rs
 msgid "Join the call"
 msgstr ""
@@ -2278,11 +2282,7 @@ msgstr ""
 msgid "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/keybinds.rs
-msgid "KEYBIND"
-msgstr ""
-
-#: crates/yapfast-iced/src/settings/keybinds.rs crates/yapfast-iced/src/settings/mod.rs
+#: crates/yapfast-iced/src/settings/mod.rs
 msgid "Keybinds"
 msgstr ""
 
@@ -2706,6 +2706,10 @@ msgstr ""
 msgid "Messages will not be filtered for sensitive image-based media."
 msgstr ""
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay."
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "MICROPHONE"
 msgstr ""
@@ -2850,10 +2854,6 @@ msgstr ""
 msgid "NAME"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/appearance.rs
-msgid "Name"
-msgstr ""
-
 #: crates/yapfast-iced/src/settings/pages/games.rs
 msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
 msgstr ""
@@ -2899,10 +2899,6 @@ msgid "New Post"
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/appearance.rs
-msgid "NEW THEME"
-msgstr ""
-
-#: crates/yapfast-iced/src/settings/appearance.rs
 msgid "New theme"
 msgstr ""
 
@@ -2914,7 +2910,7 @@ msgstr ""
 msgid "Newer messages"
 msgstr ""
 
-#: crates/yapfast-iced/src/server_settings/moderation.rs crates/yapfast-iced/src/settings/keybinds.rs
+#: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Next"
 msgstr ""
 
@@ -3000,6 +2996,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "No Inactive Channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "No Keybind Set"
 msgstr ""
 
 #: crates/yapfast-iced-kit/src/form.rs
@@ -3280,10 +3280,6 @@ msgstr ""
 
 #: crates/yapfast-iced/src/message/mod.rs
 msgid "on @{}"
-msgstr ""
-
-#: crates/yapfast-iced/src/profile/look.rs
-msgid "on {}"
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
@@ -3578,7 +3574,7 @@ msgstr ""
 msgid "Preparing…"
 msgstr ""
 
-#: crates/yapfast-iced-kit/src/form.rs
+#: crates/yapfast-iced/src/settings/keybinds.rs crates/yapfast-iced-kit/src/form.rs
 msgid "Press a key..."
 msgstr ""
 
@@ -3706,6 +3702,10 @@ msgstr ""
 msgid "Reactions"
 msgstr ""
 
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Readable text"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/profile.rs crates/yapfast-iced/src/server_settings/roles/editor.rs
 msgid "Reading the picture..."
 msgstr ""
@@ -3736,6 +3736,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/call/dock.rs
 msgid "Reconnecting voice..."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Record"
 msgstr ""
 
 #: crates/yapfast-iced/src/settings/keybinds.rs
@@ -3871,7 +3875,7 @@ msgid "Reset Banner"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/popups/share.rs
-msgid "RESOLUTION"
+msgid "Resolution"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/details.rs
@@ -3966,7 +3970,7 @@ msgstr ""
 msgid "Sam"
 msgstr ""
 
-#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/settings/appearance.rs crates/yapfast-iced/src/status.rs
+#: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/status.rs
 msgid "Save"
 msgstr ""
 
@@ -4294,6 +4298,10 @@ msgstr ""
 msgid "Shorter slowmode"
 msgstr ""
 
+#: crates/yapfast-iced/src/message/mod.rs
+msgid "Show"
+msgstr ""
+
 #: crates/yapfast-iced/src/members.rs
 msgid "Show Activity Cards"
 msgstr ""
@@ -4404,6 +4412,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Showing {} members"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Showing {}, an installed theme. Choose one above, or manage it in Themes."
 msgstr ""
 
 #: crates/yapfast-iced/src/signin.rs
@@ -4608,6 +4620,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "Stop"
 msgstr ""
 
 #: crates/yapfast-iced/src/uploads.rs
@@ -4916,6 +4932,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/profile/editor/styles.rs
 msgid "Theme & Banner"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/mod.rs
+msgid "Themes"
 msgstr ""
 
 #: crates/yapfast-iced/src/browse_channels.rs
@@ -5590,7 +5610,11 @@ msgstr ""
 msgid "Wants to message you"
 msgstr ""
 
-#: crates/yapfast-iced/src/call/stage/mod.rs crates/yapfast-iced/src/profile/activity.rs
+#: crates/yapfast-iced/src/profile/activity.rs
+msgid "Watch"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Watch stream"
 msgstr ""
 
@@ -5814,6 +5838,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "You don't have any servers in common"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/keybinds.rs
+msgid "You haven't added any custom keybinds yet."
 msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
@@ -6166,10 +6194,6 @@ msgstr ""
 msgid "{} (unavailable in a Discord outage)"
 msgstr ""
 
-#: crates/yapfast-iced/src/profile/look.rs
-msgid "{} ({} of {})"
-msgstr ""
-
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "{} Boosts"
 msgstr ""
@@ -6206,10 +6230,6 @@ msgstr ""
 msgid "{} doesn't match the sum the release published."
 msgstr ""
 
-#: crates/yapfast-iced/src/profile/activity.rs
-msgid "{} elapsed"
-msgstr ""
-
 #: crates/yapfast-iced/src/sidebar/top.rs
 msgid "{} Events"
 msgstr ""
@@ -6234,7 +6254,7 @@ msgstr ""
 msgid "{} is thinking…"
 msgstr ""
 
-#: crates/yapfast-iced/src/profile/activity.rs crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced-kit/src/form.rs
+#: crates/yapfast-iced/src/profile/editor/card.rs crates/yapfast-iced-kit/src/form.rs
 msgid "{} left"
 msgstr ""
 

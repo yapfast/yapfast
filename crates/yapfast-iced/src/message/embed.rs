@@ -69,7 +69,8 @@ pub(super) fn embed<'a>(
         + crate::piece::PartNo::try_from(place * 16)
             .unwrap_or(0)
             .min(EMBED_PARTS - 16);
-    let mut card = column![].spacing(8).width(Length::Fill);
+    // As wide as what's in it, as Discord's card is, up to `EMBED_WIDTH`.
+    let mut card = column![].spacing(8);
     if !embed.provider.is_empty() {
         card = card.push(
             container(
@@ -256,7 +257,7 @@ pub(super) fn embed<'a>(
     )
     .padding(Padding::ZERO.top(4).bottom(3));
     let shown = crate::theme_art::surface(shown, ctx, surface);
-    crate::theme_art::outlined(
+    let shown = crate::theme_art::outlined(
         shown,
         ctx,
         yapfast_core::themes::layout::BorderPlace::Embed,
@@ -264,5 +265,9 @@ pub(super) fn embed<'a>(
         4.0,
         outline_fallback.width,
         outline_fallback.color,
-    )
+    );
+    // A theme's ground, art or outline round the card takes the room it's
+    // given, so the card's cap holds them too: else a packaged theme's card
+    // runs to the timeline's right edge in a wide window.
+    container(shown).max_width(EMBED_WIDTH).into()
 }
