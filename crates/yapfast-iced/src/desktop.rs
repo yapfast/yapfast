@@ -177,7 +177,10 @@ pub trait Desktop: Send + Sync {
     fn activate(&self, _window: &dyn iced::window::Window, _token: &str) {}
     /// Gives a window just made what iced can't: its icon on Windows; and
     /// on Wayland follows files dragged over it.
-    fn decorate(&self, _window: &dyn iced::window::Window, _tell: Tell) {}
+    fn decorate(&self, _window: &dyn iced::window::Window, _tell: Tell, _unread: u8) {}
+    /// Updates the notification count on the window's taskbar icon on Windows.
+    #[cfg(windows)]
+    fn taskbar_unread(&self, _window: &dyn iced::window::Window, _unread: u8) {}
     /// Asks where the pointer is over `window`, whose physical pixels are
     /// `scale` of its logical ones; none where the platform says itself
     /// (Wayland) or won't.

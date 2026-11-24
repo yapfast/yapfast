@@ -135,13 +135,13 @@ change as you type each color.
 ### Games on your profile
 
 The game you play, found among your running programs on Linux, Windows and
-macOS, Steam's and Wine's included, and on Linux the Rich Presence games send,
-with details, elapsed time, images and buttons.
+macOS, Steam's and Wine's included, and on Linux and Windows the Rich Presence
+games send, with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
 does, and names games Yapfast doesn't know. See
 [game detection](docs/discord/people.md#game-detection) and
-[Rich Presence](docs/discord/people.md#linux-rich-presence).
+[Rich Presence](docs/discord/people.md#rich-presence).
 
 What your linked Spotify account plays shows as "Listening to Spotify" with only
 Yapfast open, from any player, as Discord's own "Display Spotify as your status"

@@ -3,9 +3,11 @@
 //! WebRTC headers in the same libwebrtc archive webrtc-sys links, so they
 //! match its code, and the H264 encoder against x264 (vendor/x264-src).
 
+use std::fmt::Write as _;
 use std::{env, path::PathBuf, process::Command};
 
 fn main() {
+    theme_template();
     for file in [
         "vp8.c",
         "h264.c",
@@ -186,4 +188,52 @@ fn find_clang_cl() -> Option<PathBuf> {
                 .map(|folder| PathBuf::from(folder).join("LLVM/bin/clang-cl.exe"))
                 .filter(|path| path.is_file())
         })
+}
+
+/// Lists `themes/template/` for `yapfast theme new`, which writes a new
+/// theme's folder from it: `OUT_DIR/theme_template.rs` holds each file's
+/// path in the folder and its bytes.
+fn theme_template() {
+    let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../themes/template");
+    println!("cargo:rerun-if-changed={}", root.display());
+    let mut files = Vec::new();
+    let mut folders = vec![root.clone()];
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).expect("themes/template is there") {
+            let path = entry.expect("themes/template reads").path();
+            if path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+            {
+                continue;
+            }
+            if path.is_dir() {
+                folders.push(path);
+            } else {
+                println!("cargo:rerun-if-changed={}", path.display());
+                let relative = path
+                    .strip_prefix(&root)
+                    .unwrap()
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                files.push((relative, path.canonicalize().unwrap()));
+            }
+        }
+    }
+    files.sort();
+    let mut out =
+        String::from("/// `themes/template/`'s files: each path in the folder and its bytes.\n");
+    out.push_str("pub(crate) const TEMPLATE: &[(&str, &[u8])] = &[\n");
+    for (relative, path) in &files {
+        let _ = writeln!(
+            out,
+            "    ({relative:?}, include_bytes!({:?})),",
+            path.display().to_string()
+        );
+    }
+    out.push_str("];\n");
+    let target = PathBuf::from(env::var("OUT_DIR").unwrap()).join("theme_template.rs");
+    std::fs::write(target, out).expect("OUT_DIR is writable");
 }

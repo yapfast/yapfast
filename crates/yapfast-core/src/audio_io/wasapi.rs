@@ -759,7 +759,7 @@ mod others {
     impl IActivateAudioInterfaceCompletionHandler_Impl for Activated_Impl {
         fn ActivateCompleted(
             &self,
-            _: Ref<IActivateAudioInterfaceAsyncOperation>,
+            _: Ref<'_, IActivateAudioInterfaceAsyncOperation>,
         ) -> windows::core::Result<()> {
             let _ = self.0.send(());
             Ok(())

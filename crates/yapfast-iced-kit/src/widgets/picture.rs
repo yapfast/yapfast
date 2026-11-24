@@ -18,6 +18,12 @@ pub struct Pic {
     at: Rectangle,
     radius: [f32; 4],
     opacity: f32,
+    /// Degrees it turns about its centre, as a theme's leaning tile.
+    turn: f32,
+    /// Rounds, besides `radius`, the corners it shares with the rounded
+    /// pane it's drawn in (a theme's floating pane), so it never shows
+    /// past the pane's arc.
+    pane: bool,
 }
 
 impl Pic {
@@ -28,6 +34,8 @@ impl Pic {
             at: Rectangle::with_size(size),
             radius: [0.0; 4],
             opacity: 1.0,
+            turn: 0.0,
+            pane: false,
         }
     }
 
@@ -57,8 +65,20 @@ impl Pic {
         self
     }
 
+    /// Also rounds the corners it shares with its rounded pane.
+    pub fn pane_corners(mut self) -> Self {
+        self.pane = true;
+        self
+    }
+
     pub fn opacity(mut self, opacity: f32) -> Self {
         self.opacity = opacity;
+        self
+    }
+
+    /// Turned `degrees` about its centre (square corners, then).
+    pub fn turn(mut self, degrees: f32) -> Self {
+        self.turn = degrees;
         self
     }
 }
@@ -91,7 +111,29 @@ impl<M> Widget<M, Theme, Renderer> for Pic {
         _viewport: &Rectangle,
     ) {
         let bounds = self.at + Vector::new(layout.bounds().x, layout.bounds().y);
-        draw_picture(renderer, &self.handle, bounds, self.radius, self.opacity);
+        if self.turn != 0.0 {
+            use iced::advanced::image::Renderer as _;
+            renderer.draw_image(
+                iced::advanced::image::Image {
+                    handle: self.handle.clone(),
+                    filter_method: iced::advanced::image::FilterMethod::Linear,
+                    rotation: iced::Radians(self.turn.to_radians()),
+                    border_radius: Default::default(),
+                    opacity: self.opacity,
+                    snap: false,
+                },
+                bounds,
+                *_viewport,
+            );
+            return;
+        }
+        let radius = if self.pane {
+            let pane = super::glass::pane_radii(bounds, 0.0);
+            std::array::from_fn(|corner| self.radius[corner].max(pane[corner]))
+        } else {
+            self.radius
+        };
+        draw_picture(renderer, &self.handle, bounds, radius, self.opacity);
     }
 }
 

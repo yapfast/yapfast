@@ -247,6 +247,7 @@ mod windows {
             })
             .collect();
         let value = wide(&line.join(" "));
+        // SAFETY: the key and name are NUL-terminated, and value holds the stated byte count.
         let status = unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -268,6 +269,7 @@ mod windows {
     }
 
     fn delete(key: &str) -> io::Result<()> {
+        // SAFETY: both NUL-terminated strings live through the registry call.
         let status = unsafe {
             RegDeleteKeyValueW(
                 HKEY_CURRENT_USER,
@@ -285,6 +287,8 @@ mod windows {
     fn query(key: &str, kind: u32) -> Option<Vec<u8>> {
         let (key, name) = (wide(key), wide(super::NAME));
         let mut size = 0u32;
+        // SAFETY: the strings are NUL-terminated and size is writable. Null data
+        // requests the required buffer size.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -300,6 +304,7 @@ mod windows {
             return None;
         }
         let mut data = vec![0u8; size as usize];
+        // SAFETY: the strings are NUL-terminated and data is writable for size bytes.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -357,6 +362,7 @@ mod windows {
             );
             // Task Manager turns it off with an odd first byte.
             let disabled = [3u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            // SAFETY: the key and name are NUL-terminated, and disabled holds the stated byte count.
             let status = unsafe {
                 RegSetKeyValueW(
                     HKEY_CURRENT_USER,

@@ -5,7 +5,7 @@
 use crate::{api::Api, service::Snapshot};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 type Activity = Option<Arc<Value>>;
 
@@ -37,19 +37,20 @@ pub(crate) fn start(
     snapshots: watch::Receiver<Arc<Snapshot>>,
     mut shown: watch::Receiver<bool>,
 ) -> watch::Receiver<Activity> {
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", windows)))]
     let _ = snapshots;
     let (activity, receiver) = watch::channel(None);
     tokio::spawn(async move {
         loop {
             if *shown.borrow_and_update() {
-                let detected = crate::game_detection::start(api.clone());
-                #[cfg(target_os = "linux")]
+                let rescan = Arc::new(Notify::new());
+                let detected = crate::game_detection::start(api.clone(), rescan.clone());
+                #[cfg(any(target_os = "linux", windows))]
                 let rpc = crate::rpc::start(api.clone(), snapshots.clone());
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(any(target_os = "linux", windows)))]
                 let rpc = watch::channel(None).1;
                 tokio::select! {
-                    () = combine(rpc, detected, activity.clone()) => return,
+                    () = combine(rpc, detected, activity.clone(), rescan) => return,
                     () = hidden(&mut shown) => {}
                 }
                 activity.send_replace(None);
@@ -79,6 +80,7 @@ async fn combine(
     mut rpc: watch::Receiver<Activity>,
     mut detected: watch::Receiver<Activity>,
     shown: watch::Sender<Activity>,
+    rescan: Arc<Notify>,
 ) {
     let mut rpc_open = true;
     let mut detection_open = true;
@@ -97,7 +99,14 @@ async fn combine(
         });
         tokio::select! {
             () = shown.closed() => return,
-            result = rpc.changed(), if rpc_open => rpc_open = result.is_ok(),
+            result = rpc.changed(), if rpc_open => {
+                rpc_open = result.is_ok();
+                if !rpc_open || rpc.borrow().is_none() {
+                    // The fallback may still name the app that just closed.
+                    // Verify it now instead of waiting for periodic scans.
+                    rescan.notify_one();
+                }
+            },
             result = detected.changed(), if detection_open => detection_open = result.is_ok(),
         }
     }
@@ -123,7 +132,8 @@ mod tests {
         let (rpc, rpc_rx) = watch::channel(None);
         let (detected, detected_rx) = watch::channel(None);
         let (shown, mut receiver) = watch::channel(None);
-        let worker = tokio::spawn(combine(rpc_rx, detected_rx, shown));
+        let rescan = Arc::new(Notify::new());
+        let worker = tokio::spawn(combine(rpc_rx, detected_rx, shown, rescan.clone()));
         let game = Arc::new(json!({"type":0,"name":"Game"}));
         detected.send_replace(Some(game.clone()));
         receiver.changed().await.unwrap();
@@ -136,6 +146,9 @@ mod tests {
         drop(rpc);
         receiver.changed().await.unwrap();
         assert_eq!(receiver.borrow_and_update().as_ref(), Some(&game));
+        tokio::time::timeout(std::time::Duration::from_millis(100), rescan.notified())
+            .await
+            .expect("RPC disconnect requests an immediate detection scan");
         detected.send_replace(None);
         receiver.changed().await.unwrap();
         assert!(receiver.borrow_and_update().is_none());

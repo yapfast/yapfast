@@ -109,12 +109,19 @@ dependency in Cargo.toml:
   app's own pixels and copied
   onto the frame with their round corners, glyphs copied the same way, clips
   by rectangle instead of a window-sized mask, quads, gradients and shadows
-  filled only inside the clip, damaged regions merged, and a hook through
+  filled only inside the clip, shadows with no blur drawn as hard edges
+  (stock, they came out clear) and only outside their quad, as CSS's
+  box-shadow, turned and stretched pictures placed at their own position,
+  damaged regions merged, a layer that comes or goes damaging only what it
+  drew, a layer inside another cut to it, pictures and SVGs cut to their own
+  box, pictures told apart by their handles' ids, what lies under a changing
+  layer kept from one frame to the next, and a hook through
   which the client draws video frames itself with libyuv, which the libwebrtc
   archive already links in.
 - `iced_wgpu`: iced 0.14's GPU renderer, 0.14.0: round image corners where
-  the quad shader puts them, each corner's own radius, and pictures up to 4K
-  uploaded in the frame that draws them, so a stream's frames show.
+  the quad shader puts them, each corner's own radius, pictures up to 4K
+  uploaded in the frame that draws them, so a stream's frames show, and a
+  layer inside another cut to it.
 - `cosmic-text`: cosmic-text 0.15.0, the text shaper, telling
   the client which characters no loaded font has, so it can load a system
   font that covers them.

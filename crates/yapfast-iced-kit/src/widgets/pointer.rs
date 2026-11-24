@@ -5,7 +5,7 @@
 //! what it floats over ([`Holds`]).
 
 use iced::{
-    Element, Length, Point, Rectangle, Size, Theme, Vector,
+    Background, Element, Length, Point, Rectangle, Size, Theme, Vector,
     advanced::{
         Clipboard, Layout, Shell, Widget, layout, mouse, renderer,
         widget::{Operation, Tree, tree},
@@ -66,6 +66,69 @@ impl<M: Clone> Hooks<M> for Watch<M> {
             }
             _ => {}
         }
+    }
+}
+
+/// Its child, whose pointer is `look` over its grip: a picture in a corner
+/// of the window, which a drag at the corner away from it resizes. The
+/// shape changes as the pointer comes and goes, with no message; a left
+/// press on the grip sends `on_press` and goes no further, so a button of
+/// the child's under the grip doesn't take a press the pointer said would
+/// resize.
+pub struct Grip<M> {
+    /// Where the grip is, from the child's own top left, and the pointer's
+    /// shape there.
+    at: Rectangle,
+    look: mouse::Interaction,
+    on_press: M,
+}
+
+impl<M: Clone> Grip<M> {
+    pub fn new<'a>(
+        child: impl Into<Element<'a, M>>,
+        at: Rectangle,
+        look: mouse::Interaction,
+        on_press: M,
+    ) -> Wrap<'a, Self, M> {
+        Wrap::new(child, Self { at, look, on_press })
+    }
+
+    fn on_grip(&self, at: &At) -> bool {
+        let grip = Rectangle {
+            x: at.bounds.x + self.at.x,
+            y: at.bounds.y + self.at.y,
+            ..self.at
+        };
+        at.cursor
+            .position()
+            .is_some_and(|position| grip.contains(position))
+    }
+}
+
+impl<M: Clone> Hooks<M> for Grip<M> {
+    type State = Stateless;
+
+    fn update(
+        &mut self,
+        _: &mut Stateless,
+        event: &iced::Event,
+        at: At,
+        shell: &mut Shell<'_, M>,
+        child: &mut Inner<'_, '_, M>,
+    ) {
+        if let iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event
+            && !shell.is_event_captured()
+            && self.on_grip(&at)
+        {
+            shell.publish(self.on_press.clone());
+            shell.capture_event();
+            return;
+        }
+        child.update(shell);
+    }
+
+    fn interaction(&self, _: &Stateless, at: At, child: mouse::Interaction) -> mouse::Interaction {
+        if self.on_grip(&at) { self.look } else { child }
     }
 }
 
@@ -201,6 +264,7 @@ impl<M: Clone> Hooks<M> for RightPress<'_, M> {
 pub struct Hover<'a, M> {
     base: Element<'a, M>,
     over: Element<'a, M>,
+    shade: Option<Background>,
     kept: bool,
 }
 
@@ -209,8 +273,15 @@ impl<'a, M: Clone> Hover<'a, M> {
         Self {
             base: base.into(),
             over: over.into(),
+            shade: None,
             kept: false,
         }
+    }
+
+    /// Lays `shade` over the child while `over` shows, under it.
+    pub fn shade(mut self, shade: impl Into<Background>) -> Self {
+        self.shade = Some(shade.into());
+        self
     }
 
     /// Shows `over` whether the pointer is on it or not.
@@ -403,6 +474,19 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Hover<'_, M> {
         );
         if self.shown(tree) {
             renderer.with_layer(layout.bounds(), |renderer| {
+                if let Some(shade) = self.shade {
+                    // A pixel past the child, cut back by the layer's own
+                    // edge: a gradient's foot lands a fraction of a window
+                    // pixel short of the child's, and the row it leaves
+                    // shows what's under it a shade lighter than itself.
+                    renderer.fill_quad(
+                        renderer::Quad {
+                            bounds: layout.bounds().expand(1.0),
+                            ..renderer::Quad::default()
+                        },
+                        shade,
+                    );
+                }
                 self.over.as_widget().draw(
                     &tree.children[1],
                     renderer,
