@@ -198,36 +198,29 @@ without the field, even when the link's text says something else, instead
 of the browser. Either looks the invite up first and shows its server,
 icon, and how many members it has and how many are online, or the channel
 when it has fewer than five members and none online, as Discord's invite
-card does; nothing joins until the Join Server click. Discord's docs warn
-that accounts joining many servers in a short time get flagged, so Yapfast
-never joins by itself.
+card does; nothing joins until the Join in Browser click.
 
 - `GET /invites/{code}?with_counts=true&with_expiration=true&with_permissions=true`,
   as Discord's client resolves an invite, with `&inputValue=` and what was
   typed into the dialog when it was. An invite that isn't to a server's
   channel, such as a friend invite, is refused.
-- `POST /invites/{code}` with `{"session_id": ...}`, this gateway session's
-  id from READY, and an `X-Context-Properties` of the location, "Join Guild"
-  from the dialog or "Desktop Invite Modal" from a link, with
-  `location_guild_id`, `location_channel_id` and `location_channel_type`
-  naming the invite's server and channel, as Discord's client sends them.
 
-Discord often asks for a captcha before joining. Yapfast shows it as linking
-does (`application/join.rs`), and the dialog says so and can open it again. The
-server's GUILD_CREATE lists it, and Yapfast opens the invite's channel once
-it's listed. An invite to a server the account is in opens the server
-instead of joining, at once for a link; the dialog says so and its button
-opens it. Discord's refusals come back in the dialog's words: an invalid or
-expired invite (10006, 50020), a ban (40007), too many servers (30001), a
-full server (30019) and paused invites (40069).
+An invite to a server the account is in opens the server instead of
+joining, at once for a link; the dialog says so and its button opens it.
+For any other server, Join in Browser closes the dialog and opens the
+invite's page, `https://discord.gg/{code}`, where Discord's web app joins
+it, with its captcha and the server's form for new members. Accounts were
+signed out of every device after joining in Yapfast, so until Yapfast's
+join request matches Discord's client, Yapfast sends none. Once joined,
+the server's GUILD_CREATE lists it, and Yapfast opens the invite's channel
+when it does; a voice channel's invite opens the channel without joining
+the call. An invalid or expired invite (10006, 50020) shows Discord's
+refusal in the dialog.
 
-When the answer has `show_verification_form`, the server asks new members
-to fill in its form, such as accepting its rules, before they may talk.
-Yapfast doesn't show forms or onboarding questions yet, so the dialog says
-so and opens the channel in Discord's web app, where the form waits. A voice
-channel's invite joins the server and opens the channel without joining the
-call. Discord's client also sends `invite_instance_id` from a message's
-invite card, which Yapfast doesn't show yet, so it leaves that out.
+The in-app join stays in the code, unreached: `POST /invites/{code}` with
+`{"session_id": ...}` and Discord's `X-Context-Properties`, its captcha,
+its refusals, and a server form (`show_verification_form`) sent to
+Discord's web app (`application/join.rs`, `invite.rs`).
 
 ## Event links
 
