@@ -134,8 +134,12 @@ pub(crate) fn read_kept(url: &str, mut picture: chat::Picture) -> chat::Picture 
 }
 
 /// The start of a Discord folder's [`chat::ServerFolder::id`].
-#[cfg(feature = "discord")]
 const FOLDER_PREFIX: &str = "discord-folder:";
+
+/// The Discord folder a rail tile names.
+pub fn parse_folder(id: &str) -> Option<&str> {
+    id.strip_prefix(FOLDER_PREFIX)
+}
 
 pub fn server_id(guild: &str) -> String {
     format!("{PREFIX}{guild}")
@@ -575,12 +579,10 @@ pub fn listed_thread(
             color: server.color(names.roles(&server.id, user)),
         })
     };
-    let recent = details.recent.as_deref().map(|recent| chat::RecentMessage {
-        author: thread_person(server, names, &recent.author),
-        text: one_line(&chat::notification_text(
-            &names.render(Some(server), &recent.content),
-        )),
-    });
+    let recent = details
+        .recent
+        .as_deref()
+        .map(|recent| recent_message(server, names, recent));
     Some(chat::ListedThread {
         room: room_id(&server.id, &thread.id),
         name: thread.name.clone(),
@@ -588,7 +590,7 @@ pub fn listed_thread(
         joined: details.joined,
         archived: details.archived,
         last,
-        active_ms: (last >> 22) + DISCORD_EPOCH,
+        active_ms: snowflake_ms(last),
         owner: details.owner.as_deref().and_then(person),
         recent,
         members: details.members,
@@ -602,8 +604,31 @@ pub fn listed_thread(
         replies: details.messages,
         opened: marks.opened,
         unread: marks.opened && marks.unread,
-        created_ms: (thread.id.parse::<u64>().unwrap_or_default() >> 22) + DISCORD_EPOCH,
+        created_ms: snowflake_ms(thread.id.parse().unwrap_or_default()),
     })
+}
+
+/// When a snowflake was made, in Unix milliseconds.
+#[cfg(feature = "discord")]
+pub fn snowflake_ms(snowflake: u64) -> u64 {
+    (snowflake >> 22) + DISCORD_EPOCH
+}
+
+/// A thread's newest message in `server`, naming its author as `names`
+/// knows them.
+#[cfg(feature = "discord")]
+pub fn recent_message(
+    server: &yapfast_discord::ready::Server,
+    names: &yapfast_discord::message::Names,
+    recent: &yapfast_discord::ready::Recent,
+) -> chat::RecentMessage {
+    chat::RecentMessage {
+        author: thread_person(server, names, &recent.author),
+        tag: server_tag(names.server_tag(&recent.author).cloned()),
+        text: one_line(&chat::notification_text(
+            &names.render(Some(server), &recent.content),
+        )),
+    }
 }
 
 /// Someone a forum's card or a list of threads names, as `names` knows
@@ -715,6 +740,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         } else {
             Reacts::Any
         },
+        slowmode: 0,
         slowed: false,
         timed_out_until: None,
         category: match (dm.request, dm.spam) {
@@ -875,6 +901,7 @@ fn server_rooms(
                 join_locked: marks.access != Access::Join,
                 read_only: !server.may_send(channel, me, &server.marks.roles),
                 reacts: reacts(server, channel, me),
+                slowmode: channel.slowmode,
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
@@ -930,6 +957,7 @@ fn server_rooms(
                 join_locked: false,
                 read_only: marks.access == Access::Locked,
                 reacts: reacts(server, channel, me),
+                slowmode: channel.slowmode,
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
@@ -983,10 +1011,15 @@ fn server_rooms(
         folder: None,
         hide_muted: server.marks.notifications.hide_muted_channels,
         community: server.community,
+        afk_channel: server
+            .afk_channel
+            .as_deref()
+            .map(|channel| room_id(&server.id, channel)),
         pinned,
         banner: server.banner.clone(),
         verified: server.verified,
         boosts: server.boost_bar.then_some(server.boosts),
+        premium_tier: (server.premium_tier > 0).then_some(server.premium_tier),
         events: server
             .events
             .iter()
@@ -1084,6 +1117,7 @@ fn thread_room(
         // Locked, or this account may not write in threads here.
         read_only: thread.marks.access == Access::Locked,
         reacts: reacts(server, &thread, me),
+        slowmode: thread.slowmode,
         slowed: server.slowed(&thread, me, &server.marks.roles),
         timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
         category: parent.category.clone(),
@@ -2855,21 +2889,39 @@ mod tests {
                     _ => access(Access::Join),
                 },
             )],
-            voice: [(
-                "11".to_owned(),
-                vec![yapfast_discord::service::VoiceMember {
-                    user_id: "2".into(),
-                    name: "Ann".into(),
-                    avatar: "ann.png".into(),
-                    muted: true,
-                    deafened: false,
-                    streaming: true,
-                    video: false,
-                    elsewhere: false,
-                    server_muted: false,
-                    server_deafened: false,
-                }],
-            )]
+            voice: [
+                (
+                    "11".to_owned(),
+                    vec![yapfast_discord::service::VoiceMember {
+                        user_id: "2".into(),
+                        name: "Ann".into(),
+                        avatar: "ann.png".into(),
+                        muted: true,
+                        deafened: false,
+                        streaming: true,
+                        video: false,
+                        elsewhere: false,
+                        server_muted: false,
+                        server_deafened: false,
+                    }],
+                ),
+                // Discord sends who is in a hidden voice channel too.
+                (
+                    "13".to_owned(),
+                    vec![yapfast_discord::service::VoiceMember {
+                        user_id: "3".into(),
+                        name: "Bea".into(),
+                        avatar: "bea.png".into(),
+                        muted: false,
+                        deafened: true,
+                        streaming: false,
+                        video: false,
+                        elsewhere: false,
+                        server_muted: false,
+                        server_deafened: false,
+                    }],
+                ),
+            ]
             .into(),
             ..Default::default()
         };
@@ -2913,6 +2965,13 @@ mod tests {
         );
         let (rooms, _) = index(&snapshot, true);
         assert!(rooms.len() == 6 && rooms[2].locked && rooms[5].locked);
+        // A hidden voice channel lists who is in it, as a voice channel
+        // does, though it can't be joined.
+        assert_eq!(rooms[5].id, "discord:10:13");
+        assert!(rooms[5].voice && rooms[5].join_locked);
+        assert_eq!(rooms[5].people.len(), 1);
+        assert_eq!(rooms[5].people[0].name, "Bea");
+        assert!(rooms[5].people[0].deafened && rooms[5].members == 1);
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
     }

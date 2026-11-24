@@ -70,14 +70,15 @@ pub struct MemberLook {
 
 /// What someone is up to, on one line under their name: its words, the
 /// address of a custom emoji's picture before them, the activity's icon
-/// (0 none, 1 playing, 2 listening, 3 watching, 4 streaming, 5 competing)
-/// and whether a bullet follows the icon.
+/// (0 none, 1 a controller, 2 a music note, 3 a screen), whether a bullet
+/// follows the icon, and how many more activities there are ("+2").
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Status {
     pub words: String,
     pub emoji: Option<String>,
     pub icon: u8,
     pub bullet: bool,
+    pub more: u8,
 }
 
 impl<'a> From<&'a Status> for std::borrow::Cow<'a, Status> {
@@ -109,6 +110,19 @@ impl Status {
             emoji,
             ..Self::default()
         }
+    }
+
+    /// The line under someone's name as Discord's member list, DM list
+    /// and account panel write it: the first activity's icon and words,
+    /// "+N" for the rest, then a bullet and the custom status when
+    /// `line` is one rather than an activity's own line.
+    pub fn activity(activities: &[yapfast_core::chat::Activity], line: Option<&str>) -> Self {
+        let subline = yapfast_core::yapfast_discord::activity::subline(activities, line);
+        let mut status = Self::of(subline.name.as_deref().or(line));
+        status.icon = subline.icon;
+        status.bullet = subline.bullet;
+        status.more = subline.more;
+        status
     }
 
     pub fn is_empty(&self) -> bool {
@@ -238,12 +252,6 @@ pub fn member_lines(
             lines.push(MemberLine::Member(look));
             continue;
         }
-        let subline = yapfast_core::yapfast_discord::activity::subline(
-            &member.activities,
-            member.activity.as_deref(),
-        );
-        let line = subline.name.as_deref().or(member.activity.as_deref());
-        let (emoji, words) = line.map_or((None, ""), yapfast_core::discord::status_parts);
         lines.push(MemberLine::Member(Arc::new(MemberLook {
             id: member.id.clone(),
             name: member.name.clone(),
@@ -280,12 +288,7 @@ pub fn member_lines(
                 )
             }),
             presence: member.presence,
-            status: Status {
-                words: one_line(words),
-                emoji,
-                icon: subline.icon,
-                bullet: subline.bullet,
-            },
+            status: Status::activity(&member.activities, member.activity.as_deref()),
         })));
     }
     lines
@@ -296,6 +299,28 @@ pub fn member_lines(
 pub fn in_server(room: Option<&str>) -> bool {
     room.and_then(yapfast_core::discord::parse_room)
         .is_some_and(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
+}
+
+/// Who wrote the forum post the open thread is, whom Discord tags OP:
+/// whoever wrote its first message, which has the thread's own id. None
+/// outside a forum's post, or until that message is loaded.
+pub fn post_author(state: &AppState) -> Option<&str> {
+    let room = state.selected_room()?;
+    let parent = room.parent.as_deref()?;
+    if room.network != yapfast_core::network::Network::Discord
+        || !state
+            .rooms
+            .iter()
+            .any(|found| found.id == parent && found.forum)
+    {
+        return None;
+    }
+    let item = format!("d:{}", room.id.rsplit(':').next()?);
+    state
+        .messages
+        .iter()
+        .find(|message| message.item == item)
+        .map(|message| message.sender.as_str())
 }
 
 /// The address of the animated picture of a decoration's or nameplate's
@@ -603,9 +628,18 @@ impl<'a> crate::ctx::Ctx<'a> {
 
     /// The APP tag a bot's name wears.
     pub fn bot_tag(self, opacity: f32) -> Element<'a, Message> {
-        let fill = faded(hex(BLURPLE), opacity);
+        self.blurple_tag("APP", opacity)
+    }
+
+    /// Discord's white on blurple tag after a name: APP, or OP for the
+    /// author of a forum post.
+    pub fn blurple_tag(self, label: &'static str, opacity: f32) -> Element<'a, Message> {
+        let fill = faded(
+            self.look.theme.token_colour("app-badge", hex(BLURPLE)),
+            opacity,
+        );
         container(
-            text("APP")
+            text(label)
                 .size(10)
                 .font(BOLD)
                 .color(faded(Color::WHITE, opacity)),

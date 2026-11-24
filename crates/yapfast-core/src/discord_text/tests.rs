@@ -1,5 +1,5 @@
 use super::{open_channel::*, render::*, *};
-use crate::chat::ForwardFailure;
+use crate::chat::{self, ForwardFailure};
 use yapfast_discord::ready::Deletes;
 
 fn message(id: &str, nonce: Option<&str>) -> Message {
@@ -523,6 +523,7 @@ fn messages_render_again_once_what_they_show_changes() {
         names,
         me: "1".into(),
         blocked: vec![].into(),
+        ignored: Default::default(),
         server,
         may_pin: false,
         may_forward: false,
@@ -1800,6 +1801,107 @@ async fn a_members_mention_has_no_colour_of_its_own_but_a_roles_has() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn peeking_shows_the_newest_messages_and_keeps_nothing() {
+    let discord = fake_discord().await;
+    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let room = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let peek = |room: &str| {
+        Command::Discord(DiscordCommand::Peek {
+            room: room.to_owned(),
+        })
+    };
+    let peeked = |event: &Event| match event {
+        Event::Peeked { result, .. } => Some(result.clone()),
+        _ => None,
+    };
+    // Not kept: Discord is asked, and nothing of it stays.
+    command(peek(&room), Ok(&discord), &mut channels, &done, &events);
+    let asked = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = received.recv().await.expect("events go on");
+            if let Some(result) = peeked(&event) {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord")
+    .unwrap();
+    assert!(!asked.is_empty() && asked.len() <= crate::chat::PEEK_MESSAGES);
+    assert!(
+        asked
+            .windows(2)
+            .all(|pair| pair[0].timestamp <= pair[1].timestamp)
+    );
+    assert!(channels.open.is_none() && channels.recent.is_empty());
+
+    // Opened, then closed: the channel kept follows live events, so its
+    // newest messages answer at once, the same.
+    command(
+        Command::Open(room.clone()),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    until(
+        &discord,
+        &mut channels,
+        &done,
+        &mut finished,
+        &mut received,
+        |event| {
+            matches!(
+                event,
+                Event::HistoryLoaded {
+                    direction: Direction::Latest,
+                    ..
+                }
+            )
+            .then_some(())
+        },
+    )
+    .await;
+    command(
+        Command::CloseRoom,
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    while received.try_recv().is_ok() {}
+    command(peek(&room), Ok(&discord), &mut channels, &done, &events);
+    let Ok(Event::Peeked {
+        result: Ok(kept), ..
+    }) = received.try_recv()
+    else {
+        panic!("a kept channel answers at once");
+    };
+    assert!(!kept.is_empty() && kept.len() <= crate::chat::PEEK_MESSAGES);
+    assert!(
+        kept.windows(2)
+            .all(|pair| pair[0].timestamp <= pair[1].timestamp)
+    );
+    assert_eq!(channels.recent.len(), 1, "it stays as it was");
+
+    // Only Discord's rooms are peeked at.
+    command(
+        peek("!room:example.org"),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    assert!(matches!(
+        received.try_recv(),
+        Ok(Event::Peeked { result: Err(_), .. })
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn a_server_channels_pins_and_search_show_its_members() {
     let discord = fake_discord().await;
     let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
@@ -1815,6 +1917,16 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let event = received.recv().await.expect("events go on");
+                // Discord indexing the server first goes by.
+                if matches!(
+                    event,
+                    Event::Found {
+                        result: Ok(chat::Searched::Indexing { again: true }),
+                        ..
+                    }
+                ) {
+                    continue;
+                }
                 if matches!(event, Event::Pins { .. } | Event::Found { .. }) {
                     return event;
                 }
@@ -1849,11 +1961,16 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         Command::Discord(DiscordCommand::Search {
             place: discord::server_id(FAKE_GUILD),
             query: query.into(),
+            sort: chat::SearchSort::Newest,
             offset: 0,
         })
     };
     let found = |event| match event {
-        Event::Found { result, .. } => result,
+        Event::Found {
+            result: Ok(chat::Searched::Page { total, hits, .. }),
+            ..
+        } => Ok((total, hits)),
+        Event::Found { result, .. } => Err(format!("{result:?}")),
         _ => panic!("expected search results"),
     };
     let (total, hits) = found(run(Some(search("welcome"))).await).unwrap();
@@ -1875,10 +1992,11 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         found(run(Some(search("welcome from:bob in:#general has:link"))).await).unwrap();
     assert_eq!(total, 1, "Bob's welcome carries a link");
     assert!(hits[0].message.body.starts_with("Welcome to **Yapfast**"));
-    let refused = found(run(Some(search("from:nobody"))).await).unwrap_err();
-    assert!(refused.contains("nobody"), "{refused}");
-    let refused = found(run(Some(search("in:nowhere"))).await).unwrap_err();
-    assert!(refused.contains("#nowhere"), "{refused}");
+    // Someone or somewhere unknown is words, as in Discord's box.
+    let (total, _) = found(run(Some(search("from:nobody"))).await).unwrap();
+    assert_eq!(total, 0);
+    let (total, _) = found(run(Some(search("welcome in:nowhere"))).await).unwrap();
+    assert_eq!(total, 0, "no welcome says nowhere");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -2028,6 +2146,17 @@ async fn a_server_tags_card_shows_its_servers_profile() {
     assert_eq!(shown.name, "Server");
     assert!(shown.icon.is_some());
     assert_eq!(shown.online, Some(1));
+}
+
+#[test]
+fn a_message_too_long_names_the_accounts_own_limit() {
+    use super::too_long;
+    assert!(
+        too_long(yapfast_discord::api::message_limit(0)).ends_with("at most 2,000 characters.")
+    );
+    assert!(
+        too_long(yapfast_discord::api::message_limit(2)).ends_with("at most 4,000 characters.")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

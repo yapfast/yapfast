@@ -1,0 +1,22 @@
+target-version = "py315" # Match the Python interpreter selected in the Nix environments.
+line-length = 100
+extend-exclude = [".venv", "venv", "vendor", ".local", "target", "node_modules"]
+extend-include = [
+  "scripts/build-framework-gtk-dpi",
+  "scripts/build-framework-seat",
+  "scripts/check-doc-links",
+  "scripts/discord-emoji-names",
+  "scripts/framework-input",
+  "scripts/measure-process",
+  "scripts/run-framework-isolated",
+  "scripts/ui-session",
+]
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "PLW1510"]
+
+fixable = ["ALL"]
+
+[format]
+quote-style = "double"
+docstring-code-format = true

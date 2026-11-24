@@ -7,9 +7,9 @@ publish = false
 license = "GPL-3.0-or-later"
 
 [workspace]
-members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit"]
+members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit", "testing/hosts"]
 default-members = ["."]
-exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/x264-src", "vendor/ffmpeg-src"]
+exclude = ["vendor/matrix-rtc-livekit", "vendor/webrtc-sys", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
 # Lints beyond Clippy's defaults, for every crate in the workspace. scripts/check
@@ -49,7 +49,11 @@ workspace = true
 # it; scripts/check --matrix checks the builds with Matrix.
 default = ["desktop", "discord"]
 matrix = ["yapfast-core/matrix", "yapfast-iced?/matrix"]
-discord = ["yapfast-core/discord"]
+# yapfast-core/default too, though it adds only discord: --workspace selects
+# yapfast-core with its default features, and without them here a plain
+# cargo build would have a feature set of its own and compile yapfast-core,
+# the window and the binary again beside scripts/check's build.
+discord = ["yapfast-core/discord", "yapfast-core/default"]
 # The window (crates/yapfast-iced, which shows Discord in every build) and
 # what the desktop gives it: the tray, notifications, the single instance,
 # links, starting at sign-in, updates, the icon, pasted and copied pictures
@@ -111,34 +115,15 @@ x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], o
 # later start sets to show the window, the clipboard's files and pictures for
 # a paste, and keybinds' keys. Already in the tree through winit.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Console", "Win32_System_DataExchange", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_Security", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_HiDpi", "Win32_UI_Input", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"], optional = true }
 # Keybinds' hook names keys as the window's winit does.
 winit = { version = "0.30.13", default-features = false, optional = true }
 # Toasts, through WinRT, in the version yapfast-core already builds.
 windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications"], optional = true }
 
-# A stand-in tray on the private test bus; see testing/tray_host.rs.
-[[example]]
-name = "tray_host"
-path = "testing/tray_host.rs"
-required-features = ["desktop"]
-
-# Records the private test display; see testing/record_host.rs.
-[[example]]
-name = "record_host"
-path = "testing/record_host.rs"
-required-features = ["desktop"]
-
 [dev-dependencies]
 yapfast-core = { path = "crates/yapfast-core", default-features = false, features = ["test-fixtures"] }
 tempfile.workspace = true
-
-# testing/record_host.rs: Weston's capture protocol, signals and poll, and the
-# mapping of the frames it hashes; all already in the tree.
-[target.'cfg(target_os = "linux")'.dev-dependencies]
-libc = "0.2.189"
-memmap2 = "0.9"
-wayland-scanner = "0.31.11"
 
 [workspace.dependencies]
 anyhow = "1"

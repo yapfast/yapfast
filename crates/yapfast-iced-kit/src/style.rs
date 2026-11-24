@@ -159,13 +159,28 @@ pub fn panel(ground: Color, edge: Color, radius: f32) -> container::Style {
     }
 }
 
-/// The shadow of a bar floating over the timeline: Jump to present, the
-/// unread bar.
-pub fn bar_shadow() -> iced::Shadow {
+/// [`panel`] through an installed theme's named surface tokens.
+pub fn surface_panel(
+    theme: &Theme,
+    surface: &str,
+    ground: Color,
+    edge: Color,
+    radius: f32,
+) -> container::Style {
+    container::Style {
+        background: Some(ground.into()),
+        border: theme.surface_border(surface, radius, 1.0, edge),
+        shadow: theme.surface_shadow(surface, raised_shadow()),
+        ..Default::default()
+    }
+}
+
+/// The shadow of the pill floating over the timeline's end: Jump to present.
+pub fn pill_shadow() -> iced::Shadow {
     iced::Shadow {
-        color: Color::from_rgba8(0, 0, 0, 0x60 as f32 / 255.0),
-        offset: iced::Vector::new(0.0, 4.0),
-        blur_radius: 12.0,
+        color: Color::from_rgba8(0, 0, 0, 0x40 as f32 / 255.0),
+        offset: iced::Vector::new(0.0, 2.0),
+        blur_radius: 8.0,
     }
 }
 
@@ -181,9 +196,41 @@ pub fn hover_bar_shadow() -> iced::Shadow {
 /// A list's scroll bar's inks: faint on a dark theme, darker on a light
 /// one, and plainer under the pointer.
 pub fn scrollbar(theme: &Theme) -> crate::widgets::Scroller {
+    // A theme's scrollbar paint, when it's one colour, inks the bar.
+    if let Some(Background::Color(ink)) = theme.package_paint("scrollbar") {
+        return crate::widgets::Scroller {
+            rest: ink,
+            pointed: ink,
+        };
+    }
     if theme.dark {
         crate::widgets::Scroller::DARK
     } else {
         crate::widgets::Scroller::LIGHT
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use iced::{Background, Color};
+
+    use super::*;
+    use crate::theme::Metrics;
+
+    #[test]
+    fn a_themes_scrollbar_paint_inks_the_bar() {
+        let scroller = Color::from_rgb8(0x12, 0x34, 0x56);
+        let theme = Theme::new("kit-scrollbar-owner", true)
+            .worked_out()
+            .with_metrics(std::sync::Arc::new(Metrics {
+                paints: HashMap::from([("scrollbar".to_owned(), Background::Color(scroller))]),
+                ..Metrics::default()
+            }));
+        let bar = scrollbar(&theme);
+        assert_eq!((bar.rest, bar.pointed), (scroller, scroller));
+        let stock = scrollbar(&Theme::new("kit-scrollbar-stock", true).worked_out());
+        assert_eq!(stock.rest, crate::widgets::Scroller::DARK.rest);
     }
 }

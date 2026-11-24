@@ -1,7 +1,10 @@
 //! The title bar Yapfast draws in place of the desktop's, with its Discord
 //! look: Back and Forward, where Yapfast is in the middle, Inbox and Help,
 //! then minimize, maximize and close. Pressing and moving it moves the
-//! window, a double click maximizes it, and its edges resize it. The Inbox
+//! window, a double click maximizes it, and its edges resize it. Where the
+//! desktop draws the title bar, or none (a tiling compositor), the bar still
+//! shows under it, as Discord's client always has one, without the window's
+//! buttons, and neither moves nor resizes the window. The Inbox
 //! opens its popout under it: the channels and conversations with unread
 //! messages, or those that mention this account.
 //!
@@ -16,6 +19,7 @@ use iced::{
     widget::{Space, button, column, container, mouse_area, row, stack, text, tooltip},
     window,
 };
+use yapfast_core::application::DmScreen;
 
 use crate::{
     app::{App, Message},
@@ -23,16 +27,17 @@ use crate::{
     elide::elide,
     fonts::BOLD,
     pictures::Icon,
-    style::scrollbar,
+    style::{faded, scrollbar},
     widgets::{Hover, Rows},
 };
 
 /// The bar's height, which moves the window's content down.
 pub const HEIGHT: f32 = 32.0;
 
-/// A caption button's width, and its glyph's size.
+/// A caption button's width, and its glyph's size: Discord's frame draws
+/// them as 1 px strokes in a 10 px square.
 const CAPTION: f32 = 36.0;
-const CAPTION_GLYPH: u32 = 12;
+const CAPTION_GLYPH: u32 = 10;
 
 /// The inbox popout's width and tallest height, as Discord's.
 const INBOX_WIDTH: f32 = 440.0;
@@ -94,6 +99,9 @@ pub enum Event {
     /// Whether the window is maximized now, and full screen (as a kiosk
     /// makes it), read at the size `Shell::sized` counts so.
     State(bool, bool, u32),
+    /// What the desktop says; `None` (Wayland can't tell) leaves what
+    /// Yapfast knows, such as its own Minimize.
+    Minimized(Option<bool>),
 }
 
 /// The inbox's tabs, as Discord's first two.
@@ -170,9 +178,10 @@ pub fn fit_window(app: &mut App) {
     }
 }
 
-/// The room the title bar takes at the window's top.
+/// The room the title bar takes at the window's top: Yapfast's own, or
+/// Discord's bar under the desktop's.
 pub fn bar_height(app: &App) -> f32 {
-    if app.shell.own_title_bar && !full_screen(app) {
+    if (app.shell.own_title_bar || app.shell.bar_under_frame) && !full_screen(app) {
         HEIGHT
     } else {
         0.0
@@ -192,7 +201,7 @@ pub fn read_window_state(app: &App) -> Task<Message> {
         return Task::none();
     };
     let sized = app.shell.sized;
-    window::is_maximized(id).then(move |maximized| {
+    let state = window::is_maximized(id).then(move |maximized| {
         window::mode(id).map(move |mode| {
             Message::Bar(Event::State(
                 maximized,
@@ -200,7 +209,9 @@ pub fn read_window_state(app: &App) -> Task<Message> {
                 sized,
             ))
         })
-    })
+    });
+    let minimized = window::is_minimized(id).map(|min| Message::Bar(Event::Minimized(min)));
+    Task::batch([state, minimized])
 }
 
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
@@ -284,7 +295,16 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.bar_drag.armed = None;
             id.map_or_else(Task::none, window::toggle_maximize)
         }
-        Event::Minimize => id.map_or_else(Task::none, |id| window::minimize(id, true)),
+        Event::Minimize => {
+            app.shell.minimized = true;
+            id.map_or_else(Task::none, |id| window::minimize(id, true))
+        }
+        Event::Minimized(minimized) => {
+            if let Some(minimized) = minimized {
+                app.shell.minimized = minimized;
+            }
+            Task::none()
+        }
         // As the desktop's close button: to the tray, or quit.
         Event::Close => app.close_requested(),
         Event::Resize(direction) => {
@@ -373,7 +393,8 @@ pub fn inbox_sync(app: &mut App) {
     }
 }
 
-/// The bar across the window's top, when Yapfast draws it.
+/// The bar across the window's top: Yapfast's frame, or Discord's bar
+/// under the desktop's.
 pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     if bar_height(app) == 0.0 {
         return None;
@@ -389,13 +410,26 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     } else {
         app.sidebar.header.name.clone()
     };
-    let ink = if app.shell.focused {
-        theme.secondary
-    } else {
+    let ink = if !app.shell.focused {
         theme.faint
+    } else if theme.dark {
+        theme.nav_open
+    } else {
+        theme.secondary
     };
+    // The Friends page names the bar "Friends", as Discord's does.
+    let friends = workspace
+        && app.sidebar.header.server.is_none()
+        && crate::friends::dm_screen(app) == Some(DmScreen::Friends);
+    let place = if friends { "Friends".to_owned() } else { place };
     let middle = row![
-        app.look().glyph(Icon::Dm, 16, theme.secondary).boxed(16.0),
+        app.look()
+            .glyph(
+                if friends { Icon::Users } else { Icon::Dm },
+                16,
+                theme.secondary
+            )
+            .boxed(16.0),
         elide(place).size(12).font(BOLD).color(ink).shrink()
     ]
     .spacing(8)
@@ -408,19 +442,20 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
             Icon::ArrowLeft,
             "Back",
             back.then_some(Event::Back),
-            false
+            false,
+            BarSize::Arrow
         ),
         bar_button(
             app,
             Icon::ArrowRight,
             "Forward",
             forward.then_some(Event::Forward),
-            false
+            false,
+            BarSize::Arrow
         ),
     ]
-    .spacing(4)
     .padding(iced::Padding {
-        left: 8.0,
+        left: 12.0,
         ..iced::Padding::ZERO
     })
     .align_y(Alignment::Center);
@@ -433,42 +468,73 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                     Icon::Inbox,
                     "Inbox",
                     Some(Event::Inbox),
-                    app.inbox.is_some()
+                    app.inbox.is_some(),
+                    BarSize::Tool
                 ),
-                bar_button(app, Icon::Help, "Help", Some(Event::Help), false),
+                bar_button(
+                    app,
+                    Icon::Help,
+                    "Help",
+                    Some(Event::Help),
+                    false,
+                    BarSize::Tool
+                ),
             ]
             .spacing(4)
             .padding(iced::Padding {
-                right: 12.0,
+                right: 11.5,
                 ..iced::Padding::ZERO
             }),
         );
     }
-    let maximized = app.shell.maximized;
-    right = right
-        .push(caption_button(app, Icon::Minus, Event::Minimize, false))
-        .push(caption_button(
-            app,
-            if maximized {
-                Icon::Restore
-            } else {
-                Icon::Square
-            },
-            Event::Maximize,
-            false,
-        ))
-        .push(caption_button(app, Icon::X, Event::Close, true));
+    // The window's buttons, and a ground that moves it, only while Yapfast
+    // draws the frame; under the desktop's the bar is Discord's alone.
+    let framed = app.shell.own_title_bar;
+    if framed {
+        let maximized = app.shell.maximized;
+        right = right
+            .push(caption_button(
+                app,
+                Icon::CaptionMin,
+                Event::Minimize,
+                false,
+            ))
+            .push(caption_button(
+                app,
+                if maximized {
+                    Icon::CaptionRestore
+                } else {
+                    Icon::CaptionMax
+                },
+                Event::Maximize,
+                false,
+            ))
+            .push(caption_button(app, Icon::CaptionClose, Event::Close, true));
+    } else if workspace {
+        right = right.padding(iced::Padding {
+            right: 4.0,
+            ..iced::Padding::ZERO
+        });
+    }
     // The bar's ground moves the window; its buttons sit over it. Its
     // moves are messages only once pressed: a pointer passing over it
     // sends none.
-    let mut ground = mouse_area(container(Space::new()).width(Length::Fill).height(HEIGHT))
-        .interaction(Interaction::Idle)
-        .on_press(Message::Bar(Event::Press))
-        .on_release(Message::Bar(Event::Release))
-        .on_double_click(Message::Bar(Event::Maximize));
-    if app.bar_drag.armed.is_some() {
-        ground = ground.on_move(|at| Message::Bar(Event::Moved(at)));
-    }
+    let ground: Element<'_, Message> = if framed {
+        let mut ground = mouse_area(container(Space::new()).width(Length::Fill).height(HEIGHT))
+            .interaction(Interaction::Idle)
+            .on_press(Message::Bar(Event::Press))
+            .on_release(Message::Bar(Event::Release))
+            .on_double_click(Message::Bar(Event::Maximize));
+        if app.bar_drag.armed.is_some() {
+            ground = ground.on_move(|at| Message::Bar(Event::Moved(at)));
+        }
+        ground.into()
+    } else {
+        container(Space::new())
+            .width(Length::Fill)
+            .height(HEIGHT)
+            .into()
+    };
     let rail = theme.rail;
     let bar = stack![
         ground,
@@ -490,27 +556,58 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     )
 }
 
-/// A button in the bar's own row: a 16 px glyph on a 4 px rounded ground,
-/// its label in a tip below.
+/// The bar's buttons: Discord draws the back and forward arrows 16 px in
+/// a 24 px box and the inbox and help 18 px in a 32 px one.
+#[derive(Clone, Copy)]
+enum BarSize {
+    Arrow,
+    Tool,
+}
+
+impl BarSize {
+    fn width(self) -> f32 {
+        match self {
+            BarSize::Arrow => 24.0,
+            BarSize::Tool => 32.0,
+        }
+    }
+
+    fn glyph(self) -> u32 {
+        match self {
+            BarSize::Arrow => 16,
+            BarSize::Tool => 18,
+        }
+    }
+}
+
+/// A button in the bar's own row: a glyph on a 4 px rounded ground, its
+/// label in a tip below.
 fn bar_button<'a>(
     app: &'a App,
     icon: Icon,
     label: &'static str,
     event: Option<Event>,
     active: bool,
+    size: BarSize,
 ) -> Element<'a, Message> {
     let theme = &app.theme;
     let enabled = event.is_some();
     let rest_ink = if !enabled {
-        theme.faint
+        faded(theme.secondary, 0.3)
     } else if active {
         theme.text
     } else {
         theme.secondary
     };
-    let base = app.look().glyph(icon, 16, rest_ink).boxed(16.0);
+    let glyph = size.glyph();
+    let box_size = glyph as f32;
+    let base = app.look().glyph(icon, glyph, rest_ink).boxed(box_size);
     let face: Element<'_, Message> = if enabled && !active {
-        Hover::new(base, app.look().glyph(icon, 16, theme.text).boxed(16.0)).into()
+        Hover::new(
+            base,
+            app.look().glyph(icon, glyph, theme.text).boxed(box_size),
+        )
+        .into()
     } else {
         base.into()
     };
@@ -524,7 +621,7 @@ fn bar_button<'a>(
     };
     let face = button(container(face).center(Length::Fill))
         .padding(0)
-        .width(28)
+        .width(size.width())
         .height(24)
         .on_press_maybe(event.map(Message::Bar))
         .style(lit_style(rest, lit, 4.0));
@@ -537,39 +634,50 @@ fn bar_button<'a>(
         .into()
 }
 
-/// The window's minimize, maximize and close: close lights red.
+/// The window's minimize, maximize and close: close lights red. The three
+/// sit 2 px nearer the edge than their 36 px boxes put them, as Discord's
+/// do, so the close box is 2 px narrower and its glyph keeps its place.
 fn caption_button(app: &App, icon: Icon, event: Event, close: bool) -> Element<'_, Message> {
     let theme = &app.theme;
+    let size = CAPTION_GLYPH as f32;
     let base = app
         .look()
         .glyph(icon, CAPTION_GLYPH, theme.secondary)
-        .boxed(12.0);
+        .boxed(size);
     let face: Element<'_, Message> = if close {
         Hover::new(
             base,
             app.look()
                 .glyph(icon, CAPTION_GLYPH, theme.on_danger)
-                .boxed(12.0),
+                .boxed(size),
         )
         .into()
     } else {
         base.into()
     };
     let lit = if close { theme.danger } else { theme.hover };
-    button(container(face).center(Length::Fill))
-        .padding(0)
-        .width(CAPTION)
-        .height(HEIGHT)
-        .on_press(Message::Bar(event))
-        .style(lit_style(None, lit, 0.0))
-        .into()
+    let (width, inset) = if close {
+        (CAPTION - 2.0, 2.0)
+    } else {
+        (CAPTION, 0.0)
+    };
+    button(container(face).center(Length::Fill).padding(iced::Padding {
+        left: inset,
+        ..iced::Padding::ZERO
+    }))
+    .padding(0)
+    .width(width)
+    .height(HEIGHT)
+    .on_press(Message::Bar(event))
+    .style(lit_style(None, lit, 0.0))
+    .into()
 }
 
 /// The edges and corners that resize a window without the desktop's
 /// frame, while it isn't maximized: a layer over the window that only
 /// they take the pointer in.
 pub fn resize_edges(app: &App) -> Option<Element<'_, Message>> {
-    if bar_height(app) == 0.0 || app.shell.maximized {
+    if !app.shell.own_title_bar || bar_height(app) == 0.0 || app.shell.maximized {
         return None;
     }
     use window::Direction;
@@ -711,7 +819,17 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             .height(Length::Fill)
             .into()
     };
-    let (raised, line) = (theme.raised, theme.line);
+    let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+    let decorated =
+        app.themes.decorates(&theme.id, surface) || theme.package_paint(surface.ground()).is_some();
+    let (raised, line) = (
+        if decorated {
+            iced::Color::TRANSPARENT
+        } else {
+            theme.raised
+        },
+        theme.line,
+    );
     let panel = container(column![
         head,
         controls::bar(theme.line, Length::Fill, 1),
@@ -721,7 +839,8 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
     // `window` is the room under the bar already: the panel starts 4 px
     // under it and stops 12 px over the window's foot.
     .height((app.window.height - 4.0 - 12.0).min(INBOX_MOST))
-    .style(move |_| crate::style::panel(raised, line, 8.0));
+    .style(move |_| crate::style::surface_panel(theme, "popout", raised, line, 8.0));
+    let panel = crate::theme_art::surface(panel, app.ctx(), surface);
     let at = Point::new(app.window.width - INBOX_WIDTH - 8.0, HEIGHT + 4.0);
     Some(
         stack![

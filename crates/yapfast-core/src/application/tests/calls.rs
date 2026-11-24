@@ -465,11 +465,21 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
         sounds(&app.dispatch(Action::Voice(voice::Command::Deafen(false)))),
         [Sound::Undeafen]
     );
+    // Muted before the deafening, and so after it.
     assert!(app.state.voice.muted);
     // Unmuting while deafened undeafens too.
     app.dispatch(Action::Voice(voice::Command::Deafen(true)));
     assert_eq!(
         sounds(&app.dispatch(Action::Voice(voice::Command::Mute(false)))),
+        [Sound::Undeafen]
+    );
+    assert!(!app.state.voice.muted && !app.state.voice.deafened);
+    // Deafening mutes one who talks, and undeafening gives the microphone
+    // back, as Discord's client does.
+    app.dispatch(Action::Voice(voice::Command::Deafen(true)));
+    assert!(app.state.voice.muted && app.state.voice.deafened);
+    assert_eq!(
+        sounds(&app.dispatch(Action::Voice(voice::Command::Deafen(false)))),
         [Sound::Undeafen]
     );
     assert!(!app.state.voice.muted && !app.state.voice.deafened);
@@ -480,9 +490,28 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
     // The preference that unmutes on joining does so without a sound.
     assert!(app.dispatch(Action::UnmuteOnJoin).is_empty());
     assert!(!app.state.voice.muted);
-    // And the one that deafens, which mutes as well.
-    assert!(app.dispatch(Action::DeafenOnJoin).is_empty());
+    // And the one that deafens, which mutes as well, until undeafened.
+    assert!(
+        app.dispatch(Action::DeafenOnJoin { unmuted: false })
+            .is_empty()
+    );
     assert!(app.state.voice.muted && app.state.voice.deafened);
+    app.dispatch(Action::Voice(voice::Command::Deafen(false)));
+    assert!(!app.state.voice.muted, "unmuted before the deafening");
+    // Joined muted and deafened, undeafening leaves the mute; with the
+    // preference to join unmuted, it turns the microphone on.
+    for unmuted in [false, true] {
+        app.dispatch(Action::Voice(voice::Command::Mute(true)));
+        app.dispatch(Action::DeafenOnJoin { unmuted });
+        assert!(app.state.voice.muted && app.state.voice.deafened);
+        app.dispatch(Action::Voice(voice::Command::Deafen(false)));
+        assert_eq!(app.state.voice.muted, !unmuted);
+    }
+    // Muting while deafened is the user's own mute, which stays.
+    app.dispatch(Action::Voice(voice::Command::Deafen(true)));
+    app.dispatch(Action::Voice(voice::Command::Mute(true)));
+    app.dispatch(Action::Voice(voice::Command::Deafen(false)));
+    assert!(app.state.voice.muted && !app.state.voice.deafened);
     assert!(app.dispatch(Action::Logout).is_empty());
     assert!(!app.state.preview);
     assert!(!app.state.voice.active());
@@ -685,10 +714,18 @@ fn calls_sound_as_people_come_and_go_but_not_while_reconnecting_or_ringing() {
         [Effect::Backend(Command::Voice(voice::Command::Mute(false)))]
     ));
     assert!(matches!(
-        app.dispatch(Action::DeafenOnJoin).as_slice(),
+        app.dispatch(Action::DeafenOnJoin { unmuted: false })
+            .as_slice(),
         [Effect::Backend(Command::Voice(voice::Command::Deafen(
             true
         )))]
+    ));
+    assert!(matches!(
+        app.dispatch(Action::DeafenOnJoin { unmuted: true })
+            .as_slice(),
+        [Effect::Backend(Command::Voice(
+            voice::Command::DeafenUnmuted
+        ))]
     ));
 }
 

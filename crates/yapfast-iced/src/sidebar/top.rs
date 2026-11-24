@@ -10,9 +10,9 @@ use crate::{
     app::Message,
     controls::{bar, lit_style},
     elide::elide,
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, faded, rounded},
+    style::{faded, rounded},
     widgets::Pic,
 };
 
@@ -21,14 +21,39 @@ use super::{
     INSET, INVITE,
 };
 
+/// The number in a server's Boost level badge, measured (237, 237, 239).
+const TIER_INK: Color = Color::from_rgb(237.0 / 255.0, 237.0 / 255.0, 239.0 / 255.0);
+
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
-    /// or the DMs' search field, over the outline; with a banner, the
+    /// or the DMs' search field (or, with its setting on, Discord's Find or
+    /// start a conversation button), over the outline; with a banner, the
     /// header grows over it, shaded at its top, with no line under it.
     pub(super) fn side_header_view(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let inner: Element<'a, Message> = match &head.server {
+            // With its setting on, as Discord's: a button that looks like a
+            // field and opens the quick switcher, which Ctrl+K opens too.
+            None if self.cx.layout.dm_search_switcher => {
+                let (ground, hint) = (theme.field, theme.muted);
+                button(
+                    text("Find or start a conversation")
+                        .size(13)
+                        .color(hint)
+                        .wrapping(text::Wrapping::None),
+                )
+                .padding([8, 10])
+                .width(Length::Fill)
+                .on_press(Message::Side(Event::FindConversation))
+                .style(move |_, _| button::Style {
+                    background: Some(ground.into()),
+                    border: crate::style::round(6),
+                    text_color: hint,
+                    ..button::Style::default()
+                })
+                .into()
+            }
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);
@@ -47,6 +72,24 @@ impl<'a> super::View<'a> {
                     })
                     .into()
             }
+            // As Slint: a server whose name opens no menu has it as a plain
+            // title, 16 px bold in the window's face.
+            // Over a banner it's white, as the name with a menu is.
+            Some(_) if !head.menu => container(
+                text(head.name.as_str())
+                    .size(16)
+                    .font(theme.font("small", crate::fonts::BOLD))
+                    .color(if head.banner.is_some() {
+                        Color::WHITE
+                    } else {
+                        theme.text
+                    })
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .padding(iced::Padding::ZERO.left(8))
+            .height(Length::Fill)
+            .align_y(Alignment::Center)
+            .into(),
             Some(_) => {
                 let mut line = row![self.server_name_button()].spacing(INSET);
                 if head.invite {
@@ -75,12 +118,19 @@ impl<'a> super::View<'a> {
         };
         let height = HEADER + BANNER;
         let mut layers = stack![];
-        let width = super::width(self.cx.layout);
+        let width = super::width(self.cx.layout, self.cx.look.theme);
         if let Some(picture) = self.cx.picture(banner, width as u32, height as u32, true) {
-            layers = layers.push(
-                Pic::new(picture, iced::Size::new(width, height))
-                    .radius_each([12.0, 0.0, 0.0, 0.0]),
-            );
+            // At the room the header really has: a theme's frame round the
+            // list (Phosphor's box lines) leaves it narrower than the list.
+            layers = layers.push(iced::widget::responsive(move |size| {
+                Pic::new(
+                    picture.clone(),
+                    iced::Size::new(size.width.min(width), height),
+                )
+                .radius_each([12.0, 0.0, 0.0, 0.0])
+                .pane_corners()
+                .into()
+            }));
         }
         let shade = Background::Gradient(
             iced::gradient::Linear::new(iced::Degrees(180.0))
@@ -90,14 +140,9 @@ impl<'a> super::View<'a> {
         );
         layers = layers
             .push(
-                container(Space::new())
+                container(crate::theme_art::pane_fill(shade, [12.0, 0.0, 0.0, 0.0]))
                     .width(Length::Fill)
-                    .height(HEADER)
-                    .style(move |_| container::Style {
-                        background: Some(shade),
-                        border: crate::style::round(corners([12.0, 0.0, 0.0, 0.0])),
-                        ..Default::default()
-                    }),
+                    .height(HEADER),
             )
             .push(bar_);
         layers.width(Length::Fill).height(height).into()
@@ -153,14 +198,14 @@ impl<'a> super::View<'a> {
             .height(Length::Fill);
         let words = row![
             text("Boost Goal")
-                .size(14)
+                .size(14.0)
                 .font(SEMIBOLD)
                 .color(theme.text)
                 .wrapping(text::Wrapping::None)
                 .width(Length::Fill),
             text(format!("{boosts}/{BOOST_GOAL} Boosts"))
-                .size(14)
-                .font(MEDIUM)
+                .size(theme.type_size("small", 14.0))
+                .font(theme.font("small", MEDIUM))
                 .color(faded(theme.text, 0.7))
                 .wrapping(text::Wrapping::None),
             self.cx.look.glyph(Icon::ChevronRight, 16, theme.muted),
@@ -169,22 +214,25 @@ impl<'a> super::View<'a> {
         .padding([0, 8])
         .height(BOOST_PILL)
         .align_y(Alignment::Center);
-        let hover = theme.hover;
+        // Discord's (32,32,36) on its dark theme: the field colour, a step
+        // above the sheet.
+        let ground = theme.field;
         let pill = container(stack![pill, words])
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(hover, BOOST_PILL / 2.0));
+            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
         column![
             container(pill)
                 .padding(Padding {
-                    top: 4.0,
-                    right: 4.0,
+                    top: 16.0,
+                    right: 13.0,
                     bottom: 0.0,
                     left: 12.0,
                 })
                 .height(BOOST_ROW - 1.0),
             container(bar(theme.outline, Length::Fill, 1)).padding(Padding {
                 left: INSET,
+                right: 9.0,
                 ..Padding::ZERO
             })
         ]
@@ -200,14 +248,14 @@ impl<'a> super::View<'a> {
             1 => "1 Event".to_owned(),
             count => format!("{count} Events"),
         };
-        let (hover, muted) = (theme.hover, theme.muted);
+        let (hover, ink) = (theme.hover, theme.channel_read);
         let face = button(
             row![
-                self.cx.look.glyph(Icon::Calendar, 20, muted),
+                self.cx.look.glyph(Icon::CalendarFilled, 20, ink),
                 text(label)
-                    .size(14)
-                    .font(MEDIUM)
-                    .color(muted)
+                    .size(theme.type_size("body", 14.0))
+                    .font(theme.font("body", MEDIUM))
+                    .color(ink)
                     .wrapping(text::Wrapping::None)
             ]
             .spacing(8)
@@ -249,15 +297,34 @@ impl<'a> super::View<'a> {
         };
         let mut face = row![].spacing(10).align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
-        // that is only a Community server with the Community badge.
+        // that is only a Community server with the Community badge; any
+        // other shows its boost level in a scallop.
         if head.verified {
             face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
             face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
+        } else if let Some(tier) = head.tier {
+            face = face.push(
+                stack![
+                    self.cx.look.glyph(Icon::Scallop, 18, theme.nav_read),
+                    container(text(tier.to_string()).size(11).font(BOLD).color(TIER_INK))
+                        .center(Length::Fill)
+                ]
+                .width(18)
+                .height(18),
+            );
         }
         face = face.push(
             row![
-                elide(head.name.as_str()).size(15).font(SEMIBOLD).color(ink),
+                crate::theme_effects::slot(
+                    elide(theme.heading(&head.name).into_owned())
+                        .size(theme.header_size(15.0))
+                        .font(theme.header_font(BOLD))
+                        .color(ink),
+                    self.cx,
+                    yapfast_core::themes::package::Slot::ServerName,
+                    None,
+                ),
                 self.cx.look.glyph(
                     if open {
                         Icon::ChevronUp
@@ -277,7 +344,7 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified {
+            left: if head.community || head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

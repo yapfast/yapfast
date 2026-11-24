@@ -1,13 +1,8 @@
-//! How a list moves under the wheel and the touchpad: Slint's `Flickable`
-//! (`items/flickable.rs` and its simulations in i-slint-core) with its
-//! constants and Yapfast's changes to it, for the platforms Yapfast runs on
-//! (no rubber band at the ends, no momentum carried into the next gesture).
+//! Mouse wheel motion based on Slint's `Flickable` and direct touchpad scrolling.
 //!
-//! A wheel's notch moves the list its distance over a fixed time on
-//! Flutter's power curve; a notch while one moves adds what was left of
-//! it; a wheel spun fast moves farther for each notch. A touchpad moves
-//! the list with the fingers, and once they lift it goes on at their speed
-//! and slows to a stop as Android's `OverScroller` does.
+//! A wheel notch moves the list on Flutter's power curve. A notch while
+//! one moves adds what was left of it. A wheel spun fast moves farther
+//! for each notch. A touchpad event applies its pixel delta immediately.
 //!
 //! Distances here are how far the list moves its view, down or right
 //! positive, from where it starts.
@@ -27,38 +22,11 @@ const MOST_ACCELERATION: f32 = 6.0;
 /// How long a notch counts towards the wheel's speed: its weight falls by
 /// e in this time.
 const SPEED_MEMORY: Duration = Duration::from_millis(200);
-/// What the fingers move first, which the list doesn't follow, so it
-/// starts without a jump.
-const DISTANCE_THRESHOLD: f32 = 8.0;
 /// How long after it scrolled a list keeps the wheel from what it holds,
 /// while the pointer stays put.
 const SCROLL_FILTER: Duration = Duration::from_millis(800);
-/// How long after it scrolled a list takes a wheel that moves it no more.
-const SHORT_SCROLL_FILTER: Duration = Duration::from_millis(400);
 /// How far, squared, the pointer may move and still count as put.
 const FILTER_DISTANCE_SQUARED: f32 = 4.0;
-/// The slowest the fingers may lift and the list go on, in px a second.
-const SLOWEST_FLING: f32 = 50.0;
-/// The fling's friction.
-const FRICTION: f32 = 0.015;
-/// A lift this long after the fingers' last move finds them stopped.
-const STOPPED: Duration = Duration::from_millis(40);
-
-/// Android's deceleration rate, ln 0.78 / ln 0.9: the power of the wheel's
-/// curve and the fling's spline.
-fn rate() -> f32 {
-    0.78f32.log10() / 0.9f32.log10()
-}
-
-/// What the touchpad is doing as an event comes: its fingers went down,
-/// move, or lifted. A wheel's notch moves.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phase {
-    Started,
-    Moved,
-    Ended,
-}
-
 /// How far a list is scrolled on one axis, and the farthest it goes
 /// (none, or less, when what it holds fits).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -85,16 +53,12 @@ pub struct Rooms {
     pub y: Room,
 }
 
-/// One axis's move over time: a wheel's on its curve or a fling's on
-/// Android's spline (Slint's `AndroidFlick`).
+/// One axis's wheel motion on Flutter's power curve.
 #[derive(Clone, Copy, Debug)]
 struct Glide {
     start: Instant,
-    duration: Duration,
     distance: f32,
-    velocity: f32,
     traveled: f32,
-    wheel: bool,
     done: bool,
 }
 
@@ -103,56 +67,25 @@ impl Glide {
     fn wheel(start: Instant, distance: f32) -> Self {
         Self {
             start,
-            duration: WHEEL_DURATION,
             distance,
-            velocity: distance * rate() / WHEEL_DURATION.as_secs_f32(),
             traveled: 0.0,
-            wheel: true,
             done: false,
         }
     }
 
-    /// Goes on at `velocity` and slows to a stop.
-    fn fling(start: Instant, velocity: f32) -> Self {
-        let (duration, distance) = spline::parameters(velocity, FRICTION);
-        Self {
-            start,
-            duration,
-            distance,
-            velocity,
-            traveled: 0.0,
-            wheel: false,
-            done: false,
+    fn sample(&self, elapsed: Duration) -> f32 {
+        if elapsed >= WHEEL_DURATION {
+            return self.distance;
         }
-    }
-
-    /// Where it is `elapsed` after it started, and how fast it goes.
-    fn sample(&self, elapsed: Duration) -> (f32, f32) {
-        if self.done || elapsed >= self.duration {
-            return (self.distance, 0.0);
-        }
-        if elapsed.is_zero() {
-            return (0.0, self.velocity);
-        }
-        let t = elapsed.as_secs_f32() / self.duration.as_secs_f32();
-        if self.wheel {
-            let rate = rate();
-            (
-                self.distance * (1.0 - (1.0 - t).powf(rate)),
-                self.velocity * (1.0 - t).powf(rate - 1.0),
-            )
-        } else {
-            let (position, slope) = spline::sample(t);
-            (
-                position * self.distance,
-                slope * self.distance / self.duration.as_secs_f32(),
-            )
-        }
+        let t = elapsed.as_secs_f32() / WHEEL_DURATION.as_secs_f32();
+        // Android's deceleration rate, ln(0.78) / ln(0.9).
+        let rate = 0.78f32.log10() / 0.9f32.log10();
+        self.distance * (1.0 - (1.0 - t).powf(rate))
     }
 
     /// What's left of it at `now`.
     fn remaining(&self, now: Instant) -> f32 {
-        self.distance - self.sample(now.saturating_duration_since(self.start)).0
+        self.distance - self.sample(now.saturating_duration_since(self.start))
     }
 
     /// The move from where it was to `now`, held to the end it goes
@@ -163,7 +96,7 @@ impl Glide {
             return 0.0;
         }
         let elapsed = now.saturating_duration_since(self.start);
-        let (position, _) = self.sample(elapsed);
+        let position = self.sample(elapsed);
         let mut by = position - self.traveled;
         self.traveled = position;
         let to = room.offset + by;
@@ -175,57 +108,9 @@ impl Glide {
         if past {
             by = limit - room.offset;
         }
-        self.done = past || elapsed >= self.duration;
+        self.done = past || elapsed >= WHEEL_DURATION;
         by
     }
-}
-
-/// The fingers' last moves, to tell how fast they went as they lifted
-/// (Slint's `IOsVelocityTracker`, Flutter's iOS one): the last three
-/// moves' speeds blended, mostly the oldest's.
-#[derive(Clone, Copy, Debug, Default)]
-struct Tracker {
-    /// Oldest first.
-    samples: [Option<(Instant, Vector)>; 4],
-}
-
-impl Tracker {
-    const WEIGHTS: [f32; 3] = [0.6, 0.35, 0.05];
-
-    fn push(&mut self, time: Instant, delta: Vector) {
-        self.samples.rotate_left(1);
-        self.samples[3] = Some((time, delta));
-    }
-
-    /// Their speed, in px a second, if they still moved at `release`.
-    fn estimate(&self, release: Instant) -> Option<Vector> {
-        let (last, _) = self.samples[3]?;
-        if release.saturating_duration_since(last) > STOPPED {
-            return None;
-        }
-        let segment = |at: usize| match (self.samples[at], self.samples[at - 1]) {
-            (Some((time, delta)), Some((before, _))) => {
-                let seconds = time.saturating_duration_since(before).as_secs_f32();
-                if seconds > 0.0 {
-                    delta * (1.0 / seconds)
-                } else {
-                    Vector::ZERO
-                }
-            }
-            _ => Vector::ZERO,
-        };
-        let [oldest, middle, newest] = Self::WEIGHTS;
-        Some(segment(1) * oldest + segment(2) * middle + segment(3) * newest)
-    }
-}
-
-/// What a touchpad gesture over the list has done so far.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Capture {
-    /// The fingers went down.
-    Start,
-    /// They moved the list.
-    Move,
 }
 
 /// What a wheel event did: whether the list took it, so it goes no
@@ -236,16 +121,27 @@ pub struct Outcome {
     pub moved: Vector,
 }
 
+impl Outcome {
+    const IGNORED: Self = Self {
+        taken: false,
+        moved: Vector::ZERO,
+    };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScrollKind {
+    Wheel,
+    Touchpad,
+}
+
 /// A list's motion under the wheel and the touchpad (Slint's
 /// `FlickableDataInner`), fed the wheel's events and the window's frames.
 #[derive(Clone, Debug, Default)]
 pub struct Flick {
     /// The moves running, across and down.
     glides: [Option<Glide>; 2],
-    capture: Option<Capture>,
-    /// When it last scrolled and where the pointer was.
-    last_scroll: Option<(Instant, Point)>,
-    tracker: Tracker,
+    /// When it last scrolled, where the pointer was, and what moved it.
+    last_scroll: Option<(Instant, Point, ScrollKind)>,
     /// When the wheel's last notch came, the recent notches, each weighing
     /// less with time, and the way they turned.
     notches: Option<(Instant, f32, Vector)>,
@@ -267,127 +163,63 @@ impl Flick {
         self.glides = [None, None];
     }
 
-    /// Whether a wheel event goes to it before what it holds: while the
-    /// fingers move it, and while the pointer stays where it last scrolled
-    /// it, so a list scrolling past a smaller one under the pointer keeps
-    /// the wheel.
+    /// Keeps scrolling this list while the pointer stays where it scrolled
+    /// recently, even if a smaller scrollable moves under the pointer.
     pub fn intercepts(
         &mut self,
         now: Instant,
-        phase: Phase,
         delta: Vector,
         at: Point,
         rooms: Rooms,
+        kind: ScrollKind,
     ) -> bool {
-        match phase {
-            Phase::Started => false,
-            Phase::Ended => self.capture == Some(Capture::Move),
-            Phase::Moved => {
-                if self.capture == Some(Capture::Move) {
-                    return true;
-                }
-                if !allowed(delta, rooms) {
-                    self.last_scroll = None;
-                    if self.capture == Some(Capture::Start) {
-                        self.capture = None;
-                    }
-                    return false;
-                }
-                self.capture.is_none() && self.recently(now, SCROLL_FILTER, at)
-            }
+        if !allowed(delta, rooms) {
+            self.last_scroll = None;
+            return false;
         }
+        self.last_scroll.is_some_and(|(time, from, previous)| {
+            let moved = at - from;
+            kind == previous
+                && now.saturating_duration_since(time) < SCROLL_FILTER
+                && moved.x * moved.x + moved.y * moved.y < FILTER_DISTANCE_SQUARED
+        })
     }
 
-    /// A wheel event at `at`, `delta` the way it moves the view (Slint's
-    /// `process_wheel_event`).
-    pub fn wheel(
-        &mut self,
-        now: Instant,
-        mut delta: Vector,
-        phase: Phase,
-        at: Point,
-        rooms: Rooms,
-    ) -> Outcome {
-        let ignored = Outcome {
-            taken: false,
-            moved: Vector::ZERO,
-        };
-        if phase != Phase::Started && delta != Vector::ZERO && !allowed(delta, rooms) {
-            // Not this list's way: it lets go of it.
-            *self = Self {
-                notches: self.notches,
-                ..Self::default()
-            };
-            return ignored;
+    /// Animates a mouse wheel notch, carrying over the distance still queued.
+    pub fn wheel(&mut self, now: Instant, delta: Vector, at: Point, rooms: Rooms) -> Outcome {
+        if !allowed(delta, rooms) {
+            return Outcome::IGNORED;
         }
-        let wheel = self.capture.is_none() && phase == Phase::Moved;
-        let mut moved = Vector::ZERO;
-        let mut rooms = rooms;
-        if wheel {
-            delta = self.accelerate(now, delta);
-            // The move running catches up with now, and what it left adds
-            // to the next.
-            moved = self.frame(now, rooms);
-            rooms.x.offset += moved.x;
-            rooms.y.offset += moved.y;
-            if let Some(glide) = &self.glides[0] {
-                delta.x += glide.remaining(now);
-            }
-            if let Some(glide) = &self.glides[1] {
-                delta.y += glide.remaining(now);
-            }
+        let mut delta = self.accelerate(now, delta);
+        let moved = self.frame(now, rooms);
+        if let Some(glide) = &self.glides[0] {
+            delta.x += glide.remaining(now);
         }
-        if phase != Phase::Ended {
-            self.stop();
+        if let Some(glide) = &self.glides[1] {
+            delta.y += glide.remaining(now);
         }
-        match phase {
-            Phase::Started => {
-                self.tracker = Tracker::default();
-                self.capture = Some(Capture::Start);
-                self.last_scroll = Some((now, at));
-            }
-            Phase::Moved if self.capture.is_some() => {
-                if self.capture == Some(Capture::Start) {
-                    let less = |d: f32| {
-                        if d >= 0.0 {
-                            (d - DISTANCE_THRESHOLD).max(0.0)
-                        } else {
-                            (d + DISTANCE_THRESHOLD).min(0.0)
-                        }
-                    };
-                    delta = Vector::new(less(delta.x), less(delta.y));
-                }
-                self.tracker.push(now, delta);
-                moved = Vector::new(rooms.x.moved(delta.x), rooms.y.moved(delta.y));
-                self.last_scroll = Some((now, at));
-                self.capture = Some(Capture::Move);
-            }
-            Phase::Moved => {
-                let glide = |distance: f32| (distance != 0.0).then(|| Glide::wheel(now, distance));
-                self.glides = [glide(delta.x), glide(delta.y)];
-                self.last_scroll = Some((now, at));
-                return Outcome { taken: true, moved };
-            }
-            Phase::Ended => {
-                if self.capture == Some(Capture::Move) {
-                    self.release(now);
-                }
-                self.capture = None;
-                return Outcome {
-                    taken: self.recently(now, SHORT_SCROLL_FILTER, at),
-                    moved,
-                };
-            }
+        let glide = |distance: f32| (distance != 0.0).then(|| Glide::wheel(now, distance));
+        self.glides = [glide(delta.x), glide(delta.y)];
+        self.last_scroll = Some((now, at, ScrollKind::Wheel));
+        Outcome { taken: true, moved }
+    }
+
+    /// Applies this pixel delta and cancels any queued wheel motion.
+    pub fn touchpad(&mut self, now: Instant, delta: Vector, at: Point, rooms: Rooms) -> Outcome {
+        if !allowed(delta, rooms) {
+            return Outcome::IGNORED;
         }
-        if moved != Vector::ZERO
-            || (phase != Phase::Started && self.recently(now, SHORT_SCROLL_FILTER, at))
-        {
-            Outcome { taken: true, moved }
-        } else {
-            if phase != Phase::Started {
-                self.last_scroll = None;
-            }
-            ignored
+        self.stop();
+        self.notches = None;
+        self.last_scroll = Some((now, at, ScrollKind::Touchpad));
+        let moved = Vector::new(rooms.x.moved(delta.x), rooms.y.moved(delta.y));
+        Outcome { taken: true, moved }
+    }
+
+    /// Lets the next touchpad gesture go to the list's contents first.
+    pub fn end_touchpad(&mut self) {
+        if let Some((_, _, ScrollKind::Touchpad)) = self.last_scroll {
+            self.last_scroll = None;
         }
     }
 
@@ -412,25 +244,7 @@ impl Flick {
         by
     }
 
-    /// The fingers lifted: the list goes on at their speed, if fast enough.
-    fn release(&mut self, now: Instant) {
-        let velocity = self.tracker.estimate(now).unwrap_or(Vector::ZERO);
-        let fling = |speed: f32| (speed.abs() >= SLOWEST_FLING).then(|| Glide::fling(now, speed));
-        self.glides = [fling(velocity.x), fling(velocity.y)];
-    }
-
-    /// Whether it scrolled within `timeout` with the pointer where it is.
-    fn recently(&self, now: Instant, timeout: Duration, at: Point) -> bool {
-        self.last_scroll.is_some_and(|(time, from)| {
-            let moved = at - from;
-            now.saturating_duration_since(time) < timeout
-                && moved.x * moved.x + moved.y * moved.y < FILTER_DISTANCE_SQUARED
-        })
-    }
-
-    /// Scales a wheel's `delta` by how fast the wheel spins. Only whole
-    /// notches count: touchpads that send no phases scroll by less at a
-    /// time, and keep their own pace.
+    /// Scales a line delta by how fast the wheel spins.
     fn accelerate(&mut self, now: Instant, delta: Vector) -> Vector {
         let notches = (delta.x * delta.x + delta.y * delta.y).sqrt() / WHEEL_NOTCH;
         if notches < 1.0 {
@@ -449,73 +263,6 @@ impl Flick {
         self.notches = Some((now, count, delta));
         let speed = count / SPEED_MEMORY.as_secs_f32();
         delta * (speed / ACCELERATION_START).clamp(1.0, MOST_ACCELERATION)
-    }
-}
-
-/// Android's `OverScroller` fling spline (android-15.0.0_r1), as Slint's
-/// `animations/simulations/android/spline.rs`.
-mod spline {
-    use std::time::Duration;
-
-    const RATE: f32 = 2.358_201_7;
-    const PHYSICAL_COEFFICIENT: f32 = 9.80665 * 39.37 * 160.0 * 0.84;
-
-    /// Where the fling is at each hundredth of its time, of its distance.
-    const POSITION: [f32; 101] = {
-        let mut table = [0.0; 101];
-        let mut i = 0;
-        let mut low = 0.0;
-        while i < 100 {
-            let alpha = i as f32 / 100.0;
-            let mut high = 1.0;
-            loop {
-                let x = (low + high) / 2.0;
-                let coefficient = 3.0 * x * (1.0 - x);
-                let tx = coefficient * ((1.0 - x) * 0.175 + x * 0.35) + x * x * x;
-                let error = tx - alpha;
-                if error > -0.00001 && error < 0.00001 {
-                    table[i] = coefficient * ((1.0 - x) * 0.5 + x) + x * x * x;
-                    break;
-                }
-                if tx > alpha {
-                    high = x;
-                } else {
-                    low = x;
-                }
-            }
-            i += 1;
-        }
-        table[100] = 1.0;
-        table
-    };
-
-    /// How long a fling at `velocity` takes and how far it goes.
-    pub fn parameters(velocity: f32, friction: f32) -> (Duration, f32) {
-        if velocity == 0.0 || !velocity.is_finite() || !friction.is_finite() || friction <= 0.0 {
-            return (Duration::ZERO, 0.0);
-        }
-        let deceleration =
-            f64::from(0.35 * velocity.abs() / (friction * PHYSICAL_COEFFICIENT)).ln();
-        let rate = f64::from(RATE);
-        let milliseconds = (1000.0 * (deceleration / (rate - 1.0)).exp()) as u64;
-        let distance =
-            f64::from(friction * PHYSICAL_COEFFICIENT) * (rate / (rate - 1.0) * deceleration).exp();
-        (
-            Duration::from_millis(milliseconds),
-            (distance * f64::from(velocity.signum())) as i32 as f32,
-        )
-    }
-
-    /// Where it is at `t` of its time, of its distance, and how fast.
-    pub fn sample(t: f32) -> (f32, f32) {
-        let index = (100.0 * t) as usize;
-        if index >= 100 {
-            return (1.0, 0.0);
-        }
-        let lower = index as f32 / 100.0;
-        let upper = (index + 1) as f32 / 100.0;
-        let slope = (POSITION[index + 1] - POSITION[index]) / (upper - lower);
-        (POSITION[index] + (t - lower) * slope, slope)
     }
 }
 
@@ -551,13 +298,7 @@ mod tests {
     }
 
     fn notch(flick: &mut Flick, now: Instant, offset: f32) -> Outcome {
-        flick.wheel(
-            now,
-            Vector::new(0.0, WHEEL_NOTCH),
-            Phase::Moved,
-            AT,
-            rooms(offset),
-        )
+        flick.wheel(now, Vector::new(0.0, WHEEL_NOTCH), AT, rooms(offset))
     }
 
     #[test]
@@ -629,80 +370,12 @@ mod tests {
                 max: 1030.0,
             },
         };
-        flick.wheel(
-            start,
-            Vector::new(0.0, 60.0),
-            Phase::Moved,
-            AT,
-            room(1000.0),
-        );
+        flick.wheel(start, Vector::new(0.0, 60.0), AT, room(1000.0));
         let mut offset = 1000.0;
         for frame in 1..20 {
             offset += flick.frame(start + ms(frame * 16), room(offset)).y;
         }
         assert_eq!(offset, 1030.0);
-        assert!(!flick.moving());
-    }
-
-    #[test]
-    fn fingers_move_the_list_then_its_fling_slows_and_stops() {
-        let start = Instant::now();
-        let mut flick = Flick::default();
-        let begun = flick.wheel(start, Vector::new(0.0, 3.0), Phase::Started, AT, rooms(0.0));
-        assert_eq!(begun.moved, Vector::ZERO, "the first move only begins it");
-        let mut offset = 0.0;
-        for frame in 1..=10u64 {
-            let outcome = flick.wheel(
-                start + ms(frame * 10),
-                Vector::new(0.0, 20.0),
-                Phase::Moved,
-                AT,
-                rooms(offset),
-            );
-            assert!(outcome.taken);
-            offset += outcome.moved.y;
-            assert!(
-                !flick.moving(),
-                "it follows the fingers, with no frames of its own"
-            );
-        }
-        // 20 px each 10 ms, less the first 8 px.
-        assert_eq!(offset, 192.0);
-        let lift = start + ms(105);
-        flick.wheel(lift, Vector::ZERO, Phase::Ended, AT, rooms(offset));
-        assert!(flick.moving(), "2000 px a second goes on");
-        let mut last = f32::MAX;
-        let mut frame = 1;
-        while flick.moving() {
-            let step = flick.frame(lift + ms(frame * 16), rooms(offset)).y;
-            assert!(
-                step >= 0.0 && step <= last + 0.5,
-                "slows down: {step} after {last}"
-            );
-            last = step;
-            offset += step;
-            frame += 1;
-            assert!(frame < 500, "stops");
-        }
-        assert!(offset > 300.0, "{offset}");
-        assert!(last < 2.0, "slow at the end: {last}");
-    }
-
-    #[test]
-    fn fingers_that_stop_before_lifting_fling_nothing() {
-        let start = Instant::now();
-        let mut flick = Flick::default();
-        flick.wheel(start, Vector::new(0.0, 3.0), Phase::Started, AT, rooms(0.0));
-        for frame in 1..=5u64 {
-            flick.wheel(
-                start + ms(frame * 10),
-                Vector::new(0.0, 20.0),
-                Phase::Moved,
-                AT,
-                rooms(0.0),
-            );
-        }
-        flick.wheel(start + ms(200), Vector::ZERO, Phase::Ended, AT, rooms(0.0));
         assert!(!flick.moving());
     }
 
@@ -727,44 +400,29 @@ mod tests {
     fn a_wheel_across_a_list_that_only_goes_down_is_not_its() {
         let start = Instant::now();
         let mut flick = Flick::default();
-        let outcome = flick.wheel(start, Vector::new(60.0, 0.0), Phase::Moved, AT, rooms(0.0));
+        let outcome = flick.wheel(start, Vector::new(60.0, 0.0), AT, rooms(0.0));
         assert!(!outcome.taken);
         assert!(!flick.moving());
         // While the pointer stays where it scrolled, the list keeps the wheel.
         notch(&mut flick, start, 0.0);
-        assert!(flick.intercepts(
-            start + ms(500),
-            Phase::Moved,
-            Vector::new(0.0, 60.0),
-            AT,
-            rooms(0.0)
-        ));
+        let delta = Vector::new(0.0, 60.0);
+        let kind = ScrollKind::Wheel;
+        assert!(flick.intercepts(start + ms(500), delta, AT, rooms(0.0), kind));
         let moved = Point::new(AT.x + 3.0, AT.y);
-        assert!(!flick.intercepts(
-            start + ms(500),
-            Phase::Moved,
-            Vector::new(0.0, 60.0),
-            moved,
-            rooms(0.0)
-        ));
-        assert!(!flick.intercepts(
-            start + ms(900),
-            Phase::Moved,
-            Vector::new(0.0, 60.0),
-            AT,
-            rooms(0.0)
-        ));
+        assert!(!flick.intercepts(start + ms(500), delta, moved, rooms(0.0), kind));
+        assert!(!flick.intercepts(start + ms(900), delta, AT, rooms(0.0), kind));
     }
 
     #[test]
-    fn the_spline_runs_from_nothing_to_all_of_it() {
-        assert!(spline::sample(0.0).0 < 0.001);
-        assert_eq!(spline::sample(1.0), (1.0, 0.0));
-        let (half, _) = spline::sample(0.5);
-        assert!(half > 0.5 && half < 1.0, "{half}");
-        let (duration, distance) = spline::parameters(2000.0, FRICTION);
-        assert!(duration > ms(500) && duration < ms(5000), "{duration:?}");
-        assert!(distance > 100.0, "{distance}");
-        assert_eq!(spline::parameters(-2000.0, FRICTION).1, -distance);
+    fn a_touchpad_release_lets_the_next_gesture_reach_nested_content() {
+        let now = Instant::now();
+        let mut flick = Flick::default();
+        let delta = Vector::new(0.0, 2.0);
+        let kind = ScrollKind::Touchpad;
+
+        flick.touchpad(now, delta, AT, rooms(0.0));
+        assert!(flick.intercepts(now, delta, AT, rooms(2.0), kind));
+        flick.end_touchpad();
+        assert!(!flick.intercepts(now, delta, AT, rooms(2.0), kind));
     }
 }

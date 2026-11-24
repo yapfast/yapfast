@@ -20,7 +20,7 @@ use yapfast_core::{
 use crate::{
     app::{App, Message},
     controls::{self, lit_style},
-    fonts::{BOLD, MEDIUM},
+    fonts::{MEDIUM, SEMIBOLD},
     looks::Status,
     markdown::{self, Body},
     people::StatusInk,
@@ -37,7 +37,7 @@ pub const HEIGHT: f32 = 50.0;
 /// A DM's avatar, and the icons before a name.
 const AVATAR: f32 = 26.0;
 const ROOM_ICON: u32 = 22;
-pub const BUTTON: f32 = 32.0;
+pub const BUTTON: f32 = 30.0;
 const GLYPH: u32 = 20;
 
 /// What the header shows of the open room.
@@ -66,7 +66,8 @@ pub struct Header {
     pub can_join: bool,
     /// A Discord DM's person who isn't a friend: their id, and whether
     /// they asked to be one (Accept) or not yet (Add Friend). None once
-    /// this account asked, which the profile card says.
+    /// this account asked, which the profile card says. The DM's opening
+    /// offers it (Discord's header has no such button).
     pub befriend: Option<(String, bool)>,
     /// A voice channel with a chat: whether the chat shows.
     pub voice_chat: Option<bool>,
@@ -77,6 +78,9 @@ pub struct Header {
     /// Add people: to a DM (true) or a group.
     pub add_people: Option<bool>,
     pub members_available: bool,
+    /// How many members the selected room reports, for theme chrome that
+    /// writes the count beside its topic.
+    pub members_n: u64,
     pub members: String,
     pub profile_available: bool,
     pub search: Option<String>,
@@ -105,13 +109,26 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
     let dm_call = room.direct && room.capabilities.dm_calls && !room.request;
     let voice_here = state.voice.room.as_deref() == Some(room.id.as_str());
     let notify = yapfast_core::application::MenuChoice::ChannelNotifications;
+    // Discord's forum post has its bell too, which mutes the post.
+    let post = parent.as_ref().is_some_and(|(_, _, forum)| *forum)
+        && !state.preview
+        && state.discord_user.is_some();
     Header {
         name: room.name.clone(),
         direct: room.direct,
         one_to_one: room.person.is_some(),
         thread: room.parent.is_some(),
         avatar: room.avatar.clone(),
-        presence: room.presence,
+        // As in the DM list: Discord sends the presence of friends and of
+        // those sharing a server, and anyone else in a one-to-one DM shows
+        // offline.
+        presence: if room.person.is_some()
+            && room.network == yapfast_core::network::Network::Discord
+        {
+            room.presence.or(Some(Presence::Offline))
+        } else {
+            room.presence
+        },
         icon: (!room.direct).then(|| room_icon(room)),
         parent,
         topic,
@@ -134,7 +151,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
                 _ => None,
             }),
         can_threads: state.threads_channel().is_some(),
-        can_notify: state.menu_choices(&room.id).contains(&notify),
+        can_notify: post || state.menu_choices(&room.id).contains(&notify),
         muted: room.muted,
         can_pin: state
             .conversation_that(|can| can.pins)
@@ -142,6 +159,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         add_people: (state.discord_online && state.dm_that(|can| can.group_dms).is_some())
             .then_some(room.person.is_some()),
         members_available: state.lists_members(),
+        members_n: room.members,
         members: match room.members {
             _ if room.forum => String::new(),
             0 => "Members".to_owned(),
@@ -185,24 +203,35 @@ fn one_line(topic: &Topic, link: u32) -> Body {
     body
 }
 
+/// The narrowest window that shows the member list beside the timeline.
+pub const MEMBERS_MIN_WINDOW: f32 = 1000.0;
+
 /// Whether the member list shows beside the timeline.
 pub fn members_shown(app: &App) -> bool {
     app.header.members_available
         && !app.roster.hidden
+        // As Discord: a window too narrow to keep the conversation a
+        // usable width hides the list (the header's button still opens
+        // it once the window is wider).
+        && app.window.width >= MEMBERS_MIN_WINDOW
         && !crate::thread::aside_shown(app)
         && !crate::search::search_shown(app)
 }
 
 /// Discord's small round dot between a name and its topic, with room
 /// either side.
-fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
-    let ink = iced::Color {
-        a: theme.faint.a * 0.75,
-        ..theme.faint
+pub fn dot(theme: &crate::theme::Theme) -> Element<'static, Message> {
+    let ink = if theme.bonfire {
+        crate::style::hex(0x323238)
+    } else {
+        iced::Color {
+            a: theme.faint.a * 0.75,
+            ..theme.faint
+        }
     };
-    container(container(Space::new().width(3).height(3)).style(move |_| rounded(ink, 2)))
-        .padding([0, 2])
-        .width(9)
+    container(container(Space::new().width(4).height(4)).style(move |_| rounded(ink, 2)))
+        .padding([0, 1])
+        .width(6)
         .into()
 }
 
@@ -224,26 +253,48 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if let Some((id, name, forum)) = &header.parent {
         let icon = if *forum { Icon::ForumPost } else { Icon::Hash };
         head = head
-            .push(ctx.look.glyph(icon, ROOM_ICON, theme.muted))
+            .push(ctx.look.glyph(icon, ROOM_ICON, theme.channel_read))
             .push(
-                button(text(name.as_str()).size(16).font(BOLD))
-                    .padding(0)
-                    .on_press(Message::Side(crate::sidebar::Event::Select(id.clone())))
-                    .style(controls::ink_style(theme.secondary, theme.text)),
+                button(crate::theme_effects::label(
+                    ctx,
+                    yapfast_core::themes::package::art::TextRole::Headings,
+                    name.clone(),
+                    theme.header_size(16.0),
+                    theme.header_font(SEMIBOLD),
+                    theme.secondary,
+                ))
+                .padding(0)
+                .on_press(Message::Side(crate::sidebar::Event::Select(id.clone())))
+                .style(controls::ink_style(theme.secondary, theme.text)),
             )
-            .push(ctx.look.glyph(Icon::ChevronRight, 16, theme.faint));
+            // Discord's chevron is a small one, close to the names it
+            // parts.
+            .push(ctx.look.glyph(Icon::ChevronRight, 10, theme.channel_read));
     }
-    if let Some(icon) = header.icon {
-        head = head.push(ctx.look.glyph(icon, ROOM_ICON, theme.muted));
+    // A forum's post has no icon after its breadcrumb.
+    let in_forum = header.parent.as_ref().is_some_and(|(_, _, forum)| *forum);
+    if let Some(icon) = header.icon.filter(|_| !in_forum) {
+        head = head.push(ctx.look.glyph(icon, ROOM_ICON, theme.channel_read));
     }
     let fills = header.topic.is_none() && header.activity.is_empty();
-    let name = container(
-        text(header.name.as_str())
-            .size(16)
-            .font(BOLD)
-            .color(theme.text)
-            .wrapping(text::Wrapping::None),
-    )
+    let header_name = ctx.themes.marked(
+        &theme.id,
+        yapfast_core::themes::chrome::Place::Header,
+        &header.name,
+    );
+    let name = container(crate::theme_effects::slot(
+        crate::theme_effects::label(
+            ctx,
+            yapfast_core::themes::package::art::TextRole::Headings,
+            theme.heading(&header_name).into_owned(),
+            theme.header_size(16.0),
+            theme.header_font(SEMIBOLD),
+            theme.surface_text("header").unwrap_or(theme.channel_white),
+        ),
+        ctx,
+        yapfast_core::themes::package::Slot::ChannelName,
+        None,
+    ))
     .clip(true);
     head = head.push(if fills {
         name.width(Length::Fill)
@@ -254,7 +305,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         // A click shows it in full under the line, as Discord does;
         // its links open from there.
         let line = iced::widget::mouse_area(
-            container(topic_line(ctx, topic))
+            container(labelled_topic_line(ctx, topic))
                 .width(Length::Fill)
                 .clip(true),
         )
@@ -275,13 +326,70 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .width(Length::Fill),
         );
     }
-    head = head.extend(header_buttons(ctx));
-    container(head)
+    if !header.direct
+        && header.members_n > 0
+        && let Some((template, role)) = ctx.themes.chrome(&theme.id).and_then(|chrome| {
+            chrome
+                .labels
+                .get(&yapfast_core::themes::chrome::Label::MemberCount)
+                .map(|template| {
+                    (
+                        template,
+                        chrome
+                            .font
+                            .map_or("small", yapfast_core::themes::package::Role::name),
+                    )
+                })
+        })
+    {
+        let count = header.members_n.to_string();
+        let words = yapfast_core::themes::chrome::fill(template, &[("n", count.as_str())]);
+        head = head.push(
+            text(words)
+                .size(theme.type_size(role, 14.0))
+                .font(theme.font(role, MEDIUM))
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None),
+        );
+    }
+    // A theme may keep the bar's buttons out of sight until the pointer is
+    // on the bar; they stay a hover and a click away.
+    let shy = crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::HeaderButtons);
+    let mut shy_buttons = None;
+    if shy {
+        shy_buttons = Some(
+            container(
+                row(header_buttons(ctx))
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+            )
+            .padding([0, 16])
+            .width(Length::Fill)
+            .height(HEIGHT)
+            .align_x(Alignment::End)
+            .align_y(Alignment::Center),
+        );
+    } else {
+        head = head.extend(header_buttons(ctx));
+    }
+    let border = theme.surface_border("header", 0.0, 0.0, iced::Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("header", iced::Shadow::default());
+    let background = theme.surface_ground("header");
+    let bar = container(head)
         .padding([0, 16])
         .width(Length::Fill)
         .height(HEIGHT)
         .align_y(Alignment::Center)
-        .into()
+        .style(move |_| container::Style {
+            background,
+            border,
+            shadow,
+            ..Default::default()
+        });
+    match shy_buttons {
+        Some(buttons) => crate::widgets::Hover::new(bar, buttons).into(),
+        None => bar.into(),
+    }
 }
 
 /// The topic's one line, in the muted ink.
@@ -297,7 +405,45 @@ fn topic_line<'a>(ctx: crate::ctx::Ctx<'a>, topic: &'a Body) -> Element<'a, Mess
         .unlined(yapfast_core::emoji::card::LINK)
         .size(14.0, 18.0)
         .color(ink)
+        .light(crate::theme_effects::text_light(
+            ctx,
+            yapfast_core::themes::package::art::TextRole::Body,
+        ))
         .starts(false)
+        .into()
+}
+
+/// The topic with an installed package's safe text before and after its
+/// `{topic}` placeholder. The markdown body itself stays the same selectable
+/// piece, so links and mentions keep Wired's behaviour.
+fn labelled_topic_line<'a>(ctx: crate::ctx::Ctx<'a>, topic: &'a Body) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let Some((before, after)) = ctx
+        .themes
+        .chrome(&theme.id)
+        .and_then(|chrome| {
+            chrome
+                .labels
+                .get(&yapfast_core::themes::chrome::Label::Topic)
+        })
+        .and_then(|template| template.split_once("{topic}"))
+    else {
+        return topic_line(ctx, topic);
+    };
+    let role = ctx
+        .themes
+        .chrome(&theme.id)
+        .and_then(|chrome| chrome.font)
+        .map_or("small", yapfast_core::themes::package::Role::name);
+    let fixed = |words: &'a str| {
+        text(words)
+            .size(theme.type_size(role, 14.0))
+            .font(theme.font(role, MEDIUM))
+            .color(theme.muted)
+            .wrapping(text::Wrapping::None)
+    };
+    row![fixed(before), topic_line(ctx, topic), fixed(after)]
+        .align_y(Alignment::Center)
         .into()
 }
 
@@ -314,9 +460,9 @@ fn header_icon_button<'a>(
     // Without a message, greyed.
     let message = message.into();
     let ink = if lit {
-        ctx.look.theme.text
+        ctx.look.theme.channel_white
     } else if message.is_some() {
-        ctx.look.theme.secondary
+        ctx.look.theme.nav_read
     } else {
         ctx.look.theme.faint
     };
@@ -340,32 +486,6 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         "Show member list"
     };
     let mut buttons: Vec<Element<'a, Message>> = Vec::new();
-    // Add Friend, or Accept Friend Request in the accent, first.
-    if let Some((person, incoming)) = &header.befriend {
-        let (words, kind) = if *incoming {
-            ("Accept Friend Request", controls::Kind::Primary)
-        } else {
-            ("Add Friend", controls::Kind::Plain)
-        };
-        let ink = if *incoming {
-            rgb(theme.on_accent)
-        } else {
-            rgb(theme.faint)
-        };
-        buttons.push(
-            controls::action(
-                theme,
-                words,
-                kind,
-                Some(Message::Friends(crate::friends::Event::Accept(
-                    person.clone(),
-                ))),
-            )
-            .small()
-            .icon(ctx.look.icon(Icon::UserPlus, 16, ink))
-            .into(),
-        );
-    }
     // A voice channel's chat, or its call again.
     if let Some(chat) = header.voice_chat {
         let (icon, label) = if chat {
@@ -508,7 +628,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             row![
                 ctx.look.glyph(Icon::Users, 18, theme.muted),
                 text(header.members.as_str())
-                    .size(14)
+                    .size(14.0)
                     .font(MEDIUM)
                     .color(theme.muted)
             ]
@@ -548,11 +668,15 @@ fn members_toggle<'a>(
     open: bool,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let ink = if open { theme.text } else { theme.secondary };
+    let ink = if open {
+        theme.channel_white
+    } else {
+        theme.nav_read
+    };
     let face = row![
         ctx.look.glyph(Icon::Users, GLYPH, ink),
         text(ctx.header.members.as_str())
-            .size(14)
+            .size(14.0)
             .font(MEDIUM)
             .color(ink)
     ]

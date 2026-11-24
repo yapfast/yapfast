@@ -24,7 +24,6 @@ use crate::{
     app::{App, Message, Messages},
     client::REPORT_EVERY,
     looks::{self, MemberLine},
-    members::{PITCH, TOP},
     rail::rail,
     sidebar::sidebar,
     theme::rgb,
@@ -122,7 +121,7 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
         yapfast_core::voice::Phase::Joining | yapfast_core::voice::Phase::Leaving
     );
     (moving, state.busy, state.online, state.trusted).hash(&mut hasher);
-    (state.people_changes, theme).hash(&mut hasher);
+    (state.people_changes, state.reading, theme).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -130,8 +129,12 @@ impl App {
     /// Makes the rail, the sidebar, the header and the history's edge
     /// again, keeping each that comes out the same.
     fn make_lists(&mut self) {
+        let tree = crate::sidebar::tree::on(self);
+        if tree {
+            crate::sidebar::tree::follow_place(self);
+        }
         let state = self.client.state();
-        let rail = rail(state, &self.layout.open_folders);
+        let rail = rail(state, &crate::sidebar::tree::folders_shown(self));
         if self.rail.items != rail {
             self.rail.items = rail;
         }
@@ -168,6 +171,17 @@ impl App {
             // What's dragged may have gone, or moved to another place.
             self.sidebar.arranging = None;
         }
+        // A theme's server tree: made after the rail and the sidebar's
+        // rows, which it's made from.
+        let tree = if tree {
+            crate::sidebar::tree::build(self)
+        } else {
+            Vec::new()
+        };
+        if self.sidebar.tree != tree {
+            self.sidebar.tree = tree;
+        }
+        let state = self.client.state();
         let head = crate::sidebar::side_header(&self.client.app);
         if self.sidebar.header != head {
             self.sidebar.header = head;
@@ -214,6 +228,10 @@ impl App {
         let state = self.client.state();
         self.server = matches!(state.navigation, Navigation::Server(_));
         self.in_server = looks::in_server(state.selected.as_deref());
+        let author = looks::post_author(state);
+        if self.post_author.as_deref() != author {
+            self.post_author = author.map(str::to_owned);
+        }
         let account = crate::account::account(state);
         if self.account != account {
             self.account = account;
@@ -246,6 +264,9 @@ impl App {
         if switched && self.composer.editing.is_some() {
             self.client
                 .dispatch(yapfast_core::application::Action::CancelEdit);
+        }
+        if switched {
+            crate::theme_transition::begin(self);
         }
         let state = self.client.state();
         // The edit ended (saved, cancelled, or its room left): its field
@@ -288,11 +309,14 @@ impl App {
         let seen = {
             let state = self.client.state();
             let (staged, aside) = (state.staged(), state.aside_staged());
+            let first = state.new_thread().map_or(&[][..], |form| &form.files);
             [
                 staged.as_ptr().addr(),
                 staged.len(),
                 aside.as_ptr().addr(),
                 aside.len(),
+                first.as_ptr().addr(),
+                first.len(),
             ]
         };
         if seen != self.uploads.staged_seen {
@@ -327,6 +351,9 @@ impl App {
             let old = std::mem::replace(&mut self.timeline.messages, messages);
             self.measure(&old, edge_changed);
             tasks.push(crate::timeline::scroll::keep_reading(self, reading));
+            if self.timeline.at_end && self.timeline.from_end > 0.0 {
+                tasks.push(crate::timeline::scroll::go_to_end(self));
+            }
             // Sent from a window of older messages, or Jump to present: the
             // newest show at the end once they've replaced the window.
             if messages_changed && !self.client.state().detached && self.timeline.latest_due {
@@ -345,6 +372,7 @@ impl App {
         }
         tasks.push(crate::thread::thread_sync(self));
         crate::header_popovers::popovers_sync(self);
+        crate::peek::sync(self);
         crate::search::search_sync(self);
         crate::forum::forum_sync(self);
         self.modal.sync(self.client.state(), &self.theme);
@@ -356,6 +384,12 @@ impl App {
             let mut cx = crate::ctx::cx!(self);
             if let Some(picker) = self.win.picker.get_mut() {
                 picker.sync(&mut cx);
+            }
+        }
+        {
+            let mut cx = crate::ctx::cx!(self);
+            if let Some(settings) = self.win.settings.get_mut() {
+                settings.voice_sync(&mut cx);
             }
         }
         crate::suggest::mentions_sync(self);
@@ -439,12 +473,11 @@ impl App {
 
     /// The core's members for the list, while it shows: a hidden list
     /// (its toggle off, a thread or search in its place) keeps no lines,
-    /// cards or pictures, and builds none as the roster churns.
+    /// cards or pictures, and builds none as the roster churns. A group
+    /// DM's list shows as a server channel's does.
     fn roster_source(&self) -> Option<Arc<Vec<yapfast_core::chat::ChatMember>>> {
         match &self.client.state().members {
-            Some(Ok(members)) if self.server && crate::header::members_shown(self) => {
-                Some(members.clone())
-            }
+            Some(Ok(members)) if crate::header::members_shown(self) => Some(members.clone()),
             _ => None,
         }
     }
@@ -585,6 +618,18 @@ impl App {
                 }))
             },
         );
+        // A log's text column, which its rows' text wraps from.
+        let irc = self
+            .themes
+            .package_layout(&self.theme.id)
+            .and_then(|layout| {
+                crate::message::irc_left(
+                    layout,
+                    &self.theme,
+                    self.theme
+                        .type_size("body", crate::settings::message_size(prefs.text_size)),
+                )
+            });
         let heights: Vec<f32> = looks
             .iter()
             .enumerate()
@@ -608,6 +653,8 @@ impl App {
                             look,
                             width,
                             if index == 0 { edge } else { 0.0 },
+                            self.theme.spacing(),
+                            irc,
                         ) + if last { foot } else { 0.0 }
                     }
                 }
@@ -633,7 +680,7 @@ impl App {
         self.timeline.from_end = viewport.absolute_offset().y;
         self.timeline.height = viewport.bounds().height;
         self.timeline.place.set(viewport.bounds());
-        self.timeline.at_end = self.timeline.from_end <= 2.0;
+        self.timeline.at_end = self.timeline.from_end <= timeline::TAIL;
         let width = viewport.bounds().width;
         if (width - self.timeline.width).abs() > 1.0 {
             self.timeline.width = width;
@@ -646,7 +693,7 @@ impl App {
         // as read.
         if let Some(left_at) = self.timeline.left_at.take() {
             let back = crate::timeline::scroll::keep_reading(self, Some(left_at));
-            self.timeline.at_end = self.timeline.from_end <= 2.0;
+            self.timeline.at_end = self.timeline.from_end <= timeline::TAIL;
             return Task::batch([back, self.report(), self.ask()]);
         }
         Task::batch([self.report(), self.ask()])
@@ -659,6 +706,7 @@ impl App {
         }
         let (first, last) = self.timeline.in_view(0.0);
         let reads = self.reads();
+        let was_reading = self.client.state().reading;
         if !self.client.visible(
             first,
             last.saturating_sub(1).max(first),
@@ -670,7 +718,9 @@ impl App {
         }
         // What the report changed (earlier history asked for) shows later,
         // through events; the state it set is taken in here.
-        if Arc::ptr_eq(&self.timeline.messages, &self.client.state().messages) {
+        if Arc::ptr_eq(&self.timeline.messages, &self.client.state().messages)
+            && was_reading == self.client.state().reading
+        {
             Task::none()
         } else {
             self.sync()
@@ -690,6 +740,17 @@ impl App {
     pub fn pictures_shown(&self, missing: bool) -> Vec<String> {
         let state = self.client.state();
         let cosmetics = state.cosmetics;
+        let nameplate_policy = self
+            .themes
+            .content(
+                &self.theme.id,
+                self.layout.theme_content.contains(&self.theme.id),
+            )
+            .map_or(yapfast_core::themes::content::Nameplates::Keep, |content| {
+                content.names.nameplates
+            });
+        let hide_nameplates =
+            !crate::members::show_nameplate(nameplate_policy, state.hide_nameplates);
         let mut urls: Vec<String> = Vec::new();
         let mut want = |url: Option<&str>| {
             if let Some(url) = url
@@ -715,23 +776,39 @@ impl App {
                 }
             }
         }
-        let mut top = 0.0;
         let (from, to) = (
             self.sidebar.scroll.offset - MARGIN,
             self.sidebar.scroll.offset + self.sidebar.scroll.height + MARGIN,
         );
-        for row in &self.sidebar.rows {
-            let height = row.height();
-            if let crate::sidebar::SideRow::Room(room) = row
-                && top + height >= from
-                && top <= to
-            {
+        let channel_gap = self
+            .themes
+            .channel_rows(&self.theme.id)
+            .and_then(|rows| rows.gap)
+            .unwrap_or(crate::sidebar::GAP);
+        // Under a theme's server tree the rows are where the tree has them,
+        // other places' with them.
+        let side_rows = if self.sidebar.tree.is_empty() {
+            let mut shown = Vec::new();
+            let mut top = 0.0;
+            for row in &self.sidebar.rows {
+                let height = row.height(&self.theme, channel_gap);
+                if top + height >= from && top <= to {
+                    shown.push(row);
+                }
+                top += height;
+            }
+            shown
+        } else {
+            crate::sidebar::tree::rows_in_view(self, from, to)
+        };
+        for row in side_rows {
+            if let crate::sidebar::SideRow::Room(room) = row {
                 want(room.avatar.as_deref());
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
                 want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
                 if room.selected || self.pointed.side.as_deref() == Some(room.id.as_str()) {
-                    if let Some((plate, _)) = &room.nameplate {
+                    if !hide_nameplates && let Some((plate, _)) = &room.nameplate {
                         want(Some(plate));
                         want(Some(&looks::animated_url(plate)));
                     }
@@ -746,7 +823,6 @@ impl App {
                     want(person.avatar.as_deref());
                 }
             }
-            top += height;
         }
         for url in self.cards.pictures(&self.client.app, &self.profiles) {
             want(Some(&url));
@@ -797,7 +873,7 @@ impl App {
         let plate = state
             .account_nameplate
             .as_ref()
-            .filter(|_| !state.hide_nameplates)
+            .filter(|_| !hide_nameplates)
             .map(|plate| &*plate.picture);
         want(decoration);
         want(plate);
@@ -811,6 +887,15 @@ impl App {
         }
         want(self.header.avatar.as_deref());
         want(self.account.status.emoji.as_deref());
+        for compose in [state.compose(), state.aside_compose()]
+            .into_iter()
+            .flatten()
+        {
+            let yapfast_core::application::Compose::Reply { emoji, .. } = compose;
+            for emoji in emoji {
+                want(Some(&emoji.picture));
+            }
+        }
         let (first, last) = self.timeline.in_view(MARGIN);
         let main = (first..last).map(|index| {
             (
@@ -825,6 +910,9 @@ impl App {
         for (message, look) in main.chain(aside) {
             if let Some(reply) = &message.reply {
                 want(reply.avatar.as_deref());
+                for emoji in &reply.emoji {
+                    want(Some(&emoji.picture));
+                }
             }
             if let Some(used) = &message.used {
                 want(used.avatar.as_deref());
@@ -847,17 +935,15 @@ impl App {
                 want(decoration.map(looks::animated_url).as_deref());
             }
         }
-        let (first, last) = self
-            .roster
-            .scroll
-            .range(self.roster.lines.len(), PITCH, TOP);
-        for line in &self.roster.lines[first..last] {
+        for line in crate::members::lines_shown(self) {
             match line {
                 MemberLine::Heading { icon, .. } => want(icon.as_deref()),
                 MemberLine::Member(look) => {
                     want(look.avatar.as_deref());
                     want(look.decoration.as_deref());
-                    want(look.nameplate.as_ref().map(|(picture, _)| &**picture));
+                    if !hide_nameplates {
+                        want(look.nameplate.as_ref().map(|(picture, _)| &**picture));
+                    }
                     want(look.role_icon.as_deref());
                     want(look.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
                     want(look.status.emoji.as_deref());
@@ -868,12 +954,14 @@ impl App {
                                 .map(looks::animated_url)
                                 .as_deref(),
                         );
-                        want(
-                            look.nameplate
-                                .as_ref()
-                                .map(|(picture, _)| looks::animated_url(picture))
-                                .as_deref(),
-                        );
+                        if !hide_nameplates {
+                            want(
+                                look.nameplate
+                                    .as_ref()
+                                    .map(|(picture, _)| looks::animated_url(picture))
+                                    .as_deref(),
+                            );
+                        }
                     }
                 }
             }
@@ -892,8 +980,17 @@ impl App {
                 want(person.avatar.as_deref());
             }
         }
+        for url in crate::search_popout::pictures(self)
+            .into_iter()
+            .chain(crate::search_filters::pictures(self))
+        {
+            want(Some(&url));
+        }
         for url in crate::profile::profile_pictures(self.ctx()) {
             want(Some(&url));
+        }
+        for url in self.status.activity_pictures() {
+            want(Some(url));
         }
         for url in crate::friends::friends_pictures(self) {
             want(Some(&url));

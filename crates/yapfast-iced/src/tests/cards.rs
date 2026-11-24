@@ -204,6 +204,81 @@ fn an_activitys_menu_shows_all_activity_or_its_privacy() {
     assert!(app.win.settings.is_open(), "Game Activity's settings");
 }
 
+/// A report, 2026-11-22: an open card kept the activity it
+/// opened with, so a song's line of lyrics froze until it was opened
+/// again. The core copies presence into the profile as it opens; the
+/// card now follows the member list, and is made again only when the
+/// activities change.
+#[test]
+fn an_open_card_follows_the_persons_activity_as_it_changes() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{Activity, ActivityKind};
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user.clone(), Point::new(500.0, 200.0));
+    let song = |line: &str| Activity {
+        details: Some(line.into()),
+        state: Some("Artist".into()),
+        application_id: Some("1".into()),
+        ..Activity::new(ActivityKind::Listening, "Lyrics")
+    };
+    let sing = |app: &mut crate::app::App, line: &str| {
+        super::change(app, |state| {
+            let members = state
+                .members
+                .as_mut()
+                .and_then(|members| members.as_mut().ok());
+            for member in Arc::make_mut(members.expect("members")) {
+                if member.id == user {
+                    member.activities = Arc::from([song(line)]);
+                }
+            }
+        });
+    };
+    let title = |app: &crate::app::App| {
+        let shown = app.profiles.shown.as_ref().expect("shown");
+        shown.look.activities.first().map(|look| look.name.clone())
+    };
+    sing(&mut app, "First line");
+    assert_eq!(title(&app).as_deref(), Some("First line"));
+    let before = Arc::as_ptr(&app.profiles.shown.as_ref().expect("shown").look.view);
+    sing(&mut app, "Second line");
+    assert_eq!(
+        title(&app).as_deref(),
+        Some("Second line"),
+        "follows the song"
+    );
+    assert!(shows(&app, "Second line"));
+    let made = app
+        .profiles
+        .shown
+        .as_ref()
+        .expect("shown")
+        .look
+        .activities
+        .clone();
+    let _ = app.sync();
+    assert_eq!(
+        app.profiles.shown.as_ref().expect("shown").look.activities,
+        made,
+        "the same activities make nothing new"
+    );
+    assert_eq!(
+        Arc::as_ptr(&app.profiles.shown.as_ref().expect("shown").look.view),
+        before,
+        "the core's view is the same one"
+    );
+}
+
 #[test]
 fn a_profile_without_a_banner_takes_its_avatars_colour() {
     use std::sync::Arc;

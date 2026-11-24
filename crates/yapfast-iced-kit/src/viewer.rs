@@ -97,20 +97,21 @@ impl<'a, M: Clone + 'a> Viewer<'a, M> {
                 opaque(container(self.content).center(Length::Fill))
             ]);
         };
+        let theme = look.theme;
         let mut heading = column![
             crate::elide::elide(title)
-                .size(15)
+                .size(15.0)
                 .font(BOLD)
                 .color(Color::WHITE)
         ]
         .width(Length::Fill);
         if let Some(subtitle) = self.subtitle {
-            heading = heading.push(text(subtitle).size(13).color(Color::from_rgba8(
-                255,
-                255,
-                255,
-                0xb3 as f32 / 255.0,
-            )));
+            heading = heading.push(
+                text(subtitle)
+                    .size(theme.type_size("small", 13.0))
+                    .font(theme.font("small", crate::fonts::REGULAR))
+                    .color(Color::from_rgba8(255, 255, 255, 0xb3 as f32 / 255.0)),
+            );
         }
         let mut bar = row![heading]
             .spacing(8)

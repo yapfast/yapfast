@@ -1,4 +1,4 @@
-//! The thread beside a channel.
+//! Threads beside a channel, forum posts, and their sidebar connectors.
 
 use std::sync::Arc;
 
@@ -190,6 +190,59 @@ fn files_dropped_over_the_thread_go_to_it() {
 }
 
 #[test]
+fn the_new_thread_form_takes_files_dropped_pasted_and_removed() {
+    use crate::{composer::Writing, uploads::Event};
+    let (mut app, folder) = preview();
+    // The preview takes no files: as a trusted Matrix device's instead.
+    change(&mut app, |state| {
+        state.preview = false;
+        state.trusted = true;
+        for room in &mut state.rooms {
+            Arc::make_mut(room).encrypted = true;
+        }
+        let channel = state.selected.clone().expect("an open channel");
+        // The core's type isn't named outside it; its fields are.
+        state.new_thread = Some(Default::default());
+        state.new_thread.as_mut().expect("the form").room = channel;
+    });
+    let file = |name: &str| {
+        let path = folder.path().join(name);
+        std::fs::write(&path, "seeds").expect("a file");
+        path
+    };
+    let width = app.shell.frame.width;
+    let _ = crate::uploads::update(&mut app, Event::Hovered);
+    let _ = crate::uploads::update(
+        &mut app,
+        Event::Moved(iced::Point::new(width - 50.0, 300.0)),
+    );
+    assert!(app.uploads.drop.aside, "over the form");
+    let _ = crate::uploads::update(&mut app, Event::Dropped(file("notes.txt")));
+    let _ = crate::uploads::update(&mut app, Event::Drop);
+    let _ = crate::uploads::update(
+        &mut app,
+        Event::Clipboard(Writing::NewThread, Some(vec![file("plan.txt")])),
+    );
+    let state = app.client.state();
+    let names: Vec<_> = state
+        .new_thread()
+        .expect("the form")
+        .files
+        .iter()
+        .map(|file| file.name.as_str())
+        .collect();
+    assert_eq!(names, ["notes.txt", "plan.txt"], "dropped, then pasted");
+    assert!(state.staged().is_empty(), "the channel's composer stays");
+    // Out of the preview the window asks to sign in: back in it, to look.
+    change(&mut app, |state| state.preview = true);
+    assert!(shows(&app, "plan.txt"), "in the form's tray");
+    change(&mut app, |state| state.preview = false);
+    let _ = crate::uploads::update(&mut app, Event::UnstageFirst(0));
+    let state = app.client.state();
+    assert_eq!(state.new_thread().expect("the form").files.len(), 1);
+}
+
+#[test]
 fn files_dropped_where_search_hides_the_thread_go_to_the_channel() {
     use crate::uploads::Event;
     let (mut app, folder) = thread_beside();
@@ -294,6 +347,15 @@ fn where_winit_says_nothing_of_a_drag_the_platforms_pointer_says_where() {
         crate::uploads::follow_subscription(&app).is_none(),
         "and no longer asked"
     );
+}
+
+#[test]
+fn a_thread_whose_rows_fit_tells_them_without_a_scroll() {
+    // Its scrollable never reports a viewport while its rows fit, so the
+    // rows in view are told as its messages come: their pictures load.
+    let (app, _folder) = thread_beside();
+    let aside = app.aside.as_ref().expect("the thread beside");
+    assert!(aside.told(), "its rows were told as its messages came");
 }
 
 #[test]
@@ -458,4 +520,168 @@ fn a_forum_posts_bar_waits_for_its_first_message_to_react_and_a_channel_has_none
         ));
     let _ = app.sync();
     assert!(!shows(&app, "Following"));
+}
+
+#[test]
+fn a_forums_row_counts_its_posts_mentions_and_the_server_counts_them_once() {
+    use crate::sidebar::SideRow;
+    let (mut app, _folder) = forum_post_open();
+    super::unread(&mut app, "discord:10:45", 2);
+    let _ = app.sync();
+    assert!(
+        app.sidebar.rows.iter().any(|row| matches!(
+            row,
+            SideRow::Room(room) if room.id == "discord:10:15" && room.badge == "2" && room.posts == "1"
+        )),
+        "the forum's row counts the post's mentions and the unread post"
+    );
+    let server = app
+        .rail
+        .items
+        .iter()
+        .find(|item| item.id == "discord:10")
+        .expect("the server's tile");
+    // The fixture's #general has a mention of its own.
+    assert_eq!(server.badge, "3", "the post's mentions count once");
+}
+
+#[test]
+fn sidebar_connectors_curve_into_text_threads_and_forum_posts() {
+    use iced::{Color, Settings, Size};
+    use iced_test::Simulator;
+    use yapfast_core::{
+        application::{Action, Navigation},
+        yapfast_discord::ready,
+    };
+
+    let (mut app, folder) = super::server::discord_server(0, |server, _| {
+        let extra = ready::server(&serde_json::json!({
+            "id": "10", "owner_id": "99", "properties": {"name": "Test"},
+            "channels": [{"id": "15", "type": 15, "name": "ideas", "position": 2}],
+            "threads": [
+                {"id": "41", "type": 11, "name": "Plans", "parent_id": "11", "guild_id": "10"},
+                {"id": "42", "type": 11, "name": "Notes", "parent_id": "11", "guild_id": "10"},
+                {"id": "43", "type": 11, "name": "Dark mode", "parent_id": "15", "guild_id": "10"},
+                {"id": "44", "type": 11, "name": "Shortcuts", "parent_id": "15", "guild_id": "10"}
+            ]
+        }))
+        .expect("a forum and four threads");
+        server.text_channels.extend(extra.text_channels);
+        server.threads.extend(extra.threads);
+        for thread in &mut server.threads {
+            thread.thread.as_mut().expect("thread details").joined = true;
+        }
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("discord:10".into())));
+    app.client
+        .dispatch(Action::SelectRoom("discord:10:11".into()));
+    let _ = app.sync();
+
+    // A theme with taller rows and a wider gap between them: the stem
+    // runs on through what the connector's square leaves.
+    let source = folder.path().join("tall-rows");
+    std::fs::create_dir_all(&source).expect("theme source");
+    std::fs::write(
+        source.join(yapfast_core::themes::MANIFEST),
+        serde_json::to_vec(&serde_json::json!({
+            "theme_api": 1, "id": "dev.example.tall", "name": "Tall", "version": "1.0.0",
+            "variants": { "dark": {
+                "base": "bonfire",
+                "spacing": { "channel_row_height": 40 },
+                "layout": { "channel_rows": { "gap": 6 } }
+            } }
+        }))
+        .expect("manifest JSON"),
+    )
+    .expect("theme manifest");
+    let fetched = yapfast_core::themes::install::Fetched::local(&source).expect("local package");
+    let root = app.client.root().to_path_buf();
+    let tall = app
+        .themes
+        .install_fetched(&root, &app.layout, &fetched)
+        .expect("installed");
+
+    for (theme, height, gap) in [
+        ("bonfire", 32.0, 2.0),
+        ("catppuccin-latte", 32.0, 2.0),
+        (tall.as_str(), 40.0, 6.0),
+    ] {
+        app.theme = app.themes.find(theme).expect("the theme");
+        let _ = app.sync();
+        let pitch: f32 = height + gap;
+        let size = Size::new(
+            crate::sidebar::width(&app.layout, &app.theme),
+            app.shell.frame.height,
+        );
+        let sidebar = crate::sidebar::view(&app.sidebar, app.ctx());
+        let mut ui = Simulator::with_size(Settings::default(), size, sidebar);
+        let mut bounds = |label: &str| {
+            ui.find(label)
+                .unwrap_or_else(|_| panic!("{label} is in the sidebar"))
+                .visible_bounds()
+                .expect("the whole row is in view")
+        };
+        let groups = [
+            (bounds("general"), [bounds("Plans"), bounds("Notes")]),
+            (bounds("ideas"), [bounds("Dark mode"), bounds("Shortcuts")]),
+        ];
+        let (width, _, rgba) = super::drawn(&mut ui);
+        let is_colour = |x: f32, y: f32, colour: Color| {
+            let at = ((y * 2.0) as usize * width as usize + (x * 2.0) as usize) * 4;
+            rgba[at..at + 3]
+                .iter()
+                .zip(colour.into_rgba8())
+                .all(|(&drawn, expected)| drawn.abs_diff(expected) <= 3)
+        };
+        let spine = |x, y| is_colour(x, y, app.theme.reply_spine);
+        let ground = |x, y| is_colour(x, y, app.theme.sidebar);
+        for (parent, mut threads) in groups {
+            threads.sort_by(|a, b| a.y.total_cmp(&b.y));
+            let [first, last] = threads;
+            let first_y = first.center().y;
+            let last_y = last.center().y;
+            assert!(
+                (first_y - parent.center().y - pitch).abs() < 0.01,
+                "{theme}"
+            );
+            assert!((last_y - first_y - pitch).abs() < 0.01, "{theme}");
+            assert!((first.x - parent.x).abs() < 0.01 && (last.x - first.x).abs() < 0.01);
+
+            // The titles start 36 px into the row and the stem is at 17 px.
+            let stem = first.x - 19.0;
+            let start = first_y - height / 2.0 - gap + 3.0;
+            let parent_foot = parent.center().y + height / 2.0;
+            assert!(!spine(stem, start - 4.0), "starts below the parent face");
+            assert!(
+                ground(stem, parent_foot) && !ground(stem, parent_foot + 1.0),
+                "{theme}: one pixel of space before the stem"
+            );
+            for y in (start * 2.0) as u32..((last_y - 6.0) * 2.0) as u32 {
+                assert!(spine(stem, y as f32 / 2.0), "{theme}: gap in stem at {y}");
+            }
+            for y in [first_y, last_y] {
+                assert!(
+                    spine(stem + 7.0, y),
+                    "the arm meets the middle of its title"
+                );
+                assert!(ground(stem + 7.0, y - 2.0) && ground(stem + 7.0, y + 2.0));
+                assert!(ground(stem + 2.5, y - 4.0) && !ground(stem + 1.5, y - 2.0));
+            }
+            for offset in 0..=15 {
+                assert!(
+                    spine(stem + (offset as f32) / 2.0, first_y),
+                    "{theme}: gap between the stem and arm at {offset}"
+                );
+            }
+            assert!(
+                !ground(stem + 1.5, first_y + 1.5) && ground(stem + 2.5, first_y + 4.0),
+                "the continuing arm curves below with the same radius"
+            );
+            assert!(
+                ground(stem, last_y + 3.0) && ground(stem, last_y + height / 2.0 + 1.0),
+                "the terminal arm has no stub"
+            );
+        }
+    }
 }

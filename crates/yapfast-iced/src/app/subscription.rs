@@ -17,12 +17,25 @@ impl App {
     /// test display's commands.
     pub fn subscription(&self) -> Subscription<Message> {
         let keys = keyboard::listen().filter_map(|event| match event {
+            // Ctrl+Shift+T held turns a theme off once.
             keyboard::Event::KeyPressed {
                 key,
                 modifiers,
                 physical_key,
+                repeat: true,
                 ..
-            } => Some(Message::Pressed(key, modifiers, physical_key)),
+            } if turns_theme_off(&key, physical_key, modifiers) => None,
+            keyboard::Event::KeyPressed {
+                key,
+                modifiers,
+                physical_key,
+                text,
+                ..
+            } => {
+                let typed =
+                    yapfast_iced_kit::field::Typed::from_key_text(&key, modifiers, text.as_deref());
+                Some(Message::Pressed(key, modifiers, physical_key, typed))
+            }
             keyboard::Event::ModifiersChanged(modifiers) => Some(Message::Modifiers(modifiers)),
             _ => None,
         });
@@ -54,12 +67,46 @@ impl App {
         let mut subscriptions = vec![
             keys,
             fonts,
+            iced::system::theme_changes().map(Message::SystemTheme),
             drops,
             sizes,
             zooms,
             crate::window_bar::history_keys(),
             Self::shell_subscription(),
         ];
+        // `--theme-dev`: its folder looked at twice a second, as Slint's,
+        // off the window's thread; a message comes only when it changed.
+        if let Some(folder) = self.themes.dev_folder() {
+            subscriptions.push(
+                Subscription::run_with(folder.to_path_buf(), |folder| {
+                    crate::themes::dev_saves(folder.clone())
+                })
+                .map(|()| Message::ThemeDevTick),
+            );
+        }
+        if self.themes.trial().is_some() {
+            subscriptions
+                .push(iced::time::every(Duration::from_millis(250)).map(Message::ThemeTrialTick));
+        }
+        let ctx = self.ctx();
+        // A theme's status line or top bar with the time looks at the clock
+        // every ten seconds, as Slint's does.
+        if self.themes.chrome(&self.theme.id).is_some_and(shows_time) {
+            subscriptions
+                .push(iced::time::every(Duration::from_secs(10)).map(|_| Message::Nothing));
+        }
+        // Asked at the animation's own time, so a `repeat: once` accent
+        // stops ticking once it has played.
+        let accent_elapsed = self.accent_started.elapsed().as_secs_f32() * 1000.0;
+        if let Some((_, Some(every))) = crate::theme_effects::accent_animation(
+            &self.themes,
+            &self.theme.id,
+            accent_elapsed,
+            ctx.pace,
+            ctx.plays,
+        ) {
+            subscriptions.push(iced::time::every(every).map(Message::ThemeAccentTick));
+        }
         // A look at the releases every six hours while the check is on.
         if self.layout.prefs.check_for_updates {
             subscriptions.push(
@@ -72,7 +119,31 @@ impl App {
                 Message::Shell(crate::shell::Event::Heard(crate::desktop::Heard::Updates))
             }));
         }
-        // Ctrl+K opens the quick switcher wherever the keys are.
+        // Ctrl+Shift+T turns a theme off wherever the keys are: a field
+        // (the composer has the keys from the start) takes the press, and
+        // `keyboard::listen` hears only presses nothing took.
+        subscriptions.push(iced::event::listen_with(|event, status, _| match event {
+            iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                key,
+                physical_key,
+                modifiers,
+                repeat: false,
+                ..
+            }) if status == iced::event::Status::Captured
+                && turns_theme_off(&key, physical_key, modifiers) =>
+            {
+                Some(Message::Pressed(
+                    keyboard::Key::Character("t".into()),
+                    modifiers,
+                    physical_key,
+                    None,
+                ))
+            }
+            _ => None,
+        }));
+        // Ctrl+K opens the quick switcher wherever the keys are, and Ctrl+F
+        // or Ctrl+Shift+F goes to the conversation's search, as Discord's
+        // binds are: Ctrl+F fills in a server channel's `in:` first.
         if crate::signin::workspace(self) {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
@@ -81,12 +152,16 @@ impl App {
                     modifiers,
                     repeat: false,
                     ..
-                }) if is_k(&key, physical_key)
-                    && modifiers.control()
-                    && !modifiers.alt()
-                    && !modifiers.shift() =>
-                {
-                    Some(Message::Switcher(crate::switcher::Event::Toggle))
+                }) if modifiers.control() && !modifiers.alt() => {
+                    if is_letter(&key, physical_key, "k", key::Code::KeyK) && !modifiers.shift() {
+                        Some(Message::Switcher(crate::switcher::Event::Toggle))
+                    } else if is_letter(&key, physical_key, "f", key::Code::KeyF) {
+                        Some(Message::Search(crate::search::Event::Focus {
+                            channel: !modifiers.shift(),
+                        }))
+                    } else {
+                        None
+                    }
                 }
                 _ => None,
             }));
@@ -118,10 +193,15 @@ impl App {
             );
         }
         subscriptions.extend(crate::arrange::arrange_subscription(self));
+        subscriptions.extend(crate::rail::drag_subscription(self));
         subscriptions.extend(crate::uploads::follow_subscription(self));
+        if shown {
+            subscriptions.extend(crate::typing::subscription(self));
+        }
         subscriptions.push(crate::away::away_subscription(self));
+        subscriptions.extend(crate::peek::subscription(self));
         subscriptions.push(crate::keybinds::window_talk_keys());
-        if self.call.grab.is_some() {
+        if self.call.grab.is_some() || self.call.resize.is_some() {
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     Some(Message::Call(crate::call::Event::DragTo(position)))
@@ -142,30 +222,56 @@ impl App {
     }
 }
 
-/// The K key: the letter K in the keyboard's layout, or in a layout without
-/// Latin letters (Cyrillic, Greek, Thai), the key in its place.
-fn is_k(key: &keyboard::Key, physical: key::Physical) -> bool {
+/// Whether the keys are Ctrl+Shift+T, which turns a theme package off.
+fn turns_theme_off(
+    key: &keyboard::Key,
+    physical: key::Physical,
+    modifiers: keyboard::Modifiers,
+) -> bool {
+    modifiers.control()
+        && modifiers.shift()
+        && !modifiers.alt()
+        && is_letter(key, physical, "t", key::Code::KeyT)
+}
+
+/// The key of a shortcut's letter, `letter` in lower case: that letter in
+/// the keyboard's layout, or in a layout without Latin letters (Cyrillic,
+/// Greek, Thai), the key in its place, `code`.
+fn is_letter(key: &keyboard::Key, physical: key::Physical, letter: &str, code: key::Code) -> bool {
     match key {
         keyboard::Key::Character(text)
             if text.chars().all(|letter| letter.is_ascii_alphabetic()) =>
         {
-            text.eq_ignore_ascii_case("k")
+            text.eq_ignore_ascii_case(letter)
         }
-        _ => physical == key::Physical::Code(key::Code::KeyK),
+        _ => physical == key::Physical::Code(code),
     }
+}
+
+/// Whether a theme's chrome shows the time anywhere: its status line or its
+/// top bar.
+fn shows_time(chrome: &yapfast_core::themes::chrome::Chrome) -> bool {
+    chrome
+        .status_line
+        .as_ref()
+        .is_some_and(|line| line.text.contains("{time}"))
+        || chrome.topbar.as_ref().is_some_and(|bar| bar.shows_time())
 }
 
 #[cfg(test)]
 mod tests {
     use iced::keyboard::{Key, key};
+    use yapfast_core::themes::chrome::{Chrome, TopBar};
 
-    use super::is_k;
+    use super::is_letter;
 
     #[test]
-    fn ctrl_k_is_the_key_in_ks_place_where_the_layout_has_no_latin_letters() {
+    fn a_shortcuts_letter_is_the_key_in_its_place_where_the_layout_has_no_latin_letters() {
+        let is_k = |key: &Key, physical| is_letter(key, physical, "k", key::Code::KeyK);
         let k = key::Physical::Code(key::Code::KeyK);
         let r = key::Physical::Code(key::Code::KeyR);
         assert!(is_k(&Key::Character("k".into()), k));
+        assert!(is_k(&Key::Character("K".into()), k), "with Shift");
         // Dvorak's K is where QWERTY's V is.
         assert!(is_k(
             &Key::Character("k".into()),
@@ -177,5 +283,29 @@ mod tests {
             !is_k(&Key::Character("к".into()), r),
             "its own K isn't K's key"
         );
+        let f = key::Physical::Code(key::Code::KeyF);
+        assert!(is_letter(
+            &Key::Character("а".into()),
+            f,
+            "f",
+            key::Code::KeyF
+        ));
+        assert!(!is_letter(
+            &Key::Character("k".into()),
+            k,
+            "f",
+            key::Code::KeyF
+        ));
+    }
+
+    #[test]
+    fn a_top_bar_with_the_time_keeps_the_clock_going() {
+        let mut chrome = Chrome::default();
+        assert!(!super::shows_time(&chrome));
+        chrome.topbar = Some(TopBar {
+            right: "{time}".into(),
+            ..TopBar::default()
+        });
+        assert!(super::shows_time(&chrome));
     }
 }

@@ -6,10 +6,11 @@ The composer (`composer.rs`) shows, in a message
 request's place, its Accept and Ignore; over the field, the reply's bar
 with "@ On" or "@ Off" (whether the reply mentions its author) and its
 cancel; in a channel this account may not write in, Discord's one bar
-saying so; under it, why it can't send (timed out until a time in the
-clock Settings chose, Discord disconnected) when it can't, and in a build
-with Matrix whether the room is end-to-end encrypted (with a lock if it
-is; an unencrypted Matrix room is read only). The field writes the core's
+saying so; on the strip over it, why it can't send (timed out until a
+time in the clock Settings chose, Discord disconnected) when it can't,
+and in a build with Matrix whether the room is end-to-end encrypted (with
+a lock if it is; an unencrypted Matrix room is read only), which someone
+typing takes the place of. The field writes the core's
 draft for the open room, which
 also tells the room this account is typing; its outline lightens while
 it has the keys. Enter sends, Shift+Enter breaks the line, Up in an
@@ -21,10 +22,15 @@ the desktop's primary selection, and a middle click pastes it at the
 pointer, taking no autoscroll; the field that took the keys last, by any
 button, holds them alone.
 
+Typing with no field focused takes the text reported by the keyboard layout
+into the composer. A dead key waits for the next key to produce text.
+
 Files go with the next message (`uploads.rs`) from the system's file
 dialog (the + where nothing else can start, or the + menu's "Upload a
 File", whose Create Thread shows greyed until threads come; its Create
-Poll opens Create a Poll, see [dialogs](dialogs.md)), from Ctrl+V (files
+Poll opens Create a Poll, see [dialogs](dialogs.md)), from Ctrl+V in the
+channel's composer, the thread beside's, the New Thread form's or a new
+forum post's message (files
 copied in a file manager, or a picture, which
 the root crate's `paste.rs` reads and saves as `image.<extension>` in a
 folder removed as Yapfast closes; text otherwise; files are looked for
@@ -33,8 +39,9 @@ files never go, the preview or a channel not to write in, which take the
 text), or dropped on the
 window (winit's drops on X11 and Windows, the root crate's `drop.rs` on
 Wayland, whose data device winit doesn't take). Files over the thread
-beside below its head go to the thread instead (`uploads.rs`'s
-`over_aside`): on Wayland the desktop says where the drag is; on X11 and
+beside below its head go to the thread instead, and over the New Thread
+form to its first message (`uploads.rs`'s `over_aside` and
+`drop_place`): on Wayland the desktop says where the drag is; on X11 and
 Windows, where winit says nothing of where, the root crate's
 `drop::Pointer` asks the platform where the pointer is (`Desktop::pointer`,
 made once as files come over the window) every 40 ms while they hover
@@ -125,13 +132,37 @@ the tab lets go of them all the same way (the window going, with
 `Action::UnloadEmojiPictures`, as no settle follows), and opening it starts
 `Action::CacheEmojiPictures`.
 
-Who else is typing shows just above the composer (`typing.rs`): three
-dots under the avatars that rise in turn, drawn in their own widget at
-twenty frames a second while they show, and "Sam is typing..." where the
-messages' text starts, breathing between half and full
-brightness under a veil of the chat's ground, drawn the same way. While
-moving pictures don't play (`pictures::plays`) the dots stand level, the
-words hold still, and neither asks for frames. Under a message of one's own that didn't go:
+Over the composer is a 24 px strip of the chat's own ground (`typing.rs`),
+laid out as Discord's in a text channel: the list ends above it, so
+nothing in it ever lies over a message, and it is there whether anyone
+types or not, so nothing moves as its line comes and goes. On its left is
+who else is typing, or why this account can't send when it can't. The
+typing line has three dots under the avatars, 24 px from the chat's edge,
+that pulse in turn as Discord's do (each from 80% and a third of the text
+colour to full and back in the first half of its 1.2 s), drawn in their
+own widget at twenty frames a second while they show; then, where the
+messages' text starts, the core's `typing_line` in 12 px, the names
+semibold in the text colour and the rest medium in the secondary one:
+"**Sam** is typing...", "**Sam** and **Riley** are typing...", "**A**,
+**B** and **C** are typing...", then "**Several people** are typing...".
+One to three names too long for the strip give "**Multiple people** are
+typing..." (`typing_line_short`). While nobody types there are no dots
+and no frames are asked for; while moving pictures don't play
+(`pictures::plays`) the dots stand full and still.
+
+On the strip's right, wherever the channel has a slowmode
+(`ChatRoom::slowmode`), Discord's note by a stopwatch: "Slowmode Immune"
+for an account that may bypass it (`ChatRoom::slowed` is false), the wait
+left as "0:42" after a message of its own, else "Slowmode is enabled.",
+with "Slowmode is enabled. Members can send one message every 30
+seconds." in its tooltip. The wait is the client's guess, as Discord's:
+the slowmode plus 100 ms from when a message or sticker of its own went
+(`AppState::slowmode_until`). A message or sticker sent during it isn't
+sent: the draft stays, and the note turns red for a second
+(`AppState::slowmode_held`). While the wait counts down the window ticks
+each second.
+
+Under a message of one's own that didn't go:
 "Sending..." with Cancel while its files upload, "Not sent yet" while
 the connection is down, "Not sent" with Retry; under an answer only this
 account sees, "Only you can see this · Dismiss message".

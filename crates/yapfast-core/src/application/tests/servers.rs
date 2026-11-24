@@ -259,15 +259,19 @@ fn a_server_search_stays_open_in_its_channels_and_jumps_into_them() {
     let hit = |room: &str, item: &str| chat::SearchHit {
         room: room.into(),
         message: message(item, false),
+        thread: None,
     };
     app.apply(Event::Found {
         place: "discord:10".into(),
         query: "plan".into(),
+        sort: chat::SearchSort::Newest,
         offset: 0,
-        result: Ok((
-            2,
-            vec![hit("discord:10:13", "d:7"), hit("discord:10:11", "d:5")],
-        )),
+        result: Ok(chat::Searched::Page {
+            total: 2,
+            hits: vec![hit("discord:10:13", "d:7"), hit("discord:10:11", "d:5")],
+            words: "plan".into(),
+            indexing_older: false,
+        }),
     });
     assert_eq!(app.state.search_shown().unwrap().results.len(), 2);
 
@@ -372,7 +376,8 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
             ServerNotifications,
             EditServerProfile,
             HideMuted,
-            LeaveServer
+            LeaveServer,
+            CopyId
         ],
         "the header's dropdown lists the menu's choices in its own order"
     );
@@ -413,7 +418,11 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
         ..yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap())
     }));
     assert_eq!(app.menu_choices("discord:10"), [MarkRead, CopyLink, CopyId]);
-    assert!(app.header_choices("discord:10").is_empty());
+    assert_eq!(
+        app.header_choices("discord:10"),
+        [CopyId],
+        "the header's dropdown keeps Copy Server ID, which changes nothing"
+    );
 }
 
 #[test]

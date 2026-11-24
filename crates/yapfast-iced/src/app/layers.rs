@@ -34,6 +34,8 @@ pub enum Layer {
     Poll,
     LinkDialog,
     ServerDialog,
+    /// A search's Filters dialog.
+    SearchFilters,
     StatusEditor,
     AccountPopover,
     HeaderPopover,
@@ -69,7 +71,7 @@ pub enum Layer {
 }
 
 /// Every layer, in the order they take keys and Escape.
-const LAYERS: [Layer; 41] = [
+const LAYERS: [Layer; 42] = [
     Layer::Inbox,
     Layer::Mfa,
     Layer::ConfirmDelete,
@@ -81,6 +83,7 @@ const LAYERS: [Layer; 41] = [
     Layer::Poll,
     Layer::LinkDialog,
     Layer::ServerDialog,
+    Layer::SearchFilters,
     Layer::StatusEditor,
     Layer::AccountPopover,
     Layer::HeaderPopover,
@@ -167,6 +170,7 @@ impl Layer {
                 | Layer::Poll
                 | Layer::LinkDialog
                 | Layer::ServerDialog
+                | Layer::SearchFilters
                 | Layer::StatusEditor
                 | Layer::HeaderPopover
                 | Layer::ProfileEditor
@@ -185,6 +189,11 @@ impl Layer {
                 | Layer::Card
                 | Layer::RoleCard
         )
+    }
+
+    /// Whether opening and closing this layer uses a theme's popup cue.
+    pub(super) fn cued_popup(self) -> bool {
+        self.moves()
     }
 
     /// Whether it takes every key no field took while it's open; the
@@ -239,6 +248,7 @@ impl Layer {
                 | Layer::Switcher
                 | Layer::ServerDialog
                 | Layer::LinkDialog
+                | Layer::SearchFilters
                 | Layer::HeaderPopover
                 | Layer::Search
                 | Layer::TagsMenu
@@ -262,6 +272,7 @@ impl App {
             Layer::NewDm => state.new_dm.is_some(),
             Layer::Poll => state.poll_draft.is_some(),
             Layer::LinkDialog => crate::link_dialogs::is_open(state),
+            Layer::SearchFilters => crate::search_filters::is_open(self),
             Layer::ServerDialog => crate::server_dialogs::is_open(state),
             Layer::StatusEditor => state.status_editor.is_some(),
             Layer::AccountPopover => self.status.popover.is_some(),
@@ -303,6 +314,7 @@ impl App {
     /// drawn going starts closing, and the rest forget theirs. Nothing
     /// changes while the same popups stay open and the same go.
     pub(super) fn follow_popups(&mut self) {
+        let popup_motion = self.theme.motion();
         let mut open = 0u64;
         for (at, layer) in LAYERS.iter().enumerate() {
             if layer.moves() && self.is_open(*layer) {
@@ -343,8 +355,8 @@ impl App {
             // One opened again as it closes grows on from there.
             let start = match opening.moving.iter().position(|each| each.bit == bit) {
                 Some(at) => match opening.moving.remove(at).start.get() {
-                    Some(closing) => Some(motion::reopened(closing, now)),
-                    None => now.checked_sub(motion::DURATION),
+                    Some(closing) => Some(motion::reopened(popup_motion, closing, now)),
+                    None => now.checked_sub(popup_motion.duration(false)),
                 },
                 None => None,
             };
@@ -410,11 +422,12 @@ impl App {
         layer: iced::Element<'a, Message>,
     ) -> iced::Element<'a, Message> {
         let bit = popup.bit();
+        let style = self.theme.motion();
         match self.opening.moving.iter().find(|each| each.bit == bit) {
             Some(moving) if moving.closing => {
-                motion::leave(layer, &moving.start, Message::PopupGone(popup))
+                motion::leave(layer, &moving.start, Message::PopupGone(popup), style)
             }
-            Some(moving) => motion::motion(layer, &moving.start),
+            Some(moving) => motion::motion(layer, &moving.start, style),
             None => layer,
         }
     }
@@ -422,6 +435,12 @@ impl App {
     /// What's open, in the order they take keys and Escape.
     pub fn layers(&self) -> impl Iterator<Item = Layer> + '_ {
         LAYERS.into_iter().filter(|layer| self.is_open(*layer))
+    }
+
+    /// Whether a layer that takes every key is open: a dialog, a menu, the
+    /// settings.
+    pub fn keys_held(&self) -> bool {
+        self.layers().any(Layer::takes_keys)
     }
 
     /// Whether an open layer's field keeps Escape, which the window then
@@ -434,12 +453,29 @@ impl App {
     /// them; else a voice message's volume open has its own, then the
     /// keyboard's steps through messages, Ctrl+C for the
     /// timeline's selection, Escape for the first thing it closes, and
-    /// typing for the composer.
-    pub fn key(&mut self, key: keyboard::Key, modifiers: keyboard::Modifiers) -> Task<Message> {
+    /// typing and Ctrl+V for the composer.
+    pub fn key(
+        &mut self,
+        key: keyboard::Key,
+        modifiers: keyboard::Modifiers,
+        typed: Option<yapfast_iced_kit::field::Typed>,
+    ) -> Task<Message> {
         let named = match &key {
             keyboard::Key::Named(named) => Some(*named),
             _ => None,
         };
+        // The Slint build's emergency way back from a theme that made the window
+        // difficult to use. This runs before any overlay takes keys, and
+        // `Message::Pressed` has already mapped the physical T to Latin for
+        // keyboard layouts without Latin letters.
+        if modifiers.control()
+            && modifiers.shift()
+            && !modifiers.alt()
+            && key.as_ref() == keyboard::Key::Character("t")
+        {
+            self.turn_package_off();
+            return Task::none();
+        }
         let taker = self.layers().find(|layer| layer.takes_keys());
         if let Some(layer) = taker {
             return self.layer_key(layer, named, modifiers);
@@ -455,6 +491,9 @@ impl App {
         {
             return task;
         }
+        if let Some(task) = crate::sidebar::tree::pressed(self, &key, modifiers) {
+            return task;
+        }
         if modifiers.command()
             && key.as_ref() == keyboard::Key::Character("c")
             && let Some(copied) = crate::timeline::selection::copied_selection(self)
@@ -464,7 +503,7 @@ impl App {
         if named == Some(key::Named::Escape) {
             return self.escape();
         }
-        crate::composer::type_anywhere(self, &key, modifiers)
+        crate::composer::type_anywhere(self, &key, modifiers, typed)
     }
 
     /// A key for a layer that takes them all: those with keys of their own
@@ -504,6 +543,23 @@ impl App {
                 crate::call::update(self, crate::call::Event::Switch(true))
             }
             (Layer::Leaving, Some(key::Named::Enter)) => crate::dialogs::leave(self, true),
+            // Settings → Themes from the keyboard.
+            (
+                Layer::Settings,
+                Some(named @ (key::Named::Tab | key::Named::Enter | key::Named::Space)),
+            ) if self
+                .win
+                .settings
+                .get()
+                .is_some_and(|settings| settings.section() == crate::settings::Section::Themes) =>
+            {
+                let key = match named {
+                    key::Named::Tab if modifiers.shift() => crate::settings::ThemeKey::Previous,
+                    key::Named::Tab => crate::settings::ThemeKey::Next,
+                    _ => crate::settings::ThemeKey::Activate,
+                };
+                self.settings_event(crate::settings::Event::ThemeKey(key))
+            }
             (_, Some(key::Named::Escape)) => self.shut(layer),
             _ => Task::none(),
         }
@@ -563,6 +619,9 @@ impl App {
                     .update(crate::reactions::Event::Close, &mut cx)
             }
             Layer::AddFriend => crate::friends::update(self, crate::friends::Event::CloseAdd),
+            Layer::SearchFilters => {
+                crate::search_filters::update(self, crate::search_filters::FiltersEvent::Close)
+            }
             Layer::Leaving => crate::dialogs::leave(self, false),
             Layer::Menu => {
                 self.win.menu = None;

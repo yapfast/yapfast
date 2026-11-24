@@ -16,7 +16,7 @@ use yapfast_core::application::{Action, ThreadFrom};
 
 use crate::{
     app::{App, Message, NOBODY},
-    controls::{Item, Light, menu_panel, separator},
+    controls::{Item, Light, menu_panel_over},
     ctx::Ctx,
     field::MenuEdit,
     picker::{Tab, Target},
@@ -212,6 +212,8 @@ pub enum MenuAct {
     /// Activity tab, and one's own game's privacy.
     AllActivity,
     ActivityPrivacy,
+    /// An order of the search's Sort menu, by its row's `key`.
+    SearchSort,
 }
 
 #[derive(Clone)]
@@ -278,7 +280,7 @@ pub const SUB_WIDTH: f32 = FIELD_WIDTH;
 const SUB_GAP: f32 = 4.0;
 /// A menu's padding, which lifts a submenu so its first row is level with
 /// the row that opened it.
-const PAD: f32 = 6.0;
+const PAD: f32 = 9.0;
 
 /// What's done in the open menu, its submenu and a message's hover bar.
 #[derive(Clone, Debug)]
@@ -336,6 +338,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::React(item, key) => {
             app.win.menu = None;
             app.client.dispatch(Action::React { item, key });
+            app.cue(yapfast_core::themes::media::SoundSlot::ReactionAdd);
+            let at = app.pressed.get();
+            app.themes.particle_event(
+                &app.theme.id,
+                yapfast_core::themes::package::art::Trigger::ReactionAdded,
+                Some((at.x, at.y)),
+            );
             Task::batch([app.sync(), crate::composer::refocus(app)])
         }
     }
@@ -606,6 +615,13 @@ fn pick(app: &mut App, row: MenuRow, index: Option<usize>) -> Task<Message> {
 /// What a chosen row does, in the open menu's place: `ticked` is a
 /// checkbox's new state, and `stays` keeps the menu open.
 fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) -> Task<Message> {
+    if let Some(on) = ticked {
+        app.cue(if on {
+            yapfast_core::themes::media::SoundSlot::ToggleOn
+        } else {
+            yapfast_core::themes::media::SoundSlot::ToggleOff
+        });
+    }
     let Some(menu) = (if stays {
         app.win.menu.as_ref().map(Menu::context)
     } else {
@@ -659,6 +675,12 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             ])
         }
         MenuAct::CopyTextLink => Task::batch([focus, iced::clipboard::write(row.key.clone())]),
+        MenuAct::SearchSort => {
+            let sort = crate::search::sort_of(&row.key);
+            app.client
+                .dispatch(yapfast_core::application::Action::SearchSort(sort));
+            Task::batch([focus, app.sync(), crate::search::to_top()])
+        }
         MenuAct::OpenTextLink => {
             crate::browser::open(&row.key);
             focus
@@ -818,7 +840,8 @@ pub fn act(
             ])
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
-        MenuAct::Notify(_)
+        MenuAct::SearchSort
+        | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
         | MenuAct::Role
@@ -928,7 +951,9 @@ impl<'a> View<'a> {
     fn view(self) -> Option<Element<'a, Message>> {
         let menu = self.s;
         let theme = self.cx.look.theme;
-        let mut rows = column![].spacing(2).padding(6);
+        let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
+        let decorated = self.cx.themes.decorates(&theme.id, surface);
+        let mut rows = column![].padding(PAD);
         let volumes = menu
             .volumes
             .as_ref()
@@ -965,14 +990,14 @@ impl<'a> View<'a> {
         let mut sub_child = None;
         for (index, entry) in menu.rows.iter().enumerate() {
             if entry.separated && index > 0 {
-                rows = rows.push(separator(theme));
+                rows = rows.push(crate::controls::menu_separator(theme));
                 children += 1;
             }
             let lit =
                 (menu.lit == Some(index) && menu.sub_lit.is_none()) || menu.sub == Some(index);
             let light = Light::Lit(lit && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.menu_item(
+                mouse_area(self.cx.look.context_item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::Menu(Event::Choose(index)),
@@ -987,34 +1012,86 @@ impl<'a> View<'a> {
         let panel: Element<'a, Message> = if menu.rows.is_empty() {
             Space::new().into()
         } else {
-            container(rows).width(width).style(menu_panel(theme)).into()
+            container(rows)
+                .width(width)
+                .style(menu_panel_over(theme, decorated))
+                .into()
         };
         // Someone's volumes, in a panel of their own over their rows.
         let panel: Element<'a, Message> = match volumes {
             Some(volumes) => column![
-                container(volumes).width(width).style(menu_panel(theme)),
+                container(volumes)
+                    .width(width)
+                    .style(menu_panel_over(theme, decorated)),
                 panel
             ]
             .spacing(8)
             .into(),
             None => panel,
         };
-        // A menu taller than the window scrolls.
+        let panel = crate::theme_art::surface(panel, self.cx, surface);
+        let panel = crate::theme_art::outlined(
+            panel,
+            self.cx,
+            yapfast_core::themes::layout::BorderPlace::Menu,
+            "menu",
+            8.0,
+            1.0,
+            theme.menu_line,
+        );
+        // A menu taller than the window scrolls. Its shadow lies outside the
+        // scroll, which would cut it off (Zine's hard blue offset).
+        let shadow = theme.surface_shadow("menu", iced::Shadow::default());
         let panel = container(
             scroll_view(panel)
                 .height(Length::Shrink)
                 .on_scroll(|viewport| Message::Menu(Event::Scrolled(viewport.absolute_offset().y)))
                 .style(crate::style::scrollbar(theme)),
         )
-        .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN);
+        .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN)
+        .style(move |_| container::Style {
+            shadow,
+            ..Default::default()
+        });
         let mut place = Place::new(opaque(panel), menu.at, MENU_MARGIN).anchor(menu.anchor);
         if let (Some(sub), Some(child)) = (menu.sub, sub_child) {
             // Through the frame and the scrollable to the rows.
-            let mut path = if menu.volumes.is_some() {
-                vec![0, 0, 1, 0]
+            let mut path = vec![0, 0];
+            if self
+                .cx
+                .themes
+                .package_layout(&theme.id)
+                .and_then(|layout| {
+                    layout
+                        .borders
+                        .get(&yapfast_core::themes::layout::BorderPlace::Menu)
+                })
+                .is_some()
+            {
+                path.push(0);
+            }
+            if !self.cx.themes.overlays(&theme.id, false).is_empty()
+                || !self
+                    .cx
+                    .themes
+                    .procedural_overlays(&theme.id, false)
+                    .is_empty()
+                || self.cx.themes.particles(&theme.id).is_some()
+            {
+                path.push(0);
+            }
+            // The rows over what `theme_art::surface` lays under them.
+            if let Some(index) = crate::theme_art::surface_content_index(self.cx, surface) {
+                path.push(index);
+            }
+            if self.cx.themes.art_reserve(&theme.id, surface).is_some() {
+                path.push(0);
+            }
+            if menu.volumes.is_some() {
+                path.extend([1, 0]);
             } else {
-                vec![0, 0, 0]
-            };
+                path.push(0);
+            }
             path.push(child);
             // The layout's places are the rows' unscrolled ones.
             let lift = PAD + menu.scrolled;
@@ -1044,16 +1121,18 @@ impl<'a> View<'a> {
     /// The open submenu: its rows, beside the row that opened it.
     fn submenu_view(self, menu: &'a Menu, sub: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
+        let decorated = self.cx.themes.decorates(&theme.id, surface);
         let entries = &menu.rows[sub].submenu;
         let slot = ticks(entries);
-        let mut rows = column![].spacing(2).padding(PAD);
+        let mut rows = column![].padding(PAD);
         for (index, entry) in entries.iter().enumerate() {
             if entry.separated && index > 0 {
-                rows = rows.push(separator(theme));
+                rows = rows.push(crate::controls::menu_separator(theme));
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
             rows = rows.push(
-                mouse_area(self.cx.look.menu_item(
+                mouse_area(self.cx.look.context_item(
                     self.menu_entry(entry, slot),
                     light,
                     Message::Menu(Event::SubChoose(index)),
@@ -1061,10 +1140,20 @@ impl<'a> View<'a> {
                 .on_enter(Message::Menu(Event::SubLight(index))),
             );
         }
-        container(rows)
+        let panel: Element<'a, Message> = container(rows)
             .width(menu.fit(Some(sub)))
-            .style(menu_panel(theme))
-            .into()
+            .style(menu_panel_over(theme, decorated))
+            .into();
+        let panel = crate::theme_art::surface(panel, self.cx, surface);
+        crate::theme_art::outlined(
+            panel,
+            self.cx,
+            yapfast_core::themes::layout::BorderPlace::Menu,
+            "menu",
+            8.0,
+            1.0,
+            theme.menu_line,
+        )
     }
 }
 
@@ -1122,9 +1211,12 @@ fn fit(rows: &[MenuRow], slot: bool) -> f32 {
             };
             2.0 * (ROW_PAD + PAD) + icon + label.max(subtitle) + end
         })
-        .fold(0.0, f32::max)
+        .fold(MENU_NARROWEST, f32::max)
         .ceil()
 }
+
+/// The narrowest a menu is, as Discord's.
+const MENU_NARROWEST: f32 = 188.0;
 
 /// A row's padding at each side, the gap between its parts, and its
 /// checkbox, as [`App::menu_item`] draws them.

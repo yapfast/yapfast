@@ -14,13 +14,15 @@
 
 use std::{
     borrow::Cow,
+    collections::{HashMap, HashSet, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
     sync::{Arc, Mutex},
 };
 
 use iced::{
     Font,
     advanced::graphics::text::{cosmic_text, font_system},
-    font::{Family, Style, Weight},
+    font::{Family, Stretch, Style, Weight},
     futures::{Stream, StreamExt, channel::mpsc},
 };
 
@@ -49,6 +51,31 @@ const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
 const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
 
+/// Makes `family` (a theme's body face, loaded) the face of all text that
+/// asks for the app's own DM Sans, as Slint's `default-font-family`
+/// follows a theme's body face; `None` gives DM Sans back. Text already
+/// shown is shaped again in the new face.
+pub fn set_default_family(family: Option<&'static str>) {
+    static ALIAS: Mutex<Option<&'static str>> = Mutex::new(None);
+    let family = family.filter(|family| *family != "DM Sans");
+    // Held while the alias is set, so the two never fall out of step.
+    let mut alias = ALIAS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if *alias == family {
+        return;
+    }
+    *alias = family;
+    cosmic_text::set_family_alias(family.map(|family| ("DM Sans", family)));
+    let mut fonts = font_system().write().expect("font system");
+    // The fallback's matches are cached by what text asks for, which
+    // doesn't change.
+    let _ = fonts.raw().db_mut();
+    // Text shaped already is shaped again only when the version moves, as
+    // in `load_wanted`.
+    fonts.load_font(Cow::Owned(vec![0]));
+}
+
 /// Makes the window's font system: DM Sans and its italic, `twemoji` (the
 /// font `crates/yapfast-iced/build.rs` packs, or nothing), and the system's
 /// monospace face for code, with DM Sans then Twemoji as the fallback list,
@@ -56,6 +83,12 @@ const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].
 /// Twemoji. What those two lack takes the system's font for the character
 /// ([`load_wanted`]).
 pub fn install(twemoji: &'static [u8]) {
+    // `install` replaces the entire font database. Forget the theme-font
+    // registry with it so a later load cannot mistake a face from the old
+    // database for one still available to the shaper.
+    *theme_fonts()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = ThemeFonts::default();
     let mut db = cosmic_text::fontdb::Database::new();
     db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(DM_SANS)));
     db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(
@@ -88,12 +121,50 @@ pub fn install(twemoji: &'static [u8]) {
 /// The system's monospace face, as fontconfig ranks them.
 #[cfg(not(windows))]
 fn monospace_file() -> Option<String> {
-    std::process::Command::new("fc-match")
-        .args(["-f", "%{file}", "monospace"])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .filter(|path| !path.is_empty())
+    fc_match(&["-f", "%{file}", "monospace"]).filter(|path| !path.is_empty())
+}
+
+/// What `fc-match` prints for `args`, if it ran. A copy that can't run
+/// (missing, or exiting on a library it can't link) is reported once and
+/// not started again, so a system without it spends nothing on each
+/// script and character.
+#[cfg(not(windows))]
+fn fc_match(args: &[&str]) -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static BROKEN: AtomicBool = AtomicBool::new(false);
+    if BROKEN.load(Ordering::Relaxed) {
+        return None;
+    }
+    let failure = match fc_match_command(args).output() {
+        Ok(output) if output.status.success() => return String::from_utf8(output.stdout).ok(),
+        Ok(output) => format!(
+            "{}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(error) => error.to_string(),
+    };
+    if !BROKEN.swap(true, Ordering::Relaxed) {
+        tracing::warn!(
+            failure,
+            "fc-match did not run; text in scripts DM Sans lacks shows as boxes"
+        );
+    }
+    None
+}
+
+/// `fc-match` without `LD_LIBRARY_PATH`: the libraries Yapfast was started
+/// to find, as from its development shell or the Nix package's wrapper, are
+/// other versions than the system's `fc-match` was built for, and it exits
+/// at once on them ("undefined symbol: FcConfigSetWarningFlags").
+#[cfg(not(windows))]
+fn fc_match_command(args: &[&str]) -> std::process::Command {
+    let mut command = std::process::Command::new("fc-match");
+    command
+        .args(args)
+        .env_remove("LD_LIBRARY_PATH")
+        .stdin(std::process::Stdio::null());
+    command
 }
 
 /// Windows has no fontconfig: Consolas, which it ships.
@@ -246,17 +317,15 @@ fn script_language(script: unicode_script::Script) -> Option<&'static str> {
         Script::Hangul => "ko",
         Script::Hiragana | Script::Katakana => "ja",
         Script::Han => {
-            let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
-                .iter()
-                .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
-                .unwrap_or_default()
-                .to_lowercase();
-            match locale.get(..5).unwrap_or(&locale) {
-                tag if tag.starts_with("ja") => "ja",
-                tag if tag.starts_with("ko") => "ko",
-                "zh_tw" | "zh_hk" | "zh_mo" => "zh-tw",
-                _ => "zh-cn",
-            }
+            static HAN: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+            HAN.get_or_init(|| {
+                let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+                    .iter()
+                    .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
+                    .or_else(sys_locale::get_locale)
+                    .unwrap_or_default();
+                han_language(&locale)
+            })
         }
         Script::Bopomofo => "zh-tw",
         Script::Cyrillic => "ru",
@@ -284,19 +353,30 @@ fn script_language(script: unicode_script::Script) -> Option<&'static str> {
     })
 }
 
+/// The language Han ideographs are drawn for in `locale`, a POSIX one
+/// (`ja_JP.UTF-8`) or, from the system where no variable sets one (Windows,
+/// macOS), a BCP 47 tag (`zh-Hant-TW`): Simplified Chinese unless it says
+/// otherwise.
+fn han_language(locale: &str) -> &'static str {
+    let locale = locale.to_lowercase().replace('-', "_");
+    let mut parts = locale.split(['_', '.', '@']);
+    match parts.next().unwrap_or_default() {
+        "ja" => "ja",
+        "ko" => "ko",
+        "zh" if parts.any(|part| matches!(part, "hant" | "tw" | "hk" | "mo")) => "zh-tw",
+        _ => "zh-cn",
+    }
+}
+
 /// The system's font for a language, as fontconfig ranks them, if it covers
 /// the language: its file and face index.
 #[cfg(not(windows))]
 fn language_font(language: &str) -> Option<(String, u32)> {
-    let output = std::process::Command::new("fc-match")
-        .args([
-            "-f",
-            "%{file}\n%{index}\n%{lang}",
-            &format!(":lang={language}"),
-        ])
-        .output()
-        .ok()?;
-    let output = String::from_utf8(output.stdout).ok()?;
+    let output = fc_match(&[
+        "-f",
+        "%{file}\n%{index}\n%{lang}",
+        &format!(":lang={language}"),
+    ])?;
     let mut lines = output.lines();
     let (file, index, languages) = (
         lines.next()?,
@@ -558,17 +638,13 @@ fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
         .iter()
         .map(|&c| format!("{:x}", u32::from(c)))
         .collect();
-    let Ok(output) = std::process::Command::new("fc-match")
-        .args([
-            "-f",
-            "%{file}\n%{index}",
-            &format!(":charset={}", charset.join(" ")),
-        ])
-        .output()
-    else {
+    let Some(output) = fc_match(&[
+        "-f",
+        "%{file}\n%{index}",
+        &format!(":charset={}", charset.join(" ")),
+    ]) else {
         return Vec::new();
     };
-    let output = String::from_utf8_lossy(&output.stdout);
     let mut lines = output.lines();
     match (
         lines.next(),
@@ -580,33 +656,65 @@ fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
     }
 }
 
-/// Windows has no fontconfig: the fonts it ships for symbols, letter-like
-/// characters and the scripts its UI font lacks, in the order they're tried.
+/// Windows has no fontconfig: the fonts it ships that may have `chars`, in
+/// the order they're tried ([`windows_char_files`]).
 #[cfg(windows)]
-fn char_fonts(_chars: &[char]) -> Vec<(String, u32)> {
-    const FILES: &[(&str, u32)] = &[
-        ("segoeui.ttf", 0),
-        ("seguisym.ttf", 0),
-        // Cambria Math.
-        ("cambria.ttc", 1),
-        ("seguihis.ttf", 0),
-        ("gadugi.ttf", 0),
-        ("ebrima.ttf", 0),
-        ("himalaya.ttf", 0),
-        ("msgothic.ttc", 0),
-        ("simsunb.ttf", 0),
-        ("seguiemj.ttf", 0),
-    ];
+fn char_fonts(chars: &[char]) -> Vec<(String, u32)> {
     let Ok(windows) = std::env::var("WINDIR") else {
         return Vec::new();
     };
     let fonts = std::path::Path::new(&windows).join("Fonts");
-    FILES
-        .iter()
+    windows_char_files(chars)
         .map(|&(file, index)| (fonts.join(file), index))
         .filter(|(path, _)| path.exists())
         .map(|(path, index)| (path.to_string_lossy().into_owned(), index))
         .collect()
+}
+
+/// The fonts Windows ships for symbols, letter-like characters and the
+/// scripts its UI font lacks, and the file's face for each.
+#[cfg(any(windows, test))]
+const WINDOWS_SYMBOLS: &[(&str, u32)] = &[
+    ("segoeui.ttf", 0),
+    ("seguisym.ttf", 0),
+    // Cambria Math.
+    ("cambria.ttc", 1),
+    ("seguihis.ttf", 0),
+    ("gadugi.ttf", 0),
+    ("ebrima.ttf", 0),
+    ("himalaya.ttf", 0),
+    ("msgothic.ttc", 0),
+    ("simsunb.ttf", 0),
+    ("seguiemj.ttf", 0),
+];
+
+/// Windows' fonts for Han ideographs, kana and hangul, each with its own
+/// part of them: Microsoft YaHei (Simplified Chinese), Microsoft JhengHei
+/// (Traditional Chinese), Yu Gothic (Japanese), Malgun Gothic (Korean),
+/// then SimSun's wide set. The font for the locale's language
+/// ([`script_language`]) lacks many of the others' ideographs.
+#[cfg(any(windows, test))]
+const WINDOWS_CJK: &[(&str, u32)] = &[
+    ("msyh.ttc", 0),
+    ("msjh.ttc", 0),
+    ("YuGothM.ttc", 0),
+    ("malgun.ttf", 0),
+    ("simsun.ttc", 0),
+];
+
+/// The Windows fonts tried for `chars`, in order: the CJK ones first for
+/// a Han, kana or hangul character, then the symbol fonts.
+#[cfg(any(windows, test))]
+fn windows_char_files(chars: &[char]) -> impl Iterator<Item = &'static (&'static str, u32)> {
+    use unicode_script::{Script, UnicodeScript};
+    let cjk = chars.iter().any(|c| {
+        matches!(
+            c.script(),
+            Script::Han | Script::Hiragana | Script::Katakana | Script::Hangul | Script::Bopomofo
+        )
+    });
+    let cjk: &[_] = if cjk { WINDOWS_CJK } else { &[] };
+    cjk.iter().chain(WINDOWS_SYMBOLS)
 }
 
 /// The font of a display name style's `family` at `weight`, or DM Sans.
@@ -704,9 +812,262 @@ pub fn style_font(font: Option<NameFont>, weight: u16) -> Font {
     }
 }
 
+/// A checked theme font loaded into the window's font system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThemeFont {
+    /// The face to draw with, including the file's weight, width and style.
+    pub font: Font,
+    /// The family name iced looks the face up by.
+    pub family: &'static str,
+    /// Another, different file already occupies this family and face.
+    /// iced cannot distinguish the two, so callers can surface the warning.
+    pub clash: Option<ThemeFontClash>,
+}
+
+/// A different file already loaded under the same family and face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ThemeFontClash {
+    pub family: &'static str,
+}
+
+/// Why bytes accepted for a theme could not be named as an iced font.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeFontError {
+    /// The bytes are not a font ttf-parser can read.
+    NotAFont,
+    /// The font has neither a typographic nor an ordinary family name.
+    Unnamed,
+}
+
+impl std::fmt::Display for ThemeFontError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::NotAFont => "isn't a font Yapfast can draw with",
+            Self::Unnamed => "has no family name to draw it by",
+        })
+    }
+}
+
+impl std::error::Error for ThemeFontError {}
+
+/// What distinguishes a face within a family. iced cannot select two files
+/// with the same values here independently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct ThemeFace {
+    weight: u16,
+    italic: bool,
+    width: u16,
+}
+
+/// Theme fonts loaded for this font-system installation. Identical bytes are
+/// parsed and inserted once; names are leaked once because [`Font`] requires
+/// a static family name for the lifetime of the process.
+#[derive(Default)]
+struct ThemeFonts {
+    names: HashSet<&'static str>,
+    loaded: HashMap<u64, (&'static str, ThemeFace)>,
+    faces: HashMap<(&'static str, ThemeFace), Vec<u64>>,
+}
+
+fn theme_fonts() -> &'static Mutex<ThemeFonts> {
+    static THEME_FONTS: std::sync::OnceLock<Mutex<ThemeFonts>> = std::sync::OnceLock::new();
+    THEME_FONTS.get_or_init(Mutex::default)
+}
+
+/// Loads a checked installed-theme font directly into Yapfast's custom
+/// cosmic-text font system and returns the iced face that selects it.
+///
+/// The family is read the same way fontdb does: an English typographic family
+/// first, then another typographic family, then the ordinary family. Repeated
+/// bytes are deduplicated. A distinct file with the same family, weight,
+/// width and style is loaded but reported as a clash because iced may draw
+/// whichever one its database finds first.
+pub fn load_theme_font(bytes: Vec<u8>) -> Result<ThemeFont, ThemeFontError> {
+    let digest = theme_font_digest(&bytes);
+    let mut registry = theme_fonts()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(&(family, face)) = registry.loaded.get(&digest) {
+        return Ok(ThemeFont {
+            font: theme_iced_font(family, face),
+            family,
+            clash: theme_font_clash(&registry, family, face, digest),
+        });
+    }
+
+    let (name, face) = read_theme_font(&bytes)?;
+    let family = match registry.names.get(name.as_str()) {
+        Some(family) => *family,
+        None => {
+            let family: &'static str = Box::leak(name.into_boxed_str());
+            registry.names.insert(family);
+            family
+        }
+    };
+    let clash = theme_font_clash(&registry, family, face, digest);
+
+    // The core checked the bytes before installation; parsing is still kept
+    // fallible above because a data folder may be damaged after that check.
+    font_system()
+        .write()
+        .expect("font system")
+        .raw()
+        .db_mut()
+        .load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(bytes)));
+
+    registry.loaded.insert(digest, (family, face));
+    registry
+        .faces
+        .entry((family, face))
+        .or_default()
+        .push(digest);
+    if clash.is_some() {
+        tracing::warn!(
+            family,
+            "an installed theme font clashes with another theme font face"
+        );
+    }
+    Ok(ThemeFont {
+        font: theme_iced_font(family, face),
+        family,
+        clash,
+    })
+}
+
+/// The family name an installed-theme font would use, without loading it.
+#[cfg(test)]
+pub fn theme_font_family(bytes: &[u8]) -> Option<String> {
+    read_theme_font(bytes).ok().map(|(family, _)| family)
+}
+
+fn read_theme_font(bytes: &[u8]) -> Result<(String, ThemeFace), ThemeFontError> {
+    // ttf-parser is careful with untrusted input, but keep a malformed font
+    // from unwinding through app startup if the data folder was altered.
+    let read = std::panic::catch_unwind(|| {
+        let face = ttf_parser::Face::parse(bytes, 0).ok()?;
+        let name = |id: u16| {
+            let mut found: Vec<(String, bool)> = face
+                .names()
+                .into_iter()
+                .filter(|name| name.name_id == id && name.is_unicode())
+                .filter_map(|name| {
+                    let english = name.language() == ttf_parser::Language::English_UnitedStates;
+                    name.to_string().map(|text| (text, english))
+                })
+                .collect();
+            found.sort_by_key(|(_, english)| !english);
+            found.into_iter().map(|(text, _)| text).next()
+        };
+        let family = name(ttf_parser::name_id::TYPOGRAPHIC_FAMILY)
+            .or_else(|| name(ttf_parser::name_id::FAMILY));
+        Some((
+            family,
+            ThemeFace {
+                weight: face.weight().to_number(),
+                italic: face.is_italic(),
+                width: face.width().to_number(),
+            },
+        ))
+    });
+    match read {
+        Ok(Some((Some(family), face))) if !family.is_empty() => Ok((family, face)),
+        Ok(Some(_)) => Err(ThemeFontError::Unnamed),
+        _ => Err(ThemeFontError::NotAFont),
+    }
+}
+
+fn theme_font_clash(
+    registry: &ThemeFonts,
+    family: &'static str,
+    face: ThemeFace,
+    digest: u64,
+) -> Option<ThemeFontClash> {
+    registry
+        .faces
+        .get(&(family, face))
+        .is_some_and(|digests| digests.iter().any(|other| *other != digest))
+        .then_some(ThemeFontClash { family })
+}
+
+fn theme_iced_font(family: &'static str, face: ThemeFace) -> Font {
+    let stretch = match face.width.clamp(1, 9) {
+        1 => Stretch::UltraCondensed,
+        2 => Stretch::ExtraCondensed,
+        3 => Stretch::Condensed,
+        4 => Stretch::SemiCondensed,
+        5 => Stretch::Normal,
+        6 => Stretch::SemiExpanded,
+        7 => Stretch::Expanded,
+        8 => Stretch::ExtraExpanded,
+        _ => Stretch::UltraExpanded,
+    };
+    Font {
+        weight: font_weight(face.weight),
+        stretch,
+        style: if face.italic {
+            Style::Italic
+        } else {
+            Style::Normal
+        },
+        ..Font::with_name(family)
+    }
+}
+
+fn theme_font_digest(bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_theme_font_is_named_loaded_and_deduplicated() {
+        crate::testing::install_fonts();
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fonts/AtkinsonHyperlegibleNext-Regular.ttf");
+        let bytes = std::fs::read(&path).expect("the checked-in readable font");
+        let family = theme_font_family(&bytes).expect("its family");
+        let first = load_theme_font(bytes.clone()).expect("loaded");
+        assert_eq!(first.family, family);
+        assert_eq!(first.font.family, Family::Name(first.family));
+        assert_eq!(first.clash, None);
+        let faces = font_system()
+            .write()
+            .expect("font system")
+            .raw()
+            .db()
+            .faces()
+            .filter(|face| face.families.iter().any(|(known, _)| known == first.family))
+            .count();
+        assert!(faces > 0, "inserted into the active font database");
+
+        let again = load_theme_font(bytes).expect("loaded once");
+        assert_eq!(again, first);
+        assert_eq!(
+            font_system()
+                .write()
+                .expect("font system")
+                .raw()
+                .db()
+                .faces()
+                .filter(|face| face.families.iter().any(|(known, _)| known == first.family))
+                .count(),
+            faces,
+            "identical bytes do not add another face"
+        );
+    }
+
+    #[test]
+    fn damaged_theme_font_bytes_are_refused() {
+        assert_eq!(
+            load_theme_font(b"not a font".to_vec()).unwrap_err(),
+            ThemeFontError::NotAFont
+        );
+        assert_eq!(theme_font_family(b"not a font"), None);
+    }
 
     /// Each glyph of `text` in DM Sans at `weight`, upright or italic: its
     /// glyph id, and its face's file.
@@ -790,6 +1151,82 @@ mod tests {
         );
         load_wanted();
         assert_eq!(faces_from(&file), faces);
+    }
+
+    /// Each script DM Sans lacks asks fontconfig for its language's font;
+    /// Latin and the Common script (digits, emoji) ask for none.
+    #[test]
+    fn a_script_asks_for_its_languages_font() {
+        use unicode_script::Script;
+        for (script, language) in [
+            (Script::Arabic, "ar"),
+            (Script::Hebrew, "he"),
+            (Script::Hiragana, "ja"),
+            (Script::Katakana, "ja"),
+            (Script::Hangul, "ko"),
+            (Script::Devanagari, "hi"),
+            (Script::Thai, "th"),
+            (Script::Cyrillic, "ru"),
+            (Script::Greek, "el"),
+        ] {
+            assert_eq!(script_language(script), Some(language), "{script:?}");
+        }
+        assert!(
+            script_language(Script::Han)
+                .is_some_and(|han| han.starts_with("zh") || han == "ja" || han == "ko")
+        );
+        assert_eq!(script_language(Script::Latin), None);
+        assert_eq!(script_language(Script::Common), None);
+    }
+
+    /// Han goes by the locale, from a variable or the system.
+    #[test]
+    fn han_is_drawn_for_the_locales_language() {
+        for (locale, language) in [
+            ("ja_JP.UTF-8", "ja"),
+            ("ja-JP", "ja"),
+            ("ko_KR.UTF-8", "ko"),
+            ("zh_TW.UTF-8", "zh-tw"),
+            ("zh_HK", "zh-tw"),
+            ("zh-Hant-TW", "zh-tw"),
+            ("zh-Hans-CN", "zh-cn"),
+            ("zh_CN.UTF-8", "zh-cn"),
+            ("en_US.UTF-8", "zh-cn"),
+            ("C", "zh-cn"),
+            ("", "zh-cn"),
+        ] {
+            assert_eq!(han_language(locale), language, "{locale}");
+        }
+    }
+
+    /// fontconfig's program runs without the library path Yapfast was
+    /// started with, whose libraries it can't link against.
+    #[cfg(not(windows))]
+    #[test]
+    fn fc_match_runs_without_the_apps_library_path() {
+        let command = fc_match_command(&["monospace"]);
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == "LD_LIBRARY_PATH" && value.is_none())
+        );
+    }
+
+    /// On Windows a Han, kana or hangul character tries the CJK fonts
+    /// first, Simplified Chinese's first (#192), and anything else only
+    /// the symbol fonts.
+    #[test]
+    fn windows_tries_its_cjk_fonts_for_ideographs() {
+        let files = |chars: &[char]| -> Vec<&str> {
+            windows_char_files(chars).map(|&(file, _)| file).collect()
+        };
+        for ideograph in ['湊', '这', 'み', '한'] {
+            let tried = files(&[ideograph]);
+            assert_eq!(tried[..2], ["msyh.ttc", "msjh.ttc"], "{ideograph}");
+            assert_eq!(tried.len(), WINDOWS_CJK.len() + WINDOWS_SYMBOLS.len());
+        }
+        assert_eq!(files(&['⓪']), files(&[]));
+        assert_eq!(files(&['⓪'])[0], "segoeui.ttf");
     }
 
     /// The shaper is told the family chosen for a character, and a

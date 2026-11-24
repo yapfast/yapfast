@@ -26,7 +26,8 @@ picks friends to add to a DM, saying how many more the group can take,
 Create Group DM or Add to Group adding them. A thread open in its place
 has the header's More, its menu as the sidebar's.
 
-The search box (`search.rs`, `header_search`) names where it looks, widens
+The search box (`search.rs`, `header_search`) is Discord's 244 by 32 px, in the
+dark theme's measured inks; it names where it looks, widens
 while it holds something and clears with its X; Enter searches the DM, or
 the channel's server. What it found shows beside the conversation in the
 member list's place (`search::view`), 420 px wide: how many, the newest
@@ -54,7 +55,9 @@ start, or Discord's welcome at a server channel's start. Until a
 conversation's first messages come, rows the shape of messages hold its
 place, still (`timeline::view::messages_skeleton`), as they do in the
 thread beside the channel. A short history
-is held down over the composer. While the "New" divider is
+is held down over the composer. A view within the 8 px padding below the
+last message follows the bottom as messages arrive; scrolling above that
+keeps the earlier messages in place. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window
 of older messages has the bar back to the present, and its last row ends
 with "Newer messages" (loading, or failed with a retry); a reply's line
@@ -67,8 +70,15 @@ A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
 a file's card (its name and size), link previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
-thumbnail and footer), stickers, a poll, a voice message, an app's
-components, and reactions; a notice shows its icon in place of the avatar
+thumbnail and footer; as wide as what's in it, up to 432 px, and a theme's
+ground, art and outline under the card stop at its edge too), stickers, a poll, a voice message, an app's
+components, and reactions. The author line has the name (in its role
+colour, else the brightest white), the server tag, a green star for an
+author who joined the server in the last week (`new_member`; not a bot, not
+one who left and came back, and not in a server itself under a week old, as
+Discord's client marks them), and, in a forum post, an "OP" tag for the
+post's author unless the APP tag is there; a reply's line quotes the
+author's tag a little smaller. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.
@@ -81,7 +91,11 @@ slash command, where one may write, is written in the composer
 (`Action::SlashQuery`) with the keys there.
 
 - Pictures (`media.rs`): one shows at its own size, several as square
-  tiles two to a row, scaled down to the room there is. A spoiler's
+  tiles two to a row, scaled down to the room there is. A picture's corners are 4 px round. A moving picture the star
+  could favourite wears a "GIF" badge in its top left while it isn't
+  playing (Appearance's animations off, or the window not in front) and isn't
+  pointed at, covered or loading, as Discord's does, the star taking its place
+  under the pointer. A spoiler's
   picture is blurred under a cover until clicked. Copies at a tile's size
   are made off the window's thread (`pictures::Fitter`) and dropped once
   no view shows them. On the message under the pointer each picture and
@@ -121,12 +135,12 @@ slash command, where one may write, is written in the composer
   renders them).
 - Custom emoji are pictures in the text's line, larger when the message is
   only emoji; a copy gives back their `:name:`. An animated one plays
-  while pictures play (`Ctx::playing_emoji`): in a message's text in the
-  timeline or the thread beside it, which hands it to the piece as a
+  while pictures play (`Ctx::playing_emoji`): in a message's text or reply
+  quote in the timeline or the thread beside it, which hands it to the piece as a
   moving picture over its span (`Piece::moving`), in its reaction chip,
   and in the hover bar's and the menu's quick reactions when this
   account may use it there. Text in no timeline row (a bio, a topic, a
-  found card) shows its still.
+  found card, or the composer's reply bar) shows its still.
 - A poll (`polls.rs`) lists its answers to pick, one or several, then
   Vote; once voted or ended it shows each answer's share with a bar, and
   Show results looks without voting. Its time left counts down. With the
@@ -169,8 +183,11 @@ slash command, where one may write, is written in the composer
   stays on its message. It stays while what it opened is open, its menu,
   its picker or the question whether to delete it, wherever the pointer
   goes (`hover_bar::kept`).
-- A message's reaction chips (`message/reaction_chips.rs`) wrap onto as
-  many lines as its width asks. A click on one adds this account's
+- A message's reaction chips (`message/reaction_chips.rs`) are 30 px
+  tall and wrap onto as
+  many lines as its width asks; after the last one, Discord's add
+  button (34 by 30 px, a smiling face with a plus, its edge lit under the
+  pointer) opens the reaction picker where a new reaction may be added. A click on one adds this account's
   reaction or takes it back. What the channel allows comes from the core
   (`reacts_in`): where it allows none, as while timed out, a chip takes
   no click; where it allows only reactions already there, as without Add
@@ -201,6 +218,7 @@ slash command, where one may write, is written in the composer
 - A message from someone this account blocked shows as "Blocked user"
   and "Blocked message." with Show it, as Discord's does, until asked; with
   blocked messages hidden in Settings, the core leaves them out.
+  Messages from ignored accounts show as "Ignored message." with Show.
 - A masked link (words that aren't where they go) asks first: Go back,
   or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in

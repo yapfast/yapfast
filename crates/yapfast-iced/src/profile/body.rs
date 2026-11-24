@@ -80,6 +80,57 @@ fn title<'a>(words: &'a str, ink: Color) -> Element<'a, Message> {
     text(words).size(12).font(BOLD).color(ink).into()
 }
 
+/// A stock profile section is only its title and content. An installed
+/// theme that names `card_section` gives it a frame and a 22 px title bar,
+/// as the Slint theme's `SectionBox` did.
+fn section_box<'a>(
+    theme: &crate::theme::Theme,
+    words: &'a str,
+    content: Element<'a, Message>,
+    ink: Color,
+    stock_title: bool,
+) -> Element<'a, Message> {
+    if !theme.has_surface("card_section") {
+        let mut section = column![].spacing(6);
+        if stock_title {
+            section = section.push(title(words, ink));
+        }
+        return section.push(content).into();
+    }
+
+    let words = theme.surface_words("card_section", words);
+    let (bar, bar_ink) = theme
+        .surface_bar("card_section")
+        .map_or((Color::TRANSPARENT.into(), ink), |(bar, text)| {
+            (bar, text.unwrap_or(ink))
+        });
+    let heading = container(
+        text(words)
+            .size(12)
+            .font(BOLD)
+            .color(bar_ink)
+            .wrapping(text::Wrapping::None),
+    )
+    .padding([0, 8])
+    .height(22)
+    .align_y(Alignment::Center)
+    .style(move |_| container::Style {
+        background: Some(bar),
+        ..Default::default()
+    });
+    let background = theme.surface_ground("card_section");
+    let border = theme.surface_border("card_section", 0.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("card_section", iced::Shadow::default());
+    container(column![heading, container(content).padding(8)].spacing(0))
+        .style(move |_| container::Style {
+            background,
+            border,
+            shadow,
+            ..Default::default()
+        })
+        .into()
+}
+
 /// A thought's bubble over a profile's top: two dots, each `(x, y,
 /// side)`, rising from the avatar to `content` at `at`, in the bubble's
 /// inks. A stack is the size of its first child, which lays out the rest:
@@ -127,6 +178,9 @@ pub(super) fn profile_body<'a>(
     let metrics = mode.metrics();
     let theme = ctx.look.theme;
     let mut body = column![].spacing(12).padding([0.0, metrics.pad]);
+    // Discord's panel beside a DM names a private profile in a bar above
+    // the banner, and says why the rest is bare.
+    let private = mode == Mode::Docked && profile.private && !look.own;
     // A plain name selects, to copy, as in Discord; a styled one is a
     // picture, which opens the full profile as the avatar does.
     let name = match styled_name(ctx, shown, metrics.name) {
@@ -135,11 +189,40 @@ pub(super) fn profile_body<'a>(
             .interaction(iced::mouse::Interaction::Pointer)
             .into(),
         Some(name) => name,
-        None => selectable(ctx, profile.name.as_str(), metrics.name, BOLD, inks.ink),
+        // A theme that cuts names cuts a plain one here, as Slint's card.
+        None => {
+            crate::theme_chrome::name_ransom(
+                ctx,
+                profile.name.as_str(),
+                theme_size(ctx, metrics.name),
+            )
+            .unwrap_or_else(|| {
+                // In the theme's names face and weight, as Slint's
+                // `Look.name-font` (Hurt's blackletter).
+                selectable(
+                    ctx,
+                    profile.name.as_str(),
+                    metrics.name,
+                    theme.font("names", BOLD),
+                    inks.ink,
+                )
+            })
+        }
     };
+    // Discord's card has the badges beside the username, up to six of
+    // them (any number in the DM's panel); more go under the name, 2 px
+    // below it, and the panel's own keep to their row below.
+    let beside = !mode.large()
+        && !profile.handle.is_empty()
+        && !profile.badges.is_empty()
+        && (mode == Mode::Docked || profile.badges.len() <= 6);
+    let under = mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
     let mut names = column![name].spacing(2);
-    if let Some(line) = handle_line(ctx, shown, &inks) {
+    if let Some(line) = handle_line(ctx, shown, &inks, mode, beside) {
         names = names.push(line);
+    }
+    if under {
+        names = names.push(badge_rows(ctx, shown));
     }
     body = body.push(names);
     if mode.large()
@@ -147,33 +230,40 @@ pub(super) fn profile_body<'a>(
     {
         body = body.push(actions);
     }
-    if !profile.badges.is_empty() {
+    if !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
-    if !mode.large() && !look.activities.is_empty() {
-        let mut activities = column![].spacing(12);
-        for activity in &look.activities {
-            let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
-            activities = activities.push(crate::profile::activity::activity_card_view(
-                ctx, activity, &inks, menu,
-            ));
-        }
-        body = body.push(activities);
+    // Discord's card shows the first activity on its own tile, with the
+    // edge of the next behind it when there are more; that edge opens the
+    // full profile's Activity tab.
+    if !mode.large()
+        && let Some(first) = look.activities.first()
+    {
+        let menu = (mode == Mode::Card && !look.bot && !ctx.state.preview).then_some(look.own);
+        let card =
+            crate::profile::activity::activity_card_view(ctx, first, &inks, menu, false, look.bot);
+        body = body.push(activity_tiles(card, look.activities.len() > 1, &inks, mode));
     }
     if !mode.large() && !look.own && (!profile.friends.is_empty() || !profile.servers.is_empty()) {
         body = body.push(mutual_line(ctx, shown, &inks, mode));
+    }
+    if private {
+        body = body.push(private_note(profile, &inks));
     }
     if let Some(bio) = &look.bio {
         body = body.push(bio_view(ctx, bio, &inks, mode));
     }
     if mode.full() && (profile.created.is_some() || profile.joined.is_some()) {
-        body = body.push(
-            column![
-                title("Member Since", inks.ink),
-                member_since(ctx, shown, &inks)
-            ]
-            .spacing(6),
-        );
+        // The DM's panel writes the account's date as plain text in the
+        // card's ink, 7 px under its title.
+        let panel = mode == Mode::Docked;
+        body = body.push(section_box(
+            theme,
+            "Member Since",
+            member_since(ctx, shown, &inks, panel),
+            inks.ink,
+            true,
+        ));
     }
     if mode.large() && !look.friends_since.is_empty() {
         body = body.push(
@@ -185,11 +275,13 @@ pub(super) fn profile_body<'a>(
         );
     }
     if !profile.roles.is_empty() {
-        let mut roles = column![].spacing(6);
-        if mode.full() {
-            roles = roles.push(title("Roles", inks.ink));
-        }
-        body = body.push(roles.push(role_chips(ctx, shown, &inks)));
+        body = body.push(section_box(
+            theme,
+            "Roles",
+            role_chips(ctx, shown, &inks),
+            inks.ink,
+            mode.full(),
+        ));
     }
     if mode.large() && !profile.connections.is_empty() {
         body = body.push(connections(ctx, shown, &inks));
@@ -216,18 +308,88 @@ pub(super) fn profile_body<'a>(
     if mode != Mode::Side && !look.message_hint.is_empty() {
         body = body.push(message_box(ctx, shown, &inks));
     }
-    let content =
-        column![profile_top(ctx, shown, mode, width, pointed, &inks), body].padding(Padding {
-            bottom: metrics.pad,
-            ..Padding::ZERO
-        });
+    let inset_top = (!inks.themed && mode != Mode::Docked)
+        .then(|| theme.surface_inset_top("card"))
+        .flatten()
+        .unwrap_or(0.0);
+    let mut content = column![Space::new().height(inset_top)].padding(Padding {
+        bottom: metrics.pad,
+        ..Padding::ZERO
+    });
+    if private {
+        content = content.push(private_bar(ctx, &inks));
+    }
+    let content = content
+        .push(profile_top(ctx, shown, mode, width, pointed, &inks))
+        .push(body);
     match mode {
-        Mode::Card => container(content)
-            .width(WIDTH)
-            .style(frame_style(inks, theme.edge, 12.0, true))
-            .into(),
+        Mode::Card => {
+            // A theme's card art (Zine's paper) lies on the card's ground,
+            // under its words; its pinning tape goes over the card's top
+            // edge in `card_view`, outside the card's scroll.
+            let content: Element<'a, Message> = match (!inks.themed)
+                .then(|| {
+                    crate::theme_art::art_under(
+                        ctx,
+                        yapfast_core::themes::package::art::ArtSurface::Card,
+                    )
+                })
+                .flatten()
+            {
+                // The words size the card; the art fills what they take.
+                Some(art) => iced::widget::Stack::with_children([content.into()])
+                    .push_under(art)
+                    .into(),
+                None => content.into(),
+            };
+            container(content)
+                .width(WIDTH)
+                .style(frame_style(inks, theme, theme.edge, 12.0, true))
+                .into()
+        }
         Mode::Side | Mode::Docked => content.into(),
     }
+}
+
+/// The bar above a private profile's banner, in the profile's colour
+/// mostly dark: a lock and "Private Profile", in white.
+fn private_bar<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message> {
+    let ground = crate::theme::mix(inks.primary, Color::from_rgb8(0x1a, 0x1a, 0x1e), 0.15);
+    container(
+        row![
+            ctx.look.glyph(Icon::Lock, 14, Color::WHITE),
+            text("Private Profile")
+                .size(14)
+                .font(BOLD)
+                .color(Color::WHITE)
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
+    )
+    .center_x(Length::Fill)
+    .center_y(32)
+    .style(move |_| container::Style {
+        background: Some(ground.into()),
+        ..Default::default()
+    })
+    .into()
+}
+
+/// A private profile's note, in a tile: why it shows so little.
+fn private_note<'a>(profile: &chat::Profile, inks: &Inks) -> Element<'a, Message> {
+    let who = if profile.handle.is_empty() {
+        profile.name.as_str()
+    } else {
+        profile.handle.as_str()
+    };
+    let words = format!(
+        "{who}'s profile is private, so some information is hidden. Add them as a friend to see more."
+    );
+    container(text(words).size(14).color(inks.ink))
+        .padding(12)
+        .width(Length::Fill)
+        .style(|_| rounded(Color::from_rgba8(255, 255, 255, 20.0 / 255.0), 8))
+        .into()
 }
 
 /// The banner, with the avatar over its lower edge on a ring of the
@@ -249,7 +411,9 @@ fn profile_top<'a>(
     // colour (the theme's first colour on a themed card), else the
     // raised grey.
     let banner_size = Size::new(width, banner_height);
-    let top_corners = [12.0, 12.0, 0.0, 0.0];
+    // The card's own corners: a theme's `card` shape (Zine's square cut).
+    let corner = ctx.look.theme.surface_radius("card", 12.0);
+    let top_corners = [corner, corner, 0.0, 0.0];
     let moving = profile
         .banner
         .as_deref()
@@ -329,11 +493,25 @@ pub(super) fn profile_avatar<'a>(
     let profile = shown.look.profile();
     let ring = size + 12.0;
     let ring_size = Size::new(ring, ring);
+    // The ring takes the avatars' shape (Zine's square prints), as the
+    // face in it does.
+    let content = ctx.themes.content(
+        &ctx.look.theme.id,
+        ctx.layout.theme_content.contains(&ctx.look.theme.id),
+    );
+    let ring_radius = match content.map(|content| content.avatars.shape) {
+        Some(yapfast_core::themes::content::AvatarShape::Square) => 0.0,
+        Some(yapfast_core::themes::content::AvatarShape::Circle) => ring / 2.0,
+        Some(yapfast_core::themes::content::AvatarShape::Rounded) => {
+            content.map_or(8.0, |content| content.avatars.radius) + 6.0
+        }
+        _ => ctx.look.theme.avatar_radius(ring, ring / 2.0),
+    };
     let mut avatar = stack![
         container(Space::new())
             .width(ring)
             .height(ring)
-            .style(move |_| rounded(ground, ring / 2.0))
+            .style(move |_| rounded(ground, ring_radius))
     ];
     let face: Element<'a, Message> = match profile.avatar.as_deref().and_then(|url| {
         crate::profile::profile_picture(ctx, shown, url, size as u32, size as u32, true)
@@ -459,18 +637,26 @@ fn banner_buttons<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Element<'a,
     let look = &shown.look;
     let id = look.profile().id.clone();
     let round = |icon: Icon, label: &'static str, message: Option<Message>| {
+        let theme = ctx.look.theme;
         let enabled = message.is_some();
-        let rest = Color {
-            a: 0.5,
-            ..Color::BLACK
-        };
-        let lit = Color {
-            a: 0.7,
-            ..Color::BLACK
-        };
+        let rest = theme.token_colour(
+            "card-button",
+            Color {
+                a: 0.5,
+                ..Color::BLACK
+            },
+        );
+        let lit = theme.token_colour(
+            "card-button-hover",
+            Color {
+                a: 0.7,
+                ..Color::BLACK
+            },
+        );
+        let icon_ink = theme.token_colour("card-button-icon", Color::WHITE);
         let glyph = ctx
             .look
-            .glyph(icon, 18, Color::WHITE)
+            .glyph(icon, 18, icon_ink)
             .opacity(if enabled { 1.0 } else { 0.5 });
         let face = button(glyph.boxed(32))
             .padding(0)
@@ -520,13 +706,28 @@ pub(crate) fn profile_name<'a>(
     size: f32,
     ink: Color,
 ) -> Element<'a, Message> {
-    styled_name(ctx, shown, size).unwrap_or_else(|| {
-        text(shown.look.profile().name.clone())
-            .size(size)
-            .font(BOLD)
-            .color(ink)
-            .into()
-    })
+    // A theme that cuts names cuts a plain one here too, as Slint's card.
+    let name: Element<'a, Message> = styled_name(ctx, shown, size)
+        .or_else(|| {
+            crate::theme_chrome::name_ransom(ctx, &shown.look.profile().name, theme_size(ctx, size))
+        })
+        .unwrap_or_else(|| {
+            text(shown.look.profile().name.clone())
+                .size(theme_size(ctx, size))
+                .font(ctx.look.theme.font("names", BOLD))
+                .color(ink)
+                .into()
+        });
+    crate::theme_effects::slot(
+        name,
+        ctx,
+        yapfast_core::themes::package::Slot::ProfileName,
+        None,
+    )
+}
+
+fn theme_size(ctx: crate::ctx::Ctx<'_>, stock: f32) -> f32 {
+    ctx.look.theme.type_size("names", stock)
 }
 
 /// The name in its style, if it has one.
@@ -588,11 +789,14 @@ fn selectable<'a>(
         .into()
 }
 
-/// The username and pronouns, and the server tag's chip.
+/// The username and pronouns, the badges beside them when they fit, and the
+/// server tag's chip.
 fn handle_line<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
     inks: &Inks,
+    mode: Mode,
+    badges: bool,
 ) -> Option<Element<'a, Message>> {
     let profile = shown.look.profile();
     let tag = ctx.state.cosmetics.tag(profile.tag.as_ref());
@@ -607,6 +811,9 @@ fn handle_line<'a>(
             format!("{} \u{2022} {}", profile.handle, profile.pronouns).into()
         };
         line = line.push(selectable(ctx, words, 14.0, REGULAR, inks.ink));
+    }
+    if badges {
+        line = line.push(badge_rows(ctx, shown));
     }
     if let Some(tag) = tag {
         let fill = if inks.light {
@@ -636,6 +843,10 @@ fn handle_line<'a>(
             1.0,
         );
         line = line.push(crate::tag_card::opens(chip, tag));
+    }
+    // Discord's panel keeps the row 21 px high with or without badges.
+    if mode == Mode::Docked {
+        line = line.height(21);
     }
     Some(line.into())
 }
@@ -669,12 +880,14 @@ fn profile_actions<'a>(
         return None;
     }
     let ink = inks.ink;
-    let (rest, lit) = (Color { a: 0.12, ..ink }, Color { a: 0.2, ..ink });
+    let rest = theme.token_colour("card-button", Color { a: 0.12, ..ink });
+    let lit = theme.token_colour("card-button-hover", Color { a: 0.2, ..ink });
+    let btn_ink = theme.token_colour("card-button-icon", ink);
     let mut row = row![].spacing(8).align_y(Alignment::Center);
     if let Some((icon, label, message)) = look.offer.button(&id) {
         let accept = look.offer == Offer::Accept;
         let (accent, on_accent) = (theme.accent, theme.on_accent);
-        let face_ink = if accept { on_accent } else { ink };
+        let face_ink = if accept { on_accent } else { btn_ink };
         let enabled = message.is_some();
         row = row.push(
             button(
@@ -711,7 +924,7 @@ fn profile_actions<'a>(
         );
     }
     let round = |icon: Icon, message: Message| {
-        button(ctx.look.glyph(icon, 18, ink).boxed(32))
+        button(ctx.look.glyph(icon, 18, btn_ink).boxed(32))
             .padding(0)
             .width(32)
             .height(32)
@@ -837,7 +1050,7 @@ fn badge_level_tip<'a>(
     let ground = theme.tooltip;
     container(card.push(words))
         .width(BADGE_TIP_WIDTH)
-        .style(move |_| crate::style::panel(ground, BADGE_TIP_EDGE, 8.0))
+        .style(move |_| crate::style::surface_panel(theme, "tooltip", ground, BADGE_TIP_EDGE, 8.0))
         .into()
 }
 
@@ -852,7 +1065,12 @@ fn mutual_line<'a>(
     let look = &shown.look;
     let profile = look.profile();
     let panel = mode == Mode::Docked;
-    let ink2 = inks.ink2;
+    // Discord's counts are plain and muted, a step fainter in the DM's panel.
+    let ink2 = if panel {
+        faded(inks.ink3, 0.8)
+    } else {
+        inks.ink3
+    };
     let mut line = row![].spacing(4).align_y(Alignment::Center);
     let link = |label: Element<'a, Message>, tab: Tab| {
         button(label)
@@ -882,7 +1100,7 @@ fn mutual_line<'a>(
                 faces,
                 text(look.mutual_friends.as_str())
                     .size(12)
-                    .font(MEDIUM)
+                    .font(REGULAR)
                     .color(ink2),
             ]
             .spacing(4)
@@ -895,14 +1113,32 @@ fn mutual_line<'a>(
         line = line.push(text("\u{2022}").size(12).color(ink2));
     }
     if !profile.servers.is_empty() {
-        line = line.push(link(
+        let mut servers = row![].spacing(4).align_y(Alignment::Center);
+        // The DM's panel shows the servers' icons first, when no friends
+        // show theirs.
+        if panel && profile.friends.is_empty() {
+            let shown_icons = profile.servers.len().min(3);
+            let mut icons = stack![
+                Space::new()
+                    .width(shown_icons as f32 * 12.0 + 6.0)
+                    .height(16)
+            ];
+            for (index, server) in profile.servers.iter().take(3).enumerate() {
+                icons = icons.push(placed(
+                    ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 4.0, 1.0),
+                    index as f32 * 12.0,
+                    0.0,
+                ));
+            }
+            servers = servers.push(icons);
+        }
+        servers = servers.push(
             text(look.mutual_servers.as_str())
                 .size(12)
-                .font(MEDIUM)
-                .color(ink2)
-                .into(),
-            Tab::Servers,
-        ));
+                .font(REGULAR)
+                .color(ink2),
+        );
+        line = line.push(link(servers.into(), Tab::Servers));
     }
     container(line).height(20).align_y(Alignment::Center).into()
 }
@@ -952,14 +1188,16 @@ pub(super) fn member_since<'a>(
     ctx: crate::ctx::Ctx<'a>,
     shown: &'a Shown,
     inks: &Inks,
+    plain: bool,
 ) -> Element<'a, Message> {
     let profile = shown.look.profile();
-    let ink = inks.ink2;
+    let ink = if plain { inks.ink } else { inks.ink2 };
     let mut line = row![].spacing(8).align_y(Alignment::Center);
     if let Some(created) = &profile.created {
-        line = line
-            .push(ctx.look.glyph(Icon::Discord, 16, ink))
-            .push(text(created.as_str()).size(14).color(ink));
+        if !plain {
+            line = line.push(ctx.look.glyph(Icon::Discord, 16, ink));
+        }
+        line = line.push(text(created.as_str()).size(14).color(ink));
     }
     if profile.created.is_some() && profile.joined.is_some() {
         line = line.push(text("\u{2022}").size(14).color(ink));
@@ -996,6 +1234,8 @@ fn role_chips<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> El
     let profile = shown.look.profile();
     let ink = inks.ink;
     let faint = ctx.look.theme.faint;
+    // The theme's radii (square on Zine), as Slint's `Look.radius`.
+    let (dot_radius, chip_radius) = (ctx.look.theme.radius(6.0), ctx.look.theme.radius(8.0));
     let mut chips = row![].spacing(4);
     for role in &profile.roles {
         let dot = role.color.map_or(faint, hex);
@@ -1005,7 +1245,7 @@ fn role_chips<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> El
                     container(Space::new())
                         .width(12)
                         .height(12)
-                        .style(move |_| rounded(dot, 6)),
+                        .style(move |_| rounded(dot, dot_radius)),
                     text(role.name.as_str()).size(12).font(SEMIBOLD).color(ink)
                 ]
                 .spacing(6)
@@ -1019,7 +1259,7 @@ fn role_chips<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown, inks: &Inks) -> El
             .height(24)
             .align_y(Alignment::Center)
             .style(move |_| container::Style {
-                border: crate::style::edge(faded(ink, 0.2), 8.0),
+                border: crate::style::edge(faded(ink, 0.2), chip_radius),
                 ..Default::default()
             }),
         );
@@ -1114,6 +1354,11 @@ fn message_box<'a>(
     inks: &Inks,
 ) -> Element<'a, Message> {
     let (ground, ink, hint, accent) = (inks.message, inks.ink, inks.ink2, ctx.look.theme.accent);
+    // The theme's field shape (Zine's square 2 px ink), as Slint's.
+    let border = ctx
+        .look
+        .theme
+        .surface_border("field", 8.0, 0.0, Color::TRANSPARENT);
     let field = text_input(&shown.look.message_hint, &ctx.profiles.field)
         .id(iced::widget::Id::new(MESSAGE_FIELD))
         .size(14)
@@ -1127,7 +1372,7 @@ fn message_box<'a>(
         .on_submit(Message::Profile(Event::Send))
         .style(move |_, _| text_input::Style {
             background: ground.into(),
-            border: crate::style::round(8),
+            border,
             icon: ink,
             placeholder: hint,
             value: ink,
@@ -1143,4 +1388,60 @@ fn message_box<'a>(
             .padding([0, 10]),
     ]
     .into()
+}
+
+/// The first activity's card on its tile, as Discord's popout stacks it:
+/// with more, a sliver of the next tile shows under it, which opens the
+/// full profile's Activity tab.
+fn activity_tiles<'a>(
+    card: Element<'a, Message>,
+    more: bool,
+    inks: &Inks,
+    mode: Mode,
+) -> Element<'a, Message> {
+    let (tile, hover) = (inks.tile, inks.hover);
+    let tile_style = move |_: &iced::Theme| container::Style {
+        background: Some(tile.into()),
+        border: Border {
+            radius: 8.0.into(),
+            ..Border::default()
+        },
+        ..Default::default()
+    };
+    let front = container(card)
+        .padding(8)
+        .width(Length::Fill)
+        .style(tile_style);
+    if !more {
+        return front.into();
+    }
+    let behind = button(Space::new().width(Length::Fill).height(6))
+        .padding(0)
+        .on_press(Message::Profile(Event::Enlarge(
+            Some(Tab::Activity),
+            mode == Mode::Docked,
+        )))
+        .style(move |_, status| button::Style {
+            background: Some(
+                match status {
+                    button::Status::Hovered | button::Status::Pressed => mix_tile(tile, hover),
+                    _ => Color {
+                        a: tile.a * 0.6,
+                        ..tile
+                    },
+                }
+                .into(),
+            ),
+            border: Border {
+                radius: corners([0.0, 0.0, 8.0, 8.0]),
+                ..Border::default()
+            },
+            ..Default::default()
+        });
+    column![front, container(behind).padding([0.0, 8.0])].into()
+}
+
+/// A tile's colour with the pointer's wash over it.
+fn mix_tile(tile: Color, hover: Color) -> Color {
+    crate::theme::mix(tile, Color { a: 1.0, ..hover }, hover.a)
 }

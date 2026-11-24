@@ -10,7 +10,7 @@ use yapfast_core::chat::{self, ChatMessage, Placement};
 use crate::{
     app::Message,
     controls,
-    fonts::{MEDIUM, SEMIBOLD},
+    fonts::{MEDIUM, REGULAR, SEMIBOLD},
     markdown::Look,
     media::{self, Fit, Gallery, Shot},
     style::{hex, rounded},
@@ -54,6 +54,10 @@ pub(super) fn embed<'a>(
     laid: &'a EmbedText,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
+    let theme_embeds = ctx
+        .themes
+        .content(&theme.id, ctx.layout.theme_content.contains(&theme.id))
+        .is_some_and(|c| c.embeds == yapfast_core::themes::content::Follow::Theme);
     let small = |size: f32, ink: Color| Look {
         size,
         line_height: (size * 1.3).round(),
@@ -64,37 +68,51 @@ pub(super) fn embed<'a>(
         + crate::piece::PartNo::try_from(place * 16)
             .unwrap_or(0)
             .min(EMBED_PARTS - 16);
-    let mut card = column![].spacing(8).width(Length::Fill);
+    // As wide as what's in it, as Discord's card is, up to `EMBED_WIDTH`.
+    let mut card = column![].spacing(8);
     if !embed.provider.is_empty() {
-        card = card.push(text(embed.provider.as_str()).size(12).color(theme.muted));
+        card = card.push(
+            container(
+                text(embed.provider.as_str())
+                    .size(theme.type_size("small", 12.0))
+                    .font(theme.font("small", crate::fonts::REGULAR))
+                    .color(theme.text),
+            )
+            .padding(Padding::ZERO.bottom(1)),
+        );
     }
     if !embed.author.is_empty() {
         card = card.push(
             text(embed.author.as_str())
-                .size(14)
-                .font(MEDIUM)
+                .size(theme.type_size("names", 14.0))
+                .font(theme.font("names", MEDIUM))
                 .color(theme.text),
         );
     }
     if !embed.title.is_empty() {
-        let title = text(embed.title.as_str()).size(16).font(SEMIBOLD);
-        card = card.push(if embed.url.is_empty() {
-            Element::from(title.color(theme.text))
-        } else {
-            button(title.color(theme.link))
-                .padding(0)
-                .on_press(Message::Link(embed.url.clone(), Point::ORIGIN))
-                .style(|_, _| button::Style::default())
-                .into()
-        });
+        let title = text(theme.heading(&embed.title).into_owned())
+            .size(theme.type_size("headings", 16.0))
+            .font(theme.font("headings", SEMIBOLD));
+        card = card.push(
+            container(if embed.url.is_empty() {
+                Element::from(title.color(theme.text))
+            } else {
+                let link_ink = if theme_embeds {
+                    theme.accent_text()
+                } else {
+                    theme.link
+                };
+                button(title.color(link_ink))
+                    .padding(0)
+                    .on_press(Message::Link(embed.url.clone(), Point::ORIGIN))
+                    .style(|_, _| button::Style::default())
+                    .into()
+            })
+            .padding(Padding::ZERO.bottom(2)),
+        );
     }
     if !laid.description.parts.is_empty() && !embed.description.is_empty() {
-        card = card.push(ctx.body_view(
-            &laid.description,
-            index,
-            first,
-            small(14.0, theme.secondary),
-        ));
+        card = card.push(ctx.body_view(&laid.description, index, first, small(14.0, theme.text)));
     }
     // Inline fields share a row, up to three; others have one each.
     let mut fields = column![].spacing(8);
@@ -103,7 +121,7 @@ pub(super) fn embed<'a>(
     for ((name, value), field) in laid.fields.iter().zip(&embed.fields) {
         let cell = column![
             ctx.body_view(name, index, first, small(14.0, theme.text)),
-            ctx.body_view(value, index, first, small(14.0, theme.secondary)),
+            ctx.body_view(value, index, first, small(14.0, theme.text)),
         ]
         .spacing(2)
         .width(Length::Fill);
@@ -141,12 +159,22 @@ pub(super) fn embed<'a>(
     .max(1.0);
     let gallery = Gallery::of(&message.attachments, Placement::Embed(place), room);
     if !gallery.is_empty() {
-        card = card.push(crate::message::attachments::embed_gallery(
-            ctx, index, message, &gallery, embed,
-        ));
+        // Discord leaves 16px above a picture, 8 of them the spacing and,
+        // under a title, 2 its own.
+        card = card.push(
+            container(crate::message::attachments::embed_gallery(
+                ctx, index, message, &gallery, embed,
+            ))
+            .padding(Padding::ZERO.top(if embed.title.is_empty() { 8 } else { 5 })),
+        );
     }
     if !embed.footer.is_empty() {
-        card = card.push(text(embed.footer.as_str()).size(12).color(theme.muted));
+        card = card.push(
+            text(embed.footer.as_str())
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", REGULAR))
+                .color(theme.text),
+        );
     }
     let mut beside = row![card].spacing(16);
     if let Some(at) = thumbnail {
@@ -164,24 +192,81 @@ pub(super) fn embed<'a>(
             ctx, index, message, at, shot,
         ));
     }
-    let bar_ink = embed.color.map_or(theme.edge, hex);
-    let ground = theme.sidebar;
-    let shown = row![
-        controls::bar(bar_ink, EMBED_BAR, Length::Fill),
-        container(beside).padding(Padding {
-            top: 12.0,
-            bottom: 12.0,
-            left: 12.0,
-            right: 16.0,
-        })
-    ]
-    .height(Length::Shrink);
-    container(
+    // Discord's dark card has a 1px line round it, in a step above its
+    // ground, that its bar covers on the left.
+    let (stock_bar, stock_ground, line) = if theme.bonfire {
+        (
+            embed.color.map_or(hex(0x3a3a40), hex),
+            hex(0x242429),
+            Some(hex(0x313137)),
+        )
+    } else {
+        (embed.color.map_or(theme.edge, hex), theme.sidebar, None)
+    };
+    let bar_ink = if theme_embeds {
+        theme.accent
+    } else {
+        stock_bar
+    };
+    let surface = yapfast_core::themes::package::art::ArtSurface::Embed;
+    let decorated =
+        ctx.themes.decorates(&theme.id, surface) || theme.package_paint("embed").is_some();
+    let ground = if decorated {
+        Color::TRANSPARENT
+    } else {
+        stock_ground
+    };
+    let line = line.filter(|_| !decorated);
+    let mut border = theme.surface_border("embed", 4.0, 0.0, Color::TRANSPARENT);
+    let outline_fallback = border;
+    if theme.outline("embed").is_some() {
+        border.width = 0.0;
+    }
+    let shadow = theme.surface_shadow("embed", iced::Shadow::default());
+    let inset = if line.is_some() { 1.0 } else { 0.0 };
+    let body = container(
+        container(beside)
+            .padding(Padding {
+                top: 10.0,
+                bottom: 16.0,
+                left: 12.0,
+                right: 16.0,
+            })
+            .style(move |_| rounded(ground, 0)),
+    )
+    .padding(Padding {
+        top: inset,
+        bottom: inset,
+        right: inset,
+        left: 0.0,
+    });
+    let shown = row![controls::bar(bar_ink, EMBED_BAR, Length::Fill), body].height(Length::Shrink);
+    let edge = line.unwrap_or(ground);
+    // Discord leaves 3px under an embed, measured against its next message.
+    let shown = container(
         container(shown)
             .max_width(EMBED_WIDTH)
             .clip(true)
-            .style(move |_| rounded(ground, 4)),
+            .style(move |_| iced::widget::container::Style {
+                background: Some(edge.into()),
+                border,
+                shadow,
+                ..Default::default()
+            }),
     )
-    .padding(Padding::ZERO.top(4))
-    .into()
+    .padding(Padding::ZERO.top(4).bottom(3));
+    let shown = crate::theme_art::surface(shown, ctx, surface);
+    let shown = crate::theme_art::outlined(
+        shown,
+        ctx,
+        yapfast_core::themes::layout::BorderPlace::Embed,
+        "embed",
+        4.0,
+        outline_fallback.width,
+        outline_fallback.color,
+    );
+    // A theme's ground, art or outline round the card takes the room it's
+    // given, so the card's cap holds them too: else a packaged theme's card
+    // runs to the timeline's right edge in a wide window.
+    container(shown).max_width(EMBED_WIDTH).into()
 }

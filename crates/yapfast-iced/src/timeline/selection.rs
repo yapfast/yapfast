@@ -249,9 +249,11 @@ mod tests {
             unread_start: false,
             highlighted: false,
             last: true,
+            group_end: true,
+            group: Arc::from(""),
             body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
             date: None,
-            time: String::new(),
+            time: Arc::default(),
         };
         assert!(look.body.parts.len() > 300, "{}", look.body.parts.len());
         let start = Mark {
@@ -299,9 +301,11 @@ mod tests {
             unread_start: false,
             highlighted: false,
             last: true,
+            group_end: true,
+            group: Arc::from(""),
             body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
             date: None,
-            time: String::new(),
+            time: Arc::default(),
         };
         let mark = |row, part| Mark {
             row,

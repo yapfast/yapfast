@@ -9,9 +9,12 @@ opens a menu, as Vesktop's: the input or output device chosen, which a click
 opens into the list of devices in place, the microphone or speaker volume
 (the same as Settings › Voice & video, saved as the slider is let go), and a
 way into the voice settings. The input menu adds the microphone's level, and
-with Discord linked, its noise suppression. Deafen also mutes the microphone;
-undeafening keeps it muted, while unmuting when deafened undeafens too. The
-voice view shows the participants and their mute, deafen and speaking state; a
+with Discord linked, its noise suppression. Deafen also mutes the microphone,
+and undeafening leaves the mute as it was before, as Discord's client does:
+the microphone comes back unless you had muted it yourself. Unmuting when
+deafened undeafens too. A call joined deafened, by the account card's
+toggle out of a call, undeafens to the microphone its other toggle asks for.
+The voice view shows the participants and their mute, deafen and speaking state; a
 deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
@@ -33,6 +36,33 @@ hardware. No microphone track is created until Unmute. Leaving releases the
 audio handle, and restarting Yapfast requires joining again. Preview calls are
 simulated, but the preview lists and chooses real devices without remembering
 them.
+
+## Microphone test
+
+Settings › Voice & video has Discord's mic test, wherever Discord voice
+runs (`discord_audio::AVAILABLE`), without a call or a linked account:
+Let's check plays the chosen microphone back through the chosen speakers
+until Stop testing, Voice & video is left or Settings close. Choosing
+another microphone or speakers restarts it on them. Wear headphones, or it
+echoes.
+
+It plays the microphone as a Discord call's processing leaves it (noise
+suppression and its strength, the room's echo, leveling, the microphone's
+volume) before the gate, so it plays without holding push to talk, and at
+the speakers' volume. The gate's meter (`GateMeter`) runs it: started with
+playback, it sends each processed block to a playback thread through a
+channel four blocks deep, dropping blocks rather than falling behind.
+Tests open no device.
+
+As in Discord's client, a meter of notches lights to the microphone's
+level while it plays, under "Playing back your beautiful voice"; after two
+seconds with nothing at all from the device it says it isn't detecting
+any input from your mic. Before it starts in a call, a note says the call
+will be muted and deafened. Started in a call that isn't deafened, it
+deafens it (and so mutes it), and as it ends it undeafens it and puts its
+mute back as it was. The call undeafened while it plays, or joined
+undeafened, ends it, as Discord's does; the change ends it, not the state,
+since a deafening asked for shows only once the backend says so.
 
 ## Cameras
 
@@ -65,7 +95,10 @@ people list beside the channel marks them with a camera. Your own camera shows
 mirrored, as a mirror would. Up to four people take the columns that make
 their tiles largest within both the grid's width and height, so a call
 above a DM's messages shows both people side by side without scrolling;
-more take tiles at least 240px wide, and scroll. A click on a tile shows it
+more fit the grid too, in the columns that make their tiles largest, while
+those tiles stay at least 120px wide, and past that take tiles at least
+240px wide and scroll, so a row is never cut off at the grid's foot with its
+names under the call's controls. A click on a tile shows it
 large, as Discord's focus does, with the others in rows of small tiles
 beneath; a click beside it shows the grid again. The large tile goes full
 screen from its button or a double click, over the whole window, until

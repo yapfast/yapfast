@@ -101,10 +101,12 @@ impl Application {
         if !message.can_reply || !self.state.can_write_in(&id) {
             return vec![];
         }
+        let (body, emoji) = chat::reply_snippet(&message.body, message.emoji.clone());
         let reply = Compose::Reply {
             item,
             author: message.author.clone(),
-            body: chat::plain_snippet(&message.body),
+            body,
+            emoji,
             ping: self.state.reply_ping,
         };
         self.state.compose.insert(id, reply);
@@ -173,7 +175,16 @@ impl Application {
         {
             return self.request_delete(edit.item);
         }
-        let body = self.outgoing_body(&edit.room, &edit.text);
+        // People the message mentioned stay mentioned, even if they're no
+        // longer among those to suggest (they left, or were never listed);
+        // otherwise their `@Name` would go back as plain text.
+        let kept: Vec<Candidate> = self
+            .state
+            .message(&edit.item)
+            .filter(|_| Network::of(&edit.room) == Network::Discord)
+            .map(|message| unambiguous(message.mentions.iter().filter_map(kept_mention).collect()))
+            .unwrap_or_default();
+        let body = self.outgoing_body(&edit.room, &edit.text, kept);
         if body.len() > chat::MAX_MESSAGE_BYTES {
             self.state.notice = Some("Keep messages under 16 KB.".into());
             return vec![];
@@ -199,7 +210,9 @@ impl Application {
 
     /// What a message carries on the wire for text as typed in a room: links
     /// without tracking, mentions and custom emoji written as Discord has them.
-    fn outgoing_body(&self, room: &str, text: &str) -> String {
+    /// `kept` are mentioned too, after the room's own candidates, so a name
+    /// both know goes to the room's.
+    fn outgoing_body(&self, room: &str, text: &str, kept: Vec<Candidate>) -> String {
         let text = if self.state.strip_tracking {
             crate::links::without_tracking(text)
         } else {
@@ -208,7 +221,9 @@ impl Application {
         if self.state.preview {
             return text.into_owned();
         }
-        let wired = mention::wire(&text, &self.state.mention_candidates());
+        let mut candidates = self.state.mention_candidates();
+        candidates.extend(kept);
+        let wired = mention::wire(&text, &candidates);
         if Network::of(room) == Network::Discord {
             let usable: Vec<chat::CustomEmoji> = self
                 .usable_emoji()
@@ -266,6 +281,33 @@ impl Application {
         vec![]
     }
 
+    /// Whether `room`'s slowmode still holds this account's next message,
+    /// as Discord's client checks before sending: the message isn't sent,
+    /// the draft stays, and the strip's countdown flashes.
+    pub(super) fn slowmode_holds(&mut self, room: &str) -> bool {
+        let held = self.state.slowmode_wait(room, crate::clock::now_ms()) > 0;
+        if held {
+            self.state.slowmode_held += 1;
+        }
+        held
+    }
+
+    /// A message of this account's went in `room`: where it waits out a
+    /// slowmode, the wait starts, as Discord's client starts it.
+    pub(super) fn slowmode_starts(&mut self, room: &str) {
+        let slowmode = self
+            .state
+            .rooms
+            .iter()
+            .find(|listed| listed.id == room && listed.slowed)
+            .map_or(0, |listed| listed.slowmode);
+        if slowmode > 0 {
+            let until =
+                crate::clock::now_ms() + u64::from(slowmode) * 1000 + super::SLOWMODE_MARGIN_MS;
+            self.state.slowmode_until.insert(room.to_owned(), until);
+        }
+    }
+
     pub(super) fn send(&mut self) -> Vec<Effect> {
         match self.state.selected.clone() {
             Some(id) if self.state.command_draft().is_some() => self.run_written_command(&id),
@@ -304,7 +346,7 @@ impl Application {
     /// Sends what the composer of a room on screen holds: the selected
     /// room's, or the thread's beside it.
     pub(super) fn send_in(&mut self, id: String) -> Vec<Effect> {
-        if !self.state.can_send_in(&id) {
+        if !self.state.can_send_in(&id) || self.slowmode_holds(&id) {
             return vec![];
         }
         let draft = self.state.drafts.get(&id).cloned().unwrap_or_default();
@@ -317,7 +359,7 @@ impl Application {
             .filter(|_| Network::of(&id) == Network::Discord);
         let silent = silent_text.is_some();
         let text = silent_text.map_or(draft.as_str(), str::trim_start);
-        let body = self.outgoing_body(&id, text);
+        let body = self.outgoing_body(&id, text, Vec::new());
         if body.len() > chat::MAX_MESSAGE_BYTES {
             self.state.notice = Some("Keep messages under 16 KB.".into());
             return vec![];
@@ -336,7 +378,11 @@ impl Application {
                 own: true,
                 reply: match compose {
                     Some(Compose::Reply {
-                        item, author, body, ..
+                        item,
+                        author,
+                        body,
+                        emoji,
+                        ..
                     }) => Some(Reply {
                         author,
                         avatar: self
@@ -347,7 +393,12 @@ impl Application {
                             .state
                             .message(&item)
                             .and_then(|original| original.color),
+                        tag: self
+                            .state
+                            .message(&item)
+                            .and_then(|original| original.tag.clone()),
                         body,
+                        emoji,
                         item: Some(item),
                     }),
                     _ => None,
@@ -444,21 +495,7 @@ impl Application {
             return;
         };
         let staged = self.state.staged.entry(id).or_default();
-        let mut problem = None;
-        for path in paths {
-            if staged.len() >= chat::MAX_FILES {
-                problem = Some(format!(
-                    "A message carries up to {} files.",
-                    chat::MAX_FILES
-                ));
-                break;
-            }
-            match chat::Staged::read(path, limit) {
-                Ok(file) => staged.push(file),
-                Err(error) => problem = problem.or(Some(error)),
-            }
-        }
-        self.state.notice = problem;
+        self.state.notice = stage_files(staged, paths, limit);
     }
 
     /// Leave reply mode.
@@ -470,4 +507,67 @@ impl Application {
 /// Preview messages render as Markdown when they contain its punctuation.
 pub(super) fn has_markdown(body: &str) -> bool {
     body.contains(['*', '_', '`', '~', '['])
+}
+
+/// Adds files to a message's, up to as many and as large as it takes:
+/// why any couldn't go, if any couldn't.
+pub(super) fn stage_files(
+    staged: &mut Vec<chat::Staged>,
+    paths: Vec<PathBuf>,
+    limit: u64,
+) -> Option<String> {
+    let mut problem = None;
+    for path in paths {
+        if staged.len() >= chat::MAX_FILES {
+            problem = Some(format!(
+                "A message carries up to {} files.",
+                chat::MAX_FILES
+            ));
+            break;
+        }
+        match chat::Staged::read(path, limit) {
+            Ok(file) => staged.push(file),
+            Err(error) => problem = problem.or(Some(error)),
+        }
+    }
+    problem
+}
+
+/// A person an edited Discord message mentioned, as a candidate the edit's
+/// text can name again: `@Name` goes back as `<@id>`.
+fn kept_mention(mentioned: &mention::Mentioned) -> Option<Candidate> {
+    let mention::Target::User(id) = &mentioned.target else {
+        return None;
+    };
+    let name = mentioned.text.strip_prefix('@')?;
+    if name.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(Candidate {
+        name: name.to_owned(),
+        username: None,
+        mention: format!("<@{id}>"),
+        avatar: None,
+        color: None,
+        group: false,
+        channel: false,
+        voice: false,
+    })
+}
+
+/// `kept` without the names two different people share (ignoring case),
+/// such as two unknown people both shown as `@Discord user`: which of them
+/// the text means can't be told, so such a name stays plain text rather than
+/// mentioning the wrong one.
+fn unambiguous(kept: Vec<Candidate>) -> Vec<Candidate> {
+    let shared = |candidate: &Candidate| {
+        kept.iter().any(|other| {
+            other.mention != candidate.mention && other.name.eq_ignore_ascii_case(&candidate.name)
+        })
+    };
+    let keep: Vec<bool> = kept.iter().map(|candidate| !shared(candidate)).collect();
+    kept.into_iter()
+        .zip(keep)
+        .filter_map(|(candidate, keep)| keep.then_some(candidate))
+        .collect()
 }

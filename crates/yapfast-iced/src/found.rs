@@ -29,6 +29,8 @@ use crate::{
 const GALLERY: f32 = 300.0;
 const LINES: f32 = 8.0;
 const AVATAR: f32 = 36.0;
+/// A sticker's picture on the card.
+const STICKER: f32 = 64.0;
 /// No timeline's row: its text's pieces select nothing.
 const NO_ROW: usize = usize::MAX;
 
@@ -43,14 +45,24 @@ pub struct Found {
 
 /// `message` found, laid out once for its card.
 pub fn found(app: &App, message: Arc<ChatMessage>) -> Found {
+    found_marked(app, message, &yapfast_core::search_words::Words::default())
+}
+
+/// `message` found by a search for `words`, which its text highlights.
+pub fn found_marked(
+    app: &App,
+    message: Arc<ChatMessage>,
+    words: &yapfast_core::search_words::Words,
+) -> Found {
     let revealed = &app.timeline.revealed;
-    let body = crate::timeline::body_of(
+    let mut body = crate::timeline::body_of(
         &message,
         crate::theme::rgb(app.theme.mention),
         crate::theme::rgb(app.theme.text),
         crate::theme::rgb(app.theme.muted),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
     );
+    crate::markdown::highlight(&mut body.body, words);
     let now = yapfast_core::clock::now_ms() / 1000;
     let when = if message.timestamp == 0 {
         String::new()
@@ -82,10 +94,13 @@ pub fn found_view<'a>(
         container(
             row![
                 elide(message.author.clone())
-                    .size(15)
-                    .font(SEMIBOLD)
+                    .size(theme.type_size("names", 15.0))
+                    .font(theme.font("names", SEMIBOLD))
                     .color(name_ink),
-                elide(found.when.as_str()).size(12).color(theme.muted),
+                elide(found.when.as_str())
+                    .size(theme.type_size("time", 12.0))
+                    .font(theme.font("time", crate::fonts::REGULAR))
+                    .color(theme.muted),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -106,6 +121,25 @@ pub fn found_view<'a>(
             },
         );
         words = words.push(container(body).max_height(LINE_HEIGHT * LINES).clip(true));
+    }
+    // Its stickers: each picture, small, when it's already here, or else
+    // its name, so a message of a sticker alone isn't an empty card.
+    for sticker in message
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.placement == Placement::Sticker)
+    {
+        words = words.push(match sticker.preview.as_ref() {
+            Some(picture) => ctx.shot(
+                Shot::new(Some(picture), iced::Size::new(STICKER, STICKER))
+                    .fit(crate::media::Fit::Contain)
+                    .bare(),
+            ),
+            None => elide(format!("Sticker: {}", sticker.name))
+                .size(14)
+                .color(theme.secondary)
+                .into(),
+        });
     }
     let gallery = Gallery::of(
         &message.attachments[..message.attachments.len().min(FOUND_PICTURES + 4)],

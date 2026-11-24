@@ -386,6 +386,8 @@ pub struct Corner {
     right: f32,
     top: f32,
     free: bool,
+    /// At most this far in from its space's left.
+    left: Option<f32>,
 }
 
 impl Corner {
@@ -396,6 +398,7 @@ impl Corner {
                 right,
                 top,
                 free: false,
+                left: None,
             },
         )
     }
@@ -406,6 +409,13 @@ impl<M> Wrap<'_, Corner, M> {
     /// button narrower than it.
     pub fn free(mut self) -> Self {
         self.hooks.free = true;
+        self
+    }
+
+    /// No further in from its space's left than `left`: a log's bar at
+    /// its text column's start.
+    pub fn at_most(mut self, left: f32) -> Self {
+        self.hooks.left = Some(left);
         self
     }
 }
@@ -430,6 +440,7 @@ impl<M> Hooks<M> for Corner {
             Size::new(room, f32::INFINITY),
         ));
         let x = width - self.right - child.size().width;
+        let x = self.left.map_or(x, |left| x.min(left));
         let x = if self.free { x } else { x.max(0.0) };
         let child = child.move_to((x, self.top));
         layout::Node::with_children(Size::new(width, 0.0), vec![child])

@@ -129,6 +129,27 @@ fn links_discord_by_token() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn the_add_friend_page_goes_when_the_friends_screen_does() {
+    use yapfast_discord::service::{Snapshot, Status};
+    let mut app = Application::default();
+    app.apply(discord_event(Snapshot {
+        status: Status::Online,
+        user_id: Some("1".into()),
+        ..Default::default()
+    }));
+    app.dispatch(Action::Navigate(Navigation::DirectMessages));
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    app.dispatch(Action::OpenAddFriend);
+    assert!(app.state.add_friend.is_some());
+    // The friends screen again leaves it, friend requests are another screen.
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    assert!(app.state.add_friend.is_some());
+    app.dispatch(Action::OpenDmScreen(DmScreen::Requests));
+    assert!(app.state.add_friend.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn adds_friends_by_username_and_sets_the_custom_status() {
     use yapfast_discord::service::{Snapshot, Status};
     let mut app = Application::default();

@@ -9,7 +9,7 @@
 //! [`editor`] the profile editor, drawn with the card's parts, and
 //! [`name_style`] its Display Name Style window.
 
-mod activity;
+pub(crate) mod activity;
 pub mod body;
 mod cosmetic;
 pub mod editor;
@@ -47,8 +47,8 @@ pub const WIDTH: f32 = 300.0;
 pub const PANEL_WIDTH: f32 = 320.0;
 const PANEL_INSET: f32 = 8.0;
 /// The panel's View Full Profile button, and the room it keeps.
-const PANEL_BUTTON: f32 = 36.0;
-const PANEL_FOOT: f32 = 52.0;
+const PANEL_BUTTON: f32 = 40.0;
+const PANEL_FOOT: f32 = 56.0;
 /// The message box's id, and the note's.
 pub const MESSAGE_FIELD: &str = "profile-message";
 pub const NOTE_FIELD: &str = "profile-note";
@@ -75,6 +75,18 @@ impl Mode {
     }
 }
 
+/// What a one-to-one DM's opening does about its person, as Discord's:
+/// befriend them or accept their request, ignore their request, unfriend
+/// or block them (both asked first), or unblock them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relate {
+    Befriend,
+    Ignore,
+    Unfriend,
+    Block,
+    Unblock,
+}
+
 /// What's done on a profile.
 #[derive(Clone, Debug)]
 pub enum Event {
@@ -83,6 +95,8 @@ pub enum Event {
     Enlarge(Option<Tab>, bool),
     Close,
     Befriend(String),
+    /// What a one-to-one DM's opening does about its person, by their id.
+    Relate(String, Relate),
     Message(String),
     /// Their menu, from the More or Friends button, where it was pressed.
     More(String),
@@ -296,6 +310,26 @@ impl Profiles {
                 cx.request(Request::Focus(Focus::Default));
             }
             Event::Befriend(user) => cx.dispatch(Action::Befriend(user)),
+            Event::Relate(user, relate) => {
+                use yapfast_core::{application::PersonAsk, chat::RelationshipChange};
+                let location = crate::person_menu::CONTEXT_MENU;
+                let ask = |ask| Action::AskPerson {
+                    user: user.clone(),
+                    ask,
+                    location,
+                };
+                cx.dispatch(match relate {
+                    Relate::Befriend => Action::Befriend(user.clone()),
+                    Relate::Ignore => Action::RemoveFriendRequest(user.clone()),
+                    Relate::Unfriend => ask(PersonAsk::Unfriend),
+                    Relate::Block => ask(PersonAsk::Block),
+                    Relate::Unblock => Action::ChangeRelationship {
+                        user: user.clone(),
+                        change: RelationshipChange::Unblock,
+                        location,
+                    },
+                });
+            }
             Event::Message(user) => {
                 self.save_note(cx);
                 cx.dispatch(Action::CloseProfile);
@@ -392,6 +426,7 @@ impl Profiles {
 /// shows, once per tab and person.
 pub fn profile_sync(app: &mut App) -> Task<Message> {
     let state = app.client.state();
+    app.status.sync_activities(state);
     // The card the core closed, or one shown large, goes.
     if app.profiles.card.is_some() && state.profile.as_ref().is_none_or(|view| view.large) {
         app.profiles.card = None;
@@ -401,7 +436,13 @@ pub fn profile_sync(app: &mut App) -> Task<Message> {
     let core = &app.client.app;
     let state = &core.state;
     let panel_view = state.panel_profile.as_ref().filter(|_| state.profile_panel);
-    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), None, link);
+    // An open card follows the person's presence as it changes: the core
+    // copied it into the profile as it opened.
+    let shown_live = state
+        .profile
+        .as_ref()
+        .and_then(|view| live_of(state, &view.profile.id));
+    app.profiles.shown = make_shown(core, shown, state.profile.as_ref(), shown_live, link);
     let live = panel_view
         .and(state.selected_room())
         .map(|room| look::Live {
@@ -447,8 +488,12 @@ fn account_card_sync(app: &mut App, link: u32) {
         app.profiles.account = None;
         return;
     };
-    if let Some((kept, _)) = &app.profiles.account
+    // One's own activities change as this account shares them, such as a
+    // song's line: the card follows them too.
+    let live = live_of(state, &profile.id);
+    if let Some((kept, shown)) = &app.profiles.account
         && Arc::ptr_eq(kept, profile)
+        && shown.look.live == live
     {
         return;
     }
@@ -456,18 +501,66 @@ fn account_card_sync(app: &mut App, link: u32) {
         profile: chat::Profile::clone(profile),
         ..Default::default()
     });
-    let look = Look::new(state, &view, None, &[], link);
+    let look = Look::new(state, &view, live, &[], link);
     app.profiles.account = Some((profile.clone(), Shown::new(look)));
+}
+
+/// What the core knows of person `id` now, for an open card: one's own
+/// activities as this account shares them, else the member list's, a
+/// friend's or their DM's presence and activities. None when nothing
+/// lists them, and the card keeps what it opened with.
+pub(crate) fn live_of(state: &yapfast_core::application::AppState, id: &str) -> Option<look::Live> {
+    if id.is_empty() {
+        return None;
+    }
+    if state.discord_user.as_deref() == Some(id) {
+        return Some(look::Live {
+            presence: None,
+            activity: None,
+            activities: state.discord_activities.clone(),
+        });
+    }
+    let members = state
+        .members
+        .as_ref()
+        .and_then(|members| members.as_ref().ok());
+    if let Some(member) = members.and_then(|members| members.iter().find(|member| member.id == id))
+    {
+        return Some(look::Live {
+            presence: member.presence,
+            activity: member.activity.clone(),
+            activities: member.activities.clone(),
+        });
+    }
+    if let Some(friend) = state.friends.iter().find(|friend| friend.id == id) {
+        return Some(look::Live {
+            presence: friend.presence,
+            activity: friend.activity.clone(),
+            activities: friend.activities.clone(),
+        });
+    }
+    state
+        .rooms
+        .iter()
+        .find(|room| room.direct && room.person.as_deref() == Some(id))
+        .map(|room| look::Live {
+            presence: room.presence,
+            activity: room.activity.clone(),
+            activities: room.activities.clone(),
+        })
 }
 
 /// The card's frame: its ground (a theme's gradient, or plain), corners and
 /// outline, and the shadow of one that floats.
 pub(crate) fn frame_style(
     inks: look::Inks,
+    theme: &yapfast_iced_kit::theme::Theme,
     edge: iced::Color,
     radius: f32,
     floats: bool,
 ) -> impl Fn(&iced::Theme) -> container::Style {
+    let border = theme.surface_border("card", radius, if inks.themed { 0.0 } else { 1.0 }, edge);
+    let shadow = theme.surface_shadow("card", card_shadow());
     move |_| {
         let background: iced::Background = if inks.themed {
             iced::gradient::Linear::new(iced::Radians(std::f32::consts::PI))
@@ -479,13 +572,9 @@ pub(crate) fn frame_style(
         };
         container::Style {
             background: Some(background),
-            border: iced::Border {
-                color: edge,
-                width: if inks.themed { 0.0 } else { 1.0 },
-                radius: radius.into(),
-            },
+            border,
             shadow: if floats {
-                card_shadow()
+                shadow
             } else {
                 iced::Shadow::default()
             },
@@ -547,6 +636,19 @@ pub fn card_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         .width(WIDTH)
         .max_height(limit);
     let content = crate::profile::cosmetic::dressed(ctx, shown, Mode::Card, WIDTH, content.into());
+    // A theme's tape pins the card down across its top edge.
+    let themed_inks = inks(ctx, &shown.look, Mode::Card).themed;
+    let content = match (!themed_inks)
+        .then(|| {
+            crate::theme_art::art_pins(ctx, yapfast_core::themes::package::art::ArtSurface::Card)
+        })
+        .flatten()
+    {
+        Some(tape) => iced::widget::Stack::with_children([content])
+            .push(tape)
+            .into(),
+        None => content,
+    };
     let pointer = mouse_area(content)
         .on_enter(Message::Profile(Event::Pointed(true)))
         .on_exit(Message::Profile(Event::Pointed(false)));
@@ -603,7 +705,7 @@ pub fn profile_panel_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Me
         .width(Length::Fill)
         .height(Length::Fill)
         .clip(true)
-        .style(frame_style(inks, theme.edge, 8.0, false));
+        .style(frame_style(inks, theme, theme.edge, 8.0, false));
     let card = crate::profile::cosmetic::dressed(
         ctx,
         shown,
@@ -627,6 +729,16 @@ pub fn profile_panel_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Me
 /// no theme, the avatar's dominant colour once it has arrived, as
 /// Discord tints it.
 pub(crate) fn banner_ground(ctx: crate::ctx::Ctx<'_>, shown: &Shown) -> Option<u32> {
+    let themed = ctx
+        .themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .is_some_and(|c| c.profiles.themes == yapfast_core::themes::content::Follow::Theme);
+    if themed {
+        return None;
+    }
     let profile = shown.look.profile();
     if shown.look.accent.is_some() || profile.banner.is_some() || profile.theme.is_some() {
         return shown.look.accent;
@@ -748,6 +860,9 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
                 .filter(|picture| !picture.is_empty()),
         );
         urls.extend(profile.server_icon.clone());
+        // The first mutual servers' icons, by the count of them.
+        let servers = profile.servers.iter().take(3);
+        urls.extend(servers.filter_map(|server| server.icon.clone()));
         for activity in &shown.look.activities {
             urls.extend(activity.large.clone());
             urls.extend(activity.small.clone());
@@ -804,12 +919,20 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
 
 /// The profile's ink, ground and the rest, from its theme or Yapfast's.
 pub fn inks(ctx: crate::ctx::Ctx<'_>, look: &Look, mode: Mode) -> look::Inks {
+    let themed = ctx
+        .themes
+        .content(
+            &ctx.look.theme.id,
+            ctx.layout.theme_content.contains(&ctx.look.theme.id),
+        )
+        .is_some_and(|c| c.profiles.themes == yapfast_core::themes::content::Follow::Theme);
     let plain = if mode == Mode::Docked {
         ctx.look.theme.panel
     } else {
         ctx.look.theme.sidebar
     };
-    look::Inks::new(ctx.look.theme, look.profile().theme, plain)
+    let colors = (!themed).then_some(look.profile().theme).flatten();
+    look::Inks::new(ctx.look.theme, colors, plain)
 }
 
 /// Whether the profile panel shows beside the open DM.

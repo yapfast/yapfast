@@ -66,7 +66,7 @@ pub(super) fn editor_middle<'a>(
         body = body.push(
             column![
                 heading(main, "Member Since", inks),
-                crate::profile::body::member_since(ctx, &editor.shown, inks)
+                crate::profile::body::member_since(ctx, &editor.shown, inks, false)
             ]
             .spacing(6),
         );
@@ -643,7 +643,7 @@ pub(super) fn editor_bio<'a>(
             ground: theme.sunken,
             text: theme.text,
             placeholder: theme.muted,
-            selection: theme.selection,
+            selection: theme.token_colour("selection", theme.selection),
         };
         let accent = theme.accent;
         let sunken = theme.sunken;

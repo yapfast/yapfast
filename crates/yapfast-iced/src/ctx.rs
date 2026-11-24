@@ -33,6 +33,7 @@ pub struct Ctx<'a> {
     /// What `layout.json` keeps, and the themes it offers.
     pub layout: &'a Layout,
     pub themes: &'a Themes,
+    pub pace: crate::themes::Pace,
     /// The account's card, as the rail's foot shows it.
     pub account: &'a Account,
     /// Which build this is.
@@ -82,6 +83,8 @@ pub struct Ctx<'a> {
     /// The open room is in a server, and what the conversation's header
     /// shows of it.
     pub in_server: bool,
+    /// Who wrote the open forum post, whom its messages tag OP.
+    pub post_author: Option<&'a str>,
     pub header: &'a crate::header::Header,
     /// The thread's and the forum's drafts, the files waiting, the search,
     /// and the call.
@@ -128,6 +131,9 @@ pub enum Request {
     Focus(Focus),
     /// A preference changed that others show: each screen hears of it.
     Changed(Pref),
+    /// A different theme was deliberately applied. Unlike a live preview or
+    /// option refresh, this also emits the package's applied cue/effect.
+    ThemeApplied,
     /// The window's title bar: the system's, or Yapfast's own.
     TitleBar(bool),
     /// A look at the releases, telling of a newer one if `true`.
