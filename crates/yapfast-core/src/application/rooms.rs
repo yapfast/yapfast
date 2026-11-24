@@ -729,7 +729,7 @@ impl Application {
             .collect()
     }
 
-    /// Pins a listed DM to the top of the DM list, or unpins it.
+    /// Adds or removes one Discord reference in the account's Favorites.
     pub(super) fn favorite_channel(&self, room: String, favorite: bool) -> Vec<Effect> {
         let choice = if favorite {
             MenuChoice::AddFavorite
@@ -744,6 +744,7 @@ impl Application {
         ))]
     }
 
+    /// Pins a listed DM to the top of the DM list, or unpins it.
     pub(super) fn pin(&mut self, room: String, pinned: bool) -> Vec<Effect> {
         let choice = if pinned {
             MenuChoice::Pin

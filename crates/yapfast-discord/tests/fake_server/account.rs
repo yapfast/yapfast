@@ -710,21 +710,51 @@ async fn channel_favorites_sync_both_directions_and_preserve_settings() {
     let dm = snapshot
         .conversations
         .iter()
-        .find(|dm| !dm.request && !dm.spam)
+        .find(|dm| !dm.group && !dm.request && !dm.spam)
         .unwrap();
     // Concurrent edits in this client are serialized read/modify/write operations.
-    let (a, b) = tokio::join!(
+    let group = snapshot
+        .conversations
+        .iter()
+        .find(|dm| dm.group && !dm.request && !dm.spam)
+        .unwrap();
+    let (a, b, c) = tokio::join!(
         discord.favorite_channel(&general, true),
-        discord.favorite_channel(&dm.id, true)
+        discord.favorite_channel(&dm.id, true),
+        discord.favorite_channel(&group.id, true)
     );
     a.unwrap();
     b.unwrap();
+    c.unwrap();
     let general_id = general.parse().unwrap();
     let dm_id = dm.id.parse().unwrap();
-    snapshot_where(&discord, |snapshot| {
-        snapshot.favorites.contains(general_id) && snapshot.favorites.contains(dm_id)
+    let group_id = group.id.parse().unwrap();
+    let saved = snapshot_where(&discord, |snapshot| {
+        snapshot.favorites.contains(general_id)
+            && snapshot.favorites.contains(dm_id)
+            && snapshot.favorites.contains(group_id)
     })
     .await;
+    assert_eq!(
+        saved
+            .favorites
+            .entries
+            .iter()
+            .find(|entry| entry.id == dm_id)
+            .unwrap()
+            .channel_type,
+        Some(1)
+    );
+    assert_eq!(
+        saved
+            .favorites
+            .entries
+            .iter()
+            .find(|entry| entry.id == group_id)
+            .unwrap()
+            .channel_type,
+        Some(3)
+    );
     assert_eq!(status_settings(server), before);
     // A different Discord client changes Favorites, and this gateway follows it.
     let settings: serde_json::Value =
@@ -745,6 +775,11 @@ async fn channel_favorites_sync_both_directions_and_preserve_settings() {
     assert!(discord.favorite_channel(&dm.id, false).await.is_err());
     assert!(discord.snapshots().borrow().favorites.contains(dm_id));
     discord.favorite_channel(&dm.id, false).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        !snapshot.favorites.contains(dm_id) && snapshot.favorites.contains(group_id)
+    })
+    .await;
+    discord.favorite_channel(&group.id, false).await.unwrap();
     snapshot_where(&discord, |snapshot| snapshot.favorites.entries.is_empty()).await;
     assert_eq!(status_settings(server), before);
 }

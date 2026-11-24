@@ -3,7 +3,7 @@
 //! and the server's top.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -620,13 +620,30 @@ fn favorite_rows(
     dark: bool,
 ) -> Vec<SideRow> {
     let query = filter.to_lowercase();
-    let rooms: HashMap<&str, &ChatRoom> = state
-        .rooms
+    let references: HashSet<&str> = state
+        .channel_favorites
         .iter()
-        .filter_map(|room| discord::parse_room(&room.id).map(|(_, id)| (id, room.as_ref())))
+        .filter(|entry| entry.reference)
+        .map(|entry| entry.id.as_str())
         .collect();
+    let mut rooms: HashMap<&str, &ChatRoom> = HashMap::new();
+    let mut posts = HashMap::new();
+    for room in &state.rooms {
+        if let Some((_, id)) = discord::parse_room(&room.id)
+            && references.contains(id)
+        {
+            rooms.insert(id, room.as_ref());
+        }
+        if let Some(parent) = room.parent.as_deref()
+            && discord::parse_room(parent).is_some_and(|(_, id)| references.contains(id))
+            && (room.unread > 0 || room.mentions > 0)
+        {
+            let counts = posts.entry(parent).or_insert((0_u64, 0_u64));
+            counts.0 += u64::from(room.unread > 0);
+            counts.1 += room.mentions;
+        }
+    }
     let spots = crate::people::voice_spots(state);
-    let posts = HashMap::new();
     let categories: BTreeSet<&str> = state
         .channel_favorites
         .iter()
@@ -673,7 +690,7 @@ fn favorite_rows(
             return None;
         }
         let mut row = room_row(state, room, dark, &posts, &spots);
-        row.name = name.clone();
+        row.name.clone_from(name);
         row.close = None;
         Some(SideRow::Room(Box::new(row)))
     };

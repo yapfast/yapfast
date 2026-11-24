@@ -99,7 +99,7 @@ fn decode(data: &[u8]) -> Result<Favorites> {
                 for (n, v) in fields(value) {
                     match (n, v) {
                         (1, Field::Bytes(name)) => {
-                            entry.nickname = String::from_utf8(name.to_vec())?
+                            entry.nickname = String::from_utf8(name.to_vec())?;
                         }
                         (2, Field::Varint(kind)) => entry.kind = u32::try_from(kind)?,
                         (3, Field::Varint(position)) => entry.position = u32::try_from(position)?,

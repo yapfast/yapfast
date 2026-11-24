@@ -1369,11 +1369,7 @@ impl Tracker {
         if let Some(offered) = read.nsfw_commands_in_dms {
             self.nsfw_commands_in_dms = offered;
         }
-        if let Ok(Some(favorites)) = crate::favorites::read(encoded)
-            && *self.favorites != favorites
-        {
-            self.favorites = Arc::new(favorites);
-        }
+        self.favorite_settings(encoded);
         let soundboard = crate::soundboard::read_settings(encoded);
         if let Some(volume) = soundboard.volume {
             self.soundboard_volume = Some(volume);
@@ -1389,7 +1385,11 @@ impl Tracker {
     }
 
     pub(super) fn favorite_settings(&mut self, encoded: &str) {
-        self.settings(encoded);
+        if let Ok(Some(favorites)) = crate::favorites::read(encoded)
+            && *self.favorites != favorites
+        {
+            self.favorites = Arc::new(favorites);
+        }
     }
 
     pub(super) fn file_server(
@@ -2580,7 +2580,16 @@ mod tests {
         let ready = json!({"user": {"id": "1", "username": "me"}, "guilds": [], "user_settings_proto": encoded});
         let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
         assert!(tracker.snapshot().favorites.contains(42));
-        let before = tracker.snapshot().favorites.clone();
+        let before = tracker.snapshot().favorites;
+        tracker.favorite_settings(&settings::encode_status(&settings::write_status(
+            &[],
+            "idle",
+            1,
+        )));
+        assert_eq!(
+            tracker.status, "online",
+            "a Favorites refresh leaves unrelated settings alone"
+        );
         tracker.apply(&Event::UserSettingsProtoUpdate, &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}));
         assert!(Arc::ptr_eq(&before, &tracker.snapshot().favorites));
         let cleared = crate::favorites::change(&encoded, 42, 0, false)

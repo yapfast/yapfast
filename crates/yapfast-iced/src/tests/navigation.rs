@@ -1069,14 +1069,30 @@ fn favorites_keep_saved_category_order_and_open_real_conversations() {
         state.favorites_visible = true;
         for (index, room) in state.rooms.iter_mut().take(3).enumerate() {
             let room = std::sync::Arc::make_mut(room);
-            room.id = format!("discord:@me:{}", index + 41);
+            room.id = if index == 2 {
+                "discord:10:43".into()
+            } else {
+                format!("discord:@me:{}", index + 41)
+            };
             room.network = Network::Discord;
-            room.direct = true;
+            room.direct = index < 2;
+            room.person = (index == 0).then(|| "2".into());
+            room.voice = false;
+            room.parent = None;
             room.locked = false;
             room.request = false;
             room.unread = 0;
+            room.mentions = 0;
+            room.forum = index == 2;
             room.people.clear();
         }
+        let mut post = (*state.rooms[2]).clone();
+        post.id = "discord:10:44".into();
+        post.parent = Some("discord:10:43".into());
+        post.forum = false;
+        post.unread = 1;
+        post.mentions = 2;
+        state.rooms.push(std::sync::Arc::new(post));
         state.channel_favorites = vec![
             ChannelFavorite {
                 id: "900".into(),
@@ -1126,6 +1142,16 @@ fn favorites_keep_saved_category_order_and_open_real_conversations() {
         })
         .collect();
     assert_eq!(labels, ["Friends", "First", "Second", "Top level"]);
+    let forum = app
+        .sidebar
+        .rows
+        .iter()
+        .find_map(|row| match row {
+            SideRow::Room(room) if room.id == "discord:10:43" => Some(room),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!((forum.posts.as_str(), forum.badge.as_str()), ("1", "2"));
     let _ = app.update(Message::Side(crate::sidebar::Event::Select(
         "discord:@me:42".into(),
     )));

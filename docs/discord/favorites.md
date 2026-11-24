@@ -13,6 +13,7 @@ keeps it with the account's existing snapshot.
 
 The rail's star opens Favorites when Discord's visibility setting permits it.
 Its channels, DMs and group DMs open with the usual navigation and voice behavior.
+Unread and mention badges follow the source conversation, including unread forum posts.
 Category names, channel nicknames, positions and initial collapsed states come
 from Discord. Local category toggles don't modify Discord. Missing, inaccessible
 and message-request channels stay out of the list; their saved references survive
@@ -30,8 +31,8 @@ race between the GET and PATCH, as with other whole-field settings writes.
 
 Category creation, renaming, moving references and drag-to-reorder are deferred.
 No additional dependency or image download is introduced. Heap cost scales with
-the number of entries and their names; a full application memory measurement is
-required before marking the UI ready for review.
+the number of entries and their names. The sidebar indexes only referenced
+conversations rather than retaining an index of every Discord room.
 
 Tests cover codec preservation, partial tracker updates, navigation, category
 ordering, local serialization, rejected writes and changes from another client.
