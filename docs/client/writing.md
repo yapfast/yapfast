@@ -110,7 +110,12 @@ typing still searches, and a search, which changes the header, asks for
 the keys to stay in its field. The stickers tab lists Favorites,
 Frequently Used, every server's own (the open server's first) and
 Discord's packs in 96 px tiles; the foot names the sticker pointed at, or
-the collection on the rail. A click anywhere in the picker leaves the keys
+the collection on the rail. A right click on a sticker opens Discord's
+menu for it (`picker::stickers::sticker_menu`): Favorite or Unfavorite,
+which does what its star does, and with Developer Mode on Copy Sticker ID
+and Copy Sticker Image Link, its picture's address without the tile's
+size (`ready::sticker_link`); the picker stays open under it. A click
+anywhere in the picker leaves the keys
 with its search (a press nothing in it takes comes to the frame as
 `Event::Pressed`), so typing goes on searching. The tabs share
 `picker::kit`; each holds

@@ -21,7 +21,10 @@ use super::{change, hover_draws, interact, preview, shows};
 use crate::{
     app::{App, Message},
     ctx::{Focus, Request},
-    picker::{Event, Tab, Target, kit::FIELD},
+    picker::{
+        Event, Tab, Target,
+        kit::{FIELD, GRID},
+    },
 };
 
 /// The test server's #general open, and the composer's picker on its GIFs.
@@ -399,4 +402,121 @@ fn the_emoji_pickers_animated_emoji_play_in_their_cells_until_it_closes() {
     // since, and the core let go of it.
     let _ = crate::picker::close_picker(&mut app);
     assert_eq!(Arc::strong_count(&party), 1, "its player went");
+}
+
+/// A sticker of one of Discord's packs, and its tile's picture's address.
+const WAVE: &str = "749054660769218631";
+const WAVE_TILE: &str = "https://media.discordapp.net/stickers/749054660769218631.gif?size=96";
+
+/// The test server's #general open, the composer's picker on its Stickers,
+/// and one of Discord's packs, holding Wave, listed: Frequently Used offers
+/// Wave first, at the grid's top left.
+fn stickers_open(app: &mut App) {
+    use yapfast_core::chat::{Sticker, StickerCollection};
+    change(app, |state| {
+        state.selected = Some("discord:10:11".into());
+        state.room_ready = true;
+    });
+    let _ = app.update(Message::OpenPicker(Target::Composer, Tab::Stickers));
+    change(app, |state| {
+        state.stickers.packs = vec![StickerCollection {
+            id: "847199849233514549".into(),
+            name: "Wumpus Beyond".into(),
+            stickers: vec![Sticker {
+                id: WAVE.into(),
+                name: "Wave".into(),
+                format: ready::STICKER_GIF,
+                picture: WAVE_TILE.into(),
+                usable: true,
+            }],
+        }];
+    });
+    assert_eq!(
+        app.win.picker.get().map(|picker| picker.tab),
+        Some(Tab::Stickers)
+    );
+}
+
+/// A right click on the first sticker's tile, under its collection's
+/// heading at the grid's top left.
+fn right_click_first_sticker(app: &mut App) {
+    interact(app, |ui| {
+        let grid = ui.find(Id::new(GRID)).expect("the stickers' grid").bounds();
+        ui.point_at(Point::new(grid.x + 12.0 + 48.0, grid.y + 28.0 + 48.0));
+        ui.simulate([
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)),
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)),
+        ]);
+    });
+}
+
+/// The labels of the open menu's rows.
+fn menu_labels(app: &App) -> Vec<String> {
+    let menu = app.win.menu.as_ref().expect("the sticker's menu");
+    menu.rows.iter().map(|row| row.label.to_string()).collect()
+}
+
+/// A sticker's tile's menu is Discord's picker's: Favorite, and with
+/// Developer Mode on Copy Sticker ID and Copy Sticker Image Link.
+#[test]
+fn a_sticker_tiles_menu_offers_favorite_and_with_developer_mode_its_id_and_link() {
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    stickers_open(&mut app);
+    right_click_first_sticker(&mut app);
+    assert_eq!(menu_labels(&app), ["Favorite"]);
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    app.layout.developer_mode = true;
+    right_click_first_sticker(&mut app);
+    assert_eq!(
+        menu_labels(&app),
+        ["Favorite", "Copy Sticker ID", "Copy Sticker Image Link"]
+    );
+}
+
+/// Favorite stars the sticker, as its star does, and the picker stays
+/// open; once starred its menu says Unfavorite, which lets it go.
+#[test]
+fn choosing_favorite_in_a_stickers_menu_stars_it() {
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    stickers_open(&mut app);
+    let favorites = |app: &App| -> Vec<String> {
+        let stickers = &app.client.state().stickers;
+        stickers
+            .favorites
+            .iter()
+            .map(|sticker| sticker.id.clone())
+            .collect()
+    };
+    right_click_first_sticker(&mut app);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(0)));
+    assert_eq!(favorites(&app), [WAVE]);
+    assert!(app.win.menu.is_none(), "the menu closes");
+    assert!(app.win.picker.is_open(), "the picker stays open");
+    right_click_first_sticker(&mut app);
+    assert_eq!(menu_labels(&app), ["Unfavorite"]);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(0)));
+    assert!(favorites(&app).is_empty());
+}
+
+/// Copy Sticker ID copies its id, and Copy Sticker Image Link its
+/// picture's address without the tile's size; the picker stays open.
+#[test]
+fn choosing_copy_in_a_stickers_menu_writes_its_id_or_link() {
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    stickers_open(&mut app);
+    app.layout.developer_mode = true;
+    let mut copied = Vec::new();
+    for row in [1, 2] {
+        right_click_first_sticker(&mut app);
+        let chosen = app.update(Message::Menu(crate::menus::Event::Choose(row)));
+        copied.extend(super::clipboard_writes(chosen));
+    }
+    assert_eq!(
+        copied,
+        [
+            WAVE,
+            "https://media.discordapp.net/stickers/749054660769218631.gif"
+        ]
+    );
+    assert!(app.win.picker.is_open(), "the picker stays open");
 }
