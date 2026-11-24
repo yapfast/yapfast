@@ -348,6 +348,21 @@ them after the built-in ones and Themes shows them under Your themes:
 }
 ```
 
+Besides the colours every theme has, a custom theme can colour two parts
+of the window on its own, by the names a theme package gives them: `pill`,
+the pills beside the rail's tiles (open, pointed at, unread), which a
+package sets as its `pill` colour, and `header`, the ground of the
+conversation's header row, which a package sets as `shape.header.ground`.
+Each follows a colour of the theme until it's set, as a package's extra
+colours follow theirs: the pill the text, the header the chat, whose ground
+then shows under the header as it does for every built-in theme. The colour
+editor lists them after the other colours; while one isn't set, its field
+shows the colour it follows and moves with it, so a new chat moves the
+header and a new text the pills. `layout.json` keeps one only once it's
+set, so a theme saved before they existed, or one that never set them,
+draws as before. Exported (`yapfast theme export`), and in a theme's
+folder, they're written by those package names, over any the folder gives.
+
 `base` is the built-in theme the first copy came from (a copy of a custom
 theme takes its base). Yapfast writes every colour, but a colour that's missing,
 such as one added in a later version, or that isn't a colour, takes the
@@ -375,15 +390,6 @@ and recipes whose imported font or picture bytes are gone, are never rewritten.
 | Catppuccin Latte | `catppuccin-latte` | no | mauve | [Catppuccin](https://github.com/catppuccin/catppuccin) |
 | Rosé Pine Dawn | `rose-pine-dawn` | no | rose | [Rosé Pine](https://rosepinetheme.com/palette/) |
 | Sakura | `sakura` | no | blossom pink | Yapfast's own |
-
-Two colours stand for a single part each, so a theme can set them apart from
-the rest: `rail-indicator`, the pill beside the open server or DM home on the
-rail (the pills of a pointed-at or unread tile keep `text`), and `header`,
-the ground of the conversation's header row, which paints only where it
-differs from `chat`. Every built-in theme gives them its `text` and `chat`.
-Unlike other missing colours, a custom theme that lacks either takes its own
-`text` or `chat` rather than its base's, so a theme saved before they existed
-looks as it did.
 
 The palettes of Catppuccin, Dracula, Nord, Gruvbox, Tokyo Night and Rosé Pine
 are published under the MIT licence; thanks to their authors. For Tokyo
