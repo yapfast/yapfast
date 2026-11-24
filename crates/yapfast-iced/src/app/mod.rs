@@ -67,7 +67,7 @@ pub struct App {
     /// inbox's Mentions tab (`window_bar.rs`).
     pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
     /// Whether this account's recent mentions were asked for since Discord
-    /// came online (`window_bar.rs` fetches them once per session).
+    /// came online (`window_bar.rs` asks as the Mentions tab first shows).
     pub mentions_fetched: bool,
     pub bar_drag: crate::window_bar::Drag,
     /// A look at the releases nobody asked for is under way, whose newer

@@ -416,6 +416,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                     ..Inbox::default()
                 }),
             };
+            fetch_mentions(app);
             inbox_sync(app);
             Task::none()
         }
@@ -425,6 +426,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             }
             app.layout.inbox_tab = Some(tab.key().into());
             crate::layout::store(app.client.root(), "inbox_tab", tab.key());
+            fetch_mentions(app);
             inbox_sync(app);
             Task::none()
         }
@@ -541,6 +543,21 @@ pub fn choose_title_bar(app: &mut App, system: bool) -> Task<Message> {
     let closed = app.drop_window_keeping(crate::app::Keep { settings: true });
     let opened = app.open_window();
     Task::batch([closed, opened])
+}
+
+/// Asks for this account's recent mentions, as Discord's client does the
+/// first time its Mentions tab shows, again after Discord went away and
+/// came back (`sync.rs`).
+fn fetch_mentions(app: &mut App) {
+    let shown = app
+        .inbox
+        .as_ref()
+        .is_some_and(|inbox| inbox.tab == Tab::Mentions);
+    if shown && !app.mentions_fetched && app.client.state().discord_online {
+        app.mentions_fetched = true;
+        app.client
+            .dispatch(yapfast_core::application::Action::LoadRecentMentions);
+    }
 }
 
 /// The inbox's rows for its tab, from what the client already knows:
