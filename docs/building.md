@@ -339,10 +339,10 @@ a filter names, such as `forum` or `calls_in_dms`, a second or so apiece. Each s
 fake of its own, so none depends on another and a filter runs any alone. `cargo
 nextest`, in the development shell, runs them side by side, eight at a time
 (`.config/nextest.toml`), and the whole file takes about 15 seconds; without
-it, `cargo test` runs them one after another in about a minute. The script then
-runs yapfast-core's Discord tests against one fake, and
-`crates/yapfast-discord/tests/fake_env.rs` against a fake that runs the example
-environment.
+it, `cargo test` runs them one after another in about a minute. The script uses
+the same runner for yapfast-core's Discord tests, which take turns on one fake,
+and for `crates/yapfast-discord/tests/fake_env.rs`, which loads the example
+environment on a separate fake.
 
 `--env PATH` replaces the fake's built-in content with an environment, for
 demos, promo recordings and screenshots. An environment is a JSON file, or a
