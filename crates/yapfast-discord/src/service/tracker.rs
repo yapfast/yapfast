@@ -2576,7 +2576,9 @@ mod tests {
 
     #[test]
     fn favorites_follow_ready_and_partial_updates() {
-        let encoded = crate::favorites::change("", 42, 0, true).unwrap().unwrap();
+        let encoded = crate::favorites::change("", 42, 0, true, false)
+            .unwrap()
+            .unwrap();
         let ready = json!({"user": {"id": "1", "username": "me"}, "guilds": [], "user_settings_proto": encoded});
         let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
         assert!(tracker.snapshot().favorites.contains(42));
@@ -2592,7 +2594,7 @@ mod tests {
         );
         tracker.apply(&Event::UserSettingsProtoUpdate, &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}));
         assert!(Arc::ptr_eq(&before, &tracker.snapshot().favorites));
-        let cleared = crate::favorites::change(&encoded, 42, 0, false)
+        let cleared = crate::favorites::change(&encoded, 42, 0, false, false)
             .unwrap()
             .unwrap();
         tracker.apply(

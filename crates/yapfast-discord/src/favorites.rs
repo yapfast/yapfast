@@ -144,9 +144,24 @@ pub fn read(encoded: &str) -> Result<Option<Favorites>> {
     message(&data, FAVORITES).map(decode).transpose()
 }
 
+/// The most Favorites Discord's client keeps, categories included; with Nitro
+/// (premium type 2) its channels and DMs may fill them all.
+const MOST: usize = 200;
+/// The channels and DMs Discord's client lets an account without Nitro (Nitro
+/// Basic and Classic included) keep in Favorites.
+const MOST_FREE: usize = 3;
+
 /// Add/remove one reference using a fresh GET of the account settings. Unknown
-/// fields, categories, order, mute and visibility survive. No-op writes send nothing.
-pub fn change(encoded: &str, id: u64, channel_type: u32, favorite: bool) -> Result<Option<String>> {
+/// fields, categories, order and mute survive. No-op writes send nothing. As
+/// Discord's client does, an addition goes after every entry, shows Favorites
+/// on the rail when they were hidden, and stops at its limits.
+pub fn change(
+    encoded: &str,
+    id: u64,
+    channel_type: u32,
+    favorite: bool,
+    nitro: bool,
+) -> Result<Option<String>> {
     ensure!(id != 0, "Invalid channel");
     let data = STANDARD.decode(encoded)?;
     validate(&data)?;
@@ -159,21 +174,43 @@ pub fn change(encoded: &str, id: u64, channel_type: u32, favorite: bool) -> Resu
         !favorite || !list.entries.iter().any(|entry| entry.id == id),
         "That Favorites ID is already in use"
     );
+    if favorite {
+        ensure!(
+            list.entries.len() < MOST,
+            "You cannot have more than {MOST} favorites."
+        );
+        ensure!(
+            nitro || list.entries.iter().filter(|entry| entry.kind != 2).count() < MOST_FREE,
+            "Free Favorites are limited to {MOST_FREE}. Get Nitro to add up to {MOST} channels and DMs."
+        );
+    }
+    // Discord's client shows hidden Favorites again when something is added.
+    let show = favorite && !list.shown();
     let mut changed = Vec::new();
     for (n, value) in fields(current) {
         if n == 1 && matches!(&value, Field::Bytes(map) if entry_id(map) == id) {
             continue;
         }
+        if n == 3 && show {
+            continue;
+        }
         put_field(&mut changed, n, &value);
     }
+    if show {
+        let mut wrapper = Vec::new();
+        put_varint(&mut wrapper, 1 << 3);
+        put_varint(&mut wrapper, 1);
+        put_bytes(&mut changed, 3, &wrapper);
+    }
     if favorite {
+        // After every entry, categories and those in them included.
         let position = list
             .entries
             .iter()
-            .filter(|entry| entry.parent_id == 0)
             .map(|entry| entry.position)
             .max()
-            .map_or(Some(0), |n| n.checked_add(1))
+            .unwrap_or(0)
+            .checked_add(1)
             .context("Favorites order is full")?;
         let mut value = Vec::new();
         put_varint(&mut value, 2 << 3);
@@ -204,12 +241,15 @@ mod tests {
         STANDARD.encode(out)
     }
 
-    #[test]
-    fn changes_preserve_categories_unknown_fields_and_visibility() {
+    /// Favorites holding the category "Friends" (900), muted, with fields
+    /// from the future and visibility as `visible` (an explicit BoolValue).
+    fn saved(visible: bool) -> String {
         let mut category = Vec::new();
         put_bytes(&mut category, 1, b"Friends");
         put_varint(&mut category, 2 << 3);
         put_varint(&mut category, 2);
+        put_varint(&mut category, 3 << 3);
+        put_varint(&mut category, 4);
         put_varint(&mut category, 6 << 3);
         put_varint(&mut category, 1);
         put_bytes(&mut category, 99, b"future category");
@@ -220,29 +260,72 @@ mod tests {
         put_bytes(&mut raw, 1, &map);
         put_varint(&mut raw, 2 << 3);
         put_varint(&mut raw, 1);
-        put_bytes(&mut raw, 3, &[]); // explicit false
+        put_bytes(&mut raw, 3, if visible { &[8, 1] } else { &[] });
         put_bytes(&mut raw, 100, b"future setting");
-        let original = settings(&raw);
-        let added = change(&original, 42, 3, true).unwrap().unwrap();
+        settings(&raw)
+    }
+
+    #[test]
+    fn changes_preserve_categories_unknown_fields_and_visibility() {
+        let original = saved(true);
+        let added = change(&original, 42, 3, true, false).unwrap().unwrap();
         let list = read(&added).unwrap().unwrap();
         assert!(list.contains(42));
         assert!(list.muted);
-        assert_eq!(list.visible, Some(false));
+        assert_eq!(list.visible, Some(true));
         assert_eq!(list.entries[0].nickname, "Friends");
         assert!(list.entries[0].collapsed);
-        assert!(change(&added, 42, 3, true).unwrap().is_none());
-        let removed = change(&added, 42, 3, false).unwrap().unwrap();
+        // After every entry, the category's position included, as
+        // Discord's client places one.
+        assert_eq!(list.entries[1].position, 5);
+        assert!(change(&added, 42, 3, true, false).unwrap().is_none());
+        let removed = change(&added, 42, 3, false, false).unwrap().unwrap();
         assert_eq!(removed, original);
+    }
+
+    #[test]
+    fn adding_to_hidden_favorites_shows_them_as_discords_client_does() {
+        let added = change(&saved(false), 42, 3, true, false).unwrap().unwrap();
+        let list = read(&added).unwrap().unwrap();
+        assert_eq!(list.visible, Some(true));
+        let raw = STANDARD.decode(&added).unwrap();
+        assert!(raw.windows(15).any(|w| w == b"future category"));
+        assert!(raw.windows(14).any(|w| w == b"future setting"));
+        // Removing leaves them shown, as Discord's client does.
+        let removed = change(&added, 42, 3, false, false).unwrap().unwrap();
+        assert_eq!(read(&removed).unwrap().unwrap().visible, Some(true));
+        // A first Favorite says so too.
+        let first = change("", 42, 1, true, false).unwrap().unwrap();
+        let list = read(&first).unwrap().unwrap();
+        assert_eq!((list.visible, list.entries[0].position), (Some(true), 1));
+    }
+
+    #[test]
+    fn free_favorites_stop_at_three_channels_as_discords_client_does() {
+        // The category doesn't count against them.
+        let mut settings = saved(true);
+        for id in 1..=3 {
+            settings = change(&settings, id, 0, true, false).unwrap().unwrap();
+        }
+        let refused = change(&settings, 4, 0, true, false).unwrap_err();
+        assert!(refused.to_string().contains("limited to 3"), "{refused}");
+        // Removing one still works, and Nitro takes up to 200 in all.
+        assert!(change(&settings, 3, 0, false, false).unwrap().is_some());
+        for id in 4..200 {
+            settings = change(&settings, id, 0, true, true).unwrap().unwrap();
+        }
+        let refused = change(&settings, 200, 0, true, true).unwrap_err();
+        assert!(refused.to_string().contains("more than 200"), "{refused}");
     }
 
     #[test]
     fn partial_empty_invalid_and_duplicate_map_entries() {
         assert_eq!(read("").unwrap(), None);
         assert_eq!(read(&settings(&[])).unwrap(), Some(Favorites::default()));
-        assert!(change("not base64", 42, 0, true).is_err());
-        assert!(change(&STANDARD.encode([0x7a, 5, 0x0a]), 42, 0, true).is_err());
-        let first = change("", 42, 1, true).unwrap().unwrap();
-        let second = change(&first, 43, 3, true).unwrap().unwrap();
+        assert!(change("not base64", 42, 0, true, false).is_err());
+        assert!(change(&STANDARD.encode([0x7a, 5, 0x0a]), 42, 0, true, false).is_err());
+        let first = change("", 42, 1, true, false).unwrap().unwrap();
+        let second = change(&first, 43, 3, true, false).unwrap().unwrap();
         assert_eq!(
             read(&second)
                 .unwrap()

@@ -2677,8 +2677,15 @@ impl Discord {
                     .context("That channel is unavailable")? as u32
             }
         };
+        // Nitro (2) alone lifts the limit of three, in Discord's client.
+        let nitro = self
+            .snapshots
+            .borrow()
+            .account
+            .as_ref()
+            .is_some_and(|account| account.premium_type == 2);
         let current = self.api.user_settings().await?;
-        if let Some(patch) = crate::favorites::change(&current, id, kind, favorite)? {
+        if let Some(patch) = crate::favorites::change(&current, id, kind, favorite, nitro)? {
             self.api.set_user_settings(&patch).await?;
         }
         // Reconcile with the server instead of installing a possibly stale

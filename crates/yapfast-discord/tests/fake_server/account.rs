@@ -759,9 +759,15 @@ async fn channel_favorites_sync_both_directions_and_preserve_settings() {
     // A different Discord client changes Favorites, and this gateway follows it.
     let settings: serde_json::Value =
         serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
-    let removed = favorites::change(settings["settings"].as_str().unwrap(), general_id, 0, false)
-        .unwrap()
-        .unwrap();
+    let removed = favorites::change(
+        settings["settings"].as_str().unwrap(),
+        general_id,
+        0,
+        false,
+        false,
+    )
+    .unwrap()
+    .unwrap();
     post_control(
         server,
         "/_control/settings",

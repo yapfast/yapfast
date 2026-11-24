@@ -20,10 +20,14 @@ and message-request channels stay out of the list; their saved references surviv
 all writes. A reference whose category is missing appears at the top level.
 
 A connected account can right-click a channel or accepted DM to add or remove it.
-New references go at the end of the top level. The service serializes local edits,
+As in Discord's client, a new reference goes at the top level after every entry
+(categories and their channels included), adding one shows Favorites on the rail
+again if they were hidden, and adding stops at Discord's limits: three channels
+and DMs without Nitro (Nitro Basic too), and 200 entries in all, categories
+included. Saved references Yapfast can't see count against them, where Discord's
+client would drop those first. The service serializes local edits,
 GETs `/users/@me/settings-proto/1`, and PATCHes only the complete Favorites field.
-It preserves the other entries, categories, unknown fields, mute and visibility
-settings. Malformed settings abort the write. A fresh GET reconciles the result;
+It preserves the other entries, categories, unknown fields and mute. Malformed settings abort the write. A fresh GET reconciles the result;
 the gateway distributes the change to other clients. A rejected edit shows a
 notice and leaves the confirmed list intact. Discord decides whether the account
 can write these settings. Simultaneous edits from independent clients can still
