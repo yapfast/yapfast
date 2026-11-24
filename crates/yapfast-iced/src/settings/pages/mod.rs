@@ -41,6 +41,8 @@ pub enum Pref {
     Animate(usize),
     LinkPreviews(bool),
     CollapseLong(bool),
+    PeekChannels(bool),
+    DmSearchSwitcher(bool),
     BoostGems(bool),
     ShareTyping(bool),
     ReplyPing(bool),
@@ -146,6 +148,14 @@ impl Settings {
                 cx.layout.collapse_long = on;
                 cx.keep("collapse_long", on);
                 cx.request(Request::Changed(Shown::Rows));
+            }
+            Pref::PeekChannels(on) => {
+                cx.layout.peek_channels = on;
+                cx.keep("peek_channels", on);
+            }
+            Pref::DmSearchSwitcher(on) => {
+                cx.layout.dm_search_switcher = on;
+                cx.keep("dm_search_switcher", on);
             }
             Pref::BoostGems(on) => {
                 prefs.boost_gems = Some(on);

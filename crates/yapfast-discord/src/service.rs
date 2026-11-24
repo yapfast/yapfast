@@ -670,6 +670,15 @@ pub enum Live {
     FavoriteSounds(Vec<String>),
 }
 
+/// Someone's presence in a server, as [`Discord::member_presence`] asks for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberPresence {
+    pub presence: Presence,
+    /// Their custom status, else what they're doing, on one line.
+    pub activity: Option<String>,
+    pub activities: crate::activity::Activities,
+}
+
 /// What a call needs to open the voice connection Discord assigned.
 #[derive(Clone)]
 pub struct VoiceServer {
@@ -738,6 +747,12 @@ enum Request {
     View {
         guild: String,
         channel: Option<String>,
+    },
+    /// Asks for someone's presence in a server; `reply` hears it, or none.
+    Presence {
+        guild: String,
+        user: String,
+        reply: oneshot::Sender<Option<Value>>,
     },
     /// Asks for these members' server profiles; with `reply`, says when
     /// they arrived.
@@ -1491,6 +1506,16 @@ impl Discord {
                 })
             })
             .collect()
+    }
+
+    /// A channel's newest `limit` messages, oldest first, to peek at: a
+    /// server's channel, or with [`PRIVATE`] a DM. It reads nothing, and
+    /// keeps nothing of them but their authors' names.
+    pub async fn peek(&self, guild: &str, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let values = self.api.newest(channel, limit).await?;
+        let mut messages = self.learn_authors(guild, &values).await;
+        messages.sort_by_key(Message::order);
+        Ok(messages)
     }
 
     /// A channel's pinned messages, the latest pinned first: a server's
@@ -4070,6 +4095,31 @@ impl Discord {
 
     /// The RGB colour of a member's name in a server: their highest coloured
     /// role's, once their roles are known.
+    /// Someone's presence in server `guild`, as Discord's client asks for
+    /// it when it opens their profile there: the member list has it only for
+    /// the rows it has loaded, so a card opened from a message had no
+    /// status. Asked over the gateway with the member (Request Guild
+    /// Members with `presences`), waiting a while; none in a DM, or when
+    /// Discord doesn't say.
+    pub async fn member_presence(&self, guild: &str, user: &str) -> Option<MemberPresence> {
+        let guild = server(guild)?;
+        let (reply, answer) = oneshot::channel();
+        let _ = self.requests.send(Request::Presence {
+            guild: guild.into(),
+            user: user.into(),
+            reply,
+        });
+        let presence = tokio::time::timeout(SEARCH_TIMEOUT, answer)
+            .await
+            .ok()?
+            .ok()??;
+        Some(MemberPresence {
+            presence: Presence::parse(&presence),
+            activity: crate::member_list::activity(&presence["activities"]),
+            activities: crate::activity::activities(&presence["activities"]),
+        })
+    }
+
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
     }

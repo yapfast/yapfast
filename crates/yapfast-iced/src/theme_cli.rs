@@ -214,19 +214,7 @@ fn export(mut arguments: Vec<String>) -> Result<String, Stop> {
         }
         None => None,
     };
-    let colours = colours_of(&custom.theme);
-    let named: Vec<(&str, u32)> = colours
-        .iter()
-        .map(|(token, colour)| (token.as_str(), *colour))
-        .collect();
-    let text = package::export_with(
-        &custom.name,
-        &author,
-        custom.base,
-        custom.theme.dark,
-        &named,
-        layers.as_deref(),
-    )?;
+    let text = package::export_custom(custom, &author, layers.as_deref())?;
     let written = package::write_export(&folder, &text, source.as_deref())?;
     let report = check::check(&Files::read(&folder)?, Strictness::Install);
     Ok(format!(
@@ -340,8 +328,16 @@ fn start_from(wanted: &str, data: &Path, light: Option<bool>) -> Result<Start, S
             from: custom.name.clone(),
             base: custom.base.to_owned(),
             dark: custom.theme.dark,
+            // Its own pill is a package's colour too; its header is a
+            // surface's ground, which a new theme's colours don't hold.
             colours: colours_of(&custom.theme)
                 .into_iter()
+                .chain(
+                    custom
+                        .parts
+                        .pill
+                        .map(|pill| ("pill".to_owned(), pill.argb())),
+                )
                 .map(|(token, colour)| (token, package::hex(colour).into()))
                 .collect(),
         });

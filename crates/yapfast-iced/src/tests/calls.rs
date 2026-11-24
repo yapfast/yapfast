@@ -1,9 +1,11 @@
 //! The call: the dock's noise toggle, the device menus' volumes and a
-//! device gone away, the share menu in a short window, the microphone's
+//! device gone away, the share menu in a short window, its settings' rows
+//! with their choices beside them, the application remembered for the
+//! stream's audio, the microphone's
 //! level only while its menu shows, the dock's channel line, a voice
 //! channel's Join, someone's volumes and menu from their tile, a camera's
-//! tile before its first frame, and the call's own order under its
-//! channel.
+//! tile before its first frame, the corner picture's grip resizing it,
+//! and the call's own order under its channel.
 
 use iced::{Point, Rectangle, Size};
 use yapfast_core::{
@@ -159,6 +161,7 @@ fn listed(count: u64) -> Event {
     let listed = vec![Shareable {
         source: Source::Display(1),
         title: "Entire screen".into(),
+        program: None,
     }];
     Event::Share(ShareEvent::Listed(
         count,
@@ -219,14 +222,17 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
     let mut listed = vec![Shareable {
         source: Source::Display(1),
         title: "Entire screen".into(),
+        program: None,
     }];
     listed.extend((0..12).map(|index| Shareable {
         source: Source::Window(index),
         title: format!("Window {index}"),
+        program: None,
     }));
     listed.extend((0..4).map(|index| Shareable {
         source: Source::Camera(format!("camera{index}")),
         title: format!("Camera {index}"),
+        program: None,
     }));
     // Opened from the share button near the window's foot.
     app.call.spot.set(Rectangle::new(
@@ -248,10 +254,366 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
         let at = last(ui, "Go Live");
         go = Some(at);
         assert!(at.y < 560.0 - 8.0, "Go Live is in view, at {at:?}");
-        assert!(ui.find("Entire screen").is_ok());
+        // The settings' rows stay in view with it, over the sources,
+        // which scroll.
+        assert!(last(ui, "Audio").y < at.y && last(ui, "Higher quality").y < at.y);
+        let screen = ui.find("Entire screen").expect("the screen");
+        ui.point_at(screen.visible_bounds().expect("in view").center());
+        ui.simulate(crate::widgets::swipe(-120.0));
         ui.click("Window 1").expect("a window to pick");
     });
-    assert_eq!(app.call.share.as_ref().map(|share| share.pick), Some(2));
+    assert_eq!(
+        app.call.share.as_ref().and_then(|share| share.pick),
+        Some(2)
+    );
+
+    // Window 1 and the screen have the same numeric ID. A picture is applied
+    // only to its source kind and only to the listing that requested it.
+    for preview_count in [count + 1, count] {
+        let _ = crate::call::update(
+            &mut app,
+            Event::Share(ShareEvent::Picture(
+                preview_count,
+                Source::Window(1),
+                iced::advanced::image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+            )),
+        );
+        let share = app.call.share.as_ref().expect("share menu");
+        assert!(share.screens[0].1.is_none());
+        assert_eq!(share.windows[1].1.is_some(), preview_count == count);
+    }
+}
+
+/// The share menu open over a window `size` large from the share button
+/// at `spot`, with `listed` to share; `applications` as on Windows, where
+/// the stream's audio can be one application's.
+fn share_menu(
+    size: Size,
+    spot: Point,
+    listed: Vec<Shareable>,
+    applications: bool,
+) -> (App, tempfile::TempDir) {
+    let (mut app, folder, _) = in_call();
+    open_share_menu(&mut app, size, spot, listed, applications);
+    (app, folder)
+}
+
+fn open_share_menu(
+    app: &mut App,
+    size: Size,
+    spot: Point,
+    listed: Vec<Shareable>,
+    applications: bool,
+) {
+    app.shell.frame = size;
+    crate::window_bar::fit_window(app);
+    app.call
+        .spot
+        .set(Rectangle::new(spot, Size::new(52.0, 52.0)));
+    let _ = crate::call::update(app, Event::Close);
+    let _ = crate::call::update(app, Event::Open(Popup::Share));
+    let count = app.call.share_listing.expect("listing");
+    let listing = crate::call::Listing(listed);
+    let _ = crate::call::popups::share::list(app, count, &listing, applications);
+    assert_eq!(app.call.popup, Some(Popup::Share));
+}
+
+/// A screen, `windows` windows, each of a program of its own
+/// (`app<index>.exe`), and a camera.
+fn sources(windows: u64) -> Vec<Shareable> {
+    let mut listed = vec![Shareable {
+        source: Source::Display(1),
+        title: "Entire screen".into(),
+        program: None,
+    }];
+    listed.extend((0..windows).map(|index| Shareable {
+        source: Source::Window(index),
+        title: format!("Window {index}"),
+        program: Some(format!("app{index}.exe")),
+    }));
+    listed.push(Shareable {
+        source: Source::Camera("camera".into()),
+        title: "Camera".into(),
+        program: None,
+    });
+    listed
+}
+
+/// The pointer moved onto the text reading `text`.
+fn point_at(app: &mut App, text: &str) {
+    interact(app, |ui| {
+        let at = last(ui, text);
+        ui.point_at(at);
+        ui.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+            position: at,
+        })]);
+    });
+}
+
+/// Where the texts reading each of `texts` are, in view.
+fn places(app: &App, texts: &[&str]) -> Vec<Point> {
+    use iced_test::Simulator;
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    texts.iter().map(|text| last(&mut ui, text)).collect()
+}
+
+/// A click on the last text reading `text`: a choice beside the menu,
+/// which is drawn after it.
+fn click_last(app: &mut App, text: &str) {
+    interact(app, |ui| {
+        let at = last(ui, text);
+        ui.point_at(at);
+        ui.simulate(iced_test::simulator::click());
+    });
+}
+
+fn side(app: &App) -> Option<crate::call::popups::share::Setting> {
+    app.call.share.as_ref().and_then(|share| share.side)
+}
+
+#[test]
+fn the_share_menus_settings_are_rows_that_open_their_choices_beside_them() {
+    use crate::call::{ShareEvent, popups::share::Setting};
+    use iced::keyboard::{Key, key};
+    let spot = Point::new(300.0, 640.0);
+    let (mut app, _folder) = share_menu(Size::new(1200.0, 720.0), spot, sources(3), false);
+    // Each setting is one row that names what's chosen, and none of the
+    // choices show.
+    for shown in [
+        "Audio",
+        "All applications",
+        "Resolution",
+        "1080p",
+        "Frame rate",
+        "30 fps",
+        "Higher quality",
+        "Go Live",
+    ] {
+        assert!(shows(&app, shown), "{shown}");
+    }
+    for hidden in ["No audio", "720p", "Source", "15 fps", "60 fps"] {
+        assert!(!super::present(&app, hidden), "{hidden}");
+    }
+    // The pointer on a row opens its choices to the right of the menu,
+    // the first level with the row, and nothing in the menu moves.
+    let parts = [
+        "Entire screen",
+        "Window 1",
+        "Audio",
+        "Resolution",
+        "Frame rate",
+        "Higher quality",
+        "Go Live",
+    ];
+    let closed = places(&app, &parts);
+    let right = spot.x - 6.0 + 496.0;
+    point_at(&mut app, "Resolution");
+    assert_eq!(side(&app), Some(Setting::Resolution));
+    assert_eq!(places(&app, &parts), closed, "the menu stays as it was");
+    let choices = places(&app, &["720p", "Source", "Resolution"]);
+    assert!(choices[0].x > right, "beside the menu: {choices:?}");
+    assert!((choices[0].y - choices[2].y).abs() < 3.0, "{choices:?}");
+    assert!(choices[1].y > choices[0].y);
+    // Another row's take their place: one list at a time.
+    point_at(&mut app, "Frame rate");
+    assert_eq!(side(&app), Some(Setting::FrameRate));
+    assert!(!super::present(&app, "720p"));
+    assert_eq!(places(&app, &parts), closed);
+    let choices = places(&app, &["15 fps", "Frame rate"]);
+    assert!(choices[0].x > right && (choices[0].y - choices[1].y).abs() < 3.0);
+    // A choice is taken and its list closes; the row names it.
+    interact(&mut app, |ui| {
+        ui.click("60 fps").expect("a frame rate");
+    });
+    let share = app.call.share.as_ref().expect("the menu stays");
+    assert_eq!((share.quality.fps, share.side), (60, None));
+    assert!(shows(&app, "60 fps") && !super::present(&app, "15 fps"));
+    assert_eq!(places(&app, &parts), closed);
+    // A click on a row opens its choices too.
+    interact(&mut app, |ui| {
+        ui.click("Resolution").expect("the row");
+    });
+    assert_eq!(side(&app), Some(Setting::Resolution));
+    interact(&mut app, |ui| {
+        ui.click("Source").expect("a resolution");
+    });
+    let share = app.call.share.as_ref().expect("the menu stays");
+    assert_eq!(share.quality.resolution, voice::Resolution::Source);
+    assert_eq!(share.side, None);
+    // The audio's choices: here, without an application's.
+    point_at(&mut app, "Audio");
+    assert_eq!(side(&app), Some(Setting::Audio));
+    assert!(shows(&app, "No audio") && shows(&app, "Excludes Yapfast's own audio"));
+    assert!(!super::present(&app, "Changes apply immediately"));
+    // The pointer on a row without choices closes them, as picking what
+    // to share does.
+    point_at(&mut app, "Higher quality");
+    assert_eq!(side(&app), None);
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(ShareEvent::Side(Some(Setting::Audio))),
+    );
+    interact(&mut app, |ui| {
+        ui.click("Window 1").expect("a window to share");
+    });
+    let share = app.call.share.as_ref().expect("the menu stays");
+    assert_eq!((share.pick, share.side), (Some(2), None));
+    // Escape closes the choices, then the menu.
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(ShareEvent::Side(Some(Setting::Audio))),
+    );
+    let escape = crate::app::Message::Key(Key::Named(key::Named::Escape), Default::default());
+    let _ = app.update(escape.clone());
+    assert_eq!(side(&app), None);
+    assert_eq!(app.call.popup, Some(Popup::Share));
+    let _ = app.update(escape);
+    assert_eq!(app.call.popup, None);
+
+    // Without room on the right the choices open on the left, the menu
+    // where it was.
+    let spot = Point::new(900.0, 640.0);
+    open_share_menu(&mut app, Size::new(1200.0, 720.0), spot, sources(3), false);
+    let closed = places(&app, &parts);
+    point_at(&mut app, "Frame rate");
+    assert_eq!(places(&app, &parts), closed);
+    let left = 1200.0 - 8.0 - 496.0;
+    let choices = places(&app, &["15 fps", "Frame rate"]);
+    assert!(
+        choices[0].x < left,
+        "left of the menu: {choices:?} {closed:?}"
+    );
+    assert!((choices[0].y - choices[1].y).abs() < 3.0);
+}
+
+/// A theme that dashes the menus' outlines lays the outline over the
+/// panel: a setting's choices still open level with its row.
+#[test]
+fn the_share_menus_choices_open_beside_their_row_under_a_themes_outline() {
+    use crate::call::{ShareEvent, popups::share::Setting};
+    let (mut app, _folder) = super::themed(
+        serde_json::json!({ "shape": { "borders": { "menu": "dashed" } } }),
+        &[],
+    );
+    assert!(app.ctx().look.theme.outline("menu").is_some());
+    app.client.dispatch(Action::SelectRoom("lounge".into()));
+    let _ = app.sync();
+    assert!(app.client.state().voice.active(), "the preview joins");
+    let spot = Point::new(300.0, 640.0);
+    open_share_menu(&mut app, Size::new(1200.0, 720.0), spot, sources(3), false);
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(ShareEvent::Side(Some(Setting::FrameRate))),
+    );
+    let choices = places(&app, &["15 fps", "Frame rate"]);
+    assert!(choices[0].x > spot.x - 6.0 + 496.0, "{choices:?}");
+    assert!((choices[0].y - choices[1].y).abs() < 3.0, "{choices:?}");
+}
+
+#[test]
+fn the_share_menus_audio_is_an_application_picked_beside_its_row() {
+    use crate::call::{ShareEvent, popups::share::Setting};
+    let size = Size::new(1200.0, 720.0);
+    let spot = Point::new(300.0, 640.0);
+    // Where the audio can be one application's, its windows follow the
+    // two choices there always are.
+    let (mut app, _folder) = share_menu(size, spot, sources(3), true);
+    point_at(&mut app, "Audio");
+    click_last(&mut app, "Window 1");
+    assert_eq!(
+        app.call.share.as_ref().and_then(|share| share.pick),
+        Some(0),
+        "its row beside the menu, not its card"
+    );
+    assert_eq!(
+        app.client.state().voice.stream_audio,
+        voice::StreamAudio::Window(1)
+    );
+    assert_eq!(side(&app), None);
+    let named = places(&app, &["Audio", "Window 1"]);
+    assert!((named[0].y - named[1].y).abs() < 3.0, "its row names it");
+    // More windows than fit: the list scrolls inside the window, and the
+    // menu stays where it was.
+    let parts = ["Entire screen", "Audio", "Go Live"];
+    open_share_menu(&mut app, size, spot, sources(40), true);
+    let closed = places(&app, &parts);
+    let _ = crate::call::update(
+        &mut app,
+        Event::Share(ShareEvent::Side(Some(Setting::Audio))),
+    );
+    assert_eq!(places(&app, &parts), closed);
+    assert!(shows(&app, "No audio"));
+    assert!(!shows(&app, "Window 39"), "the last is scrolled to");
+}
+
+#[test]
+fn an_application_chosen_for_the_audio_is_found_again_or_everything_is_shared() {
+    let size = Size::new(1200.0, 720.0);
+    let spot = Point::new(300.0, 640.0);
+    let remembered = |app: &mut App, audio| {
+        super::change(app, |state| {
+            state.voice.stream_audio = audio;
+            state.voice.stream_app = Some("app2.exe".into());
+        });
+    };
+    let audio = |app: &App| app.client.state().voice.stream_audio;
+    let named = |app: &App, title: &str| {
+        let named = places(app, &["Audio", title]);
+        (named[0].y - named[1].y).abs() < 3.0
+    };
+    // As a new start has it: the application by its program, everything
+    // shared until a window of it is listed.
+    let (mut app, _folder, _) = in_call();
+    remembered(&mut app, voice::StreamAudio::All);
+    open_share_menu(&mut app, size, spot, sources(4), true);
+    assert_eq!(audio(&app), voice::StreamAudio::Window(2));
+    assert!(named(&app, "Window 2"));
+    // Not running: everything is shared, and it's still the one looked
+    // for the next time.
+    remembered(&mut app, voice::StreamAudio::All);
+    open_share_menu(&mut app, size, spot, sources(2), true);
+    assert_eq!(audio(&app), voice::StreamAudio::All);
+    assert!(named(&app, "All applications"));
+    assert_eq!(
+        app.client.state().voice.stream_app.as_deref(),
+        Some("app2.exe")
+    );
+    // Its window closed since it was chosen: another of its windows is
+    // taken, and without one the menu says it's gone.
+    remembered(&mut app, voice::StreamAudio::Window(77));
+    let mut listed = sources(2);
+    listed.push(Shareable {
+        source: Source::Window(9),
+        title: "Second window".into(),
+        program: Some("app2.exe".into()),
+    });
+    open_share_menu(&mut app, size, spot, listed, true);
+    assert_eq!(audio(&app), voice::StreamAudio::Window(9));
+    remembered(&mut app, voice::StreamAudio::Window(77));
+    open_share_menu(&mut app, size, spot, sources(2), true);
+    assert_eq!(audio(&app), voice::StreamAudio::Window(77));
+    assert!(named(&app, "Unavailable application"));
+    // A window of it chosen and still open stays the choice.
+    remembered(&mut app, voice::StreamAudio::Window(9));
+    let mut listed = sources(3);
+    listed.push(Shareable {
+        source: Source::Window(9),
+        title: "Second window".into(),
+        program: Some("app2.exe".into()),
+    });
+    open_share_menu(&mut app, size, spot, listed, true);
+    assert_eq!(audio(&app), voice::StreamAudio::Window(9));
+    // A live stream's audio isn't changed by opening the menu.
+    remembered(&mut app, voice::StreamAudio::All);
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+    });
+    open_share_menu(&mut app, size, spot, sources(4), true);
+    assert_eq!(audio(&app), voice::StreamAudio::All);
 }
 
 #[test]
@@ -471,6 +833,184 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
     assert!(shows(&app, "Bob"), "his tile's name");
 }
 
+/// Discord's picture in picture: its grip resizes it horizontally only,
+/// between 200 and 960 px, and settles on the nearest 40 px when let go.
+#[test]
+fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
+    use crate::app::Message;
+    let (mut app, folder, _) = in_call();
+    // Bob's camera stays in the corner once the call is off screen.
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.local = false;
+        bob.video = Some(yapfast_core::picture::Feed::new());
+        state.voice.participants.push(bob);
+    });
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(
+        crate::call::corner::corner_view(&app).is_some(),
+        "in the corner"
+    );
+    let width = |app: &App| crate::call::corner::corner_size(app).width;
+    let size = crate::call::corner::corner_size(&app);
+    assert_eq!((size.width, size.height), (320.0, 180.0), "as it comes");
+    // Its grip, 90 px towards the window's middle: 90 px wider while
+    // dragged, whatever the pointer does up or down, then 400 px, the
+    // nearest 40, once let go.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    assert!(app.call.resize.is_some(), "its grip resizes it");
+    for down in [0.0, 120.0, -60.0] {
+        let _ = app.update(Message::Call(Event::DragTo(Point::new(
+            grip.x - 90.0,
+            grip.y + down,
+        ))));
+        assert_eq!(width(&app), 410.0, "across only, {down} px down");
+    }
+    let _ = app.update(Message::Call(Event::Drop));
+    assert!(app.call.resize.is_none() && app.call.grab.is_none());
+    assert_eq!(width(&app), 400.0, "settled on 40 px");
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).corner_width,
+        Some(400.0),
+        "kept"
+    );
+    // Up and down alone change nothing.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x,
+        grip.y + 200.0,
+    ))));
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 400.0, "the same");
+    // Towards the window's edge it shrinks, to 200 px at least.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x + 500.0,
+        grip.y,
+    ))));
+    assert_eq!(width(&app), 200.0, "no narrower");
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 200.0);
+    // And to 960 px at most, 20 past it while dragged, in a window with
+    // the room.
+    app.shell.frame = Size::new(3000.0, 2000.0);
+    crate::window_bar::fit_window(&mut app);
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(grip);
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::DragTo(Point::new(
+        grip.x - 2000.0,
+        grip.y,
+    ))));
+    assert_eq!(width(&app), 980.0, "20 px past while dragged");
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(width(&app), 960.0, "no wider");
+    // A smaller window narrows it to the room it settles on.
+    app.shell.frame = Size::new(1000.0, 700.0);
+    crate::window_bar::fit_window(&mut app);
+    assert!(width(&app) < 960.0 && width(&app) % 40.0 == 0.0);
+    // A click on its grip opens nothing, where one on the picture returns
+    // to the call.
+    let selected = app.client.state().selected.clone();
+    app.pressed.set(crate::call::corner::grip(&app).center());
+    let _ = app.update(Message::Call(Event::Grab));
+    let _ = app.update(Message::Call(Event::Drop));
+    assert_eq!(app.client.state().selected, selected, "no call opened");
+    // Pressed on the picture instead, it's moved, not resized.
+    let grip = crate::call::corner::grip(&app).center();
+    app.pressed.set(Point::new(grip.x + 100.0, grip.y - 100.0));
+    let _ = app.update(Message::Call(Event::Grab));
+    assert!(
+        app.call.grab.is_some() && app.call.resize.is_none(),
+        "moved"
+    );
+    let _ = app.update(Message::Call(Event::Drop));
+    // Its edges fall on the window's own pixels, at any zoom, so its
+    // picture and the shade over it end on the same row.
+    app.shell.zoom = 1.15;
+    let size = crate::call::corner::corner_size(&app);
+    let pixels = app.device_scale();
+    for length in [size.width, size.height] {
+        assert!(
+            ((length * pixels).round() - length * pixels).abs() < 0.01,
+            "{length} is a whole window pixel: {}",
+            length * pixels
+        );
+    }
+}
+
+/// Sat top left, the corner picture's grip is its bottom right, over the
+/// stop button's corner: a press there resizes, as the pointer says, and
+/// doesn't stop the share; the button's middle still stops it.
+#[test]
+fn the_corner_pictures_grip_over_its_stop_button_resizes() {
+    use crate::app::Message;
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+    });
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(
+        crate::call::corner::corner_view(&app).is_some(),
+        "your screen in the corner"
+    );
+    app.call.left = true;
+    app.call.bottom = false;
+    let grip = crate::call::corner::grip(&app);
+    let size = crate::call::corner::corner_size(&app);
+    // The button: 32 px, 8 px in from the picture's bottom right, where
+    // the grip ends.
+    let corner = Point::new(grip.x + grip.width, grip.y + grip.height);
+    let overlap = Point::new(corner.x - 15.0, corner.y - 15.0);
+    let button = Point::new(corner.x - 24.0, corner.y - 24.0);
+    assert!(grip.contains(overlap) && !grip.contains(button));
+    assert!(size.width > 64.0);
+    let press = |app: &App, at: Point| -> Vec<Message> {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        ui.point_at(at);
+        let _ = ui.simulate(iced_test::simulator::click());
+        ui.into_messages().collect()
+    };
+    let stops = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Call(Event::StopSharing)))
+    };
+    let grabs = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Call(Event::Grab)))
+    };
+    let messages = press(&app, button);
+    assert!(stops(&messages), "the button's middle stops the share");
+    let messages = press(&app, overlap);
+    assert!(
+        grabs(&messages) && !stops(&messages),
+        "the grip takes it, {} messages",
+        messages.len()
+    );
+    for message in messages {
+        let _ = app.update(message);
+    }
+    assert!(app.call.resize.is_some(), "resized, not stopped");
+    assert!(app.client.state().voice.sharing.is_some());
+}
+
 #[test]
 fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
     let (mut app, _folder, room) = in_call();
@@ -564,29 +1104,7 @@ fn a_window_closed_with_the_large_tile_full_screen_opens_again_as_a_window() {
 }
 
 #[test]
-fn switching_with_only_the_systems_dialog_opens_it_with_no_menu() {
-    use crate::call::popups::Share;
-    let share = |switching, dialog, cameras: &[&str]| Share {
-        screens: vec![],
-        windows: vec![],
-        cameras: cameras.iter().map(|&camera| camera.into()).collect(),
-        sources: vec![],
-        dialog,
-        pick: 0,
-        quality: Default::default(),
-        switching,
-    };
-    assert!(share(true, true, &[]).dialog_alone());
-    assert!(
-        !share(false, true, &[]).dialog_alone(),
-        "Go Live's menu has the quality"
-    );
-    assert!(
-        !share(true, true, &["Webcam"]).dialog_alone(),
-        "a camera to pick"
-    );
-    assert!(!share(true, false, &[]).dialog_alone());
-    // Listed so while sharing, nothing opens and nothing waits.
+fn stream_audio_can_change_while_sharing_without_picking_a_new_source() {
     let (mut app, _folder, _) = in_call();
     super::change(&mut app, |state| {
         state.voice.sharing = Some(voice::Sharing {
@@ -604,12 +1122,26 @@ fn switching_with_only_the_systems_dialog_opens_it_with_no_menu() {
             std::sync::Arc::new(crate::call::Listing(vec![])),
         )),
     );
-    if yapfast_core::stream_worker::portal_picks() {
-        assert_eq!(app.call.popup, None, "the dialog, no menu");
-        assert!(app.call.share.is_none());
-    } else {
-        assert_eq!(app.call.popup, Some(Popup::Share));
+    assert_eq!(app.call.popup, Some(Popup::Share));
+    assert_eq!(app.call.share.as_ref().and_then(|share| share.pick), None);
+    // A live stream keeps its quality: only the audio has a row, whose
+    // choices say they apply at once.
+    assert!(shows(&app, "Audio") && shows(&app, "Switch"));
+    for hidden in ["Resolution", "Frame rate", "Higher quality"] {
+        assert!(!super::present(&app, hidden), "{hidden}");
     }
+    point_at(&mut app, "Audio");
+    assert!(shows(&app, "Changes apply immediately"));
+    interact(&mut app, |ui| {
+        ui.click("No audio").expect("a choice");
+    });
+    assert_eq!(
+        app.client.state().voice.stream_audio,
+        voice::StreamAudio::Off
+    );
+    assert_eq!(app.call.popup, Some(Popup::Share));
+    assert_eq!(side(&app), None);
+    assert!(shows(&app, "No audio"), "the row names it");
 }
 
 #[test]
@@ -767,4 +1299,36 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
     let room = app.client.state().voice.room.clone().expect("in a call");
     let _ = crate::call::update(&mut app, Event::Leave);
     assert!(app.call.members_hidden.contains(&room));
+}
+
+/// Up to nine people fit the stage under the preview's line and over the
+/// controls: every one's name shows whole, none cut off at the stage's foot
+/// or behind the controls, in a small window and a large one.
+#[test]
+fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
+    let names = ["Ada", "Bea", "Cy", "Dot", "Eli", "Fay", "Gus", "Hal", "Ivy"];
+    for (width, height) in [(900.0, 640.0), (1120.0, 760.0), (1440.0, 900.0)] {
+        let (mut app, _folder, _) = in_call();
+        app.shell.frame = Size::new(width, height);
+        crate::window_bar::fit_window(&mut app);
+        super::change(&mut app, |state| {
+            let voice = &mut state.voice;
+            let mut template = voice.participants[0].clone();
+            template.local = false;
+            template.video = None;
+            template.streaming = false;
+            voice.participants.truncate(1);
+            for (index, name) in names.iter().enumerate().skip(1) {
+                let mut person = template.clone();
+                person.id = format!("person-{index}");
+                person.person = person.id.clone();
+                person.user = (*name).to_owned();
+                voice.participants.push(person);
+            }
+        });
+        let local = app.client.state().voice.participants[0].user.clone();
+        for name in names.iter().skip(1).chain([&local.as_str()]) {
+            assert!(shows(&app, name), "{name} in {width}x{height}");
+        }
+    }
 }

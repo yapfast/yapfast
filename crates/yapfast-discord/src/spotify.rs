@@ -762,7 +762,7 @@ mod tests {
         // As other people's cards read it.
         let read = crate::activity::activities(&json!([shared]));
         assert!(read[0].spotify());
-        assert_eq!(read[0].heading(), "Listening to Spotify");
+        assert_eq!(read[0].heading().as_deref(), Some("Listening to Spotify"));
         assert_eq!(
             read[0].large_image.as_deref(),
             Some("https://i.scdn.co/image/cover")

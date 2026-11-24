@@ -134,4 +134,3 @@ Alternate the builds over several runs and give the spread between runs of
 one build. Keep the hardware, workload, warm-up, window state and memory
 metric with every result. Dated records of past measurements are in the
 private `records.md` beside this file.
-

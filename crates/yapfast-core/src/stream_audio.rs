@@ -35,6 +35,10 @@ const BACKLOG: usize = FRAME * 10;
 /// What Discord's client gives a stream's sound.
 const BITRATE: i32 = 64_000;
 
+#[cfg(all(test, windows))]
+#[path = "stream_audio/windows_tests.rs"]
+mod windows_tests;
+
 /// Whether an application, by its name or program, is Yapfast or a Discord
 /// client, whose sound is a call or a stream: Yapfast's other workers, such as
 /// one playing a watched stream, and Discord's own client and those built
@@ -96,40 +100,47 @@ fn mix(inputs: &mut HashMap<u32, Input>, out: &mut [f32]) -> bool {
 }
 
 /// Hears the other applications into `inputs` until `stop`.
-fn listen(inputs: Inputs, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
-    crate::audio_io::others(
-        is_discord_client,
-        move |heard| {
-            let mut inputs = inputs
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            match heard {
-                Heard::Started { source, process } => {
-                    inputs.insert(
-                        source,
-                        Input {
-                            process,
-                            ..Input::default()
-                        },
-                    );
-                }
-                Heard::Samples { source, samples } => {
-                    if let Some(input) = inputs.get_mut(&source) {
-                        input.push(samples.iter().copied());
-                    }
-                }
-                Heard::Stopped { source } => {
-                    if let Some(forgotten) = inputs.remove(&source) {
-                        tracing::debug!(
-                            process = ?forgotten.process,
-                            "stopped capturing an application's sound"
-                        );
-                    }
+fn listen(
+    inputs: Inputs,
+    stop: Arc<AtomicBool>,
+    audio: crate::voice::StreamAudio,
+) -> Result<JoinHandle<()>> {
+    let heard = move |heard: Heard<'_>| {
+        let mut inputs = inputs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match heard {
+            Heard::Started { source, process } => {
+                inputs.insert(
+                    source,
+                    Input {
+                        process,
+                        ..Input::default()
+                    },
+                );
+            }
+            Heard::Samples { source, samples } => {
+                if let Some(input) = inputs.get_mut(&source) {
+                    input.push(samples.iter().copied());
                 }
             }
-        },
-        stop,
-    )
+            Heard::Stopped { source } => {
+                if let Some(forgotten) = inputs.remove(&source) {
+                    tracing::debug!(
+                        process = ?forgotten.process,
+                        "stopped capturing an application's sound"
+                    );
+                }
+            }
+        }
+    };
+    match audio {
+        crate::voice::StreamAudio::All => crate::audio_io::others(is_discord_client, heard, stop),
+        crate::voice::StreamAudio::Window(window) => {
+            crate::audio_io::window_audio(window, heard, stop)
+        }
+        crate::voice::StreamAudio::Off => anyhow::bail!("stream audio is disabled"),
+    }
 }
 
 /// Captures and sends the stream's sound until dropped.
@@ -140,12 +151,16 @@ pub struct Capture {
 
 impl Capture {
     /// Starts capturing other applications' sound and sending it as Opus.
-    pub fn start(sound: SoundSender) -> Result<Self> {
+    pub fn start(sound: SoundSender, audio: crate::voice::StreamAudio) -> Result<Self> {
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone())?;
         let mut encoder = opus::Encoder::new(2, opus::Application::Audio, BITRATE)?;
+        let capture = listen(inputs.clone(), stop.clone(), audio)?;
         let stopping = stop.clone();
+        let mut capture = Self {
+            stop,
+            threads: vec![capture],
+        };
         let mixer = std::thread::Builder::new()
             .name("yapfast-stream-sound".into())
             .spawn(move || {
@@ -181,10 +196,8 @@ impl Capture {
                 }
             })
             .context("could not start mixing the stream's sound")?;
-        Ok(Self {
-            stop,
-            threads: vec![capture, mixer],
-        })
+        capture.threads.push(mixer);
+        Ok(capture)
     }
 }
 
@@ -375,7 +388,7 @@ mod tests {
         let tone = std::env::var("YAPFAST_TONE").expect("YAPFAST_TONE names a WAV file");
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone()).unwrap();
+        let capture = listen(inputs.clone(), stop.clone(), crate::voice::StreamAudio::All).unwrap();
         let mut player = std::process::Command::new("paplay")
             .args(["--volume=100", &tone])
             .spawn()
@@ -408,7 +421,7 @@ mod tests {
     fn leaves_out_yapfasts_own_sound() {
         let inputs = Inputs::default();
         let stop = Arc::new(AtomicBool::new(false));
-        let capture = listen(inputs.clone(), stop.clone()).unwrap();
+        let capture = listen(inputs.clone(), stop.clone(), crate::voice::StreamAudio::All).unwrap();
         let mut player =
             crate::audio_io::Output::<f32>::open(None, "Discord voice", RATE, 2, None).unwrap();
         // A second of a 440 Hz tone at about -56 dB.
@@ -499,6 +512,18 @@ mod tests {
         .unwrap();
         player.thread.take().unwrap().join().unwrap();
         assert!(started.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn unavailable_audio_window_never_captures_all_applications() {
+        let inputs = Inputs::default();
+        let stop = Arc::new(AtomicBool::new(false));
+        let result = listen(inputs.clone(), stop, crate::voice::StreamAudio::Window(0));
+        assert!(
+            result.is_err(),
+            "a closed window must fail instead of falling back"
+        );
+        assert!(inputs.lock().unwrap().is_empty());
     }
 
     #[test]

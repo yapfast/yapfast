@@ -745,3 +745,39 @@ fn a_window_opened_again_goes_back_to_the_messages_it_was_closed_on() {
         "{offset} px into it, was {into} px"
     );
 }
+
+#[test]
+fn under_the_desktops_title_bar_discords_bar_stays_without_moving_the_window() {
+    let (mut app, _folder) = preview();
+    let frame = app.shell.frame;
+    app.shell.own_title_bar = false;
+    app.shell.bar_under_frame = true;
+    window_bar::fit_window(&mut app);
+    assert_eq!(app.window.height, frame.height - window_bar::HEIGHT);
+    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
+    assert!(shows(&app, "Co-op crew"), "where Yapfast is");
+    assert!(
+        window_bar::resize_edges(&app).is_none(),
+        "the desktop resizes it"
+    );
+    // A press on its ground neither moves nor maximizes the window.
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    ui.point_at(Point::new(200.0, 12.0));
+    ui.simulate(click());
+    ui.simulate(click());
+    let pressed = ui
+        .into_messages()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::Bar(window_bar::Event::Press | window_bar::Event::Maximize)
+            )
+        })
+        .count();
+    assert_eq!(pressed, 0);
+    // Without it, as the tests lay the window out, there's none.
+    app.shell.bar_under_frame = false;
+    window_bar::fit_window(&mut app);
+    assert_eq!(app.window.height, frame.height);
+}

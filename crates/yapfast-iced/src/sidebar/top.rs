@@ -26,12 +26,34 @@ const TIER_INK: Color = Color::from_rgb(237.0 / 255.0, 237.0 / 255.0, 239.0 / 25
 
 impl<'a> super::View<'a> {
     /// The sidebar's top: a server's name (with Invite people beside it),
-    /// or the DMs' search field, over the outline; with a banner, the
+    /// or the DMs' search field (or, with its setting on, Discord's Find or
+    /// start a conversation button), over the outline; with a banner, the
     /// header grows over it, shaded at its top, with no line under it.
     pub(super) fn side_header_view(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let head = &self.s.header;
         let inner: Element<'a, Message> = match &head.server {
+            // With its setting on, as Discord's: a button that looks like a
+            // field and opens the quick switcher, which Ctrl+K opens too.
+            None if self.cx.layout.dm_search_switcher => {
+                let (ground, hint) = (theme.field, theme.muted);
+                button(
+                    text("Find or start a conversation")
+                        .size(13)
+                        .color(hint)
+                        .wrapping(text::Wrapping::None),
+                )
+                .padding([8, 10])
+                .width(Length::Fill)
+                .on_press(Message::Side(Event::FindConversation))
+                .style(move |_, _| button::Style {
+                    background: Some(ground.into()),
+                    border: crate::style::round(6),
+                    text_color: hint,
+                    ..button::Style::default()
+                })
+                .into()
+            }
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);

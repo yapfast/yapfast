@@ -127,6 +127,37 @@ impl<'a> I420<'a> {
             );
         }
     }
+
+    /// Scales to the upright dimensions, turns, then optionally flips.
+    /// Both temporary buffers are reused across frames.
+    pub(crate) fn to_rgba_turned(
+        self,
+        scratch: &mut Vec<u8>,
+        turned: &mut Vec<u8>,
+        rgba: &mut [u8],
+        size: (u32, u32),
+        turn: Turn,
+    ) {
+        let (width, height) = size;
+        let rgba = &mut rgba[..width as usize * height as usize * 4];
+        if turn.turns % 2 == 1 {
+            turned.resize(rgba.len(), 0);
+            self.to_rgba(scratch, turned, height, width);
+            turn_quarter(turned, height, width, turn.turns, rgba);
+        } else {
+            // No rotation buffer needed while upright or upside down.
+            *turned = vec![];
+            self.to_rgba(scratch, rgba, width, height);
+            if turn.turns == 2 {
+                rgba.as_chunks_mut::<4>().0.reverse();
+            }
+        }
+        if turn.flip {
+            for row in rgba.chunks_exact_mut(width as usize * 4) {
+                row.as_chunks_mut::<4>().0.reverse();
+            }
+        }
+    }
 }
 
 /// The size a `width` by `height` picture takes to fit inside `bounds`,
@@ -429,33 +460,21 @@ impl Feed {
         let feed = self.clone();
         let (mut scratch, mut turned) = (vec![], vec![]);
         move |picture, turn| {
-            let quarter = turn.turns % 2 == 1;
             let (upright_width, upright_height) = turn.upright(picture.width, picture.height);
             let Some((width, height)) = feed.size_for(upright_width, upright_height) else {
                 return;
             };
-            if !quarter {
-                // Not needed while upright or upside down.
-                turned = vec![];
-            }
             feed.write(width, height, |rgba| {
-                let rgba = &mut rgba[..width as usize * height as usize * 4];
-                if quarter {
-                    // Scaled as it came, on its side, then turned.
-                    turned.resize(rgba.len(), 0);
-                    picture.to_rgba(&mut scratch, &mut turned, height, width);
-                    turn_quarter(&turned, height, width, turn.turns, rgba);
-                } else {
-                    picture.to_rgba(&mut scratch, rgba, width, height);
-                    if turn.turns == 2 {
-                        rgba.as_chunks_mut::<4>().0.reverse();
-                    }
-                }
-                if mirror != turn.flip {
-                    for row in rgba.chunks_exact_mut(width as usize * 4) {
-                        row.as_chunks_mut::<4>().0.reverse();
-                    }
-                }
+                picture.to_rgba_turned(
+                    &mut scratch,
+                    &mut turned,
+                    rgba,
+                    (width, height),
+                    Turn {
+                        flip: mirror != turn.flip,
+                        ..turn
+                    },
+                );
             });
         }
     }
