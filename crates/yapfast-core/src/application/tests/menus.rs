@@ -644,11 +644,12 @@ fn channel_favorites_navigate_without_crossing_to_the_source_server() {
     app.dispatch(Action::SelectRoom("discord:10:43".into()));
     assert_eq!(app.state.navigation, Navigation::Favorites);
     assert_eq!(app.state.selected.as_deref(), Some("discord:10:43"));
-    assert!(
-        app.state
-            .menu_choices("discord:10:43")
-            .contains(&MenuChoice::RemoveFavorite)
-    );
+    // Taking it off comes near the end, as in Discord's menus.
+    assert!(app.state.menu_choices("discord:10:43").ends_with(&[
+        MenuChoice::RemoveFavorite,
+        MenuChoice::CopyLink,
+        MenuChoice::CopyId
+    ]));
     let effects = app.dispatch(Action::FavoriteChannel {
         room: "discord:10:43".into(),
         favorite: false,

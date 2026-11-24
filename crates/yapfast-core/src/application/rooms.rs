@@ -285,17 +285,16 @@ impl AppState {
                 MenuChoice::Pin
             });
         }
-        if room.network == Network::Discord
+        // Adding to Favorites comes early and taking it off near the end, as
+        // in Discord's menus.
+        let favorite = (room.network == Network::Discord
             && !room.locked
             && !room.request
             && !self.preview
-            && self.discord_online
-        {
-            choices.push(if self.is_channel_favorite(id) {
-                MenuChoice::RemoveFavorite
-            } else {
-                MenuChoice::AddFavorite
-            });
+            && self.discord_online)
+            .then(|| self.is_channel_favorite(id));
+        if favorite == Some(false) {
+            choices.push(MenuChoice::AddFavorite);
         }
         if room.direct && !connected && self.can_join_voice(id) {
             choices.push(MenuChoice::Call);
@@ -337,6 +336,9 @@ impl AppState {
             && room.parent.is_none()
         {
             choices.extend(self.notification_choices());
+        }
+        if favorite == Some(true) {
+            choices.push(MenuChoice::RemoveFavorite);
         }
         if !self.preview {
             choices.extend([MenuChoice::CopyLink, MenuChoice::CopyId]);

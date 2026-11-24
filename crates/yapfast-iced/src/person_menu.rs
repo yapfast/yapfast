@@ -642,6 +642,7 @@ pub(crate) fn danger(choice: MenuChoice) -> bool {
             | MenuChoice::LeaveServer
             | MenuChoice::LeaveGroup
             | MenuChoice::TransferOwnership
+            | MenuChoice::RemoveFavorite
     )
 }
 

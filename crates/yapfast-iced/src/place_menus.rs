@@ -644,6 +644,8 @@ pub fn group_of(choice: MenuChoice) -> u8 {
         | MenuChoice::EditChannel
         | MenuChoice::DuplicateChannel => 6,
         MenuChoice::DeleteChannel | MenuChoice::LeaveServer | MenuChoice::LeaveGroup => 7,
+        // A group of its own, as in Discord's menus.
+        MenuChoice::AddFavorite | MenuChoice::RemoveFavorite => 11,
         _ => 0,
     }
 }
