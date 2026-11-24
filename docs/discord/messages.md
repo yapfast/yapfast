@@ -587,19 +587,21 @@ Yapfast is back, rather than showing an error.
 
 ## Recent mentions
 
-At startup Yapfast asks Discord for this account's recent mentions,
+When the inbox's Mentions tab first shows, as Discord's client asks, Yapfast
+asks Discord for this account's recent mentions,
 `GET /users/@me/mentions?limit=100`: the messages that called on it in the
-past week, by name, by replying to it, through one of its roles in the
-message's server, or with @everyone or @here, from any server or DM, newest first
-(docs.discord.food, "List Recent Mentions"). Discord keeps only that week,
-so an older ping never comes from this page: opening its channel brings it
-into the Mentions tab instead, which merges the open rooms' pings with the
-fetch, newest first. It keeps up to 100 of them in
-memory, one per message, and shows each as a pinned message or a search
-result shows: the author's name, colour and avatar in their server, and the
-message's text, files and embeds, their pictures coming when they show. The
-page is asked for each time Discord connects, and nothing is acknowledged at
-Discord, so the inbox there stays as it is.
+past week, by name, by a reply that pinged it, through one of its roles in
+the message's server, or with @everyone or @here, from any server or DM,
+newest first (docs.discord.food, "List Recent Mentions"). Discord keeps only
+that week, so an older ping never comes from this page: opening its channel
+brings it into the Mentions tab instead, which merges the open rooms' pings
+with the fetch, newest first. A reply that didn't ping, or the account's own
+message, isn't one. It keeps up to 100 of each in memory, one per message,
+and shows the newest 30 as a pinned message or a search result shows: the
+author's name, colour and avatar in their server, and the message's text,
+files and embeds, their pictures coming when they show. The page is asked
+for again the first time the tab shows after Discord reconnects, and nothing
+is acknowledged at Discord, so the inbox there stays as it is.
 
 ## Bots' buttons, menus and forms
 

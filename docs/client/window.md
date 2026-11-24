@@ -130,8 +130,10 @@ own, which a stream hands to the event loop as messages; nothing polls.
   again to take the change. The bar holds Back and Forward through the
   conversations visited (16 px arrows in 24 px boxes), the place's name
   (on the Friends page "Friends", with the people icon), the Inbox
-  (Unreads and Mentions
-  of the rooms the core knows, a click going there) and Help (18 px
+  (Unreads, the rooms the core knows with unread messages, a click going
+  there; Mentions, the messages that pinged this account as cards under
+  All, Direct, @roles and @everyone chips, a click jumping to the message,
+  then the rooms with mentions but no message at hand) and Help (18 px
   glyphs in 32 px boxes), and minimize,
   maximize and close, drawn as 10 px strokes the way Discord's frame draws
   them; its ground moves the window after a 3 px drag and a
