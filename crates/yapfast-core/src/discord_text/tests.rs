@@ -2027,7 +2027,7 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
     assert!(answer.contains("Bob mentioned Alice"), "{answer}");
 
     self::command(
-        Command::Discord(DiscordCommand::RecentMentions),
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
         Ok(&discord),
         &mut channels,
         &done,
@@ -2037,6 +2037,7 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
         loop {
             if let Event::RecentMentions {
                 result: Ok(mentions),
+                ..
             } = received.recv().await.expect("events go on")
             {
                 return mentions;
@@ -2070,7 +2071,7 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
     control.read_to_string(&mut answer).await.unwrap();
     assert!(answer.contains("Bob mentioned Alice"), "{answer}");
     self::command(
-        Command::Discord(DiscordCommand::RecentMentions),
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
         Ok(&discord),
         &mut channels,
         &done,
@@ -2080,6 +2081,7 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
         loop {
             if let Event::RecentMentions {
                 result: Ok(mentions),
+                ..
             } = received.recv().await.expect("events go on")
             {
                 return mentions;
@@ -2098,7 +2100,7 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
     );
     // Nothing else mentioned her, and what was fetched stays.
     self::command(
-        Command::Discord(DiscordCommand::RecentMentions),
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
         Ok(&discord),
         &mut channels,
         &done,
@@ -2108,6 +2110,7 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
         loop {
             if let Event::RecentMentions {
                 result: Ok(mentions),
+                ..
             } = received.recv().await.expect("events go on")
             {
                 return mentions;
@@ -2117,6 +2120,35 @@ async fn recent_mentions_come_newest_first_with_their_rooms() {
     .await
     .expect("timed out waiting for Discord");
     assert_eq!(again, mentions);
+    // The filter goes with the request: in this server, without @everyone
+    // and @here, the answer saying what it was for.
+    let query = chat::MentionsQuery {
+        everyone: false,
+        roles: true,
+        server: Some(discord::server_id(FAKE_GUILD)),
+    };
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(query.clone())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let (answered, filtered) = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                query,
+                result: Ok(mentions),
+            } = received.recv().await.expect("events go on")
+            {
+                return (query, mentions);
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(answered, query);
+    assert_eq!(filtered.len(), 1 + 3, "the @everyone and @here pings go");
 }
 
 #[tokio::test(flavor = "multi_thread")]

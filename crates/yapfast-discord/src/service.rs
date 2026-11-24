@@ -1526,11 +1526,18 @@ impl Discord {
     }
 
     /// This account's recent mentions, the newest first: the messages that
-    /// called on it in the past week, from any server or DM, up to
-    /// [`api::MENTIONS_PAGE`]; Discord's Mentions inbox. Each author is learned in the
-    /// server of their message, so names, avatars and colours show there.
-    pub async fn recent_mentions(&self) -> Result<Vec<Message>> {
-        let values = self.api.recent_mentions().await?;
+    /// called on it in the past week, up to [`api::MENTIONS_PAGE`], counting
+    /// @everyone and role mentions as `everyone` and `roles` say, and only
+    /// those in `guild` with one; Discord's Mentions inbox. Each author is
+    /// learned in the server of their message, so names, avatars and
+    /// colours show there.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Message>> {
+        let values = self.api.recent_mentions(everyone, roles, guild).await?;
         // A page comes from many servers, or from DMs: ask each server for
         // its authors' profiles, all at once, then wait for them.
         let mut by_guild: HashMap<String, Vec<Value>> = HashMap::new();

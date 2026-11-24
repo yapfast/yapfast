@@ -787,9 +787,11 @@ pub struct AppState {
     pub search: Option<Search>,
     /// This account's recent Discord mentions, each with its room, the
     /// newest first, as its Mentions inbox lists them; see
-    /// [`DiscordCommand::RecentMentions`]. Each fetch that adds one makes
-    /// a new list, so a view can tell it changed by its pointer.
+    /// [`DiscordCommand::RecentMentions`]. Each answer makes a new list, so
+    /// a view can tell it changed by its pointer.
     pub recent_mentions: Arc<Vec<(String, Arc<ChatMessage>)>>,
+    /// What they were last asked for, whose answer the list holds or will.
+    pub recent_mentions_query: Option<crate::chat::MentionsQuery>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
     /// The Discord forum on screen.
@@ -1998,8 +2000,8 @@ pub enum Action {
     /// holding Alt over it in the channel list asks, or stop.
     Peek(Option<String>),
     /// Asks for this account's recent Discord mentions, as its Mentions
-    /// inbox lists them.
-    LoadRecentMentions,
+    /// inbox lists them under its filter.
+    LoadRecentMentions(crate::chat::MentionsQuery),
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -3752,7 +3754,7 @@ impl Application {
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
             Action::Peek(room) => self.peek(room),
-            Action::LoadRecentMentions => self.load_recent_mentions(),
+            Action::LoadRecentMentions(query) => self.load_recent_mentions(query),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -4578,7 +4580,7 @@ impl Application {
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
             Event::Peeked { room, result } => self.peeked(room, result),
-            Event::RecentMentions { result } => self.recent_mentions_came(result),
+            Event::RecentMentions { query, result } => self.recent_mentions_came(query, result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),

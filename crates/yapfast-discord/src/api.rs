@@ -1087,11 +1087,23 @@ impl Api {
     }
 
     /// This account's recent mentions, the newest first: the messages that
-    /// called on it in the past week, from any server or DM, up to
-    /// [`MENTIONS_PAGE`]; Discord's Mentions inbox. See "List Recent Mentions"
-    /// in <https://docs.discord.food/resources/user>.
-    pub async fn recent_mentions(&self) -> Result<Vec<Value>> {
-        let path = format!("/users/@me/mentions?limit={MENTIONS_PAGE}");
+    /// called on it in the past week, up to [`MENTIONS_PAGE`]; Discord's
+    /// Mentions inbox. `everyone` counts @everyone and @here mentions,
+    /// `roles` role mentions, and a `guild` keeps to that server's. See
+    /// "List Recent Mentions" in <https://docs.discord.food/resources/user>;
+    /// Discord's client sends `roles` and `everyone` every time, and
+    /// `guild_id` only for one server.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Value>> {
+        let mut path =
+            format!("/users/@me/mentions?limit={MENTIONS_PAGE}&roles={roles}&everyone={everyone}");
+        if let Some(guild) = guild {
+            let _ = write!(path, "&guild_id={guild}");
+        }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(items) => Ok(items),
             _ => bail!("could not understand Discord's answer"),

@@ -437,50 +437,57 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
-    /// Asks for this account's recent mentions once, as Discord's Mentions
-    /// inbox opens or an adapter starts.
-    pub(super) fn load_recent_mentions(&self) -> Vec<Effect> {
+    /// Asks for this account's recent mentions under the Mentions inbox's
+    /// filter. A filter that may list what the kept ones lack (a kind turned
+    /// back on, another server or all of them) lets them go until the answer
+    /// comes, as Discord's client clears its list; a narrower one keeps
+    /// them, the view hiding what it leaves out.
+    pub(super) fn load_recent_mentions(
+        &mut self,
+        query: crate::chat::MentionsQuery,
+    ) -> Vec<Effect> {
+        if self
+            .state
+            .recent_mentions_query
+            .as_ref()
+            .is_some_and(|before| query.widens(before))
+        {
+            self.state.recent_mentions = Arc::default();
+        }
+        self.state.recent_mentions_query = Some(query.clone());
         if self.state.preview {
             return vec![];
         }
-        tracing::info!("asking for recent mentions");
+        tracing::info!(?query, "asking for recent mentions");
         vec![Effect::Backend(Command::Discord(
-            DiscordCommand::RecentMentions,
+            DiscordCommand::RecentMentions(query),
         ))]
     }
 
-    /// The account's recent mentions came, each with its room: the newest
-    /// first, as Discord lists them, up to [`RECENT_MENTIONS`]. One already
-    /// kept stays as it was.
+    /// The account's recent mentions came for `query`, each with its room:
+    /// the newest first, as Discord lists them, up to [`RECENT_MENTIONS`].
+    /// They take the place of those kept, as Discord's client's first page
+    /// does; an answer to a query since changed is dropped.
     pub(super) fn recent_mentions_came(
         &mut self,
+        query: crate::chat::MentionsQuery,
         result: Result<Vec<(String, ChatMessage)>, String>,
     ) {
         match result {
             // One that came after the account was unlinked isn't kept.
             Ok(_) if self.state.discord_user.is_none() => {}
+            Ok(_) if self.state.recent_mentions_query.as_ref() != Some(&query) => {
+                tracing::info!(?query, "dropped recent mentions for an old filter");
+            }
             Ok(mentions) => {
-                let fetched = mentions.len();
-                let kept = &self.state.recent_mentions;
-                let new: Vec<_> = mentions
+                let mut kept: Vec<_> = mentions
                     .into_iter()
-                    .filter(|(_, message)| !kept.iter().any(|(_, kept)| kept.item == message.item))
                     .map(|(room, message)| (room, Arc::new(message)))
                     .collect();
-                if !new.is_empty() {
-                    let kept = Arc::make_mut(&mut self.state.recent_mentions);
-                    kept.extend(new);
-                    // A newer fetch goes before the older ones, which a
-                    // stable sort keeps in their order: Discord's, newest
-                    // first.
-                    kept.sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
-                    kept.truncate(RECENT_MENTIONS);
-                }
-                tracing::info!(
-                    fetched,
-                    kept = self.state.recent_mentions.len(),
-                    "listed recent mentions"
-                );
+                kept.sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
+                kept.truncate(RECENT_MENTIONS);
+                tracing::info!(kept = kept.len(), "listed recent mentions");
+                self.state.recent_mentions = Arc::new(kept);
             }
             Err(error) => {
                 tracing::warn!(%error, "could not list recent mentions");
@@ -734,6 +741,7 @@ impl Application {
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
         self.state.recent_mentions = Arc::default();
+        self.state.recent_mentions_query = None;
         self.forget_activity_feed();
         #[cfg(feature = "discord")]
         {
