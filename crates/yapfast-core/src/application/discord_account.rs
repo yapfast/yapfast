@@ -457,6 +457,8 @@ impl Application {
         result: Result<Vec<(String, ChatMessage)>, String>,
     ) {
         match result {
+            // One that came after the account was unlinked isn't kept.
+            Ok(_) if self.state.discord_user.is_none() => {}
             Ok(mentions) => {
                 let fetched = mentions.len();
                 let kept = &self.state.recent_mentions;
@@ -731,6 +733,7 @@ impl Application {
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
+        self.state.recent_mentions = Arc::default();
         self.forget_activity_feed();
         #[cfg(feature = "discord")]
         {

@@ -69,7 +69,9 @@ pub struct App {
     /// Whether this account's recent mentions were asked for since Discord
     /// came online (`window_bar.rs` asks as the Mentions tab first shows).
     pub mentions_fetched: bool,
-    /// The recent mentions last seen, to tell a new fetch (`window_bar.rs`).
+    /// The Discord account `mention_hits` are of, and the recent mentions
+    /// last seen, to tell a new fetch (`window_bar.rs`).
+    pub mentions_of: Option<String>,
     pub mentions_seen:
         std::sync::Arc<Vec<(String, std::sync::Arc<yapfast_core::chat::ChatMessage>)>>,
     pub bar_drag: crate::window_bar::Drag,
@@ -307,6 +309,7 @@ impl App {
             inbox: None,
             mention_hits: Default::default(),
             mentions_fetched: false,
+            mentions_of: None,
             mentions_seen: Default::default(),
             bar_drag: Default::default(),
             announce_updates: false,

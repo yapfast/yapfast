@@ -564,6 +564,11 @@ fn fetch_mentions(app: &mut App) {
 pub fn mentions_sync(app: &mut App) -> bool {
     let state = app.client.state();
     let hits = &mut app.mention_hits;
+    // Another account's pings go with it.
+    if app.mentions_of != state.discord_user {
+        app.mentions_of.clone_from(&state.discord_user);
+        hits.clear();
+    }
     let fetched = !Arc::ptr_eq(&app.mentions_seen, &state.recent_mentions);
     if fetched {
         app.mentions_seen = Arc::clone(&state.recent_mentions);
