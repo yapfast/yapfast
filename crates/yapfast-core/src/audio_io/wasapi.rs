@@ -587,7 +587,7 @@ impl Input {
 }
 
 #[cfg(feature = "discord")]
-pub use others::others;
+pub use others::{others, window_audio};
 
 /// Other applications' sound, through process loopback: one stream of
 /// everything the system plays but Yapfast's own processes, from Windows 10's
@@ -614,6 +614,7 @@ mod others {
                 IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler,
                 IActivateAudioInterfaceCompletionHandler_Impl,
                 PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
                 VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
             },
             System::{
@@ -643,6 +644,32 @@ mod others {
 
     pub fn others(
         _skip: fn(&str) -> bool,
+        heard: Hear,
+        stop: Arc<AtomicBool>,
+    ) -> Result<JoinHandle<()>> {
+        capture(None, heard, stop)
+    }
+
+    pub fn window_audio(window: u64, heard: Hear, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
+        use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::GetWindowThreadProcessId};
+        let mut process = 0;
+        // SAFETY: the handle is only queried; an invalid window returns zero.
+        let thread = unsafe {
+            GetWindowThreadProcessId(HWND(window as usize as *mut _), Some(&mut process))
+        };
+        anyhow::ensure!(
+            thread != 0 && process != 0,
+            "The selected audio window is no longer available"
+        );
+        anyhow::ensure!(
+            process != yapfast_process() && process != std::process::id(),
+            "Cannot share Yapfast's own audio"
+        );
+        capture(Some(process), heard, stop)
+    }
+
+    fn capture(
+        process: Option<u32>,
         mut heard: Hear,
         stop: Arc<AtomicBool>,
     ) -> Result<JoinHandle<()>> {
@@ -656,7 +683,7 @@ mod others {
                     channels: 2,
                     float: true,
                 };
-                let stream = activate(yapfast_process())
+                let stream = activate(process.unwrap_or_else(yapfast_process), process.is_some())
                     .and_then(|client| {
                         Stream::initialize(client, format, LISTENING, AUDCLNT_STREAMFLAGS_LOOPBACK)
                     })
@@ -676,10 +703,7 @@ mod others {
                         return;
                     }
                 };
-                heard(Heard::Started {
-                    source: 0,
-                    process: None,
-                });
+                heard(Heard::Started { source: 0, process });
                 if let Err(error) = hear(&stream, &capture, &mut *heard, &stop) {
                     tracing::warn!(
                         error = format!("{error:#}"),
@@ -769,15 +793,18 @@ mod others {
         }
     }
 
-    /// A loopback stream of everything but `process` and the processes it
-    /// started.
-    fn activate(process: u32) -> Result<IAudioClient> {
+    /// Includes or excludes `process` and its child processes.
+    fn activate(process: u32, include: bool) -> Result<IAudioClient> {
         let mut parameters = AUDIOCLIENT_ACTIVATION_PARAMS {
             ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
             Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
                 ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
                     TargetProcessId: process,
-                    ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                    ProcessLoopbackMode: if include {
+                        PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
+                    } else {
+                        PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
+                    },
                 },
             },
         };
