@@ -34,8 +34,8 @@ use crate::{
 };
 
 const HISTORY: usize = 64;
-const TWO_COLUMNS: f32 = 520.0;
-const COLOUR_GAP: f32 = 24.0;
+pub(super) const TWO_COLUMNS: f32 = 520.0;
+pub(super) const COLOUR_GAP: f32 = 24.0;
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// One creator step, in the Slint build's order. Advanced fine-tunes every derived

@@ -326,8 +326,9 @@ chooses it. Export writes a shareable package folder including its manifest,
 licence, picture and fonts. The person remains responsible for permission to
 share pictures and imported fonts. Cancel, leaving Themes or closing settings
 shows the theme from before and removes the draft. The separate Colour editor
-keeps the earlier palette-only workflow: its hex fields accept `#rgb`,
-`#rrggbb` or `#rrggbbaa` and mark anything else. A saved theme's card has a
+keeps the earlier palette-only workflow: each colour's swatch opens a
+`ColourPad` card under it (keeping any alpha on `#rrggbbaa` tokens), and its
+hex field accepts `#rgb`, `#rrggbb` or `#rrggbbaa` and marks anything else. A saved theme's card has a
 pencil that opens it again to rename, change or delete it; deleting the chosen
 one shows Yap. Closing the window to the
 [tray](tray.md) closes Settings, so it drops the unsaved edit too.
