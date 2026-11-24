@@ -96,16 +96,18 @@ pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Opti
     let shift = ctrl | Modifiers::SHIFT;
     let alt = ctrl | Modifiers::ALT;
     let call = shift | Modifiers::ALT;
-    if modifiers == ctrl {
+    // Discord binds Ctrl+/ and Ctrl+' with Shift too, where a layout
+    // needs Shift for the character.
+    if modifiers == ctrl || modifiers == shift {
         if key.as_ref() == Key::Character("/") {
             return Some(Help);
-        }
-        if key == &Key::Named(key::Named::Enter) {
-            return Some(Answer);
         }
         if key.as_ref() == Key::Character("'") {
             return Some(StartCall);
         }
+    }
+    if modifiers == ctrl && key == &Key::Named(key::Named::Enter) {
+        return Some(Answer);
     }
     if modifiers == alt {
         return match key {
@@ -313,6 +315,20 @@ mod tests {
         );
         assert_eq!(pressed(&Key::Character("t".into()), physical, chord), None);
     }
+    #[test]
+    fn ctrl_slash_takes_shift_where_the_layout_needs_it() {
+        let slash = Key::Character("/".into());
+        let physical = key::Physical::Code(key::Code::Digit7);
+        assert_eq!(
+            pressed(&slash, physical, Modifiers::CTRL),
+            Some(Shortcut::Help)
+        );
+        assert_eq!(
+            pressed(&slash, physical, Modifiers::CTRL | Modifiers::SHIFT),
+            Some(Shortcut::Help)
+        );
+    }
+
     #[test]
     fn a_fields_own_ctrl_e_is_not_taken_twice() {
         use iced::event::Status;
