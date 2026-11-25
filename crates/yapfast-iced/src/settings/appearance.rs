@@ -1115,6 +1115,7 @@ impl<'a> Page<'a> {
                     crate::theme::rgb(theme.on_danger)
                 ),)
             ]
+            .spacing(8)
             .into()
         };
         self.editor_frame(bar, None, controls, aside)
