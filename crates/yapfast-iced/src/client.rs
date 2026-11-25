@@ -52,6 +52,9 @@ pub struct Client {
     sounds: Vec<yapfast_core::sounds::Sound>,
     alerts: Vec<yapfast_core::chat::Alert>,
     copied_picture: Option<Vec<u8>>,
+    /// An address outside Yapfast to ask before opening, as a masked link
+    /// does: a Rich Presence button's.
+    leaving: Option<String>,
     /// Others see when this account types, as Messages' settings say; off,
     /// the core's typing commands go nowhere.
     pub share_typing: bool,
@@ -84,6 +87,7 @@ impl Client {
             sounds: Vec::new(),
             alerts: Vec::new(),
             copied_picture: None,
+            leaving: None,
             share_typing: true,
             #[cfg(test)]
             sent: Vec::new(),
@@ -155,6 +159,11 @@ impl Client {
     /// The picture to put on the clipboard, since this was last asked.
     pub fn take_copied_picture(&mut self) -> Option<Vec<u8>> {
         self.copied_picture.take()
+    }
+
+    /// The address to ask before opening, since this was last asked.
+    pub fn take_leaving(&mut self) -> Option<String> {
+        self.leaving.take()
     }
 
     /// Whether linking stopped since this was last asked.
@@ -301,6 +310,8 @@ impl Client {
                 // say (`shell.rs`).
                 Effect::Notify(alert) => self.alerts.push(alert),
                 Effect::CopyPicture(bytes) => self.copied_picture = Some(bytes),
+                // The window asks first (`dialogs::leaving_view`).
+                Effect::AskToOpen(link) => self.leaving = Some(link),
                 // The preview's device lists and camera come with the parts
                 // of the window that use them.
                 _ => {}

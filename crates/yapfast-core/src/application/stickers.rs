@@ -156,10 +156,14 @@ impl StickerPicker {
             None => false,
         };
         let mut listed = vec![];
-        for (id, name, stickers) in [("favorites", "Favorites", self.favorites.iter())] {
-            if let Some(collection) = ListedCollection::of(id, name, stickers, &search, usable) {
-                listed.push(collection);
-            }
+        if let Some(collection) = ListedCollection::of(
+            "favorites",
+            "Favorites",
+            self.favorites.iter(),
+            &search,
+            usable,
+        ) {
+            listed.push(collection);
         }
         if let Some(collection) = ListedCollection::of(
             "frequent",

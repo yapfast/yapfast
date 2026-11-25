@@ -30,7 +30,9 @@ pub const VIEW_HEIGHT: u32 = 1200;
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.
 #[cfg(feature = "discord")]
-pub use yapfast_discord::activity::{Activities, Activity, Kind as ActivityKind};
+pub use yapfast_discord::activity::{
+    Activities, Activity, ActivityButton, Kind as ActivityKind, RichButtons,
+};
 
 /// Only Discord says what people are doing.
 #[cfg(not(feature = "discord"))]
@@ -495,6 +497,9 @@ pub struct VoicePerson {
     pub deafened: bool,
     /// Muted or deafened by the Discord server, which shows in red.
     pub server_muted: bool,
+    /// Discord won't let them speak here (`suppress`): no Speak
+    /// permission, the AFK channel, a stage's audience.
+    pub speaking_blocked: bool,
     pub server_deafened: bool,
     /// Sharing their screen.
     pub streaming: bool,
@@ -1389,6 +1394,39 @@ pub struct SearchHit {
     /// A thread it's in that isn't listed, as Discord sent it with the
     /// results: its name, and its channel's room id.
     pub thread: Option<(String, Option<String>)>,
+}
+
+/// What a request for this account's recent mentions asks Discord for, as
+/// its Mentions inbox's filter menu sets it: whether @everyone and @here
+/// mentions count (`everyone`), whether role mentions do (`roles`), and
+/// with a server's id, only that server's (`guild_id`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MentionsQuery {
+    pub everyone: bool,
+    pub roles: bool,
+    pub server: Option<String>,
+}
+
+impl Default for MentionsQuery {
+    /// As Discord's client asks before its filter changes: every kind,
+    /// from every server.
+    fn default() -> Self {
+        Self {
+            everyone: true,
+            roles: true,
+            server: None,
+        }
+    }
+}
+
+impl MentionsQuery {
+    /// Whether it may list a mention `before` didn't: a kind turned back on,
+    /// or a server's limit lifted or moved.
+    pub fn widens(&self, before: &MentionsQuery) -> bool {
+        (self.everyone && !before.everyone)
+            || (self.roles && !before.roles)
+            || (before.server.is_some() && self.server != before.server)
+    }
 }
 
 /// The order a search's results come in, as its Sort menu offers them.
@@ -2999,6 +3037,10 @@ pub enum DiscordCommand {
     Peek {
         room: String,
     },
+    /// This account's recent mentions, the newest first, of the kinds and
+    /// from the server the query asks for: Discord's Mentions inbox;
+    /// [`Event::RecentMentions`] follows.
+    RecentMentions(MentionsQuery),
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -3270,6 +3312,12 @@ pub enum DiscordCommand {
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`;
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
+    /// Adds a Discord channel, DM or group DM to the account's Favorites, or
+    /// takes it off; [`Event::ChannelFavorited`] follows.
+    FavoriteChannel {
+        room: String,
+        favorite: bool,
+    },
     /// Places a server in a folder or moves a server or folder beside a tile.
     FileServer {
         server: String,
@@ -3361,6 +3409,14 @@ pub enum DiscordCommand {
     /// What someone did lately, read-only; [`Event::ProfileRecent`] follows.
     ProfileRecent {
         user: String,
+    },
+    /// The addresses of someone's Rich Presence buttons, by the activity's
+    /// session and application, read-only, as a click on one that came
+    /// without its address asks; [`Event::ActivityLinks`] follows.
+    ActivityLinks {
+        user: String,
+        session: String,
+        application: String,
     },
     /// This account's profile for its editor: in a Discord server, by its
     /// server id, or its main profile; [`Event::OwnProfile`] follows.
@@ -4322,6 +4378,15 @@ pub enum Event {
         user: String,
         recent: Vec<RecentActivity>,
     },
+    /// The addresses [`DiscordCommand::ActivityLinks`] asked for of `user`'s
+    /// activity in `session` of `application`, in the buttons' order (none
+    /// for a button Discord gave none), or why they didn't come.
+    ActivityLinks {
+        user: String,
+        session: String,
+        application: String,
+        result: Result<Vec<Option<String>>, String>,
+    },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
     KeptProfile {
@@ -4383,6 +4448,8 @@ pub enum Event {
     StatusSet(Result<(), String>),
     /// Whether the account's server folders were saved.
     ServerFiled(Result<(), String>),
+    /// Whether [`DiscordCommand::FavoriteChannel`] was saved, or why not.
+    ChannelFavorited(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.
@@ -4416,6 +4483,12 @@ pub enum Event {
     Pins {
         room: String,
         result: Result<Vec<ChatMessage>, String>,
+    },
+    /// [`DiscordCommand::RecentMentions`]'s messages for `query`, each with
+    /// its room, the newest first, or why they didn't come.
+    RecentMentions {
+        query: MentionsQuery,
+        result: Result<Vec<(String, ChatMessage)>, String>,
     },
     /// [`DiscordCommand::StartThread`]'s thread, by room id, in the channel
     /// `room`, or why it didn't start.
@@ -4655,8 +4728,12 @@ pub enum Event {
         server: String,
         role: String,
         result: Result<Vec<RoleMember>, String>,
-        /// How many hold it, after a change to them.
-        count: Option<u64>,
+    },
+    /// How many members hold a role after a membership change.
+    RoleCount {
+        server: String,
+        role: String,
+        count: u64,
     },
     /// The members [`RoleAction::FindMembers`] found for a text.
     RoleCandidates {

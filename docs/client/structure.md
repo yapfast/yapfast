@@ -27,8 +27,9 @@ iced builds the whole view again after every message and lays it out, so
 what costs is kept out of the view:
 
 - The backend's events come on its receiver, batched, as messages
-  (`app::batches`); nothing polls. Fonts the shaper wants, the control file and
-  the window's size as it opens and is resized come as subscriptions.
+  (`app::batches`); nothing polls. Fonts the shaper wants and the control
+  file come as subscriptions; the window's size comes from a sensor around
+  the whole view, as iced lays it out, on the redraw after it changes.
 - After each batch of the backend's events, `sync.rs` takes in only what
   changed, by what the core gives to tell: the core counts changes to its
   rooms and servers (`list_changes`), to the people lists (friends,
@@ -114,6 +115,12 @@ what costs is kept out of the view:
   italic at any weight: the
   shaper takes a family's face at the weight nearest the text's (patch 2),
   so semibold names take DM Sans and Twemoji as regular text does.
+  The person's own font files (`custom_font.rs`, `woff.rs`; Settings'
+  Appearance chooses them, see [Fonts](../themes.md#fonts)) are put in the
+  same font system under the name DM Sans, and DM Sans's faces leave it
+  while they're in: every text asks for that family by name, so each is
+  drawn in the chosen font with no change to a view, and resetting puts
+  DM Sans back. `fonts::shape_again` then has iced shape its text again.
   Elided text (`elide.rs`) clips across only, so marks above and below the
   line show.
 - Video (`video.rs`, `call/`): cameras' frames are made in the client's

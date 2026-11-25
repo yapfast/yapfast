@@ -36,8 +36,9 @@ pub struct Launch {
 /// A running Yapfast's hold on its folder, while it's the first there.
 #[derive(Default)]
 pub struct Instance {
-    _lock: Option<File>,
     listener: Option<Listener>,
+    // Drop the listener before another process can claim the folder.
+    _lock: Option<File>,
 }
 
 /// Starts Yapfast on `root`. With another running there and `alone`, hands
@@ -290,7 +291,7 @@ mod windows {
         event: usize,
         stop: usize,
         root: std::path::PathBuf,
-        listening: bool,
+        thread: Option<std::thread::JoinHandle<()>>,
     }
 
     impl Listener {
@@ -323,7 +324,7 @@ mod windows {
                 event: event as usize,
                 stop: stop as usize,
                 root: root.to_owned(),
-                listening: false,
+                thread: None,
             })
         }
 
@@ -334,10 +335,10 @@ mod windows {
                 .name("yapfast-instance".into())
                 .stack_size(64 * 1024)
                 .spawn(move || {
-                    let handles = [event as HANDLE, stop as HANDLE];
-                    // SAFETY: both handles stay open until this thread closes them.
+                    let handles = [stop as HANDLE, event as HANDLE];
+                    // SAFETY: the listener keeps both handles open until it joins this thread.
                     while unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) }
-                        == WAIT_OBJECT_0
+                        == WAIT_OBJECT_0 + 1
                     {
                         let links = super::drain_link_queue(&root);
                         if links.is_empty() {
@@ -351,14 +352,9 @@ mod windows {
                             }
                         }
                     }
-                    // SAFETY: Drop only sets `stop` once this thread runs.
-                    unsafe {
-                        CloseHandle(handles[0]);
-                        CloseHandle(handles[1]);
-                    }
                 });
             match thread {
-                Ok(_) => self.listening = true,
+                Ok(thread) => self.thread = Some(thread),
                 Err(error) => {
                     tracing::warn!(%error, "starting Yapfast again can't show this window");
                 }
@@ -368,14 +364,15 @@ mod windows {
 
     impl Drop for Listener {
         fn drop(&mut self) {
-            // SAFETY: the handles are open: the thread closes them only after `stop`.
+            if let Some(thread) = self.thread.take() {
+                // SAFETY: this listener owns the stop handle.
+                unsafe { SetEvent(self.stop as HANDLE) };
+                let _ = thread.join();
+            }
+            // SAFETY: the listener owns the handles and the thread has stopped.
             unsafe {
-                if self.listening {
-                    SetEvent(self.stop as HANDLE);
-                } else {
-                    CloseHandle(self.event as HANDLE);
-                    CloseHandle(self.stop as HANDLE);
-                }
+                CloseHandle(self.event as HANDLE);
+                CloseHandle(self.stop as HANDLE);
             }
         }
     }

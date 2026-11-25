@@ -22,6 +22,8 @@ pub enum MenuChoice {
     /// Keep a DM at the top of the DM list on this device, or stop.
     Pin,
     Unpin,
+    AddFavorite,
+    RemoveFavorite,
     /// Start a DM's call, or join the one going on.
     Call,
     /// Write this account's note on a Discord DM's other person, or the
@@ -283,6 +285,17 @@ impl AppState {
                 MenuChoice::Pin
             });
         }
+        // Adding to Favorites comes early and taking it off near the end, as
+        // in Discord's menus.
+        let favorite = (room.network == Network::Discord
+            && !room.locked
+            && !room.request
+            && !self.preview
+            && self.discord_online)
+            .then(|| self.is_channel_favorite(id));
+        if favorite == Some(false) {
+            choices.push(MenuChoice::AddFavorite);
+        }
         if room.direct && !connected && self.can_join_voice(id) {
             choices.push(MenuChoice::Call);
         }
@@ -323,6 +336,9 @@ impl AppState {
             && room.parent.is_none()
         {
             choices.extend(self.notification_choices());
+        }
+        if favorite == Some(true) {
+            choices.push(MenuChoice::RemoveFavorite);
         }
         if !self.preview {
             choices.extend([MenuChoice::CopyLink, MenuChoice::CopyId]);
@@ -713,6 +729,21 @@ impl Application {
             .into_iter()
             .map(|room| Effect::Backend(Command::MarkRead { room, sync }))
             .collect()
+    }
+
+    /// Adds or removes one Discord reference in the account's Favorites.
+    pub(super) fn favorite_channel(&self, room: String, favorite: bool) -> Vec<Effect> {
+        let choice = if favorite {
+            MenuChoice::AddFavorite
+        } else {
+            MenuChoice::RemoveFavorite
+        };
+        if !self.state.menu_choices(&room).contains(&choice) {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::FavoriteChannel { room, favorite },
+        ))]
     }
 
     /// Pins a listed DM to the top of the DM list, or unpins it.

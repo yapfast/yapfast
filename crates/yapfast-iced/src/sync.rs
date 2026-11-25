@@ -144,7 +144,7 @@ impl App {
         }
         let categories = match &state.navigation {
             Navigation::Server(server) => self.client.app.categories(server),
-            Navigation::DirectMessages => Vec::new(),
+            Navigation::DirectMessages | Navigation::Favorites => Vec::new(),
         };
         let state = self.client.state();
         let side = sidebar(
@@ -162,7 +162,7 @@ impl App {
                 .servers
                 .iter()
                 .any(|known| known.discord && &known.id == server),
-            Navigation::DirectMessages => false,
+            Navigation::DirectMessages | Navigation::Favorites => false,
         };
         let places =
             crate::arrange::places(&self.sidebar.rows, discord, !self.sidebar.filter.is_empty());
@@ -208,6 +208,25 @@ impl App {
     /// Takes in what changed in the client's state; returns the work that
     /// follows (a scroll, pictures to ask for, rows to report).
     pub fn sync(&mut self) -> Task<Message> {
+        // Discord's Mentions inbox fills the inbox's tab as it first shows
+        // (`window_bar.rs`), again after Discord went away and came back,
+        // and while only one server's list, once another room opened, as
+        // Discord's client asks again after a channel is selected.
+        if !self.client.state().discord_online {
+            self.mentions_fetched = false;
+        }
+        if self.mentions_room != self.client.state().selected {
+            self.mentions_room.clone_from(&self.client.state().selected);
+            if !self.layout.mention_filter.all_servers {
+                self.mentions_fetched = false;
+            }
+        }
+        crate::window_bar::fetch_mentions(self);
+        // A ping in an open room joins the inbox's Mentions tab, open or
+        // not; the open inbox shows it at once.
+        if crate::window_bar::mentions_sync(self) && self.inbox.is_some() {
+            crate::window_bar::inbox_sync(self);
+        }
         let state = self.client.state();
         // The DM search's filter is the DM home's: it goes as the rail
         // goes to a server, or back home.

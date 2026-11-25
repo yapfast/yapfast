@@ -405,6 +405,9 @@ impl Application {
         if self.manages(id) {
             managing.push(MenuChoice::DeleteChannel);
         }
+        // Taking it off Favorites goes after managing it, before its id, as
+        // in Discord's channel menus.
+        managing.extend(choices.extract_if(.., |choice| *choice == MenuChoice::RemoveFavorite));
         let at = choices
             .iter()
             .position(|choice| *choice == MenuChoice::CopyId)
