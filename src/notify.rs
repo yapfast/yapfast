@@ -80,14 +80,13 @@ fn body(alert: &Alert, style: Style) -> String {
 mod linux {
     use std::{
         collections::HashMap,
+        num::NonZeroUsize,
         sync::{Arc, Mutex, mpsc::Receiver},
     };
 
+    use futures_util::StreamExt;
     use yapfast_core::chat::Alert;
-    use zbus::{
-        blocking::{Connection, MessageIterator},
-        zvariant::{StructureBuilder, Value},
-    };
+    use zbus::{Connection, MessageStream, Variant, block_on, wire::StructureBuilder};
 
     use super::Style;
 
@@ -97,17 +96,22 @@ mod linux {
     /// Shows each alert until the window closes, and opens the conversation of one
     /// that's clicked.
     pub fn run(alerts: Receiver<(Alert, Style)>, opened: super::Opened) {
-        let connection = match Connection::session() {
+        let connection = match block_on(Connection::session()) {
             Ok(connection) => connection,
             Err(error) => {
                 tracing::warn!(%error, "no session bus for desktop notifications");
                 return;
             }
         };
-        let capabilities: Vec<String> = connection
-            .call_method(Some(SERVICE), PATH, Some(SERVICE), "GetCapabilities", &())
-            .and_then(|reply| reply.body().deserialize())
-            .unwrap_or_default();
+        let capabilities: Vec<String> = block_on(connection.call_method(
+            Some(SERVICE),
+            PATH,
+            Some(SERVICE),
+            "GetCapabilities",
+            &(),
+        ))
+        .and_then(|reply| reply.body().deserialize())
+        .unwrap_or_default();
         let markup = capabilities
             .iter()
             .any(|capability| capability == "body-markup");
@@ -117,7 +121,7 @@ mod linux {
         let rooms = shown.clone();
         let listening = std::thread::Builder::new()
             .name("yapfast-notify-clicks".into())
-            .spawn(move || listen(&clicks, &rooms, opened));
+            .spawn(move || block_on(listen(&clicks, &rooms, opened)));
         if let Err(error) = listening {
             tracing::warn!(%error, "notifications can't open their conversations");
         }
@@ -126,12 +130,12 @@ mod linux {
             if markup {
                 body = escape(&body);
             }
-            let mut hints = HashMap::<&str, Value<'_>>::new();
-            hints.insert("category", Value::from("im.received"));
+            let mut hints = HashMap::<&str, Variant<'_>>::new();
+            hints.insert("category", Variant::from("im.received"));
             // Yapfast plays its own sounds, and rings for a call itself.
-            hints.insert("suppress-sound", Value::from(true));
+            hints.insert("suppress-sound", Variant::from(true));
             // The server finds Yapfast's name and icon through its desktop entry.
-            hints.insert("desktop-entry", Value::from(crate::icon::APP_ID));
+            hints.insert("desktop-entry", Variant::from(crate::icon::APP_ID));
             if let Some(picture) = &alert.picture
                 && let Some(image) = image_data(picture)
             {
@@ -148,9 +152,14 @@ mod linux {
                 hints,
                 -1i32,
             );
-            let id = connection
-                .call_method(Some(SERVICE), PATH, Some(SERVICE), "Notify", &request)
-                .and_then(|reply| reply.body().deserialize::<u32>());
+            let id = block_on(connection.call_method(
+                Some(SERVICE),
+                PATH,
+                Some(SERVICE),
+                "Notify",
+                &request,
+            ))
+            .and_then(|reply| reply.body().deserialize::<u32>());
             match id {
                 Ok(id) => {
                     shown
@@ -164,22 +173,31 @@ mod linux {
     }
 
     /// Opens the conversation of a notification that's clicked, and forgets those closed.
-    fn listen(connection: &Connection, shown: &Mutex<HashMap<u32, String>>, opened: super::Opened) {
+    async fn listen(
+        connection: &Connection,
+        shown: &Mutex<HashMap<u32, String>>,
+        opened: super::Opened,
+    ) {
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
             .interface(SERVICE)
-            .and_then(|rule| rule.path(PATH))
-            .map(|rule| rule.build());
-        let messages =
-            rule.and_then(|rule| MessageIterator::for_match_rule(rule, connection, Some(64)));
-        let messages = match messages {
+            .path(PATH)
+            .build();
+        let messages = match rule {
+            Ok(rule) => {
+                MessageStream::for_match_rule(rule, connection, NonZeroUsize::new(64)).await
+            }
+            Err(error) => Err(error),
+        };
+        let mut messages = match messages {
             Ok(messages) => messages,
             Err(error) => {
                 tracing::warn!(%error, "notifications can't open their conversations");
                 return;
             }
         };
-        for message in messages.flatten() {
+        while let Some(message) = messages.next().await {
+            let Ok(message) = message else { continue };
             let header = message.header();
             let shown = || {
                 shown
@@ -207,7 +225,7 @@ mod linux {
     }
 
     /// The author's picture, as the specification's `(iiibiiay)` image.
-    fn image_data(picture: &yapfast_core::chat::Picture) -> Option<Value<'static>> {
+    fn image_data(picture: &yapfast_core::chat::Picture) -> Option<Variant<'static>> {
         let width = i32::try_from(picture.width).ok()?;
         let height = i32::try_from(picture.height).ok()?;
         let structure = StructureBuilder::new()
@@ -220,7 +238,7 @@ mod linux {
             .add_field(picture.rgba.straight_rgba())
             .build()
             .ok()?;
-        Some(Value::from(structure))
+        Some(Variant::from(structure))
     }
 
     /// Text for a service that reads the body as markup.

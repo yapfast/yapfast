@@ -23,21 +23,23 @@ fn main() -> zbus::Result<()> {
     }
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    match arguments.as_slice() {
-        ["watch"] => linux::watch(),
-        ["activate"] => linux::activate(None, false),
-        ["activate", token] => linux::activate(Some(token), false),
-        ["activate", token, "after"] => linux::activate(Some(token), true),
-        ["menu"] => linux::menu(),
-        ["click", label @ ..] => linux::click(&label.join(" ")),
-        ["icon", path] => linux::icon(path),
-        _ => {
-            eprintln!(
-                "usage: tray_host watch | activate [TOKEN [after]] | menu | click LABEL | icon PATH"
-            );
-            std::process::exit(2);
+    zbus::block_on(async {
+        match arguments.as_slice() {
+            ["watch"] => linux::watch().await,
+            ["activate"] => linux::activate(None, false).await,
+            ["activate", token] => linux::activate(Some(token), false).await,
+            ["activate", token, "after"] => linux::activate(Some(token), true).await,
+            ["menu"] => linux::menu().await,
+            ["click", label @ ..] => linux::click(&label.join(" ")).await,
+            ["icon", path] => linux::icon(path).await,
+            _ => {
+                eprintln!(
+                    "usage: tray_host watch | activate [TOKEN [after]] | menu | click LABEL | icon PATH"
+                );
+                std::process::exit(2);
+            }
         }
-    }
+    })
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -50,11 +52,8 @@ mod linux {
         sync::{Arc, Mutex},
     };
 
-    use zbus::{
-        blocking::Connection,
-        message::Header,
-        zvariant::{OwnedObjectPath, OwnedValue, Value},
-    };
+    use futures_util::StreamExt;
+    use zbus::{Connection, OwnedObjectPath, OwnedVariant, Variant, message::Header};
 
     const WATCHER: &str = "org.kde.StatusNotifierWatcher";
     const WATCHER_PATH: &str = "/StatusNotifierWatcher";
@@ -96,41 +95,45 @@ mod linux {
         }
     }
 
-    pub fn watch() -> zbus::Result<()> {
+    pub async fn watch() -> zbus::Result<()> {
         let items = Arc::new(Mutex::new(Vec::new()));
-        let connection = zbus::blocking::connection::Builder::session()?
+        let connection = zbus::connection::Builder::session()
             .serve_at(
                 WATCHER_PATH,
                 Watcher {
                     items: items.clone(),
                 },
-            )?
-            .name(WATCHER)?
-            .build()?;
+            )
+            .name(WATCHER)
+            .build()
+            .await?;
         // Forget items whose owner left the bus, as a tray would.
-        let bus = zbus::blocking::fdo::DBusProxy::new(&connection)?;
-        for change in bus.receive_name_owner_changed()? {
+        let bus = zbus::fdo::DBusProxy::new(&connection).await?;
+        let mut changes = bus.receive_name_owner_changed().await?;
+        while let Some(change) = changes.next().await {
             let arguments = change.args()?;
             if arguments.new_owner.is_none() {
                 let name = arguments.name.to_string();
+                let path_prefix = format!("{name}/");
                 items
                     .lock()
                     .unwrap()
-                    .retain(|item| item != &name && !item.starts_with(&format!("{name}/")));
+                    .retain(|item| item != &name && !item.starts_with(&path_prefix));
             }
         }
         Ok(())
     }
 
     /// The bus name and path of the first icon registered.
-    fn item(connection: &Connection) -> zbus::Result<(String, String)> {
+    async fn item(connection: &Connection) -> zbus::Result<(String, String)> {
         let items: Vec<String> = property(
             connection,
             WATCHER,
             WATCHER_PATH,
             WATCHER,
             "RegisteredStatusNotifierItems",
-        )?
+        )
+        .await?
         .try_into()?;
         let Some(item) = items.first() else {
             eprintln!("no icon is registered");
@@ -142,58 +145,72 @@ mod linux {
         })
     }
 
-    fn property(
+    async fn property(
         connection: &Connection,
         destination: &str,
         path: &str,
         interface: &str,
         name: &str,
-    ) -> zbus::Result<OwnedValue> {
-        let reply = connection.call_method(
-            Some(destination),
-            path,
-            Some("org.freedesktop.DBus.Properties"),
-            "Get",
-            &(interface, name),
-        )?;
+    ) -> zbus::Result<OwnedVariant> {
+        let reply = connection
+            .call_method(
+                Some(destination),
+                path,
+                Some("org.freedesktop.DBus.Properties"),
+                "Get",
+                &(interface, name),
+            )
+            .await?;
         reply.body().deserialize()
     }
 
-    pub fn activate(token: Option<&str>, after: bool) -> zbus::Result<()> {
-        let connection = Connection::session()?;
-        let (name, path) = item(&connection)?;
-        let provide = {
-            let (connection, name, path) = (connection.clone(), name.clone(), path.clone());
-            let token = token.map(str::to_owned);
-            move || -> zbus::Result<()> {
-                if let Some(token) = token {
-                    connection.call_method(
-                        Some(name.as_str()),
-                        path.as_str(),
-                        Some(ITEM),
-                        "ProvideXdgActivationToken",
-                        &(token,),
-                    )?;
-                }
-                Ok(())
-            }
-        };
-        let late = if after {
+    async fn provide_token(
+        connection: &Connection,
+        name: &str,
+        path: &str,
+        token: &str,
+    ) -> zbus::Result<()> {
+        connection
+            .call_method(
+                Some(name),
+                path,
+                Some(ITEM),
+                "ProvideXdgActivationToken",
+                &(token,),
+            )
+            .await?;
+        Ok(())
+    }
+
+    pub async fn activate(token: Option<&str>, after: bool) -> zbus::Result<()> {
+        let connection = Connection::session().await?;
+        let (name, path) = item(&connection).await?;
+        let late = if let Some(token) = token.filter(|_| after) {
+            let (connection, name, path, token) = (
+                connection.clone(),
+                name.clone(),
+                path.clone(),
+                token.to_owned(),
+            );
             Some(std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(5));
-                provide()
+                zbus::block_on(provide_token(&connection, &name, &path, &token))
             }))
         } else {
-            provide()?;
+            if let Some(token) = token {
+                provide_token(&connection, &name, &path, token).await?;
+            }
             None
         };
-        connection.call_method(
-            Some(name.as_str()),
-            path.as_str(),
-            Some(ITEM),
-            "Activate",
-            &(0i32, 0i32),
-        )?;
+        connection
+            .call_method(
+                Some(name.as_str()),
+                path.as_str(),
+                Some(ITEM),
+                "Activate",
+                &(0i32, 0i32),
+            )
+            .await?;
         if let Some(late) = late {
             late.join().expect("the token's thread")?;
         }
@@ -201,22 +218,26 @@ mod linux {
     }
 
     /// The menu's items as dbusmenu lays them out: id, properties, children.
-    type Layout = (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>);
+    type Layout = (i32, HashMap<String, OwnedVariant>, Vec<OwnedVariant>);
 
     /// The icon's bus name, its menu's path, and the menu's visible items by
     /// id and label; a separator's label is "-".
     type Menu = (String, OwnedObjectPath, Vec<(i32, String)>);
 
-    fn items(connection: &Connection) -> zbus::Result<Menu> {
-        let (name, path) = item(connection)?;
-        let menu: OwnedObjectPath = property(connection, &name, &path, ITEM, "Menu")?.try_into()?;
-        let reply = connection.call_method(
-            Some(name.as_str()),
-            menu.as_str(),
-            Some(MENU),
-            "GetLayout",
-            &(0i32, -1i32, Vec::<&str>::new()),
-        )?;
+    async fn items(connection: &Connection) -> zbus::Result<Menu> {
+        let (name, path) = item(connection).await?;
+        let menu: OwnedObjectPath = property(connection, &name, &path, ITEM, "Menu")
+            .await?
+            .try_into()?;
+        let reply = connection
+            .call_method(
+                Some(name.as_str()),
+                menu.as_str(),
+                Some(MENU),
+                "GetLayout",
+                &(0i32, -1i32, Vec::<&str>::new()),
+            )
+            .await?;
         let (_, (_, _, children)): (u32, Layout) = reply.body().deserialize()?;
         let mut shown = Vec::new();
         for child in children {
@@ -228,7 +249,7 @@ mod linux {
             };
             let visible = properties
                 .get("visible")
-                .is_none_or(|value| matches!(**value, Value::Bool(true)));
+                .is_none_or(|value| matches!(**value, Variant::Bool(true)));
             if !visible {
                 continue;
             }
@@ -241,36 +262,40 @@ mod linux {
         Ok((name, menu, shown))
     }
 
-    pub fn menu() -> zbus::Result<()> {
-        let connection = Connection::session()?;
-        let (_, _, items) = items(&connection)?;
+    pub async fn menu() -> zbus::Result<()> {
+        let connection = Connection::session().await?;
+        let (_, _, items) = items(&connection).await?;
         let labels: Vec<String> = items.into_iter().map(|(_, label)| label).collect();
         println!("{}", labels.join(" | "));
         Ok(())
     }
 
-    pub fn click(label: &str) -> zbus::Result<()> {
-        let connection = Connection::session()?;
-        let (name, menu, items) = items(&connection)?;
+    pub async fn click(label: &str) -> zbus::Result<()> {
+        let connection = Connection::session().await?;
+        let (name, menu, items) = items(&connection).await?;
         let Some((id, _)) = items.iter().find(|(_, shown)| shown == label) else {
             eprintln!("the menu has no {label:?}");
             std::process::exit(1);
         };
-        connection.call_method(
-            Some(name.as_str()),
-            menu.as_str(),
-            Some(MENU),
-            "Event",
-            &(*id, "clicked", Value::from(0i32), 0u32),
-        )?;
+        connection
+            .call_method(
+                Some(name.as_str()),
+                menu.as_str(),
+                Some(MENU),
+                "Event",
+                &(*id, "clicked", Variant::from(0i32), 0u32),
+            )
+            .await?;
         Ok(())
     }
 
-    pub fn icon(path: &str) -> zbus::Result<()> {
-        let connection = Connection::session()?;
-        let (name, item_path) = item(&connection)?;
+    pub async fn icon(path: &str) -> zbus::Result<()> {
+        let connection = Connection::session().await?;
+        let (name, item_path) = item(&connection).await?;
         let icons: Vec<(i32, i32, Vec<u8>)> =
-            property(&connection, &name, &item_path, ITEM, "IconPixmap")?.try_into()?;
+            property(&connection, &name, &item_path, ITEM, "IconPixmap")
+                .await?
+                .try_into()?;
         let Some((width, height, argb)) = icons.into_iter().max_by_key(|(width, ..)| *width) else {
             eprintln!("the icon has no pixmap");
             std::process::exit(1);
