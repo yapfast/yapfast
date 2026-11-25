@@ -1157,9 +1157,11 @@ Disconnects and CLOSE are read while an image lookup is in flight, so closing
 an application restores the previous RPC activity without waiting for HTTP
 or the game detector's next scan. Completed clients are removed before queued
 updates are applied. If no RPC activity remains, the process detector verifies
-its fallback immediately; a closed application needs no second periodic scan
-before another running application takes its place. Local cards follow this,
-subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+its fallback immediately and only publishes it after that scan. A closed
+application needs no second periodic scan before another running application
+takes its place. The local Playing label is reserved for activities of type
+Playing. Local cards follow these changes with the snapshot publisher's
+100 ms batching. Sending the update to other users still
 obeys the Gateway limit of five presence updates per 20 seconds. At most four
 commands and 64 KiB of payload wait behind an in-flight lookup per client;
 exceeding that bound closes the connection.

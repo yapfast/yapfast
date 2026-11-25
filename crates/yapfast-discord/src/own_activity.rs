@@ -5,7 +5,7 @@
 use crate::{api::Api, service::Snapshot};
 use serde_json::Value;
 use std::sync::Arc;
-use tokio::sync::{Notify, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 type Activity = Option<Arc<Value>>;
 
@@ -20,6 +20,9 @@ pub struct Playing {
 impl Playing {
     /// The game an activity names, if it names one.
     pub(crate) fn of(activity: &Value) -> Option<Self> {
+        if activity["type"] != 0 {
+            return None;
+        }
         let name = activity["name"].as_str()?.trim();
         (!name.is_empty()).then(|| Self {
             name: name.to_owned(),
@@ -43,8 +46,8 @@ pub(crate) fn start(
     tokio::spawn(async move {
         loop {
             if *shown.borrow_and_update() {
-                let rescan = Arc::new(Notify::new());
-                let detected = crate::game_detection::start(api.clone(), rescan.clone());
+                let (rescan, requests) = mpsc::unbounded_channel();
+                let detected = crate::game_detection::start(api.clone(), requests);
                 #[cfg(any(target_os = "linux", windows))]
                 let rpc = crate::rpc::start(api.clone(), snapshots.clone());
                 #[cfg(not(any(target_os = "linux", windows)))]
@@ -80,15 +83,20 @@ async fn combine(
     mut rpc: watch::Receiver<Activity>,
     mut detected: watch::Receiver<Activity>,
     shown: watch::Sender<Activity>,
-    rescan: Arc<Notify>,
+    rescan: mpsc::UnboundedSender<oneshot::Sender<()>>,
 ) {
     let mut rpc_open = true;
     let mut detection_open = true;
+    let mut awaiting_scan = None;
     loop {
         let next = rpc_open
             .then(|| rpc.borrow().clone())
             .flatten()
-            .or_else(|| detection_open.then(|| detected.borrow().clone()).flatten());
+            .or_else(|| {
+                (detection_open && awaiting_scan.is_none())
+                    .then(|| detected.borrow().clone())
+                    .flatten()
+            });
         shown.send_if_modified(|old| {
             if *old == next {
                 false
@@ -104,10 +112,25 @@ async fn combine(
                 if !rpc_open || rpc.borrow().is_none() {
                     // The fallback may still name the app that just closed.
                     // Verify it now instead of waiting for periodic scans.
-                    rescan.notify_one();
+                    let (reply, scanned) = oneshot::channel();
+                    if rescan.send(reply).is_ok() {
+                        awaiting_scan = Some(scanned);
+                    } else {
+                        detection_open = false;
+                    }
                 }
             },
             result = detected.changed(), if detection_open => detection_open = result.is_ok(),
+            result = async {
+                if let Some(scanned) = &mut awaiting_scan {
+                    scanned.await
+                } else {
+                    std::future::pending().await
+                }
+            } => {
+                awaiting_scan = None;
+                detection_open &= result.is_ok();
+            },
         }
     }
 }
@@ -132,8 +155,8 @@ mod tests {
         let (rpc, rpc_rx) = watch::channel(None);
         let (detected, detected_rx) = watch::channel(None);
         let (shown, mut receiver) = watch::channel(None);
-        let rescan = Arc::new(Notify::new());
-        let worker = tokio::spawn(combine(rpc_rx, detected_rx, shown, rescan.clone()));
+        let (rescan, mut requests) = mpsc::unbounded_channel();
+        let worker = tokio::spawn(combine(rpc_rx, detected_rx, shown, rescan));
         let game = Arc::new(json!({"type":0,"name":"Game"}));
         detected.send_replace(Some(game.clone()));
         receiver.changed().await.unwrap();
@@ -145,10 +168,15 @@ mod tests {
         // A source that dies without clearing must not leave a stale activity.
         drop(rpc);
         receiver.changed().await.unwrap();
-        assert_eq!(receiver.borrow_and_update().as_ref(), Some(&game));
-        tokio::time::timeout(std::time::Duration::from_millis(100), rescan.notified())
+        assert!(receiver.borrow_and_update().is_none());
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(1), requests.recv())
             .await
-            .expect("RPC disconnect requests an immediate detection scan");
+            .expect("RPC disconnect requests an immediate detection scan")
+            .unwrap();
+        assert!(!receiver.has_changed().unwrap());
+        reply.send(()).unwrap();
+        receiver.changed().await.unwrap();
+        assert_eq!(receiver.borrow_and_update().as_ref(), Some(&game));
         detected.send_replace(None);
         receiver.changed().await.unwrap();
         assert!(receiver.borrow_and_update().is_none());
@@ -167,5 +195,6 @@ mod tests {
             })
         );
         assert_eq!(Playing::of(&json!({"type":0,"name":" "})), None);
+        assert_eq!(Playing::of(&json!({"type":2,"name":"Music"})), None);
     }
 }
