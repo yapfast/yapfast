@@ -16,7 +16,7 @@ use yapfast_core::{
     discord,
 };
 
-use super::{change, interact, last, preview, right_click, shows};
+use super::{change, clipboard_writes, interact, last, preview, right_click, shows};
 use crate::{
     app::{App, Message},
     friends, person_menu, profile,
@@ -1161,26 +1161,6 @@ fn select_and_copy(app: &mut App, line: iced::Rectangle) -> (Vec<String>, iced::
         ))));
     }
     (written, status)
-}
-
-/// What a task the window's update returned writes to the clipboard.
-fn clipboard_writes(task: iced::Task<Message>) -> Vec<String> {
-    use iced::futures::StreamExt;
-    let Some(mut actions) = iced_runtime::task::into_stream(task) else {
-        return Vec::new();
-    };
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    let mut written = Vec::new();
-    while let std::task::Poll::Ready(Some(action)) = actions.poll_next_unpin(&mut cx) {
-        if let iced_runtime::Action::Clipboard(iced_runtime::clipboard::Action::Write {
-            contents,
-            ..
-        }) = action
-        {
-            written.push(contents);
-        }
-    }
-    written
 }
 
 #[test]
