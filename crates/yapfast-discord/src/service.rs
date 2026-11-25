@@ -1532,6 +1532,41 @@ impl Discord {
         Ok(self.learn_authors(guild, &values).await)
     }
 
+    /// This account's recent mentions, the newest first: the messages that
+    /// called on it in the past week, up to [`api::MENTIONS_PAGE`], counting
+    /// @everyone and role mentions as `everyone` and `roles` say, and only
+    /// those in `guild` with one; Discord's Mentions inbox. Each author is
+    /// learned in the server of their message, so names, avatars and
+    /// colours show there.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Message>> {
+        let values = self.api.recent_mentions(everyone, roles, guild).await?;
+        // A page comes from many servers, or from DMs: ask each server for
+        // its authors' profiles, all at once, then wait for them.
+        let mut by_guild: HashMap<String, Vec<Value>> = HashMap::new();
+        for value in values {
+            let guild = value["guild_id"].as_str().unwrap_or(PRIVATE).to_owned();
+            by_guild.entry(guild).or_default().push(value);
+        }
+        let mut messages = Vec::new();
+        let mut waits = Vec::new();
+        for (guild, values) in by_guild {
+            let (found, arrived) = self.learn(&guild, &values, true);
+            messages.extend(found);
+            waits.extend(arrived);
+        }
+        for arrived in waits {
+            let _ = tokio::time::timeout(SEARCH_TIMEOUT, arrived).await;
+        }
+        // Discord lists them newest first; every page does, wherever it's from.
+        messages.sort_by_key(|message| std::cmp::Reverse(message.order()));
+        Ok(messages)
+    }
+
     /// A page of the messages a search finds, in `sort`'s order, from the
     /// `offset`th: in the DM `channel` with [`PRIVATE`], or across a
     /// server. `text` is what the search box took, filters and all, read as
