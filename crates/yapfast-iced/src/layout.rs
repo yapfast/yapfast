@@ -236,6 +236,9 @@ pub struct Prefs {
     pub decorations: Option<bool>,
     pub moving_cosmetics: Option<bool>,
     pub name_styles: Option<bool>,
+    /// Role colour gradients: a gradient or holographic role colour runs
+    /// across the name, a span a letter; off, the role's first colour.
+    pub name_colours: Option<bool>,
     pub server_tags: Option<bool>,
     pub profile_frames: Option<bool>,
     pub application_icon: crate::desktop::IconChoice,
@@ -312,6 +315,7 @@ impl Prefs {
             decorations: self.decorations.unwrap_or(default.decorations),
             moving: self.moving_cosmetics.unwrap_or(default.moving),
             name_styles: self.name_styles.unwrap_or(default.name_styles),
+            name_colours: self.name_colours.unwrap_or(default.name_colours),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             frames: self.profile_frames.unwrap_or(default.frames),
         }

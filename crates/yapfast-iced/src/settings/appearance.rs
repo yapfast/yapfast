@@ -243,6 +243,8 @@ pub enum Cosmetic {
     Nameplates,
     Moving,
     NameStyles,
+    /// Role colour gradients, which are drawing rather than fetching.
+    NameColours,
     ServerTags,
     Frames,
 }
@@ -781,6 +783,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::Nameplates => (&mut prefs.nameplates, "nameplates"),
         Cosmetic::Moving => (&mut prefs.moving_cosmetics, "moving_cosmetics"),
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
+        Cosmetic::NameColours => (&mut prefs.name_colours, "name_colours"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
     };
@@ -937,6 +940,12 @@ impl<'a> Page<'a> {
                     "The fonts and colours people give their display names.",
                     cosmetics.name_styles,
                     Cosmetic::NameStyles,
+                ),
+                profile(
+                    "Draw role colour gradients",
+                    "A gradient or holographic role colour runs across a name, a span a letter, each time the name is drawn. Off, the name keeps the role's first colour and one span.",
+                    cosmetics.name_colours,
+                    Cosmetic::NameColours,
                 ),
                 profile(
                     "Show server tags",
