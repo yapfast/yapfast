@@ -1,7 +1,10 @@
 //! Appearance's theme shortcuts and profile switches, and the dedicated
 //! Themes page: installed packages, the person's own themes, their options
 //! and performance. The editor's changes show at once; Save keeps them and
-//! Cancel puts the theme from before back. See docs/themes.md.
+//! Cancel puts the theme from before back. Import beside New theme and Export
+//! in the editor share a theme as a file. See docs/themes.md.
+
+use std::path::{Path, PathBuf};
 
 use iced::{
     Alignment, Border, Color, Element, Length, Task,
@@ -175,6 +178,14 @@ impl Editor {
     fn valid(&self) -> bool {
         self.fields.iter().all(|(_, _, wrong)| !wrong)
     }
+
+    /// The name in the field, or "My theme" if it holds none.
+    fn kept_name(&self) -> String {
+        match self.name.trim() {
+            "" => "My theme".to_owned(),
+            name => name.to_owned(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -207,6 +218,20 @@ pub enum Event {
     Save,
     Cancel,
     Delete,
+    /// Opens the system's file dialog for a theme file to import.
+    Import,
+    /// The file it gave, by its path.
+    Imported(PathBuf),
+    /// Opens the system's file dialog to save the theme in the editor.
+    Export,
+    /// The name the file was saved under, or why it couldn't be.
+    Exported(String, Result<(), String>),
+    /// Puts the theme in the editor on the clipboard as a theme file's text.
+    Copy,
+    /// Reads the clipboard for a theme file's text to import.
+    Paste,
+    /// The clipboard's text, if it held any.
+    Pasted(Option<String>),
     Profile(Cosmetic, bool),
 }
 
@@ -234,7 +259,10 @@ impl Settings {
     pub(super) fn theme_event(&mut self, event: Event, cx: &mut Cx<'_>) -> iced::Task<Message> {
         match event {
             Event::Creator(event) => return self.creator_event(event, cx),
-            Event::Choose(id) => choose(cx, &id),
+            Event::Choose(id) => {
+                self.theme_note = None;
+                choose(cx, &id);
+            }
             Event::Tab(tab) => {
                 self.cancel_theme(cx);
                 return self.update(
@@ -319,7 +347,10 @@ impl Settings {
                 cx.layout.theme_transitions = on;
                 cx.keep("theme_transitions", on);
             }
-            Event::New => self.new_theme(cx),
+            Event::New => {
+                self.theme_note = None;
+                self.new_theme(cx);
+            }
             Event::Edit(id) => {
                 if self.edit_creator(&id, cx) {
                     return iced::Task::none();
@@ -414,6 +445,15 @@ impl Settings {
             Event::Save => self.save_theme(cx),
             Event::Cancel => self.cancel_theme(cx),
             Event::Delete => self.delete_theme(cx),
+            Event::Import => return import_dialog(),
+            Event::Imported(path) => self.import_theme(&path, cx),
+            Event::Export => return self.export_dialog(),
+            Event::Exported(name, result) => self.exported(&name, result),
+            Event::Copy => return self.copy_theme(),
+            Event::Paste => {
+                return iced::clipboard::read().map(|text| theme_message(Event::Pasted(text)));
+            }
+            Event::Pasted(text) => self.paste_theme(text.as_deref(), cx),
             Event::Profile(cosmetic, on) => self::cosmetic(cx, cosmetic, on),
         }
         iced::Task::none()
@@ -480,10 +520,8 @@ impl Settings {
         let Some(editor) = self.close_editor(cx) else {
             return;
         };
-        let name = match editor.name.trim() {
-            "" => "My theme".to_owned(),
-            name => name.to_owned(),
-        };
+        self.theme_note = None;
+        let name = editor.kept_name();
         let custom = &mut cx.themes.custom;
         let saved = editor
             .editing
@@ -514,9 +552,143 @@ impl Settings {
         choose(cx, &id);
     }
 
+    /// The theme in the editor as a file to share, and the name to suggest
+    /// for it: nothing while a colour's field holds no colour, or the
+    /// editor is closed.
+    pub(crate) fn theme_file(&self) -> Option<(String, String)> {
+        let editor = self.editor.as_ref().filter(|editor| editor.valid())?;
+        let name = editor.kept_name();
+        let text = palette::export(&name, editor.base, &editor.theme, &editor.parts);
+        Some((palette::file_name(&name), text))
+    }
+
+    /// Asks where to save the theme in the editor.
+    fn export_dialog(&self) -> iced::Task<Message> {
+        let Some((file_name, text)) = self.theme_file() else {
+            return iced::Task::none();
+        };
+        iced::Task::perform(
+            async move {
+                let file = rfd::AsyncFileDialog::new()
+                    .set_title("Export theme")
+                    .set_file_name(file_name)
+                    .add_filter("Yapfast theme", &["json"])
+                    .save_file()
+                    .await?;
+                let result = std::fs::write(file.path(), text).map_err(|error| error.to_string());
+                Some((file.file_name(), result))
+            },
+            |saved| match saved {
+                Some((name, result)) => theme_message(Event::Exported(name, result)),
+                None => Message::Nothing,
+            },
+        )
+    }
+
+    /// Says how writing the theme file went.
+    fn exported(&mut self, name: &str, result: Result<(), String>) {
+        self.theme_note = Some(match result {
+            Ok(()) => (format!("Exported to {name}."), false),
+            Err(error) => {
+                tracing::warn!(%error, "could not write a theme file");
+                (format!("Couldn't save the theme file: {error}"), true)
+            }
+        });
+    }
+
+    /// Puts the theme in the editor on the clipboard, as the text Export
+    /// would write to a file.
+    fn copy_theme(&mut self) -> iced::Task<Message> {
+        let Some((_, text)) = self.theme_file() else {
+            return iced::Task::none();
+        };
+        self.theme_note = Some(("Copied the theme to the clipboard.".to_owned(), false));
+        iced::clipboard::write(text)
+    }
+
+    /// Keeps the theme in the clipboard's text among the person's own, as
+    /// Import does a file's.
+    fn paste_theme(&mut self, text: Option<&str>, cx: &mut Cx<'_>) {
+        if self.editing_theme() {
+            return;
+        }
+        match text {
+            Some(text) if !text.trim().is_empty() => self.keep_theme_file(text.as_bytes(), cx),
+            _ => self.theme_note = Some(("The clipboard holds no text.".to_owned(), true)),
+        }
+    }
+
+    /// Whether a theme is being edited, saying so: nothing is imported
+    /// meanwhile, as the colours the window shows are the edit's.
+    fn editing_theme(&mut self) -> bool {
+        let editing = self.editor.is_some() || self.creator.is_some();
+        if editing {
+            self.theme_note = Some((
+                "Save or cancel the theme being edited first.".to_owned(),
+                true,
+            ));
+        }
+        editing
+    }
+
+    /// Keeps the theme in a file among the person's own, and chooses it, or
+    /// says why it can't. Nothing changes while the editor is open: the
+    /// colours the window shows are the edit's.
+    fn import_theme(&mut self, path: &Path, cx: &mut Cx<'_>) {
+        use std::io::Read;
+        if self.editing_theme() {
+            return;
+        }
+        let mut bytes = Vec::new();
+        let read = std::fs::File::open(path)
+            .and_then(|file| file.take(palette::FILE_LIMIT + 1).read_to_end(&mut bytes));
+        if let Err(error) = read {
+            tracing::warn!(%error, "could not read a theme file");
+            self.theme_note = Some((format!("Couldn't read the file: {error}"), true));
+            return;
+        }
+        self.keep_theme_file(&bytes, cx);
+    }
+
+    /// Keeps the theme in a theme file's bytes among the person's own, and
+    /// chooses it, or says why it can't.
+    fn keep_theme_file(&mut self, bytes: &[u8], cx: &mut Cx<'_>) {
+        let imported = match palette::import(bytes) {
+            Ok(imported) => imported,
+            Err(error) => {
+                self.theme_note = Some((error.to_string(), true));
+                return;
+            }
+        };
+        let custom = &mut cx.themes.custom;
+        let id = palette::new_id(custom);
+        custom.push(Custom {
+            id: id.clone(),
+            name: imported.name.clone(),
+            base: imported.base,
+            theme: imported.theme,
+            parts: imported.parts,
+            creator: None,
+            folder: None,
+        });
+        cx.keep("custom_themes", &cx.themes.custom);
+        choose(cx, &id);
+        let skipped = match imported.skipped {
+            0 => String::new(),
+            1 => " 1 colour in the file isn't a colour, so it uses the base theme's.".to_owned(),
+            skipped => format!(
+                " {skipped} colours in the file aren't colours, so it uses the base theme's."
+            ),
+        };
+        let note = format!("Imported {}.{skipped}", imported.name);
+        self.theme_note = Some((note, false));
+    }
+
     /// Closes the editor and shows the theme from before it opened.
     pub(super) fn cancel_theme(&mut self, cx: &mut Cx<'_>) {
-        self.close_editor(cx);
+        if self.close_editor(cx).is_some() {
+            self.theme_note = None;
+        }
         self.close_creator(cx);
     }
 
@@ -532,6 +704,7 @@ impl Settings {
         let Some(editor) = self.close_editor(cx) else {
             return;
         };
+        self.theme_note = None;
         if let Some(id) = editor.editing {
             let changed = cx.themes.forget_custom(cx.client.root(), &id);
             cx.layout.custom_themes.clone_from(&cx.themes.custom);
@@ -541,6 +714,25 @@ impl Settings {
             }
         }
     }
+}
+
+/// The system's file dialog for a theme file: `Event::Imported` with it, or
+/// nothing if it's closed.
+fn import_dialog() -> iced::Task<Message> {
+    iced::Task::perform(
+        async {
+            rfd::AsyncFileDialog::new()
+                .set_title("Import theme")
+                .add_filter("Yapfast theme", &["json"])
+                .pick_file()
+                .await
+                .map(|file| file.path().to_owned())
+        },
+        |path| match path {
+            Some(path) => theme_message(Event::Imported(path)),
+            None => Message::Nothing,
+        },
+    )
 }
 
 /// Chooses the theme `id` and keeps the choice, if there's such a theme:
@@ -644,6 +836,30 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
+                "Import",
+                Kind::Plain,
+                Some(theme_message(Event::Import))
+            )
+            .small()
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Folder, 16, crate::theme::rgb(theme.text))
+            ),
+            action(
+                theme,
+                "Paste",
+                Kind::Plain,
+                Some(theme_message(Event::Paste))
+            )
+            .small()
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Paste, 16, crate::theme::rgb(theme.text))
+            ),
+            action(
+                theme,
                 "New theme",
                 Kind::Plain,
                 Some(theme_message(Event::New))
@@ -667,12 +883,14 @@ impl<'a> Page<'a> {
                 )
             },
         );
-        form::page([
-            form::title(theme, "Appearance"),
+        let mut head = vec![form::title(theme, "Appearance")];
+        head.extend(self.theme_note());
+        head.extend([
             form::group([
                 form::beside(form::heading(theme, "THEME"), actions),
                 tiles,
             ]),
+            self.font_section(),
             installed_note,
             theme_options,
             switch(
@@ -686,6 +904,7 @@ impl<'a> Page<'a> {
                 "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
             )
             .view(self.cx.look),
+            self.desktop_icons(),
             self.title_bar_switch(),
             column![
                 form::heading(theme, "PROFILES"),
@@ -734,7 +953,23 @@ impl<'a> Page<'a> {
             ]
             .spacing(12)
             .into(),
-        ])
+        ]);
+        form::page(head)
+    }
+
+    /// How the last theme import or export went, under the title, in the
+    /// danger's ink if it failed.
+    pub(super) fn theme_note(self) -> Option<Element<'a, Message>> {
+        let (note, wrong) = self.s.theme_note.as_ref()?;
+        let theme = self.cx.look.theme;
+        Some(form::note_in(
+            note.as_str(),
+            if *wrong {
+                theme.danger_text
+            } else {
+                theme.muted
+            },
+        ))
     }
 
     /// The themes as tiles, as many 150 px or wider across as fit.
@@ -866,6 +1101,7 @@ impl<'a> Page<'a> {
         );
         let controls = move |_: f32| -> Element<'a, Message> {
             let mut parts = Vec::new();
+            parts.extend(self.theme_note());
             if editor.editing.is_none() {
                 let names: Vec<String> = palette::starts(&self.cx.themes.custom)
                     .map(|start| start.name.to_owned())
@@ -902,10 +1138,30 @@ impl<'a> Page<'a> {
             column(parts).spacing(24).into()
         };
         let aside = move |_: f32| -> Element<'a, Message> {
+            // Greyed with the label while a field holds no colour.
+            let ink = crate::theme::rgb(if editor.valid() {
+                theme.text
+            } else {
+                theme.faint
+            });
+            let share = |label, event: fn() -> Event, icon| {
+                action(
+                    theme,
+                    label,
+                    Kind::Plain,
+                    editor.valid().then(|| theme_message(event())),
+                )
+                .small()
+                .icon(self.cx.look.icon(icon, 16, ink))
+            };
+            let copy = share("Copy", || Event::Copy, Icon::Copy);
+            let export = share("Export", || Event::Export, Icon::Download);
             if editor.editing.is_none() {
-                return Space::new().into();
+                return row![copy, export].spacing(8).into();
             }
             row![
+                copy,
+                export,
                 action(
                     theme,
                     if editor.confirming {
@@ -923,6 +1179,7 @@ impl<'a> Page<'a> {
                     crate::theme::rgb(theme.on_danger)
                 ),)
             ]
+            .spacing(8)
             .into()
         };
         self.editor_frame(bar, None, controls, aside)

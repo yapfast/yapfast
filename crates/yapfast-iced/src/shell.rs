@@ -16,7 +16,7 @@ use yapfast_core::{application::Action, chat::Alert, sounds::Sound, voice, zoom}
 use crate::{
     after,
     app::{App, Message},
-    desktop::{self, ABOUT, Heard, Notifier, Tell, Tray, TrayChoice},
+    desktop::{self, ABOUT, Heard, IconTarget, Notifier, Tell, Tray, TrayChoice},
 };
 
 /// The least size the window lays out in.
@@ -149,7 +149,8 @@ impl App {
         });
         let desktop = desktop::desktop();
         desktop.start(tell.clone());
-        self.shell.tray = desktop.tray(tell.clone());
+        let (source, choice) = self.layout.prefs.tray_artwork();
+        self.shell.tray = desktop.tray(tell.clone(), self.client.root(), source, choice);
         self.shell.notifier = desktop.notifier(self.client.root(), tell.clone());
         self.shell.tell = Some(tell);
         self.shell.pending_link = start.link;
@@ -508,11 +509,7 @@ impl App {
             min_size: Some(MIN_SIZE),
             decorations: !self.shell.own_title_bar,
             exit_on_close_request: false,
-            icon: desktop::desktop()
-                .window_icon()
-                .and_then(|(pixels, width, height)| {
-                    window::icon::from_rgba(pixels, width, height).ok()
-                }),
+            icon: self.window_icon(),
             ..window::Settings::default()
         };
         #[cfg(target_os = "linux")]
@@ -525,6 +522,44 @@ impl App {
         settings
     }
 
+    fn window_icon(&self) -> Option<window::Icon> {
+        let (pixels, width, height) = desktop::desktop()
+            .window_icon(self.client.root(), &self.layout.prefs.application_icon)?;
+        window::icon::from_rgba(pixels, width, height).ok()
+    }
+
+    pub(crate) fn change_desktop_icon(&self, target: IconTarget) -> Task<Message> {
+        let prefs = &self.layout.prefs;
+        if (target == IconTarget::Tray || prefs.tray_uses_application_icon())
+            && let Some(tray) = &self.shell.tray
+        {
+            let (source, choice) = prefs.tray_artwork();
+            tray.set_icon(self.client.root(), source, choice);
+        }
+        if target == IconTarget::Application
+            && let Some(id) = self.shell.window
+        {
+            #[cfg(windows)]
+            return self.set_native_window_icon(id);
+            #[cfg(not(windows))]
+            if let Some(icon) = self.window_icon() {
+                return window::set_icon(id, icon);
+            }
+        }
+        Task::none()
+    }
+
+    #[cfg(windows)]
+    fn set_native_window_icon(&self, id: window::Id) -> Task<Message> {
+        let root = self.client.root().to_owned();
+        let choice = self.layout.prefs.application_icon.clone();
+        let unread = self.desktop_unread();
+        window::run(id, move |window| {
+            desktop::desktop().set_window_icon(window, &root, &choice, unread);
+        })
+        .discard()
+    }
+
     /// The window opened: what iced doesn't give it, then the focus with a
     /// later start's token, and what was waiting for it.
     fn opened(&mut self, id: window::Id) -> Task<Message> {
@@ -534,18 +569,13 @@ impl App {
         self.shell.minimized = false;
         self.focus_changed(true);
         let tell = self.shell.tell.clone();
-        let unread = if cfg!(windows) {
-            self.desktop_unread()
-        } else {
-            0
-        };
         #[cfg(windows)]
         {
-            self.shell.taskbar_unread = Some((id, unread));
+            self.shell.taskbar_unread = Some((id, self.desktop_unread()));
         }
         let decorate = window::run(id, move |window| {
             if let Some(tell) = tell {
-                desktop::desktop().decorate(window, tell, unread);
+                desktop::desktop().decorate(window, tell);
             }
         })
         .discard();
@@ -558,6 +588,8 @@ impl App {
             window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
             Self::read_monitor_scale(id),
         ];
+        #[cfg(windows)]
+        tasks.push(self.set_native_window_icon(id));
         let maximize = self.shell.maximized.then(|| window::maximize(id, true));
         tasks.push(match self.shell.position {
             // Made hidden: put where the last one was, maximized on the
@@ -762,6 +794,11 @@ impl App {
         }
         if let Some(bytes) = self.client.take_copied_picture() {
             desktop::desktop().copy_picture(bytes);
+        }
+        // The question before leaving takes the keys, as a masked link's does.
+        if let Some(link) = self.client.take_leaving() {
+            self.leaving = Some(link);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
         }
         if self.shell.pending_link.is_some() && self.shell.window.is_some() {
             tasks.push(self.open_pending_link());

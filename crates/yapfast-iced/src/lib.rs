@@ -28,6 +28,7 @@
 #![cfg_attr(not(test), warn(clippy::let_underscore_must_use))]
 
 mod account;
+mod accounts;
 mod active_now;
 mod animated;
 mod app;
@@ -48,6 +49,7 @@ mod control_file;
 use yapfast_iced_kit::controls;
 mod conversation;
 mod ctx;
+use yapfast_iced_kit::custom_font;
 mod desktop;
 mod slot;
 use yapfast_iced_kit::dialog;
@@ -151,8 +153,8 @@ use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
 pub use desktop::{
-    Desktop, Drag, Heard, Notifier, Offered, PasteReader, PointerAt, Tell, Toggled, Tray,
-    TrayChoice, UpdateChoices, UpdateStatus, Updates, UpdatesShown,
+    Desktop, Drag, Heard, IconChoice, IconTarget, Notifier, Offered, PasteReader, PointerAt, Tell,
+    Toggled, Tray, TrayChoice, UpdateChoices, UpdateStatus, Updates, UpdatesShown,
 };
 /// The window the desktop's parts act on, by its handles.
 pub use iced::window::Window;
@@ -245,6 +247,11 @@ pub fn run(
     video::install();
     frames::install();
     fonts::install(TWEMOJI);
+    // The font the person chose to draw the window in, if any.
+    let own_font = layout::Layout::read(&root).prefs.ui_font_files;
+    if !own_font.is_empty() {
+        custom_font::set(&own_font);
+    }
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();

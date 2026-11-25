@@ -104,6 +104,7 @@ fn matrix_profiles_show_what_the_member_list_knows() {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         }]),
     });
     let effects = app.dispatch(Action::ShowProfile {
@@ -1057,4 +1058,118 @@ fn a_profile_without_a_wishlist_has_an_empty_one() {
         app.state.profile_editor.as_ref().unwrap().wishlist,
         chat::Wishlist::Loaded(Vec::new())
     );
+}
+
+/// A Rich Presence button's address is found as Discord's client finds it:
+/// in the presence's own metadata, else in what Discord gave for the person's
+/// activity, else asked of Discord once; found, it asks before it opens, and
+/// without one nothing happens.
+#[test]
+fn an_activity_buttons_link_comes_from_the_presence_then_the_activity_then_discord() {
+    let mut app = Application::default();
+    let press = |session: &str, index: usize, metadata: bool, url: Option<&str>| {
+        Action::OpenActivityButton(ActivityButtonPress {
+            user: "2".into(),
+            session: Some(session.into()),
+            application: Some("900".into()),
+            index,
+            metadata,
+            url: url.map(str::to_owned),
+        })
+    };
+    let opens = |effects: &[Effect]| -> Vec<String> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::AskToOpen(url) => Some(url.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let asked = |effects: &[Effect]| -> Vec<String> {
+        effects
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Discord(DiscordCommand::ActivityLinks {
+                    user,
+                    session,
+                    application,
+                })) => Some(format!("{user} {session} {application}")),
+                _ => None,
+            })
+            .collect()
+    };
+    let came = |session: &str| Event::ActivityLinks {
+        user: "2".into(),
+        session: session.into(),
+        application: "900".into(),
+        result: Ok(vec![
+            Some("https://factorio.com/".into()),
+            Some("https://mods.factorio.com/".into()),
+        ]),
+    };
+    // The presence's own metadata: its address, with nothing asked.
+    let effects = app.dispatch(press("s1", 0, true, Some("https://factorio.com/")));
+    assert_eq!(opens(&effects), ["https://factorio.com/"]);
+    assert!(asked(&effects).is_empty());
+    // Metadata with no address for the button: nothing, and nothing asked.
+    assert!(app.dispatch(press("s1", 1, true, None)).is_empty());
+    assert_eq!(app.state.notice, None);
+
+    // No metadata: Discord is asked once, by the activity, and its answer
+    // opens the button clicked.
+    let effects = app.dispatch(press("s1", 1, false, None));
+    assert_eq!(asked(&effects), ["2 s1 900"]);
+    assert!(
+        app.dispatch(press("s1", 1, false, None)).is_empty(),
+        "on its way"
+    );
+    assert_eq!(
+        opens(&app.apply(came("s1"))),
+        ["https://mods.factorio.com/"]
+    );
+    // What came is the activity's: a second click, on either button, asks
+    // no more.
+    for (index, url) in [
+        (1, "https://mods.factorio.com/"),
+        (0, "https://factorio.com/"),
+    ] {
+        let effects = app.dispatch(press("s1", index, false, None));
+        assert_eq!(opens(&effects), [url]);
+        assert!(asked(&effects).is_empty(), "no second request");
+    }
+    // A list too short for the button does nothing, and asks nothing.
+    assert!(app.dispatch(press("s1", 2, false, None)).is_empty());
+    assert_eq!(app.state.notice, None);
+
+    // A new activity of the same person's is asked about afresh; an answer
+    // for the one before, coming late, opens nothing.
+    assert_eq!(
+        asked(&app.dispatch(press("s2", 1, false, None))),
+        ["2 s2 900"]
+    );
+    assert!(opens(&app.apply(came("s1"))).is_empty());
+    assert_eq!(
+        opens(&app.apply(came("s2"))),
+        ["https://mods.factorio.com/"]
+    );
+
+    // A failed answer says so, and the next click asks again.
+    assert_eq!(asked(&app.dispatch(press("s3", 0, false, None))).len(), 1);
+    app.apply(Event::ActivityLinks {
+        user: "2".into(),
+        session: "s3".into(),
+        application: "900".into(),
+        result: Err("Discord is unreachable".into()),
+    });
+    assert_eq!(
+        app.state.notice.as_deref(),
+        Some("Couldn't open the button's link: Discord is unreachable")
+    );
+    assert_eq!(asked(&app.dispatch(press("s3", 0, false, None))).len(), 1);
+    app.apply(came("s3"));
+
+    // The account going takes what Discord gave it: the next click asks.
+    app.apply(Event::DiscordUnlinked);
+    assert_eq!(asked(&app.dispatch(press("s3", 1, false, None))).len(), 1);
 }

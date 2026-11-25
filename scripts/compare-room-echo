@@ -32,10 +32,10 @@ for dereverb in off on; do
   for input in "$work"/{dry,rt40,rt60,rt80}.s16 "$noise"/{typing,fan,hiss,typing_fan}.s16; do
     name=$(basename "$input" .s16)
     YAPFAST_DEREVERB=$dereverb YAPFAST_AUDIO_IN="$input" YAPFAST_AUDIO_OUT="$work/chain/${name}_$dereverb.s16" \
-      "$tests" --exact discord_audio::linux::processes_a_recording --ignored --nocapture \
+      "$tests" --exact discord_audio::processes_a_recording --ignored --nocapture \
       >"$work/chain/${name}_$dereverb.log"
   done
-  echo "room echo $dereverb: $(cat "$work"/chain/*_"$dereverb".log | grep -o '[0-9.]*µs a block' | tr '\n' ' ')"
+  echo "room echo $dereverb: $(grep -hoE '[0-9.]+(ns|µs|ms|s) a block' "$work"/chain/*_"$dereverb".log | tr '\n' ' ')"
 done
 echo
 python score "$work" "$noise"

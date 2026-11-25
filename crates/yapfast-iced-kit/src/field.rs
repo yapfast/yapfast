@@ -1,6 +1,6 @@
 //! The composer's text field, and the picker's search field: a multi-line
-//! field that grows with its text up to ten lines, then scrolls to keep the
-//! caret in view. Enter sends and Shift+Enter breaks the line; with
+//! field that grows with its text until its height limit, then scrolls to
+//! keep the caret in view. Enter sends and Shift+Enter breaks the line; with
 //! suggestions over it, Up and Down move through them, Tab or Enter takes
 //! one and Escape closes them. Mouse and keyboard selection (a click with
 //! Shift held extends it), Ctrl+A, C, X and V, and undo (Ctrl+Z,
@@ -45,8 +45,12 @@ use iced::{
 };
 
 use crate::fonts::{REGULAR, SEMIBOLD};
+use crate::widgets::flick::{Flick, Room, Rooms};
 
 type Renderer = iced::Renderer;
+
+/// Marks an overflowing field for the surrounding scroll view's wheel routing.
+pub(crate) struct WheelField;
 
 /// What the field tells the app.
 #[derive(Clone, Debug)]
@@ -117,6 +121,7 @@ struct Inner {
     /// How far a one-line field's text is scrolled left, to keep the caret
     /// in view.
     scroll_x: f32,
+    scroll: Option<Scroll>,
 }
 
 /// The composer's text and its history, which the app keeps per channel
@@ -137,6 +142,7 @@ impl Default for Draft {
             height: 48.0,
             styled: false,
             scroll_x: 0.0,
+            scroll: None,
         }))
     }
 }
@@ -394,6 +400,8 @@ pub struct Field<'a, M> {
     /// Room above and below the text, and either side.
     pad: Padding,
     lines: f32,
+    max_height: Option<f32>,
+    scrollbar: crate::widgets::Scroller,
     /// A search field: one line, no line breaks.
     single: bool,
     /// Enter breaks the line rather than sending, as in a plain text box.
@@ -472,6 +480,8 @@ impl<'a, M: Clone> Field<'a, M> {
                 left: 6.0,
             },
             lines: 10.0,
+            max_height: None,
+            scrollbar: crate::widgets::Scroller::default(),
             single: false,
             breaks: false,
             pastes: false,
@@ -561,6 +571,18 @@ impl<'a, M: Clone> Field<'a, M> {
         self
     }
 
+    /// A message field can use up to half the window, including its padding, as
+    /// Discord's text area stops at 50vh.
+    pub fn message_height(
+        mut self,
+        window_height: f32,
+        scrollbar: crate::widgets::Scroller,
+    ) -> Self {
+        self.max_height = Some(window_height * 0.5);
+        self.scrollbar = scrollbar;
+        self
+    }
+
     /// Its corners' radius; 8 px without.
     pub fn radius(mut self, radius: f32) -> Self {
         self.radius = radius;
@@ -581,11 +603,71 @@ struct State {
     told: bool,
     last_click: Option<mouse::Click>,
     dragging: bool,
+    drag_scroll_at: Option<Instant>,
+    drag_scroll_remainder: f32,
+    scrollbar_grip: Option<f32>,
     /// A left or middle press began in the field: its release copies the
     /// selection to the primary selection, or pastes from it.
     pressed: Option<mouse::Button>,
     /// The keys held, for Shift with a click.
     modifiers: keyboard::Modifiers,
+    wheel: Flick,
+    wheel_remainder: f32,
+}
+
+impl State {
+    fn stop_wheel(&mut self) {
+        self.wheel.stop();
+        self.wheel_remainder = 0.0;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Scroll {
+    offset: f32,
+    max: f32,
+}
+
+impl Scroll {
+    fn rooms(self, remainder: f32) -> Rooms {
+        Rooms {
+            y: Room {
+                offset: (self.offset + remainder).clamp(0.0, self.max),
+                max: self.max,
+            },
+            ..Rooms::default()
+        }
+    }
+
+    fn of(editor: &Editor) -> Option<Self> {
+        let buffer = editor.buffer();
+        let scroll = buffer.scroll();
+        let line = buffer.metrics().line_height;
+        // Unvisited lines may not have wrapping cached yet. Count them as
+        // one line until their layout is available.
+        let mut total = 0.0;
+        let mut offset = scroll.vertical;
+        for (index, row) in buffer.lines.iter().enumerate() {
+            let height = row.layout_opt().map_or(1, |layout| layout.len()) as f32 * line;
+            total += height;
+            if index < scroll.line {
+                offset += height;
+            }
+        }
+        let max = total - editor.bounds().height;
+        (max > 0.5).then_some(Self { offset, max })
+    }
+
+    fn thumb(self, track: Rectangle) -> Rectangle {
+        let height = (track.height * track.height / (track.height + self.max))
+            .clamp(track.height.min(20.0), track.height);
+        Rectangle {
+            x: track.x + (track.width - 4.0).max(0.0) / 2.0,
+            y: track.y + (track.height - height) * (self.offset / self.max).clamp(0.0, 1.0),
+            width: 4.0_f32.min(track.width),
+            height,
+        }
+    }
 }
 
 struct Focus {
@@ -618,6 +700,7 @@ pub fn holds_keys(taken: u64) -> bool {
 }
 
 const BLINK: u128 = 500;
+const DRAG_SCROLL: Duration = Duration::from_millis(24);
 
 /// What a paste puts in a field: in a one-line field, its line breaks as
 /// spaces.
@@ -683,6 +766,104 @@ impl<M: Clone> Field<'_, M> {
     fn moved(&self, inner: &Inner, shell: &mut Shell<'_, M>) {
         let caret = offset(&inner.editor, inner.editor.cursor().position);
         shell.publish((self.on)(Event::Moved(caret)));
+    }
+
+    fn shape_editor(&self, editor: &mut Editor, bounds: Size) {
+        editor.update(
+            bounds,
+            self.font,
+            self.size.into(),
+            LineHeight::Absolute(self.line.into()),
+            if self.single {
+                Wrapping::None
+            } else {
+                Wrapping::WordOrGlyph
+            },
+            &mut PlainText::new(&()),
+        );
+    }
+
+    fn scroll_lines(&self, inner: &mut Inner, lines: i32) -> bool {
+        if lines == 0 {
+            return false;
+        }
+        let before = inner.editor.buffer().scroll();
+        let bounds = inner.editor.bounds();
+        inner.editor.perform(Action::Scroll { lines });
+        self.shape_editor(&mut inner.editor, bounds);
+        let moved = inner.editor.buffer().scroll() != before;
+        if moved {
+            inner.scroll = Scroll::of(&inner.editor);
+        }
+        moved
+    }
+
+    fn wheel_step(&self, inner: &mut Inner, state: &mut State, pixels: f32) -> bool {
+        if pixels == 0.0 {
+            return false;
+        }
+        // The editor accepts whole lines. Carry the unspent distance so
+        // the wheel animation can reveal them one at a time.
+        let distance = state.wheel_remainder + pixels;
+        let lines = (distance / self.line).round() as i32;
+        state.wheel_remainder = distance - lines as f32 * self.line;
+        self.scroll_lines(inner, lines)
+    }
+
+    fn scrollbar_track(&self, bounds: Rectangle, text: Rectangle) -> Rectangle {
+        Rectangle {
+            x: text.x + text.width,
+            y: text.y,
+            width: (bounds.x + bounds.width - text.x - text.width).max(0.0),
+            height: text.height,
+        }
+    }
+
+    fn pull_scrollbar(&self, inner: &mut Inner, track: Rectangle, y: f32, grip: f32) -> bool {
+        let Some(scroll) = inner.scroll else {
+            return false;
+        };
+        let thumb = scroll.thumb(track);
+        let travel = track.height - thumb.height;
+        if travel <= 0.0 {
+            return false;
+        }
+        let share = ((y - track.y - grip * thumb.height) / travel).clamp(0.0, 1.0);
+        let lines = if share == 0.0 || share == 1.0 {
+            // A line can wrap at most once per byte. Jump all the way to
+            // the edge even if intermediate wrapping is not cached yet.
+            let limit = inner
+                .editor
+                .buffer()
+                .lines
+                .iter()
+                .map(|line| line.text().len().max(1))
+                .sum::<usize>()
+                .min(i32::MAX as usize) as i32;
+            if share == 0.0 { -limit } else { limit }
+        } else {
+            ((share * scroll.max - scroll.offset) / self.line).round() as i32
+        };
+        self.scroll_lines(inner, lines)
+    }
+
+    fn drag_selection(
+        &self,
+        inner: &mut Inner,
+        at: Point,
+        text: Rectangle,
+        shown: Rectangle,
+        shell: &mut Shell<'_, M>,
+    ) {
+        let y =
+            at.y.clamp(shown.y, (shown.y + shown.height - 0.5).max(shown.y));
+        let at = Point::new(at.x, y) - (self.origin(inner, text) - Point::ORIGIN);
+        let before = inner.editor.cursor().position;
+        inner.editor.perform(Action::Drag(at));
+        if inner.editor.cursor().position != before {
+            self.moved(inner, shell);
+        }
+        shell.request_redraw();
     }
 
     /// Scrolls a one-line field's text so the caret shows in `room`.
@@ -805,25 +986,20 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
     ) -> layout::Node {
         let width = limits.max().width;
         // As many lines as it shows, and no taller than its room.
-        let most = (self.lines * self.line)
-            .min(limits.max().height - self.pad.y())
-            .max(self.line);
+        let maximum = self
+            .max_height
+            .unwrap_or(self.lines * self.line + self.pad.y());
+        let room = maximum.min(limits.max().height) - self.pad.y();
+        let most = (room / self.line).floor().max(1.0) * self.line;
         let mut inner = self.draft.0.borrow_mut();
         // A one-line field's text runs on past its end, scrolled to the
         // caret, as a search box's does.
-        let (room, wrapping) = if self.single {
-            (UNWRAPPED, Wrapping::None)
+        let room = if self.single {
+            UNWRAPPED
         } else {
-            ((width - self.pad.x()).max(1.0), Wrapping::WordOrGlyph)
+            (width - self.pad.x()).max(1.0)
         };
-        inner.editor.update(
-            Size::new(room, most),
-            self.font,
-            self.size.into(),
-            LineHeight::Absolute(self.line.into()),
-            wrapping,
-            &mut PlainText::new(&()),
-        );
+        self.shape_editor(&mut inner.editor, Size::new(room, most));
         // Keys in semibold, or back to regular once there are none; not
         // while an input method composes, which moves the text.
         let bold: Vec<Range<usize>> = if inner.preedit.is_none() {
@@ -846,6 +1022,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 });
         }
         let content = inner.editor.min_bounds().height.clamp(self.line, most);
+        inner.scroll = (!self.single && content + 0.5 >= most)
+            .then(|| Scroll::of(&inner.editor))
+            .flatten();
         self.follow_caret(&mut inner, width - self.pad.x());
         inner.height = content + self.pad.y();
         layout::Node::new(Size::new(width, content + self.pad.y()))
@@ -859,7 +1038,11 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         operation: &mut dyn operation::Operation,
     ) {
         let state = tree.state.downcast_mut::<State>();
-        operation.focusable(Some(&self.id), layout.bounds(), state);
+        let bounds = layout.bounds();
+        operation.focusable(Some(&self.id), bounds, state);
+        if self.enabled && self.draft.0.borrow().scroll.is_some() {
+            operation.custom(Some(&self.id), bounds, &mut WheelField);
+        }
     }
 
     fn update(
@@ -871,12 +1054,15 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         _renderer: &Renderer,
         clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, M>,
-        _viewport: &Rectangle,
+        viewport: &Rectangle,
     ) {
         let state = tree.state.downcast_mut::<State>();
         if !self.enabled || state.focus.as_ref().is_some_and(|focus| !focus.holds()) {
             state.focus = None;
             state.dragging = false;
+            state.drag_scroll_at = None;
+            state.scrollbar_grip = None;
+            state.stop_wheel();
         }
         // Focus moves by the app's tasks as well as by presses: the next
         // event after it tells the app.
@@ -889,11 +1075,20 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         }
         let bounds = layout.bounds();
         let text_bounds = self.text_bounds(layout);
+        let track = self.scrollbar_track(bounds, text_bounds);
+        let pointer = match cursor {
+            mouse::Cursor::Available(point) | mouse::Cursor::Levitating(point) => Some(point),
+            mouse::Cursor::Unavailable => None,
+        };
         match event {
             iced::Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                 state.modifiers = *modifiers;
             }
             iced::Event::Window(window::Event::Unfocused) => {
+                state.dragging = false;
+                state.drag_scroll_at = None;
+                state.scrollbar_grip = None;
+                state.stop_wheel();
                 if let Some(focus) = &mut state.focus {
                     focus.window_focused = false;
                 }
@@ -906,6 +1101,33 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 }
             }
             iced::Event::Window(window::Event::RedrawRequested(now)) => {
+                if state.wheel.moving() {
+                    let mut inner = self.draft.0.borrow_mut();
+                    if let Some(scroll) = inner.scroll {
+                        let step = state.wheel.frame(*now, scroll.rooms(state.wheel_remainder));
+                        self.wheel_step(&mut inner, state, step.y);
+                        if state.wheel.moving() {
+                            shell.request_redraw();
+                        }
+                    } else {
+                        state.stop_wheel();
+                    }
+                }
+                if state.drag_scroll_at.is_some_and(|at| *now >= at) {
+                    state.drag_scroll_at = None;
+                    if let (Some(at), Some(shown)) = (pointer, text_bounds.intersection(viewport)) {
+                        let speed = drag_scroll_lines(at, shown);
+                        let distance = speed as f32 * 0.8 + state.drag_scroll_remainder;
+                        let lines = distance.round() as i32;
+                        state.drag_scroll_remainder = distance - lines as f32;
+                        let mut inner = self.draft.0.borrow_mut();
+                        if speed != 0 && self.scroll_lines(&mut inner, lines) {
+                            self.drag_selection(&mut inner, at, text_bounds, shown, shell);
+                            state.drag_scroll_at = Some(*now + DRAG_SCROLL);
+                            shell.request_redraw_at(*now + DRAG_SCROLL);
+                        }
+                    }
+                }
                 // The caret's blink, the only thing the window does at rest.
                 if let Some(focus) = &mut state.focus
                     && focus.window_focused
@@ -928,6 +1150,26 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 return;
             }
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                state.stop_wheel();
+                state.drag_scroll_remainder = 0.0;
+                if !shell.is_event_captured()
+                    && let Some(at) = cursor.position_over(track)
+                {
+                    let mut inner = self.draft.0.borrow_mut();
+                    if let Some(scroll) = inner.scroll {
+                        let thumb = scroll.thumb(track);
+                        let grip = if (thumb.y..=thumb.y + thumb.height).contains(&at.y) {
+                            (at.y - thumb.y) / thumb.height
+                        } else {
+                            0.5
+                        };
+                        state.scrollbar_grip = Some(grip);
+                        self.pull_scrollbar(&mut inner, track, at.y, grip);
+                        shell.capture_event();
+                        shell.request_redraw();
+                        return;
+                    }
+                }
                 let Some(at) = cursor.position_in(text_bounds.expand(self.pad)) else {
                     state.focus = None;
                     state.dragging = false;
@@ -957,6 +1199,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             }
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
                 if let Some(at) = cursor.position_over(bounds) {
+                    state.stop_wheel();
                     state.focus = Some(Focus::now());
                     shell.publish((self.on)(Event::Menu(at)));
                     shell.capture_event();
@@ -967,6 +1210,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             // under it; its release pastes the primary selection there.
             iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
                 if cursor.is_over(bounds) {
+                    state.stop_wheel();
                     state.focus = Some(Focus::now());
                     state.pressed = Some(mouse::Button::Middle);
                     shell.capture_event();
@@ -1004,6 +1248,12 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
             // selection, as the desktop's other fields do.
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.dragging = false;
+                state.drag_scroll_at = None;
+                if state.scrollbar_grip.take().is_some() {
+                    shell.capture_event();
+                    shell.request_redraw();
+                    return;
+                }
                 if state.pressed.take() == Some(mouse::Button::Left)
                     && let Some(selection) = self.draft.0.borrow().editor.copy()
                 {
@@ -1011,33 +1261,72 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 }
                 return;
             }
-            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging => {
-                if let Some(at) = cursor.position() {
-                    let mut inner = self.draft.0.borrow_mut();
-                    let at = at - (self.origin(&inner, text_bounds) - Point::ORIGIN);
-                    inner.editor.perform(Action::Drag(at));
-                    self.moved(&inner, shell);
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. })
+                if state.scrollbar_grip.is_some() =>
+            {
+                if let (Some(at), Some(grip)) = (pointer, state.scrollbar_grip)
+                    && self.pull_scrollbar(&mut self.draft.0.borrow_mut(), track, at.y, grip)
+                {
                     shell.request_redraw();
+                }
+                shell.capture_event();
+                return;
+            }
+            iced::Event::Mouse(mouse::Event::CursorMoved { .. }) if state.dragging => {
+                if let (Some(at), Some(shown)) = (pointer, text_bounds.intersection(viewport)) {
+                    let mut inner = self.draft.0.borrow_mut();
+                    self.drag_selection(&mut inner, at, text_bounds, shown, shell);
+                    if inner.scroll.is_some() && drag_scroll_lines(at, shown) != 0 {
+                        let at = *state
+                            .drag_scroll_at
+                            .get_or_insert_with(|| Instant::now() + DRAG_SCROLL);
+                        shell.request_redraw_at(at);
+                    } else {
+                        state.drag_scroll_at = None;
+                    }
                 }
                 return;
             }
-            iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) if cursor.is_over(bounds) => {
+            iced::Event::Mouse(mouse::Event::WheelScrolled { delta })
+                if !self.single && cursor.is_over(bounds) && !shell.is_event_captured() =>
+            {
                 let mut inner = self.draft.0.borrow_mut();
-                let height = inner.editor.min_bounds().height;
-                if height + 1.0 >= self.lines * self.line {
-                    let lines = match delta {
-                        mouse::ScrollDelta::Lines { y, .. } => -y * 3.0,
-                        mouse::ScrollDelta::Pixels { y, .. } => -y / self.line,
+                if let Some(scroll) = inner.scroll {
+                    let (y, pixels) = match delta {
+                        mouse::ScrollDelta::Lines { y, .. } => (*y, false),
+                        mouse::ScrollDelta::Pixels { y, .. } => (*y, true),
                     };
-                    inner.editor.perform(Action::Scroll {
-                        lines: lines.round() as i32,
-                    });
+                    if y == 0.0 {
+                        return;
+                    }
+                    // Keep vertical wheel input inside the field at its ends, too.
                     shell.capture_event();
-                    shell.request_redraw();
+                    let now = Instant::now();
+                    let pointer = pointer.unwrap_or(Point::ORIGIN);
+                    let rooms = scroll.rooms(state.wheel_remainder);
+                    let moved = if pixels {
+                        let by = Vector::new(0.0, -y / crate::widgets::pixel_scale());
+                        state.wheel.touchpad(now, by, pointer, rooms).moved
+                    } else {
+                        let by = Vector::new(0.0, -y * 3.0 * self.line);
+                        state.wheel.wheel(now, by, pointer, rooms).moved
+                    };
+                    if self.wheel_step(&mut inner, state, moved.y) || state.wheel.moving() {
+                        shell.request_redraw();
+                    }
                 }
                 return;
             }
             _ => {}
+        }
+        if state.focus.is_some()
+            && matches!(
+                event,
+                iced::Event::InputMethod(_)
+                    | iced::Event::Keyboard(keyboard::Event::KeyPressed { .. })
+            )
+        {
+            state.stop_wheel();
         }
         let Some(focus) = &mut state.focus else {
             return;
@@ -1271,7 +1560,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         _theme: &Theme,
         _style: &renderer::Style,
         layout: Layout<'_>,
-        _cursor: mouse::Cursor,
+        cursor: mouse::Cursor,
         _viewport: &Rectangle,
     ) {
         use iced::advanced::{Renderer as _, text::Renderer as _};
@@ -1393,6 +1682,23 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                 );
             }
         }
+        if let Some(scroll) = inner.scroll {
+            let track = self.scrollbar_track(bounds, text_bounds);
+            let thumb = scroll.thumb(track);
+            let ink = if state.scrollbar_grip.is_some() || cursor.is_over(track) {
+                self.scrollbar.pointed
+            } else {
+                self.scrollbar.rest
+            };
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: thumb,
+                    border: Border::default().rounded(2.0),
+                    ..Default::default()
+                },
+                ink,
+            );
+        }
     }
 
     fn mouse_interaction(
@@ -1403,11 +1709,28 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
         _viewport: &Rectangle,
         _renderer: &Renderer,
     ) -> mouse::Interaction {
-        if cursor.is_over(layout.bounds()) {
+        if self.draft.0.borrow().scroll.is_some()
+            && cursor.is_over(self.scrollbar_track(layout.bounds(), self.text_bounds(layout)))
+        {
+            mouse::Interaction::Pointer
+        } else if cursor.is_over(layout.bounds()) {
             mouse::Interaction::Text
         } else {
             mouse::Interaction::default()
         }
+    }
+}
+
+fn drag_scroll_lines(at: Point, shown: Rectangle) -> i32 {
+    let top = shown.y + 3.0;
+    let bottom = shown.y + shown.height - 3.0;
+    let speed = |distance: f32| 2 + (distance / 16.0).min(4.0) as i32;
+    if at.y <= top {
+        -speed(top - at.y)
+    } else if at.y >= bottom {
+        speed(at.y - bottom)
+    } else {
+        0
     }
 }
 
@@ -1763,6 +2086,204 @@ mod pointer_tests {
         }
         assert!(scrolls[0] > 1000.0, "at the end: {scrolls:?}");
         assert_eq!(scrolls[1], 0.0, "back at the start");
+    }
+
+    #[test]
+    fn the_wheel_reveals_both_ends_of_a_long_field_without_a_click() {
+        let draft = Draft::default();
+        let text = (1..=20)
+            .map(|line| format!("Line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        draft.reset(&text);
+        install_fonts();
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            Size::new(400.0, 300.0),
+            scroll_field(&draft),
+        );
+        ui.point_at(START);
+        let scroll = |y| {
+            Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y },
+            })
+        };
+        let visible = || {
+            let inner = draft.0.borrow();
+            let mut lines = inner.editor.buffer().layout_runs();
+            let first = lines.next().map(|run| run.line_i);
+            let last = lines.last().map(|run| run.line_i);
+            (first, last)
+        };
+        let offset = || draft.0.borrow().scroll.expect("overflow").offset;
+        let frame = |at| Event::Window(iced::window::Event::RedrawRequested(at));
+        assert_eq!(visible().1, Some(19));
+        let bottom = offset();
+        ui.simulate([scroll(1.0)]);
+        let start = std::time::Instant::now();
+        ui.simulate([frame(start + std::time::Duration::from_millis(36))]);
+        let moved = bottom - offset();
+        assert!(moved > 0.0 && moved < 72.0, "first frame moved {moved}");
+        ui.simulate([frame(start + std::time::Duration::from_millis(200))]);
+        assert_eq!(offset(), bottom - 72.0);
+        ui.simulate([scroll(20.0)]);
+        ui.simulate([frame(
+            std::time::Instant::now() + std::time::Duration::from_millis(200),
+        )]);
+        assert_eq!(visible().0, Some(0));
+        ui.simulate([scroll(-20.0)]);
+        ui.simulate([frame(
+            std::time::Instant::now() + std::time::Duration::from_millis(200),
+        )]);
+        assert_eq!(visible().1, Some(19));
+        for _ in 0..4 {
+            ui.simulate([Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Pixels { x: 0.0, y: 6.0 },
+            })]);
+        }
+        assert_eq!(offset(), bottom - 24.0, "small touchpad deltas accumulate");
+        assert_eq!(draft.text(), text);
+    }
+
+    #[test]
+    fn a_message_field_only_scrolls_when_it_outgrows_its_window_space() {
+        let draft = Draft::default();
+        draft.reset(&"line\n".repeat(12));
+        install_fonts();
+        for (height, overflow) in [(1000.0, false), (320.0, true), (1000.0, false)] {
+            let field = scroll_field(&draft).message_height(height, Default::default());
+            let _ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                Size::new(400.0, height),
+                field,
+            );
+            assert_eq!(draft.0.borrow().scroll.is_some(), overflow);
+        }
+    }
+
+    #[test]
+    fn an_overflowing_field_keeps_the_wheel_at_both_ends_inside_a_scrolled_list() {
+        use crate::widgets::{scroll_view, swipe};
+
+        let draft = Draft::default();
+        draft.reset(&"line\n".repeat(20));
+        install_fonts();
+        let list = scroll_view(iced::widget::column![
+            iced::widget::Space::new().height(50),
+            scroll_field(&draft).lines(4.0),
+            iced::widget::Space::new().height(600),
+        ])
+        .on_scroll(Message::Scrolled)
+        .height(300);
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            Size::new(400.0, 300.0),
+            list,
+        );
+        let scroll = || draft.0.borrow().scroll.expect("overflow");
+        ui.point_at(Point::new(50.0, 30.0));
+        // The wheel starts in the list, bringing the field under the same pointer.
+        ui.simulate(swipe(-30.0));
+        let wheel = |y| {
+            Event::Mouse(mouse::Event::WheelScrolled {
+                delta: mouse::ScrollDelta::Lines { x: 0.0, y },
+            })
+        };
+        ui.simulate(swipe(720.0));
+        assert_eq!(scroll().offset, 0.0);
+        ui.simulate(swipe(24.0));
+        ui.simulate([wheel(1.0)]);
+        ui.simulate(swipe(-720.0));
+        assert_eq!(scroll().offset, scroll().max);
+        ui.simulate(swipe(-24.0));
+        ui.simulate([wheel(-1.0)]);
+        ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now() + std::time::Duration::from_millis(200),
+        ))]);
+        let offsets: Vec<_> = ui
+            .into_messages()
+            .filter_map(|message| match message {
+                Message::Scrolled(viewport) => Some(viewport.absolute_offset().y),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(offsets, [30.0]);
+    }
+
+    #[test]
+    fn the_thumb_and_a_held_selection_can_scroll_to_both_ends() {
+        use std::time::Instant;
+
+        let draft = Draft::default();
+        let text = (1..=20)
+            .map(|line| format!("Line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        draft.reset(&text);
+        install_fonts();
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            Size::new(400.0, 300.0),
+            scroll_field(&draft).lines(4.0),
+        );
+        let left = mouse::Button::Left;
+        let drag = |ui: &mut iced_test::Simulator<'_, Message>, at| {
+            ui.point_at(at);
+            ui.simulate([Event::Mouse(mouse::Event::CursorMoved { position: at })]);
+        };
+        let offset = || draft.0.borrow().scroll.expect("overflow").offset;
+        let bottom = offset();
+        ui.point_at(Point::new(397.0, 16.0));
+        ui.simulate([press(left)]);
+        assert_eq!(offset(), 0.0);
+        drag(&mut ui, Point::new(397.0, 150.0));
+        assert_eq!(offset(), bottom);
+        ui.simulate([release(left)]);
+        assert!(draft.selection().is_none());
+
+        for (from, to, expected) in [
+            (Point::new(100.0, 100.0), Point::new(0.0, 2.0), 0.0),
+            (Point::new(8.0, 16.0), Point::new(120.0, 200.0), bottom),
+        ] {
+            ui.point_at(from);
+            ui.simulate([press(left)]);
+            drag(&mut ui, to);
+            let now = Instant::now();
+            let before = offset();
+            for frame in 1..=22 {
+                ui.simulate([Event::Window(iced::window::Event::RedrawRequested(
+                    now + super::DRAG_SCROLL * frame,
+                ))]);
+                if frame == 1 {
+                    let moved = (offset() - before).abs();
+                    if expected == 0.0 {
+                        assert_eq!(moved, 48.0, "near edge");
+                    } else {
+                        assert!(moved > 100.0, "far from edge: {moved}");
+                    }
+                } else if frame == 2 && expected == 0.0 {
+                    assert_eq!((offset() - before).abs(), 72.0, "reduced second step");
+                }
+            }
+            assert_eq!(offset(), expected);
+            assert_eq!(draft.selection().as_deref(), Some(text.as_str()));
+            ui.simulate([release(left)]);
+        }
+    }
+
+    fn scroll_field(draft: &Draft) -> Field<'_, Message> {
+        Field::new(
+            draft,
+            Id::new("field"),
+            String::new(),
+            |_| Message::Nothing,
+            Colors {
+                ground: Color::BLACK,
+                text: Color::WHITE,
+                placeholder: Color::WHITE,
+                selection: Color::WHITE,
+            },
+        )
     }
 
     fn press(button: mouse::Button) -> Event {

@@ -225,20 +225,30 @@ impl SignIn {
         }
     }
 
+    /// Lets go of the token pasted, and its field with it.
+    pub fn drop_token(&mut self) {
+        forget(&mut self.token);
+        self.token_open = false;
+    }
+
     fn take_in(&mut self, state: &AppState, root: &std::path::Path) {
         if !state.busy {
             self.starting = false;
         }
+        // Add Account, in Manage Accounts, links another beside the one in
+        // use: its code and token stay while it's open.
+        let adding = state.manage_accounts.is_some();
         if state.preview || state.account.is_some() {
-            self.code = None;
             self.starting = false;
-            // Linked: the token pasted, kept until now to fix a refused
-            // one, goes with its field.
-            if state.account.is_some() && !self.token.is_empty() {
-                forget(&mut self.token);
-                self.token_open = false;
+            if !adding {
+                self.code = None;
+                // Linked: the token pasted, kept until now to fix a refused
+                // one, goes with its field.
+                if state.account.is_some() && !self.token.is_empty() {
+                    self.drop_token();
+                }
+                return;
             }
-            return;
         }
         match &state.discord_link {
             Some(DiscordLink::Code(address)) => {
@@ -252,7 +262,7 @@ impl SignIn {
             }
             _ => self.code = None,
         }
-        if MATRIX {
+        if MATRIX && !adding {
             self.restore_available = yapfast_core::chat::can_restore(root);
         }
     }
@@ -430,7 +440,19 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     )
                 }
             });
-            let mut panel = column![warning].spacing(12).width(Length::Fill);
+            let mut panel = column![].spacing(12).width(Length::Fill);
+            if ctx.state.discord_session_kept {
+                panel = panel.push(
+                    text(
+                        "Yapfast forgot your login on this computer. If you pasted a \
+                         token, the app or browser you copied it from is still signed in.",
+                    )
+                    .size(14)
+                    .color(theme.secondary)
+                    .width(Length::Fill),
+                );
+            }
+            panel = panel.push(warning);
             if let Some(DiscordLink::Failed(note)) = link {
                 panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
             }
@@ -454,7 +476,15 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     Some(Message::SignIn(Event::OpenToken)),
                 ));
             }
-            panel = panel.push(buttons);
+            panel = panel.push(buttons).push(
+                text(
+                    "Pasting a token from another app can make Discord sign that app \
+                     out. The QR code is the safe way to link.",
+                )
+                .size(13)
+                .color(theme.secondary)
+                .width(Length::Fill),
+            );
             if form.token_open {
                 panel = panel.push(
                     column![
@@ -756,7 +786,7 @@ pub fn qr_code(address: &str) -> Option<(iced::advanced::image::Handle, f32)> {
     let scale = (176 / side).max(1);
     let pixels_side = side * scale;
     let mut pixels = vec![255u8; pixels_side * pixels_side * 4];
-    for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (index % pixels_side / scale, index / pixels_side / scale);
         let dark = (QUIET..QUIET + width).contains(&x)
             && (QUIET..QUIET + width).contains(&y)

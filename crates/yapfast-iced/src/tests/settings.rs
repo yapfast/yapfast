@@ -1120,6 +1120,128 @@ fn creator_save_migrates_an_external_folder_without_touching_it() {
 }
 
 #[test]
+fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() {
+    use crate::settings::{ThemeEvent, appearance_event as theme};
+    use yapfast_core::theme::Theme;
+    let files = tempfile::tempdir_in(super::local()).expect("test folder");
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    let file = |app: &App| app.win.settings.get().expect("Settings").theme_file();
+    let note = |app: &App| app.win.settings.get().expect("Settings").theme_note.clone();
+
+    // Nothing to export outside the editor, or while a field holds no colour.
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Choose("tokyo-night".into())));
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = app.update(theme(ThemeEvent::Name("Night / Shift".into())));
+    let chat = Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+    let _ = app.update(theme(ThemeEvent::Dark(false)));
+    let made = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .map(|editor| editor.theme)
+        .expect("the editor");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#10".into())));
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+
+    // The unsaved edit exports as it stands, and Copy says it copied it.
+    let _ = app.update(theme(ThemeEvent::Copy));
+    assert!(shows(&app, "Copied the theme to the clipboard."));
+    let (file_name, text) = file(&app).expect("a theme to export");
+    assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
+    let path = files.path().join(&file_name);
+    std::fs::write(&path, &text).expect("the file");
+    let _ = app.update(theme(ThemeEvent::Exported(file_name.clone(), Ok(()))));
+    assert!(shows(&app, "Exported to Night - Shift.yapfast-theme.json."));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(false));
+    let _ = app.update(theme(ThemeEvent::Exported(
+        file_name,
+        Err("disk full".into()),
+    )));
+    assert!(shows(&app, "Couldn't save the theme file: disk full"));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(true));
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&app), None, "gone with the editor");
+
+    // Another install loads it as a theme of its own, chosen, and keeps it.
+    let (mut other, other_folder) = preview();
+    open(&mut other, Section::Appearance);
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:1");
+    assert_eq!(other.theme.chat, crate::style::hex(0x102030));
+    assert!(!other.theme.dark);
+    assert_eq!(other.themes.custom.len(), 1);
+    assert_eq!(other.themes.custom[0].name, "Night / Shift");
+    assert_eq!(other.themes.custom[0].base, "tokyo-night");
+    assert_eq!(other.themes.custom[0].theme, made);
+    assert!(shows(&other, "Night / Shift"), "among the tiles");
+    assert!(shows(&other, "Imported Night / Shift."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(false));
+    let layout = stored(&other_folder);
+    assert_eq!(layout["theme"], "custom:1");
+    assert_eq!(layout["custom_themes"][0]["base"], "tokyo-night");
+    assert_eq!(layout["custom_themes"][0]["colours"]["chat"], "#102030");
+
+    // Importing it again adds another with its own id.
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:2");
+    assert_eq!(other.themes.custom.len(), 2);
+
+    // Pasting the same text, as Copy put it on the clipboard, adds one too;
+    // a clipboard without text or with other text changes nothing but the
+    // note.
+    let pasted = std::fs::read_to_string(&path).expect("the file");
+    let _ = other.update(theme(ThemeEvent::Pasted(Some(pasted))));
+    assert_eq!(other.theme.id, "custom:3");
+    assert_eq!(other.themes.custom[2].theme, made);
+    let _ = other.update(theme(ThemeEvent::Pasted(None)));
+    assert!(shows(&other, "The clipboard holds no text."));
+    let _ = other.update(theme(ThemeEvent::Pasted(Some("hello".into()))));
+    assert!(shows(&other, "That is not a Yapfast theme."));
+    assert_eq!(other.themes.custom.len(), 3);
+
+    // A file that isn't a theme, or can't be read, changes nothing but the
+    // note.
+    let junk = files.path().join("junk.json");
+    std::fs::write(&junk, "{}").expect("the file");
+    let _ = other.update(theme(ThemeEvent::Imported(junk)));
+    assert!(shows(&other, "That is not a Yapfast theme."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(true));
+    let missing = files.path().join("missing.json");
+    let _ = other.update(theme(ThemeEvent::Imported(missing)));
+    assert!(note(&other).is_some_and(|(note, wrong)| wrong && note.starts_with("Couldn't read")));
+    assert_eq!(other.theme.id, "custom:3");
+    assert_eq!(other.themes.custom.len(), 3);
+
+    // The editor owns the window's colours while it is open.
+    interact(&mut other, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = other.update(theme(ThemeEvent::Imported(path)));
+    assert!(shows(
+        &other,
+        "Save or cancel the theme being edited first."
+    ));
+    let _ = other.update(theme(ThemeEvent::Pasted(Some(text))));
+    assert_eq!(other.themes.custom.len(), 3);
+    interact(&mut other, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&other), None);
+}
+
+#[test]
 fn the_theme_editors_colour_picker_opens_picks_and_dismisses() {
     let (mut app, _folder) = preview();
     open(&mut app, Section::Appearance);
@@ -1786,6 +1908,40 @@ fn edit_profile_from_settings_closes_them_under_the_editor() {
     assert!(app.win.settings.get().is_none(), "Settings close under it");
 }
 
+/// Appearance's Font lists no file until one is chosen. A file that is no
+/// font is left out, with the reason under the buttons, and isn't kept for
+/// the next start. (A real font isn't loaded here: the font database is the
+/// process's, and the other tests measure their text in DM Sans.)
+#[test]
+fn a_file_that_is_no_font_is_left_out_of_appearances_font() {
+    use crate::settings::{FontEvent, font_message};
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "FONT") && shows(&app, "Choose font files"));
+    assert!(!shows(&app, "Reset to default"), "nothing to reset yet");
+    let words = folder.path().join("notes.ttf");
+    std::fs::write(&words, b"only words, no font tables in here").expect("a file");
+    let _ = app.update(font_message(FontEvent::Chosen(vec![
+        words.to_str().expect("a path").to_owned(),
+    ])));
+    assert!(
+        shows(
+            &app,
+            "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+        ),
+        "the note names the file and says why"
+    );
+    assert!(!shows(&app, "Reset to default"), "nothing is loaded");
+    assert_eq!(stored(&folder)["ui_font_files"], serde_json::json!([]));
+    assert!(app.layout.prefs.ui_font_files.is_empty());
+    // Going back to DM Sans with nothing loaded is no change either.
+    let _ = app.update(font_message(FontEvent::Reset));
+    assert!(!shows(
+        &app,
+        "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+    ));
+}
+
 /// A call going on in Lounge, joined as the preview joins, unmuted
 /// unless `muted`: after the join, which turns the microphone on.
 fn in_a_call(app: &mut App, muted: bool) {
@@ -1886,6 +2042,48 @@ fn the_mic_test_without_a_call_deafens_nothing() {
     let _ = app.update(crate::app::settings(Event::Voice(VoiceEvent::MicTest)));
     assert!(testing(&app));
     assert_eq!(call(&app), before);
+}
+
+#[test]
+fn the_detected_games_menu_lists_each_game_and_choosing_one_never_shows_it() {
+    use crate::menus::MenuAct;
+    use yapfast_core::yapfast_discord::game_detection::custom_games::set_detected;
+    let (mut app, _folder) = preview();
+    // Nothing found: one row, which can't be chosen.
+    set_detected(Vec::new());
+    let _ = crate::settings::open_detected_games_menu(&mut app, iced::Point::ORIGIN);
+    let menu = app.win.menu.take().expect("a menu opened");
+    assert_eq!(menu.rows.len(), 1);
+    assert!(menu.rows[0].disabled, "there is nothing to choose");
+    // Two found: a row for each, by the name that shows after Playing.
+    set_detected(vec!["Roblox".into(), "Zelda".into()]);
+    let _ = crate::settings::open_detected_games_menu(&mut app, iced::Point::ORIGIN);
+    let menu = app.win.menu.take().expect("a menu opened");
+    let rows: Vec<_> = menu
+        .rows
+        .iter()
+        .map(|row| (row.label.to_string(), row.key.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Roblox".to_owned(), "Roblox".to_owned()),
+            ("Zelda".to_owned(), "Zelda".to_owned())
+        ]
+    );
+    assert!(
+        menu.rows
+            .iter()
+            .all(|row| row.act == MenuAct::BlockGame && !row.disabled)
+    );
+    set_detected(Vec::new());
+    // Choosing one lists it as never shown, once.
+    crate::settings::block_game(&mut app, "Roblox");
+    crate::settings::block_game(&mut app, "roblox");
+    assert_eq!(app.layout.prefs.blocked_games.len(), 1);
+    assert_eq!(app.layout.prefs.blocked_games[0].name, "Roblox");
+    assert!(app.layout.prefs.blocked_games[0].on, "chosen, it is hidden");
+    yapfast_core::discord::set_blocked_games(&[]);
 }
 
 #[test]

@@ -405,6 +405,51 @@ fn a_members_roles_tick_in_place_and_invite_to_server_lists_the_servers() {
 }
 
 #[test]
+fn the_roles_submenu_scrolls_only_when_taller_than_the_window() {
+    use crate::menus::{Event, Menu, MenuAct, MenuRow};
+    use yapfast_core::application::MenuChoice;
+
+    let (mut app, _folder) = preview();
+    // Room for 16 rows of 36 px; 12 fit, 40 don't.
+    app.shell.frame = iced::Size::new(1000.0, 600.0);
+    app.window = app.shell.frame;
+    for count in [12, 40] {
+        let mut roles = MenuRow::plain(MenuAct::Person(MenuChoice::Roles), "Roles");
+        roles.submenu = (0..count)
+            .map(|index| MenuRow {
+                check: Check::Box(false),
+                ..MenuRow::plain(MenuAct::Role, format!("Role {index}"))
+            })
+            .collect();
+        app.win.menu = Some(Menu::new(Point::new(100.0, 100.0), vec![roles]));
+        let _ = app.update(Message::Menu(Event::Light(0)));
+
+        let first = bounds(&app, "Role 0");
+        let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+        let last = format!("Role {}", count - 1);
+        let last_row = |candidate: Candidate<'_>| match candidate {
+            Candidate::Text {
+                content,
+                visible_bounds,
+                ..
+            } if content == last => visible_bounds,
+            _ => None,
+        };
+        let before = ui.find(last_row).ok();
+        ui.point_at(first.center());
+        ui.simulate(crate::widgets::swipe(-2000.0));
+        let after = ui
+            .find(last_row)
+            .expect("last role is visible after scrolling");
+        if count == 12 {
+            assert_eq!(before, Some(after));
+        } else {
+            assert_eq!(before, None);
+        }
+    }
+}
+
+#[test]
 fn a_channels_management_choices_ask_first() {
     let (mut app, _folder) = discord_server(
         yapfast_core::yapfast_discord::ready::permission::MANAGE_CHANNELS
@@ -822,4 +867,133 @@ fn every_row_of_a_persons_and_a_places_menu_has_its_icon() {
         let _ = crate::place_menus::open_place_menu(&mut app, place, at, header);
         assert_eq!(iconless(&app), [""; 0], "{place}'s, {header}");
     }
+}
+
+#[test]
+fn a_folders_menu_changes_its_servers_together_and_lists_them() {
+    const FOLDER: &str = "discord-folder:7";
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    super::change(&mut app, |state| {
+        state.discord_online = true;
+        for server in &mut state.servers {
+            std::sync::Arc::make_mut(server).folder = Some(yapfast_core::chat::ServerFolder {
+                id: FOLDER.into(),
+                name: None,
+                color: None,
+            });
+        }
+    });
+    let open = |app: &mut App| {
+        let _ = crate::place_menus::open_place_menu(app, FOLDER, Point::new(100.0, 100.0), false);
+    };
+    open(&mut app);
+    assert_eq!(
+        labels(&app),
+        [
+            "Mark folder as read",
+            "Mute folder",
+            "Notification settings",
+            "Servers"
+        ]
+    );
+    assert!(
+        !app.win.menu.as_ref().unwrap().rows[0].disabled,
+        "#general mentions her"
+    );
+    assert_eq!(
+        submenu(&app, "Notification settings"),
+        [
+            ("All messages".into(), Check::None),
+            ("Only @mentions".into(), Check::Current),
+            ("Nothing".into(), Check::None),
+            ("Suppress @everyone and @here".into(), Check::Box(false)),
+            ("Suppress all role @mentions".into(), Check::Box(true)),
+        ]
+    );
+    let servers = &app.win.menu.as_ref().unwrap().rows[3].submenu;
+    assert_eq!(
+        (servers[0].label.as_ref(), servers[0].subtitle.as_deref()),
+        ("Test", Some("Only @mentions")),
+        "each server says how it notifies"
+    );
+    // Mute folder, clicked itself, mutes every server in one request.
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    let sent: Vec<_> = std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Discord(DiscordCommand::FolderNotifications { servers, change }) => {
+                Some((servers, change))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sent,
+        [(
+            vec![SERVER.to_owned()],
+            NotificationChange::Mute(Muting::Always)
+        )]
+    );
+    // A server of its list opens; with a folder open, Close all folders
+    // closes it.
+    app.layout.open_folders.insert(FOLDER.into());
+    open(&mut app);
+    assert_eq!(
+        labels(&app).last().map(String::as_str),
+        Some("Close all folders")
+    );
+    let last = labels(&app).len() - 1;
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(last)));
+    assert!(app.layout.open_folders.is_empty());
+    // A right click on a server of its list opens that server's own
+    // choices beside it, which change it alone and keep the menu open.
+    open(&mut app);
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(3)));
+    let _ = app.update(Message::Menu(crate::menus::Event::SideOpen(0)));
+    let side: Vec<(String, Check)> = app
+        .win
+        .menu
+        .as_ref()
+        .and_then(|menu| menu.side.as_ref())
+        .expect("its own choices")
+        .1
+        .iter()
+        .map(|row| (row.label.to_string(), row.check))
+        .collect();
+    assert_eq!(
+        side.len(),
+        MUTE_TIMES.len() + 5,
+        "its mutes, levels, switches"
+    );
+    assert_eq!(
+        side[MUTE_TIMES.len() + 1],
+        ("Only @mentions".to_owned(), Check::Current)
+    );
+    let nothing = MUTE_TIMES.len() + 2;
+    let _ = app.update(Message::Menu(crate::menus::Event::SideChoose(nothing)));
+    assert_eq!(
+        changes(&mut app),
+        [(
+            SERVER.into(),
+            NotificationChange::Level(Some(NotifyLevel::Nothing))
+        )],
+        "the server's own, not the folder's"
+    );
+    let menu = app.win.menu.as_ref().expect("still open");
+    let (_, side) = menu.side.as_ref().expect("its choices too");
+    assert_eq!(side[nothing].check, Check::Current, "checked in place");
+    assert_eq!(side[nothing - 1].check, Check::None);
+    let _ = app.update(Message::Menu(crate::menus::Event::SideChoose(
+        MUTE_TIMES.len() + 4,
+    )));
+    assert_eq!(
+        changes(&mut app),
+        [(SERVER.into(), NotificationChange::SuppressRoles(false))]
+    );
+    // A left click on a server goes to it.
+    let _ = app.update(Message::Menu(crate::menus::Event::SubChoose(0)));
+    assert_eq!(
+        app.client.state().navigation,
+        Navigation::Server(SERVER.into())
+    );
 }

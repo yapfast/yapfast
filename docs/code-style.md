@@ -48,3 +48,9 @@ until the dependency-update and formatting-baseline PRs are merged. Active CI
 runs strict Clippy and workspace tests on Linux in parallel.
 Local `scripts/check --fast` also checks Rust formatting and documentation links,
 then runs Clippy, tests, a build and a smoke test.
+
+Workflows name GitHub's own actions (`actions/*`) by their major tag, such as
+`actions/checkout@v7`. Every other action is pinned to a full commit SHA with
+its release in a comment, such as
+`oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0`, because
+anyone who controls that repository can move a tag to new code.

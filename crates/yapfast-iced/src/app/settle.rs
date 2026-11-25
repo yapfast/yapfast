@@ -244,6 +244,10 @@ impl App {
                             self, &user, at, location,
                         ));
                     }
+                    Request::DetectedGamesMenu => {
+                        let at = self.pressed.get();
+                        tasks.push(crate::settings::open_detected_games_menu(self, at));
+                    }
                 }
             }
         }
@@ -316,6 +320,7 @@ impl App {
                 self.shown_protected = self.protected();
                 self.show_wanted_theme();
             }
+            Pref::DesktopIcon(target) => task = self.change_desktop_icon(target),
             Pref::Noise => {
                 let suppressor = self.layout.voice.noise_suppression;
                 if suppressor != yapfast_core::noise::Suppressor::Off {

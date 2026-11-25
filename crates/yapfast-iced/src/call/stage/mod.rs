@@ -756,7 +756,7 @@ fn stage_tile(
                 on_press = Message::Call(Event::Watch(person.id.clone()));
             }
             let mut marks = Vec::new();
-            if person.muted && !person.deafened {
+            if person.speaking_blocked || (person.muted && !person.deafened) {
                 marks.push((Icon::MicOff, theme.danger));
             }
             if person.deafened {
@@ -770,7 +770,14 @@ fn stage_tile(
             let live = person.streaming && (person.local || person.video.is_none());
             let mut tile = Tile::new(size, content, Some(ground))
                 .ring(speaking(person).then_some(theme.live))
-                .chip(tile::chip(app.look(), marks, &person.user, live, note));
+                .chip(tile::chip_in(
+                    app.look(),
+                    marks,
+                    &person.user,
+                    call_name_font(app, &person.person),
+                    live,
+                    note,
+                ));
             if person.local && voice.camera_phase == voice::CameraPhase::Starting {
                 tile = tile.top_left(tile::pill("Starting camera...", GLASS, Color::WHITE));
             }
@@ -883,6 +890,16 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
+    let speaking_blocked = voice.speaking_blocked();
+    let mic_off = voice.muted || speaking_blocked;
+    let mic_label = if speaking_blocked {
+        "Speaking is restricted in this channel"
+    } else if voice.muted {
+        "Unmute"
+    } else {
+        "Mute"
+    };
+    let mic_action = (ready && !speaking_blocked).then_some(Message::Call(Event::Mute));
     let when = |message: Message| ready.then_some(message);
     // A gel theme's call buttons are glossy gel buttons (as asked):
     // plain at rest, lit while on, the danger gel while muted and to leave.
@@ -895,14 +912,14 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         };
         let mut row_of = row![].spacing(12).align_y(Alignment::Center);
         row_of = row_of.extend(gel(
-            if voice.muted { Icon::MicOff } else { Icon::Mic },
-            if voice.muted { "Unmute" } else { "Mute" },
-            if voice.muted {
+            if mic_off { Icon::MicOff } else { Icon::Mic },
+            mic_label,
+            if mic_off {
                 GelTone::Danger
             } else {
                 GelTone::Plain
             },
-            when(Message::Call(Event::Mute)),
+            mic_action,
         ));
         row_of = row_of.extend(gel(
             if voice.deafened {
@@ -996,11 +1013,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let face = |icon| app.look().glyph(icon, ROUND_GLYPH, theme.text);
     let mut controls = row![
         controls::round_button(
-            face(if voice.muted { Icon::MicOff } else { Icon::Mic }),
-            if voice.muted { "Unmute" } else { "Mute" },
-            if voice.muted { alert } else { theme.raised },
+            face(if mic_off { Icon::MicOff } else { Icon::Mic }),
+            mic_label,
+            if mic_off { alert } else { theme.raised },
             theme,
-            when(Message::Call(Event::Mute)),
+            mic_action,
         ),
         controls::round_button(
             face(if voice.deafened {
@@ -1188,4 +1205,23 @@ pub fn can_share(ctx: crate::ctx::Ctx<'_>) -> bool {
         && voice.room.as_deref().is_some_and(|room| {
             yapfast_core::network::Network::of(room) == yapfast_core::network::Network::Discord
         })
+}
+
+/// The font of someone's name on their call tile: their display name
+/// style's, as the call's voice channel lists them by their user id, else
+/// the usual bold.
+pub(crate) fn call_name_font(app: &App, person: &str) -> iced::Font {
+    let state = app.client.state();
+    let own = state
+        .voice
+        .room
+        .as_deref()
+        .and_then(|room| state.rooms.iter().find(|listed| listed.id == room))
+        .and_then(|room| room.people.iter().find(|listed| listed.id == person))
+        .and_then(|listed| {
+            let style = state.cosmetics.style(listed.style.as_deref())?;
+            crate::looks::name_look(Some(style), &listed.name, true, true)
+        })
+        .and_then(|look| look.font());
+    crate::fonts::style_font(own, 700)
 }

@@ -356,7 +356,10 @@ fn asks_once_for_the_pictures_on_screen() {
                 video: false,
                 elsewhere: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
+                style: None,
+                tag: None,
             }],
         )]
         .into(),

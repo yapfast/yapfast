@@ -20,16 +20,25 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import runpy
 import signal
 import subprocess
 import time
+from pathlib import Path
 
-from voice_harness import (HEIGHT, ROOT, WIDTH, Container, host_ticks, locate_rail, process_cpu_seconds,
-                           provision)
 import voice_harness
+from voice_harness import (
+    HEIGHT,
+    ROOT,
+    WIDTH,
+    Container,
+    LoadParticipants,
+    host_ticks,
+    locate_rail,
+    process_cpu_seconds,
+    provision,
+)
 
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
@@ -51,48 +60,6 @@ args.output.mkdir(parents=True, exist_ok=True)
 
 def capture(name):
     return voice_harness.capture(args.output, name)
-
-
-class Load:
-    def __init__(self, executable, fixture, extra):
-        self.fixture = fixture
-        self.commands = fixture / 'load.commands'
-        self.commands.write_text('')
-        self.log = (fixture / 'load.log').open('ab')
-        self.process = subprocess.Popen([executable, '--exact', 'matrix_voice::tests::load_participants', '--ignored',
-                                         '--nocapture'], cwd=ROOT, stdout=self.log, stderr=self.log,
-                                        env=dict(os.environ, YAPFAST_TEST_VOICE_ROOT=str(fixture),
-                                                 YAPFAST_TEST_EXTRA_ACCOUNTS=str(extra),
-                                                 YAPFAST_TEST_PUBLISH_ONLY='1'),
-                                        start_new_session=True)
-
-    def send(self, command, expect=None, timeout=600):
-        with self.commands.open('a') as commands:
-            commands.write(command + '\n')
-        if expect:
-            started = time.monotonic()
-            self.wait(expect, timeout)
-            return time.monotonic() - started
-        return None
-
-    def wait(self, status, timeout):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if (self.fixture / 'load.status').exists() and (self.fixture / 'load.status').read_text() == status:
-                return
-            if self.process.poll() is not None:
-                raise RuntimeError('load process exited; see load.log')
-            time.sleep(.2)
-        raise RuntimeError(f'load did not reach {status!r}')
-
-    def stop(self):
-        if self.process.poll() is None:
-            self.send('exit')
-            try:
-                self.process.wait(timeout=120)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-        self.log.close()
 
 
 livekit, synapse = Container('yapfast-test-livekit-1'), Container('yapfast-test-synapse-1')
@@ -134,7 +101,8 @@ load = None
 fixture = provision()
 print(f'Fixture {fixture}', flush=True)
 try:
-    load = Load(str(args.load_executable.resolve()), fixture, sizes[-1] - 2)
+    load = LoadParticipants(args.load_executable.resolve(), fixture, sizes[-1] - 2,
+                            env=dict(os.environ, YAPFAST_TEST_PUBLISH_ONLY='1'))
     load.wait('ready', 1200)
     log = (args.output / 'yapfast.log').open('wb')
     yapfast = subprocess.Popen([str(args.exe.resolve()), '--renderer', args.renderer, '--data-dir', str(fixture / 'alice')],
@@ -159,7 +127,7 @@ try:
         dtx = args.dtx
         load.send(f'dtx {dtx}')
         for people in sizes:
-            seconds = load.send(f'join {people - 1}', f'joined {people - 1}')
+            seconds = load.send(f'join {people - 1}', f'joined {people - 1}', timeout=600)
             joins.append({'dtx': dtx, 'people': people, 'join_step_seconds': round(seconds, 1)})
             print(json.dumps(joins[-1]), flush=True)
             time.sleep(args.warmup)
@@ -170,7 +138,7 @@ try:
                 notes = {'renderer': args.renderer, 'window': [WIDTH, HEIGHT], 'people': people,
                          'pattern': pattern, 'dtx': dtx, 'alice': 'muted listener, voice view open'}
                 results.append(sample(yapfast, load, notes))
-        seconds = load.send('leave', 'ready')
+        seconds = load.send('leave', 'ready', timeout=600)
         joins.append({'dtx': dtx, 'leave_all_seconds': round(seconds, 1)})
         print(json.dumps(joins[-1]), flush=True)
         time.sleep(args.warmup)
@@ -183,7 +151,7 @@ try:
         log.close()
 finally:
     if load:
-        load.stop()
+        load.stop(timeout=120)
     (args.output / 'results.json').write_text(json.dumps({
         'recorded_on': time.strftime('%Y-%m-%d'),
         'binary': str(args.exe), 'binary_sha256': hashlib.sha256(args.exe.read_bytes()).hexdigest(),
