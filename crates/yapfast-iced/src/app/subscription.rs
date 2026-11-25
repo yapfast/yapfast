@@ -70,10 +70,11 @@ impl App {
             iced::system::theme_changes().map(Message::SystemTheme),
             drops,
             sizes,
-            zooms,
-            crate::window_bar::history_keys(),
             Self::shell_subscription(),
         ];
+        if !self.recording_keybind() {
+            subscriptions.extend([zooms, crate::window_bar::history_keys()]);
+        }
         // `--theme-dev`: its folder looked at twice a second, as Slint's,
         // off the window's thread; a message comes only when it changed.
         if let Some(folder) = self.themes.dev_folder() {
@@ -144,7 +145,17 @@ impl App {
         // Ctrl+K opens the quick switcher wherever the keys are, and Ctrl+F
         // or Ctrl+Shift+F goes to the conversation's search, as Discord's
         // binds are: Ctrl+F fills in a server channel's `in:` first.
-        if crate::signin::workspace(self) {
+        if crate::signin::workspace(self) && !self.recording_keybind() {
+            subscriptions.push(iced::event::listen_with(|event, status, _| match event {
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    physical_key,
+                    modifiers,
+                    repeat: false,
+                    ..
+                }) => crate::shortcuts::heard(&key, physical_key, modifiers, status),
+                _ => None,
+            }));
             subscriptions.push(iced::event::listen_with(|event, _, _| match event {
                 iced::Event::Keyboard(keyboard::Event::KeyPressed {
                     key,

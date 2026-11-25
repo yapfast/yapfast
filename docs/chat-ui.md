@@ -1,5 +1,9 @@
 # Chat UI
 
+This guide describes shared chat behaviour and the current iced window.
+For the client modules, widgets and headless UI tests, start with
+[the client guide](client/README.md).
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and the window
 lays formatted text out itself (`crates/yapfast-iced/src/markdown.rs`).
@@ -560,7 +564,8 @@ full screen, as a call's stage is, the bar goes.
 The window follows Discord's arrangement:
 
 - A 72px server rail. Each server is a circle that becomes a rounded square,
-  with a white pill at the rail edge for hover, selection or unread activity.
+  with a pill at the rail edge for hover, selection or unread activity, in
+  the theme's text colour or its own `pill` ([themes](themes.md)).
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
   anywhere; a closed folder shows it for its servers. A Discord server
@@ -738,9 +743,9 @@ The window follows Discord's arrangement:
 
 DM Sans (SIL Open Font License, embedded in the binary; see
 `crates/yapfast-iced-kit/fonts/README.md`) sets all text in four weights and
-an italic. The palette is layered graphite with one
-marigold accent for selection and primary actions, red only for mentions and
-destructive actions, and green only for live voice. Avatars get one of eight
+an italic. The default theme is Bonfire; Yap uses layered graphite with a
+marigold accent for selection and primary actions. See [themes](themes.md)
+for the built-in palettes and custom themes. Avatars get one of eight
 tints from the person's name.
 
 Network operations run on the existing two-worker Tokio runtime. The UI

@@ -49,11 +49,13 @@ recording. Each change is kept at once in
   a message (`Message::Keybinds`), kept by the root (`keybinds.rs`) for
   the note under the key whether Settings show or not.
   Record keybind records it as the Keybinds page records one (below).
-- Keybinds (`keybinds.rs`), as Discord's page: Add a Keybind, and each
-  keybind on the sunken ground with its action (Discord's six), its keys
-  with Record keybind, a remove button, Discord's words for what the
-  action does, and what the desktop gave it while the desktop runs them;
-  over them, where keybinds work. Recording takes the keys pressed
+- Keybinds (`keybinds.rs`), as Discord's page: Custom Keybinds with Add
+  a Keybind beside its title, and each keybind in a row with its action
+  (Discord's six), its recorded keys and an inline Record/Stop button, a
+  delete button and an enable switch, with Discord's words for what the
+  action does under it. Disabling keeps the recorded keys but removes the
+  binding from the watcher. Each row also says what the desktop gave it
+  while the desktop runs them; over them, where keybinds work. Recording takes the keys pressed
   together, wherever the keys are, up to four, showing them as they're
   pressed, and ends once they're all up again (or the focus goes);
   Escape, pressed first, stops without changing anything; on Windows
@@ -65,6 +67,18 @@ recording. Each change is kept at once in
   the page's as one list, started again as they change; a toggle's press
   comes as a message and mutes, deafens or switches the input mode as
   its button does. [Keybinds](../keybinds.md) has the rest.
+  Default Keybinds follows, as Discord's list (`shortcuts::GROUPS`, its
+  words and order, keeping those the app has): the shortcut-list key on
+  its own, then Messages, Navigation, Chat, Voice and Video, and
+  Miscellaneous. Each group is a rounded card with divided rows, labels on
+  the left and individual keycaps on the right; alternative chords stack
+  vertically. Colours follow the selected theme.
+  Ctrl+/ opens this page from the workspace, where Discord opens a dialog
+  with the same list. These shortcuts run
+  through `shortcuts.rs`, only in the focused window, including when a
+  text field captures the key (but Ctrl+E a field took stays the
+  field's, which opens the picker for it); chat actions wait while a dialog takes keys,
+  and all built-ins rest while recording.
 - Messages: a message as the clock and text size show it; the text size
   (which the timeline's text takes), the clock and its seconds, the date's
   order (message times are worked out again for each), when GIFs and emoji
@@ -83,16 +97,16 @@ recording. Each change is kept at once in
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start
   from takes another, and its name unless it was renamed); each custom
-  theme's pencil edits it. A colour's field shows its change at once, or
-  says "Not a colour"; Save keeps the theme among the person's own and
-  chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Application icon
-  shows the colours of the built-in themes as preview tiles, with Yap
-  selected by default. The tray uses the application icon's selection by
-  default. Turning off “Use the application icon in the tray” reveals the
-  tray's own choices. A previously saved different preset or separate custom
-  image starts with the switch off. The tray keeps its separate choice
-  while the switch is on.
+  theme's pencil edits it. A colour's swatch opens its `ColourPad` card.
+  The field shows its change at once or says "Not a colour". Save keeps the
+  theme among the person's own and chooses it. Cancel (or leaving Appearance
+  or Settings) shows the theme from before. A saved one's Delete asks once
+  more. Application icon shows the colours of the built-in themes as preview
+  tiles, with Yap selected by default. The tray uses the application icon's
+  selection by default. Turning off “Use the application icon in the tray”
+  reveals the tray's own choices. A previously saved different preset or
+  separate custom image starts with the switch off. The tray keeps its
+  separate choice while the switch is on.
   The tile below the presets imports an image or selects the saved one.
   Point at a saved custom tile to show Replace. Imports accept PNG, ICO,
   JPEG or WebP files up to 8 MiB and 4096 × 4096 pixels.
@@ -101,7 +115,8 @@ recording. Each change is kept at once in
   The running window and tray update as soon as a choice is made. On Linux,
   the window icon applies where the desktop uses X11 window icons. Desktops
   that use the application's desktop entry show the launcher icon there.
-  Then there are the system title bar and profile switches.
+  Then there are the system title bar's switch, where Yapfast can draw its
+  own, and the profile switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those

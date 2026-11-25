@@ -2004,12 +2004,8 @@ mod tests {
             r##""art": { "surfaces": { "window": { "image": "art/sky.jpg" } } }"##,
         );
         let report = check(&files(&manifest), Strictness::Install);
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|error| error.contains("art/sky.jpg"))
-        );
+        let image = "art/sky.jpg";
+        assert!(report.errors.iter().any(|error| error.contains(image)));
     }
 
     #[test]

@@ -800,7 +800,8 @@ mod tests {
             Some(directory.path()),
         )
         .unwrap_err();
-        assert!(error.contains("art/gone.png"), "{error}");
+        let image = "art/gone.png";
+        assert!(error.contains(image), "{error}");
     }
 
     #[test]

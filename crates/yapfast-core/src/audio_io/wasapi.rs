@@ -72,7 +72,10 @@ thread_local! {
 /// Discord's and browsers' do; a microphone's joins "Audio", the category
 /// below, which is still above every ordinary thread. Says how it raised
 /// the calling thread, or why it couldn't.
-#[cfg_attr(not(feature = "discord"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "Discord voice uses MMCSS thread priorities")
+)]
 pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
     let (name, how) = match priority {
         super::Priority::Playback => (w!("Pro Audio"), "MMCSS Pro Audio"),
@@ -584,7 +587,7 @@ impl Input {
 }
 
 #[cfg(feature = "discord")]
-pub use others::others;
+pub use others::{others, window_audio, window_programs};
 
 /// Other applications' sound, through process loopback: one stream of
 /// everything the system plays but Yapfast's own processes, from Windows 10's
@@ -611,6 +614,7 @@ mod others {
                 IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler,
                 IActivateAudioInterfaceCompletionHandler_Impl,
                 PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
                 VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
             },
             System::{
@@ -640,6 +644,78 @@ mod others {
 
     pub fn others(
         _skip: fn(&str) -> bool,
+        heard: Hear,
+        stop: Arc<AtomicBool>,
+    ) -> Result<JoinHandle<()>> {
+        capture(None, heard, stop)
+    }
+
+    pub fn window_audio(window: u64, heard: Hear, stop: Arc<AtomicBool>) -> Result<JoinHandle<()>> {
+        use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::GetWindowThreadProcessId};
+        let mut process = 0;
+        // SAFETY: the handle is only queried; an invalid window returns zero.
+        let thread = unsafe {
+            GetWindowThreadProcessId(HWND(window as usize as *mut _), Some(&mut process))
+        };
+        anyhow::ensure!(
+            thread != 0 && process != 0,
+            "The selected audio window is no longer available"
+        );
+        anyhow::ensure!(
+            process != yapfast_process() && process != std::process::id(),
+            "Cannot share Yapfast's own audio"
+        );
+        capture(Some(process), heard, stop)
+    }
+
+    /// The program each of `windows` belongs to, by its file's name in
+    /// lower case, from one look at the running processes.
+    pub fn window_programs(windows: &[u64]) -> Vec<Option<String>> {
+        use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging::GetWindowThreadProcessId};
+        let processes: Vec<u32> = windows
+            .iter()
+            .map(|&window| {
+                let mut process = 0;
+                // SAFETY: the handle is only queried; an invalid window
+                // leaves the process zero.
+                let _ = unsafe {
+                    GetWindowThreadProcessId(HWND(window as usize as *mut _), Some(&mut process))
+                };
+                process
+            })
+            .collect();
+        let mut programs = vec![None; windows.len()];
+        // SAFETY: a snapshot this function owns, and entries sized as asked.
+        unsafe {
+            let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+                return programs;
+            };
+            let mut entry = PROCESSENTRY32W {
+                dwSize: size_of::<PROCESSENTRY32W>() as u32,
+                ..Default::default()
+            };
+            let mut found = Process32FirstW(snapshot, &mut entry).is_ok();
+            while found {
+                let process = entry.th32ProcessID;
+                if process != 0 && processes.contains(&process) {
+                    let length = entry.szExeFile.iter().position(|&unit| unit == 0);
+                    let name = String::from_utf16_lossy(&entry.szExeFile[..length.unwrap_or(260)])
+                        .to_lowercase();
+                    for (program, owner) in programs.iter_mut().zip(&processes) {
+                        if *owner == process {
+                            *program = Some(name.clone());
+                        }
+                    }
+                }
+                found = Process32NextW(snapshot, &mut entry).is_ok();
+            }
+            let _ = CloseHandle(snapshot);
+        }
+        programs
+    }
+
+    fn capture(
+        process: Option<u32>,
         mut heard: Hear,
         stop: Arc<AtomicBool>,
     ) -> Result<JoinHandle<()>> {
@@ -653,7 +729,7 @@ mod others {
                     channels: 2,
                     float: true,
                 };
-                let stream = activate(yapfast_process())
+                let stream = activate(process.unwrap_or_else(yapfast_process), process.is_some())
                     .and_then(|client| {
                         Stream::initialize(client, format, LISTENING, AUDCLNT_STREAMFLAGS_LOOPBACK)
                     })
@@ -673,10 +749,7 @@ mod others {
                         return;
                     }
                 };
-                heard(Heard::Started {
-                    source: 0,
-                    process: None,
-                });
+                heard(Heard::Started { source: 0, process });
                 if let Err(error) = hear(&stream, &capture, &mut *heard, &stop) {
                     tracing::warn!(
                         error = format!("{error:#}"),
@@ -766,15 +839,18 @@ mod others {
         }
     }
 
-    /// A loopback stream of everything but `process` and the processes it
-    /// started.
-    fn activate(process: u32) -> Result<IAudioClient> {
+    /// Includes or excludes `process` and its child processes.
+    fn activate(process: u32, include: bool) -> Result<IAudioClient> {
         let mut parameters = AUDIOCLIENT_ACTIVATION_PARAMS {
             ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
             Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
                 ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
                     TargetProcessId: process,
-                    ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+                    ProcessLoopbackMode: if include {
+                        PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
+                    } else {
+                        PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
+                    },
                 },
             },
         };
@@ -847,5 +923,49 @@ mod others {
             parent
         };
         parent.unwrap_or(own)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use windows::{
+            Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, DestroyWindow, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
+            },
+            core::w,
+        };
+
+        /// A window of this process is known by the test program's own
+        /// file name, and what's no window by nothing.
+        #[test]
+        fn a_window_is_known_by_its_programs_name() {
+            // SAFETY: a message-only window of a system class, which shows
+            // nothing and is destroyed below.
+            let window = unsafe {
+                CreateWindowExW(
+                    WINDOW_EX_STYLE(0),
+                    w!("STATIC"),
+                    None,
+                    WINDOW_STYLE(0),
+                    0,
+                    0,
+                    0,
+                    0,
+                    Some(HWND_MESSAGE),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            .expect("a window");
+            let id = window.0 as usize as u64;
+            let programs = super::window_programs(&[0, id, id]);
+            // SAFETY: the window made above.
+            let _ = unsafe { DestroyWindow(window) };
+            let own = std::env::current_exe().expect("this program");
+            let own = own.file_name().expect("its name").to_string_lossy();
+            assert_eq!(programs[0], None, "no window");
+            assert_eq!(programs[1].as_deref(), Some(own.to_lowercase().as_str()));
+            assert_eq!(programs[1], programs[2]);
+        }
     }
 }
