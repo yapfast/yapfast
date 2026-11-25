@@ -66,6 +66,18 @@ copying them.
   /guilds/{id}/members/{user}` with `communication_disabled_until`. Someone
   timed out is offered Remove timeout instead, which sends null, and the
   member list marks them with a red clock beside their name.
+- Their messages carry a red clock before their name too, but only for an
+  account with Moderate Members in the server (not the channel) that
+  outranks them, as Discord's client asks before it draws one
+  (`canManageUser(MODERATE_MEMBERS, author, guild)` in its message header):
+  never on the owner, oneself, or someone whose highest role is as high.
+  Its tooltip reads "This is only visible to moderators and indicates this
+  user is timed out." The open channel works the permission out once a
+  publish (`Rendering::moderates`), and looks an author's roles up only
+  while the names say they're timed out (`shown_timeout`); a member update
+  that starts or ends a timeout changes the names' version, so the
+  channel's messages render again. The end itself wakes nothing: the row
+  checks it when it's drawn, as Discord's client checks it when it renders.
 - Kick needs Kick Members and outranking them: a confirmation with a reason,
   then `DELETE /guilds/{id}/members/{user}`.
 - Ban needs Ban Members and outranking them: how far back their messages go

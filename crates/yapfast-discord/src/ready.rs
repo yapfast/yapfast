@@ -200,6 +200,14 @@ pub struct Server {
     /// [`crate::marked::MarkedServer::follows_only`].
     #[serde(default)]
     pub community: bool,
+    /// Its invites are paused with no end, a feature it lists as
+    /// `INVITES_DISABLED`; see [`Server::invites_paused`].
+    #[serde(default)]
+    pub invites_disabled: bool,
+    /// When its invites resume, in Unix seconds, while its Security
+    /// Actions pause them for a while: its `incidents_data`.
+    #[serde(default)]
+    pub invites_paused_until: Option<u64>,
     /// The channel its rules are in, from `rules_channel_id`.
     #[serde(default)]
     pub rules_channel: Option<String>,
@@ -1236,6 +1244,17 @@ impl Server {
         owner == Some(me) || self.top_position(my_roles) > self.top_position(target_roles)
     }
 
+    /// When its paused invites resume, in Unix seconds, while they're
+    /// paused at `now`: by `INVITES_DISABLED`, which has no end
+    /// ([`u64::MAX`]), or by its Security Actions until a time to come, as
+    /// Discord's client asks (its module 347951).
+    pub fn invites_paused(&self, now: u64) -> Option<u64> {
+        if self.invites_disabled {
+            return Some(u64::MAX);
+        }
+        self.invites_paused_until.filter(|&until| until > now)
+    }
+
     /// Whether `me`, holding `my_roles`, may give `role` to someone or take
     /// it away: it takes [`permission::MANAGE_ROLES`] and a highest role
     /// above it, unless `me` owns the server. Nobody grants @everyone, a
@@ -1555,6 +1574,15 @@ pub fn server(guild: &Value) -> Option<Server> {
         forwarding_disabled: has("FORWARDING_DISABLED"),
         verified: has("VERIFIED") || has("PARTNERED"),
         community: has("COMMUNITY"),
+        invites_disabled: has("INVITES_DISABLED"),
+        invites_paused_until: crate::server_settings::parse_incidents(
+            if guild["incidents_data"].is_null() {
+                &guild["properties"]["incidents_data"]
+            } else {
+                &guild["incidents_data"]
+            },
+        )
+        .0,
         rules_channel: guild["rules_channel_id"]
             .as_str()
             .or_else(|| guild["properties"]["rules_channel_id"].as_str())
@@ -2374,6 +2402,29 @@ mod tests {
         let shown = server.channel("11").unwrap();
         assert_eq!((shown.name.as_str(), shown.obfuscated), ("Staff", false));
         assert_eq!(server.access(shown, "1", &[]), Access::Join);
+    }
+
+    #[test]
+    fn paused_invites_come_from_features_and_incidents() {
+        let paused = server(&json!({
+            "id": "10",
+            "properties": {
+                "name": "Test",
+                "incidents_data": {"invites_disabled_until": "2030-01-01T00:00:00+00:00"},
+            },
+        }))
+        .unwrap();
+        let until = 1_893_456_000;
+        assert_eq!(paused.invites_paused_until, Some(until));
+        assert_eq!(paused.invites_paused(until - 1), Some(until));
+        assert_eq!(paused.invites_paused(until), None, "resumed");
+        let disabled = server(&json!({
+            "id": "10", "properties": {"name": "Test", "features": ["INVITES_DISABLED"]},
+        }))
+        .unwrap();
+        assert_eq!(disabled.invites_paused(until), Some(u64::MAX), "no end");
+        let open = server(&json!({"id": "10", "properties": {"name": "Test"}})).unwrap();
+        assert_eq!(open.invites_paused(0), None);
     }
 
     #[test]

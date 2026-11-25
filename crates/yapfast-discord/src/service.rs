@@ -4146,6 +4146,12 @@ impl Discord {
         self.read_names().joined_at(guild, user)
     }
 
+    /// When a member's timeout ends, in Unix milliseconds, if they're timed
+    /// out as far as Yapfast knows; it may have ended already.
+    pub fn timed_out_until(&self, guild: &str, user: &str) -> Option<u64> {
+        self.read_names().timed_out_until(guild, user)
+    }
+
     /// The server tag a user wears beside their name, if they do.
     pub fn server_tag(&self, user: &str) -> Option<crate::message::Tag> {
         self.read_names().server_tag(user).cloned()

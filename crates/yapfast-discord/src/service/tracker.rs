@@ -598,6 +598,9 @@ impl Tracker {
                 known.forwarding_disabled = update.forwarding_disabled;
                 known.verified = update.verified;
                 known.community = update.community;
+                // Pausing invites or resuming them is a GUILD_UPDATE.
+                known.invites_disabled = update.invites_disabled;
+                known.invites_paused_until = update.invites_paused_until;
                 known.rules_channel = update.rules_channel;
                 known.afk_channel = update.afk_channel;
                 // A GUILD_UPDATE may leave these out; that isn't zero boosts.
