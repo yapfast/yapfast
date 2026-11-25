@@ -405,12 +405,15 @@ fn a_members_roles_tick_in_place_and_invite_to_server_lists_the_servers() {
 }
 
 #[test]
-fn the_roles_submenu_scrolls_only_when_its_rows_overflow() {
+fn the_roles_submenu_scrolls_only_when_taller_than_the_window() {
     use crate::menus::{Event, Menu, MenuAct, MenuRow};
     use yapfast_core::application::MenuChoice;
 
     let (mut app, _folder) = preview();
-    for count in [10, 11] {
+    // Room for 16 rows of 36 px; 12 fit, 40 don't.
+    app.shell.frame = iced::Size::new(1000.0, 600.0);
+    app.window = app.shell.frame;
+    for count in [12, 40] {
         let mut roles = MenuRow::plain(MenuAct::Person(MenuChoice::Roles), "Roles");
         roles.submenu = (0..count)
             .map(|index| MenuRow {
@@ -434,11 +437,11 @@ fn the_roles_submenu_scrolls_only_when_its_rows_overflow() {
         };
         let before = ui.find(last_row).ok();
         ui.point_at(first.center());
-        ui.simulate(crate::widgets::swipe(-500.0));
+        ui.simulate(crate::widgets::swipe(-2000.0));
         let after = ui
             .find(last_row)
             .expect("last role is visible after scrolling");
-        if count <= 10 {
+        if count == 12 {
             assert_eq!(before, Some(after));
         } else {
             assert_eq!(before, None);

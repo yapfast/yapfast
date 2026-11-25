@@ -30,13 +30,10 @@ use crate::{
 
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
+/// The Roles submenu's scrollable, and its rows' height, which
+/// [`RevealRole`] counts on.
 const ROLE_LIST: &str = "menu-roles";
 const ROLE_ROW_HEIGHT: f32 = 36.0;
-const ROLE_LIST_MAX_HEIGHT: f32 = 10.0 * ROLE_ROW_HEIGHT + 2.0 * PAD;
-
-fn role_list_height(window_height: f32) -> f32 {
-    (window_height - 2.0 * MENU_MARGIN).clamp(0.0, ROLE_LIST_MAX_HEIGHT)
-}
 
 /// A message's menu's width; the composer's is wider.
 pub const WIDTH: f32 = 224.0;
@@ -1232,8 +1229,9 @@ impl<'a> View<'a> {
         let panel: Element<'a, Message> = container(rows)
             .width(menu.fit(Some(sub)))
             .padding(if roles { [PAD, 0.0] } else { [0.0, 0.0] })
+            // As tall as the window allows, as Discord's submenus are.
             .max_height(if roles {
-                role_list_height(self.cx.look.window.height)
+                (self.cx.look.window.height - 2.0 * MENU_MARGIN).max(0.0)
             } else {
                 f32::INFINITY
             })

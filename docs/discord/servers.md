@@ -52,14 +52,14 @@ copying them.
   editor](people.md#editing-ones-server-profile).
 - Roles needs Manage Roles in the server, whatever the channel's overwrites
   say. Its submenu lists the roles this account can give or take, highest
-  first, ticked where they hold it. The list fits up to ten roles at a time
-  and scrolls when more roles are available or the window has less space.
-  A role at or above this account's highest,
+  first, ticked where they hold it, and scrolls when it's taller than the
+  window, as Discord's does. A role at or above this account's highest,
   or one an integration manages, shows only while they hold it, greyed, as in
   Discord's. Ticking one is `PUT` or `DELETE
   /guilds/{id}/members/{user}/roles/{role}`; the box changes at once and the
-  menu stays open. Yapfast applies the confirmed change to its cached member
-  roles so the visible member list can update before the gateway event arrives.
+  menu stays open. Once Discord takes it, the member's known roles change,
+  and the member list with them, without waiting for GUILD_MEMBER_UPDATE,
+  as Discord's client does.
 - Time out needs Moderate Members and outranking them, and isn't offered for
   administrators, whom Discord doesn't let anyone time out. Its dialog offers
   Discord's lengths, 60 seconds to a week, and a reason, then `PATCH
