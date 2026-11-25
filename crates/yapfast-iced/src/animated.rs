@@ -313,7 +313,12 @@ impl Animated<'_> {
                 };
                 if entry.can_cache {
                     entry.cached_frames.push(handle.clone());
-                    if entry.cached_frames.len() >= total_frames {
+                    // A file with fewer frames than delays started over
+                    // before the cache was full: its frames wouldn't line up.
+                    if entry.player.index() != entry.cached_frames.len() {
+                        entry.can_cache = false;
+                        entry.cached_frames = Vec::new();
+                    } else if entry.cached_frames.len() >= total_frames {
                         entry.cached_all = true;
                         entry.player.drop_frames();
                     }

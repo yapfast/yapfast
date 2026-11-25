@@ -414,6 +414,11 @@ impl Player {
     pub fn drop_frames(&mut self) {
         self.frames = Box::new(std::iter::empty());
     }
+
+    /// How many frames this pass through the animation has shown.
+    pub fn index(&self) -> usize {
+        self.index
+    }
 }
 
 /// Small pictures the client draws for marks: presence dots, in the
