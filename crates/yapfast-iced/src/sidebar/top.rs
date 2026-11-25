@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{corners, edge, faded, rounded},
+    style::{edge, faded},
     widgets::Pic,
 };
 

@@ -235,7 +235,6 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         .width(NAV)
         .height(Length::Fill)
         .style(move |_| rounded(sidebar, corners([inner, 0.0, 0.0, inner])));
-        let chat = theme.chat;
         let card = container(row![
             nav,
             container(content).width(Length::Fill).height(Length::Fill)
@@ -399,7 +398,7 @@ pub fn backdrop<'a, M: Clone + 'a>(
     margin: f32,
     close: M,
 ) -> Element<'a, M> {
-    let (edge, ground) = (theme.edge, theme.chat);
+    let (edge, ground) = (theme.edge, grounds(theme).1);
     let card: Element<'a, M> = if theme.packaged() {
         // The card's ground and edge are one rounded shape at the theme's
         // card corner, with its shadow; its parts lie 1 px inside the edge
