@@ -10854,12 +10854,14 @@ dependencies = [
 name = "yapfast-iced-kit"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "iced",
  "iced_test",
  "iced_tiny_skia",
  "iced_wgpu",
  "resvg",
  "sys-locale",
+ "tempfile",
  "tokio",
  "tracing",
  "ttf-parser",

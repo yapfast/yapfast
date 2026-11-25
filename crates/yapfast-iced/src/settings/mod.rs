@@ -17,6 +17,7 @@
 //! do.
 
 mod appearance;
+mod font;
 pub mod keybinds;
 mod pages;
 pub(crate) mod theme_creator;
@@ -53,11 +54,18 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub(crate) use appearance::{COLOUR_CODE as THEME_COLOUR_CODE, Event as ThemeEvent};
+pub(crate) use font::FontEvent;
 
 /// What a theme editor's change sends.
 #[cfg(test)]
 pub fn appearance_event(event: ThemeEvent) -> Message {
     crate::app::settings(Event::Theme(event))
+}
+
+/// What a Font event sends.
+#[cfg(test)]
+pub fn font_message(event: FontEvent) -> Message {
+    crate::app::settings(Event::Font(event))
 }
 
 /// How far the card sits in from the window's edges, and the sections'
@@ -198,6 +206,10 @@ pub struct Settings {
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
+    /// What Appearance's Font says of the files just chosen that didn't
+    /// load, until the next change; none shows the standing note
+    /// (`custom_font::note`).
+    pub font_note: Option<String>,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
     /// The keybind being recorded, and the keys pressed so far.
@@ -243,6 +255,9 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    /// Appearance's Font: choosing the font files, removing one, going back
+    /// to DM Sans.
+    Font(FontEvent),
     Marketplace(theme_marketplace::Event),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
@@ -364,6 +379,7 @@ impl Settings {
                 }
                 return task;
             }
+            Event::Font(event) => return self.font_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),

@@ -26,7 +26,12 @@ use iced::{
     futures::{Stream, StreamExt, channel::mpsc},
 };
 
-pub const REGULAR: Font = Font::with_name("DM Sans");
+/// The family the window draws its text in: DM Sans, or while the person's
+/// own font files are loaded ([`crate::custom_font`]), their faces under
+/// the same name.
+pub const FAMILY: &str = "DM Sans";
+
+pub const REGULAR: Font = Font::with_name(FAMILY);
 pub const MEDIUM: Font = Font {
     weight: Weight::Medium,
     ..REGULAR
@@ -51,22 +56,49 @@ const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
 const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
 
+/// The theme's body face that text asking for DM Sans takes, and the one
+/// it takes now: none while the person's own font files are loaded.
+struct Alias {
+    theme: Option<&'static str>,
+    shown: Option<&'static str>,
+}
+
+static ALIAS: Mutex<Alias> = Mutex::new(Alias {
+    theme: None,
+    shown: None,
+});
+
 /// Makes `family` (a theme's body face, loaded) the face of all text that
 /// asks for the app's own DM Sans, as Slint's `default-font-family`
-/// follows a theme's body face; `None` gives DM Sans back. Text already
-/// shown is shaped again in the new face.
+/// follows a theme's body face; `None` gives DM Sans back. The person's own
+/// font files ([`crate::custom_font`]) stand in for both while they're
+/// loaded. Text already shown is shaped again in the new face.
 pub fn set_default_family(family: Option<&'static str>) {
-    static ALIAS: Mutex<Option<&'static str>> = Mutex::new(None);
-    let family = family.filter(|family| *family != "DM Sans");
+    update_alias(Some(family.filter(|family| *family != FAMILY)));
+}
+
+/// Has text asking for DM Sans take the person's own font files, or the
+/// theme's body face again, after they changed.
+pub(crate) fn own_font_changed() {
+    update_alias(None);
+}
+
+/// Sets the theme's body face to `theme`, when given, and the alias to it
+/// unless the person's own font files are loaded.
+fn update_alias(theme: Option<Option<&'static str>>) {
     // Held while the alias is set, so the two never fall out of step.
     let mut alias = ALIAS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if *alias == family {
+    if let Some(theme) = theme {
+        alias.theme = theme;
+    }
+    let shown = alias.theme.filter(|_| !crate::custom_font::in_use());
+    if alias.shown == shown {
         return;
     }
-    *alias = family;
-    cosmic_text::set_family_alias(family.map(|family| ("DM Sans", family)));
+    alias.shown = shown;
+    cosmic_text::set_family_alias(shown.map(|family| (FAMILY, family)));
     let mut fonts = font_system().write().expect("font system");
     // The fallback's matches are cached by what text asks for, which
     // doesn't change.
@@ -111,8 +143,8 @@ pub fn install(twemoji: &'static [u8]) {
     if let Some(mono) = mono {
         db.set_monospace_family(mono);
     }
-    db.set_sans_serif_family("DM Sans");
-    let fallback = Fallback(&["DM Sans", TWEMOJI]);
+    db.set_sans_serif_family(FAMILY);
+    let fallback = Fallback(&[FAMILY, TWEMOJI]);
     let mut system = font_system().write().expect("font system");
     *system.raw() =
         cosmic_text::FontSystem::new_with_locale_and_db_and_fallback("en-US".into(), db, fallback);
@@ -503,17 +535,23 @@ pub fn load_wanted() -> bool {
     }
     if changed {
         tracing::info!(elapsed = ?start.elapsed(), "fallback fonts chosen");
-        // iced shapes text again only when its font system's version moves,
-        // and only `load_font` moves it. It would copy a real font, so it
-        // gets a one-byte stand-in, which fontdb rejects. An owned one: iced
-        // takes borrowed bytes at an address it has seen before as loaded
-        // already, and the version wouldn't move a second time.
-        font_system()
-            .write()
-            .expect("font system")
-            .load_font(Cow::Owned(vec![0]));
+        shape_again();
     }
     changed
+}
+
+/// Has iced shape all its text again, after the fonts in the font system
+/// changed. iced shapes text again only when its font system's version
+/// moves, and only `load_font` moves it. It would copy a real font, so it
+/// gets a one-byte stand-in, which fontdb rejects. An owned one: iced takes
+/// borrowed bytes at an address it has seen before as loaded already, and
+/// the version wouldn't move a second time. The window then lays out again
+/// (`Message::FontsLoaded`).
+pub fn shape_again() {
+    font_system()
+        .write()
+        .expect("font system")
+        .load_font(Cow::Owned(vec![0]));
 }
 
 /// The faces chosen for characters, by the block of 128 code points each
@@ -1077,7 +1115,7 @@ mod tests {
         let raw = system.raw();
         let mut buffer = Buffer::new(raw, Metrics::new(16.0, 20.0));
         let attrs = Attrs::new()
-            .family(cosmic_text::Family::Name("DM Sans"))
+            .family(cosmic_text::Family::Name(FAMILY))
             .weight(cosmic_text::Weight(weight))
             .style(if italic {
                 cosmic_text::Style::Italic

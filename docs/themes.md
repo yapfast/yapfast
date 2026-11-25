@@ -491,3 +491,57 @@ characters and stops at 48 characters; a file without one imports as
 "Imported theme". A file over 64 KiB (a theme is about 2 KiB) isn't read. A
 theme's colours are the only data in it, and nothing in a file is run or
 fetched.
+
+## Fonts
+
+Settings → Appearance has a FONT section for drawing all of Yapfast in the
+person's own font. Choose font files opens the system's file dialog, which
+takes several files at once; the list shows each file by name with the faces
+it gave ("Regular, Bold Italic") and a Remove button. Choosing again adds to
+the files already loaded, and Reset to default removes them all and goes back
+to DM Sans. The monospace code font and the emoji font are not changed.
+
+The window draws every text in the family named DM Sans, so the files' faces
+are put in the font database under that name, not the names the files carry
+(the weights of one typeface often have a family name each), and DM Sans's own
+faces leave it while they're in. cosmic-text then picks the face for a bold or
+italic request through fontdb's query, from the weight and style each file
+declares in its own tables, so a family given as one file per weight and a
+variable font both work; a variable font is one face, drawn at each weight
+the text asks for, as DM Sans is. A weight the files don't have takes the
+nearest one they do, and without an italic file emphasis draws upright; neither
+is synthesised.
+
+While the files are loaded they also stand in for the body face an installed
+theme brings: its colours and other faces stay, and Reset to default
+gives its body face back.
+
+The formats are TrueType and OpenType (TTF, OTF), collections (TTC, which
+register all of their faces) and WOFF. WOFF2 isn't supported, and says so in
+the list. A file is told by its first four bytes, not its extension. A file
+that isn't a font, or gives no face, is refused with a short reason and isn't
+kept. TTF, OTF and TTC files are memory-mapped by fontdb, not read, so loading
+costs no heap and the operating system pages in the glyphs that draw. A WOFF
+file's tables are compressed, so it is unwrapped into a TrueType or OpenType
+font in memory (`crates/yapfast-iced-kit/src/woff.rs`) and the compressed file
+is released; that is the only copy a font makes. At most 64 files load.
+
+`layout.json` keeps the files in `ui_font_files`, as absolute paths in the
+order they were added. They are loaded at startup, before the window opens. A
+path that is missing or isn't a usable font is skipped with a note under the
+list, the rest are used, and when none loads DM Sans stays. A missing file
+stays saved, in case its drive comes back; a file refused when chosen is not
+saved.
+
+Changing the files takes the earlier set's faces out of the font database and
+puts the new set in, then moves the font system's version so iced shapes all
+its text again (`fonts::shape_again`); the timeline's rows are measured again,
+as when the message text size changes. The text engine's cached fonts of the
+faces taken out are let go then too (`forget_removed_fonts`, patch 4 in
+`vendor/cosmic-text/README.yapfast.md`), with the files' mappings and an
+unwrapped WOFF's memory.
+
+Known limitation: the text keeps the sizes the window's design gives it, so a
+font with large or small proportions reads larger or smaller than DM Sans
+does, and the emoji font's vertical metrics are tuned to DM Sans, so emoji can
+sit a little high or low against the text of a font with other proportions.

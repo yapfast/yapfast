@@ -1908,6 +1908,40 @@ fn edit_profile_from_settings_closes_them_under_the_editor() {
     assert!(app.win.settings.get().is_none(), "Settings close under it");
 }
 
+/// Appearance's Font lists no file until one is chosen. A file that is no
+/// font is left out, with the reason under the buttons, and isn't kept for
+/// the next start. (A real font isn't loaded here: the font database is the
+/// process's, and the other tests measure their text in DM Sans.)
+#[test]
+fn a_file_that_is_no_font_is_left_out_of_appearances_font() {
+    use crate::settings::{FontEvent, font_message};
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "FONT") && shows(&app, "Choose font files"));
+    assert!(!shows(&app, "Reset to default"), "nothing to reset yet");
+    let words = folder.path().join("notes.ttf");
+    std::fs::write(&words, b"only words, no font tables in here").expect("a file");
+    let _ = app.update(font_message(FontEvent::Chosen(vec![
+        words.to_str().expect("a path").to_owned(),
+    ])));
+    assert!(
+        shows(
+            &app,
+            "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+        ),
+        "the note names the file and says why"
+    );
+    assert!(!shows(&app, "Reset to default"), "nothing is loaded");
+    assert_eq!(stored(&folder)["ui_font_files"], serde_json::json!([]));
+    assert!(app.layout.prefs.ui_font_files.is_empty());
+    // Going back to DM Sans with nothing loaded is no change either.
+    let _ = app.update(font_message(FontEvent::Reset));
+    assert!(!shows(
+        &app,
+        "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+    ));
+}
+
 /// A call going on in Lounge, joined as the preview joins, unmuted
 /// unless `muted`: after the join, which turns the microphone on.
 fn in_a_call(app: &mut App, muted: bool) {

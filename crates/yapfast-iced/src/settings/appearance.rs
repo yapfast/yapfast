@@ -890,6 +890,7 @@ impl<'a> Page<'a> {
                 form::beside(form::heading(theme, "THEME"), actions),
                 tiles,
             ]),
+            self.font_section(),
             installed_note,
             theme_options,
             switch(
