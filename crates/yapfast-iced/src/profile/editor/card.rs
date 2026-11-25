@@ -510,7 +510,11 @@ pub(super) fn editor_names<'a>(
         }
     }
     names = names.push(line);
-    if main && editor.editing != Some(Text::Pronouns) && !profile.badges.is_empty() {
+    if main
+        && ctx.state.cosmetics.badges
+        && editor.editing != Some(Text::Pronouns)
+        && !profile.badges.is_empty()
+    {
         names = names.push(
             container(crate::profile::body::badge_rows(ctx, shown)).padding(Padding {
                 top: 10.0,

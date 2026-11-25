@@ -904,6 +904,7 @@ window draws carry no address for it, so the window asks for nothing either.
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show badges (`badges`) | No badge picture on a profile card, and no levels request for one | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
 | Show profile backgrounds (`profile_backgrounds`) | No banner picture asked for, shown or kept going, and the top in the card's own colour rather than the accent or the avatar's | On |
 

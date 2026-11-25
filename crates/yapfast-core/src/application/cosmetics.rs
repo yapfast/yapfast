@@ -20,6 +20,9 @@ pub struct Cosmetics {
     pub name_styles: bool,
     /// Server tags show beside names, with their badges.
     pub server_tags: bool,
+    /// Badges show on profile cards: a picture each, and one levels request
+    /// per profile while its card is open.
+    pub badges: bool,
     /// Profile frames show around profile cards: a request for what the
     /// frame is made of, then its stills.
     pub frames: bool,
@@ -38,6 +41,7 @@ impl Default for Cosmetics {
             moving: true,
             name_styles: true,
             server_tags: true,
+            badges: true,
             frames: true,
             background: true,
         }
@@ -58,6 +62,11 @@ impl Cosmetics {
     /// A display name's style, if styles show.
     pub fn style<T>(self, style: Option<T>) -> Option<T> {
         style.filter(|_| self.name_styles)
+    }
+
+    /// A profile's badges, if they show.
+    pub fn badges<T>(self, badges: T) -> Option<T> {
+        self.badges.then_some(badges)
     }
 
     /// A profile's frame, if frames show.
@@ -88,11 +97,13 @@ mod tests {
             moving: false,
             name_styles: false,
             server_tags: false,
+            badges: false,
             frames: false,
             background: false,
         };
         assert_eq!(off.decoration(Some("https://cdn/static")), None);
         assert_eq!(off.tag(Some(&"TAG")), None);
+        assert_eq!(off.badges(vec!["a"]), None);
         assert_eq!(off.style(Some(1)), None);
         assert_eq!(off.effect(Some("sku")), None);
         assert_eq!(off.frame(Some("sku")), None);
@@ -107,11 +118,13 @@ mod tests {
             moving: true,
             name_styles: true,
             server_tags: true,
+            badges: true,
             frames: true,
             background: true,
         };
         assert_eq!(on.decoration(Some("url")), Some("url"));
         assert_eq!(on.tag(Some(&"TAG")), Some(&"TAG"));
+        assert_eq!(on.badges(vec!["a"]), Some(vec!["a"]));
         assert_eq!(on.style(Some(1)), Some(1));
         assert_eq!(on.effect(Some("sku")), Some("sku"));
         assert_eq!(on.background(Some("url")), Some("url"));

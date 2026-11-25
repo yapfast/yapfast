@@ -557,6 +557,55 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
 }
 
 #[test]
+fn a_cards_badges_are_asked_for_only_while_badges_show() {
+    use yapfast_core::chat::{ProfileBadge, ProfileBadgeLevel};
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    change(&mut app, |state| {
+        let profile = &mut state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("open")
+            .profile;
+        profile.badges = vec![ProfileBadge {
+            description: "Quest".into(),
+            icon: "badge-icon".into(),
+            link: None,
+            level: Some(ProfileBadgeLevel {
+                kind: None,
+                title: "Level 2".into(),
+                progress: String::new(),
+                picture: "badge-level".into(),
+            }),
+        }];
+    });
+    let wanted = |app: &App, url: &str| {
+        crate::profile::profile_pictures(app.ctx())
+            .iter()
+            .any(|got| got == url)
+    };
+    assert!(wanted(&app, "badge-icon"));
+    assert!(
+        wanted(&app, "badge-level"),
+        "the level's picture, for its tooltip"
+    );
+    change(&mut app, |state| state.cosmetics.badges = false);
+    assert!(!wanted(&app, "badge-icon"), "no badge is asked for");
+    assert!(!wanted(&app, "badge-level"));
+}
+
+#[test]
 fn a_cards_frame_that_came_and_went_is_asked_for_again_as_it_shows() {
     use yapfast_core::chat::{Event, Picture, ProfileFrameLayer};
     const FRAME: &str = "https://cdn.discordapp.com/assets/collectibles-shop/1/2/static";

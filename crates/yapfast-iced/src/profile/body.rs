@@ -212,11 +212,14 @@ pub(super) fn profile_body<'a>(
     // Discord's card has the badges beside the username, up to six of
     // them (any number in the DM's panel); more go under the name, 2 px
     // below it, and the panel's own keep to their row below.
-    let beside = !mode.large()
+    let badges = ctx.state.cosmetics.badges;
+    let beside = badges
+        && !mode.large()
         && !profile.handle.is_empty()
         && !profile.badges.is_empty()
         && (mode == Mode::Docked || profile.badges.len() <= 6);
-    let under = mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
+    let under =
+        badges && mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
     let mut names = column![name].spacing(2);
     if let Some(line) = handle_line(ctx, shown, &inks, mode, beside) {
         names = names.push(line);
@@ -230,7 +233,7 @@ pub(super) fn profile_body<'a>(
     {
         body = body.push(actions);
     }
-    if !profile.badges.is_empty() && !beside && !under {
+    if badges && !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
     // Discord's card shows the first activity on its own tile, with the
