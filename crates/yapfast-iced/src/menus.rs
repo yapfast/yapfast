@@ -814,9 +814,19 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             Task::batch([focus, app.sync()])
         }
         MenuAct::CloseFolders => {
-            app.layout.open_folders.clear();
-            crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
-            app.rail.items = crate::rail::rail(app.client.state(), &app.layout.open_folders);
+            // A tree that opens one folder at a time keeps it apart from
+            // the rail's open folders, as a click on a folder does.
+            if crate::sidebar::tree::one_folder(app) {
+                app.layout.tree_folder = None;
+                crate::layout::store(app.client.root(), "tree_folder", &app.layout.tree_folder);
+            } else {
+                app.layout.open_folders.clear();
+                crate::layout::store(app.client.root(), "open_folders", &app.layout.open_folders);
+            }
+            app.rail.items = crate::rail::rail(
+                app.client.state(),
+                &crate::sidebar::tree::folders_shown(app),
+            );
             Task::batch([focus, app.ask()])
         }
         MenuAct::MentionsFilter => {

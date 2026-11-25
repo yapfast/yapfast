@@ -708,7 +708,7 @@ fn folder_rows(
             ..MenuRow::plain(MenuAct::Event, "Servers")
         });
     }
-    if !app.layout.open_folders.is_empty() {
+    if !crate::sidebar::tree::folders_shown(app).is_empty() {
         rows.push(MenuRow {
             icon: Some(Icon::ChevronUp),
             separated: rows.is_empty(),
