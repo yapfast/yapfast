@@ -729,6 +729,7 @@ impl<'a> SideComposer<'a> {
             left: 6.0,
         })
         .enabled(self.enabled)
+        .message_height(cx.window_height, scrollbar(theme))
         .suggesting(crate::suggest::suggesting(cx, self.which));
         // Ctrl+V takes files and pictures in the thread's composer, the
         // New Thread form's and a new post's message, as in the channel's
@@ -952,8 +953,8 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         |heights| Message::Thread(Event::Measured(heights)),
         aside.found.clone(),
         None,
+        aside.height,
     );
-    let lead = (aside.height - aside.total_height()).max(0.0);
     for index in first..last {
         rows.push(
             key(&aside.messages[index].item),
@@ -962,7 +963,7 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
             crate::timeline::view::timeline_row(ctx, ASIDE + index),
         );
     }
-    let list = scroll_view(column![Space::new().height(lead), rows])
+    let list = scroll_view(rows)
         .id(LIST)
         .anchor_bottom()
         .on_scroll(|viewport| Message::Thread(Event::Scrolled(viewport)))

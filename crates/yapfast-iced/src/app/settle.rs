@@ -58,6 +58,7 @@ impl App {
             menu: self.win.menu.as_ref(),
             picker: self.win.picker.get(),
             above: self.shell.frame.height - self.window.height,
+            window_height: self.window.height,
             composer: &self.composer,
             playback: &self.playback,
             modifiers: self.modifiers,

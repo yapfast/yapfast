@@ -58,8 +58,13 @@ Discord's edit tint: the text becomes a field of its own there, with the
 emoji button beside it and "escape to cancel • enter to save" under it,
 both links. The room's draft and a reply being written stay as they
 were. Starting an edit gives the field the keys and scrolls the row into
-view; Enter saves (the core asks whether to delete a message emptied),
-Escape cancels.
+view. Message fields grow with their text up to 45% of the available window
+height. When text overflows, a scrollbar inside the field shows its position,
+and the thumb, wheel or touchpad can scroll it. A wheel notch scrolls the
+field over several frames, and small touchpad movements accumulate. The
+field keeps vertical wheel input at its ends. Dragging a selection past the top or bottom edge
+scrolls faster the farther the pointer moves, while extending the selection.
+Enter saves (the core asks whether to delete a message emptied), and Escape cancels.
 
 Over the field typed in last (`suggest.rs`), an `@` or `#` word suggests
 the people, roles and channels the core finds, and a `:name` word of two

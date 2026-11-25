@@ -19,7 +19,7 @@ use std::{
 };
 
 use iced::{
-    Border, Element, Length, Rectangle, Vector,
+    Border, Element, Length, Point, Rectangle, Vector,
     advanced::{
         Shell, mouse, renderer,
         widget::{Id, Operation, operation},
@@ -246,7 +246,20 @@ impl Smooth {
         }
         let now = Instant::now();
         let rooms = self.rooms(child);
-        let take = if state.flick.intercepts(now, by, pointer, rooms, kind) {
+        let intercepts = state.flick.intercepts(now, by, pointer, rooms, kind);
+        let field = by.y != 0.0 && (intercepts || state.flick.moving()) && {
+            let mut find = WheelFieldAt {
+                point: Some(pointer),
+                scroll: None,
+                found: false,
+            };
+            child.operate(&mut find);
+            find.found
+        };
+        if field {
+            state.flick.stop();
+        }
+        let take = if intercepts && !field {
             true
         } else {
             CLAIMED.set(false);
@@ -281,6 +294,45 @@ impl Smooth {
         if state.flick.moving() {
             shell.request_redraw();
         }
+    }
+}
+
+/// Finds a text field under the wheel, following the scroll offsets and clips
+/// that iced applies before giving it the event.
+struct WheelFieldAt {
+    point: Option<Point>,
+    scroll: Option<(Rectangle, Vector)>,
+    found: bool,
+}
+
+impl Operation for WheelFieldAt {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        let point = self.point;
+        if let Some((bounds, translation)) = self.scroll.take() {
+            self.point = point
+                .filter(|at| bounds.contains(*at))
+                .map(|at| at + translation);
+        }
+        if self.point.is_some() && !self.found {
+            operate(self);
+        }
+        self.point = point;
+    }
+
+    fn scrollable(
+        &mut self,
+        _: Option<&Id>,
+        bounds: Rectangle,
+        _: Rectangle,
+        translation: Vector,
+        _: &mut dyn operation::Scrollable,
+    ) {
+        self.scroll = Some((bounds, translation));
+    }
+
+    fn custom(&mut self, _: Option<&Id>, bounds: Rectangle, state: &mut dyn std::any::Any) {
+        self.found |= state.is::<crate::field::WheelField>()
+            && self.point.is_some_and(|at| bounds.contains(at));
     }
 }
 
