@@ -5,7 +5,7 @@
 
 use std::cell::Cell;
 
-/// The xdg-activation token of the tray click or Yapfast menu item that is
+/// The xdg-activation token of the tray click or Open Yapfast that is
 /// opening the window, which lets a Wayland window come to the front.
 #[cfg(target_os = "linux")]
 static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -307,13 +307,13 @@ mod linux {
                 }
                 .into()
             };
-            let mut menu = vec![item("Yapfast", Choice::Open)];
+            let mut menu = vec![item("Open Yapfast", Choice::Open)];
             if self.shown.call {
                 menu.push(item("Disconnect", Choice::Disconnect));
             }
             menu.push(MenuItem::Separator);
             menu.push(item("Check for updates", Choice::CheckForUpdates));
-            menu.push(item("Restart app", Choice::Restart));
+            menu.push(item("Restart Yapfast", Choice::Restart));
             menu.push(MenuItem::Separator);
             menu.push(item("Quit", Choice::Quit));
             menu
@@ -418,7 +418,7 @@ mod windows {
                 let window = CreateWindowExW(
                     0,
                     w!("YapfastTray"),
-                    w!("Yapfast"),
+                    w!("Open Yapfast"),
                     WS_OVERLAPPED,
                     0,
                     0,
@@ -592,13 +592,13 @@ mod windows {
                     ..std::mem::zeroed()
                 },
             );
-            AppendMenuW(menu, MF_STRING, OPEN, w!("Yapfast"));
+            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
             if call {
                 AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
             }
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             AppendMenuW(menu, MF_STRING, CHECK_FOR_UPDATES, w!("Check for updates"));
-            AppendMenuW(menu, MF_STRING, RESTART, w!("Restart app"));
+            AppendMenuW(menu, MF_STRING, RESTART, w!("Restart Yapfast"));
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             AppendMenuW(menu, MF_STRING, QUIT, w!("Quit"));
             SetMenuDefaultItem(menu, OPEN as u32, 0);
