@@ -480,9 +480,10 @@ saved.
 Changing the files takes the earlier set's faces out of the font database and
 puts the new set in, then moves the font system's version so iced shapes all
 its text again (`fonts::shape_again`); the timeline's rows are measured again,
-as when the message text size changes. The unloaded files' mappings are
-released once the text engine drops the fonts it holds, which can be a moment
-later.
+as when the message text size changes. The text engine's cached fonts of the
+faces taken out are let go then too (`forget_removed_fonts`, patch 4 in
+`vendor/cosmic-text/README.yapfast.md`), with the files' mappings and an
+unwrapped WOFF's memory.
 
 Known limitation: the text keeps the sizes the window's design gives it, so a
 font with large or small proportions reads larger or smaller than DM Sans

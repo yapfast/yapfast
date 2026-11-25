@@ -190,6 +190,9 @@ pub fn set(paths: &[String]) {
         let mut system = font_system().write().expect("font system");
         // `db_mut` also forgets the matches cosmic-text cached.
         *loaded = load_into(system.raw().db_mut(), previous, paths);
+        // The fonts cosmic-text made of the faces taken out, with the
+        // files' mappings and an unwrapped WOFF, go with them.
+        system.raw().forget_removed_fonts();
     }
     drop(loaded);
     fonts::own_font_changed();
