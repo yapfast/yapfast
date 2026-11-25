@@ -592,6 +592,52 @@ fn a_custom_theme_is_made_edited_and_deleted_in_themes() {
 }
 
 #[test]
+fn a_new_themes_pill_and_header_follow_its_text_and_chat_until_set() {
+    use crate::settings::{ThemeEvent, appearance_event as theme};
+    use yapfast_core::theme::{Parts, Theme};
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let at = |name: &str| Theme::NAMES.iter().position(|known| *known == name);
+    let (chat, text) = (at("chat").expect("chat"), at("text").expect("text"));
+    let part = |token: &str| Parts::TOKENS.iter().position(|known| *known == token);
+    let header = Theme::NAMES.len() + part("header").expect("header");
+    assert!(
+        shows(&app, "pill") && shows(&app, "header"),
+        "rows of their own"
+    );
+    // Not set, they follow: the pill is the new text, and the header has
+    // no ground of its own over the new chat.
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+    let _ = app.update(theme(ThemeEvent::Colour(text, "#f0e0d0".into())));
+    assert_eq!(app.theme.pill(), crate::style::hex(0xf0e0d0));
+    assert_eq!(app.theme.header_ground(), None);
+    // Set, the header keeps its own through another chat; the pill still
+    // follows the text.
+    let _ = app.update(theme(ThemeEvent::Colour(header, "#0a141d".into())));
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#000000".into())));
+    let _ = app.update(theme(ThemeEvent::Colour(text, "#d7e7f2".into())));
+    assert_eq!(
+        app.theme.header_ground(),
+        Some(crate::style::hex(0x0a141d).into())
+    );
+    assert_eq!(app.theme.pill(), crate::style::hex(0xd7e7f2));
+    interact(&mut app, |ui| {
+        ui.click("Save theme").expect("Save theme");
+    });
+    let colours = &stored(&folder)["custom_themes"][0]["colours"];
+    assert_eq!(colours["header"], "#0a141d");
+    assert!(colours.get("pill").is_none(), "the pill still follows");
+    assert_eq!(
+        app.theme.header_ground(),
+        Some(crate::style::hex(0x0a141d).into()),
+        "as saved"
+    );
+}
+
+#[test]
 fn the_guided_creator_previews_undoes_exports_and_keeps_its_recipe() {
     use crate::settings::theme_creator::{Event as CreatorEvent, PictureArrival, Step};
     use crate::settings::{ThemeEvent, appearance_event as theme};
@@ -1000,6 +1046,7 @@ fn creator_delete_refuses_a_folder_outside_its_owned_tree() {
         name: "Outside".into(),
         base: "yap",
         theme: yapfast_core::theme::YAP,
+        parts: Default::default(),
         creator: Some(yapfast_core::themes::creator::Spec::default()),
         folder: Some(external.path().display().to_string()),
     };
@@ -1045,6 +1092,7 @@ fn creator_save_migrates_an_external_folder_without_touching_it() {
         name: "Outside".into(),
         base: "yap",
         theme: yapfast_core::theme::YAP,
+        parts: Default::default(),
         creator: Some(yapfast_core::themes::creator::Spec::default()),
         folder: Some(external.path().display().to_string()),
     };

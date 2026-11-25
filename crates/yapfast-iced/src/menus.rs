@@ -214,6 +214,8 @@ pub enum MenuAct {
     ActivityPrivacy,
     /// An order of the search's Sort menu, by its row's `key`.
     SearchSort,
+    /// A box of the inbox's Mentions filter, by its row's `key`.
+    MentionsFilter,
     /// A sticker of the picker, by its tile's place in the row's `key`:
     /// starred among the favourites, or no longer, as its star does.
     FavoriteSticker,
@@ -692,6 +694,12 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
             crate::browser::open(&row.key);
             focus
         }
+        MenuAct::MentionsFilter => {
+            if let Some(on) = ticked {
+                crate::window_bar::change_filter(app, &row.key, on);
+            }
+            focus
+        }
         act => {
             let item = menu.item.clone().unwrap_or_default();
             self::act(app, act, item, menu.at, menu.place)
@@ -848,6 +856,7 @@ pub fn act(
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
+        | MenuAct::MentionsFilter
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll

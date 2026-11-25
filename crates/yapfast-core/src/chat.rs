@@ -1391,6 +1391,39 @@ pub struct SearchHit {
     pub thread: Option<(String, Option<String>)>,
 }
 
+/// What a request for this account's recent mentions asks Discord for, as
+/// its Mentions inbox's filter menu sets it: whether @everyone and @here
+/// mentions count (`everyone`), whether role mentions do (`roles`), and
+/// with a server's id, only that server's (`guild_id`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MentionsQuery {
+    pub everyone: bool,
+    pub roles: bool,
+    pub server: Option<String>,
+}
+
+impl Default for MentionsQuery {
+    /// As Discord's client asks before its filter changes: every kind,
+    /// from every server.
+    fn default() -> Self {
+        Self {
+            everyone: true,
+            roles: true,
+            server: None,
+        }
+    }
+}
+
+impl MentionsQuery {
+    /// Whether it may list a mention `before` didn't: a kind turned back on,
+    /// or a server's limit lifted or moved.
+    pub fn widens(&self, before: &MentionsQuery) -> bool {
+        (self.everyone && !before.everyone)
+            || (self.roles && !before.roles)
+            || (before.server.is_some() && self.server != before.server)
+    }
+}
+
 /// The order a search's results come in, as its Sort menu offers them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SearchSort {
@@ -2999,6 +3032,10 @@ pub enum DiscordCommand {
     Peek {
         room: String,
     },
+    /// This account's recent mentions, the newest first, of the kinds and
+    /// from the server the query asks for: Discord's Mentions inbox;
+    /// [`Event::RecentMentions`] follows.
+    RecentMentions(MentionsQuery),
     /// A page of a Discord server channel's threads, by its room id, as its
     /// list of threads shows them: the archived ones from the `offset`th,
     /// or with a `query`, those of any kind whose name it finds.
@@ -3270,6 +3307,12 @@ pub enum DiscordCommand {
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`;
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
+    /// Adds a Discord channel, DM or group DM to the account's Favorites, or
+    /// takes it off; [`Event::ChannelFavorited`] follows.
+    FavoriteChannel {
+        room: String,
+        favorite: bool,
+    },
     /// Places a server in a folder or moves a server or folder beside a tile.
     FileServer {
         server: String,
@@ -4369,6 +4412,8 @@ pub enum Event {
     StatusSet(Result<(), String>),
     /// Whether the account's server folders were saved.
     ServerFiled(Result<(), String>),
+    /// Whether [`DiscordCommand::FavoriteChannel`] was saved, or why not.
+    ChannelFavorited(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.
@@ -4391,6 +4436,12 @@ pub enum Event {
     Pins {
         room: String,
         result: Result<Vec<ChatMessage>, String>,
+    },
+    /// [`DiscordCommand::RecentMentions`]'s messages for `query`, each with
+    /// its room, the newest first, or why they didn't come.
+    RecentMentions {
+        query: MentionsQuery,
+        result: Result<Vec<(String, ChatMessage)>, String>,
     },
     /// [`DiscordCommand::StartThread`]'s thread, by room id, in the channel
     /// `room`, or why it didn't start.

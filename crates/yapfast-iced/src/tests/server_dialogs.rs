@@ -275,15 +275,14 @@ fn join_a_server_shows_the_invites_server_and_a_link_opens_it() {
         "Join a Server",
         "Builders",
         "7 online, 42 members",
-        "Join Server",
+        "Join in Browser",
     ] {
         assert!(shows(&app, words), "{words}");
     }
     interact(&mut app, |ui| {
-        ui.click("Join Server").expect("Join Server");
+        ui.click("Join in Browser").expect("Join in Browser");
     });
-    let join = app.client.state().join.clone().expect("open");
-    assert!(join.joining || join.error.is_some(), "{join:?}");
+    assert!(app.client.state().join.is_none());
 }
 
 #[test]

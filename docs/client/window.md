@@ -130,8 +130,12 @@ own, which a stream hands to the event loop as messages; nothing polls.
   again to take the change. The bar holds Back and Forward through the
   conversations visited (16 px arrows in 24 px boxes), the place's name
   (on the Friends page "Friends", with the people icon), the Inbox
-  (Unreads and Mentions
-  of the rooms the core knows, a click going there) and Help (18 px
+  (Unreads, the rooms the core knows with unread messages, a click going
+  there; Mentions, the messages that pinged this account as cards, a
+  click jumping to the message, then the rooms with mentions but no
+  message at hand, with Discord's Filter button at the head's right, whose
+  menu shows over the inbox; see
+  [Recent mentions](../discord/messages.md#recent-mentions)) and Help (18 px
   glyphs in 32 px boxes), and minimize,
   maximize and close, drawn as 10 px strokes the way Discord's frame draws
   them; its ground moves the window after a 3 px drag and a
@@ -216,8 +220,11 @@ core's palettes (`yapfast_core::theme`, see [themes](../themes.md)), turned
 into iced's colour type once (`themes::theme`), plus the colours
 `Theme::worked_out` works out from them
 (the menu's ground and outline, the composer's ground and placeholder, a
-destructive row's text, the selection, a mention's colour) and iced's own
-theme for the few styles iced draws itself. Views take it by reference;
+destructive row's text, the selection, a mention's colour), a custom
+theme's own rail pill and header ground where it sets them
+(`themes::custom_theme`; `Theme::pill` and `Theme::header_ground` read
+them under a package's), and iced's own theme for the few styles iced
+draws itself. Views take it by reference;
 nothing else in the client names a colour, but for Discord's own (the
 crown, blurple, role and name colours, the nameplates' two grounds).
 
