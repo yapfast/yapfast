@@ -313,6 +313,8 @@ pub struct Friend {
     /// When they became friends, in Unix milliseconds; written out only for
     /// the profile on screen.
     pub since: Option<u64>,
+    /// How they draw their name, on Discord.
+    pub style: Option<Arc<NameStyle>>,
 }
 
 /// A file waiting in the composer to go with the next message.
@@ -520,6 +522,10 @@ pub struct VoicePerson {
     /// This account, in the call on another client, as Discord shows it:
     /// dimmed, without its icons.
     pub elsewhere: bool,
+    /// How they draw their name in the call's server, or everywhere, and
+    /// the server tag they wear by it, on Discord.
+    pub style: Option<Arc<NameStyle>>,
+    pub tag: Option<ServerTag>,
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Hash)]
@@ -1161,8 +1167,10 @@ pub struct ChatMember {
     pub role_icon: Option<Arc<str>>,
     /// Whether they're around; Matrix members have no presence here.
     pub presence: Option<Presence>,
-    /// The RGB colour of their name, from their highest coloured Discord role.
+    /// The RGB colour of their name, from their highest coloured Discord role,
+    /// and where its gradient ends when that role's name is one.
     pub color: Option<u32>,
+    pub color_end: Option<(u32, Option<u32>)>,
     /// Their custom status, else what they're doing, from Discord, and
     /// what they're doing in full.
     pub activity: Option<String>,
@@ -2090,6 +2098,9 @@ pub struct ChatMessage {
     /// The RGB colour of the author's name, from their highest coloured
     /// Discord role.
     pub color: Option<u32>,
+    /// The author's role colour's second colour, and its third for a
+    /// holographic one, when it is a gradient.
+    pub color_end: Option<(u32, Option<u32>)>,
     /// The author is a Discord bot or webhook.
     pub bot: bool,
     /// The server tag the author wears by their name, on Discord.

@@ -56,12 +56,16 @@ impl<'a> super::View<'a> {
             self.cx.person_name(
                 marked,
                 // As Slint's DM row: the window's face, not the theme's names.
+                // The style's colours show while the row is pointed at or
+                // selected; at rest its font alone, greyed with the row, as
+                // Discord's.
                 NameInk {
                     font_role: "small",
                     ..NameInk::new(15.0, 500, ink)
                 }
                 .style(room.style.as_ref())
-                .key(&room.id),
+                .key(&room.id)
+                .plain(!pointed && !room.selected),
             )
         ]
         .spacing(4)

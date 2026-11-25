@@ -78,6 +78,11 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// The display name style they draw their name with in the call's
+    /// server, or everywhere, and the server tag they wear by it, as their
+    /// member row has them: voice states carry neither.
+    pub style: Option<crate::collectibles::Style>,
+    pub tag: Option<crate::message::Tag>,
 }
 
 /// The linked account, as Discord shows it outside any server.
@@ -256,6 +261,9 @@ pub struct Friend {
     pub activity: Option<String>,
     #[serde(skip)]
     pub activities: crate::activity::Activities,
+    /// Their display name style, as `Names` knows it.
+    #[serde(skip)]
+    pub style: Option<crate::collectibles::Style>,
 }
 
 /// Someone this account can start a DM with.
@@ -4293,6 +4301,12 @@ impl Discord {
 
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
+    }
+
+    /// Where a member's name's gradient ends in a server, when their
+    /// highest coloured role's name is one; see [`Server::gradient`].
+    pub fn gradient(&self, server: &Server, user: &str) -> Option<(u32, Option<u32>)> {
+        server.gradient(self.read_names().roles(&server.id, user))
     }
 
     /// [`Discord::render`], with the users and roles the message mentions and

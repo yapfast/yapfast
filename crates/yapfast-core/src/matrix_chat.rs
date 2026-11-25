@@ -1106,6 +1106,7 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                         nameplate: None,
                         style: None,
                         boosting_since: None,
+                        color_end: None,
                     })
                     .collect();
                 sort_members(&mut members);

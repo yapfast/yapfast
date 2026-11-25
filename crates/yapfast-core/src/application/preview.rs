@@ -268,6 +268,7 @@ pub(super) fn preview_members(room: &str) -> Vec<ChatMember> {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         })
         .collect();
     chat::sort_members(&mut members);

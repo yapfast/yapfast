@@ -601,6 +601,7 @@ fn room_row(
                         streaming: person.streaming,
                         video: person.video.is_some(),
                         elsewhere: false,
+                        ..Default::default()
                     })
                     .collect()
             } else {

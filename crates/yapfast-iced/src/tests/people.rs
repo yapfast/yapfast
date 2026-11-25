@@ -57,6 +57,7 @@ fn friend(id: &str, name: &str, presence: Presence) -> Friend {
         activity: None,
         activities: Default::default(),
         since: None,
+        style: None,
     }
 }
 
@@ -1437,4 +1438,147 @@ fn a_composer_key_is_kept_no_bigger_than_its_drawn_at() {
             .composer_key(&app.theme.id, KeySlot::Sticker)
             .is_none()
     );
+}
+
+/// Every display name style draws a name that can be seen, on a light
+/// profile and a dark one, in each font Discord has and in fonts and
+/// effects Yapfast doesn't know: one person's own card showed no name.
+/// `YAPFAST_NAME_SHEET=file.ppm` also writes them all out, to look at.
+#[test]
+fn every_name_style_draws_a_name_that_shows() {
+    use yapfast_core::chat::NameStyle;
+    let (_app, _folder) = preview();
+    let name = "Lyric x7o6 ✦";
+    let colors: [&[u32]; 3] = [&[0xffffff], &[0x1e1f22], &[0xff66cc, 0x66ccff]];
+    let mut rows: Vec<(u32, u32, Vec<u8>)> = Vec::new();
+    let mut missing = Vec::new();
+    for dark in [false, true] {
+        let ground: u32 = if dark { 0x121214 } else { 0xfbfbfb };
+        for font in [
+            0u8, 1, 3, 4, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99,
+        ] {
+            for effect in 0u8..=9 {
+                for colors in colors {
+                    let style = NameStyle::new(font, effect, colors);
+                    let look = crate::looks::name_look(Some(&style), name, false, dark)
+                        .expect("a style with colours");
+                    let _ = crate::fonts::style_font(look.font(), 700);
+                    let mut system = iced::advanced::graphics::text::font_system()
+                        .write()
+                        .expect("font system");
+                    let picture = crate::paint::styled_name(system.raw(), name, &look, 20.0, 700);
+                    drop(system);
+                    let canvas = picture.canvas;
+                    // Over the ground, how many pixels stand out from it.
+                    let [gr, gg, gb] = [(ground >> 16) & 255, (ground >> 8) & 255, ground & 255];
+                    let mut over = Vec::with_capacity(canvas.pixels.len());
+                    let mut seen = 0;
+                    for pixel in canvas.pixels.as_chunks::<4>().0 {
+                        let a = u32::from(pixel[3]);
+                        let mix = |c: u8, g: u32| (u32::from(c) * a + g * (255 - a)) / 255;
+                        let (r, g, b) = (mix(pixel[0], gr), mix(pixel[1], gg), mix(pixel[2], gb));
+                        let far = r.abs_diff(gr) + g.abs_diff(gg) + b.abs_diff(gb);
+                        seen += usize::from(far > 120);
+                        over.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
+                    }
+                    if seen < 40 {
+                        missing.push((dark, font, effect, colors.to_vec(), seen));
+                    }
+                    rows.push((canvas.width, canvas.height, over));
+                }
+            }
+        }
+    }
+    // A PPM picture, rows one under another on the first row's ground.
+    if let Ok(path) = std::env::var("YAPFAST_NAME_SHEET") {
+        let width = rows.iter().map(|row| row.0).max().unwrap_or(1);
+        let height: u32 = rows.iter().map(|row| row.1).sum();
+        let mut out = format!("P6\n{width} {height}\n255\n").into_bytes();
+        for (w, h, pixels) in &rows {
+            for y in 0..*h {
+                for x in 0..width {
+                    let at = ((y * w + x.min(w - 1)) * 4) as usize;
+                    out.extend_from_slice(&pixels[at..at + 3]);
+                }
+            }
+        }
+        std::fs::write(path, out).expect("sheet");
+    }
+    assert!(missing.is_empty(), "names that don't show: {missing:?}");
+}
+
+/// A card seen 2026-11-22: a light profile theme in the dark
+/// app, and a white display name style. The style takes the card's
+/// light ground, so the name is drawn dark enough to read; before, it
+/// was made for the app's dark ground and drawn white on white.
+#[test]
+fn a_styled_name_on_a_light_profile_theme_reads_on_it() {
+    use yapfast_core::chat::{NameStyle, Profile};
+    let (mut app, _folder) = preview();
+    let style = Arc::new(NameStyle::new(10, 1, &[0xffffff]));
+    change(&mut app, |state| {
+        state.discord_user = Some("42".into());
+        state.account_profile = Some(Arc::new(Profile {
+            id: "42".into(),
+            name: "Lyric".into(),
+            handle: "x7o6".into(),
+            style: Some(style.clone()),
+            theme: Some([0xf4e9ff, 0xffffff]),
+            ..Default::default()
+        }));
+    });
+    let theme = app.ctx().look.theme;
+    assert!(theme.dark, "the preview's app theme is dark");
+    let light_card = Some([0xf4e9ff, 0xffffff]);
+    assert!(!crate::profile::body::name_on_dark(theme, light_card));
+    assert!(crate::profile::body::name_on_dark(theme, None));
+    assert!(crate::profile::body::name_on_dark(
+        theme,
+        Some([0x101018, 0x202030])
+    ));
+    let on_card = crate::looks::name_look(Some(&style), "Lyric", false, false).expect("styled");
+    let [r, g, b] = [
+        on_card.main >> 16,
+        (on_card.main >> 8) & 255,
+        on_card.main & 255,
+    ];
+    assert!(
+        r + g + b < 3 * 0xa0,
+        "white is darkened to read on the light card: {:06x}",
+        on_card.main
+    );
+    // The card itself opens with its name drawn.
+    let _ = app.update(Message::Status(crate::status::Event::Toggle));
+    assert!(app.profiles.account.is_some());
+}
+
+/// Someone in a voice channel wears their server tag beside their name,
+/// as their member row does, and only while server tags show.
+#[test]
+fn someone_in_voice_wears_their_server_tag() {
+    use yapfast_core::chat::{NameStyle, ServerTag, VoicePerson};
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: "riley".into(),
+            name: "Riley".into(),
+            style: Some(Arc::new(NameStyle::new(3, 2, &[0xff00ff]))),
+            tag: Some(ServerTag {
+                text: "GUYS".into(),
+                badge: None,
+                guild: None,
+            }),
+            ..Default::default()
+        }];
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("coop".into())));
+    let _ = app.sync();
+    assert!(shows(&app, "Riley"), "Riley under Party");
+    assert!(shows(&app, "GUYS"), "with her server tag");
 }

@@ -203,7 +203,7 @@ pub(super) fn profile_body<'a>(
                     ctx,
                     profile.name.as_str(),
                     metrics.name,
-                    theme.font("names", BOLD),
+                    plain_name_font(ctx, shown),
                     inks.ink,
                 )
             })
@@ -714,7 +714,7 @@ pub(crate) fn profile_name<'a>(
         .unwrap_or_else(|| {
             text(shown.look.profile().name.clone())
                 .size(theme_size(ctx, size))
-                .font(ctx.look.theme.font("names", BOLD))
+                .font(plain_name_font(ctx, shown))
                 .color(ink)
                 .into()
         });
@@ -739,8 +739,10 @@ fn styled_name<'a>(
     let state = ctx.state;
     let profile = shown.look.profile();
     let style = state.cosmetics.style(profile.style.as_deref());
-    let dark = ctx.look.theme.dark;
-    let style = looks::name_look(style, &profile.name, false, dark)?;
+    let dark = name_on_dark(ctx.look.theme, profile.theme);
+    // A style without colours is its font alone: [`plain_name_font`].
+    let style = looks::name_look(style, &profile.name, false, dark)
+        .filter(|style| !style.colors.is_empty())?;
     let key = (
         profile
             .style
@@ -762,6 +764,33 @@ fn styled_name<'a>(
         });
     }
     Some(cached.as_ref().expect("made above").picture.view())
+}
+
+/// The font of a name drawn as text: its style's font when the style
+/// has no colours, as Discord draws it, else the usual bold.
+fn plain_name_font(ctx: crate::ctx::Ctx<'_>, shown: &Shown) -> iced::Font {
+    let profile = shown.look.profile();
+    let font = ctx
+        .state
+        .cosmetics
+        .style(profile.style.as_deref())
+        .and_then(|style| looks::name_look(Some(style), &profile.name, true, true))
+        .and_then(|look| look.font());
+    // No style font: the theme's names face, as a plain name takes it.
+    match font {
+        Some(_) => crate::fonts::style_font(font, 700),
+        None => ctx.look.theme.font("names", crate::fonts::BOLD),
+    }
+}
+
+/// Whether a styled name lies on a dark ground: a profile's own theme
+/// decides that, as its card is drawn in it, and the app's theme only
+/// without one. Taking the app's on a light profile theme drew a white
+/// name's style for a dark ground, white on the white card: that
+/// card showed no name.
+pub(crate) fn name_on_dark(theme: &crate::theme::Theme, colors: Option<[u32; 2]>) -> bool {
+    let inks = Inks::new(theme, colors, theme.sidebar);
+    if inks.themed { !inks.light } else { theme.dark }
 }
 
 /// Text on a profile that selects, to copy, as its plain name and its
