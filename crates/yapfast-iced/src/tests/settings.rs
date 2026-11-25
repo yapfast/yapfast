@@ -1475,6 +1475,21 @@ fn preferences_are_kept_across_a_restart() {
     assert_eq!(layout["flash_taskbar"], false);
 }
 
+/// Appearance's Show activity cards says what the member list's eye left:
+/// one click after the eye hid them shows them again.
+#[test]
+fn show_activity_cards_follows_the_member_lists_eye() {
+    let (mut app, folder) = preview();
+    let _ = app.update(Message::Members(crate::members::Event::HideActivity));
+    assert!(app.client.state().activity_cards_hidden, "the eye hid them");
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("Show activity cards").expect("the switch");
+    });
+    assert!(!app.client.state().activity_cards_hidden, "shown again");
+    assert_eq!(stored(&folder)["activity_cards_hidden"], false);
+}
+
 #[test]
 fn a_device_chosen_in_voice_settings_is_the_one_used() {
     let (mut app, _folder) = preview();
