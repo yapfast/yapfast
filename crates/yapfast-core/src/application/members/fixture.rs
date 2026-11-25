@@ -99,6 +99,7 @@ pub fn member_server(alice: &[&str]) -> Application {
             presence: None,
             activity: None,
             activities: Default::default(),
+            style: None,
         }]
         .into(),
         names: SharedNames::new(Arc::new(RwLock::new(names))),
@@ -117,6 +118,8 @@ pub fn member_server(alice: &[&str]) -> Application {
                     streaming: false,
                     video: false,
                     elsewhere: false,
+                    style: None,
+                    tag: None,
                 },
                 yapfast_discord::service::VoiceMember {
                     user_id: "1".into(),
@@ -130,6 +133,8 @@ pub fn member_server(alice: &[&str]) -> Application {
                     streaming: false,
                     video: false,
                     elsewhere: true,
+                    style: None,
+                    tag: None,
                 },
             ],
         )]
@@ -159,6 +164,7 @@ pub fn member_server(alice: &[&str]) -> Application {
         group_icon: None,
         role_icon: None,
         boosting_since: None,
+        color_end: None,
     };
     app.apply(Event::Members {
         room: "discord:10:11".into(),

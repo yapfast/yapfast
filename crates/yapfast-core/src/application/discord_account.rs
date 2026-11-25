@@ -670,6 +670,7 @@ impl Application {
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
                     since: friend.since,
+                    style: friend.style.map(|style| Arc::new(style.into())),
                 })
                 .collect();
             self.state.people_changed();
@@ -924,7 +925,26 @@ impl Application {
         state.discord_presence = None;
         state.pending_watch = None;
         state.pending_camera = None;
-        let effects = self.forget_discord();
+        // As in Discord's client, the switch goes Home, to the friends list,
+        // with no way back to the account before's places. What was being
+        // written in its rooms goes too, so none of it is sent as this one.
+        let discord_room = |room: &str| Network::of(room) == Network::Discord;
+        state.drafts.retain(|room, _| !discord_room(room));
+        state.compose.retain(|room, _| !discord_room(room));
+        state.staged.retain(|room, _| !discord_room(room));
+        if state
+            .edit
+            .as_ref()
+            .is_some_and(|edit| discord_room(&edit.room))
+        {
+            state.edit = None;
+        }
+        state.nav_back.clear();
+        state.nav_forward.clear();
+        state.navigation = Navigation::DirectMessages;
+        state.dm_screen = Some(DmScreen::Friends);
+        let mut effects = self.deselect();
+        effects.extend(self.forget_discord());
         self.state.discord_linked = true;
         effects
     }

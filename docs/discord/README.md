@@ -6,7 +6,7 @@
 | [Voice](voice.md) | Server voice channels, [a card of who is in one](voice.md#who-is-in-a-voice-channel), [how long each one's call has gone on](voice.md#how-long-a-channels-call-has-gone-on), mute, deafen, per-person volume, [moving people to another channel](servers.md#someones-menu-in-a-voice-channel) from their menu or [by dragging them](servers.md#dragging-someone-to-another-voice-channel), voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) and [keybinds](../keybinds.md) for mute, deafen and the input mode, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and keybinds on real Windows, and of keybinds on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
-| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state and [marking a message unread](messages.md#mark-unread-and-message-links), notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers, [bots' buttons, dropdown menus and forms](messages.md#bots-buttons-menus-and-forms), their radio groups, checkboxes and file uploads included, [apps' slash commands](messages.md#apps-commands), [context-menu commands](messages.md#apps) and [who used one](messages.md#who-used-an-apps-command) | The rest of a server's settings and its privacy, membership forms when joining |
+| [Channels and messages](messages.md) | History, live updates, sending, replies, edits, reactions, files, embeds, custom emoji, stickers, spoilers, unread state and [marking a message unread](messages.md#mark-unread-and-message-links), notifications and their settings, member lists, pinning messages, pins and search, a channel's topic and header, server, folder, category and [channel menus](servers.md#a-channels-menu), [forwarding](messages.md#forwarding), pinning channels to the top, [following channels](servers.md#following-channels), invites, [joining by invite](servers.md#joining-by-invite), [scheduled events from their links](servers.md#event-links), Discord's own channel, message and profile links, making and changing channels, [server settings](server-settings.md)' Server Profile, Engagement, Boost Perks, [Emoji](server-settings.md#emoji), [Stickers](server-settings.md#stickers), [Members](server-settings.md#members), [Roles](server-settings.md#roles), [Invites](server-settings.md#invites), [Safety Setup](server-settings.md#safety-setup), [Audit Log](server-settings.md#audit-log), [Bans](server-settings.md#bans) and [Delete Server](server-settings.md#delete-server-and-transfer-ownership), [channel settings](server-settings.md#channel-settings) and their permissions, [two-factor authentication](server-settings.md#two-factor-authentication), threads, a channel's list of them and starting them, [forums](servers.md#forums), leaving servers, [bots' buttons, dropdown menus and forms](messages.md#bots-buttons-menus-and-forms), their radio groups, checkboxes and file uploads included, [apps' slash commands](messages.md#apps-commands), [context-menu commands](messages.md#apps) and [who used one](messages.md#who-used-an-apps-command) | The rest of a server's settings and its privacy, membership forms when joining |
 | [DMs](people.md#dms) | DMs, group DMs, message requests and spam, starting a DM, [a DM's menu](people.md#a-dms-menu): pinning, muting, closing and leaving a group | |
 | [Friends](people.md#friends-and-requests) and [profiles](people.md#profiles) | Friends list, friend requests, adding by username, profile cards with their badges and others' [Rich Presence buttons](people.md#profiles), others' server tags and their servers' cards, the DM panel, custom status, [editing one's profile](people.md#editing-ones-main-profile), with its theme, name style and server tag, and [server profiles](people.md#editing-ones-server-profile), notes, friend nicknames, removing friends, ignoring, blocking and unblocking, also [from a profile](people.md#profiles), [the blocked list](people.md#friends-and-requests) | A list of the ignored; changing the username |
 | [Favorites](favorites.md) | Account-synced channel, DM and group DM favorites, saved categories and order, add/remove | Category editing and drag-to-reorder |
@@ -134,11 +134,15 @@ it only works in servers that install the bot, and bots can't join DM calls.
 
 Link by QR code, the method mautrix-discord uses. Yapfast shows a code from
 Discord's remote login service, and the person scans it with the Discord phone
-app. Pasting a token and email/password login aren't offered. A build with
-Matrix links from Settings, under Discord; one without Matrix links on its
-sign-in screen, and signing out there unlinks. Either way, Yapfast first says
-that Discord doesn't allow third-party clients, so linking puts the account at
-risk, and shows the code only when asked.
+app. "Use a token" takes a token copied from another app or a browser
+instead, once `GET /users/@me` accepts it; email/password login isn't
+offered. A build with Matrix links from Settings, under Discord; one without
+Matrix links on its sign-in screen, and signing out there unlinks. Either way,
+Yapfast first says that Discord doesn't allow third-party clients, so linking
+puts the account at risk, and shows the code only when asked. It also says
+that a pasted token can make Discord sign the app it came from out, as the
+same session suddenly speaks as another client, and that the code is the
+safe way.
 
 HTTPS requests and WebSockets alike trust the certificates the system trusts,
 through `rustls-platform-verifier`, so a reverse proxy whose CA is in the
@@ -192,29 +196,38 @@ shows Discord's captchas the same way.
 
 Store the Discord token in the OS credential store, next to the Matrix session.
 The token gives full control of the account, so it never goes into Matrix, not
-even encrypted. A device that links appears in Discord as its own session.
+even encrypted. A device that links by QR code appears in Discord as its own
+session. Each account keeps how it was linked (`qr` or `pasted`) with its
+token (see Several accounts below); a refreshed login keeps it. An account
+without it, linked before Yapfast kept it, counts as pasted.
 
-Unlinking a device, from Settings or by signing out of a build without Matrix,
-leaves any Discord call, ends the session with `POST /auth/logout`, and deletes
-the tokens of every account.
+Logging out, from Settings or by signing out of a build without Matrix, leaves
+any Discord call and deletes the account's token; with other accounts linked,
+the next one connects in its place (see below). For a QR login it also ends
+the session with `POST /auth/logout`. A pasted token's session is the app or
+browser it came from, which that would sign out, so Yapfast only forgets it,
+and when no account is left, says the other app stays signed in.
 
 ### Several accounts
 
 A device links several accounts, as Discord's apps do. The account's popover
-(`crates/yapfast-iced/src/status.rs`) has Switch Accounts, which opens a list
-beside the card: each account with its picture and name, a check on the
-active one, and Manage Accounts. Manage Accounts opens a dialog
-(`crates/yapfast-iced/src/accounts.rs`) with a row for each account, the
-active one marked, a menu on each row (Switch Account, Log Out) and Add
-Account, which links another by the same QR code or token as the first.
-Adding an account switches to it.
+(`crates/yapfast-iced/src/status.rs`) has Switch Accounts: pointing at it
+opens a list beside the card, each account with its picture and username, a
+check on the active one, and Manage Accounts; pressing it opens Manage
+Accounts. That dialog (`crates/yapfast-iced/src/accounts.rs`) has a row for
+each account, with "Active account" under the one in use, Switch on the
+others and a menu with Log out on each, and "Add an account", which links
+another by the same QR code or token as the first. Adding an account switches
+to it. The words are Discord's client's.
 
 Each account has an entry of its own in the credential store
 (`discord-account-<id>`), with an index of the ids and the active one
 (`discord-accounts`), so no entry outgrows what Windows allows one to hold. The
 id is the user id its token spells, or a hash of it. A device that linked
 before this keeps its account: the old entry is moved into the new layout the
-first time it's read. The name and picture each row shows are kept with the
+first time it's read, with how it was linked from `discord-token-origin` (`qr`
+or `pasted` and the SHA-256 of the token it's for), which goes too; without
+one, or with one for another token, it counts as pasted. The name and picture each row shows are kept with the
 account once it has connected, so the list is complete without connecting
 every account. `crates/yapfast-discord/src/token.rs` holds all of it; a login
 Discord refreshes (`auth_token` in READY) goes to the account it belongs to,
@@ -225,11 +238,26 @@ the other's, and the chat actor (`DiscordCommand::SwitchAccount` in
 `crates/yapfast-core/src/chat.rs`) drops the old session before the new one
 starts, so the old one saves what it kept under its own login. What Yapfast
 keeps to show while it connects holds one account at a time, labelled by its
-login: after a switch the other account's files read as empty, and the first
+login: after a switch the other account's files are deleted, and the first
 connect fills them again. Logging out of the account in use ends its session
-on Discord and activates the next one; logging out of another ends its
-session with that account's own token and leaves the connection alone. Logging
-out of the last one is unlinking.
+on Discord, if it was a QR login, and activates the next one; logging out of
+another ends its session with that account's own token, again only for a QR
+login, and leaves the connection alone. Logging out of the last one is
+unlinking.
+
+A switch goes Home, to the friends list, and drops the way back to the other
+account's places. Discord's client goes to the new account's last channel when
+it knows one, else Home; Yapfast keeps no last channel per account, so it goes
+Home. Drafts, replies, files waiting to send and an edit under way in
+Discord's rooms go with it, so none of them is sent as the new account.
+
+Where it differs from Discord's client: logging out of the account in use
+connects the next one, where Discord's client shows its sign-in page with the
+accounts left to choose from; any number of accounts can be linked, where
+Discord's client takes five; a login Discord no longer accepts isn't found
+until the switch to it, where Discord's client marks it "Please log in
+again."; and there is no "Switched to {username}" toast or "{username} logged
+out" notice.
 
 ## Later
 

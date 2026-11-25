@@ -185,7 +185,7 @@ async fn with_token(token: String, progress: impl Fn(Progress)) {
         let api = Api::new(token.clone())?;
         api.learn_build_number().await;
         api.me().await?;
-        token::store(&token)
+        token::store_as(&token, token::Origin::Pasted)
     };
     progress(match checked.await {
         Ok(()) => Progress::Linked,
@@ -214,15 +214,17 @@ async fn run(progress: impl Fn(Progress)) {
         });
     })
     .await;
-    progress(match linked.and_then(|login| token::store(&login)) {
-        Ok(()) => Progress::Linked,
-        Err(error) => match error.downcast_ref::<Stopped>() {
-            Some(Stopped::Expired) => Progress::Expired,
-            Some(stopped) => Progress::Failed(stopped.to_string()),
-            None => {
-                tracing::warn!(error = format!("{error:#}"), "could not link Discord");
-                Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))
-            }
+    progress(
+        match linked.and_then(|login| token::store_as(&login, token::Origin::Qr)) {
+            Ok(()) => Progress::Linked,
+            Err(error) => match error.downcast_ref::<Stopped>() {
+                Some(Stopped::Expired) => Progress::Expired,
+                Some(stopped) => Progress::Failed(stopped.to_string()),
+                None => {
+                    tracing::warn!(error = format!("{error:#}"), "could not link Discord");
+                    Progress::Failed(format!("Yapfast couldn't link Discord: {error}"))
+                }
+            },
         },
-    });
+    );
 }

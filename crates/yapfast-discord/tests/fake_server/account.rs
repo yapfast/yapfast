@@ -831,6 +831,57 @@ async fn refreshes_the_login_and_signs_out() {
     assert_eq!(self::control(server, "GET", "/_control/logouts", ""), "1");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn unlinking_ends_only_the_session_yapfast_made() {
+    use yapfast_discord::token::Origin;
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("unlinking_ends_only_the_session_yapfast_made").await;
+    let logouts = || self::control(server, "GET", "/_control/logouts", "");
+
+    // A login an earlier version linked, with nothing saying how: it may be
+    // another app's, so its session stays.
+    token::forget().unwrap();
+    token::store(client::TEST_TOKEN).unwrap();
+    assert_eq!(token::origin(), Origin::Unknown);
+    assert!(!discord.sign_out(token::origin()).await.unwrap());
+    assert_eq!(logouts(), "0");
+
+    // A pasted token: the app or browser it came from stays signed in.
+    token::store_as(client::TEST_TOKEN, Origin::Pasted).unwrap();
+    assert_eq!(token::origin(), Origin::Pasted);
+    assert!(!discord.sign_out(token::origin()).await.unwrap());
+    assert_eq!(logouts(), "0");
+
+    // Yapfast's own login, by QR code, keeps how it was linked when Discord
+    // refreshes it.
+    token::store_as(client::TEST_TOKEN, Origin::Qr).unwrap();
+    token::refresh(client::TEST_TOKEN, "yapfast-refreshed-token").unwrap();
+    assert_eq!(token::origin(), Origin::Qr);
+    token::refresh("yapfast-refreshed-token", client::TEST_TOKEN).unwrap();
+    assert_eq!(token::origin(), Origin::Qr);
+
+    // Each account keeps its own: Bea's pasted token, linked beside Alice's
+    // QR login, is the active one, and her session stays.
+    let alice = token::listing().unwrap().active.unwrap();
+    token::store_as(client::TEST_SECOND_TOKEN, Origin::Pasted).unwrap();
+    let bea = token::listing().unwrap().active.unwrap();
+    assert_ne!(bea, alice);
+    assert_eq!(token::origin(), Origin::Pasted);
+    assert_eq!(token::origin_of(&alice), Origin::Qr);
+    assert_eq!(token::origin_of(&bea), Origin::Pasted);
+    // Logging Bea out leaves Alice active, still a QR login, whose session
+    // unlinking ends.
+    assert_eq!(token::forget_account(&bea).unwrap(), Some(alice.clone()));
+    assert_eq!(token::origin(), Origin::Qr);
+    assert!(discord.sign_out(token::origin()).await.unwrap());
+    assert_eq!(logouts(), "1");
+}
+
 /// What linking showed next.
 async fn next_step(shown: &mut tokio::sync::mpsc::UnboundedReceiver<Step>) -> Step {
     timeout(WAIT, shown.recv())

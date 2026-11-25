@@ -1106,6 +1106,7 @@ fn load_members(open: &mut OpenRoom, events: &UnboundedSender<Event>) {
                         nameplate: None,
                         style: None,
                         boosting_since: None,
+                        color_end: None,
                     })
                     .collect();
                 sort_members(&mut members);
@@ -1212,6 +1213,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             ringing: vec![],
             incoming: false,
             avatar: None,
+            group_avatars: None,
             upload_limit: MAX_ATTACHMENT_BYTES,
             presence: None,
             activity: None,

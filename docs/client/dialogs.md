@@ -28,14 +28,18 @@ scrolls them when the window is shorter than they are.
   `Place::beside` of the card's second group), each linked account with its
   picture and username (the core's `discord_accounts`) and a tick on the one
   in use, then Manage Accounts; choosing one switches to it
-  (`Action::SwitchDiscordAccount`).
-- Manage Accounts (`accounts.rs`), from that list (`manage_accounts` in the
-  core's state): a 64 px card for each linked account with its picture,
-  username and "Active Account" under the one in use, and a button for its
-  menu, which opens under the card: Switch Account (not on the one in use)
-  and Log Out. Add Account swaps the accounts for the sign-in screen's linking
-  steps (`signin::link_panel`: the warning, the QR code, the token's field)
-  with Back; once another account is linked the step ends. Escape closes the
+  (`Action::SwitchDiscordAccount`). Pressing the row itself opens Manage
+  Accounts, as Discord's client does.
+- Manage Accounts (`accounts.rs`), from that list or the row
+  (`manage_accounts` in the core's state), under "Switch accounts, sign in,
+  sign out, go wild.": a 64 px card for each linked account with its picture,
+  username and "Active account" under the one in use, Switch on the others,
+  and a button for its menu, which opens under the card with Log out alone.
+  "Add an account" swaps the accounts for Add Account's step: "Logging in to
+  another account will let you easily switch between accounts on this
+  device." over the sign-in screen's linking steps (`signin::link_panel`: the
+  warning, the QR code, the token's field) with Back; once another account is
+  linked the step ends. The words are Discord's client's. Escape closes the
   menu, then the step, then the dialog; closing stops any linking and lets go
   of the token pasted.
 - Set a custom status (`status.rs`): an emoji from the picker (opened over

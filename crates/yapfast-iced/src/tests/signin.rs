@@ -45,6 +45,24 @@ fn without_an_account_the_sign_in_screen_shows_and_the_preview_leaves_it() {
 
 #[test]
 #[cfg(not(feature = "matrix"))]
+fn says_a_pasted_token_can_sign_its_app_out_and_that_unlinking_left_it() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let mut app = start(&folder, false);
+    let note = "Pasting a token from another app can make Discord sign that app out. \
+                The QR code is the safe way to link.";
+    let kept = "Yapfast forgot your login on this computer. If you pasted a token, \
+                the app or browser you copied it from is still signed in.";
+    assert!(shows(&app, note));
+    assert!(!shows(&app, kept));
+    // Signed out of an account linked with a pasted token.
+    app.client.apply(Event::LoggedOut);
+    app.client.apply(Event::DiscordSessionKept);
+    let _ = app.sync();
+    assert!(shows(&app, kept));
+}
+
+#[test]
+#[cfg(not(feature = "matrix"))]
 fn a_pasted_token_goes_once_the_account_is_linked() {
     let folder = tempfile::tempdir_in(local()).expect("test folder");
     let mut app = start(&folder, false);

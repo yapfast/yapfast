@@ -208,6 +208,7 @@ pub(super) fn preview_room(id: &str, name: &str, direct: bool, members: u64) -> 
         ringing: vec![],
         incoming: false,
         avatar: None,
+        group_avatars: None,
         decoration: None,
         nameplate: None,
         style: None,
@@ -267,6 +268,7 @@ pub(super) fn preview_members(room: &str) -> Vec<ChatMember> {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         })
         .collect();
     chat::sort_members(&mut members);

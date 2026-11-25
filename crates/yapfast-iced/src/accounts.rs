@@ -1,7 +1,8 @@
 //! Manage Accounts: the dialog that lists the Discord accounts linked on
-//! this device, each with a menu to switch to it or log it out, and Add
-//! Account, which links another beside them with the sign-in screen's
-//! steps (`signin::link_panel`). The core keeps whether it's open and
+//! this device, each but the one in use with Switch, each with a menu to
+//! log it out, and "Add an account", which links another beside them with
+//! the sign-in screen's steps (`signin::link_panel`), worded as Discord's
+//! client words them. The core keeps whether it's open and
 //! whose menu is open (`AppState::manage_accounts`); this keeps the Add
 //! Account step and draws them.
 
@@ -147,9 +148,9 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
             Message::Accounts(Event::Close),
         ),
         text(if linking {
-            "Link another Discord account to switch between them."
+            "Logging in to another account will let you easily switch between accounts on this device."
         } else {
-            "Switch between different accounts - log in, log out, do whatever you want"
+            "Switch accounts, sign in, sign out, go wild."
         })
         .size(14)
         .color(theme.secondary)
@@ -177,7 +178,7 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
         parts.push(
             action(
                 theme,
-                "Add Account",
+                "Add an account",
                 Kind::Plain,
                 Some(Message::Accounts(Event::Add)),
             )
@@ -192,8 +193,9 @@ pub fn view<'a>(accounts: &'a Accounts, cx: Ctx<'a>) -> Option<Element<'a, Messa
     )
 }
 
-/// One account: its picture and username, "Active Account" under the one
-/// in use, and the button for its menu, which opens under it.
+/// One account: its picture and username, "Active account" under the one
+/// in use, Switch on the others, and the button for its menu, which opens
+/// under it.
 fn card<'a>(cx: Ctx<'a>, account: &'a DiscordAccount, menu: bool) -> Element<'a, Message> {
     let theme = cx.look.theme;
     let active = account.id == cx.state.discord_active;
@@ -206,7 +208,7 @@ fn card<'a>(cx: Ctx<'a>, account: &'a DiscordAccount, menu: bool) -> Element<'a,
     .width(Length::Fill);
     if active {
         names = names.push(
-            text("Active Account")
+            text("Active account")
                 .size(13)
                 .font(SEMIBOLD)
                 .color(theme.live),
@@ -220,41 +222,44 @@ fn card<'a>(cx: Ctx<'a>, account: &'a DiscordAccount, menu: bool) -> Element<'a,
             Message::Accounts(Event::Menu(account.id.clone())),
         )
         .size(32.0, 20);
+    let mut parts = row![
+        cx.avatar(account.avatar.as_deref(), account.label(), 40.0, 20.0, 1.0),
+        names
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+    if !active {
+        parts = parts.push(
+            action(
+                theme,
+                "Switch",
+                Kind::Plain,
+                Some(Message::Accounts(Event::Switch(account.id.clone()))),
+            )
+            .small(),
+        );
+    }
     let ground = theme.active;
-    let line = container(
-        row![
-            cx.avatar(account.avatar.as_deref(), account.label(), 40.0, 20.0, 1.0),
-            names,
-            more
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center),
-    )
-    .padding(Padding {
-        left: 16.0,
-        right: 12.0,
-        ..Padding::ZERO
-    })
-    .height(CARD)
-    .width(Length::Fill)
-    .align_y(Alignment::Center)
-    .style(move |_| rounded(ground, 8));
+    let line = container(parts.push(more))
+        .padding(Padding {
+            left: 16.0,
+            right: 12.0,
+            ..Padding::ZERO
+        })
+        .height(CARD)
+        .width(Length::Fill)
+        .align_y(Alignment::Center)
+        .style(move |_| rounded(ground, 8));
     if !menu {
         return line.into();
     }
-    let mut rows = column![].spacing(2).width(MENU);
-    if !active {
-        rows = rows.push(cx.look.menu_item(
-            item("Switch Account", Icon::Refresh, false),
-            Light::Pointer,
-            Message::Accounts(Event::Switch(account.id.clone())),
-        ));
-    }
-    rows = rows.push(cx.look.menu_item(
-        item("Log Out", Icon::LogOut, true),
+    let rows = column![cx.look.menu_item(
+        item("Log out", Icon::LogOut, true),
         Light::Pointer,
         Message::Accounts(Event::LogOut(account.id.clone())),
-    ));
+    )]
+    .spacing(2)
+    .width(MENU);
     let panel = container(rows)
         .padding(8)
         .style(controls::menu_panel(theme));

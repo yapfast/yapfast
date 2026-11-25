@@ -79,6 +79,8 @@ fn links_discord_by_qr_code_and_unlinks_it() {
     assert!(!app.state.discord_linked);
     assert_eq!(app.state.discord_user, None);
     assert!(app.state.discord_friends.is_empty());
+    // Linked by QR code, its session ended: nothing to say.
+    assert!(!app.state.discord_session_kept);
 
     // Stopping linking ignores what the stopped linking says next.
     app.dispatch(Action::LinkDiscord);
@@ -141,12 +143,31 @@ fn switches_between_linked_discord_accounts() {
     // What the account before showed goes, and linking stays on.
     app.state.account_name = Some("User 1".into());
     app.state.add_friend = Some(AddFriend::default());
+    // Its open DM, with a draft, and the way back to where it was before.
+    let dm = format!("{}dm:40", crate::discord::PREFIX);
+    app.state.selected = Some(dm.clone());
+    app.state
+        .drafts
+        .insert(dm.clone(), "from the account before".into());
+    app.state
+        .drafts
+        .insert("!matrix:example.org".into(), "kept".into());
+    app.state
+        .nav_back
+        .push(HistoryPlace::Dm(DmScreen::Requests));
     app.apply(Event::DiscordSwitched);
     linked_accounts(&mut app, &["1", "2"], "2");
     assert_eq!(app.state.account_name, None);
     assert!(app.state.add_friend.is_none());
     assert!(app.state.discord_linked);
     assert_eq!(app.state.discord_active, "2");
+    // Home, as Discord's client goes, with nothing to send as the new account.
+    assert_eq!(app.state.selected, None);
+    assert_eq!(app.state.navigation, Navigation::DirectMessages);
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert!(!app.state.can_go_back());
+    assert_eq!(app.state.draft_in(&dm), "");
+    assert_eq!(app.state.draft_in("!matrix:example.org"), "kept");
 }
 
 #[test]
@@ -788,4 +809,25 @@ fn going_idle_while_signed_out_tells_nobody() {
             DiscordCommand::Inactive { .. }
         ))]
     ));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn says_a_pasted_tokens_session_stays_signed_in_until_linking_again() {
+    let mut app = connected();
+    app.state.discord_linked = true;
+    app.dispatch(Action::UnlinkDiscord);
+    app.apply(Event::DiscordUnlinked);
+    app.apply(Event::DiscordSessionKept);
+    assert!(app.state.discord_session_kept);
+    app.dispatch(Action::LinkDiscordToken("abc.def.ghi".into()));
+    assert!(!app.state.discord_session_kept);
+
+    // Signing out of a build without Matrix: the screen it resets to says so.
+    let mut app = connected();
+    app.apply(Event::LoggedOut);
+    app.apply(Event::DiscordSessionKept);
+    assert!(app.state.discord_session_kept);
+    app.dispatch(Action::LinkDiscord);
+    assert!(!app.state.discord_session_kept);
 }

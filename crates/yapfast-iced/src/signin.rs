@@ -459,7 +459,19 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     )
                 }
             });
-            let mut panel = column![warning].spacing(12).width(Length::Fill);
+            let mut panel = column![].spacing(12).width(Length::Fill);
+            if ctx.state.discord_session_kept {
+                panel = panel.push(
+                    text(
+                        "Yapfast forgot your login on this computer. If you pasted a \
+                         token, the app or browser you copied it from is still signed in.",
+                    )
+                    .size(14)
+                    .color(theme.secondary)
+                    .width(Length::Fill),
+                );
+            }
+            panel = panel.push(warning);
             if let Some(DiscordLink::Failed(note) | DiscordLink::ImportFailed(note)) = link {
                 panel = panel.push(crate::form::error(theme, note.clone()).width(Length::Fill));
             }
@@ -483,7 +495,15 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     Some(Message::SignIn(Event::OpenToken)),
                 ));
             }
-            panel = panel.push(buttons);
+            panel = panel.push(buttons).push(
+                text(
+                    "Pasting a token from another app can make Discord sign that app \
+                     out. The QR code is the safe way to link.",
+                )
+                .size(13)
+                .color(theme.secondary)
+                .width(Length::Fill),
+            );
             // Without the phone: the accounts the Discord app is signed in to
             // on this computer.
             if import_offered() && !form.token_open {
