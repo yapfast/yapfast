@@ -184,8 +184,7 @@ icon work. A right click reaches Yapfast (`WM_RBUTTONDOWN`, `WM_RBUTTONUP`) and
 `TrackPopupMenu` runs, but Wine's Wayland driver never shows the menu,
 most likely because its owner is a window that was never shown. Until the
 menu closes, its loop holds Yapfast's UI thread, as every Win32 menu does; on
-Windows a click anywhere else closes it. So Open Yapfast, Disconnect and Quit
-in the menu are untested on Windows.
+Windows a click anywhere else closes it.
 
 [The tray](tray.md#windows) lists what to check on real Windows.
 

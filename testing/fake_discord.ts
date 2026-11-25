@@ -113,8 +113,12 @@
 // #general, his question in his DM and Carol's in the group. PUT and DELETE
 // /channels/{id}/messages/pins/{message} pin a message and unpin it, which
 // takes Pin Messages in "Server", as Alice's Crew role gives; pinning posts
-// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE. GET
-// /channels/{id}/messages/search finds a DM's messages by their text, 25 at
+// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE.
+// GET /users/@me/mentions lists the messages that mentioned her, newest
+// first: 1 to 100 with `limit`, before a message with `before`, in one server
+// with `guild_id`, and with role and @everyone mentions as `roles` and
+// `everyone` say.
+// GET /channels/{id}/messages/search finds a DM's messages by their text, 25 at
 // a time, and GET /guilds/{id}/messages/search a server's, in the channels
 // channel_id names or in all of them; both take author_id, mentions, has
 // (has=poll among them, -link without links), author_type, link_hostname,
@@ -7063,6 +7067,44 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         return last ? [{ channel_id: id, message_preview: wireMessage(last, origin) }] : [];
       }),
     );
+  }
+
+  // This account's recent mentions, as Discord's Mentions inbox lists them:
+  // the newest first, up to 100, only before `before`, and in one server with
+  // `guild_id`. A role counts for Alice when she has it, and @everyone and
+  // @here when the author may use them, as `roles` and `everyone` say.
+  if (method === "GET" && path === "/users/@me/mentions") {
+    const limit = Number(url.searchParams.get("limit") ?? 25);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const before = url.searchParams.get("before");
+    const beforeId = before && /^\d+$/.test(before) ? BigInt(before) : null;
+    const inGuild = url.searchParams.get("guild_id");
+    const withRoles = url.searchParams.get("roles") !== "false";
+    const withEveryone = url.searchParams.get("everyone") !== "false";
+    const herRoles = new Set(memberRoles.get(ALICE) ?? []);
+    const found = [...byId.values()]
+      .filter((message) => beforeId === null || BigInt(message.id) < beforeId)
+      .filter((message) => !inGuild || guildOf(message.channel).guild_id === inGuild)
+      .filter((message) => {
+        if (message.author.id === ALICE) return false;
+        // A reply that pings her names her in its metadata rather than its
+        // text, as Discord's own inbox lists it: `reply` is the id of the
+        // message it answers.
+        if (message.reply && byId.get(message.reply)?.author.id === ALICE) return true;
+        const named = [...message.content.matchAll(/<@!?(\d+)>/g)].map((match) => match[1]);
+        if (named.includes(ALICE)) return true;
+        // As Discord, only roles and @everyone that the author may mention count.
+        if (message.author.id !== users.bob.id && !message.author.bot && !world) return false;
+        if (withEveryone && /@(everyone|here)\b/.test(message.content)) return true;
+        return withRoles
+          && [...message.content.matchAll(/<@&(\d+)>/g)].some((match) => herRoles.has(match[1]!));
+      })
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1))
+      .slice(0, limit)
+      .map((message) => ({ ...wireMessage(message, origin), ...guildOf(message.channel) }));
+    return json(found);
   }
 
   // Accepting a message request makes it a DM; ignoring it closes the DM.
