@@ -513,7 +513,8 @@ pub(crate) async fn call(
             }
             if let Some(until) = join_sound {
                 let snapshot = discord_states.borrow().clone();
-                let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                // Discord's client also keeps the soundboard from one it suppresses.
+                let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                 let found = crate::soundboard::join_sound(&snapshot, guild).map(|join| {
                     soundboard
                         .find(&snapshot, &me, guild, &channel, &join.sound)
@@ -709,7 +710,7 @@ pub(crate) async fn call(
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
                         Some(Command::Soundboard(id)) => {
-                            let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                            let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                             let found = soundboard.find(&discord_states.borrow(), &me, guild, &channel, &id);
                             if let Some(sound) = found.filter(|_| !state.deafened && !server_muted) {
                                 let gain = crate::soundboard::gain(&discord_states.borrow());
