@@ -198,7 +198,7 @@ pub fn open_detected_games_menu(app: &mut App, at: iced::Point) -> iced::Task<Me
 
 /// Never shows the game named `name`, chosen in the detected games' menu.
 pub fn block_game(app: &mut App, name: &str) {
-    let mut cx = crate::ctx::cx!(app);
+    let cx = crate::ctx::cx!(app);
     if add_blocked(&mut cx.layout.prefs.blocked_games, name) {
         blocked_changed(&cx);
     }
