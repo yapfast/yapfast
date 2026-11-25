@@ -400,7 +400,7 @@ impl<'a> Page<'a> {
         if !scanning {
             parts.push(form::note(
                 theme,
-                "Programs Yapfast takes for games show here while Share the game you play is on.",
+                "Choose from detected games lists the programs Yapfast takes for games while Share the game you play is on.",
             ));
         }
         form::page(parts)
