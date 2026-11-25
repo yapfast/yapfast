@@ -238,6 +238,9 @@ pub struct Prefs {
     pub name_styles: Option<bool>,
     pub server_tags: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// A theme's text glow: the soft edge it puts round text, which is
+    /// drawing rather than a profile's cosmetic.
+    pub text_glow: Option<bool>,
     pub application_icon: crate::desktop::IconChoice,
     pub tray_icon: Option<crate::desktop::IconChoice>,
     pub tray_uses_application_icon: Option<bool>,
