@@ -561,6 +561,12 @@ impl Session<'_> {
                 let _ = reply.send(change);
                 Ok(())
             }
+            Request::Favorites(encoded) => {
+                self.tracker.favorite_settings(&encoded);
+                self.publisher
+                    .publish(&mut self.tracker, &self.shared.lists);
+                Ok(())
+            }
             Request::RestoreServerList(change) => {
                 if self.tracker.restore_server_list(change) {
                     self.publisher
@@ -605,7 +611,34 @@ impl Session<'_> {
                     self.searches.members(gateway, &guild, users, reply).await?;
                 }
                 for users in chunks {
-                    gateway.request_members(&guild, users, None).await?;
+                    gateway.request_members(&guild, users, None, false).await?;
+                }
+                Ok(())
+            }
+            Request::Presence { guild, user, reply } => {
+                self.searches.presence(gateway, &guild, &user, reply).await
+            }
+            Request::MemberRole {
+                guild,
+                mut users,
+                role,
+                add,
+            } => {
+                {
+                    let mut names = self
+                        .shared
+                        .names
+                        .write()
+                        .unwrap_or_else(|error| error.into_inner());
+                    users.retain(|user| names.change_member_role(&guild, user, &role, add));
+                }
+                if !users.is_empty() {
+                    self.shared.lists.members_changed(
+                        &self.tracker,
+                        &guild,
+                        users.iter().map(String::as_str),
+                    );
+                    let _ = self.shared.live.send(Live::Names);
                 }
                 Ok(())
             }

@@ -1,5 +1,9 @@
 # Chat UI
 
+This guide describes shared chat behaviour and the current iced window.
+For the client modules, widgets and headless UI tests, start with
+[the client guide](client/README.md).
+
 The chat window for Matrix and Discord, laid out after Discord's client.
 Matrix messages are sent through the SDK's Markdown feature, and the window
 lays formatted text out itself (`crates/yapfast-iced/src/markdown.rs`).
@@ -375,7 +379,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   which stay as they were; one message is edited at a time. Saving text that
   is empty asks whether to delete the message, as Delete does, unless the
   message has files, and saving text that changed nothing just closes the
-  field. The thread beside the channel edits its messages the same way.
+  field. Saving turns the `@Name` of anyone the message mentioned back into
+  their mention, even someone no longer suggested (a name two of them share
+  stays text). The thread beside the channel edits its messages the same way.
   Starting an edit, from the message's Edit button, its menu, E, or Up in an empty
   composer, gives the field the keys and scrolls the row into view, and keeps
   it there as the field grows.
@@ -558,7 +564,8 @@ full screen, as a call's stage is, the bar goes.
 The window follows Discord's arrangement:
 
 - A 72px server rail. Each server is a circle that becomes a rounded square,
-  with a white pill at the rail edge for hover, selection or unread activity.
+  with a pill at the rail edge for hover, selection or unread activity, in
+  the theme's text colour or its own `pill` ([themes](themes.md)).
   The server of a call this account is in, joining included, shows a white
   speaker on green at its icon's top right, so the call stays in sight from
   anywhere; a closed folder shows it for its servers. A Discord server
@@ -736,9 +743,9 @@ The window follows Discord's arrangement:
 
 DM Sans (SIL Open Font License, embedded in the binary; see
 `crates/yapfast-iced-kit/fonts/README.md`) sets all text in four weights and
-an italic. The palette is layered graphite with one
-marigold accent for selection and primary actions, red only for mentions and
-destructive actions, and green only for live voice. Avatars get one of eight
+an italic. The default theme is Bonfire; Yap uses layered graphite with a
+marigold accent for selection and primary actions. See [themes](themes.md)
+for the built-in palettes and custom themes. Avatars get one of eight
 tints from the person's name.
 
 Network operations run on the existing two-worker Tokio runtime. The UI
@@ -760,9 +767,15 @@ offline sending across a restart, and messages missed while a room was
 closed. Run them after `scripts/test-stack up`:
 
 ```sh
-nix develop path:./nix --command cargo test --locked --profile fast -p
-yapfast-core matrix_chat::tests -- --ignored --test-threads=1
+nix develop path:./nix --command cargo test --locked --profile fast -p yapfast-core \
+  --features matrix matrix_chat::tests -- --ignored --test-threads=1 \
+  --skip fixture_conversation --skip opening_a_discord_channel_leaves_the_matrix_room_unread
 ```
+
+The cross-network test also needs [fake Discord](../CONTRIBUTING.md#build-and-test).
+With both services running and `YAPFAST_DISCORD_TEST_SERVER` set, replace
+`matrix_chat::tests` and the two `--skip` options with the individual test
+filter `opening_a_discord_channel_leaves_the_matrix_room_unread` before `--`.
 
 To check the window by hand, see [Seeing the app](building.md#seeing-the-app).
 The native file dialogs need an XDG portal, which `scripts/ui-session` doesn't

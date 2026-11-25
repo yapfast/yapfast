@@ -491,20 +491,22 @@ async fn open(url: String) -> Result<Socket, Option<StatusCode>> {
     );
     match timeout(REQUEST_TIMEOUT, websocket::connect(request)).await {
         Ok(Ok((socket, _))) => Ok(socket),
-        Ok(Err(tungstenite::Error::Http(response))) => {
-            let status = response.status();
-            tracing::warn!(%status, "Spotify refused its socket");
-            Err(StatusCode::from_u16(status.as_u16()).ok())
-        }
-        // A URL error may quote the address.
-        Ok(Err(tungstenite::Error::Url(_))) => {
-            tracing::warn!("couldn't reach Spotify's socket: a bad address");
-            Err(None)
-        }
-        Ok(Err(error)) => {
-            tracing::warn!(%error, "couldn't reach Spotify's socket");
-            Err(None)
-        }
+        Ok(Err(error)) => match *error {
+            tungstenite::Error::Http(response) => {
+                let status = response.status();
+                tracing::warn!(%status, "Spotify refused its socket");
+                Err(StatusCode::from_u16(status.as_u16()).ok())
+            }
+            // A URL error may quote the address.
+            tungstenite::Error::Url(_) => {
+                tracing::warn!("couldn't reach Spotify's socket: a bad address");
+                Err(None)
+            }
+            error => {
+                tracing::warn!(%error, "couldn't reach Spotify's socket");
+                Err(None)
+            }
+        },
         Err(_) => {
             tracing::warn!("couldn't reach Spotify's socket: no answer in time");
             Err(None)
@@ -762,7 +764,7 @@ mod tests {
         // As other people's cards read it.
         let read = crate::activity::activities(&json!([shared]));
         assert!(read[0].spotify());
-        assert_eq!(read[0].heading(), "Listening to Spotify");
+        assert_eq!(read[0].heading().as_deref(), Some("Listening to Spotify"));
         assert_eq!(
             read[0].large_image.as_deref(),
             Some("https://i.scdn.co/image/cover")

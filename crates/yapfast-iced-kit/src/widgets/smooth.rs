@@ -3,9 +3,10 @@
 //!
 //! iced's scrollable moves by each wheel event's whole distance at once.
 //! Here a `Smooth` around it takes the wheel's events that nothing inside
-//! it took and moves it on the window's frames instead, by
-//! [`flick::Flick`]; a `Claim` round what it holds marks those events,
-//! after what's inside had them, in place of the scrollable's own handling.
+//! it took and applies touchpad movement directly or animates wheel
+//! notches on the window's frames, by [`flick::Flick`]. A `Claim` round what
+//! it holds marks those events after what's inside had them, in place of
+//! the scrollable's own handling.
 //!
 //! iced's scroll bar is as wide all the time and has a rail. The `Smooth`
 //! draws and drags the list's own instead ([`bar`]), over what the list
@@ -35,7 +36,7 @@ mod bar;
 pub mod flick;
 
 pub use bar::Scroller;
-use flick::{Flick, Phase, Room, Rooms};
+use flick::{Flick, Room, Rooms, ScrollKind};
 
 thread_local! {
     /// Set by a `Claim` as a wheel event goes through what a scrollable
@@ -61,8 +62,8 @@ pub fn pixel_scale() -> f32 {
 }
 
 /// A list that scrolls: iced's scrollable, whose wheel moves it over a
-/// moment, faster spun fast, and whose touchpad follows the fingers and
-/// flings as they lift, with a bar over its edge that takes no room from
+/// moment, faster spun fast, and whose touchpad follows the fingers
+/// directly, with a bar over its edge that takes no room from
 /// what it holds. It scrolls down unless it's said to scroll
 /// [`across`](ScrollView::across).
 pub fn scroll_view<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> ScrollView<'a, M> {
@@ -74,6 +75,7 @@ pub fn scroll_view<'a, M: 'a>(content: impl Into<Element<'a, M>>) -> ScrollView<
             down: true,
             anchored: false,
             bar: Some(Scroller::default()),
+            on_vertical_viewport: None,
         },
     }
 }
@@ -87,7 +89,7 @@ fn no_bar() -> scrollable::Scrollbar {
 /// A [`scroll_view`] being built.
 pub struct ScrollView<'a, M> {
     inner: Scrollable<'a, M>,
-    smooth: Smooth,
+    smooth: Smooth<M>,
 }
 
 impl<'a, M> ScrollView<'a, M> {
@@ -125,6 +127,13 @@ impl<'a, M> ScrollView<'a, M> {
         self
     }
 
+    /// Reports the drawn vertical offset from the top and the viewport
+    /// height, including when the contents fit and iced's on_scroll is silent.
+    pub fn on_vertical_viewport(mut self, on: fn(f32, f32) -> M) -> Self {
+        self.smooth.on_vertical_viewport = Some(on);
+        self
+    }
+
     /// Scrolls across, not down.
     pub fn across(mut self) -> Self {
         self.smooth.across = true;
@@ -151,49 +160,22 @@ impl<'a, M: 'a> From<ScrollView<'a, M>> for Element<'a, M> {
 }
 
 /// Round a scrollable: its motion.
-struct Smooth {
+struct Smooth<M> {
     across: bool,
     down: bool,
     /// Held to its foot, so iced counts its offset from there.
     anchored: bool,
     /// Its bar's inks; `None` for a list without one.
     bar: Option<Scroller>,
+    on_vertical_viewport: Option<fn(f32, f32) -> M>,
 }
 
 #[derive(Default)]
 pub struct SmoothState {
     flick: Flick,
-    phases: Phases,
     shift: bool,
     bar: bar::BarState,
-}
-
-/// What the touchpad does, told from its events: iced hands on a wheel's
-/// notches as lines and a touchpad's moves as pixels, without winit's
-/// phases. On Wayland the fingers' lifting comes as a move of nothing, and
-/// the next move after it is their going down again.
-#[derive(Default)]
-struct Phases {
-    touching: bool,
-}
-
-impl Phases {
-    fn next(&mut self, delta: mouse::ScrollDelta) -> Option<Phase> {
-        match delta {
-            mouse::ScrollDelta::Lines { .. } => {
-                self.touching = false;
-                Some(Phase::Moved)
-            }
-            mouse::ScrollDelta::Pixels { x, y } if x == 0.0 && y == 0.0 => {
-                std::mem::take(&mut self.touching).then_some(Phase::Ended)
-            }
-            mouse::ScrollDelta::Pixels { .. } if self.touching => Some(Phase::Moved),
-            mouse::ScrollDelta::Pixels { .. } => {
-                self.touching = true;
-                Some(Phase::Started)
-            }
-        }
-    }
+    vertical_viewport: Option<(f32, f32)>,
 }
 
 /// How far a wheel event moves the view, down and right positive, in the
@@ -210,14 +192,10 @@ fn view_delta(delta: mouse::ScrollDelta, shift: bool) -> Vector {
     }
 }
 
-impl Smooth {
+impl<M> Smooth<M> {
     /// Runs `step` with the scrollable's room and moves it as far as
     /// `step` says.
-    fn drive<M>(
-        &self,
-        child: &mut Inner<'_, '_, M>,
-        step: &mut (dyn FnMut(Rooms) -> Vector + Send),
-    ) {
+    fn drive(&self, child: &mut Inner<'_, '_, M>, step: &mut (dyn FnMut(Rooms) -> Vector + Send)) {
         child.operate(&mut Drive {
             smooth: self,
             step,
@@ -225,7 +203,7 @@ impl Smooth {
         });
     }
 
-    fn rooms<M>(&self, child: &mut Inner<'_, '_, M>) -> Rooms {
+    fn rooms(&self, child: &mut Inner<'_, '_, M>) -> Rooms {
         let mut rooms = Rooms::default();
         self.drive(child, &mut |found| {
             rooms = found;
@@ -234,24 +212,31 @@ impl Smooth {
         rooms
     }
 
-    fn move_by<M>(&self, child: &mut Inner<'_, '_, M>, by: Vector) {
+    fn move_by(&self, child: &mut Inner<'_, '_, M>, by: Vector) {
         if by != Vector::ZERO {
             self.drive(child, &mut |_| by);
         }
     }
 
-    /// A wheel event: to the list first while it moves under the
-    /// fingers or the pointer stays where it scrolled, else to what it
-    /// holds first, and to the list if nothing there took it.
-    fn wheel<M>(
+    /// A wheel event goes to the list first while the pointer stays where
+    /// it scrolled recently. Otherwise, the list's contents get it first.
+    fn wheel(
         &self,
         state: &mut SmoothState,
-        phase: Phase,
         delta: mouse::ScrollDelta,
         at: At,
         shell: &mut Shell<'_, M>,
         child: &mut Inner<'_, '_, M>,
     ) {
+        let kind = match delta {
+            mouse::ScrollDelta::Pixels { x: 0.0, y: 0.0 } => {
+                state.flick.end_touchpad();
+                child.update(shell);
+                return;
+            }
+            mouse::ScrollDelta::Lines { .. } => ScrollKind::Wheel,
+            mouse::ScrollDelta::Pixels { .. } => ScrollKind::Touchpad,
+        };
         let Some(pointer) = at.cursor.position_over(at.bounds) else {
             child.update(shell);
             return;
@@ -260,26 +245,31 @@ impl Smooth {
             child.update(shell);
             return;
         }
+        let by = view_delta(delta, state.shift);
+        if by == Vector::ZERO {
+            child.update(shell);
+            return;
+        }
         let now = Instant::now();
-        let delta = view_delta(delta, state.shift);
         let rooms = self.rooms(child);
-        let take = if state.flick.intercepts(now, phase, delta, pointer, rooms) {
+        let take = if state.flick.intercepts(now, by, pointer, rooms, kind) {
             true
         } else {
             CLAIMED.set(false);
             child.update(shell);
-            // A touchpad's fingers going down or lifting tell every list
-            // under them, whatever took the event.
-            CLAIMED.replace(false) || phase != Phase::Moved
+            CLAIMED.replace(false)
         };
         if take {
-            let outcome = state.flick.wheel(now, delta, phase, pointer, rooms);
+            let outcome = match kind {
+                ScrollKind::Wheel => state.flick.wheel(now, by, pointer, rooms),
+                ScrollKind::Touchpad => state.flick.touchpad(now, by, pointer, rooms),
+            };
             if frames::on() {
                 tracing::debug!(
                     target: frames::TARGET,
                     t = frames::micros(now),
-                    phase = ?phase,
-                    dy = delta.y,
+                    input = ?delta,
+                    dy = by.y,
                     moved = outcome.moved.y,
                     offset = rooms.y.offset,
                     "wheel"
@@ -300,12 +290,12 @@ impl Smooth {
     }
 }
 
-impl Smooth {
+impl<M> Smooth<M> {
     /// The bar's part in an event: the pointer over the list's edge
     /// thickens it, a press there takes its thumb, and the thumb follows
     /// the pointer until the button lifts. True when the event was the
     /// bar's alone.
-    fn bar_event<M>(
+    fn bar_event(
         &self,
         state: &mut SmoothState,
         event: &iced::Event,
@@ -372,7 +362,7 @@ impl Smooth {
     }
 }
 
-impl<M> Hooks<M> for Smooth {
+impl<M> Hooks<M> for Smooth<M> {
     type State = SmoothState;
 
     fn update(
@@ -388,11 +378,8 @@ impl<M> Hooks<M> for Smooth {
         }
         match event {
             iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
-                // Every list hears of every event, to tell the phases.
-                if let Some(phase) = state.phases.next(*delta) {
-                    self.wheel(state, phase, *delta, at, shell, child);
-                    return;
-                }
+                self.wheel(state, *delta, at, shell, child);
+                return;
             }
             iced::Event::Window(window::Event::RedrawRequested(now)) => {
                 if state.flick.moving() {
@@ -409,10 +396,18 @@ impl<M> Hooks<M> for Smooth {
                         shell.request_redraw();
                     }
                 }
-                if self.bar.is_some() {
+                if self.bar.is_some() || self.on_vertical_viewport.is_some() {
                     // Where the frame about to be drawn has the list.
-                    state.bar.rooms = self.rooms(child);
-                    if state.bar.frame(*now) {
+                    let rooms = self.rooms(child);
+                    state.bar.rooms = rooms;
+                    if let Some(report) = self.on_vertical_viewport {
+                        let viewport = (rooms.y.offset, at.bounds.height);
+                        if state.vertical_viewport != Some(viewport) {
+                            state.vertical_viewport = Some(viewport);
+                            shell.publish(report(viewport.0, viewport.1));
+                        }
+                    }
+                    if self.bar.is_some() && state.bar.frame(*now) {
                         shell.request_redraw();
                     }
                 }
@@ -518,13 +513,13 @@ fn trace_step(frame: Instant, rooms: Rooms, by: Vector) {
 
 /// Moves the scrollable a [`Smooth`] is round by what `step` makes of
 /// its room: the first scrollable its operation meets.
-struct Drive<'a> {
-    smooth: &'a Smooth,
+struct Drive<'a, M> {
+    smooth: &'a Smooth<M>,
     step: &'a mut (dyn FnMut(Rooms) -> Vector + Send),
     done: bool,
 }
 
-impl Operation for Drive<'_> {
+impl<M> Operation for Drive<'_, M> {
     fn traverse(&mut self, _: &mut dyn FnMut(&mut dyn Operation)) {}
 
     fn scrollable(
@@ -703,19 +698,12 @@ impl<M> Hooks<M> for Claim {
     }
 }
 
-/// A touchpad's two moves that scroll a list by `pixels` at once (the
-/// first only begins the gesture, and the list holds back the next
-/// 8 px), and the frame that shows it, for tests.
-pub fn swipe(pixels: f32) -> [iced::Event; 3] {
-    let sign = pixels.signum();
-    let moved = |y| {
-        iced::Event::Mouse(mouse::Event::WheelScrolled {
-            delta: mouse::ScrollDelta::Pixels { x: 0.0, y },
-        })
-    };
+/// A touchpad move and the frame that shows it, for tests.
+pub fn swipe(pixels: f32) -> [iced::Event; 2] {
     [
-        moved(sign),
-        moved(pixels + 8.0 * sign),
+        iced::Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: pixels },
+        }),
         iced::Event::Window(window::Event::RedrawRequested(Instant::now())),
     ]
 }
@@ -774,18 +762,28 @@ mod tests {
     }
 
     #[test]
-    fn a_touchpad_moves_the_list_at_once_and_flings_once_lifted() {
+    fn a_touchpad_follows_small_moves_from_the_first_event() {
         let mut ui = Simulator::with_size(Settings::default(), Size::new(300.0, 400.0), list());
         ui.point_at(Point::new(150.0, 200.0));
-        ui.simulate(swipe(-100.0));
+        ui.simulate(swipe(-1.5));
+        ui.simulate(swipe(-2.0));
+        ui.simulate(swipe(0.0));
+        ui.simulate(swipe(-1.0));
+        assert_eq!(offsets(ui), [1.5, 3.5, 4.5]);
+    }
+
+    #[test]
+    fn a_touchpad_flick_stops_on_the_last_pixel_delta() {
+        let mut ui = Simulator::with_size(Settings::default(), Size::new(300.0, 400.0), list());
+        ui.point_at(Point::new(150.0, 200.0));
+        ui.simulate(swipe(-20.0));
+        ui.simulate(swipe(-40.0));
         let lifted = Instant::now();
-        // The fingers stopped long ago, by the time they lift: no fling.
-        ui.simulate([Event::Mouse(mouse::Event::WheelScrolled {
-            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: 0.0 },
-        })]);
-        ui.simulate([frame(lifted + Duration::from_millis(100))]);
-        let seen = offsets(ui);
-        assert_eq!(seen.last(), Some(&100.0), "{seen:?}");
+        ui.simulate(swipe(0.0));
+        for millis in [16, 32, 100, 300] {
+            ui.simulate([frame(lifted + Duration::from_millis(millis))]);
+        }
+        assert_eq!(offsets(ui), [20.0, 60.0]);
     }
 
     #[test]

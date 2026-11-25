@@ -276,16 +276,30 @@ impl Typed {
     /// (AltGr's is), Space, Backspace or Delete. Enter isn't one: Discord's
     /// sends the draft, which a stray press after a menu closes shouldn't.
     pub fn of(key: &key::Key, modifiers: keyboard::Modifiers) -> Option<Self> {
+        let text = match key.as_ref() {
+            key::Key::Character(text) => Some(text),
+            key::Key::Named(key::Named::Space) => Some(" "),
+            _ => None,
+        };
+        Self::from_key_text(key, modifiers, text)
+    }
+
+    /// Uses the layout's committed text. A dead key can have a shortcut
+    /// label even while it is waiting for the next key to produce text.
+    pub fn from_key_text(
+        key: &key::Key,
+        modifiers: keyboard::Modifiers,
+        text: Option<&str>,
+    ) -> Option<Self> {
         if (modifiers.command() && !modifiers.alt()) || modifiers.logo() {
             return None;
         }
         match key.as_ref() {
-            key::Key::Character(text) if text.chars().all(|c| !c.is_control()) => {
-                Some(Self::Text(text.to_owned()))
-            }
-            key::Key::Named(key::Named::Space) => Some(Self::Text(" ".to_owned())),
             key::Key::Named(key::Named::Backspace) => Some(Self::Backspace),
             key::Key::Named(key::Named::Delete) => Some(Self::Delete),
+            key::Key::Character(_) | key::Key::Named(key::Named::Space) => text
+                .filter(|text| !text.is_empty() && text.chars().all(|c| !c.is_control()))
+                .map(|text| Self::Text(text.to_owned())),
             _ => None,
         }
     }
@@ -1130,7 +1144,9 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Field<'_, M> {
                     (Some(key::Named::Backspace), _) if self.tabs && inner.editor.is_empty() => {
                         return publish(shell, Event::BackFromEmpty);
                     }
-                    (Some(key::Named::ArrowUp), _) if modifiers.alt() && !self.single => {
+                    (Some(key::Named::ArrowUp), _)
+                        if *modifiers == keyboard::Modifiers::ALT && !self.single =>
+                    {
                         return publish(shell, Event::UpToMessages);
                     }
                     (_, Some('v')) if command && !modifiers.alt() && self.pastes => {

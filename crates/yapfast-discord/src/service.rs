@@ -67,6 +67,9 @@ pub struct VoiceMember {
     /// Muted or deafened by the server, which a moderator chose, and
     /// Discord's client shows in red.
     pub server_muted: bool,
+    /// The voice state's `suppress`: not allowed to speak here, from the
+    /// channel's permissions, the AFK channel or a stage's audience.
+    pub speaking_blocked: bool,
     pub server_deafened: bool,
     /// Sharing their screen with Go Live.
     pub streaming: bool,
@@ -385,6 +388,9 @@ pub struct Snapshot {
     /// in [`Self::servers`], in the folder's order.
     #[serde(default)]
     pub folders: Vec<settings::Folder>,
+    /// Shared until the account's Favorites change, including empty updates.
+    #[serde(default)]
+    pub favorites: Arc<crate::favorites::Favorites>,
     /// DMs and group DMs, the latest conversation first. Each DM, and each
     /// list of people below, is shared between snapshots while it stays the
     /// same.
@@ -670,6 +676,15 @@ pub enum Live {
     FavoriteSounds(Vec<String>),
 }
 
+/// Someone's presence in a server, as [`Discord::member_presence`] asks for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberPresence {
+    pub presence: Presence,
+    /// Their custom status, else what they're doing, on one line.
+    pub activity: Option<String>,
+    pub activities: crate::activity::Activities,
+}
+
 /// What a call needs to open the voice connection Discord assigned.
 #[derive(Clone)]
 pub struct VoiceServer {
@@ -706,6 +721,7 @@ enum Request {
         reply: oneshot::Sender<Option<ServerListWrite>>,
     },
     RestoreServerList(ServerListWrite),
+    Favorites(String),
     /// A thread about to open, from its channel object, for the tracker to
     /// know and list: in place of the channel on screen, or beside it.
     OpenThread {
@@ -739,12 +755,24 @@ enum Request {
         guild: String,
         channel: Option<String>,
     },
+    /// Asks for someone's presence in a server; `reply` hears it, or none.
+    Presence {
+        guild: String,
+        user: String,
+        reply: oneshot::Sender<Option<Value>>,
+    },
     /// Asks for these members' server profiles; with `reply`, says when
     /// they arrived.
     Members {
         guild: String,
         users: Vec<String>,
         reply: Option<oneshot::Sender<Vec<String>>>,
+    },
+    MemberRole {
+        guild: String,
+        users: Vec<String>,
+        role: String,
+        add: bool,
     },
     Search {
         guild: String,
@@ -879,6 +907,7 @@ pub struct Discord {
     /// [`Self::change_status_settings`].
     status_writes: Arc<StatusWrites>,
     folder_writes: Arc<tokio::sync::Mutex<()>>,
+    favorite_writes: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// This account's changes to the settings' `status` on their way.
@@ -1052,6 +1081,7 @@ impl Discord {
             autocompletes: interactions::Autocompletes::default(),
             status_writes: Arc::default(),
             folder_writes: Arc::default(),
+            favorite_writes: Arc::default(),
         })
     }
 
@@ -1508,6 +1538,41 @@ impl Discord {
     pub async fn pins(&self, guild: &str, channel: &str) -> Result<Vec<Message>> {
         let values = self.api.pins(channel).await?;
         Ok(self.learn_authors(guild, &values).await)
+    }
+
+    /// This account's recent mentions, the newest first: the messages that
+    /// called on it in the past week, up to [`api::MENTIONS_PAGE`], counting
+    /// @everyone and role mentions as `everyone` and `roles` say, and only
+    /// those in `guild` with one; Discord's Mentions inbox. Each author is
+    /// learned in the server of their message, so names, avatars and
+    /// colours show there.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Message>> {
+        let values = self.api.recent_mentions(everyone, roles, guild).await?;
+        // A page comes from many servers, or from DMs: ask each server for
+        // its authors' profiles, all at once, then wait for them.
+        let mut by_guild: HashMap<String, Vec<Value>> = HashMap::new();
+        for value in values {
+            let guild = value["guild_id"].as_str().unwrap_or(PRIVATE).to_owned();
+            by_guild.entry(guild).or_default().push(value);
+        }
+        let mut messages = Vec::new();
+        let mut waits = Vec::new();
+        for (guild, values) in by_guild {
+            let (found, arrived) = self.learn(&guild, &values, true);
+            messages.extend(found);
+            waits.extend(arrived);
+        }
+        for arrived in waits {
+            let _ = tokio::time::timeout(SEARCH_TIMEOUT, arrived).await;
+        }
+        // Discord lists them newest first; every page does, wherever it's from.
+        messages.sort_by_key(|message| std::cmp::Reverse(message.order()));
+        Ok(messages)
     }
 
     /// A page of the messages a search finds, in `sort`'s order, from the
@@ -2350,6 +2415,12 @@ impl Discord {
         Ok(server_settings::parse_roles_page(&settings?, &counts?))
     }
 
+    /// Refreshes the roles after a role change, which leaves membership counts intact.
+    pub async fn roles_without_member_counts(&self, guild: &str) -> Result<server_settings::Roles> {
+        let settings = self.api.guild(guild).await?;
+        Ok(server_settings::parse_roles_page(&settings, &Value::Null))
+    }
+
     /// How many members hold each role, by role id.
     pub async fn role_member_counts(&self, guild: &str) -> Result<HashMap<String, u64>> {
         let counts = self.api.role_member_counts(guild).await?;
@@ -2415,10 +2486,9 @@ impl Discord {
         role: &str,
         members: &[String],
     ) -> Result<()> {
-        self.api
-            .add_role_members(guild, role, members)
-            .await
-            .map(drop)
+        self.api.add_role_members(guild, role, members).await?;
+        self.member_role_changed(guild, members.to_vec(), role, true);
+        Ok(())
     }
 
     /// Takes a role from a member, as Manage Members does: by setting the
@@ -2431,7 +2501,9 @@ impl Discord {
             bail!("Yapfast doesn't know that member's roles yet. Try again.");
         }
         let kept: Vec<String> = held.iter().filter(|held| *held != role).cloned().collect();
-        self.api.set_member_roles(guild, user, &kept).await
+        self.api.set_member_roles(guild, user, &kept).await?;
+        self.member_role_changed(guild, vec![user.to_owned()], role, false);
+        Ok(())
     }
 
     /// Changes this account's main profile as Discord's client does:
@@ -2630,6 +2702,48 @@ impl Discord {
             move |current| settings::write_custom(current, custom.as_ref(), now_ms()),
             |now| Request::CustomStatus(now.custom.flatten()),
         )
+    }
+
+    /// Changes Discord's account-wide list. Serialize read/modify/write operations
+    /// so rapid edits in this client cannot replace one another. Publish only
+    /// after success; gateway updates also refresh this field on other clients.
+    pub async fn favorite_channel(&self, channel: &str, favorite: bool) -> Result<()> {
+        let _turn = self.favorite_writes.lock().await;
+        let id = channel.parse::<u64>().context("Invalid channel")?;
+        let kind = {
+            let snapshot = self.snapshots.borrow();
+            if let Some(dm) = snapshot.conversations.iter().find(|dm| dm.id == channel) {
+                if dm.request || dm.spam {
+                    bail!("Accept the message request first");
+                }
+                if dm.group { 3 } else { 1 }
+            } else {
+                snapshot
+                    .servers
+                    .iter()
+                    .flat_map(|server| server.channels())
+                    .find(|known| known.id == channel)
+                    .and_then(|known| known.channel_type)
+                    .filter(|kind| *kind != 4)
+                    .context("That channel is unavailable")? as u32
+            }
+        };
+        // Nitro (2) alone lifts the limit of three, in Discord's client.
+        let nitro = self
+            .snapshots
+            .borrow()
+            .account
+            .as_ref()
+            .is_some_and(|account| account.premium_type == 2);
+        let current = self.api.user_settings().await?;
+        if let Some(patch) = crate::favorites::change(&current, id, kind, favorite, nitro)? {
+            self.api.set_user_settings(&patch).await?;
+        }
+        // Reconcile with the server instead of installing a possibly stale
+        // local patch after a concurrent USER_SETTINGS_PROTO_UPDATE.
+        let current = self.api.user_settings().await?;
+        let _ = self.requests.send(Request::Favorites(current));
+        Ok(())
     }
 
     /// Moves a server beside or into the target, or moves a whole folder.
@@ -2928,6 +3042,25 @@ impl Discord {
         Ok(profile::recent_entries(&self.api.outbox(user).await?))
     }
 
+    /// The addresses Discord gives for someone's Rich Presence buttons, by
+    /// the activity's session and application, in the buttons' order: asked
+    /// only on a click, as Discord's client asks.
+    pub async fn activity_button_urls(
+        &self,
+        user: &str,
+        session: &str,
+        application: &str,
+    ) -> Result<Box<[Option<Box<str>>]>> {
+        let metadata = self
+            .api
+            .activity_metadata(user, session, application)
+            .await?;
+        Ok(metadata
+            .as_ref()
+            .map(activity::button_urls)
+            .unwrap_or_default())
+    }
+
     /// Names a board's games and applications. What Discord doesn't say
     /// stays as it is, and the board shows without it.
     pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
@@ -3002,7 +3135,18 @@ impl Discord {
 
     /// Gives a member a role, or takes it away.
     pub async fn member_role(&self, guild: &str, user: &str, role: &str, add: bool) -> Result<()> {
-        self.api.member_role(guild, user, role, add).await
+        self.api.member_role(guild, user, role, add).await?;
+        self.member_role_changed(guild, vec![user.to_owned()], role, add);
+        Ok(())
+    }
+
+    fn member_role_changed(&self, guild: &str, users: Vec<String>, role: &str, add: bool) {
+        let _ = self.requests.send(Request::MemberRole {
+            guild: guild.to_owned(),
+            users,
+            role: role.to_owned(),
+            add,
+        });
     }
 
     /// Times a member out until `until_ms`, in Unix milliseconds, or with
@@ -4096,6 +4240,31 @@ impl Discord {
 
     /// The RGB colour of a member's name in a server: their highest coloured
     /// role's, once their roles are known.
+    /// Someone's presence in server `guild`, as Discord's client asks for
+    /// it when it opens their profile there: the member list has it only for
+    /// the rows it has loaded, so a card opened from a message had no
+    /// status. Asked over the gateway with the member (Request Guild
+    /// Members with `presences`), waiting a while; none in a DM, or when
+    /// Discord doesn't say.
+    pub async fn member_presence(&self, guild: &str, user: &str) -> Option<MemberPresence> {
+        let guild = server(guild)?;
+        let (reply, answer) = oneshot::channel();
+        let _ = self.requests.send(Request::Presence {
+            guild: guild.into(),
+            user: user.into(),
+            reply,
+        });
+        let presence = tokio::time::timeout(SEARCH_TIMEOUT, answer)
+            .await
+            .ok()?
+            .ok()??;
+        Some(MemberPresence {
+            presence: Presence::parse(&presence),
+            activity: crate::member_list::activity(&presence["activities"]),
+            activities: crate::activity::activities(&presence["activities"]),
+        })
+    }
+
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
     }

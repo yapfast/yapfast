@@ -175,7 +175,16 @@ impl Application {
         {
             return self.request_delete(edit.item);
         }
-        let body = self.outgoing_body(&edit.room, &edit.text);
+        // People the message mentioned stay mentioned, even if they're no
+        // longer among those to suggest (they left, or were never listed);
+        // otherwise their `@Name` would go back as plain text.
+        let kept: Vec<Candidate> = self
+            .state
+            .message(&edit.item)
+            .filter(|_| Network::of(&edit.room) == Network::Discord)
+            .map(|message| unambiguous(message.mentions.iter().filter_map(kept_mention).collect()))
+            .unwrap_or_default();
+        let body = self.outgoing_body(&edit.room, &edit.text, kept);
         if body.len() > chat::MAX_MESSAGE_BYTES {
             self.state.notice = Some("Keep messages under 16 KB.".into());
             return vec![];
@@ -201,7 +210,9 @@ impl Application {
 
     /// What a message carries on the wire for text as typed in a room: links
     /// without tracking, mentions and custom emoji written as Discord has them.
-    fn outgoing_body(&self, room: &str, text: &str) -> String {
+    /// `kept` are mentioned too, after the room's own candidates, so a name
+    /// both know goes to the room's.
+    fn outgoing_body(&self, room: &str, text: &str, kept: Vec<Candidate>) -> String {
         let text = if self.state.strip_tracking {
             crate::links::without_tracking(text)
         } else {
@@ -210,7 +221,9 @@ impl Application {
         if self.state.preview {
             return text.into_owned();
         }
-        let wired = mention::wire(&text, &self.state.mention_candidates());
+        let mut candidates = self.state.mention_candidates();
+        candidates.extend(kept);
+        let wired = mention::wire(&text, &candidates);
         if Network::of(room) == Network::Discord {
             let usable: Vec<chat::CustomEmoji> = self
                 .usable_emoji()
@@ -346,7 +359,7 @@ impl Application {
             .filter(|_| Network::of(&id) == Network::Discord);
         let silent = silent_text.is_some();
         let text = silent_text.map_or(draft.as_str(), str::trim_start);
-        let body = self.outgoing_body(&id, text);
+        let body = self.outgoing_body(&id, text, Vec::new());
         if body.len() > chat::MAX_MESSAGE_BYTES {
             self.state.notice = Some("Keep messages under 16 KB.".into());
             return vec![];
@@ -518,4 +531,43 @@ pub(super) fn stage_files(
         }
     }
     problem
+}
+
+/// A person an edited Discord message mentioned, as a candidate the edit's
+/// text can name again: `@Name` goes back as `<@id>`.
+fn kept_mention(mentioned: &mention::Mentioned) -> Option<Candidate> {
+    let mention::Target::User(id) = &mentioned.target else {
+        return None;
+    };
+    let name = mentioned.text.strip_prefix('@')?;
+    if name.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(Candidate {
+        name: name.to_owned(),
+        username: None,
+        mention: format!("<@{id}>"),
+        avatar: None,
+        color: None,
+        group: false,
+        channel: false,
+        voice: false,
+    })
+}
+
+/// `kept` without the names two different people share (ignoring case),
+/// such as two unknown people both shown as `@Discord user`: which of them
+/// the text means can't be told, so such a name stays plain text rather than
+/// mentioning the wrong one.
+fn unambiguous(kept: Vec<Candidate>) -> Vec<Candidate> {
+    let shared = |candidate: &Candidate| {
+        kept.iter().any(|other| {
+            other.mention != candidate.mention && other.name.eq_ignore_ascii_case(&candidate.name)
+        })
+    };
+    let keep: Vec<bool> = kept.iter().map(|candidate| !shared(candidate)).collect();
+    kept.into_iter()
+        .zip(keep)
+        .filter_map(|(candidate, keep)| keep.then_some(candidate))
+        .collect()
 }

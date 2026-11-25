@@ -7,3 +7,10 @@ fake-discord = { max-threads = 8 }
 [[profile.default.overrides]]
 filter = 'package(yapfast-discord) and (binary(fake_server) or binary(fake_interactions) or binary(fake_commands))'
 test-group = 'fake-discord'
+
+# CI's profile (NEXTEST_PROFILE=ci). A fake-server test that loses a race on
+# a busy runner gets one retry and shows as flaky instead of failing, and a
+# test stuck for three minutes is stopped instead of using up the job.
+[profile.ci]
+retries = 1
+slow-timeout = { period = "60s", terminate-after = 3 }

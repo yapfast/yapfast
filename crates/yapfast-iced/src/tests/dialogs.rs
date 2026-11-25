@@ -224,6 +224,10 @@ fn the_account_popover_shows_rich_presence_and_follows_live_changes() {
         url: None,
         link: None,
         emoji: None,
+        created: None,
+        display: None,
+        console: None,
+        buttons: None,
     };
     change(&mut app, |state| {
         // Rich Presence does not wait for a profile HTTP request.
@@ -285,4 +289,37 @@ fn the_account_popover_shows_rich_presence_and_follows_live_changes() {
     assert_eq!(app.status.activity_pictures().count(), 0);
     press(&mut app, key::Named::Escape);
     assert!(app.status.popover.is_none());
+}
+
+/// One's own card follows what this account shares while it's open, such
+/// as a song's line of lyrics set here, and the account panel's line too.
+#[test]
+fn the_accounts_own_card_follows_its_activities() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{Activity, ActivityKind, Profile};
+    let (mut app, _folder) = preview();
+    let song = |line: &str| Activity {
+        details: Some(line.into()),
+        application_id: Some("1".into()),
+        ..Activity::new(ActivityKind::Listening, "Lyrics")
+    };
+    change(&mut app, |state| {
+        state.discord_user = Some("42".into());
+        state.account_profile = Some(Arc::new(Profile {
+            id: "42".into(),
+            name: "Alice".into(),
+            ..Default::default()
+        }));
+        state.discord_activities = Arc::from([song("First line")]);
+    });
+    let _ = app.update(Message::Status(StatusEvent::Toggle));
+    let title = |app: &crate::app::App| {
+        let (_, shown) = app.profiles.account.as_ref().expect("open");
+        shown.look.activities.first().map(|look| look.name.clone())
+    };
+    assert_eq!(title(&app).as_deref(), Some("First line"));
+    change(&mut app, |state| {
+        state.discord_activities = Arc::from([song("Second line")]);
+    });
+    assert_eq!(title(&app).as_deref(), Some("Second line"));
 }

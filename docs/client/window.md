@@ -113,6 +113,9 @@ own, which a stream hands to the event loop as messages; nothing polls.
   flashes and a notification shows, as the settings allow. A click on the
   notification opens its conversation, closing Settings, and brings the
   window back.
+  On Windows the taskbar icon counts the mentions and unread DMs that
+  trigger the tray dot. It shows 1–9, or 9+ for ten or more. An unread
+  unmuted DM with no message count contributes one.
 - A later start of Yapfast on the same data folder hands over to the
   running one and ends: the window comes forward with that start's token,
   and a Discord link it brought (a `LINK` on its command line, or a
@@ -127,8 +130,12 @@ own, which a stream hands to the event loop as messages; nothing polls.
   again to take the change. The bar holds Back and Forward through the
   conversations visited (16 px arrows in 24 px boxes), the place's name
   (on the Friends page "Friends", with the people icon), the Inbox
-  (Unreads and Mentions
-  of the rooms the core knows, a click going there) and Help (18 px
+  (Unreads, the rooms the core knows with unread messages, a click going
+  there; Mentions, the messages that pinged this account as cards, a
+  click jumping to the message, then the rooms with mentions but no
+  message at hand, with Discord's Filter button at the head's right, whose
+  menu shows over the inbox; see
+  [Recent mentions](../discord/messages.md#recent-mentions)) and Help (18 px
   glyphs in 32 px boxes), and minimize,
   maximize and close, drawn as 10 px strokes the way Discord's frame draws
   them; its ground moves the window after a 3 px drag and a
@@ -164,16 +171,13 @@ own, which a stream hands to the event loop as messages; nothing polls.
   px over 180 ms, fast at first and slowing on Flutter's power curve; a
   notch while one moves adds what was left of it; a wheel spun past 12
   notches a second scrolls each notch farther, in proportion, at most six
-  times, its recent notches weighing less by e every 200 ms. A touchpad
-  moves the list with the fingers, less their first event and 8 px, and
-  once they lift faster than 50 px a second it goes on at their speed
-  (the last three moves' speeds blended 0.6, 0.35 and 0.05, oldest first)
-  and slows to a stop on Android's fling spline. iced hands the wheel on
-  without winit's phases: a notch comes as lines and a touchpad as
-  pixels, the fingers lifting as a move of nothing, which is how the
-  phases are told. What's inside a list has the wheel first (a field, a
-  smaller list) and the list what's left, except while the fingers move
-  it or while the pointer stays where it last scrolled it, for 800 ms. A
+  times, its recent notches weighing less by e every 200 ms. Touchpad
+  pixel events move the list by their full delta at the current scale,
+  starting with the first event. The list stops when the pixel events
+  stop. A zero-delta release event leaves it where it is. What's inside
+  a list gets the wheel event first (a field, a smaller list), unless
+  the same input keeps scrolling with the pointer where it was within
+  800 ms. A touchpad release resets that priority. A
   press on it stops it; put somewhere (a jump, the end, another room) it
   drops its motion, and moved by (rows measured above what's read) it
   keeps on. Frames are asked for only while it moves. A list held to its
@@ -216,8 +220,11 @@ core's palettes (`yapfast_core::theme`, see [themes](../themes.md)), turned
 into iced's colour type once (`themes::theme`), plus the colours
 `Theme::worked_out` works out from them
 (the menu's ground and outline, the composer's ground and placeholder, a
-destructive row's text, the selection, a mention's colour) and iced's own
-theme for the few styles iced draws itself. Views take it by reference;
+destructive row's text, the selection, a mention's colour), a custom
+theme's own rail pill and header ground where it sets them
+(`themes::custom_theme`; `Theme::pill` and `Theme::header_ground` read
+them under a package's), and iced's own theme for the few styles iced
+draws itself. Views take it by reference;
 nothing else in the client names a colour, but for Discord's own (the
 crown, blurple, role and name colours, the nameplates' two grounds).
 

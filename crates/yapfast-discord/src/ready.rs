@@ -31,6 +31,15 @@ pub const PUBLIC_THREAD: u64 = 11;
 pub const PRIVATE_THREAD: u64 = 12;
 const GUILD_STAGE_VOICE: u64 = 13;
 
+/// A channel flag: this account may not view the channel, whose name and
+/// topic Discord sends as [`HIDDEN_NAME`]; see
+/// <https://docs.discord.food/resources/channel#channel-flags>.
+const OBFUSCATED: u64 = 1 << 17;
+/// What Discord sends for a hidden channel's name and topic.
+const HIDDEN_NAME: &str = "___hidden___";
+/// The name a hidden channel shows, as Discord's client shows it.
+pub const NO_ACCESS: &str = "No Access";
+
 /// Discord's permission bits, as roles and channel overwrites carry them;
 /// see <https://docs.discord.food/topics/permissions>.
 pub mod permission {
@@ -376,6 +385,10 @@ pub struct Channel {
     /// Age-restricted, as its `nsfw` says.
     #[serde(default)]
     pub nsfw: bool,
+    /// Hidden from this account, as Discord marks it with the
+    /// `OBFUSCATED` flag; its name is [`NO_ACCESS`] and it has no topic.
+    #[serde(default)]
+    pub obfuscated: bool,
 }
 
 /// What a thread has that a channel doesn't; see
@@ -740,6 +753,10 @@ impl Server {
     /// permissions, then the channel's overwrites for @everyone, for the roles,
     /// and for the member.
     pub fn access(&self, channel: &Channel, user: &str, roles: &[String]) -> Access {
+        // Discord says so itself.
+        if channel.obfuscated {
+            return Access::Hidden;
+        }
         // Without the server's roles there is nothing to decide with.
         if self.roles.is_empty() {
             return Access::Join;
@@ -882,7 +899,7 @@ impl Server {
                 Arc::make_mut(&mut self.categories).insert(
                     id.to_owned(),
                     Category {
-                        name: channel["name"].as_str().unwrap_or_default().to_owned(),
+                        name: shown_name(channel, obfuscated(channel)),
                         position: channel["position"].as_i64().unwrap_or_default(),
                         overwrites: Arc::new(overwrites(channel)),
                     },
@@ -1586,19 +1603,41 @@ pub fn parse_thread(value: &Value) -> Option<Channel> {
     Some(thread)
 }
 
+/// Whether Discord hides `channel` from this account, as its `OBFUSCATED`
+/// flag says.
+fn obfuscated(channel: &Value) -> bool {
+    channel["flags"]
+        .as_u64()
+        .is_some_and(|flags| flags & OBFUSCATED != 0)
+}
+
+/// A channel's or category's name: [`NO_ACCESS`] for a hidden one, or one
+/// whose name Discord sends as [`HIDDEN_NAME`].
+fn shown_name(channel: &Value, obfuscated: bool) -> String {
+    let name = channel["name"].as_str().unwrap_or_default();
+    if obfuscated || name == HIDDEN_NAME {
+        NO_ACCESS
+    } else {
+        name
+    }
+    .to_owned()
+}
+
 fn parse_channel(channel: &Value) -> Option<Channel> {
+    let obfuscated = obfuscated(channel);
     Some(Channel {
         channel_type: channel["type"]
             .as_u64()
             .and_then(|kind| u8::try_from(kind).ok()),
         id: channel["id"].as_str()?.to_owned(),
-        name: channel["name"].as_str().unwrap_or_default().to_owned(),
+        name: shown_name(channel, obfuscated),
         position: channel["position"].as_i64().unwrap_or_default(),
         parent: channel["parent_id"].as_str().map(str::to_owned),
         topic: channel["topic"]
             .as_str()
-            .filter(|topic| !topic.trim().is_empty())
+            .filter(|topic| !obfuscated && *topic != HIDDEN_NAME && !topic.trim().is_empty())
             .map(Arc::from),
+        obfuscated,
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
         stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
@@ -1791,15 +1830,14 @@ fn murmur3(data: &[u8]) -> u32 {
     const C2: u32 = 0x1b87_3593;
     let scramble = |k: u32| k.wrapping_mul(C1).rotate_left(15).wrapping_mul(C2);
     let mut hash = 0u32;
-    let mut blocks = data.chunks_exact(4);
-    for block in &mut blocks {
-        let k = u32::from_le_bytes([block[0], block[1], block[2], block[3]]);
+    let (blocks, tail) = data.as_chunks::<4>();
+    for &block in blocks {
+        let k = u32::from_le_bytes(block);
         hash = (hash ^ scramble(k))
             .rotate_left(13)
             .wrapping_mul(5)
             .wrapping_add(0xe654_6b64);
     }
-    let tail = blocks.remainder();
     if !tail.is_empty() {
         let k = tail
             .iter()
@@ -2153,6 +2191,46 @@ mod tests {
             Access::Join,
             "administrators too"
         );
+    }
+
+    #[test]
+    fn hidden_channels_come_as_no_access() {
+        // As Discord sends a voice channel this account may not view, and
+        // a category, with the OBFUSCATED flag and their names hidden.
+        let mut server = server(&json!({
+            "id": "10", "properties": {"name": "Test"},
+            "roles": [{"id": "10", "permissions": (VIEW_CHANNEL | CONNECT).to_string()}],
+            "channels": [
+                {"id": "11", "type": 2, "name": "___hidden___", "topic": "___hidden___",
+                 "flags": 1 << 17, "position": 0, "parent_id": "12", "permission_overwrites": []},
+                {"id": "12", "type": 4, "name": "___hidden___", "flags": 1 << 17, "position": 0},
+                {"id": "13", "type": 2, "name": "Lounge", "flags": 0, "position": 1},
+            ],
+        }))
+        .unwrap();
+        let hidden = server.channel("11").unwrap();
+        assert_eq!(
+            (hidden.name.as_str(), hidden.topic.as_deref()),
+            ("No Access", None)
+        );
+        assert!(hidden.obfuscated);
+        assert_eq!(server.categories["12"].name, "No Access");
+        assert_eq!(
+            server.access(hidden, "1", &[]),
+            Access::Hidden,
+            "hidden though no overwrite says so"
+        );
+        assert_eq!(
+            server.access(server.channel("13").unwrap(), "1", &[]),
+            Access::Join
+        );
+        // Shown again, it comes with its name.
+        server.put_channel(
+            &json!({"id": "11", "type": 2, "name": "Staff", "flags": 0, "guild_id": "10"}),
+        );
+        let shown = server.channel("11").unwrap();
+        assert_eq!((shown.name.as_str(), shown.obfuscated), ("Staff", false));
+        assert_eq!(server.access(shown, "1", &[]), Access::Join);
     }
 
     #[test]

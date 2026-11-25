@@ -246,7 +246,11 @@ threads](servers.md#a-channels-list-of-threads).
   word marked when its Porter stem is one of theirs (`search_words`), but
   not in code blocks. Results from people blocked or ignored are hidden
   behind Discord's "We've hidden 1 result from users you've blocked."
-  row, which shows them. On the first page, ten results or more of which
+  row, which shows them. A result's right-click menu is Discord's: Copy
+  Message Link (`https://discord.com/channels/{server or @me}/{channel}/{message}`,
+  from the result's channel, `AppState::found_link`), and with Developer
+  Mode on Copy Message ID and Copy Author ID; a click on the result, or
+  its Jump, already shows it. On the first page, ten results or more of which
   three in four are bots' or webhooks', with no `authorType:` yet, Discord's
   hint adds `authorType: user` and searches. Nothing found says "We
   searched far and wide. Unfortunately, no results were found."; a failed
@@ -443,7 +447,31 @@ long it is on its right. A Spotify song is titled by the
 song, then "by" the artist and "on" the album; a podcast's episode, which
 has no artist, by the episode, then "on" the show. Its title opens the song's
 page, `https://open.spotify.com/track/{sync_id}` (or `/episode/` when the
-activity's metadata says so); a stream has "Watch stream". The line under the
+activity's metadata says so); a stream has "Watch stream". Someone else's
+Rich Presence buttons, two at most, follow as small buttons, as Discord's do;
+one's own card and the account's menu show none, as Discord's don't.
+Presences, others' and one's own, carry the labels as strings in `buttons`,
+and the addresses only sometimes, in `metadata.button_urls` in the same order;
+only `https://` and `http://` addresses are kept, and a button without one
+still shows. A click finds the address as Discord's client does, in this
+order: in the presence's own `metadata`, when it came with any field; else in
+what Discord gave for that person's activity; else asked of Discord then, and
+only then, with
+`GET /users/{id}/sessions/{session_id}/activities/{application_id}/metadata`
+(`0` for an activity without an application), by the activity's
+`session_id`. Discord answers the activity's metadata, `button_urls` among
+it, or 204 with nothing. The answer is kept per person and activity
+(`application/profiles.rs`): Discord's client keeps it by person
+(`getActivityMetadata(userId)`) and forgets it on every change of that
+person's presence, so here it's kept with the activity's session and
+application, and another activity of the same person's is asked about
+afresh, while an answer that comes late for the one before opens nothing.
+Another click on the same activity asks nothing. The last 16 people's are
+kept, a bound of Yapfast's own (Discord's has none), until the account signs
+out or another is linked. Without an address for the button, a click does
+nothing, as in Discord's client; when Discord can't be asked, the notice
+says why. Found, the address asks "Leaving Yapfast" before it opens, as
+Discord's client opens them untrusted. The line under the
 name goes when it only names one of these. The activities come with the
 presence, from READY_SUPPLEMENTAL's `merged_presences`, PRESENCE_UPDATE and the
 member list, and the DM panel follows them live. Their pictures resolve as

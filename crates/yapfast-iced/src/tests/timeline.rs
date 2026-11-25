@@ -1922,3 +1922,57 @@ fn a_threads_card_shows_its_count_and_newest_message_as_discords_does() {
         "{count:?} past the card's 480 from {left}"
     );
 }
+
+/// A link's card in a packaged theme is at most as wide as Discord's, the
+/// theme's ground under it included: the ground stops at the card's edge
+/// rather than running on to the timeline's right.
+#[test]
+fn a_cards_ground_in_a_packaged_theme_stops_at_the_cards_edge() {
+    let (mut app, _folder) = themed_messages(serde_json::json!({}));
+    assert!(app.theme.packaged());
+    // A wide window, whose timeline is far wider than a card.
+    app.shell.frame.width = 1600.0;
+    crate::window_bar::fit_window(&mut app);
+    change(&mut app, |state| {
+        let mut message = (**state.messages.last().expect("a message")).clone();
+        message.id = "card".into();
+        message.item = "card".into();
+        message.body = "Look at this".into();
+        message.reply = None;
+        message.reactions = Vec::new();
+        message.attachments = Vec::new();
+        message.embeds = vec![yapfast_core::chat::Embed {
+            provider: "Example".into(),
+            title: "Trip notes".into(),
+            url: "https://example.com/notes".into(),
+            ..Default::default()
+        }];
+        let mut messages = (*state.messages).clone();
+        messages.push(Arc::new(message));
+        state.messages = Arc::new(messages);
+    });
+    let frame = app.shell.frame;
+    let mut ui = iced_test::Simulator::with_size(iced::Settings::default(), frame, app.view());
+    let bounds = |ui: &mut iced_test::Simulator<'_, Message>, text: &str| {
+        ui.find(text)
+            .expect(text)
+            .visible_bounds()
+            .expect("in view")
+    };
+    let title = bounds(&mut ui, "Trip notes");
+    let said = bounds(&mut ui, "Look at this");
+    // Past the widest a card is, still in the timeline.
+    let past = title.x + 432.0 + 40.0;
+    assert!(past < crate::conversation::chat_right(&app) - 24.0);
+    let (width, _, pixels) = drawn(&mut ui);
+    let scale = width as f32 / frame.width;
+    let at = |x: f32, y: f32| {
+        let i = ((y * scale) as usize * width as usize + (x * scale) as usize) * 4;
+        pixels[i..i + 3].to_vec()
+    };
+    assert_eq!(
+        at(past, title.center_y()),
+        at(past, said.center_y()),
+        "beside the card, the chat's ground, as beside the message's text"
+    );
+}

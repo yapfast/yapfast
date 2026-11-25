@@ -74,10 +74,18 @@ impl Shell {
         })
     }
 
-    /// The window closed for good: pasted pictures go. The window keeps
-    /// this shell until the process ends, so nothing drops them.
+    /// The window closed for good. The window keeps this shell until the
+    /// process ends, so release what the next start needs here.
     pub fn closed(&self) {
         drop(self.pasted.lock().map(|mut folder| folder.take()));
+        // On Windows the replacement starts before this process exits.
+        #[cfg(windows)]
+        drop(std::mem::take(
+            &mut *self
+                .instance
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        ));
     }
 
     /// The update downloaded and checked, for `main` to finish.
@@ -96,6 +104,29 @@ impl Shell {
             tell(heard);
         }
     }
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn the_replacement_can_claim_the_folder_before_the_old_process_exits() {
+    use crate::instance::{Start, claim};
+
+    let root = tempfile::tempdir().expect("data folder");
+    let claim = || claim(root.path(), true, false, None);
+    let Start::Run(instance) = claim() else {
+        panic!("the first start runs");
+    };
+    let shell = Shell::new(
+        Arc::new(BackgroundRuntime::new().expect("background workers")),
+        false,
+        instance,
+    );
+    yapfast_iced::Desktop::start(&*shell, Arc::new(|_| {}));
+    assert!(matches!(claim(), Start::Handed));
+
+    shell.closed();
+
+    assert!(matches!(claim(), Start::Run(_)));
 }
 
 /// The tray, as `tray::Tray`.
@@ -142,6 +173,8 @@ impl yapfast_iced::Desktop for Shell {
             tell(Heard::Tray(match choice {
                 crate::tray::Choice::Open => TrayChoice::Open,
                 crate::tray::Choice::Disconnect => TrayChoice::Disconnect,
+                crate::tray::Choice::CheckForUpdates => TrayChoice::CheckForUpdates,
+                crate::tray::Choice::Restart => TrayChoice::Restart,
                 crate::tray::Choice::Quit => TrayChoice::Quit,
                 crate::tray::Choice::Available => TrayChoice::Available,
             }));
@@ -175,19 +208,26 @@ impl yapfast_iced::Desktop for Shell {
             .map(|pointer| Box::new(pointer) as Box<dyn yapfast_iced::PointerAt>)
     }
 
-    fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell) {
+    fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell, unread: u8) {
         #[cfg(windows)]
-        if let Ok(handle) = window.window_handle()
-            && let raw_window_handle::RawWindowHandle::Win32(handle) = handle.as_raw()
-        {
-            crate::icon::set_on(handle.hwnd.get());
+        if let Some(hwnd) = win32(window) {
+            crate::icon::set_on(hwnd, unread);
         }
+        #[cfg(not(windows))]
+        let _ = unread;
         #[cfg(target_os = "linux")]
         watch_wayland_drops(window, tell);
         #[cfg(not(target_os = "linux"))]
         let _ = tell;
         #[cfg(not(any(windows, target_os = "linux")))]
         let _ = window;
+    }
+
+    #[cfg(windows)]
+    fn taskbar_unread(&self, window: &dyn yapfast_iced::Window, unread: u8) {
+        if let Some(hwnd) = win32(window) {
+            crate::icon::set_taskbar(hwnd, unread);
+        }
     }
 
     fn window_place(&self, window: &dyn yapfast_iced::Window) -> Option<[i32; 2]> {

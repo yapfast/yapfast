@@ -405,6 +405,51 @@ fn a_members_roles_tick_in_place_and_invite_to_server_lists_the_servers() {
 }
 
 #[test]
+fn the_roles_submenu_scrolls_only_when_taller_than_the_window() {
+    use crate::menus::{Event, Menu, MenuAct, MenuRow};
+    use yapfast_core::application::MenuChoice;
+
+    let (mut app, _folder) = preview();
+    // Room for 16 rows of 36 px; 12 fit, 40 don't.
+    app.shell.frame = iced::Size::new(1000.0, 600.0);
+    app.window = app.shell.frame;
+    for count in [12, 40] {
+        let mut roles = MenuRow::plain(MenuAct::Person(MenuChoice::Roles), "Roles");
+        roles.submenu = (0..count)
+            .map(|index| MenuRow {
+                check: Check::Box(false),
+                ..MenuRow::plain(MenuAct::Role, format!("Role {index}"))
+            })
+            .collect();
+        app.win.menu = Some(Menu::new(Point::new(100.0, 100.0), vec![roles]));
+        let _ = app.update(Message::Menu(Event::Light(0)));
+
+        let first = bounds(&app, "Role 0");
+        let mut ui = Simulator::with_size(Settings::default(), app.shell.frame, app.view());
+        let last = format!("Role {}", count - 1);
+        let last_row = |candidate: Candidate<'_>| match candidate {
+            Candidate::Text {
+                content,
+                visible_bounds,
+                ..
+            } if content == last => visible_bounds,
+            _ => None,
+        };
+        let before = ui.find(last_row).ok();
+        ui.point_at(first.center());
+        ui.simulate(crate::widgets::swipe(-2000.0));
+        let after = ui
+            .find(last_row)
+            .expect("last role is visible after scrolling");
+        if count == 12 {
+            assert_eq!(before, Some(after));
+        } else {
+            assert_eq!(before, None);
+        }
+    }
+}
+
+#[test]
 fn a_channels_management_choices_ask_first() {
     let (mut app, _folder) = discord_server(
         yapfast_core::yapfast_discord::ready::permission::MANAGE_CHANNELS

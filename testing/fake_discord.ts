@@ -114,8 +114,12 @@
 // #general, his question in his DM and Carol's in the group. PUT and DELETE
 // /channels/{id}/messages/pins/{message} pin a message and unpin it, which
 // takes Pin Messages in "Server", as Alice's Crew role gives; pinning posts
-// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE. GET
-// /channels/{id}/messages/search finds a DM's messages by their text, 25 at
+// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE.
+// GET /users/@me/mentions lists the messages that mentioned her, newest
+// first: 1 to 100 with `limit`, before a message with `before`, in one server
+// with `guild_id`, and with role and @everyone mentions as `roles` and
+// `everyone` say.
+// GET /channels/{id}/messages/search finds a DM's messages by their text, 25 at
 // a time, and GET /guilds/{id}/messages/search a server's, in the channels
 // channel_id names or in all of them; both take author_id, mentions, has
 // (has=poll among them, -link without links), author_type, link_hostname,
@@ -150,6 +154,12 @@
 // as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
+// Bob's Factorio has two Rich Presence buttons, "Join the factory" and "Mod
+// list", whose labels alone his presence carries, with its session_id, as
+// others' presences mostly come. GET
+// /users/{id}/sessions/{session}/activities/{application}/metadata answers
+// both addresses for his session's Factorio, and 204 with nothing for any
+// other; GET /_control/activity-metadata-reads counts those requests.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -211,7 +221,9 @@
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
 // /_control/presence shows the presence her session last sent with op 3, GET
 // /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
-// and how many times that was asked.
+// and how many times that was asked. It also returns `writes`, each submitted
+// settings-proto/1 patch. POST /_control/settings with {settings: base64} simulates
+// another client's partial update; {reject_next: true} rejects the next PATCH.
 // POST /_control/other-session brings her phone online playing a song, with
 // SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
@@ -444,6 +456,8 @@ const LOUNGE = "1400000000000000103";
 // A bot makes a room for whoever joins Create Room and moves them there.
 const CREATE_ROOM = "1400000000000000104";
 const ALICES_ROOM = "1400000000000000105";
+// The Leads' voice channel, hidden from Alice; see /_control/hidden-voice.
+const LEADS_ROOM = "1400000000000000107";
 // #ideas, a forum: its posts are threads.
 const FORUM = "1400000000000000106";
 const MODS = "1400000000000000110";
@@ -700,6 +714,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
 }
 // How many times GET /users/@me/settings-proto/1 was asked.
 let settingsReads = 0;
+const settingsWrites: string[] = [];
+let rejectSettings = false;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -2161,7 +2177,7 @@ const readStates = new Map<string, { last: string; mentions: number }>([
 // `mute` and `deaf` are the server's, which a moderator sets.
 type VoiceState = {
   guild: string | null; channel: string; self_mute: boolean; self_deaf: boolean; session: string; self_stream?: boolean; self_video?: boolean;
-  mute?: boolean; deaf?: boolean;
+  mute?: boolean; deaf?: boolean; suppress?: boolean;
 };
 /** The session of Alice's other client, such as her phone. */
 const OTHER_CLIENT = "voice-alice-phone";
@@ -2228,7 +2244,7 @@ function wireVoiceState(userId: string, state: VoiceState | undefined, left: str
     self_stream: state?.self_stream ?? false,
     mute: state?.mute ?? false,
     deaf: state?.deaf ?? false,
-    suppress: false,
+    suppress: state?.suppress ?? false,
     request_to_speak_timestamp: null,
   };
 }
@@ -2512,6 +2528,7 @@ function guildChannels(): GuildChannel[] {
     channel(LOUNGE, "Lounge", 2, 1, CATEGORY),
     channel(CREATE_ROOM, "Create Room", 2, 2, CATEGORY),
     ...(roomMade ? [channel(ALICES_ROOM, "Alice's room", 2, 3, CATEGORY)] : []),
+    ...(leadsRoomMade ? [leadsRoom()] : []),
     ...rooms.map((id, n) => channel(id, `room-${n + 1}`, 0, 2 + n, CATEGORY)),
     ...madeChannels.values(),
   ]
@@ -3074,6 +3091,11 @@ function readySupplemental() {
 // Factorio, as Discord knows the game: Bob plays it, and its icon comes
 // from GET /applications/public and the CDN's /app-icons/.
 const FACTORIO = "1400000000000000900";
+// The gateway session Bob plays Factorio in, which his buttons' addresses
+// are asked by, and those addresses.
+const BOB_SESSION = "b0b5e551000000000000000000fac70f";
+const FACTORIO_BUTTONS = ["https://factorio.com/", "https://mods.factorio.com/"];
+let activityMetadataReads = 0;
 const applications: Record<string, { id: string; name: string; icon: string | null }> = {
   [FACTORIO]: { id: FACTORIO, name: "Factorio", icon: "factorioicon" },
 };
@@ -3086,7 +3108,11 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.alice.id]: { status: "online", activities: [] },
   [users.bob.id]: {
     status: "dnd",
-    activities: [{ type: 0, name: "Factorio", application_id: FACTORIO, timestamps: { start: fakeStarted - 42 * 60_000 } }],
+    activities: [{
+      type: 0, name: "Factorio", application_id: FACTORIO, session_id: BOB_SESSION,
+      timestamps: { start: fakeStarted - 42 * 60_000 },
+      buttons: ["Join the factory", "Mod list"],
+    }],
   },
   [users.carol.id]: {
     status: "idle",
@@ -3466,6 +3492,7 @@ function gatewayMessage(ws: Socket, text: string) {
           session: ws.data.session,
           self_stream: before?.channel === channel && before.self_stream,
           self_video: !!d.self_video,
+          suppress: before?.channel === channel && before.suppress,
         });
       } else {
         voice.delete(ALICE);
@@ -3661,6 +3688,27 @@ function endStream(key: string, reason: string) {
 
 /** Whether the bot made Alice's room. */
 let roomMade = false;
+
+// POST /_control/hidden-voice makes the Leads' voice channel, which only
+// Leads see, and moves Carol and Dave into it from the Lounge. Alice isn't a
+// Lead, so Discord sends it to her as it sends a channel she may not view:
+// with the OBFUSCATED flag (1 << 17), its name and topic as "___hidden___",
+// and who is in it all the same, in READY's voice states and
+// VOICE_STATE_UPDATE. POST /_control/voice-reset moves them back.
+let leadsRoomMade = false;
+
+/** The Leads' voice channel, as Discord sends it to Alice. */
+function leadsRoom() {
+  return {
+    ...guildChannel(LEADS_ROOM, "___hidden___", 2, 4, CATEGORY),
+    flags: bit(17),
+    topic: "___hidden___",
+    permission_overwrites: [
+      { id: GUILD, type: 0, allow: "0", deny: String(bit(10)) },
+      { id: LEADS, type: 0, allow: String(bit(10)), deny: "0" },
+    ],
+  };
+}
 
 /** The bot moves Alice from Create Room to her own room, making it the first
  *  time, which puts her call on another voice server. */
@@ -6438,6 +6486,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     });
   }
 
+  // The addresses behind someone's Rich Presence buttons, as the client asks
+  // for them on a click: Bob's Factorio has both, anything else none.
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/sessions\/([^/]+)\/activities\/([^/]+)\/metadata$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    activityMetadataReads += 1;
+    if (m[1] === users.bob.id && m[2] === BOB_SESSION && m[3] === FACTORIO) {
+      return json({ button_urls: FACTORIO_BUTTONS });
+    }
+    return empty();
+  }
+
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.
   if (method === "POST" && path === "/users/@me/channels") {
@@ -7041,6 +7100,44 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     );
   }
 
+  // This account's recent mentions, as Discord's Mentions inbox lists them:
+  // the newest first, up to 100, only before `before`, and in one server with
+  // `guild_id`. A role counts for Alice when she has it, and @everyone and
+  // @here when the author may use them, as `roles` and `everyone` say.
+  if (method === "GET" && path === "/users/@me/mentions") {
+    const limit = Number(url.searchParams.get("limit") ?? 25);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const before = url.searchParams.get("before");
+    const beforeId = before && /^\d+$/.test(before) ? BigInt(before) : null;
+    const inGuild = url.searchParams.get("guild_id");
+    const withRoles = url.searchParams.get("roles") !== "false";
+    const withEveryone = url.searchParams.get("everyone") !== "false";
+    const herRoles = new Set(memberRoles.get(ALICE) ?? []);
+    const found = [...byId.values()]
+      .filter((message) => beforeId === null || BigInt(message.id) < beforeId)
+      .filter((message) => !inGuild || guildOf(message.channel).guild_id === inGuild)
+      .filter((message) => {
+        if (message.author.id === ALICE) return false;
+        // A reply that pings her names her in its metadata rather than its
+        // text, as Discord's own inbox lists it: `reply` is the id of the
+        // message it answers.
+        if (message.reply && byId.get(message.reply)?.author.id === ALICE) return true;
+        const named = [...message.content.matchAll(/<@!?(\d+)>/g)].map((match) => match[1]);
+        if (named.includes(ALICE)) return true;
+        // As Discord, only roles and @everyone that the author may mention count.
+        if (message.author.id !== users.bob.id && !message.author.bot && !world) return false;
+        if (withEveryone && /@(everyone|here)\b/.test(message.content)) return true;
+        return withRoles
+          && [...message.content.matchAll(/<@&(\d+)>/g)].some((match) => herRoles.has(match[1]!));
+      })
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1))
+      .slice(0, limit)
+      .map((message) => ({ ...wireMessage(message, origin), ...guildOf(message.channel) }));
+    return json(found);
+  }
+
   // Accepting a message request makes it a DM; ignoring it closes the DM.
   if ((m = path.match(/^\/channels\/(\d+)\/recipients\/@me$/))) {
     const id = m[1]!;
@@ -7096,6 +7193,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    settingsWrites.push(body.settings);
+    if (rejectSettings) {
+      rejectSettings = false;
+      return json({ message: "Missing Access", code: 50001 }, 403);
+    }
     settings = mergeSettings(settings, body.settings);
     dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
     return json({ settings });
@@ -8598,7 +8700,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
           join(user);
           voice.set(user.id, {
             guild: id, channel: channelId, self_mute: !!seat.mute, self_deaf: !!seat.deaf, session: `voice-${user.id}`,
-            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf,
+            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf, suppress: !!seat.suppress,
           });
           if (!seat.stream) continue;
           const key = streamKey(id, channelId, user.id);
@@ -9051,7 +9153,17 @@ const server = Bun.serve<SocketData>({
       }]);
       return new Response("online\n");
     }
-    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
+    if (path === "/_control/settings") {
+      if (req.method === "POST") {
+        const body: any = await req.json();
+        if (body.reject_next === true) rejectSettings = true;
+        if (typeof body.settings === "string") {
+          settings = mergeSettings(settings, body.settings);
+          dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
+        }
+      }
+      return Response.json({ settings, reads: settingsReads, writes: settingsWrites });
+    }
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
@@ -9093,6 +9205,20 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
     if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
+    if (req.method === "POST" && path === "/_control/hidden-voice") {
+      if (!leadsRoomMade) {
+        leadsRoomMade = true;
+        dispatch("CHANNEL_CREATE", guildChannels().find((made) => made.id === LEADS_ROOM));
+      }
+      for (const user of [users.carol.id, users.dave.id]) {
+        const before = voice.get(user);
+        if (!before) continue;
+        voice.set(user, { ...before, guild: GUILD, channel: LEADS_ROOM });
+        moved(user, before, origin);
+      }
+      syncVoiceStarted();
+      return new Response("Carol and Dave are in the Leads' hidden voice channel\n");
+    }
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.
@@ -9268,6 +9394,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/list-requests") return Response.json(listRequests);
     if (path === "/_control/note-reads") return Response.json(noteReads);
     if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/activity-metadata-reads") return Response.json(activityMetadataReads);
     if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
     if (req.method === "POST" && path === "/_control/note-elsewhere") {
       const id = url.searchParams.get("user") ?? "";
@@ -9335,7 +9462,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/gateway-reconnect") {
       // Discord's op 7: the client should drop the connection and resume.
-      for (const ws of sockets) if (ws.data.identified) send(ws, 7, null);
+      for (const ws of sockets) {
+        if (!ws.data.identified) continue;
+        // Later dispatches belong to the replay, even before the old socket closes.
+        parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+        ws.data.identified = false;
+        send(ws, 7, null);
+      }
       return new Response("asked gateways to reconnect\n");
     }
     if (req.method === "POST" && path === "/_control/refresh-token") {
