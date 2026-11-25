@@ -20,7 +20,7 @@ use crate::{
     dialog::dialog,
     fonts::{BOLD, MEDIUM},
     form,
-    pictures::Icon,
+    pictures::{self, GroupIcon, Icon, room_group_icon},
     style::{rounded, scrollbar},
 };
 
@@ -101,6 +101,8 @@ pub struct Found {
 pub enum Face {
     /// A DM's picture, by its name's initial: a circle.
     Avatar(Option<String>),
+    /// A group DM's fallback icon.
+    Group(GroupIcon),
     /// A server's icon, by its name's initials: a rounded square.
     Server(Option<String>),
     /// A channel's icon.
@@ -234,7 +236,10 @@ impl Quick {
             unread: room.unread > 0 && !room.muted,
             mentions: room.mentions,
             face: if room.direct {
-                Face::Avatar(room.avatar.clone())
+                match room_group_icon(room) {
+                    Some(group) => Face::Group(group),
+                    None => Face::Avatar(room.avatar.clone()),
+                }
             } else {
                 Face::Icon(crate::sidebar::room_icon(room))
             },
@@ -387,6 +392,9 @@ impl<'a> View<'a> {
                 self.cx
                     .avatar(picture.as_deref(), &found.name, 24.0, 12.0, 1.0)
             }
+            Face::Group(group) => self
+                .cx
+                .face(pictures::Face::new(None, &found.name, 24.0).group(Some(group.as_face()))),
             // A server's icon is a rounded square, as Discord draws it.
             Face::Server(picture) => {
                 self.cx

@@ -17,6 +17,7 @@
 //! do.
 
 mod appearance;
+mod desktop_icons;
 mod font;
 pub mod keybinds;
 mod pages;
@@ -203,6 +204,7 @@ pub struct Settings {
     /// Installed themes, marketplace, URL fetch and protected review state.
     pub marketplace: theme_marketplace::Marketplace,
     preview: Option<Theme>,
+    icons: Option<desktop_icons::Icons>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
@@ -255,6 +257,7 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    DesktopIcon(desktop_icons::Event),
     /// Appearance's Font: choosing the font files, removing one, going back
     /// to DM Sans.
     Font(FontEvent),
@@ -302,6 +305,12 @@ impl Settings {
         }
         if before == Some(Section::Themes) && section != Section::Themes {
             self.cancel_theme(cx);
+        }
+        if before == Some(Section::Appearance) && section != Section::Appearance {
+            self.icons = None;
+        }
+        if section == Section::Appearance && before != Some(Section::Appearance) {
+            self.icons = desktop_icons::Icons::new(cx.client.root(), &cx.layout.prefs);
         }
         if before == Some(Section::Voice) && section != Section::Voice {
             self.end_mic_test(cx);
@@ -354,11 +363,16 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
+            Event::DesktopIcon(event) => return self.desktop_icon_event(event, cx),
             Event::ThemeKey(key) => return self.theme_key(key, cx),
             Event::Theme(event) => {
                 // A click puts the keys back where they were before Tab.
                 self.marketplace.focus = None;
-                return self.theme_event(event, cx);
+                let task = self.theme_event(event, cx);
+                if self.section != Some(Section::Appearance) {
+                    self.icons = None;
+                }
+                return task;
             }
             Event::Marketplace(event) => {
                 self.marketplace.focus = None;

@@ -591,6 +591,7 @@ impl Application {
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
                     since: friend.since,
+                    style: friend.style.map(|style| Arc::new(style.into())),
                 })
                 .collect();
             self.state.people_changed();
