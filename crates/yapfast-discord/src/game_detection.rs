@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 mod catalog;
 pub mod custom_games;
@@ -36,7 +36,7 @@ fn interval() -> Duration {
     }
 }
 
-pub(crate) fn start(api: Arc<Api>) -> watch::Receiver<Option<Arc<Value>>> {
+pub(crate) fn start(api: Arc<Api>, rescan: Arc<Notify>) -> watch::Receiver<Option<Arc<Value>>> {
     let (shown, receiver) = watch::channel(None);
     tokio::spawn(async move {
         let custom = std::env::var_os("YAPFAST_DISCORD_GAMES_FILE").map(PathBuf::from);
@@ -48,7 +48,7 @@ pub(crate) fn start(api: Arc<Api>) -> watch::Receiver<Option<Arc<Value>>> {
             return;
         }
         let (games, blocked) = (custom_games::subscribe(), custom_games::subscribe_blocked());
-        if let Err(error) = run(api, custom, &shown, games, blocked).await {
+        if let Err(error) = run(api, custom, &shown, games, blocked, rescan).await {
             tracing::warn!(%error, "automatic game detection stopped");
         }
         custom_games::set_detected(Vec::new());
@@ -63,6 +63,7 @@ async fn run(
     shown: &watch::Sender<Option<Arc<Value>>>,
     mut custom_games: watch::Receiver<Vec<custom_games::CustomGame>>,
     mut blocked_games: watch::Receiver<Vec<String>>,
+    rescan: Arc<Notify>,
 ) -> Result<()> {
     let cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE")
         .map(PathBuf::from)
@@ -97,6 +98,10 @@ async fn run(
         tokio::select! {
             biased;
             () = shown.closed() => return Ok(()),
+            () = rescan.notified() => {
+                detector.selection.verify_exit();
+                ticks.reset_immediately();
+            }
             result = custom_games.changed() => {
                 if result.is_err() { return Ok(()); }
                 detector.set_executables(&custom_games.borrow_and_update());
@@ -169,6 +174,14 @@ struct Selection {
 }
 
 impl Selection {
+    /// A vanished RPC source warrants checking its fallback now. One
+    /// completed scan can clear it; a process still present keeps its clock.
+    fn verify_exit(&mut self) {
+        if let Some(active) = &mut self.active {
+            active.missed = 1;
+        }
+    }
+
     fn update(
         &mut self,
         candidates: impl IntoIterator<Item = Found>,
@@ -755,6 +768,26 @@ mod tests {
     }
 
     #[test]
+    fn an_rpc_exit_checks_the_fallback_without_waiting_for_two_periodic_scans() {
+        let mut state = Selection::default();
+        let first = state.update([found(10, 100, "Editor")], 300_000).unwrap();
+        state.verify_exit();
+        let still_running = state.update([found(10, 100, "Editor")], 300_000).unwrap();
+        assert!(
+            Arc::ptr_eq(&first, &still_running),
+            "a live fallback keeps its clock"
+        );
+        state.verify_exit();
+        let other = state.update([found(20, 200, "Music")], 300_000).unwrap();
+        assert_eq!(
+            other["name"], "Music",
+            "a closed app is replaced on this scan"
+        );
+        state.verify_exit();
+        assert!(state.update([], 300_000).is_none());
+    }
+
+    #[test]
     fn ignores_runtime_helpers_launchers_and_anti_cheat() {
         for path in [
             "/usr/bin/wine64",
@@ -785,10 +818,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "child process of the game detection tests"]
     fn fixture_process() {
-        if std::env::var_os("YAPFAST_TEST_GAME_FIXTURE").is_none() {
-            return;
-        }
+        std::env::var_os("YAPFAST_TEST_GAME_FIXTURE").expect("test harness only");
         use std::io::Read;
         let _ = std::io::stdin().read_exact(&mut [0_u8]);
     }
@@ -823,7 +855,11 @@ mod tests {
         std::fs::hard_link(&executable, &game).unwrap();
         let mut child = Child(
             std::process::Command::new(&game)
-                .args(["--exact", "game_detection::tests::fixture_process"])
+                .args([
+                    "--exact",
+                    "game_detection::tests::fixture_process",
+                    "--ignored",
+                ])
                 .env("YAPFAST_TEST_GAME_FIXTURE", "1")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
@@ -880,7 +916,7 @@ mod tests {
             std::process::Command::new("sh")
                 .args([
                     "-c",
-                    "read -r ready; exec \"$1\" --exact game_detection::tests::fixture_process",
+                    "read -r ready; exec \"$1\" --exact game_detection::tests::fixture_process --ignored",
                     "yapfast-test-launcher",
                 ])
                 .arg(&game)

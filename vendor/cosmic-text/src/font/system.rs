@@ -246,6 +246,16 @@ impl FontSystem {
         &mut self.db
     }
 
+    /// Yapfast port: lets go of the fonts loaded for faces that have left
+    /// the database since, which the cache would otherwise hold (with their
+    /// data) for as long as the font system lives.
+    pub fn forget_removed_fonts(&mut self) {
+        let db = &self.db;
+        self.font_cache.retain(|(id, _), _| db.face(*id).is_some());
+        self.font_codepoint_support_info_cache
+            .retain(|id, _| db.face(*id).is_some());
+    }
+
     /// Consume this [`FontSystem`] and return the locale and database.
     pub fn into_locale_and_db(self) -> (String, fontdb::Database) {
         (self.locale, self.db)

@@ -42,6 +42,46 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     app
 }
 
+/// The preview under an installed theme whose dark variant is `variant`
+/// over Yap, with `files` in its package.
+pub(super) fn themed(
+    variant: serde_json::Value,
+    files: &[(&str, &[u8])],
+) -> (App, tempfile::TempDir) {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    let source = folder.path().join("variant-theme");
+    std::fs::create_dir_all(&source).expect("theme source");
+    let mut variant = variant;
+    variant["base"] = "yap".into();
+    let manifest = serde_json::json!({
+        "theme_api": 1,
+        "id": "dev.example.variant",
+        "name": "Variant",
+        "version": "1.0.0",
+        "variants": { "dark": variant }
+    });
+    std::fs::write(
+        source.join(yapfast_core::themes::MANIFEST),
+        serde_json::to_vec(&manifest).expect("manifest JSON"),
+    )
+    .expect("theme manifest");
+    for (name, bytes) in files {
+        std::fs::write(source.join(name), bytes).expect("theme file");
+    }
+    let fetched = yapfast_core::themes::install::Fetched::local(&source).expect("local package");
+    yapfast_core::themes::install::Themes::open(folder.path())
+        .install(&fetched)
+        .expect("installed package");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        br#"{"theme":"installed:dev.example.variant"}"#,
+    )
+    .expect("chosen theme");
+    let mut app = start(&folder, true);
+    let _ = app.sync();
+    (app, folder)
+}
+
 /// The window's fonts, once per test run.
 pub(crate) fn install_fonts() {
     static FONTS: Once = Once::new();
@@ -196,6 +236,26 @@ fn right_click(ui: &mut Simulator<'_, Message>, text: &str) {
         iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)),
         iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Right)),
     ]);
+}
+
+/// What a task the window's update returned writes to the clipboard.
+fn clipboard_writes(task: iced::Task<Message>) -> Vec<String> {
+    use iced::futures::StreamExt;
+    let Some(mut actions) = iced_runtime::task::into_stream(task) else {
+        return Vec::new();
+    };
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    let mut written = Vec::new();
+    while let std::task::Poll::Ready(Some(action)) = actions.poll_next_unpin(&mut cx) {
+        if let iced_runtime::Action::Clipboard(iced_runtime::clipboard::Action::Write {
+            contents,
+            ..
+        }) = action
+        {
+            written.push(contents);
+        }
+    }
+    written
 }
 
 /// The core's state, changed as the backend would, then taken in.
@@ -366,9 +426,11 @@ mod server;
 mod server_dialogs;
 mod settings;
 mod shell;
+mod shortcuts;
 mod signin;
 mod threads;
 mod timeline;
+mod tree;
 mod widgets;
 mod writing;
 

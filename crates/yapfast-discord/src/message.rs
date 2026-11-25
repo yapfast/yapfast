@@ -113,6 +113,9 @@ pub struct Page {
 pub struct Message {
     pub id: String,
     pub channel_id: String,
+    /// The server it is in, from `guild_id`, or none in a DM.
+    #[serde(default)]
+    pub guild_id: Option<String>,
     #[serde(default)]
     pub application_id: Option<String>,
     #[serde(default)]
@@ -543,6 +546,14 @@ impl Message {
         named || everyone || role
     }
 
+    /// Whether the timeline highlights it for `me`: as it calls on them,
+    /// or, being their own, as it names them, which Discord's client
+    /// highlights all the same though it never notifies of it.
+    pub fn highlights_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
+        self.names_me(me, marks)
+            || (self.author_id == me && self.mentions.iter().any(|user| user == me))
+    }
+
     /// Whether it replies to a message of `me`'s, not being its own.
     pub fn replies_to(&self, me: &str) -> bool {
         self.author_id != me
@@ -717,6 +728,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         let mut message = parse(original)?;
         message.id = value["id"].as_str()?.into();
         message.channel_id = value["channel_id"].as_str().unwrap_or_default().into();
+        message.guild_id = value["guild_id"].as_str().map(str::to_owned);
         message.nonce = None;
         message.editable = false;
         message.forwardable = false;
@@ -887,6 +899,7 @@ pub fn parse(value: &Value) -> Option<Message> {
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
+        guild_id: value["guild_id"].as_str().map(str::to_owned),
         application_id: value["application_id"].as_str().map(str::to_owned),
         flags: value["flags"].as_u64().unwrap_or_default(),
         nonce: match &value["nonce"] {
@@ -1812,6 +1825,30 @@ impl Names {
         }
         self.members.insert(key);
         self.version += u64::from(known && learned);
+    }
+
+    /// Applies a confirmed role change to a member whose roles are known.
+    pub(crate) fn change_member_role(
+        &mut self,
+        guild: &str,
+        user: &str,
+        role: &str,
+        add: bool,
+    ) -> bool {
+        let Some(held) = member_key(guild, user).and_then(|key| self.roles.get_mut(&key)) else {
+            return false;
+        };
+        if held.iter().any(|known| known == role) == add {
+            return false;
+        }
+        *held = held
+            .iter()
+            .filter(|known| known.as_str() != role)
+            .cloned()
+            .chain(add.then(|| role.to_owned()))
+            .collect();
+        self.version += 1;
+        true
     }
 
     /// Forgets what's known of someone as a member of a server they left,
@@ -3563,6 +3600,12 @@ mod tests {
         let own = message(json!({"author": {"id": "1", "username": "alice"},
             "mention_everyone": true}));
         assert!(!own.mentions_me(me, Some(&server)));
+        assert!(!own.highlights_me(me, Some(&server)));
+        // Naming herself, it's highlighted though it doesn't call on her.
+        let named = message(json!({"author": {"id": "1", "username": "alice"},
+            "mentions": [{"id": "1", "username": "alice"}], "content": "<@1>"}));
+        assert!(!named.mentions_me(me, Some(&server)));
+        assert!(named.highlights_me(me, Some(&server)));
         // A DM has no server: @everyone means nothing there.
         assert!(!message(json!({"mention_everyone": true})).mentions_me(me, None));
     }

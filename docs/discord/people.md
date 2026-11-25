@@ -246,7 +246,11 @@ threads](servers.md#a-channels-list-of-threads).
   word marked when its Porter stem is one of theirs (`search_words`), but
   not in code blocks. Results from people blocked or ignored are hidden
   behind Discord's "We've hidden 1 result from users you've blocked."
-  row, which shows them. On the first page, ten results or more of which
+  row, which shows them. A result's right-click menu is Discord's: Copy
+  Message Link (`https://discord.com/channels/{server or @me}/{channel}/{message}`,
+  from the result's channel, `AppState::found_link`), and with Developer
+  Mode on Copy Message ID and Copy Author ID; a click on the result, or
+  its Jump, already shows it. On the first page, ten results or more of which
   three in four are bots' or webhooks', with no `authorType:` yet, Discord's
   hint adds `authorType: user` and searches. Nothing found says "We
   searched far and wide. Unfortunately, no results were found."; a failed
@@ -443,7 +447,31 @@ long it is on its right. A Spotify song is titled by the
 song, then "by" the artist and "on" the album; a podcast's episode, which
 has no artist, by the episode, then "on" the show. Its title opens the song's
 page, `https://open.spotify.com/track/{sync_id}` (or `/episode/` when the
-activity's metadata says so); a stream has "Watch stream". The line under the
+activity's metadata says so); a stream has "Watch stream". Someone else's
+Rich Presence buttons, two at most, follow as small buttons, as Discord's do;
+one's own card and the account's menu show none, as Discord's don't.
+Presences, others' and one's own, carry the labels as strings in `buttons`,
+and the addresses only sometimes, in `metadata.button_urls` in the same order;
+only `https://` and `http://` addresses are kept, and a button without one
+still shows. A click finds the address as Discord's client does, in this
+order: in the presence's own `metadata`, when it came with any field; else in
+what Discord gave for that person's activity; else asked of Discord then, and
+only then, with
+`GET /users/{id}/sessions/{session_id}/activities/{application_id}/metadata`
+(`0` for an activity without an application), by the activity's
+`session_id`. Discord answers the activity's metadata, `button_urls` among
+it, or 204 with nothing. The answer is kept per person and activity
+(`application/profiles.rs`): Discord's client keeps it by person
+(`getActivityMetadata(userId)`) and forgets it on every change of that
+person's presence, so here it's kept with the activity's session and
+application, and another activity of the same person's is asked about
+afresh, while an answer that comes late for the one before opens nothing.
+Another click on the same activity asks nothing. The last 16 people's are
+kept, a bound of Yapfast's own (Discord's has none), until the account signs
+out or another is linked. Without an address for the button, a click does
+nothing, as in Discord's client; when Discord can't be asked, the notice
+says why. Found, the address asks "Leaving Yapfast" before it opens, as
+Discord's client opens them untrusted. The line under the
 name goes when it only names one of these. The activities come with the
 presence, from READY_SUPPLEMENTAL's `merged_presences`, PRESENCE_UPDATE and the
 member list, and the DM panel follows them live. Their pictures resolve as
@@ -1072,23 +1100,31 @@ this account saves its own.
 `scripts/ui-session do 'pick avatar PATH'` chooses a picture in the editor,
 as its file chooser would.
 
-## Linux Rich Presence
+## Rich Presence
 
-Games and tools on Linux tell Discord what they're doing through its local
-RPC socket, which the discord-rpc library and Discord's game SDK use. While
-the account shares its game ([game detection](#game-detection)), Yapfast
-serves that socket itself, so no bridge such as arRPC needs to run. Windows'
-named pipes and the macOS socket aren't served yet.
+Games and tools on Linux and Windows tell Discord what they're doing through
+its local RPC socket or named pipe, which the discord-rpc library and
+Discord's game SDK use. While the account shares its game
+([game detection](#game-detection)), Yapfast
+serves that IPC endpoint itself, so no bridge such as arRPC needs to run. The
+macOS socket isn't served yet.
 
-The socket is the first free `discord-ipc-0` to `discord-ipc-9` in
+On Windows, Yapfast serves the first free `\\.\pipe\discord-ipc-0` to
+`\\.\pipe\discord-ipc-9` in byte mode and rejects remote clients. It reserves
+the pipe name before accepting clients, so it never adds an instance to
+another program's pipe. Each connection has its own instance, and Windows
+releases the pipe when its last handle closes. Music players such as Liner
+can publish their current track as a Listening activity through this pipe.
+
+On Linux, the socket is the first free `discord-ipc-0` to `discord-ipc-9` in
 `XDG_RUNTIME_DIR`, or else in `TMPDIR`, `TMP`, `TEMP` or `/tmp`. A socket
 another program serves, such as Discord's own app, stays that program's, and
 a game that only tries `discord-ipc-0` talks to it instead. A socket left by
 an ended program of the same user is taken over. The socket has mode `0600`
-and takes only that user's programs. `YAPFAST_DISCORD_RPC=0` turns it off,
-and `YAPFAST_DISCORD_RPC_DIR` puts it in another directory, for Wine or a
-sandboxed game that can't see the runtime directory; Yapfast doesn't change
-sandbox permissions or set up Wine's bridge.
+and takes only that user's programs. `YAPFAST_DISCORD_RPC=0` turns RPC off
+on both platforms. On Linux, `YAPFAST_DISCORD_RPC_DIR` puts it in another
+directory, for Wine or a sandboxed game that can't see the runtime directory;
+Yapfast doesn't change sandbox permissions or set up Wine's bridge.
 
 Yapfast answers the handshake with READY, PING with PONG, and CLOSE and
 SET_ACTIVITY, where `activity: null` clears the activity; other commands get
@@ -1097,7 +1133,9 @@ an error. As Discord's desktop client does when a game connects, it asks
 first time the game names an image, `GET /oauth2/applications/{id}/assets`
 for its images' ids. Images given by https address go to
 `POST /applications/{id}/external-assets` and show through the media proxy
-as `mp:` assets; each client's last 32 addresses are kept. Timestamps in
+as `mp:` assets; each client's cache holds up to 32 addresses. When it fills,
+older images are dropped while keeping both pictures the current activity
+uses. Timestamps in
 seconds become the gateway's milliseconds, and buttons become labels with
 their addresses in the activity's `metadata`. Playing, Listening, Watching
 and Competing activities show. Yapfast copies only the fields it knows, so a
@@ -1108,6 +1146,17 @@ disconnects, the one before shows again, and once none is left, the game
 detection found. The activity lasts through reconnecting to the gateway and
 is never saved. Presence updates keep to Discord's limit, as every other
 presence change does.
+
+Disconnects and CLOSE are read while an image lookup is in flight, so closing
+an application restores the previous RPC activity without waiting for HTTP
+or the game detector's next scan. Completed clients are removed before queued
+updates are applied. If no RPC activity remains, the process detector verifies
+its fallback immediately; a closed application needs no second periodic scan
+before another running application takes its place. Local cards follow this,
+subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+obeys the Gateway limit of five presence updates per 20 seconds. At most four
+commands and 64 KiB of payload wait behind an in-flight lookup per client;
+exceeding that bound closes the connection.
 
 ## Listening to Spotify
 

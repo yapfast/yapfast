@@ -48,6 +48,7 @@ mod control_file;
 use yapfast_iced_kit::controls;
 mod conversation;
 mod ctx;
+use yapfast_iced_kit::custom_font;
 mod desktop;
 mod slot;
 use yapfast_iced_kit::dialog;
@@ -84,6 +85,7 @@ mod menus;
 mod message;
 mod mfa;
 mod paint;
+mod peek;
 mod people;
 mod person_menu;
 mod picker;
@@ -112,11 +114,18 @@ mod signin;
 mod status;
 use yapfast_iced_kit::style;
 mod keybinds;
+mod shortcuts;
 mod suggest;
 mod switcher;
 mod sync;
 mod tag_card;
 use yapfast_iced_kit::theme;
+mod theme_art;
+mod theme_chrome;
+pub mod theme_cli;
+mod theme_effects;
+mod theme_remote;
+mod theme_transition;
 mod themes;
 mod thread;
 use yapfast_iced_kit::tile;
@@ -166,6 +175,13 @@ pub struct Options {
     /// `--background`: start in the tray with a saved session, as starting
     /// at sign-in does.
     pub background: bool,
+    /// `--default-theme`: this start shows the default look, keeping the
+    /// theme chosen, a way back from a theme that makes the window hard to
+    /// use.
+    pub default_theme: bool,
+    /// `--theme-dev FOLDER`: a theme maker's folder, shown over the theme
+    /// chosen and shown again each time a file in it is saved.
+    pub theme_dev: Option<PathBuf>,
     /// A Discord link handed to this start, as one word.
     pub open_link: Option<String>,
     /// The tray, notifications, links, pastes, keybinds and the rest the
@@ -179,8 +195,8 @@ pub enum Exit {
     Closed,
     /// An update was downloaded and checked; `main` finishes it.
     Update,
-    /// Settings' Restart Yapfast, for the GPU setting: `main` starts
-    /// Yapfast again, which follows the setting.
+    /// Restart Yapfast, in Settings for the GPU setting or in the tray:
+    /// `main` starts Yapfast again, which follows the setting.
     Restart,
     /// The GPU failed to start, for this reason: `main` starts Yapfast
     /// again on the CPU, which tells of it.
@@ -217,6 +233,12 @@ pub fn run(
 ) -> anyhow::Result<Exit> {
     // The renderer first: each picture is made in its format.
     let plan = graphics::plan(&root, options.renderer, options.gpu_failure);
+    if options.default_theme {
+        themes::default_this_run();
+    }
+    if let Some(folder) = options.theme_dev.clone() {
+        themes::develop(folder);
+    }
     renderer::choose(plan.gpu);
     BUILD.set(options.build).ok();
     desktop::install(options.desktop);
@@ -224,6 +246,11 @@ pub fn run(
     video::install();
     frames::install();
     fonts::install(TWEMOJI);
+    // The font the person chose to draw the window in, if any.
+    let own_font = layout::Layout::read(&root).prefs.ui_font_files;
+    if !own_font.is_empty() {
+        custom_font::set(&own_font);
+    }
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))
         .ok();

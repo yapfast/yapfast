@@ -32,8 +32,13 @@ while it holds something and clears with its X; Enter searches the DM, or
 the channel's server. What it found shows beside the conversation in the
 member list's place (`search::view`), 420 px wide: how many, the newest
 first as found cards, a server's under their channels' names, Show more
-for the next page, a click jumping to the message in its room. Close,
-Escape or clearing the box ends the search and lets go of the cards.
+for the next page, a click jumping to the message in its room. A right
+click on a result opens its menu (`search::open_found_menu`): Copy Message
+Link, and with Developer Mode on Copy Message ID and Copy Author ID. Its
+rows carry what they copy in their `key` (`MenuAct::CopyTextLink`), as a
+result needn't be in the timeline; a result with no Discord id has no
+menu. Close, Escape or clearing the box ends the search and lets go of
+the cards.
 
 Over the timeline, and under the header of a voice channel's call
 (`banners::view`), stacked from the top: the
@@ -55,7 +60,9 @@ start, or Discord's welcome at a server channel's start. Until a
 conversation's first messages come, rows the shape of messages hold its
 place, still (`timeline::view::messages_skeleton`), as they do in the
 thread beside the channel. A short history
-is held down over the composer. While the "New" divider is
+is held down over the composer. A view within the 8 px padding below the
+last message follows the bottom as messages arrive; scrolling above that
+keeps the earlier messages in place. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window
 of older messages has the bar back to the present, and its last row ends
 with "Newer messages" (loading, or failed with a retry); a reply's line
@@ -68,7 +75,8 @@ A message shows the line above it (the reply it quotes, or who used the
 command it answers), the author line, its text, `(edited)`, its pictures,
 a file's card (its name and size), link previews and bots' cards (a bar of
 their colour, site, author, title, description, fields, pictures,
-thumbnail and footer), stickers, a poll, a voice message, an app's
+thumbnail and footer; as wide as what's in it, up to 432 px, and a theme's
+ground, art and outline under the card stop at its edge too), stickers, a poll, a voice message, an app's
 components, and reactions. The author line has the name (in its role
 colour, else the brightest white), the server tag, a green star for an
 author who joined the server in the last week (`new_member`; not a bot, not
@@ -106,11 +114,12 @@ slash command, where one may write, is written in the composer
   picture clicked shows large (`image_viewer.rs`):
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
-  its bars; its name and place among the message's pictures, Save and
-  Close above, round buttons and the arrow keys stepping through them, a
-  note while the full one loads or why it can't; Escape, Close or a click
-  outside closes it, and the core lets go of it. A right click on a
-  picture or video, there or in the timeline, offers Copy Image, Save
+  its bars in the current window layout; its name and place among the
+  message's pictures, Save and Close above, round buttons and the arrow
+  keys stepping through them, a note while the full one loads or why it
+  can't; Escape, Close or a click outside closes it, and the core lets go
+  of it. A right click on a picture or video, there or in the timeline,
+  offers Copy Image, Save
   Image or Video, Copy Link and Open Link, after the message's own rows
   (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
@@ -124,8 +133,9 @@ slash command, where one may write, is written in the composer
   5 % a step (a touchpad by the part of a step it moved, a turn sideways
   not at all), and the last button shows it full screen in the viewer
   (`viewer::Viewer`), its name, Save and Exit full screen above it and the
-  same bar below, its frames made at the viewer's size. Full screen it
-  takes the keys (`playback::clip_key`): Space plays or pauses, Left and
+  same bar below. Its frames follow the viewer's size as the window
+  layout changes. In full screen it takes the keys
+  (`playback::clip_key`): Space plays or pauses, Left and
   Right move five seconds, Escape brings it back; a right click on it
   opens the video's rows of the menu alone.
 - Stickers show at 160 px, playing if they move (Lottie ones as the core
@@ -206,7 +216,8 @@ slash command, where one may write, is written in the composer
   composer lands on the newest, lit with its hover bar and a 3 px
   marigold edge down its left (`Lanes::keyed`); the arrows, Page
   Up and Down, Home and End step; Enter (or the Menu key, or Shift+F10)
-  opens its menu, + reacts, R replies, E edits, Delete deletes, C copies,
+  opens its menu, + reacts, R replies, E edits, P pins or unpins,
+  Delete or Backspace deletes, C copies,
   F forwards, Alt+Enter marks it unread, and Escape goes back to the
   composer. A press anywhere but on the list takes the keys from the
   messages too (`follow_press`, before each update, against the list's
@@ -215,6 +226,7 @@ slash command, where one may write, is written in the composer
 - A message from someone this account blocked shows as "Blocked user"
   and "Blocked message." with Show it, as Discord's does, until asked; with
   blocked messages hidden in Settings, the core leaves them out.
+  Messages from ignored accounts show as "Ignored message." with Show.
 - A masked link (words that aren't where they go) asks first: Go back,
   or Visit site. The text, and its embeds', is laid out once per message (`markdown.rs`):
 the core's blocks (headings, subtext, quotes, fenced code) apart, and in

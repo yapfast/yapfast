@@ -1,5 +1,6 @@
 //! The rail and the sidebar: servers, folders and DMs opening, their
-//! unread marks, categories folding and the DMs' search.
+//! unread marks, categories folding, and the DMs' search or, with its
+//! setting, Find or start a conversation.
 
 use std::sync::Arc;
 
@@ -51,6 +52,37 @@ fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     let state = app.client.state();
     assert_eq!(state.navigation, Navigation::DirectMessages);
     assert_eq!(state.selected.as_deref(), Some("riley"));
+}
+
+#[test]
+fn a_dm_being_read_stays_off_the_rail_and_out_of_the_home_count() {
+    use crate::rail::{Event, Kind};
+    let (mut app, _folder) = preview();
+    let _ = app.update(Message::Rail(Event::Dm("riley".into())));
+    let read = |app: &mut App, reading: bool| {
+        change(app, |state| {
+            state.reading = reading;
+            let room = state
+                .rooms
+                .iter_mut()
+                .map(Arc::make_mut)
+                .find(|room| room.id == "riley")
+                .expect("the room");
+            // A message came, which the core counts until its read reaches
+            // Discord.
+            room.unread = 1;
+            room.mentions = 1;
+        });
+    };
+    read(&mut app, true);
+    assert_eq!(app.rail.items[0].kind, Kind::Divider, "no DM on the rail");
+    assert!(!app.rail.home.unread);
+    assert_eq!(app.rail.home.badge, "");
+    // Scrolled up or the window behind another, the message waits.
+    read(&mut app, false);
+    assert_eq!(app.rail.items[0].kind, Kind::Dm);
+    assert!(app.rail.home.unread);
+    assert_eq!(app.rail.home.badge, "1");
 }
 
 #[test]
@@ -142,6 +174,23 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
 }
 
 #[test]
+fn a_middle_click_on_a_server_marks_it_read() {
+    // A Discord server whose #general mentions her.
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    let _ = app.update(Message::Rail(crate::rail::Event::MarkRead(
+        "discord:10".into(),
+    )));
+    let marked: Vec<String> = std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            yapfast_core::chat::Command::MarkRead { room, .. } => Some(room),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(marked, ["discord:10:11"], "its unread channel is read");
+}
+
+#[test]
 fn a_server_on_the_rail_opens_its_channels() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
@@ -212,6 +261,8 @@ fn opening_an_unread_channel_clears_its_mark() {
 fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!app.layout.dm_search_switcher, "the filter by default");
+    assert!(!shows(&app, "Find or start a conversation"));
     assert!(shows(&app, "Sam") && shows(&app, "Friday crew"));
     let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
     assert!(shows(&app, "Friday crew"));
@@ -225,39 +276,71 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
 }
 
 #[test]
+fn a_short_dm_list_recovers_after_a_scrolled_sidebar() {
+    let (mut app, _folder) = preview();
+    // The sidebar can carry the scroll report from a long server list
+    // into the first frame of a shorter DM list.
+    app.sidebar.scroll.offset = 2000.0;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!shows(&app, "Friday crew"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.sidebar.scroll.offset, 0.0);
+    assert!(shows(&app, "Friday crew"));
+}
+
+#[test]
+fn with_its_setting_the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
+    let (mut app, _folder) = preview();
+    app.layout.dm_search_switcher = true;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(shows(&app, "Find or start a conversation"));
+    interact(&mut app, |ui| {
+        ui.click("Find or start a conversation")
+            .expect("the button");
+    });
+    assert!(app.client.state().switcher.is_some(), "the quick switcher");
+    assert!(shows(&app, "Where would you like to go?"));
+}
+
+#[test]
 fn the_sidebars_edge_drags_it_within_limits_and_the_width_is_kept() {
     use crate::sidebar::{Event, WIDTH, width};
     let (mut app, folder) = preview();
     let side = |app: &mut App, event| {
         let _ = app.update(Message::Side(event));
     };
-    assert_eq!(width(&app.layout), WIDTH);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH);
     // Each move says how far the pointer is from where it pressed.
     side(&mut app, Event::Resize(20.0));
     side(&mut app, Event::Resize(40.0));
-    assert_eq!(width(&app.layout), WIDTH + 40.0);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH + 40.0);
     assert_eq!(crate::conversation::chat_left(&app), 72.0 + WIDTH + 40.0);
     // No narrower than 180 px.
     side(&mut app, Event::Resize(-1000.0));
-    assert_eq!(width(&app.layout), 180.0);
+    assert_eq!(width(&app.layout, &app.theme), 180.0);
     // No wider than 380 px, nor than leaves the conversation 420 px.
     side(&mut app, Event::Resize(1000.0));
     let beside = app.window.width - crate::conversation::chat_right(&app);
     let most = (app.window.width - 72.0 - 420.0 - beside).clamp(180.0, 380.0);
-    assert_eq!(width(&app.layout), most);
+    assert_eq!(width(&app.layout, &app.theme), most);
     side(&mut app, Event::Resize(-60.0));
     side(&mut app, Event::Resized);
     let kept = WIDTH - 60.0;
-    assert_eq!(width(&app.layout), kept);
+    assert_eq!(width(&app.layout, &app.theme), kept);
     // The next start has it.
     crate::layout::flush(folder.path());
     let mut next = super::start(&folder, true);
-    assert_eq!(width(&next.layout), kept);
+    assert_eq!(width(&next.layout, &next.theme), kept);
     // A double click gives the sidebar its own width back.
     side(&mut next, Event::ResetWidth);
-    assert_eq!(width(&next.layout), WIDTH);
+    assert_eq!(width(&next.layout, &next.theme), WIDTH);
     crate::layout::flush(folder.path());
-    assert_eq!(width(&super::start(&folder, true).layout), WIDTH);
+    let restarted = super::start(&folder, true);
+    assert_eq!(width(&restarted.layout, &restarted.theme), WIDTH);
 }
 
 #[test]
@@ -267,23 +350,23 @@ fn the_member_lists_edge_drags_it_within_limits_and_the_width_is_kept() {
     let list = |app: &mut App, event| {
         let _ = app.update(Message::Members(event));
     };
-    assert_eq!(width(&app.layout), WIDTH);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH);
     // Its edge is its left: a drag to the left widens it.
     list(&mut app, Event::Resize(-35.0));
-    assert_eq!(width(&app.layout), WIDTH + 35.0);
+    assert_eq!(width(&app.layout, &app.theme), WIDTH + 35.0);
     list(&mut app, Event::Resize(1000.0));
-    assert_eq!(width(&app.layout), 200.0);
+    assert_eq!(width(&app.layout, &app.theme), 200.0);
     list(&mut app, Event::Resize(-1000.0));
     let most =
         (app.window.width - crate::conversation::chat_left(&app) - 420.0).clamp(200.0, 480.0);
-    assert_eq!(width(&app.layout), most);
+    assert_eq!(width(&app.layout, &app.theme), most);
     list(&mut app, Event::Resize(-35.0));
     list(&mut app, Event::Resized);
     crate::layout::flush(folder.path());
     let mut next = super::start(&folder, true);
-    assert_eq!(width(&next.layout), WIDTH + 35.0);
+    assert_eq!(width(&next.layout, &next.theme), WIDTH + 35.0);
     list(&mut next, Event::ResetWidth);
-    assert_eq!(width(&next.layout), WIDTH);
+    assert_eq!(width(&next.layout, &next.theme), WIDTH);
 }
 
 #[test]
@@ -438,6 +521,7 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: true,
             connected: true,
@@ -512,8 +596,8 @@ fn the_account_cards_cog_opens_settings_where_they_were_last() {
     };
     click_cog(&mut app);
     assert_eq!(shown(&app), Some(Section::Account), "My Account at first");
-    let _ = app.update(Message::Settings(Event::Open(Section::Appearance)));
-    let _ = app.update(Message::Settings(Event::Close));
+    let _ = app.update(crate::app::settings(Event::Open(Section::Appearance)));
+    let _ = app.update(crate::app::settings(Event::Close));
     assert_eq!(shown(&app), None);
     click_cog(&mut app);
     assert_eq!(shown(&app), Some(Section::Appearance), "where they were");
@@ -564,7 +648,7 @@ fn a_dms_nameplate_fills_its_row_to_the_edges() {
         iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
     let (width, height, rgba) = super::drawn(&mut ui);
     // The rows end 8 px short of the sidebar's right edge.
-    let right = 72.0 + crate::sidebar::width(&app.layout) - 8.0;
+    let right = 72.0 + crate::sidebar::width(&app.layout, &app.theme) - 8.0;
     // How much of a column of the window the plate's red covers, in px.
     let red = |x: f32| {
         let x = (x * 2.0) as usize;
@@ -654,6 +738,35 @@ fn voice_server(app: &mut App) {
             avatar: None,
         }];
     });
+}
+
+/// A voice channel hidden from this account, listed with Show channels you
+/// can't access, shows who is in it under its lock, as other voice channels
+/// do, and a click on it joins nothing.
+#[test]
+fn a_hidden_voice_channel_lists_who_is_in_it_and_joins_nothing() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    change(&mut app, |state| {
+        let staff = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "staff")
+            .expect("staff");
+        let staff = Arc::make_mut(staff);
+        staff.name = "No Access".into();
+        staff.people[0].name = "Hana".into();
+        staff.people[0].deafened = true;
+    });
+    assert!(shows(&app, "No Access"));
+    assert!(shows(&app, "Hana"), "who is in it shows under it");
+    interact(&mut app, |ui| {
+        ui.click("No Access").expect("the hidden channel");
+    });
+    let _ = app.sync();
+    let state = app.client.state();
+    assert_eq!(state.voice.room, None, "it can't be joined");
+    assert!(!state.voice.active());
 }
 
 #[test]
@@ -794,4 +907,317 @@ fn a_busy_servers_tooltip_lists_its_voice_channels_under_the_pointer() {
             "Lounge, with Ann's and Ben's faces"
         );
     });
+}
+
+#[test]
+fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
+    use iced_test::{Simulator, selector::Candidate};
+    use yapfast_core::chat::{ChatServer, Picture, Pixels, ServerFolder};
+
+    let (mut app, _folder) = preview();
+    let in_folder = ServerFolder {
+        id: "discord-folder:7".into(),
+        name: None,
+        color: Some(0xff0000),
+    };
+    change(&mut app, |state| {
+        let channels = state.servers[0].channels.clone();
+        state.servers = ["Alpha", "Beta", "Gamma", "Delta"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| {
+                Arc::new(ChatServer {
+                    id: if index == 0 {
+                        "friends".into()
+                    } else {
+                        format!("s{index}")
+                    },
+                    name: name.into(),
+                    channels: if index == 0 {
+                        channels.clone()
+                    } else {
+                        Vec::new()
+                    },
+                    folder: Some(in_folder.clone()),
+                    ..Default::default()
+                })
+            })
+            .collect();
+    });
+
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let mut folder_bounds = None;
+    let mut initials: [Option<iced::Rectangle>; 4] = [None; 4];
+    let _ = ui.find(|candidate: Candidate<'_>| {
+        match candidate {
+            Candidate::Container {
+                visible_bounds: Some(bounds),
+                ..
+            } if bounds.x < crate::rail::WIDTH
+                && (bounds.width - crate::rail::FOLDER).abs() < 0.5
+                && (bounds.height - crate::rail::FOLDER).abs() < 0.5 =>
+            {
+                folder_bounds = Some(bounds);
+            }
+            Candidate::Text {
+                content,
+                visible_bounds: Some(bounds),
+                ..
+            } if bounds.x < crate::rail::WIDTH => {
+                if let Some(slot) = ["A", "B", "G", "D"]
+                    .iter()
+                    .position(|label| *label == content)
+                {
+                    initials[slot] = Some(bounds);
+                }
+            }
+            _ => {}
+        }
+        None::<()>
+    });
+
+    let folder = folder_bounds.expect("the closed 48x48 folder");
+    let slots = initials.map(|slot| slot.expect("folder preview initial in view"));
+    for (index, bounds) in slots.iter().enumerate() {
+        assert!(
+            bounds.width > 0.0 && bounds.height > 0.0,
+            "slot {index} has non-empty bounds: {bounds:?}"
+        );
+        assert!(
+            bounds.x >= folder.x
+                && bounds.y >= folder.y
+                && bounds.x + bounds.width <= folder.x + folder.width
+                && bounds.y + bounds.height <= folder.y + folder.height,
+            "slot {index} ({bounds:?}) sits inside the 48x48 folder ({folder:?})"
+        );
+    }
+    // Top-left (0), top-right (1), bottom-left (2), bottom-right (3).
+    assert!(slots[1].center_x() > slots[0].center_x());
+    assert!((slots[1].center_y() - slots[0].center_y()).abs() < 2.0);
+    assert!(slots[2].center_y() > slots[0].center_y());
+    assert!((slots[2].center_x() - slots[0].center_x()).abs() < 2.0);
+    assert!(slots[3].center_x() > slots[2].center_x());
+    assert!(slots[3].center_y() > slots[1].center_y());
+    drop(ui);
+
+    // Picture icons also render in all 4 quadrants of the 48x48 folder.
+    let green = Arc::new(Picture {
+        width: 19,
+        height: 19,
+        rgba: Pixels::new(19, 19, [0_u8, 255, 0, 255].repeat(19 * 19)),
+        ..Default::default()
+    });
+    change(&mut app, |state| {
+        for (index, server) in state.servers.iter_mut().enumerate() {
+            let url = format!("https://example.invalid/folder-{index}.png");
+            Arc::make_mut(server).icon = Some(url.clone());
+            state.pictures.insert(url, Arc::clone(&green));
+        }
+    });
+    let mut ui = Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let (width, _, rgba) = super::drawn(&mut ui);
+    let pixel = |x: f32, y: f32| {
+        let px = (x * 2.0) as usize;
+        let py = (y * 2.0) as usize;
+        let at = (py * width as usize + px) * 4;
+        [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+    };
+    for index in 0..4 {
+        let cx = folder.x + 4.0 + (index % 2) as f32 * 21.0 + 9.5;
+        let cy = folder.y + 4.0 + (index / 2) as f32 * 21.0 + 9.5;
+        let [r, g, b, _] = pixel(cx, cy);
+        assert!(
+            g > 200 && g > r.saturating_add(100) && g > b.saturating_add(100),
+            "slot {index} picture at ({cx}, {cy}) should be green, got [{r}, {g}, {b}]"
+        );
+    }
+}
+
+#[test]
+fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
+    use crate::{peek, sidebar};
+    let (mut app, _folder) = preview();
+    let open = app.client.state().selected.clone();
+    assert_ne!(open.as_deref(), Some("games"));
+    let hold = |app: &mut App, alt: bool| {
+        let modifiers = if alt {
+            iced::keyboard::Modifiers::ALT
+        } else {
+            iced::keyboard::Modifiers::default()
+        };
+        let _ = app.update(Message::Modifiers(modifiers));
+    };
+    let _ = app.update(Message::Side(sidebar::Event::Point("games".into(), true)));
+    hold(&mut app, true);
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none(), "off, Alt does nothing");
+    hold(&mut app, false);
+
+    app.layout.peek_channels = true;
+    hold(&mut app, true);
+    assert!(app.peek.wanted.is_some(), "the row under the pointer");
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_some());
+    assert!(!app.peek.found.is_empty(), "its messages' cards");
+    assert!(shows(&app, "#games"), "beside the list");
+    assert_eq!(app.client.state().selected, open, "the open channel stays");
+    // Ctrl and Alt together don't peek; letting go closes it.
+    let _ = app.update(Message::Modifiers(
+        iced::keyboard::Modifiers::ALT | iced::keyboard::Modifiers::CTRL,
+    ));
+    assert!(app.client.state().peek.is_none());
+    assert!(app.peek.found.is_empty(), "its cards go with it");
+    // A late timer for a row left asks for nothing.
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none());
+}
+
+#[test]
+fn favorites_keep_saved_category_order_and_open_real_conversations() {
+    use crate::sidebar::SideRow;
+    use yapfast_core::{
+        application::{ChannelFavorite, MenuChoice},
+        network::Network,
+    };
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_linked = true;
+        state.discord_online = true;
+        state.favorites_visible = true;
+        for (index, room) in state.rooms.iter_mut().take(3).enumerate() {
+            let room = std::sync::Arc::make_mut(room);
+            room.id = if index == 2 {
+                "discord:10:43".into()
+            } else {
+                format!("discord:@me:{}", index + 41)
+            };
+            room.network = Network::Discord;
+            room.direct = index < 2;
+            room.person = (index == 0).then(|| "2".into());
+            room.voice = false;
+            room.parent = None;
+            room.locked = false;
+            room.request = false;
+            room.unread = 0;
+            room.mentions = 0;
+            room.forum = index == 2;
+            room.people.clear();
+        }
+        let mut post = (*state.rooms[2]).clone();
+        post.id = "discord:10:44".into();
+        post.parent = Some("discord:10:43".into());
+        post.forum = false;
+        post.unread = 1;
+        post.mentions = 2;
+        state.rooms.push(std::sync::Arc::new(post));
+        state.channel_favorites = vec![
+            ChannelFavorite {
+                id: "900".into(),
+                name: "Friends".into(),
+                category: true,
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "42".into(),
+                name: "Second".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 1,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "41".into(),
+                name: "First".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "43".into(),
+                name: "Top level".into(),
+                reference: true,
+                position: 1,
+                ..Default::default()
+            },
+        ];
+        state.list_changes += 1;
+    });
+    let _ = app.update(Message::Rail(crate::rail::Event::Server(
+        "@favorites".into(),
+    )));
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    let labels: Vec<_> = app
+        .sidebar
+        .rows
+        .iter()
+        .filter_map(|row| match row {
+            SideRow::Heading { name, .. } => Some(name.as_str()),
+            SideRow::Room(room) => Some(room.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    // The channels in no category come first, as in Discord's client, and a
+    // one-to-one DM keeps its person's name.
+    let dm = app
+        .client
+        .state()
+        .rooms
+        .iter()
+        .find(|room| room.id == "discord:@me:41")
+        .unwrap()
+        .name
+        .clone();
+    assert_eq!(labels, ["Top level", "Friends", dm.as_str(), "Second"]);
+    let forum = app
+        .sidebar
+        .rows
+        .iter()
+        .find_map(|row| match row {
+            SideRow::Room(room) if room.id == "discord:10:43" => Some(room),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!((forum.posts.as_str(), forum.badge.as_str()), ("1", "2"));
+    // The tile counts the mentions of what's saved and its threads, as
+    // Discord's does, and is unread unless Favorites are muted.
+    let tile = |app: &App| {
+        crate::rail::rail(app.client.state(), &Default::default())
+            .into_iter()
+            .find(|item| item.id == "@favorites")
+            .unwrap()
+    };
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (true, "2".to_owned())
+    );
+    change(&mut app, |state| state.favorites_muted = true);
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (false, "2".to_owned())
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Select(
+        "discord:@me:42".into(),
+    )));
+    assert_eq!(
+        app.client.state().selected.as_deref(),
+        Some("discord:@me:42")
+    );
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    assert!(
+        app.client
+            .state()
+            .menu_choices("discord:@me:42")
+            .contains(&MenuChoice::RemoveFavorite)
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Toggle("900".into())));
+    assert!(app.sidebar.rows.iter().any(|row| matches!(
+        row,
+        SideRow::Heading {
+            collapsed: true,
+            ..
+        }
+    )));
 }

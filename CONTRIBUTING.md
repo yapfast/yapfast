@@ -7,13 +7,45 @@ don't build the same thing. A small fix can go straight to a pull request.
 
 ## Build and test
 
+### Lint and formatting
+
+Install [prek](https://prek.j178.dev/installation/) 0.5.11 or newer,
+then run the hooks from the repository root:
+
+```sh
+prek run --all-files
+```
+
+Formatters apply changes; inspect them and rerun until all hooks pass.
+Repository-wide formatting is being introduced separately, so this command may
+report existing violations and modify files outside your change. For focused
+checks, use `prek run --files path/to/file.py`. The CI formatting job is temporarily
+disabled until the dependency-update and formatting-baseline PRs are merged.
+
+For automatic checks of staged files, run
+`prek install`. If you previously installed hooks with pre-commit, replace them
+with `prek install -f`. The hook in `.githooks`, enabled with
+`git config core.hooksPath .githooks`, does not need prek: it only checks Rust
+formatting, inside the Nix shell.
+
+Tools are pinned in `prek.toml`; prek installs their isolated environments on
+the first run for Ruff and clang-format. Other text and syntax checks are built
+into prek. No project Python environment or Node.js installation is needed.
+
+See [Code style](docs/code-style.md) for formatting rules, exclusions and commands.
+The configuration files linked there define the rules.
+
+### Build checks
+
 [Development](docs/development.md) covers running the app, and
 [Architecture](docs/architecture.md) shows where code lives and how a UI change
 flows from the window to `application/`.
 
-Nix is optional. `nix develop path:./nix` gives you the pinned toolchain and
-libraries. Without it, [Without Nix](README.md#without-nix) lists what Linux
-needs, and [Building](docs/building.md#windows) covers a native Windows build.
+On Linux, `nix develop path:./nix` gives you the pinned toolchain and
+libraries; run the Cargo commands below inside that shell. Nix is optional:
+without it, [Without Nix](README.md#without-nix) lists what Linux needs. On
+Windows, use Cargo directly in PowerShell with the native prerequisites in
+[Building](docs/building.md#windows); Nix is not required.
 Build with the `fast` profile, and format before you check:
 
 ```sh
@@ -21,7 +53,7 @@ cargo build --locked --profile fast
 cargo fmt --all
 ```
 
-Run these once before you ask for a review:
+On Linux, run these once before you ask for a review:
 
 ```sh
 scripts/check --fast
@@ -39,14 +71,18 @@ Matrix shares.
 `crates/yapfast-discord`, `discord_text` or the fake; while you work, name the
 area you changed, as `scripts/test-fake-discord forum`.
 
-If you can't run a script (on Windows, say), run what you can of its steps by hand
-and say what you skipped in the pull request, so someone else can run it:
+On Windows, run the checks directly through Cargo. Say which additional
+checks you skipped in the pull request, so someone else can run them:
 
 ```sh
 cargo fmt --all -- --check
 cargo clippy --locked --profile fast --all-targets --workspace -- -D warnings
 cargo test --locked --profile fast --workspace
+cargo build --locked --profile fast --workspace
+cargo run --locked --profile fast -- --smoke-test
 ```
+
+Run the packaging font notices test with `python -B testing/test_font_notices.py`.
 
 For a Discord feature, follow
 [Adding a Discord feature](docs/discord/adding-a-feature.md), which goes through
@@ -76,11 +112,18 @@ Yapfast you already have open. Add `YAPFAST_DISCORD_TEST_UNLINKED=1` to go throu
 linking an account against the fake. The comment at the top of
 `testing/fake_discord.ts` lists its options, such as `--servers 3` and `--dms 50`.
 
-With Nix, `scripts/ui-session` does the same on a private display, and adds
+In PowerShell, set the fake server before the Cargo command:
+
+```powershell
+$env:YAPFAST_DISCORD_TEST_SERVER = 'http://127.0.0.1:18400'
+cargo run --locked --profile fast -- --data-dir .local/fake-discord
+```
+
+On Linux, `scripts/ui-session` does the same on a private display, and adds
 screenshots and scripted input; run it with `--help`.
 
-A coding agent is fine. `AGENTS.md` gives it these commands and rules, and
-assumes Nix, so tell it if you don't use it. Read what it wrote and run the result
+A coding agent is fine. `AGENTS.md` gives it these commands and rules for
+native Cargo on Windows and Nix on Linux. Read what it wrote and run the result
 before you open the pull request.
 
 ## Memory and CPU
@@ -100,6 +143,20 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
 
 ## Pull requests
 
+Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
+toolchain in `rust-toolchain.toml`. Strict Clippy and `cargo nextest` run in
+parallel, each with its own cache. The tests job checks the packaging font
+notices first and runs `scripts/test-fake-discord` after the workspace tests.
+The formatting job (prek, including
+rustfmt) and dependency job (cargo-audit and cargo-machete) are temporarily
+commented out until the dependency-update and formatting-baseline PRs are
+merged. The disabled audit command excludes the SQLite advisory `RUSTSEC-2026-0459`.
+
+CI also runs on pushes to `main` and can be started manually; documentation-only
+and listed media-only changes do not trigger automatic runs. Documentation links
+are checked locally by `scripts/check-doc-links`, not by the current workflow.
+Run the Matrix checks above locally when your change needs them.
+
 - Keep each pull request to one feature or fix, started from `origin/main` after
   `git fetch`.
 - Base every pull request on `main`, including the layers of a stack, since a
@@ -107,7 +164,7 @@ quality, default to the cheaper setting and put the heavier one behind a switch.
   description, say which pull request goes in first.
 - Write commit subjects as Conventional Commits, in the present tense, saying
   what changes for the user: `feat(discord): join and leave threads from their
-  menu`. The body says what it does and why.
+menu`. The body says what it does and why.
 - A change in behavior updates its doc in the same commit. Docs describe how
   things work now; history and measurements go in the commit message.
 - In the description, say what you ran, what you skipped and which systems you

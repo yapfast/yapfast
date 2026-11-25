@@ -47,6 +47,9 @@ pub struct Participant {
     /// Muted or deafened by a Discord server, which shows in red; `muted`
     /// and `deafened` say so too.
     pub server_muted: bool,
+    /// Discord won't let them speak here (`suppress`), apart from any
+    /// mute; never shown speaking.
+    pub speaking_blocked: bool,
     pub server_deafened: bool,
     pub speaking: bool,
     /// False after this participant's media connection disappeared, for
@@ -97,6 +100,18 @@ pub enum Resolution {
     P1080,
     /// The screen's own size, up to 4K.
     Source,
+}
+
+/// Audio shared with Go Live. A window's id means nothing after a restart,
+/// so its application is remembered by its program ([`State::stream_app`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamAudio {
+    Off,
+    #[default]
+    All,
+    /// The application owning this window, including its child processes.
+    Window(u64),
 }
 
 /// How a screen is shared: chosen before going live, and remembered.
@@ -246,6 +261,12 @@ pub struct State {
     pub watching: Option<Box<Watching>>,
     /// How the next screen share is sent.
     pub quality: StreamQuality,
+    pub stream_audio: StreamAudio,
+    /// The application chosen for the stream's sound, by its program's
+    /// name, which outlives its windows and Yapfast: `stream_audio` is one
+    /// of its windows once the share menu finds one, and everything until
+    /// then.
+    pub stream_app: Option<String>,
     /// This account's camera, turned on or starting.
     pub camera_phase: CameraPhase,
     /// The call carries camera video, so the camera can be turned on.
@@ -316,6 +337,8 @@ impl Default for State {
             sharing: None,
             watching: None,
             quality: StreamQuality::default(),
+            stream_audio: StreamAudio::default(),
+            stream_app: None,
             camera_phase: CameraPhase::Off,
             can_film: false,
             link: None,
@@ -327,9 +350,28 @@ impl Default for State {
 }
 
 impl State {
+    pub fn speaking_blocked(&self) -> bool {
+        self.participants
+            .iter()
+            .any(|person| person.local && person.speaking_blocked)
+    }
+
     pub fn active(&self) -> bool {
         self.phase != Phase::Disconnected
     }
+
+    /// Shares `audio` with the stream from now on: a window's application
+    /// is remembered by its program, where the system names it.
+    pub(crate) fn share_audio(&mut self, audio: StreamAudio) {
+        self.stream_audio = audio;
+        self.stream_app = match audio {
+            StreamAudio::Window(window) => {
+                crate::audio_io::window_programs(&[window]).pop().flatten()
+            }
+            _ => None,
+        };
+    }
+
     fn disconnected(&mut self) {
         self.phase = Phase::Disconnected;
         self.room = None;
@@ -371,6 +413,9 @@ pub enum Command {
     /// Share a screen or window with Discord's Go Live, at this quality,
     /// which is remembered for next time.
     GoLive(StreamQuality),
+    /// Change outgoing audio without restarting the video. The choice is
+    /// remembered for next time.
+    StreamAudio(StreamAudio),
     /// Share the screen or window picked last in place of the one shared,
     /// keeping the stream; in a Wayland session, what the system's dialog picks.
     SwitchLive,
@@ -413,7 +458,7 @@ pub struct Controller {
 }
 
 impl Controller {
-    #[cfg(all(test, feature = "matrix"))]
+    #[cfg(all(test, feature = "matrix", target_os = "linux"))]
     pub(crate) fn start(session: SessionLease) -> Result<Self> {
         let calls = Calls {
             session,
@@ -438,6 +483,7 @@ impl Controller {
             initial.speaker = chosen.speaker;
             initial.camera = chosen.camera;
             initial.quality = chosen.quality;
+            (initial.stream_audio, initial.stream_app) = chosen.audio.restored();
         }
         let (states, snapshots) = watch::channel(initial.clone());
         let worker = thread::Builder::new()
@@ -555,6 +601,10 @@ async fn worker(
                 state.speaker = Some(id);
                 Chosen::write(remembered.as_deref(), &state);
             }
+            Command::StreamAudio(audio) => {
+                state.share_audio(audio);
+                Chosen::write(remembered.as_deref(), &state);
+            }
             Command::Camera(id) => {
                 state.camera = Some(id);
                 Chosen::write(remembered.as_deref(), &state);
@@ -623,8 +673,8 @@ async fn join(
 /// The file in Yapfast's data folder that remembers the chosen devices.
 pub const DEVICES: &str = "devices.json";
 
-/// The devices and stream quality chosen on this machine, kept beside its
-/// other local files.
+/// The devices, stream quality and stream audio chosen on this machine,
+/// kept beside its other local files.
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 pub(crate) struct Chosen {
     microphone: Option<String>,
@@ -633,6 +683,40 @@ pub(crate) struct Chosen {
     camera: Option<String>,
     #[serde(default)]
     quality: StreamQuality,
+    #[serde(default)]
+    audio: ChosenAudio,
+}
+
+/// The stream's audio as it's kept: an application by its program's name,
+/// as a window's id means nothing after a restart.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ChosenAudio {
+    Off,
+    #[default]
+    All,
+    Application(String),
+}
+
+impl ChosenAudio {
+    fn of(state: &State) -> Self {
+        match (state.stream_audio, &state.stream_app) {
+            (StreamAudio::Off, _) => Self::Off,
+            (_, Some(program)) => Self::Application(program.clone()),
+            _ => Self::All,
+        }
+    }
+
+    /// What a new start shares, and the application to look for: its sound
+    /// alone once the share menu finds a window of it, and everything
+    /// until then.
+    fn restored(self) -> (StreamAudio, Option<String>) {
+        match self {
+            Self::Off => (StreamAudio::Off, None),
+            Self::All => (StreamAudio::All, None),
+            Self::Application(program) => (StreamAudio::All, Some(program)),
+        }
+    }
 }
 
 impl Chosen {
@@ -650,12 +734,13 @@ impl Chosen {
             speaker: state.speaker.clone(),
             camera: state.camera.clone(),
             quality: state.quality,
+            audio: ChosenAudio::of(state),
         };
         let result = serde_json::to_vec_pretty(&chosen)
             .map_err(std::io::Error::other)
             .and_then(|bytes| std::fs::write(path, bytes));
         if let Err(error) = result {
-            tracing::warn!(%error, "could not remember the chosen devices and stream quality");
+            tracing::warn!(%error, "could not remember the chosen devices and stream choices");
         }
     }
 }
@@ -754,14 +839,75 @@ mod tests {
         assert_eq!(chosen.speaker.as_deref(), Some("name:Null Output"));
         assert_eq!(chosen.camera.as_deref(), Some("usb-0000:00:14.0-1"));
         assert_eq!(chosen.quality, state.quality);
-        // Choices saved before there was a quality to choose still load.
+        // Choices saved before there was a quality or audio to choose still
+        // load.
         std::fs::write(
             &path,
             br#"{"microphone": null, "speaker": "name:Null Output"}"#,
         )
         .unwrap();
         assert_eq!(Chosen::read(&path).quality, StreamQuality::default());
+        assert_eq!(Chosen::read(&path).audio, ChosenAudio::All);
         std::fs::write(&path, b"not json").unwrap();
         assert!(Chosen::read(&path).speaker.is_none());
+    }
+
+    /// The worker saves the stream's audio as it's chosen, in a call or
+    /// not, and the next start shares the same.
+    #[cfg(all(feature = "discord", not(feature = "matrix")))]
+    #[test]
+    fn the_streams_audio_chosen_is_there_after_a_restart() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join(DEVICES);
+        let start = || {
+            let calls = Calls {
+                discord: watch::channel(None).1,
+            };
+            Controller::start_remembering(calls, Some(path.clone())).unwrap()
+        };
+        // Dropped, the worker ends once it has done what it was told.
+        let stop = |voice: Controller| drop(voice);
+        let voice = start();
+        assert_eq!(voice.states.borrow().stream_audio, StreamAudio::All);
+        assert!(voice.command(Command::StreamAudio(StreamAudio::Off)));
+        stop(voice);
+        let voice = start();
+        assert_eq!(voice.states.borrow().stream_audio, StreamAudio::Off);
+        assert!(voice.command(Command::StreamAudio(StreamAudio::All)));
+        stop(voice);
+        let voice = start();
+        assert_eq!(voice.states.borrow().stream_audio, StreamAudio::All);
+        stop(voice);
+    }
+
+    #[test]
+    fn the_streams_audio_stays_on_disk_an_application_by_its_program() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join(DEVICES);
+        let kept = |state: &State| {
+            Chosen::write(Some(&path), state);
+            Chosen::read(&path).audio.restored()
+        };
+        let mut state = State::default();
+        assert_eq!(kept(&state), (StreamAudio::All, None));
+        state.share_audio(StreamAudio::Off);
+        assert_eq!(kept(&state), (StreamAudio::Off, None));
+        // A window's id isn't kept: its application is, and until the share
+        // menu finds a window of it everything is shared.
+        state.stream_audio = StreamAudio::Window(42);
+        state.stream_app = Some("game.exe".into());
+        let restored = kept(&state);
+        assert_eq!(restored, (StreamAudio::All, Some("game.exe".into())));
+        // Still looked for after a start it wasn't running in.
+        (state.stream_audio, state.stream_app) = restored;
+        assert_eq!(kept(&state).1.as_deref(), Some("game.exe"));
+        // A window whose program the system doesn't name is shared this
+        // time only, and another choice forgets the application.
+        state.stream_audio = StreamAudio::Window(7);
+        state.stream_app = None;
+        assert_eq!(kept(&state), (StreamAudio::All, None));
+        state.stream_app = Some("game.exe".into());
+        state.share_audio(StreamAudio::All);
+        assert_eq!(kept(&state), (StreamAudio::All, None));
     }
 }

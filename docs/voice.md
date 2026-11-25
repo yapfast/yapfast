@@ -95,7 +95,10 @@ people list beside the channel marks them with a camera. Your own camera shows
 mirrored, as a mirror would. Up to four people take the columns that make
 their tiles largest within both the grid's width and height, so a call
 above a DM's messages shows both people side by side without scrolling;
-more take tiles at least 240px wide, and scroll. A click on a tile shows it
+more fit the grid too, in the columns that make their tiles largest, while
+those tiles stay at least 120px wide, and past that take tiles at least
+240px wide and scroll, so a row is never cut off at the grid's foot with its
+names under the call's controls. A click on a tile shows it
 large, as Discord's focus does, with the others in rows of small tiles
 beneath; a click beside it shows the grid again. The large tile goes full
 screen from its button or a double click, over the whole window, until

@@ -158,8 +158,12 @@ pub(crate) fn read_kept(url: &str, mut picture: chat::Picture) -> chat::Picture 
 }
 
 /// The start of a Discord folder's [`chat::ServerFolder::id`].
-#[cfg(feature = "discord")]
 const FOLDER_PREFIX: &str = "discord-folder:";
+
+/// The Discord folder a rail tile names.
+pub fn parse_folder(id: &str) -> Option<&str> {
+    id.strip_prefix(FOLDER_PREFIX)
+}
 
 pub fn server_id(guild: &str) -> String {
     format!("{PREFIX}{guild}")
@@ -289,6 +293,7 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         muted: member.muted,
         deafened: member.deafened,
         server_muted: member.server_muted,
+        speaking_blocked: member.speaking_blocked,
         server_deafened: member.server_deafened,
         streaming: member.streaming,
         video: member.video,
@@ -925,7 +930,7 @@ fn server_rooms(
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
-                category_id: category_id.clone(),
+                category_id,
                 request: false,
                 person: None,
                 people: in_voice(snapshot, &channel.id),
@@ -981,7 +986,7 @@ fn server_rooms(
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
-                category_id: category_id.clone(),
+                category_id,
                 request: false,
                 person: None,
                 people: vec![],
@@ -2575,6 +2580,7 @@ mod tests {
             video: false,
             elsewhere: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
         };
         let first = Snapshot {
@@ -2740,6 +2746,7 @@ mod tests {
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 streaming: false,
                 video: false,
@@ -2834,6 +2841,7 @@ mod tests {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             streaming: false,
             video: false,
@@ -2909,21 +2917,41 @@ mod tests {
                     _ => access(Access::Join),
                 },
             )],
-            voice: [(
-                "11".to_owned(),
-                vec![yapfast_discord::service::VoiceMember {
-                    user_id: "2".into(),
-                    name: "Ann".into(),
-                    avatar: "ann.png".into(),
-                    muted: true,
-                    deafened: false,
-                    streaming: true,
-                    video: false,
-                    elsewhere: false,
-                    server_muted: false,
-                    server_deafened: false,
-                }],
-            )]
+            voice: [
+                (
+                    "11".to_owned(),
+                    vec![yapfast_discord::service::VoiceMember {
+                        user_id: "2".into(),
+                        name: "Ann".into(),
+                        avatar: "ann.png".into(),
+                        muted: true,
+                        deafened: false,
+                        streaming: true,
+                        video: false,
+                        elsewhere: false,
+                        server_muted: false,
+                        speaking_blocked: false,
+                        server_deafened: false,
+                    }],
+                ),
+                // Discord sends who is in a hidden voice channel too.
+                (
+                    "13".to_owned(),
+                    vec![yapfast_discord::service::VoiceMember {
+                        user_id: "3".into(),
+                        name: "Bea".into(),
+                        avatar: "bea.png".into(),
+                        muted: false,
+                        deafened: true,
+                        streaming: false,
+                        video: false,
+                        elsewhere: false,
+                        server_muted: false,
+                        speaking_blocked: false,
+                        server_deafened: false,
+                    }],
+                ),
+            ]
             .into(),
             ..Default::default()
         };
@@ -2967,6 +2995,13 @@ mod tests {
         );
         let (rooms, _) = index(&snapshot, true);
         assert!(rooms.len() == 6 && rooms[2].locked && rooms[5].locked);
+        // A hidden voice channel lists who is in it, as a voice channel
+        // does, though it can't be joined.
+        assert_eq!(rooms[5].id, "discord:10:13");
+        assert!(rooms[5].voice && rooms[5].join_locked);
+        assert_eq!(rooms[5].people.len(), 1);
+        assert_eq!(rooms[5].people[0].name, "Bea");
+        assert!(rooms[5].people[0].deafened && rooms[5].members == 1);
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
     }

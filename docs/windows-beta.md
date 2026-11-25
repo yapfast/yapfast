@@ -131,6 +131,11 @@ only until they're in. A window closed after it was listed ends sharing with
 "That screen or window is gone." Without a pick, Yapfast shares the first
 screen.
 
+When sharing an entire screen, libwebrtc draws the Windows pointer into the
+captured frames before Yapfast previews or encodes them. The worker works in
+the displays' own pixels (per-monitor DPI aware), so on a scaled display the
+pointer is drawn where it is.
+
 Go Live's sound comes from WASAPI process loopback: one stream of everything
 Windows plays except Yapfast's own process tree, the Yapfast window and its
 workers. It needs Windows 10's 2004 update or later. Unlike Linux, where
@@ -179,8 +184,7 @@ icon work. A right click reaches Yapfast (`WM_RBUTTONDOWN`, `WM_RBUTTONUP`) and
 `TrackPopupMenu` runs, but Wine's Wayland driver never shows the menu,
 most likely because its owner is a window that was never shown. Until the
 menu closes, its loop holds Yapfast's UI thread, as every Win32 menu does; on
-Windows a click anywhere else closes it. So Open Yapfast, Disconnect and Quit
-in the menu are untested on Windows.
+Windows a click anywhere else closes it.
 
 [The tray](tray.md#windows) lists what to check on real Windows.
 
@@ -255,9 +259,25 @@ preview's adds the exact upstream source of the AGPL MatrixRTC crates, which
 the Discord release doesn't build. It excludes `.local`, ignored private material, account credentials, sessions,
 logs and the Wine prefixes.
 
-## Build for development
+## Native development on Windows
 
-For work on Windows code, build with the `fast` profile in the Windows shell,
+On Windows, use Cargo directly in PowerShell, with the `fast` profile.
+Install the [native prerequisites](building.md#windows), then run:
+
+```powershell
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+cargo test --locked --profile fast -p yapfast-core history
+```
+
+Nix and Wine are not required. The executable is `target/fast/yapfast.exe`.
+For Discord development, run against the fake server using the PowerShell
+commands in [Contributing](../CONTRIBUTING.md#build-and-test), which also
+lists the checks to run before review.
+
+## Cross-build for development from Linux
+
+For work on Windows code from Linux, build with the `fast` profile in the Nix Windows shell,
 with cargo-xwin's environment. thorvg-sys's bindgen needs the target that
 `scripts/release-env` adds, which `cargo xwin build` would overwrite. That
 environment also exports an empty `RUSTFLAGS`, which Cargo takes in place

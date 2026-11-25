@@ -207,7 +207,10 @@ impl Matcher {
 
     /// The desktop says a keybind went down or came up, as the portal does,
     /// having matched its keys itself.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(
+        not(target_os = "linux"),
+        allow(dead_code, reason = "the Linux portal supplies matched shortcuts")
+    )]
     fn set(&mut self, binding: usize, down: bool, out: Out<'_>) {
         let Some(compiled) = self.bindings.get(binding) else {
             return;
@@ -1470,7 +1473,7 @@ mod windows {
                 return;
             };
             matcher.resync(None, |code| key_down(seen, code), &mut |action, down| {
-                sink.act(action, down)
+                sink.act(action, down);
             });
             timing(matcher, timer);
         });

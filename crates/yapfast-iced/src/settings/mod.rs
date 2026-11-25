@@ -17,8 +17,15 @@
 //! do.
 
 mod appearance;
+mod font;
 pub mod keybinds;
 mod pages;
+pub(crate) mod theme_creator;
+mod theme_keys;
+pub(crate) mod theme_marketplace;
+mod theme_page;
+pub use theme_keys::ThemeKey;
+pub use theme_page::trial_banner;
 pub mod updates;
 
 pub use pages::{block_game, message_size, open_detected_games_menu};
@@ -46,12 +53,19 @@ use crate::{
 
 use appearance::Editor;
 #[cfg(test)]
-pub use appearance::Event as ThemeEvent;
+pub(crate) use appearance::{COLOUR_CODE as THEME_COLOUR_CODE, Event as ThemeEvent};
+pub(crate) use font::FontEvent;
 
 /// What a theme editor's change sends.
 #[cfg(test)]
 pub fn appearance_event(event: ThemeEvent) -> Message {
-    Message::Settings(Event::Theme(event))
+    crate::app::settings(Event::Theme(event))
+}
+
+/// What a Font event sends.
+#[cfg(test)]
+pub fn font_message(event: FontEvent) -> Message {
+    crate::app::settings(Event::Font(event))
 }
 
 /// How far the card sits in from the window's edges, and the sections'
@@ -61,6 +75,8 @@ const NAV: f32 = 266.0;
 /// A section's row in the column, the page's header over it.
 const NAV_ROW: f32 = 40.0;
 const HEADER: f32 = 48.0;
+/// The theme editor's column, wider than a page's.
+const EDITOR_COLUMN: f32 = 960.0;
 /// The search's field, and the page's scrollable.
 pub const SEARCH: &str = "settings-search";
 const PAGE: &str = "settings-page";
@@ -76,6 +92,7 @@ pub enum Section {
     Sounds,
     Advanced,
     Appearance,
+    Themes,
     Games,
     Keybinds,
     About,
@@ -101,6 +118,7 @@ impl Section {
             Section::Sounds => "Sounds",
             Section::Advanced => "Advanced",
             Section::Appearance => "Appearance",
+            Section::Themes => "Themes",
             Section::Games => "Game Activity",
             Section::Keybinds => "Keybinds",
             Section::About => "About",
@@ -117,6 +135,7 @@ impl Section {
             Section::Sounds => Icon::Volume,
             Section::Advanced => Icon::Settings,
             Section::Appearance => Icon::Palette,
+            Section::Themes => Icon::Brush,
             Section::Games => Icon::Play,
             Section::Keybinds => Icon::Keyboard,
             Section::About => Icon::Help,
@@ -143,6 +162,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
         &[
             Section::Discord,
             Section::Games,
+            Section::Themes,
             Section::Keybinds,
             Section::Advanced,
             Section::About,
@@ -170,13 +190,26 @@ pub struct Settings {
     pub open: Option<Drop>,
     /// The version was copied a moment ago, which the stamp and About say.
     pub copied: bool,
-    /// Appearance's theme editor while it's open, and the theme as edited,
+    /// Themes' editor while it's open, and the theme as edited,
     /// which the window shows meanwhile.
     pub editor: Option<Editor>,
+    /// How the last theme import or export went, under Appearance's title,
+    /// and whether it failed.
+    pub theme_note: Option<(String, bool)>,
+    /// The Slint build's guided, step-based creator. The palette editor above
+    /// remains available as the legacy Advanced fallback while this flow is
+    /// being ported.
+    pub creator: Option<theme_creator::Creator>,
+    /// Installed themes, marketplace, URL fetch and protected review state.
+    pub marketplace: theme_marketplace::Marketplace,
     preview: Option<Theme>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
+    /// What Appearance's Font says of the files just chosen that didn't
+    /// load, until the next change; none shows the standing note
+    /// (`custom_font::note`).
+    pub font_note: Option<String>,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
     /// The keybind being recorded, and the keys pressed so far.
@@ -222,6 +255,10 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    /// Appearance's Font: choosing the font files, removing one, going back
+    /// to DM Sans.
+    Font(FontEvent),
+    Marketplace(theme_marketplace::Event),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
     /// A key went down or up, or the window lost the focus, while one is
@@ -230,6 +267,8 @@ pub enum Event {
     Keybind(keybinds::Event),
     /// Advanced's Restart Yapfast, after the GPU setting changed.
     Restart,
+    /// Tab, Shift+Tab, Enter or Space on Settings → Themes.
+    ThemeKey(ThemeKey),
 }
 
 impl Settings {
@@ -244,11 +283,13 @@ impl Settings {
             blocked_shown: pages::BLOCKED_STEP,
             ..Self::default()
         };
+        // Installed shows its themes as cards until the list is chosen.
+        settings.marketplace.gallery = true;
         settings.read_platform_choices(cx);
         settings
     }
 
-    /// Shows a section: leaving Appearance cancels the theme being edited,
+    /// Shows a section: leaving Themes cancels the theme being edited,
     /// leaving Voice stops what it ran; Voice & video also lists the
     /// devices again.
     pub fn show(&mut self, section: Section, cx: &mut Cx<'_>) -> Task<Message> {
@@ -259,7 +300,7 @@ impl Settings {
         if let Some(before) = before.filter(|before| *before != section) {
             leave_new(cx, before);
         }
-        if before == Some(Section::Appearance) && section != Section::Appearance {
+        if before == Some(Section::Themes) && section != Section::Themes {
             self.cancel_theme(cx);
         }
         if before == Some(Section::Voice) && section != Section::Voice {
@@ -286,6 +327,11 @@ impl Settings {
             Event::Search(query) => self.query = query,
             Event::Drop(drop) => {
                 self.open = (self.open != Some(drop)).then_some(drop);
+                if self.open.is_some()
+                    && let Some(editor) = self.editor.as_mut()
+                {
+                    editor.picker = None;
+                }
                 // What opened may show pictures, such as the entrance
                 // sounds' soundboard.
                 cx.touch();
@@ -296,7 +342,7 @@ impl Settings {
                     iced::clipboard::write(cx.build.summary.clone()),
                     crate::after(
                         std::time::Duration::from_secs(2),
-                        Message::Settings(Event::CopiedDone),
+                        crate::app::settings(Event::CopiedDone),
                     ),
                 ]);
             }
@@ -308,7 +354,32 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
-            Event::Theme(event) => self.theme_event(event, cx),
+            Event::ThemeKey(key) => return self.theme_key(key, cx),
+            Event::Theme(event) => {
+                // A click puts the keys back where they were before Tab.
+                self.marketplace.focus = None;
+                return self.theme_event(event, cx);
+            }
+            Event::Marketplace(event) => {
+                self.marketplace.focus = None;
+                let runtime = cx.client.shared_runtime();
+                let root = cx.client.root().to_owned();
+                let task = self
+                    .marketplace
+                    .update(event, runtime, &root, cx.layout, cx.themes)
+                    .map(|event| crate::app::settings(Event::Marketplace(event)));
+                self.marketplace.installed.take();
+                if std::mem::take(&mut self.marketplace.theme_applied) {
+                    cx.request(Request::ThemeApplied);
+                    cx.touch();
+                }
+                if std::mem::take(&mut self.marketplace.theme_changed) {
+                    cx.request(Request::Changed(ctx::Pref::Theme));
+                    cx.touch();
+                }
+                return task;
+            }
+            Event::Font(event) => return self.font_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),
@@ -316,10 +387,15 @@ impl Settings {
         Task::none()
     }
 
-    /// Escape closes an open dropdown, stops recording a key, then closes
-    /// Settings.
+    /// Escape closes an open dropdown or colour picker, stops recording a
+    /// key, then closes Settings.
     pub fn escape(&mut self, cx: &mut Cx<'_>) {
         if self.open.take().is_some() {
+            return;
+        }
+        if let Some(editor) = self.editor.as_mut()
+            && editor.picker.take().is_some()
+        {
             return;
         }
         if self.record.take().is_some() {
@@ -339,7 +415,18 @@ impl Settings {
     /// The theme the window shows while the editor is open: the theme as
     /// edited, kept nowhere.
     pub fn preview(&self) -> Option<&Theme> {
-        self.preview.as_ref()
+        self.marketplace.protected_theme().or(self.preview.as_ref())
+    }
+
+    /// Lets go of the draft previewed, as Ctrl+Shift+T does. The editor or
+    /// creator stays open on it.
+    pub fn drop_preview(&mut self) {
+        self.preview = None;
+    }
+
+    /// Whether a theme's review is open, which shows in the stock look.
+    pub fn protected(&self) -> bool {
+        self.marketplace.protected_theme().is_some()
     }
 
     /// Reads what the desktop says of starting at sign-in and Discord's
@@ -435,6 +522,7 @@ impl<'a> Page<'a> {
             Section::Sounds => self.sounds_page(),
             Section::Advanced => self.advanced_page(),
             Section::Appearance => self.appearance_page(),
+            Section::Themes => self.themes_page(),
             Section::Games => self.games_page(),
             Section::Keybinds => self.keybinds_page(),
             Section::About => self.about_page(),
@@ -449,7 +537,11 @@ impl<'a> Page<'a> {
                     .width(Length::Fill),
                 self.cx
                     .look
-                    .icon_button(Icon::X, "Close Settings", Message::Settings(Event::Close))
+                    .icon_button(
+                        Icon::X,
+                        "Close Settings",
+                        crate::app::settings(Event::Close)
+                    )
                     .size(32.0, 18)
                     .below()
             ]
@@ -462,38 +554,107 @@ impl<'a> Page<'a> {
             .align_y(Alignment::Center),
             line
         ];
-        let body = scroll_view(
-            container(container(page).max_width(form::COLUMN))
-                .padding(iced::Padding {
-                    top: form::PAGE_TOP,
-                    right: form::PAGE_SIDE,
-                    bottom: form::PAGE_BOTTOM,
-                    left: form::PAGE_SIDE,
-                })
-                .center_x(Length::Fill),
-        )
-        .id(iced::widget::Id::new(PAGE))
-        .style(scrollbar(theme))
-        .height(Length::Fill);
-        let panel = theme.panel;
-        let radius = crate::sheet::RADIUS;
+        // The theme editor fills the frame, wider and higher up, so its
+        // preview stays in sight beside the controls, which scroll alone.
+        let editing =
+            section == Section::Themes && (settings.creator.is_some() || settings.editor.is_some());
+        let body: Element<'a, Message> = if editing {
+            container(
+                container(page)
+                    .max_width(EDITOR_COLUMN)
+                    .height(Length::Fill),
+            )
+            .padding(iced::Padding {
+                top: 22.0,
+                right: form::PAGE_SIDE,
+                bottom: 0.0,
+                left: form::PAGE_SIDE,
+            })
+            .center_x(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            scroll_view(
+                container(container(page).max_width(form::COLUMN))
+                    .padding(iced::Padding {
+                        top: form::PAGE_TOP,
+                        right: form::PAGE_SIDE,
+                        bottom: form::PAGE_BOTTOM,
+                        left: form::PAGE_SIDE,
+                    })
+                    .center_x(Length::Fill),
+            )
+            .id(iced::widget::Id::new(PAGE))
+            .style(scrollbar(theme))
+            .height(Length::Fill)
+            .into()
+        };
+        let surface = yapfast_core::themes::package::art::ArtSurface::Settings;
+        let decorated =
+            self.cx.themes.decorates(&theme.id, surface) || theme.package_paint("panel").is_some();
+        let panel = if decorated {
+            iced::Color::TRANSPARENT
+        } else {
+            theme.panel
+        };
+        // Inside the card's 1 px edge, as the sheet's parts (see
+        // `sheet::backdrop`).
+        let radius = crate::sheet::inner_radius(theme);
         let content = container(column![header, body])
             .width(Length::Fill)
             .height(Length::Fill)
             .style(move |_| {
                 crate::style::rounded(panel, crate::style::corners([0.0, radius, radius, 0.0]))
             });
-        let chat = theme.chat;
+        // As Slint: the sections lie on the sidebar's paint unless the
+        // settings are glass.
+        let glass = self.cx.themes.glass(&theme.id, surface).is_some();
+        let chat: iced::Background = if !decorated {
+            theme.chat.into()
+        } else if glass {
+            iced::Color::TRANSPARENT.into()
+        } else {
+            theme.surface_paint("sidebar")
+        };
         let card = row![
             container(self.nav())
                 .width(NAV)
                 .height(Length::Fill)
-                .style(move |_| {
-                    crate::style::rounded(chat, crate::style::corners([radius, 0.0, 0.0, radius]))
+                .style(move |_| container::Style {
+                    background: Some(chat),
+                    border: iced::Border {
+                        radius: crate::style::corners([radius, 0.0, 0.0, radius]),
+                        ..Default::default()
+                    },
+                    ..Default::default()
                 }),
             content
         ];
-        crate::sheet::backdrop(theme, card, MARGIN, Message::Settings(Event::Close))
+        let card = crate::theme_art::surface(card, self.cx, surface);
+        // As Slint's settings card: its art and glass clipped to its
+        // rounded corners.
+        let card = if decorated {
+            crate::widgets::Wrap::new(card, crate::widgets::Pane { radius }).into()
+        } else {
+            card
+        };
+        let shown = crate::sheet::backdrop(theme, card, MARGIN, crate::app::settings(Event::Close));
+        let mut layers = vec![shown];
+        if let Some(review) = settings.marketplace.review_dialog(self.cx.look) {
+            let review = review.map(|event| crate::app::settings(Event::Marketplace(event)));
+            let stock = settings.marketplace.protected_theme().unwrap_or(theme);
+            let width = (self.cx.look.window.width - 32.0).min(560.0);
+            layers.push(crate::dialog::dialog(
+                stock,
+                review,
+                width,
+                crate::app::settings(Event::Marketplace(theme_marketplace::Event::CancelReview)),
+            ));
+        }
+        if layers.len() == 1 {
+            return layers.pop().expect("one layer");
+        }
+        iced::widget::Stack::with_children(layers).into()
     }
 
     /// The sections' column: the account with Edit Profile, the search,
@@ -525,7 +686,7 @@ impl<'a> Page<'a> {
                 )
                 .padding(0)
                 .height(20)
-                .on_press(Message::Settings(Event::EditProfile))
+                .on_press(crate::app::settings(Event::EditProfile))
                 .style(controls::ink_style(muted, ink)),
             );
         }
@@ -553,7 +714,7 @@ impl<'a> Page<'a> {
             )
             .size(14)
             .padding([11, 12])
-            .on_input(|query| Message::Settings(Event::Search(query))),
+            .on_input(|query| crate::app::settings(Event::Search(query))),
         )
         .padding([0, 16]);
         let query = settings.query.to_lowercase();
@@ -604,8 +765,140 @@ impl<'a> Page<'a> {
             .into()
     }
 
+    /// A section's row as a theme's channel list draws its rows: Slint's
+    /// settings sections are its `ChannelRow`s, each with seed 0 (the
+    /// list's first frame), the selected frame or underline, the list's
+    /// case, face, weight, inks and the selected words' shadow. `None`
+    /// without a theme's channel list.
+    fn themed_nav_row(self, section: Section, selected: bool) -> Option<Element<'a, Message>> {
+        let theme = self.cx.look.theme;
+        // A theme's sections are Slint's `ChannelRow`s with or without a
+        // channel list of its own (Phosphor's plain rows); stock keeps
+        // Wired's.
+        if !theme.packaged() {
+            return None;
+        }
+        let listed = self.cx.themes.channel_rows(&theme.id);
+        let fallback = yapfast_core::themes::lists::ChannelRows::default();
+        let rows = listed.unwrap_or(&fallback);
+        let id = format!("settings:{}", section.title());
+        let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
+        let stock = if selected {
+            theme.token_colour("row-selected-text", theme.text)
+        } else if pointed {
+            theme.secondary
+        } else {
+            theme.muted
+        };
+        let ink = if selected {
+            rows.ink.selected
+        } else if pointed && rows.ink.hover.is_some() {
+            rows.ink.hover
+        } else {
+            rows.ink.read
+        }
+        .map(crate::themes::argb)
+        .unwrap_or(stock);
+        let stock_icon = if selected { theme.text } else { theme.faint };
+        let icon_ink = if rows.icon.follow_ink {
+            ink
+        } else if selected {
+            rows.icon
+                .selected
+                .map(crate::themes::argb)
+                .unwrap_or(stock_icon)
+        } else if pointed && rows.icon.hover.is_some() {
+            rows.icon
+                .hover
+                .map(crate::themes::argb)
+                .unwrap_or(stock_icon)
+        } else {
+            rows.icon
+                .colour
+                .map(crate::themes::argb)
+                .unwrap_or(stock_icon)
+        };
+        let themed_ink = rows.icon.follow_ink
+            || if selected {
+                rows.icon.selected.is_some()
+            } else {
+                rows.icon.colour.is_some()
+            };
+        let icon_size = rows.icon.size.unwrap_or(20.0);
+        let glyph = if themed_ink {
+            crate::look::Look::tinted_glyph
+        } else {
+            crate::look::Look::glyph
+        };
+        let role = rows
+            .font
+            .map_or("body", yapfast_core::themes::lists::FontRole::name);
+        let font =
+            crate::themes::list_font(theme, rows.font, "body", rows.weight, crate::fonts::MEDIUM);
+        let shadow = if selected {
+            crate::themes::offset_shadow(rows.ink.selected_shadow.map(|c| (c, 0.0, 1.0)))
+        } else {
+            crate::piece::TextLight::default()
+        };
+        let words = crate::themes::list_case(rows.case, section.title()).into_owned();
+        let underlined = selected && rows.selected.underline.is_some();
+        let hug = rows.fit_text || underlined;
+        let name = crate::elide::elide(words)
+            .size(rows.size.unwrap_or_else(|| theme.type_size(role, 15.0)))
+            .font(font)
+            .color(ink)
+            .light(shadow);
+        let name = if hug { name.shrink() } else { name };
+        let mut name = column![name];
+        if selected && let Some(underline) = rows.selected.underline {
+            name = name.spacing(underline.offset).push(crate::controls::bar(
+                crate::themes::argb(underline.colour),
+                Length::Fill,
+                underline.width,
+            ));
+        }
+        let name = name.width(if hug { Length::Shrink } else { Length::Fill });
+        let face = row![
+            glyph(
+                self.cx.look,
+                section.icon(),
+                icon_size.round() as u32,
+                icon_ink
+            ),
+            name
+        ]
+        .spacing(rows.icon.gap.unwrap_or(8.0))
+        .align_y(Alignment::Center);
+        // Slint's settings sections are 40 px rows with no gap between
+        // them (`settings-nav.slint`), whatever the channel list's own.
+        let gap = 0.0;
+        let height = 40.0;
+        let row = crate::sidebar::listed_row_face(
+            self.cx,
+            id,
+            face.into(),
+            height,
+            selected,
+            Some(crate::app::settings(Event::Open(section))),
+            None,
+            listed.is_some(),
+            Some(0),
+        );
+        Some(
+            container(row)
+                .padding(iced::Padding {
+                    bottom: gap,
+                    ..iced::Padding::ZERO
+                })
+                .into(),
+        )
+    }
+
     /// A section's row.
     fn nav_row(self, section: Section, selected: bool) -> Element<'a, Message> {
+        if let Some(row) = self.themed_nav_row(section, selected) {
+            return row;
+        }
         let fresh = section.page().is_some_and(|page| {
             new_tags::page_new(
                 self.cx.layout.first_version.as_deref(),
@@ -623,7 +916,7 @@ impl<'a> Page<'a> {
                 fresh,
             },
             NAV_ROW,
-            Message::Settings(Event::Open(section)),
+            crate::app::settings(Event::Open(section)),
         )
     }
 
@@ -666,7 +959,7 @@ impl<'a> Page<'a> {
         )
         .padding([4, 8])
         .width(Length::Fill)
-        .on_press(Message::Settings(Event::CopyVersion))
+        .on_press(crate::app::settings(Event::CopyVersion))
         .style(|_, _| button::Style::default());
         let face = iced::widget::tooltip(
             face,

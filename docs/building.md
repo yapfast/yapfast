@@ -2,9 +2,13 @@
 
 ## Shells
 
-Three Nix shells cover the work:
+On Windows, build, run and test directly with Cargo in PowerShell; see
+[Windows](#windows) for prerequisites. On Linux, Nix brings the pinned
+toolchain and libraries for development, building and testing
+([without Nix](../README.md#without-nix) works too). Three Nix shells cover
+that work:
 
-- `nix develop path:./nix` is the development shell. Run every `cargo` command
+- `nix develop path:./nix` is the Linux development shell. Run every `cargo` command
   in it, as `nix develop path:./nix --command cargo ...`. It also provides
   `bun` for the fake Discord.
 - `nix-shell --impure testing/display/shell.nix` adds Weston,
@@ -25,7 +29,7 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1 and iced 0.14.0. Cargo.lock pins the complete Rust
+Yapfast pins Rust 1.100 and iced 0.14.0. Cargo.lock pins the complete Rust
 graph. iced's two renderers and its text shaper, cosmic-text, are patched in
 `vendor/`; see [dependency sources](#dependency-sources) and [the vendored
 toolkit](client/toolkit.md).
@@ -48,8 +52,9 @@ taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
 
 LiveKit's Rust crates must stay on the mutually compatible versions in
-Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
-MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
+Cargo.lock. The manifests pin the LiveKit API, protocol and WebRTC build
+helper versions. Use targeted Cargo updates and upgrade LiveKit against the
+MatrixRTC lockfile, then rebuild the native media stack. On Linux, the Nix shell
 supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
 that crate requires updating the archive URL and checksum in `nix/native.nix`
 (Linux) and `nix/flake.nix` (Windows) too.
@@ -77,6 +82,8 @@ measure`. The `fast` profile has the same settings in a target folder of its
 own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`. Builds to measure then stay
 apart from the ones everyday work replaces.
+
+The Linux x86-64 Nix dev shell links Rust binaries with mold through Clang.
 
 A plain `cargo build`, `cargo build --workspace` (`scripts/check`'s) and
 `scripts/ui-session`'s build give `yapfast-core`, the window and the binary
@@ -107,12 +114,19 @@ dependency in Cargo.toml:
   app's own pixels and copied
   onto the frame with their round corners, glyphs copied the same way, clips
   by rectangle instead of a window-sized mask, quads, gradients and shadows
-  filled only inside the clip, damaged regions merged, and a hook through
+  filled only inside the clip, shadows with no blur drawn as hard edges
+  (stock, they came out clear) and only outside their quad, as CSS's
+  box-shadow, turned and stretched pictures placed at their own position,
+  damaged regions merged, a layer that comes or goes damaging only what it
+  drew, a layer inside another cut to it, pictures and SVGs cut to their own
+  box, pictures told apart by their handles' ids, what lies under a changing
+  layer kept from one frame to the next, and a hook through
   which the client draws video frames itself with libyuv, which the libwebrtc
   archive already links in.
 - `iced_wgpu`: iced 0.14's GPU renderer, 0.14.0: round image corners where
-  the quad shader puts them, each corner's own radius, and pictures up to 4K
-  uploaded in the frame that draws them, so a stream's frames show.
+  the quad shader puts them, each corner's own radius, pictures up to 4K
+  uploaded in the frame that draws them, so a stream's frames show, and a
+  layer inside another cut to it.
 - `cosmic-text`: cosmic-text 0.15.0, the text shaper, telling
   the client which characters no loaded font has, so it can load a system
   font that covers them.
@@ -162,12 +176,15 @@ files named here are in `crates/yapfast-core/native/`.
   with libvpx, `picture.c` scales with libyuv, and `camera.cc` captures
   through libwebrtc's capture module.
 - `vendor/ffmpeg-src` holds only the GPU encoders, which `hwenc.c` drives,
-  and the HEVC decoder for watched H265 streams, in `hevc.c`.
+  and the HEVC decoder for watched H265 streams, in `hevc.c`, and video
+  attachments, in `video_hevc.c`. HEVC file playback is enabled on targets
+  where this library is built (currently Windows and Linux x86-64).
 - `vendor/x264-src` encodes H264 on the CPU, in `h264.c`, for Go Live and
   the camera.
 
-Playing a file never touches `vendor/ffmpeg-src`, so what plays is what
-libwebrtc's FFmpeg was built with. Check a symbol in the archive:
+File demuxing and audio use libwebrtc's FFmpeg; HEVC pictures use the
+separate decoder. Only plain values cross between the two FFmpeg builds,
+whose structs and symbols must stay separate. Check a symbol in the archive:
 
 ```sh
 nm $LK_CUSTOM_WEBRTC/lib/libwebrtc.a | grep ' T avformat_open_input'
@@ -325,10 +342,10 @@ a filter names, such as `forum` or `calls_in_dms`, a second or so apiece. Each s
 fake of its own, so none depends on another and a filter runs any alone. `cargo
 nextest`, in the development shell, runs them side by side, eight at a time
 (`.config/nextest.toml`), and the whole file takes about 15 seconds; without
-it, `cargo test` runs them one after another in about a minute. The script then
-runs yapfast-core's Discord tests against one fake, and
-`crates/yapfast-discord/tests/fake_env.rs` against a fake that runs the example
-environment.
+it, `cargo test` runs them one after another in about a minute. The script uses
+the same runner for yapfast-core's Discord tests, which take turns on one fake,
+and for `crates/yapfast-discord/tests/fake_env.rs`, which loads the example
+environment on a separate fake.
 
 `--env PATH` replaces the fake's built-in content with an environment, for
 demos, promo recordings and screenshots. An environment is a JSON file, or a
@@ -391,22 +408,45 @@ its linker also writes a RUNPATH of `$PWD/outputs/out/lib` and Nix store
 folders into the binary; the [AppImage](packaging.md#linux-appimage) avoids both by
 building in the Nix sandbox.
 
-The supported and packaged build route remains the Linux MSVC cross-build.
-A native Windows build is for development only: it names this machine's folders
-and must not be shipped. It needs Rust 1.97.1, Visual Studio C++ tools and the
-Windows 10/11 SDK, LLVM with `clang-cl`, `llvm-rc` and `libclang` on `PATH`
-(the SDK's `rc.exe` can replace `llvm-rc`), and NASM on `PATH`. bindgen, which
-`thorvg-sys` runs, finds `libclang` only through `LIBCLANG_PATH`, `llvm-config
---prefix` or `LIBRARY_PATH`, never `PATH`, so set `LIBCLANG_PATH` to LLVM's
-`bin` where `llvm-config` is not on `PATH`. A network connection is needed
-once for the libwebrtc archive.
+On Windows, use native Cargo for development, builds and tests; Nix is not
+required. Published packages are still made by the Linux MSVC cross-build.
+A native development build names this machine's folders and must not be
+shipped. Install these prerequisites before running Cargo:
+
+- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100. Use the
+  `x86_64-pc-windows-msvc` toolchain.
+- Visual Studio Build Tools with the **Desktop development with C++**
+  workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
+  These supply the MSVC linker, headers and libraries; Cargo alone does not.
+- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll`, the x64
+  Rust linker `lld-link.exe`, and preferably `llvm-rc`. Standalone LLVM or
+  Visual Studio's **C++ Clang tools for Windows** can supply these tools.
+  Ensure `libclang.dll` is installed and `lld-link.exe` is on `PATH`. The SDK's
+  `rc.exe` can replace `llvm-rc`.
+- NASM, available on `PATH`, for FFmpeg's x86-64 assembly.
+
+Use **Developer PowerShell for VS** so the MSVC tools and SDK are available,
+and add LLVM's `bin` directory to `PATH`. bindgen, which `thorvg-sys` runs,
+finds `libclang` only through `LIBCLANG_PATH`, `llvm-config --prefix` or
+`LIBRARY_PATH`, never `PATH`. For a default standalone LLVM installation,
+set it in the same PowerShell session:
+
+```powershell
+$env:Path = "C:\Program Files\LLVM\bin;$env:Path"
+$env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+```
+
+Adjust both paths if LLVM is installed elsewhere. A network connection is
+needed once for the libwebrtc archive.
 `vendor/ffmpeg-src/build.rs` and `crates/yapfast-core/build.rs` select
 `clang-cl` for MSVC targets only when `CC`/`CXX` are unset, because FFmpeg's x86
 assembly and the camera shim's Clang warning flags need it; an explicitly
 selected compiler wins.
 
 ```powershell
-cargo build --release
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+cargo test --locked --profile fast -p yapfast-core history
 ```
 
 The downloadable package needs none of these tools to run.

@@ -124,7 +124,7 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
         let on = tab == chosen;
         let (rest, lit) = (theme.secondary, theme.text);
         let (active, hover) = (theme.active, theme.hover);
-        button(text(label).size(14).font(SEMIBOLD))
+        button(text(label).size(14.0).font(SEMIBOLD))
             .padding([0, 12])
             .height(30)
             .on_press(Message::Picker(Event::Tab(tab)))
@@ -155,7 +155,7 @@ pub fn tabs<'a>(theme: &Theme, chosen: Tab) -> Element<'a, Message> {
 }
 
 /// The search field, sunken, at the panel's top.
-pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element<'a, Message> {
+pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &'a Theme) -> Element<'a, Message> {
     container(search_field(draft, placeholder, theme))
         .padding(Padding::from(10).bottom(6))
         .width(Length::Fill)
@@ -166,7 +166,7 @@ pub fn search<'a>(draft: &'a Draft, placeholder: &str, theme: &Theme) -> Element
 pub fn search_field<'a>(
     draft: &'a Draft,
     placeholder: &str,
-    theme: &Theme,
+    theme: &'a Theme,
 ) -> Element<'a, Message> {
     Field::new(
         draft,
@@ -177,7 +177,7 @@ pub fn search_field<'a>(
             ground: theme.sunken,
             text: theme.text,
             placeholder: theme.muted,
-            selection: theme.selection,
+            selection: theme.token_colour("selection", theme.selection),
         },
     )
     // The field's ring while it has the keys.
@@ -194,7 +194,7 @@ pub fn search_field<'a>(
 pub fn rail<'a>(
     marks: impl IntoIterator<Item = Element<'a, Message>>,
     current: Option<usize>,
-    theme: &Theme,
+    theme: &'a Theme,
 ) -> Element<'a, Message> {
     let (wash, active, panel) = (theme.wash(0.12), theme.active, theme.panel);
     let mut rail = column![]
@@ -324,17 +324,25 @@ pub fn foot_words<'a>(words: String, named: bool, theme: &Theme) -> Element<'a, 
 }
 
 /// The panel the picker is drawn on: raised, edged and shadowed.
+/// The picker frame with a clear ground when theme art or glass is drawn
+/// beneath it by the shared surface renderer.
 pub fn frame<'a>(
     content: impl Into<Element<'a, Message>>,
     size: Size,
-    theme: &Theme,
+    theme: &'a Theme,
+    transparent: bool,
 ) -> Element<'a, Message> {
-    let (raised, edge) = (theme.raised, theme.edge);
+    let raised = if transparent {
+        iced::Color::TRANSPARENT
+    } else {
+        theme.raised
+    };
+    let edge = theme.edge;
     container(content)
         .width(size.width)
         .height(size.height)
         .clip(true)
-        .style(move |_| crate::style::panel(raised, edge, 10.0))
+        .style(move |_| crate::style::surface_panel(theme, "picker", raised, edge, 10.0))
         .into()
 }
 

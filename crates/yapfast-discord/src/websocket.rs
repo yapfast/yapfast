@@ -15,9 +15,13 @@ use tokio_tungstenite::{
 /// Opens a WebSocket to `request`.
 pub(crate) async fn connect(
     request: impl IntoClientRequest + Unpin,
-) -> tungstenite::Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response)> {
-    let connector = Connector::Rustls(config().map_err(TlsError::Rustls)?);
-    connect_async_tls_with_config(request, None, false, Some(connector)).await
+) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), Box<tungstenite::Error>> {
+    let connector = Connector::Rustls(
+        config().map_err(|error| tungstenite::Error::Tls(TlsError::Rustls(error)))?,
+    );
+    connect_async_tls_with_config(request, None, false, Some(connector))
+        .await
+        .map_err(Box::new)
 }
 
 /// The one TLS setup every socket shares: on Linux, making it reads and parses

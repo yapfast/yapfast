@@ -24,3 +24,7 @@ Changes, marked `Yapfast port` in the source:
   on. The client's build has both renderers, and iced's choice between
   them reads only `ICED_BACKEND`; off by default, a CPU start and the
   tests never start a GPU.
+- `src/lib.rs` `start_layer`: a layer started inside another is cut to its
+  parent's bounds, as a clip inside a clip is, as in the CPU renderer
+  (its patch 28). Stock, a picture cut to its box or a themed button's own
+  layer inside a scrolled page drew over the page's header.

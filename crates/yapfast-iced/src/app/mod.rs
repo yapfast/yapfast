@@ -27,7 +27,7 @@ mod window;
 
 pub use window::{Keep, Window};
 
-pub use self::message::{Message, Messages, batches};
+pub use self::message::{Message, Messages, batches, settings};
 
 /// What's under the pointer in each part of the window that shows it, by
 /// id: set on entering, cleared on leaving ([`point`]).
@@ -63,6 +63,20 @@ pub struct App {
     /// The title bar's inbox, while open, and a press on it that may move
     /// the window (`window_bar.rs`).
     pub inbox: Option<crate::window_bar::Inbox>,
+    /// The pings this account's open rooms hold, newest first, for the
+    /// inbox's Mentions tab (`window_bar.rs`).
+    pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
+    /// Whether this account's recent mentions were asked for since Discord
+    /// came online, or since the filter changed (`window_bar.rs` asks as
+    /// the Mentions tab shows), and the room open when they last were
+    /// (`sync.rs`).
+    pub mentions_fetched: bool,
+    pub mentions_room: Option<String>,
+    /// The Discord account `mention_hits` are of, and the recent mentions
+    /// last seen, to tell a new fetch (`window_bar.rs`).
+    pub mentions_of: Option<String>,
+    pub mentions_seen:
+        std::sync::Arc<Vec<(String, std::sync::Arc<yapfast_core::chat::ChatMessage>)>>,
     pub bar_drag: crate::window_bar::Drag,
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
@@ -83,6 +97,8 @@ pub struct App {
     pub header: crate::header::Header,
     /// The channel's timeline: its rows, where it's scrolled, the selection.
     pub timeline: crate::timeline::Timeline,
+    /// The previous timeline while an installed theme changes channels.
+    pub theme_transition: crate::theme_transition::State,
     /// The server rail, the sidebar beside it and the member list.
     pub rail: crate::rail::Rail,
     pub sidebar: crate::sidebar::Sidebar,
@@ -190,6 +206,8 @@ pub struct App {
     pub seen_aside: Option<String>,
     pub drafts: crate::thread::Drafts,
     pub popovers: crate::header_popovers::Popovers,
+    /// The room peeked at while Alt is held over the sidebar.
+    pub peek: crate::peek::Peeking,
     pub modal: crate::bot_modal::Shown,
     pub searching: crate::search::Searching,
     /// The forum's form for a post, as typed (`forum.rs`).
@@ -198,6 +216,10 @@ pub struct App {
     /// the data folder offers.
     pub theme: Theme,
     pub themes: Themes,
+    pub accent_started: std::time::Instant,
+    /// Whether the window was last shown in the stock look because a
+    /// protected screen was up ([`App::protected`]).
+    pub shown_protected: bool,
     /// The sign-in screen's fields; the listeners of the backend's events
     /// and of linking's progress, which stop when dropped.
     pub sign_in: SignIn,
@@ -210,10 +232,36 @@ impl App {
     /// What views read besides their own state.
     /// The theme, icons and room the kit draws with.
     pub fn look(&self) -> crate::look::Look<'_> {
+        // Icons are drawn at the window's pixels, as the zoom has them now.
+        self.win.icons.set_scale(self.device_scale());
         crate::look::Look {
             theme: &self.theme,
             icons: &self.win.icons,
             window: self.window,
+        }
+    }
+
+    /// Shows the theme's animated accent as it is at `now`. With `resting`,
+    /// only when its tick has stopped (played out, or the window left
+    /// still), so an accent that stopped mid-colour still lands.
+    pub(crate) fn step_accent(&mut self, now: std::time::Instant, resting: bool) {
+        let elapsed_ms = now
+            .saturating_duration_since(self.accent_started)
+            .as_secs_f32()
+            * 1000.0;
+        let Some((accent, every)) = crate::theme_effects::accent_animation(
+            &self.themes,
+            &self.theme.id,
+            elapsed_ms,
+            self.ctx().pace,
+            self.ctx().plays,
+        ) else {
+            return;
+        };
+        // Stepped accents hold a colour for several ticks.
+        if accent != self.theme.accent && !(resting && every.is_some()) {
+            self.theme.accent = accent;
+            self.theme = self.theme.clone().worked_out();
         }
     }
 
@@ -223,8 +271,12 @@ impl App {
         yapfast_core::silence_audio();
         let (width, height) = (size.0 as f32, size.1 as f32);
         let layout = crate::layout::Layout::open(client.root(), &crate::build().version);
-        let themes = Themes::read(&layout);
+        let themes = Themes::at_start(client.root(), &layout, size);
         let theme = themes.shown();
+        crate::fonts::set_default_family(view::body_family(&theme));
+        let theme_icons = themes.icons(&theme.id);
+        crate::themes::register_cue_handler();
+        themes.apply_sounds(&theme.id);
         let (fitter, fitted) = crate::pictures::Fitter::new();
         let mut client = client;
         for action in layout.actions() {
@@ -241,10 +293,16 @@ impl App {
         // The window opens at its size in the desktop's pixels whatever the
         // zoom, and its layout gets fewer.
         let zoom = yapfast_core::zoom::saved(layout.zoom);
-        let navigation = crate::conversation::navigation(&layout);
+        let navigation = crate::conversation::themed_navigation(
+            &layout,
+            &theme,
+            themes.package_layout(&theme.id),
+            themes.chrome(&theme.id),
+        );
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
+            bar_under_frame: !cfg!(test),
             frame: Size::new(width / zoom, height / zoom),
             ..Default::default()
         };
@@ -253,15 +311,21 @@ impl App {
             window: Size::new(width, height),
             shell,
             inbox: None,
+            mention_hits: Default::default(),
+            mentions_fetched: false,
+            mentions_room: None,
+            mentions_of: None,
+            mentions_seen: Default::default(),
             bar_drag: Default::default(),
             announce_updates: false,
-            win: Window::new(crate::pictures::Pictures::new(fitter)),
+            win: Window::new(crate::pictures::Pictures::new(fitter), theme_icons),
             pointed: Pointed::default(),
             layout,
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,
             header: Default::default(),
             timeline: crate::timeline::Timeline::new(height, width - navigation),
+            theme_transition: Default::default(),
             rail: crate::rail::Rail::new(height),
             sidebar: crate::sidebar::Sidebar::new(height),
             roster: crate::members::Roster::new(height),
@@ -314,17 +378,22 @@ impl App {
             seen_aside: None,
             drafts: Default::default(),
             popovers: Default::default(),
+            peek: Default::default(),
             modal: Default::default(),
             searching: Default::default(),
             forum_post: Default::default(),
             theme,
             themes,
+            accent_started: std::time::Instant::now(),
+            shown_protected: false,
             sign_in: SignIn::default(),
             backend_events: None,
             linking: None,
             mfa: mfa::Mfa::default(),
         };
         crate::window_bar::fit_window(&mut app);
+        app.follow_protected();
+        app.sync_cues();
         app.follow_popups();
         let talk = crate::keybinds::watch_keybinds(&mut app);
         if app.layout.voice.noise_suppression != yapfast_core::noise::Suppressor::Off {
@@ -346,24 +415,77 @@ impl App {
             Task::none()
         };
         let away = crate::away::watch_away();
-        (app, Task::batch([sync, frames, focus, away, talk]))
+        let system_theme = iced::system::theme().map(Message::SystemTheme);
+        (
+            app,
+            Task::batch([sync, frames, focus, away, talk, system_theme]),
+        )
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let layers_before: Vec<_> = self.layers().collect();
         // What's on top, only while the backstop's log is read.
         let top = tracing::enabled!(tracing::Level::DEBUG).then(|| self.layers().next());
         self.focus_asked = false;
         crate::timeline::keys::follow_press(self);
+        crate::sidebar::tree::follow_press(self);
         let task = self.handle_message(message);
         let task = Task::batch([task, self.settle(), crate::call::fit_screen(self)]);
         if let Some(top) = top {
             self.focus_backstop(top);
         }
         self.follow_popups();
+        let layers_after: Vec<_> = self.layers().collect();
+        let menu_before = layers_before.contains(&layers::Layer::Menu);
+        let menu_after = layers_after.contains(&layers::Layer::Menu);
+        if menu_before != menu_after {
+            self.cue(if menu_after {
+                yapfast_core::themes::media::SoundSlot::MenuOpen
+            } else {
+                yapfast_core::themes::media::SoundSlot::MenuClose
+            });
+        }
+        let popup_opened = layers_after
+            .iter()
+            .any(|layer| layer.cued_popup() && !layers_before.contains(layer));
+        let popup_closed = layers_before
+            .iter()
+            .any(|layer| layer.cued_popup() && !layers_after.contains(layer));
+        if popup_opened {
+            self.cue(yapfast_core::themes::media::SoundSlot::PopupOpen);
+        } else if popup_closed {
+            self.cue(yapfast_core::themes::media::SoundSlot::PopupClose);
+        }
         // The bar comes and goes with full screen, and the room under it
         // with it.
         crate::window_bar::fit_window(self);
         task
+    }
+
+    pub(crate) fn sync_cues(&self) {
+        self.themes.sync_cue_runtime(
+            &self.theme.id,
+            interface_cue_allowed(self.shell.focused, self.client.state().do_not_disturb()),
+            self.client.state().voice.speaker.as_deref(),
+        );
+    }
+
+    /// Plays one installed theme interface cue only while this window is
+    /// in front and the account is not in Do Not Disturb, on the same
+    /// speakers and volume as the rest of the app.
+    pub(crate) fn cue(&self, slot: yapfast_core::themes::media::SoundSlot) {
+        if !interface_cue_allowed(self.shell.focused, self.client.state().do_not_disturb()) {
+            return;
+        }
+        let Some((samples, volume)) = self.themes.cue(&self.theme.id, slot) else {
+            return;
+        };
+        let voice = &self.client.state().voice;
+        yapfast_core::sounds::play_decoded(
+            samples,
+            volume * yapfast_core::volume::speakers(),
+            voice.speaker.as_deref(),
+        );
     }
 
     fn handle_message(&mut self, message: Message) -> Task<Message> {
@@ -437,8 +559,25 @@ impl App {
                 self.person.update(event, &mut cx)
             }
             Message::Dialog(event) => crate::dialogs::update(self, event),
-            Message::Key(key, modifiers) => self.key(key, modifiers),
-            Message::Pressed(key, modifiers, physical) => {
+            Message::Shortcut(shortcut, physical, modifiers) => {
+                if crate::shortcuts::custom_owns(self, physical, modifiers) {
+                    Task::none()
+                } else {
+                    crate::shortcuts::update(self, shortcut)
+                }
+            }
+            Message::Key(key, modifiers) => {
+                let typed = yapfast_iced_kit::field::Typed::of(&key, modifiers);
+                self.key(key, modifiers, typed)
+            }
+            Message::Pressed(key, modifiers, physical, typed) => {
+                // Built-ins have a subscription of their own, including
+                // captured presses. Do not also edit/step a focused message.
+                if self.recording_keybind()
+                    || crate::shortcuts::pressed(&key, physical, modifiers).is_some()
+                {
+                    return Task::none();
+                }
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
                 // A shortcut's letter, where the layout has no Latin ones
                 // (Cyrillic, Greek, Thai), is the key's in a layout that does.
@@ -448,15 +587,85 @@ impl App {
                     }
                     _ => key,
                 };
-                let task = self.key(key, modifiers);
+                let task = self.key(key, modifiers, typed);
                 self.talk_pressed = false;
                 task
             }
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
-                Task::none()
+                crate::peek::follow(self)
             }
             Message::FontsLoaded => Task::none(),
+            Message::SystemTheme(mode) => {
+                let mode = match mode {
+                    iced::theme::Mode::Light => yapfast_core::themes::Mode::Light,
+                    iced::theme::Mode::None | iced::theme::Mode::Dark => {
+                        yapfast_core::themes::Mode::Dark
+                    }
+                };
+                if self.themes.system_mode_changed(mode) {
+                    self.show_wanted_theme();
+                }
+                Task::none()
+            }
+            Message::ThemeTrialTick(now) => {
+                if self.themes.expire_trial(now).is_some() {
+                    self.layout.theme_sounds.remove("trial");
+                    self.layout.theme_content.remove("trial");
+                    self.show_wanted_theme();
+                }
+                // The countdown is only drawn: the view this message brings
+                // shows it, with no sync of the window.
+                Task::none()
+            }
+            Message::ThemeDevTick => {
+                if self.themes.dev_saved(&self.layout) {
+                    self.show_wanted_theme();
+                }
+                Task::none()
+            }
+            Message::ThemeTrial(keep) => {
+                // Settings, when open, does it as its own Keep or Revert.
+                if self.win.settings.get().is_some() {
+                    let event = if keep {
+                        crate::settings::theme_marketplace::Event::KeepTrial
+                    } else {
+                        crate::settings::theme_marketplace::Event::RevertTrial
+                    };
+                    return self.settings_event(crate::settings::Event::Marketplace(event));
+                }
+                let root = self.client.root().to_owned();
+                let changed = if keep {
+                    match crate::settings::theme_marketplace::keep_trial(
+                        &mut self.themes,
+                        &mut self.layout,
+                        &root,
+                    ) {
+                        Ok(kept) => kept.is_some(),
+                        Err(reason) => {
+                            tracing::warn!(%reason, "the theme on trial couldn't be kept");
+                            false
+                        }
+                    }
+                } else {
+                    crate::settings::theme_marketplace::revert_trial(
+                        &mut self.themes,
+                        &mut self.layout,
+                    )
+                };
+                if changed {
+                    self.show_wanted_theme();
+                }
+                Task::none()
+            }
+            Message::ThemeAccentTick(now) => {
+                self.step_accent(now, false);
+                Task::none()
+            }
+            Message::ThemeTransitionDone(started) => {
+                self.theme_transition.finish(started);
+                Task::none()
+            }
             Message::Nothing => Task::none(),
             Message::Bell => {
                 // Under the bell, 6 px down.
@@ -481,6 +690,7 @@ impl App {
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => crate::thread::update(self, event),
             Message::Popover(event) => crate::header_popovers::popover_event(self, event),
+            Message::Peek(event) => crate::peek::update(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.modal.update(event, &mut cx)
@@ -493,6 +703,10 @@ impl App {
             Message::Search(crate::search::Event::SortMenu) => {
                 let at = self.pressed.get();
                 crate::search::open_sort_menu(self, at)
+            }
+            Message::Search(crate::search::Event::Menu(index)) => {
+                let at = self.pressed.get();
+                crate::search::open_found_menu(self, index, at)
             }
             Message::Search(crate::search::Event::Filters(event)) => {
                 crate::search_filters::update(self, event)
@@ -532,7 +746,7 @@ impl App {
                 Task::none()
             }
             Message::Call(event) => crate::call::update(self, event),
-            Message::Settings(event) => self.settings_event(event),
+            Message::Settings(event) => self.settings_event(*event),
             Message::Updates(event) => crate::updates::update(self, event),
             Message::Keybinds(count, told) => crate::keybinds::keybinds_told(self, count, told),
             Message::ServerSettings(event) => self.server_settings_event(event),
@@ -576,6 +790,10 @@ impl App {
     }
 }
 
+fn interface_cue_allowed(focused: bool, do_not_disturb: bool) -> bool {
+    focused && !do_not_disturb
+}
+
 /// Keeps the thing the pointer is on: set on entering, cleared on leaving
 /// only if it's still the one left (the next one's entering may come first).
 pub fn point<T: PartialEq>(pointed: &mut Option<T>, id: T, entered: bool) {
@@ -592,4 +810,14 @@ pub fn key(text: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()
+}
+
+#[cfg(test)]
+mod theme_cue_tests {
+    #[test]
+    fn theme_interface_cues_rest_out_of_focus_and_in_do_not_disturb() {
+        assert!(super::interface_cue_allowed(true, false));
+        assert!(!super::interface_cue_allowed(false, false));
+        assert!(!super::interface_cue_allowed(true, true));
+    }
 }

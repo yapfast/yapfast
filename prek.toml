@@ -1,0 +1,53 @@
+exclude = '^(vendor/|target/|\.local/|\.venv/|node_modules/)|(^|/)(Cargo|flake)\.lock$|\.(patch|svg)$|^ui/fonts/LICENSE'
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "trailing-whitespace", args = [
+    "--markdown-linebreak-ext=md",
+  ] },
+  { id = "end-of-file-fixer" },
+  { id = "check-merge-conflict" },
+  { id = "mixed-line-ending" },
+  { id = "check-json" },
+  { id = "check-yaml" },
+  { id = "check-xml" },
+  { id = "check-toml" },
+]
+
+[[repos]]
+repo = "local"
+
+# [[repos.hooks]]
+# id = "ruff-check"
+# name = "ruff lint"
+# entry = "ruff check --force-exclude --fix"
+# language = "python"
+# additional_dependencies = ["ruff==0.17.6"]
+# types = ["python"]
+# require_serial = true
+
+# [[repos.hooks]]
+# id = "ruff-format"
+# name = "ruff format"
+# entry = "ruff format --force-exclude"
+# language = "python"
+# additional_dependencies = ["ruff==0.17.6"]
+# types = ["python"]
+# require_serial = true
+
+# [[repos.hooks]]
+# id = "clang-format"
+# name = "clang format"
+# entry = "clang-format -i --style=file --fallback-style=none"
+# language = "python"
+# additional_dependencies = ["clang-format==23.1.6"]
+# types_or = ["c", "c++", "objective-c", "objective-c++"]
+
+[[repos.hooks]]
+id = "rustfmt"
+name = "rust format"
+entry = "cargo fmt --all"
+language = "system"
+files = '\.rs$'
+pass_filenames = false

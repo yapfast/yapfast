@@ -279,6 +279,27 @@ impl Application {
         }
     }
 
+    /// Gives the profiles on screen of `user` their presence in the server
+    /// they're from, which comes apart from the profile.
+    pub(super) fn show_profile_presence(
+        &mut self,
+        user: &str,
+        presence: crate::chat::Presence,
+        activity: Option<String>,
+        activities: crate::chat::Activities,
+    ) {
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .filter_map(Option::as_mut)
+            .filter(|view| view.profile.id == user)
+            .map(Arc::make_mut)
+        {
+            view.profile.presence = Some(presence);
+            view.profile.activity.clone_from(&activity);
+            view.profile.activities = activities.clone();
+        }
+    }
+
     /// A tab of the full profile opened: it asks Discord once for what it
     /// shows, and only for the full profile, never for a card.
     pub(super) fn open_profile_tab(&mut self, tab: ProfileTab) -> Vec<Effect> {
@@ -539,5 +560,129 @@ pub(super) fn dm_profile(room: &ChatRoom, person: String) -> Profile {
         activities: room.activities.clone(),
         id: person,
         ..Default::default()
+    }
+}
+
+/// How many activities' Rich Presence button addresses are kept, one a
+/// person: those of the cards looked at lately. Discord's client sets no
+/// such bound; this is Yapfast's own.
+const ACTIVITY_LINKS: usize = 16;
+
+/// The addresses Discord gave for people's Rich Presence buttons, one
+/// activity a person, the newest last and at most [`ACTIVITY_LINKS`], so a
+/// second click asks no more. Discord's client keeps them by person
+/// (`getActivityMetadata(userId)`) and forgets them on every change of that
+/// person's presence; here each is kept with its activity's session and
+/// application, and one of another activity is asked again. They go when
+/// the account does.
+#[derive(Default)]
+pub(super) struct ActivityLinks(std::collections::VecDeque<Kept>);
+
+/// One person's activity's button addresses.
+struct Kept {
+    user: String,
+    session: String,
+    /// Its application's id, `0` without one, as Discord's client asks.
+    application: String,
+    links: Links,
+}
+
+enum Links {
+    /// Discord is asked; its answer opens this button's.
+    Asked(usize),
+    /// Each button's address, in their order.
+    Came(Vec<Option<String>>),
+}
+
+impl Application {
+    /// A Rich Presence button clicked. Its address is found as Discord's
+    /// client finds it: in the presence's own metadata, else in what Discord
+    /// gave for the person's activity, else asked of Discord, only on a
+    /// click. Found, it asks before it opens; without one for the button,
+    /// nothing happens, as in Discord's.
+    pub(super) fn open_activity_button(&mut self, press: ActivityButtonPress) -> Vec<Effect> {
+        if press.metadata {
+            return press.url.map(Effect::AskToOpen).into_iter().collect();
+        }
+        // Discord's client can't ask without the activity's session either.
+        let Some(session) = press.session else {
+            return vec![];
+        };
+        let application = press.application.unwrap_or_else(|| "0".to_owned());
+        let links = &mut self.activity_links.0;
+        if let Some(at) = links.iter().position(|kept| kept.user == press.user) {
+            let kept = &links[at];
+            if kept.session == session && kept.application == application {
+                return match &kept.links {
+                    Links::Came(urls) => urls
+                        .get(press.index)
+                        .cloned()
+                        .flatten()
+                        .map(Effect::AskToOpen)
+                        .into_iter()
+                        .collect(),
+                    // Its answer is on its way, and opens the first click's.
+                    Links::Asked(_) => vec![],
+                };
+            }
+            // Another activity's, which Discord's client would have
+            // forgotten as the presence changed.
+            links.remove(at);
+        }
+        if links.len() == ACTIVITY_LINKS {
+            links.pop_front();
+        }
+        links.push_back(Kept {
+            user: press.user.clone(),
+            session: session.clone(),
+            application: application.clone(),
+            links: Links::Asked(press.index),
+        });
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::ActivityLinks {
+                user: press.user,
+                session,
+                application,
+            },
+        ))]
+    }
+
+    /// Discord's answer for an activity's buttons: kept, and the button
+    /// clicked opens, once asked. One for an activity no longer kept, as
+    /// the person's changed since, does nothing. A failure is asked again
+    /// on the next click.
+    pub(super) fn activity_links_came(
+        &mut self,
+        user: &str,
+        session: &str,
+        application: &str,
+        result: Result<Vec<Option<String>>, String>,
+    ) -> Vec<Effect> {
+        let links = &mut self.activity_links.0;
+        let Some(at) = links.iter().position(|kept| {
+            kept.user == user && kept.session == session && kept.application == application
+        }) else {
+            return vec![];
+        };
+        let Links::Asked(index) = links[at].links else {
+            return vec![];
+        };
+        match result {
+            Ok(urls) => {
+                let url = urls.get(index).cloned().flatten();
+                links[at].links = Links::Came(urls);
+                url.map(Effect::AskToOpen).into_iter().collect()
+            }
+            Err(error) => {
+                links.remove(at);
+                self.state.notice = Some(format!("Couldn't open the button's link: {error}"));
+                vec![]
+            }
+        }
+    }
+
+    /// Another account, or none: what Discord gave the last one goes.
+    pub(super) fn forget_activity_links(&mut self) {
+        self.activity_links = ActivityLinks::default();
     }
 }

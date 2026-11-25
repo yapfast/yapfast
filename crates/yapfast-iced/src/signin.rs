@@ -756,7 +756,7 @@ pub fn qr_code(address: &str) -> Option<(iced::advanced::image::Handle, f32)> {
     let scale = (176 / side).max(1);
     let pixels_side = side * scale;
     let mut pixels = vec![255u8; pixels_side * pixels_side * 4];
-    for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = (index % pixels_side / scale, index / pixels_side / scale);
         let dark = (QUIET..QUIET + width).contains(&x)
             && (QUIET..QUIET + width).contains(&y)

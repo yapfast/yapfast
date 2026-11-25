@@ -799,12 +799,18 @@ fn making_copying_and_deleting_go_at_once_and_open_what_they_made() {
     assert!(app.state.server_settings.as_ref().unwrap().saving);
     let mut made = roles();
     made.roles.insert(3, detail("50", "new role", 1, 0));
+    for role in &mut made.roles {
+        role.members = 0;
+    }
     made.open = Some("50".into());
     app.apply(Event::ServerSettingsSaved {
         server: "discord:10".into(),
         result: Ok(ServerSettingsPage::Roles(made)),
     });
     assert_eq!(roles_of(&app).open.as_ref().unwrap().id, "50");
+    assert!(!app.state.server_settings.as_ref().unwrap().saving);
+    assert_eq!(roles_of(&app).role("30").unwrap().members, 1);
+    assert_eq!(roles_of(&app).role("50").unwrap().members, 0);
 
     // A copy is named as Discord names it; Bot, managed, has none.
     let RoleAction::Duplicate { role, name } =
@@ -855,7 +861,6 @@ fn manage_members_lists_adds_and_removes_members() {
         server: "discord:10".into(),
         role: "30".into(),
         result: Ok(vec![member("2", "Bob"), member("3", "Carol")]),
-        count: None,
     });
     app.dispatch(Action::Roles(RoleInput::MemberSearch("car".into())));
     assert_eq!(roles_of(&app).shown_members().len(), 1);
@@ -870,7 +875,11 @@ fn manage_members_lists_adds_and_removes_members() {
         server: "discord:10".into(),
         role: "30".into(),
         result: Ok(vec![member("2", "Bob")]),
-        count: Some(1),
+    });
+    app.apply(Event::RoleCount {
+        server: "discord:10".into(),
+        role: "30".into(),
+        count: 1,
     });
 
     // Add Members finds those without the role.
