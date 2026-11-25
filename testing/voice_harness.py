@@ -370,7 +370,7 @@ class Participant:
             raise RuntimeError(f"participant exited; see {self.account / 'participant.log'}")
         try:
             return json.loads((self.account / "status.json").read_text())
-        except FileNotFoundError, json.JSONDecodeError:
+        except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
     def stop(self):
