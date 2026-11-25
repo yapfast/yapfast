@@ -197,6 +197,7 @@ strip = true
 # measurements and profiling. Builds people use stay release.
 [profile.measure]
 inherits = "release"
+codegen-units = 16
 strip = false
 incremental = true
 
