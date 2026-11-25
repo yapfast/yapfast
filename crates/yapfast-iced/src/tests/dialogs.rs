@@ -227,6 +227,7 @@ fn the_account_popover_shows_rich_presence_and_follows_live_changes() {
         created: None,
         display: None,
         console: None,
+        buttons: None,
     };
     change(&mut app, |state| {
         // Rich Presence does not wait for a profile HTTP request.

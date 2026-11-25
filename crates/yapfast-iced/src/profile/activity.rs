@@ -266,6 +266,20 @@ fn card_view<'a>(
             .small(),
         );
     }
+    // Its Rich Presence buttons, each opening its address once asked.
+    for (label, press) in &activity.buttons {
+        card = card.push(
+            action(
+                ctx.look.theme,
+                label.as_str(),
+                Kind::Plain,
+                Some(Message::Profile(super::Event::ActivityButton(
+                    press.clone(),
+                ))),
+            )
+            .small(),
+        );
+    }
     card.into()
 }
 

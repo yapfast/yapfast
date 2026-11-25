@@ -497,19 +497,24 @@ mod tests {
     use super::*;
     use crate::decode::Decoder;
 
-    /// Four frames of moving colour, the third a forced keyframe, and the
-    /// engine that encoded them.
-    fn encode_four(
+    fn test_encoder(
         codec: Codec,
         effort: Effort,
         (width, height): (u32, u32),
         hardware: bool,
-    ) -> (Vec<(bool, Vec<u8>)>, String) {
-        let mut encoder = Encoder::new(codec, width, height, 30, 500, effort, hardware).unwrap();
+    ) -> Result<Encoder> {
+        assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
+        Encoder::new(codec, width, height, 30, 500, effort, hardware)
+    }
+
+    /// Four frames of moving colour, the third a forced keyframe, and the
+    /// engine that encoded them.
+    fn encode_four(mut encoder: Encoder) -> (Vec<(bool, Vec<u8>)>, String) {
+        let (width, height) = encoder.size();
         let mut rgba = vec![0u8; (width * height * 4) as usize];
         let mut frames = vec![];
         for frame in 0..4u64 {
-            for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+            for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 pixel.copy_from_slice(&[(index as u64 + frame * 8) as u8, 90, 200, 255]);
             }
             if frame == 1 {
@@ -522,13 +527,13 @@ mod tests {
                 .unwrap();
             frames.push((encoded.keyframe, encoded.data.to_vec()));
         }
-        assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
         (frames, encoder.engine().to_owned())
     }
 
     #[test]
     fn encodes_vp8_keyframes_and_deltas() {
-        let (frames, _) = encode_four(Codec::Vp8, Effort::Light, (64, 36), false);
+        let encoder = test_encoder(Codec::Vp8, Effort::Light, (64, 36), false).unwrap();
+        let (frames, _) = encode_four(encoder);
         for (keyframe, data) in &frames {
             // A keyframe's tag has bit 0 clear, and its size follows the start code.
             assert_eq!(*keyframe, data[0] & 1 == 0);
@@ -545,7 +550,8 @@ mod tests {
     /// Main profile H264 at `size` that decodes: parameter sets and an IDR
     /// first, a forced IDR third. Returns the engine.
     fn check_h264(effort: Effort, size: (u32, u32), hardware: bool) -> String {
-        let (frames, engine) = encode_four(Codec::H264, effort, size, hardware);
+        let encoder = test_encoder(Codec::H264, effort, size, hardware).unwrap();
+        let (frames, engine) = encode_four(encoder);
         {
             let keys: Vec<bool> = frames.iter().map(|(key, _)| *key).collect();
             assert_eq!(keys[..3], [true, false, true]);
@@ -589,12 +595,12 @@ mod tests {
     /// so this reads the units' types.
     #[test]
     fn encodes_h265_on_the_gpu() {
-        if Encoder::new(Codec::H265, 320, 180, 30, 500, Effort::Light, true).is_err() {
+        assert!(Encoder::new(Codec::H265, 320, 180, 30, 500, Effort::Light, false).is_err());
+        let Ok(encoder) = test_encoder(Codec::H265, Effort::Light, (320, 180), true) else {
             eprintln!("no GPU encoder for H265 here");
             return;
-        }
-        assert!(Encoder::new(Codec::H265, 320, 180, 30, 500, Effort::Light, false).is_err());
-        let (frames, engine) = encode_four(Codec::H265, Effort::Light, (320, 180), true);
+        };
+        let (frames, engine) = encode_four(encoder);
         eprintln!("encoded with {engine}");
         let types = |data| -> Vec<u8> {
             yapfast_discord::rtp::nal_units(data)
@@ -619,12 +625,12 @@ mod tests {
     /// OBUs that packetize whole.
     #[test]
     fn encodes_av1_on_the_gpu() {
-        if Encoder::new(Codec::Av1, 320, 180, 30, 500, Effort::Light, true).is_err() {
+        assert!(Encoder::new(Codec::Av1, 320, 180, 30, 500, Effort::Light, false).is_err());
+        let Ok(encoder) = test_encoder(Codec::Av1, Effort::Light, (320, 180), true) else {
             eprintln!("no GPU encoder for AV1 here");
             return;
-        }
-        assert!(Encoder::new(Codec::Av1, 320, 180, 30, 500, Effort::Light, false).is_err());
-        let (frames, engine) = encode_four(Codec::Av1, Effort::Light, (320, 180), true);
+        };
+        let (frames, engine) = encode_four(encoder);
         eprintln!("encoded with {engine}");
         let sequence = |data| {
             yapfast_discord::rtp::obu_elements(data)
