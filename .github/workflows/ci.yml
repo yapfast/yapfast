@@ -142,6 +142,7 @@ jobs:
         run: scripts/test-fake-discord
         env:
           NEXTEST_PROFILE: ci
+          YAPFAST_CARGO_PROFILE: ci
       # Only main writes the cache; PRs just read it. Each run saves a new
       # entry and GitHub drops the oldest past the repo's 10 GB.
       - name: trim the kache store to max-size and stop writing to it
