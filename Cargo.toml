@@ -198,11 +198,9 @@ strip = true
 # measurements and profiling. Builds people use stay release.
 [profile.measure]
 inherits = "release"
-codegen-units = 16
-incremental = true
 strip = false
+incremental = true
 
 # The profile for tests, local runs and checks.
 [profile.fast]
-inherits = "dev"
-debug = false
+inherits = "measure"

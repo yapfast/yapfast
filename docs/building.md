@@ -77,10 +77,10 @@ symbols and use no LTO, which made both platforms' binaries bigger for no
 measured speed. Use them for builds people run. The `measure` profile
 optimizes like release, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
-measure`. The `fast` profile inherits the development settings, omits debug
-info and builds incrementally in `target/fast/`. It keeps the development
-profile's optimizations for the audio dependencies. Use `cargo build
---profile fast` and `cargo test --profile fast` for everyday builds and tests.
+measure`. The `fast` profile has the same settings in a target folder of its
+own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
+--profile fast` or `cargo test --profile fast`. Builds to measure then stay
+apart from the ones everyday work replaces.
 
 The Linux x86-64 Nix dev shell links Rust binaries with mold through Clang.
 

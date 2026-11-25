@@ -1,8 +1,6 @@
 [target.'cfg(all(target_os = "windows", target_env = "msvc"))']
 linker = "lld-link.exe"
 rustflags = [
-    # reduce the size of `windows::core::Error` from 16 bytes to 4 bytes
-    "--cfg", "windows_slim_errors",
     # fixes the linking issue when compiling livekit on Windows;
     # scripts/release-env repeats this one for release builds
     "-C", "target-feature=+crt-static",
