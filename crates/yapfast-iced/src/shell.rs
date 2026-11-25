@@ -424,6 +424,13 @@ impl App {
                 self.client.dispatch(Action::Voice(voice::Command::Leave));
                 self.sync()
             }
+            // About isn't open to show what the look finds, so a newer
+            // release is told of in a notification, as a timed look does.
+            Heard::Tray(TrayChoice::CheckForUpdates) => {
+                crate::updates::look_for_updates(self, true);
+                Task::none()
+            }
+            Heard::Tray(TrayChoice::Restart) => self.restart(),
             Heard::Tray(TrayChoice::Quit) => self.quit(),
             Heard::Tray(TrayChoice::Available) => {
                 let available = self
@@ -692,6 +699,11 @@ impl App {
         self.win.pictures.forget();
         self.win.icons.forget();
         settled
+    }
+
+    pub fn restart(&mut self) -> Task<Message> {
+        crate::exit_for(crate::Exit::Restart);
+        self.quit()
     }
 
     /// Ends Yapfast: the icon goes first, rather than when the desktop next
