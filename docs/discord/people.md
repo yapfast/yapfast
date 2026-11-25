@@ -917,11 +917,11 @@ styles use bundled fonts. Turning a switch off takes what it covers off
 what's shown at once; turning effects on shows a profile's effect the
 next time the profile is fetched.
 
-Role colour gradients are the one switch over drawing rather than
-fetching: a gradient name is a text span for every letter, rebuilt each
-time the row is drawn, member list and timeline alike, where one colour
-is a single span. A client with every switch off asks Discord for none of
-these pictures and draws none of them.
+Role colour gradients, like name styles, fetch nothing; their switch is
+over drawing: a gradient name is a text span for every letter, rebuilt
+each time the row is drawn, member list and timeline alike, where one
+colour is a single span. A client with every switch off asks Discord for
+none of these pictures and draws none of them.
 
 ## Editing one's main profile
 

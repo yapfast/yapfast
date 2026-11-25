@@ -943,7 +943,7 @@ impl<'a> Page<'a> {
                 ),
                 profile(
                     "Draw role colour gradients",
-                    "A gradient or holographic role colour runs across a name, a span a letter, each time the name is drawn. Off, the name keeps the role's first colour and one span.",
+                    "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour.",
                     cosmetics.name_colours,
                     Cosmetic::NameColours,
                 ),
