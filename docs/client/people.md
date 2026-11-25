@@ -207,7 +207,12 @@ glyph cache. The card shows if the restore fails.
   hands each step to the core, and the screen shows the QR code (drawn once
   per code, whole pixels per module), who scanned it, the captcha's notice
   with "Open it again", or the error with "Try again". "Use a token" opens
-  the field instead; Link checks it with Discord. A refused token stays
+  the field instead; Link checks it with Discord. Under the buttons, a note
+  says a pasted token can make Discord sign its app out, and that the QR
+  code is the safe way. After unlinking or signing out of a pasted token's
+  account (the core's `discord_session_kept`), the panel says Yapfast forgot
+  the login and that the app a pasted token came from is still signed in,
+  until linking starts again. A refused token stays
   to fix; once the account is linked it's let go, its field closed. A
   linked account starts the workspace. The screen's secrets (token,
   password, recovery key) are overwritten as they go and never show in a
