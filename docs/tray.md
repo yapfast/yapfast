@@ -12,6 +12,12 @@ release, and not one that was skipped. Restart Yapfast does what Settings →
 Advanced's button does: it leaves any call and opens a new Yapfast window
 with the saved settings.
 
+Settings → Appearance uses the application icon's choice in the tray by
+default. Turn off “Use the application icon in the tray” to choose a
+separate icon while Yapfast runs. A custom image keeps the unread dot in
+its lower-right corner. A separate choice is kept as `tray_icon` in
+`layout.json`, with an imported image saved as `tray-icon.png` beside it.
+
 Settings → Advanced has "Close to tray", on unless turned off
 (`close_to_tray` in `layout.json`). Off, or with no tray to show the icon,
 closing the window quits Yapfast; the setting's description

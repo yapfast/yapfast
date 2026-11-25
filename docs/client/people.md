@@ -18,7 +18,10 @@ member list, the DMs, and the lists still to come build on it.
   joined. Hidden (its toggle off, a thread or search in its place), the
   list keeps no lines, cards or pictures and builds none as the roster
   changes; shown again, it's built as the roster is then.
-- A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
+- A DM's row (`sidebar/dms.rs`) shows the person's face (or for a group DM
+  without a custom icon, Discord's coloured group-people placeholder for two
+  members or two overlapping circular member avatars with a cutout for more, and
+  an online dot while any other member is online), styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in (a click
   goes to it, in its server) or what they're up to, a group's members, and its
   nameplate under the pointer or while open, filling the row to its edges and
@@ -207,7 +210,12 @@ glyph cache. The card shows if the restore fails.
   hands each step to the core, and the screen shows the QR code (drawn once
   per code, whole pixels per module), who scanned it, the captcha's notice
   with "Open it again", or the error with "Try again". "Use a token" opens
-  the field instead; Link checks it with Discord. A refused token stays
+  the field instead; Link checks it with Discord. Under the buttons, a note
+  says a pasted token can make Discord sign its app out, and that the QR
+  code is the safe way. After unlinking or signing out of a pasted token's
+  account (the core's `discord_session_kept`), the panel says Yapfast forgot
+  the login and that the app a pasted token came from is still signed in,
+  until linking starts again. A refused token stays
   to fix; once the account is linked it's let go, its field closed. A
   linked account starts the workspace. The screen's secrets (token,
   password, recovery key) are overwritten as they go and never show in a

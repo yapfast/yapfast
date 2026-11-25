@@ -111,9 +111,22 @@ recording. Each change is kept at once in
   that isn't a font is left out with the reason under the list, and Reset to
   default goes back to DM Sans. The paths are kept as `ui_font_files` in
   `layout.json` and loaded at startup; the rows are measured again as the
-  text size's change does. Then the system title bar's switch, where Yapfast
-  can draw its own, and the profile
-  switches, which the core is told of.
+  text size's change does. Application icon shows the colours of the
+  built-in themes as preview tiles, with Yap selected by default. The tray
+  uses the application icon's selection by default. Turning off “Use the
+  application icon in the tray” reveals the tray's own choices. A previously
+  saved different preset or separate custom image starts with the switch
+  off. The tray keeps its separate choice while the switch is on.
+  The tile below the presets imports an image or selects the saved one.
+  Point at a saved custom tile to show Replace. Imports accept PNG, ICO,
+  JPEG or WebP files up to 8 MiB and 4096 × 4096 pixels.
+  Yapfast keeps a 256 × 256 PNG copy in its data folder, preserving aspect
+  ratio and adding transparent padding where needed.
+  The running window and tray update as soon as a choice is made. On Linux,
+  the window icon applies where the desktop uses X11 window icons. Desktops
+  that use the application's desktop entry show the launcher icon there.
+  Then the system title bar's switch, where Yapfast can draw its own, and
+  the profile switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those

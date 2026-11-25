@@ -20,7 +20,7 @@ use crate::{
     ctx::{Ctx, Cx, Focus, Request},
     dialog::dialog,
     fonts::{BOLD, MEDIUM},
-    pictures::Icon,
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     style::{rounded, scrollbar},
 };
 
@@ -245,10 +245,10 @@ impl<'a> View<'a> {
             Some(server) => self
                 .cx
                 .avatar(server.icon.as_deref(), &server.name, 32.0, 10.0, 1.0),
-            None if room.direct => {
-                self.cx
-                    .avatar(room.avatar.as_deref(), &room.name, 32.0, 16.0, 1.0)
-            }
+            None if room.direct => self.cx.face(
+                Face::new(room.avatar.as_deref(), &room.name, 32.0)
+                    .group(room_group_icon(room).as_ref().map(GroupIcon::as_face)),
+            ),
             None => {
                 let ground = theme.field;
                 container(
