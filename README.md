@@ -254,7 +254,8 @@ servers just to snoop on your DMs, and no thanks :D).
 - You link your account by scanning a QR code with Discord's phone app, so
   Yapfast never sees your password.
 - The login token stays in your system's credential store, and only ever goes
-  to Discord. Unlinking signs that session out and deletes it.
+  to Discord. Unlinking deletes it, and signs out the session the QR code
+  made. A pasted token's session stays, as it's the app you copied it from.
 - It sends no analytics or crash reports. It looks for updates only if you
   turn on **Check for updates** in **Settings → About**, with one request to
   GitHub that says nothing about you.
@@ -464,7 +465,7 @@ on each system and for running against the fake Discord server.
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 

@@ -55,7 +55,8 @@ version = "0.3"
 version = "0.3.22"
 
 [build-dependencies.webrtc-sys-build]
-version = "0.3.18"
+# The bundled C++ bindings target this helper's WebRTC archive.
+version = "=0.3.18"
 
 [target.'cfg(target_os = "linux")'.build-dependencies.pkg-config]
 version = "0.3.22"

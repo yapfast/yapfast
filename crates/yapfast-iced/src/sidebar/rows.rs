@@ -14,7 +14,11 @@ use yapfast_core::{
     network::Network,
 };
 
-use crate::{controls::count_badge, looks::Status, pictures::Icon};
+use crate::{
+    controls::count_badge,
+    looks::Status,
+    pictures::{GroupIcon, Icon, room_group_icon},
+};
 
 use super::{DM_ROW, GAP, HEADING, PERSON, ROW, link_height};
 
@@ -35,6 +39,7 @@ pub struct Room {
     /// A DM, with its picture, its person's presence and the line under it.
     pub direct: bool,
     pub avatar: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub presence: Option<Presence>,
     pub status: Status,
     /// A DM's person's looks: the decoration round the avatar, the
@@ -517,6 +522,7 @@ fn room_row(
         voice: room.voice,
         direct: room.direct,
         avatar: room.avatar.clone(),
+        group_icon: room_group_icon(room),
         // Discord sends the presence of friends and of those sharing a
         // server; anyone else in a one-to-one DM shows offline.
         presence: if room.person.is_some() && room.network == Network::Discord {
@@ -595,6 +601,7 @@ fn room_row(
                         streaming: person.streaming,
                         video: person.video.is_some(),
                         elsewhere: false,
+                        ..Default::default()
                     })
                     .collect()
             } else {

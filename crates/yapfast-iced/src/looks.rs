@@ -54,6 +54,9 @@ pub struct MemberLook {
     pub style: Option<NameLook>,
     /// The name's colour, from their highest coloured role.
     pub color: Option<u32>,
+    /// The role colour's second colour, and third for a holographic one,
+    /// when the role's name is a gradient.
+    pub color_end: Option<(u32, Option<u32>)>,
     pub role_icon: Option<Arc<str>>,
     /// The server tag's letters and its badge's address.
     pub tag: Option<(Arc<str>, Option<Arc<str>>)>,
@@ -274,6 +277,7 @@ pub fn member_lines(
                 dark,
             ),
             color: member.color,
+            color_end: member.color_end,
             role_icon: member.role_icon.clone(),
             tag: cosmetics
                 .tag(member.tag.as_ref())
@@ -376,8 +380,9 @@ pub fn name_look(
     in_server: bool,
     dark: bool,
 ) -> Option<NameLook> {
-    let style = style.filter(|style| !style.colors().is_empty())?;
-    if in_server {
+    let style = style?;
+    // A style without colours is its font alone, as in a server.
+    if in_server || style.colors().is_empty() {
         return Some(NameLook {
             effect: 1,
             family: family(style.font),
@@ -652,6 +657,42 @@ impl<'a> crate::ctx::Ctx<'a> {
     }
 }
 
+/// A gradient role name's letters, each in the colour under it, as
+/// Discord draws a role colour's gradient across a name: `first` to
+/// `second` and back every 100 px, or for a holographic one with a
+/// `third`, through it too (`.twoColorGradient` and `.threeColorGradient`,
+/// `background-size: 100px`). Each letter is taken as `width` px.
+pub fn gradient_letters(
+    name: &str,
+    [first, second]: [Color; 2],
+    third: Option<Color>,
+    width: f32,
+) -> Vec<(String, Color)> {
+    let stops: Vec<Color> = match third {
+        Some(third) => vec![first, second, third, first],
+        None => vec![first, second, first],
+    };
+    let mix = |a: Color, b: Color, share: f32| Color {
+        r: a.r + (b.r - a.r) * share,
+        g: a.g + (b.g - a.g) * share,
+        b: a.b + (b.b - a.b) * share,
+        a: a.a + (b.a - a.a) * share,
+    };
+    name.chars()
+        .enumerate()
+        .map(|(at, letter)| {
+            // Where the middle of this letter lies in the 100 px pattern.
+            let x = ((at as f32 + 0.5) * width).rem_euclid(100.0) / 100.0;
+            let span = x * (stops.len() - 1) as f32;
+            let index = (span.floor() as usize).min(stops.len() - 2);
+            (
+                letter.to_string(),
+                mix(stops[index], stops[index + 1], span - index as f32),
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use yapfast_core::{
@@ -660,6 +701,43 @@ mod tests {
     };
 
     use super::{MemberLine, member_lines};
+
+    /// A gradient role name runs from its colour at the first letter to
+    /// the second at the last.
+    #[test]
+    fn a_gradient_names_letters_run_from_one_colour_to_the_other() {
+        use iced::Color;
+        // 25 px letters: the middles at 12.5, 37.5, 62.5 and 87.5 px of
+        // the 100 px pattern, black to white and back.
+        let letters = super::gradient_letters("Abcd", [Color::BLACK, Color::WHITE], None, 25.0);
+        let shades: Vec<f32> = letters.iter().map(|(_, ink)| ink.r).collect();
+        assert_eq!(shades, [0.25, 0.75, 0.75, 0.25]);
+        assert_eq!(letters[1].0, "b");
+        // A holographic one passes through its third colour.
+        let holo = super::gradient_letters(
+            "Abc",
+            [Color::BLACK, Color::WHITE],
+            Some(Color::from_rgb(1.0, 0.0, 0.0)),
+            100.0 / 3.0,
+        );
+        assert!(holo[1].1.g < 0.6 && holo[1].1.r > 0.9, "{:?}", holo[1].1);
+        assert_eq!(
+            super::gradient_letters("A", [Color::BLACK, Color::WHITE], None, 9.0).len(),
+            1
+        );
+    }
+
+    /// A style without colours is its font alone, everywhere a style
+    /// shows: in a server and out of one.
+    #[test]
+    fn a_style_without_colours_draws_its_font() {
+        let style = yapfast_core::chat::NameStyle::new(12, 1, &[]);
+        for in_server in [false, true] {
+            let look = super::name_look(Some(&style), "Ann", in_server, true).expect("its font");
+            assert_eq!(look.family, Some("Tempo"));
+            assert!(look.colors.is_empty());
+        }
+    }
 
     fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {
         ChatMember {
@@ -683,6 +761,7 @@ mod tests {
             timed_out_until: None,
             tag: None,
             boosting_since: None,
+            color_end: None,
         }
     }
 

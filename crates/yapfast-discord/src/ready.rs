@@ -167,6 +167,11 @@ pub struct Server {
     pub role_names: Arc<HashMap<String, String>>,
     /// The position and RGB colour of each coloured role, by id.
     pub role_colors: Arc<HashMap<String, (i64, u32)>>,
+    /// The second colour of each role whose name is a gradient (its
+    /// `colors.secondary_color`), by id: names run from the role's colour
+    /// to this one.
+    #[serde(default)]
+    pub role_gradients: Arc<HashMap<String, (u32, Option<u32>)>>,
     /// The address of the picture of each role that has one, which a member
     /// list draws by the role's name.
     #[serde(default)]
@@ -220,6 +225,12 @@ pub struct Server {
     /// would go on drawing icons the client doesn't.
     #[serde(default)]
     pub role_icons_allowed: bool,
+    /// Whether its roles' names may be gradients: the
+    /// `ENHANCED_ROLE_COLORS` feature, a boost perk. Discord's client draws
+    /// a role's second colour only while the server has it, and keeps the
+    /// colours on the role after it goes.
+    #[serde(default)]
+    pub role_gradients_allowed: bool,
     /// What its owner chose about the member list's Activity panel; see
     /// [`crate::activity_feed::shown_in`].
     pub activity_feed: Option<bool>,
@@ -640,6 +651,18 @@ pub struct Private {
     pub spam: bool,
 }
 
+/// Sorts Discord snowflake ids numerically ascending (falling back to
+/// lexicographical order for non-numeric test ids) and removes duplicates.
+pub fn sort_snowflakes(ids: &mut Vec<String>) {
+    ids.sort_by(|a, b| match (a.parse::<u64>(), b.parse::<u64>()) {
+        (Ok(a), Ok(b)) => a.cmp(&b),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        (Err(_), Err(_)) => a.cmp(b),
+    });
+    ids.dedup();
+}
+
 /// A DM or group DM, or a message request, from a channel object.
 pub fn private_channel(channel: &Value) -> Option<Private> {
     let group = match channel["type"].as_u64() {
@@ -650,7 +673,7 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
     let spam = channel["is_spam"] == true;
     let id = channel["id"].as_str()?.to_owned();
     // With deduplicated users, READY gives ids and lists the users apart.
-    let recipients = match channel["recipient_ids"].as_array() {
+    let mut recipients: Vec<String> = match channel["recipient_ids"].as_array() {
         Some(ids) => ids
             .iter()
             .filter_map(Value::as_str)
@@ -663,18 +686,22 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
             .filter_map(|user| user["id"].as_str().map(str::to_owned))
             .collect(),
     };
+    sort_snowflakes(&mut recipients);
     Some(Private {
         group,
         name: channel["name"]
             .as_str()
             .filter(|name| !name.is_empty())
             .map(str::to_owned),
-        icon: channel["icon"].as_str().map(|hash| {
-            format!(
-                "{}/channel-icons/{id}/{hash}.png?size={PICTURE_SIZE}",
-                cdn()
-            )
-        }),
+        icon: channel["icon"]
+            .as_str()
+            .filter(|hash| !hash.is_empty())
+            .map(|hash| {
+                format!(
+                    "{}/channel-icons/{id}/{hash}.png?size={PICTURE_SIZE}",
+                    cdn()
+                )
+            }),
         recipients,
         owner: group
             .then(|| channel["owner_id"].as_str().map(str::to_owned))
@@ -1280,6 +1307,19 @@ impl Server {
                     Arc::make_mut(&mut self.role_colors).remove(&id);
                 }
             }
+            match value["colors"]["secondary_color"].as_u64() {
+                Some(color) => {
+                    // A third colour makes it holographic, as Discord calls it.
+                    let third = value["colors"]["tertiary_color"]
+                        .as_u64()
+                        .map(|third| third as u32);
+                    Arc::make_mut(&mut self.role_gradients)
+                        .insert(id.clone(), (color as u32, third));
+                }
+                None => {
+                    Arc::make_mut(&mut self.role_gradients).remove(&id);
+                }
+            }
             Arc::make_mut(&mut self.roles).insert(id, permissions);
         }
     }
@@ -1289,6 +1329,7 @@ impl Server {
         Arc::make_mut(&mut self.roles).remove(id);
         Arc::make_mut(&mut self.role_names).remove(id);
         Arc::make_mut(&mut self.role_colors).remove(id);
+        Arc::make_mut(&mut self.role_gradients).remove(id);
         Arc::make_mut(&mut self.role_icons).remove(id);
         Arc::make_mut(&mut self.role_positions).remove(id);
         Arc::make_mut(&mut self.mentionable_roles).remove(id);
@@ -1373,6 +1414,21 @@ impl Server {
             .max_by_key(|(position, _)| *position)
             .map(|(_, color)| *color)
     }
+
+    /// Where a member's name's gradient ends: the second colour of the
+    /// highest coloured role they have, when that role's name is a
+    /// gradient, as Discord's enhanced role colours draw it.
+    pub fn gradient(&self, roles: &[String]) -> Option<(u32, Option<u32>)> {
+        if !self.role_gradients_allowed {
+            return None;
+        }
+        let top = roles
+            .iter()
+            .filter_map(|role| Some((role, self.role_colors.get(role)?)))
+            .max_by_key(|(_, (position, _))| *position)?
+            .0;
+        self.role_gradients.get(top).copied()
+    }
 }
 
 pub fn user_id(ready: &Value) -> Option<&str> {
@@ -1449,6 +1505,7 @@ pub fn server(guild: &Value) -> Option<Server> {
             Some(1 | 3)
         ),
         role_icons_allowed: premium_tier >= 2 || has("ROLE_ICONS"),
+        role_gradients_allowed: has("ENHANCED_ROLE_COLORS"),
         activity_feed: if has("ACTIVITY_FEED_ENABLED_BY_USER") {
             Some(true)
         } else if has("ACTIVITY_FEED_DISABLED_BY_USER") {
@@ -1830,15 +1887,14 @@ fn murmur3(data: &[u8]) -> u32 {
     const C2: u32 = 0x1b87_3593;
     let scramble = |k: u32| k.wrapping_mul(C1).rotate_left(15).wrapping_mul(C2);
     let mut hash = 0u32;
-    let mut blocks = data.chunks_exact(4);
-    for block in &mut blocks {
-        let k = u32::from_le_bytes([block[0], block[1], block[2], block[3]]);
+    let (blocks, tail) = data.as_chunks::<4>();
+    for &block in blocks {
+        let k = u32::from_le_bytes(block);
         hash = (hash ^ scramble(k))
             .rotate_left(13)
             .wrapping_mul(5)
             .wrapping_add(0xe654_6b64);
     }
-    let tail = blocks.remainder();
     if !tail.is_empty() {
         let k = tail
             .iter()
@@ -1955,6 +2011,73 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(names, ["Lounge", "Second"]);
+    }
+
+    /// A role whose name is a gradient gives its members' names the
+    /// second colour too, from the highest coloured role only.
+    #[test]
+    fn a_gradient_roles_second_colour_ends_its_members_names() {
+        let mut server = Server {
+            role_gradients_allowed: true,
+            ..Server::default()
+        };
+        server.put_role(&json!({"id": "1", "name": "Fade", "position": 5, "color": 0xff0000,
+            "colors": {"primary_color": 0xff0000, "secondary_color": 0x0000ff, "tertiary_color": null}}));
+        server.put_role(
+            &json!({"id": "2", "name": "Plain", "position": 9, "color": 0x00ff00,
+            "colors": {"primary_color": 0x00ff00, "secondary_color": null}}),
+        );
+        server.put_role(
+            &json!({"id": "3", "name": "Low", "position": 1, "color": 0x111111,
+            "colors": {"primary_color": 0x111111, "secondary_color": 0x222222}}),
+        );
+        let has = |roles: &[&str]| {
+            roles
+                .iter()
+                .map(|role| (*role).to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(server.gradient(&has(&["1"])), Some((0x0000ff, None)));
+        assert_eq!(server.color(&has(&["1"])), Some(0xff0000));
+        assert_eq!(
+            server.gradient(&has(&["1", "2"])),
+            None,
+            "the plain role is higher"
+        );
+        assert_eq!(server.gradient(&has(&["1", "3"])), Some((0x0000ff, None)));
+        server.put_role(&json!({"id": "4", "name": "Holo", "position": 20, "color": 0xa9c9ff,
+            "colors": {"primary_color": 0xa9c9ff, "secondary_color": 0xffbbec, "tertiary_color": 0xffc3a0}}));
+        assert_eq!(
+            server.gradient(&has(&["4"])),
+            Some((0xffbbec, Some(0xffc3a0))),
+            "holographic: a third colour"
+        );
+        // Without the server's ENHANCED_ROLE_COLORS the role's colours
+        // stay on it, but its name is the one colour, as in Discord's client.
+        server.role_gradients_allowed = false;
+        assert_eq!(server.gradient(&has(&["4"])), None, "the perk is gone");
+        server.role_gradients_allowed = true;
+        server.put_role(&json!({"id": "1", "name": "Fade", "position": 5, "color": 0xff0000}));
+        assert_eq!(server.gradient(&has(&["1"])), None, "made plain again");
+    }
+
+    /// A server's roles may be gradients only with ENHANCED_ROLE_COLORS.
+    #[test]
+    fn role_gradients_follow_the_servers_feature() {
+        let guild = |features: &[&str]| {
+            json!({
+                "id": "10",
+                "properties": {"name": "Test", "features": features},
+                "roles": [{"id": "20", "name": "Fade", "permissions": "0", "position": 2,
+                    "color": 0xff0000, "colors": {"primary_color": 0xff0000, "secondary_color": 0x0000ff}}],
+            })
+        };
+        let mine = ["20".to_owned()];
+        let plain = server(&guild(&[])).unwrap();
+        assert_eq!(plain.gradient(&mine), None);
+        assert_eq!(plain.color(&mine), Some(0xff0000));
+        let enhanced = server(&guild(&["ENHANCED_ROLE_COLORS"])).unwrap();
+        assert_eq!(enhanced.gradient(&mine), Some((0x0000ff, None)));
     }
 
     #[test]
@@ -2600,5 +2723,23 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(dm.owner, None);
+    }
+
+    #[test]
+    fn a_group_dm_sorts_recipients_deterministically_by_snowflake() {
+        let from_ids = private_channel(&json!({
+            "id": "5", "type": 3, "icon": "", "recipient_ids": ["10", "2", "3", "2"],
+        }))
+        .unwrap();
+        assert_eq!(from_ids.recipients, ["2", "3", "10"]);
+        assert_eq!(from_ids.icon, None);
+
+        let from_users = private_channel(&json!({
+            "id": "5",
+            "type": 3,
+            "recipients": [{"id": "30"}, {"id": "5"}, {"id": "12"}],
+        }))
+        .unwrap();
+        assert_eq!(from_users.recipients, ["5", "12", "30"]);
     }
 }

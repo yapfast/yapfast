@@ -887,7 +887,9 @@ fn thumbnail(picture: &mut I420Buffer) -> Result<String> {
     let mut rgba = vec![0; (width * height * 4) as usize];
     to_rgba(&small, &mut rgba);
     let rgb: Vec<u8> = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
     let mut jpeg = vec![];
@@ -1044,7 +1046,7 @@ fn test_pattern(
     let mut picture = I420Buffer::new(width, height);
     while next_frame(started, frame, sink.fps, stop) {
         let shift = (frame * 4) as u32;
-        for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let (x, y) = (index as u32 % width, index as u32 / width);
             let bar = ((x + shift) * 8 / width) % 8;
             let level = 255 - (y * 128 / height) as u8;
@@ -2518,7 +2520,11 @@ mod tests {
             let mut last = None;
             while Instant::now() < deadline {
                 let taken = frames.take(|width, height, pixels| {
-                    let lit = pixels.chunks_exact(4).filter(|pixel| pixel[..3] != [0; 3]);
+                    let lit = pixels
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .filter(|pixel| pixel[..3] != [0; 3]);
                     (
                         width,
                         height,

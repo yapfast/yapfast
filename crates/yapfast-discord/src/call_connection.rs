@@ -269,7 +269,12 @@ fn take_frame(buffer: &mut VecDeque<f32>, pcm: &mut [f32]) -> bool {
     if buffer.len() < FRAME {
         return false;
     }
-    for (out, sample) in pcm.chunks_exact_mut(2).zip(buffer.drain(..FRAME)) {
+    for (out, sample) in pcm
+        .as_chunks_mut::<2>()
+        .0
+        .iter_mut()
+        .zip(buffer.drain(..FRAME))
+    {
         out.fill(sample);
     }
     true
