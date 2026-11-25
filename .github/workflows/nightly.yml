@@ -78,14 +78,41 @@ jobs:
         with:
           path: ~/.cache/cargo-xwin
           key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
-      # Cache dependencies before scripts/set-version changes Cargo.lock.
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: kunobi-ninja/kache-action@061011817fd04b0e460f79d6bb3c115b1fc8f029 # v1
         with:
-          cache-on-failure: true
+          version: 2.3.0
+          cache-dir: ${{ runner.temp }}/kache
+          max-size: 6GiB
+          github-cache: false
+          pr-comment: false
+      - id: restore
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/kache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: kache-nightly-windows-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-${{ github.run_id }}
+          restore-keys: kache-nightly-windows-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
       # Wine doesn't start on the runner (kernel32.dll, c0000135), so Inno
       # Setup can't make the installer there.
       - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
+      - name: Trim and stop Kache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        run: |
+          kache gc
+          kache daemon stop || true
+      - uses: actions/cache/save@v6.1.0
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        with:
+          path: |
+            ${{ runner.temp }}/kache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ steps.restore.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:
           name: windows
