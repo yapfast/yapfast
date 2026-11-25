@@ -85,7 +85,7 @@ flate2 = "1"
 tar = { version = "0.4", default-features = false }
 # A theme's fonts are parsed whole before anything draws with them; the
 # version Yapfast's dependencies already build.
-ttf-parser = "0.25"
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "variable-fonts"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true

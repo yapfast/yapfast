@@ -66,12 +66,14 @@ rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 # key code (iced's window is winit's), and its keysym name for the portal.
 # Both already in the tree through iced.
 winit = { version = "0.30.13", default-features = false }
-xkeysym = "0.2.1"
 # Installed-theme layers bake theme blur/blend settings once when loaded.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 # Reviewed-theme trials keep checked files in a private temporary folder for
 # their 30-second lifetime, without installing them.
 tempfile.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+xkeysym = "0.2.1"
 
 # What build.rs packs Twemoji's pictures into a font with.
 [build-dependencies]
