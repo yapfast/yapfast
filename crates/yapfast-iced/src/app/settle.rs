@@ -244,6 +244,10 @@ impl App {
                             self, &user, at, location,
                         ));
                     }
+                    Request::DetectedGamesMenu => {
+                        let at = self.pressed.get();
+                        tasks.push(crate::settings::open_detected_games_menu(self, at));
+                    }
                 }
             }
         }

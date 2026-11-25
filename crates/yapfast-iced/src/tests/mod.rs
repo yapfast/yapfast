@@ -407,6 +407,7 @@ fn redraw(app: &App) {
     ))]);
 }
 
+mod accounts;
 mod arrange;
 mod calls;
 mod cards;
