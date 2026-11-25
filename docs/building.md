@@ -85,6 +85,8 @@ own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`. Builds to measure then stay
 apart from the ones everyday work replaces.
 
+The Linux x86-64 Nix dev shell links Rust binaries with mold through Clang.
+
 A plain `cargo build`, `cargo build --workspace` (`scripts/check`'s) and
 `scripts/ui-session`'s build give `yapfast-core`, the window and the binary
 the same features, so after an edit only the first of them compiles: Cargo
@@ -420,9 +422,10 @@ shipped. Install these prerequisites before running Cargo:
 - Visual Studio Build Tools with the **Desktop development with C++**
   workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
   These supply the MSVC linker, headers and libraries; Cargo alone does not.
-- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll` and preferably
-  `llvm-rc`. Standalone LLVM or Visual Studio's **C++ Clang tools for Windows**
-  can supply `clang-cl`; ensure `libclang.dll` is installed too. The SDK's
+- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll`, the x64
+  Rust linker `lld-link.exe`, and preferably `llvm-rc`. Standalone LLVM or
+  Visual Studio's **C++ Clang tools for Windows** can supply these tools.
+  Ensure `libclang.dll` is installed and `lld-link.exe` is on `PATH`. The SDK's
   `rc.exe` can replace `llvm-rc`.
 - NASM, available on `PATH`, for FFmpeg's x86-64 assembly.
 
