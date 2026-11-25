@@ -82,8 +82,9 @@ real Windows.
 ## How to measure
 
 Measure a `measure` build of the release features, which are the default.
-`measure` is optimized as `fast` is and builds into a target folder of its
-own, so a measurement never runs a build that tests or local runs made. Use
+`measure` is optimized like release and builds into a target folder of its
+own, so a measurement never runs a build that tests or local runs made. Never
+measure with `fast`, which leaves most crates unoptimized. Use
 `release` only when the question is the shipped build's absolute number.
 
 ```sh
