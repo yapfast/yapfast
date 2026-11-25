@@ -423,10 +423,11 @@ static THUMBNAIL_TURNS: std::sync::LazyLock<tokio::sync::Semaphore> =
 /// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
 /// `width` wide, from what [`download_gif`] downloads.
 async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<PathBuf> {
-    let _turn = THUMBNAIL_TURNS.acquire().await.ok()?;
     let download = download_gif(discord, url, MAX_FAVORITE_BYTES, MAX_FAVORITE_BYTES)
         .await
         .ok()?;
+    // Only the encoding waits its turn; downloads go on meanwhile.
+    let _turn = THUMBNAIL_TURNS.acquire().await.ok()?;
     let url = url.to_owned();
     tokio::task::spawn_blocking(move || {
         let made = thumbnail(&url, &download, width);
