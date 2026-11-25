@@ -571,13 +571,14 @@ impl<'a, M: Clone> Field<'a, M> {
         self
     }
 
-    /// A message field can use up to 45% of the window, including its padding.
+    /// A message field can use up to half the window, including its padding, as
+    /// Discord's text area stops at 50vh.
     pub fn message_height(
         mut self,
         window_height: f32,
         scrollbar: crate::widgets::Scroller,
     ) -> Self {
-        self.max_height = Some(window_height * 0.45);
+        self.max_height = Some(window_height * 0.5);
         self.scrollbar = scrollbar;
         self
     }

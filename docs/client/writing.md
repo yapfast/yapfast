@@ -58,7 +58,7 @@ Discord's edit tint: the text becomes a field of its own there, with the
 emoji button beside it and "escape to cancel • enter to save" under it,
 both links. The room's draft and a reply being written stay as they
 were. Starting an edit gives the field the keys and scrolls the row into
-view. Message fields grow with their text up to 45% of the available window
+view. Message fields grow with their text up to half the available window
 height. When text overflows, a scrollbar inside the field shows its position,
 and the thumb, wheel or touchpad can scroll it. A wheel notch scrolls the
 field over several frames, and small touchpad movements accumulate. The
