@@ -1,0 +1,41 @@
+# TODO: after updating all dependencies remove this
+[advisories]
+ignore = [
+    # crypto-bigint: timing variability
+    "RUSTSEC-2026-0387",
+
+    # libcrux-aesgcm
+    "RUSTSEC-2026-0209",
+    "RUSTSEC-2026-0211",
+    "RUSTSEC-2026-0210",
+
+    # libcrux-chacha20poly1305
+    "RUSTSEC-2026-0124",
+
+    # libcrux-kem
+    "RUSTSEC-2026-0330",
+    "RUSTSEC-2026-0331",
+
+    # libcrux-secrets
+    "RUSTSEC-2026-0212",
+
+    # libcrux-sha3
+    "RUSTSEC-2026-0207",
+    "RUSTSEC-2026-0208",
+
+    # unmaintained crates
+    "RUSTSEC-2026-0319", # anymap2
+    "RUSTSEC-2026-0543", # chrono
+    "RUSTSEC-2024-0388", # derivative
+    "RUSTSEC-2024-0384", # instant
+    "RUSTSEC-2024-0436", # paste
+    "RUSTSEC-2026-0441", # pin-utils
+    "RUSTSEC-2026-0173", # proc-macro-error2
+    "RUSTSEC-2026-0192", # ttf-parser
+    "RUSTSEC-2026-0371", # zbus_names
+    "RUSTSEC-2026-0370", # zvariant
+    "RUSTSEC-2026-0372", # zvariant_derive
+
+    # lru: potential use-after-free
+    "RUSTSEC-2026-0253",
+]
