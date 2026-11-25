@@ -253,6 +253,7 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         decorations: false,
         moving: false,
         name_styles: false,
+        name_colours: false,
         server_tags: false,
         badges: false,
         frames: false,
