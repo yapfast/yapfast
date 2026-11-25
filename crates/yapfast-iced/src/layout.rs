@@ -240,6 +240,9 @@ pub struct Prefs {
     /// Profile badges and the levels their tooltips name.
     pub badges: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// Connections on the floating profile card, as the full profile
+    /// shows them: the window's alone, and off until it's chosen.
+    pub card_connections: bool,
     /// A theme's text glow: the soft edge it puts round text, which is
     /// drawing rather than a profile's cosmetic.
     pub text_glow: Option<bool>,
