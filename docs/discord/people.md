@@ -1246,6 +1246,34 @@ name matches the executable in any folder, a full path only there, and
 Windows and Wine paths ignore case. Custom games are this device's, kept in
 `layout.json`, and a change rescans at once.
 
+Settings → Game activity → Never show as a game lists the programs this
+device never shows as the game played, for a program that Discord's list or
+Steam takes for a game and isn't one (`blocked_games` in `layout.json`, handed
+over with `discord::set_blocked_games`, and like the custom games a change
+rescans at once). An entry is an executable, a file name or a full path
+matched as a custom game's is, or the name that would show after Playing,
+whatever its case. It applies to what was matched, custom games included,
+whichever list matched it. It doesn't reach Rich Presence, which a program
+sends for itself.
+
+Each entry has a switch: on, it's hidden; off, it's allowed to show as a game
+again, and stays listed to be hidden with one press. `layout.json` keeps each
+as `{"name": "...", "on": true}` (`BlockedGame`). Detection is handed only the
+names that are on (`Prefs::apply_blocked_games`), so turning one off or on
+rescans at once, as adding or removing one does, and one that's off isn't left
+out of the detected games below. Adding a name that's listed and off, from
+that menu or the field, turns it on.
+
+"Choose from detected games" there opens a menu of the games the last scan
+took the running programs for, each by the name that would show after
+Playing, once each and in alphabetical order, at most 50
+(`Detector::detected`, kept after each scan in `custom_games::set_detected`
+and read with `discord::detected_games`). Choosing one adds that name to the
+list, so nothing is typed or copied. A program the list already leaves out
+isn't taken for a game, so it isn't in the menu. The menu is empty, and the
+button off, while nothing scans: when sharing the game is off or no account
+is linked.
+
 Discord's list comes from
 `https://cdn.discordapp.com/detectables/games-v1.json`, about 4 MB, as
 Discord's desktop client fetches it. Yapfast keeps this platform's executables

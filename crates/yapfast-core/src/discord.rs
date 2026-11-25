@@ -59,6 +59,30 @@ pub fn set_custom_games(games: &[(String, String)]) {
     let _ = games;
 }
 
+/// The programs and games this device never shows as the game being played,
+/// each an executable (a file name or a full path) or the name shown after
+/// Playing. Detection running takes them at once.
+pub fn set_blocked_games(blocked: &[String]) {
+    #[cfg(feature = "discord")]
+    yapfast_discord::game_detection::custom_games::set_blocked(blocked.to_vec());
+    #[cfg(not(feature = "discord"))]
+    let _ = blocked;
+}
+
+/// The games the running programs are taken for now, each by the name that
+/// would show after Playing; none while detection isn't scanning, as when
+/// sharing the game is off.
+pub fn detected_games() -> Vec<String> {
+    #[cfg(feature = "discord")]
+    {
+        yapfast_discord::game_detection::custom_games::detected()
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg(feature = "discord")]
 use crate::chat::is_frame_layer;
 

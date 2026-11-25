@@ -264,12 +264,35 @@ pub struct Prefs {
     pub show_idle: Option<bool>,
     /// Game Activity's own games: an executable and what to show for it.
     pub game_executables: Vec<(String, String)>,
+    /// Programs and games never shown as the game played, while each is
+    /// on: an executable or the name shown after Playing.
+    pub blocked_games: Vec<BlockedGame>,
     /// About: looking for releases, nightlies among them, the release
     /// skipped, and the last told of in a notification.
     pub check_for_updates: bool,
     pub update_nightlies: bool,
     pub skipped_update: Option<String>,
     pub announced_update: Option<String>,
+}
+
+/// A program or game on Game activity's list of those never shown as the game
+/// played: an executable (a file name or a full path) or the name shown after
+/// Playing, and whether it's hidden now. One turned off stays on the list and
+/// is shown as a game again, until it's turned back on. `layout.json` keeps
+/// each as `{"name": "...", "on": true}`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlockedGame {
+    pub name: String,
+    pub on: bool,
+}
+
+/// The names on `blocked` that are on, which is what detection leaves out.
+pub fn active_blocked(blocked: &[BlockedGame]) -> Vec<String> {
+    blocked
+        .iter()
+        .filter(|game| game.on)
+        .map(|game| game.name.clone())
+        .collect()
 }
 
 /// When GIFs, animated emoji and stickers play, as Messages' choice.
@@ -318,6 +341,11 @@ impl Prefs {
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             frames: self.profile_frames.unwrap_or(default.frames),
         }
+    }
+
+    /// Tells detection which games on the list are never shown: those on.
+    pub fn apply_blocked_games(&self) {
+        yapfast_core::discord::set_blocked_games(&active_blocked(&self.blocked_games));
     }
 
     /// Hands the date's order and the clock to what formats times.

@@ -2058,6 +2058,48 @@ fn the_mic_test_without_a_call_deafens_nothing() {
 }
 
 #[test]
+fn the_detected_games_menu_lists_each_game_and_choosing_one_never_shows_it() {
+    use crate::menus::MenuAct;
+    use yapfast_core::yapfast_discord::game_detection::custom_games::set_detected;
+    let (mut app, _folder) = preview();
+    // Nothing found: one row, which can't be chosen.
+    set_detected(Vec::new());
+    let _ = crate::settings::open_detected_games_menu(&mut app, iced::Point::ORIGIN);
+    let menu = app.win.menu.take().expect("a menu opened");
+    assert_eq!(menu.rows.len(), 1);
+    assert!(menu.rows[0].disabled, "there is nothing to choose");
+    // Two found: a row for each, by the name that shows after Playing.
+    set_detected(vec!["Roblox".into(), "Zelda".into()]);
+    let _ = crate::settings::open_detected_games_menu(&mut app, iced::Point::ORIGIN);
+    let menu = app.win.menu.take().expect("a menu opened");
+    let rows: Vec<_> = menu
+        .rows
+        .iter()
+        .map(|row| (row.label.to_string(), row.key.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Roblox".to_owned(), "Roblox".to_owned()),
+            ("Zelda".to_owned(), "Zelda".to_owned())
+        ]
+    );
+    assert!(
+        menu.rows
+            .iter()
+            .all(|row| row.act == MenuAct::BlockGame && !row.disabled)
+    );
+    set_detected(Vec::new());
+    // Choosing one lists it as never shown, once.
+    crate::settings::block_game(&mut app, "Roblox");
+    crate::settings::block_game(&mut app, "roblox");
+    assert_eq!(app.layout.prefs.blocked_games.len(), 1);
+    assert_eq!(app.layout.prefs.blocked_games[0].name, "Roblox");
+    assert!(app.layout.prefs.blocked_games[0].on, "chosen, it is hidden");
+    yapfast_core::discord::set_blocked_games(&[]);
+}
+
+#[test]
 fn themes_page_shows_empty_state_actions_and_gallery_toggle_with_cost() {
     let (mut app, _folder) = preview();
     open(&mut app, Section::Themes);
