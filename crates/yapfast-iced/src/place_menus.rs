@@ -50,7 +50,8 @@ fn place_menu(
     let core = &app.client.app;
     let state = &core.state;
     let server = state.servers.iter().any(|server| server.id == id);
-    let category = !server && state.is_category(id);
+    let folder = !server && state.is_folder(id);
+    let category = !server && !folder && state.is_category(id);
     let voice = state.rooms.iter().any(|room| room.id == id && room.voice);
     // A DM with people in its call offers to join it rather than start one.
     let in_call = state
@@ -59,7 +60,7 @@ fn place_menu(
         .any(|room| room.id == id && !room.people.is_empty());
     // A conversation's and a server's menu starts with Mark as read,
     // greyed when there's nothing to read.
-    let mut unread = true;
+    let mut unread = !folder || state.folder_unread(id);
     if !header
         && !state.preview
         && (server || state.rooms.iter().any(|room| room.id == id))
@@ -90,12 +91,21 @@ fn place_menu(
         .iter()
         .find(|room| room.id == id)
         .and_then(|room| room.person.as_deref());
+    // How each of a folder's Discord servers notifies, in the rail's order.
+    let folder_known: Vec<(String, Option<yapfast_core::chat::ServerNotifications>)> = if folder {
+        core.folder_notifications(id)
+            .map(|(server, known)| (server.to_owned(), known))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let mut group = None;
-    let rows: Vec<MenuRow> = choices
+    let mut rows: Vec<MenuRow> = choices
         .into_iter()
         .filter(|choice| developer || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let label = match choice {
+                MenuChoice::MarkRead if folder => tr("Mark folder as read"),
                 MenuChoice::Invite if server => tr("Invite to server"),
                 MenuChoice::CreateChannel if server => tr("Create channel"),
                 MenuChoice::CreateChannel if voice => tr("Create voice channel"),
@@ -164,11 +174,28 @@ fn place_menu(
                     crate::person_menu::submenu(core, &mut row, choice, person, Some(id), None);
                 }
                 MenuChoice::Unmute => row.act = MenuAct::MuteDm(Muting::Off),
+                // A folder's, for all its servers at once.
+                MenuChoice::MuteFolder => {
+                    row.submenu =
+                        mute_times(|muting| MenuAct::Notify(NotificationChange::Mute(muting)));
+                    row.click = Some(MenuAct::Notify(NotificationChange::Mute(Muting::Always)));
+                }
+                MenuChoice::UnmuteFolder => {
+                    row.act = MenuAct::Notify(NotificationChange::Mute(Muting::Off));
+                    row.subtitle = folder_muted_until(&folder_known)
+                        .map(|until| muted_until(until / 1000, twelve).into());
+                }
+                MenuChoice::FolderNotifications => {
+                    row.submenu = folder_levels(&folder_known);
+                }
                 _ => {}
             }
             row
         })
         .collect();
+    if folder && !header {
+        rows.extend(folder_rows(app, id, &folder_known, twelve));
+    }
     if rows.is_empty() {
         return Task::none();
     }
@@ -386,6 +413,22 @@ pub fn sub_act(
             };
             Some(Action::ChangeNotifications { place, change })
         }
+        // A folder's server's own, by the server in the row's key.
+        MenuAct::NotifyServer(change) => {
+            let change = match (change, ticked) {
+                (NotificationChange::SuppressEveryone(_), Some(on)) => {
+                    NotificationChange::SuppressEveryone(on)
+                }
+                (NotificationChange::SuppressRoles(_), Some(on)) => {
+                    NotificationChange::SuppressRoles(on)
+                }
+                (change, _) => change,
+            };
+            Some(Action::ChangeNotifications {
+                place: row.key.clone(),
+                change,
+            })
+        }
         // A DM's own menu, or its person's.
         MenuAct::MuteDm(muting) => room.map(|room| Action::MuteDm { room, muting }),
         MenuAct::ShowAll => Some(Action::ShowAllChannels {
@@ -550,6 +593,208 @@ fn server_levels(known: &yapfast_core::chat::ServerNotifications) -> Vec<MenuRow
     rows
 }
 
+/// A folder's notification levels and switches, for all its servers: a
+/// level checked when they all have it, a switch ticked when they all have
+/// it on, which turns it on for all of them, or off when it was.
+fn folder_levels(
+    known: &[(String, Option<yapfast_core::chat::ServerNotifications>)],
+) -> Vec<MenuRow> {
+    let known: Vec<_> = known.iter().filter_map(|(_, known)| *known).collect();
+    let shared = |level: NotifyLevel| {
+        !known.is_empty()
+            && known
+                .iter()
+                .all(|known| known.own.level.unwrap_or(known.own.inherited) == level)
+    };
+    let mut rows: Vec<MenuRow> = [
+        NotifyLevel::All,
+        NotifyLevel::Mentions,
+        NotifyLevel::Nothing,
+    ]
+    .into_iter()
+    .map(|level| MenuRow {
+        check: if shared(level) {
+            Check::Current
+        } else {
+            Check::None
+        },
+        ..MenuRow::plain(
+            MenuAct::Notify(NotificationChange::Level(Some(level))),
+            level_name(level),
+        )
+    })
+    .collect();
+    let everyone = !known.is_empty() && known.iter().all(|known| known.suppress_everyone);
+    let roles = !known.is_empty() && known.iter().all(|known| known.suppress_roles);
+    rows.push(MenuRow {
+        separated: true,
+        check: Check::Box(everyone),
+        ..MenuRow::plain(
+            MenuAct::Notify(NotificationChange::SuppressEveryone(!everyone)),
+            "Suppress @everyone and @here",
+        )
+    });
+    rows.push(MenuRow {
+        check: Check::Box(roles),
+        ..MenuRow::plain(
+            MenuAct::Notify(NotificationChange::SuppressRoles(!roles)),
+            "Suppress all role @mentions",
+        )
+    });
+    rows
+}
+
+/// When the last of a folder's timed mutes ends, if every server is muted
+/// for a time; none while one is muted for good.
+fn folder_muted_until(
+    known: &[(String, Option<yapfast_core::chat::ServerNotifications>)],
+) -> Option<u64> {
+    known
+        .iter()
+        .map(|(_, known)| known.and_then(|known| known.own.muted_until))
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .max()
+}
+
+/// A folder's menu's last rows: Servers, a list of its servers beside the
+/// menu, each saying how it notifies, which a click opens; and Close all
+/// folders while one is open, as in Discord.
+fn folder_rows(
+    app: &App,
+    folder: &str,
+    known: &[(String, Option<yapfast_core::chat::ServerNotifications>)],
+    twelve: bool,
+) -> Vec<MenuRow> {
+    let state = app.client.state();
+    let servers: Vec<MenuRow> = state
+        .folder_servers(folder)
+        .map(|server| {
+            let notifies = known
+                .iter()
+                .find(|(id, _)| *id == server.id)
+                .and_then(|(_, known)| *known)
+                .map(|known| {
+                    let own = known.own;
+                    if own.muted {
+                        own.muted_until.map_or_else(
+                            || "Muted".to_owned(),
+                            |until| muted_until(until / 1000, twelve),
+                        )
+                    } else {
+                        level_name(own.level.unwrap_or(own.inherited)).to_owned()
+                    }
+                });
+            let own = known
+                .iter()
+                .find(|(id, _)| *id == server.id)
+                .and_then(|(_, known)| *known);
+            MenuRow {
+                subtitle: notifies.map(Into::into),
+                side: own
+                    .map(|own| server_choices(&server.id, &own, twelve))
+                    .unwrap_or_default(),
+                ..MenuRow::plain(MenuAct::GoServer, server.name.clone()).key(server.id.clone())
+            }
+        })
+        .collect();
+    let mut rows = Vec::new();
+    if !servers.is_empty() {
+        let count = servers.len();
+        rows.push(MenuRow {
+            icon: Some(Icon::Folder),
+            separated: true,
+            subtitle: Some(
+                if count == 1 {
+                    "1 server".to_owned()
+                } else {
+                    format!("{count} servers")
+                }
+                .into(),
+            ),
+            submenu: servers,
+            ..MenuRow::plain(MenuAct::Event, "Servers")
+        });
+    }
+    if !crate::sidebar::tree::folders_shown(app).is_empty() {
+        rows.push(MenuRow {
+            icon: Some(Icon::ChevronUp),
+            separated: rows.is_empty(),
+            ..MenuRow::plain(MenuAct::CloseFolders, "Close all folders")
+        });
+    }
+    rows
+}
+
+/// A folder's server's own choices, which a right click on it in the
+/// folder's Servers list opens beside it, as its own menu has them in one
+/// list: mute for each time (or Unmute server while it's muted, saying
+/// till when), its levels and its two switches. Each changes that server
+/// alone, by its id in the rows' keys.
+fn server_choices(
+    server: &str,
+    known: &yapfast_core::chat::ServerNotifications,
+    twelve: bool,
+) -> Vec<MenuRow> {
+    let own = known.own;
+    let mut rows: Vec<MenuRow> = if own.muted {
+        vec![MenuRow {
+            icon: Some(Icon::Bell),
+            subtitle: own
+                .muted_until
+                .map(|until| muted_until(until / 1000, twelve).into()),
+            ..MenuRow::plain(
+                MenuAct::NotifyServer(NotificationChange::Mute(Muting::Off)),
+                "Unmute server",
+            )
+        }]
+    } else {
+        mute_times(|muting| MenuAct::NotifyServer(NotificationChange::Mute(muting)))
+    };
+    let current = own.level.unwrap_or(own.inherited);
+    for (at, level) in [
+        NotifyLevel::All,
+        NotifyLevel::Mentions,
+        NotifyLevel::Nothing,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        rows.push(MenuRow {
+            separated: at == 0,
+            check: if level == current {
+                Check::Current
+            } else {
+                Check::None
+            },
+            ..MenuRow::plain(
+                MenuAct::NotifyServer(NotificationChange::Level(Some(level))),
+                level_name(level),
+            )
+        });
+    }
+    rows.push(MenuRow {
+        separated: true,
+        check: Check::Box(known.suppress_everyone),
+        ..MenuRow::plain(
+            MenuAct::NotifyServer(NotificationChange::SuppressEveryone(
+                !known.suppress_everyone,
+            )),
+            "Suppress @everyone and @here",
+        )
+    });
+    rows.push(MenuRow {
+        check: Check::Box(known.suppress_roles),
+        ..MenuRow::plain(
+            MenuAct::NotifyServer(NotificationChange::SuppressRoles(!known.suppress_roles)),
+            "Suppress all role @mentions",
+        )
+    });
+    rows.into_iter()
+        .map(|row| row.key(server.to_owned()))
+        .collect()
+}
+
 /// What a level is called, as Discord's client words it.
 fn level_name(level: NotifyLevel) -> &'static str {
     match level {
@@ -619,6 +864,9 @@ pub fn group_of(choice: MenuChoice) -> u8 {
         | MenuChoice::MuteServer
         | MenuChoice::UnmuteServer
         | MenuChoice::ServerNotifications
+        | MenuChoice::MuteFolder
+        | MenuChoice::UnmuteFolder
+        | MenuChoice::FolderNotifications
         | MenuChoice::ShowAllChannels
         | MenuChoice::HideMuted => 2,
         MenuChoice::CopyLink
@@ -683,10 +931,13 @@ pub fn icon(choice: MenuChoice) -> Icon {
         }
         C::ShowAllChannels | C::AddToChannelList => Icon::Eye,
         C::Block | C::Unblock => Icon::Ban,
-        C::Mute | C::ChannelMute | C::MuteServer => Icon::BellOff,
-        C::Unmute | C::ChannelNotifications | C::UnmuteServer | C::ServerNotifications => {
-            Icon::Bell
-        }
+        C::Mute | C::ChannelMute | C::MuteServer | C::MuteFolder => Icon::BellOff,
+        C::Unmute
+        | C::ChannelNotifications
+        | C::UnmuteServer
+        | C::ServerNotifications
+        | C::UnmuteFolder
+        | C::FolderNotifications => Icon::Bell,
         C::CopyLink => Icon::Copy,
         C::CopyId => Icon::Id,
         C::Mention => Icon::AtSign,
@@ -758,7 +1009,11 @@ pub fn label(choice: MenuChoice) -> &'static str {
         MenuChoice::ChannelNotifications => tr("Notification settings"),
         MenuChoice::MuteServer => tr("Mute server"),
         MenuChoice::UnmuteServer => tr("Unmute server"),
-        MenuChoice::ServerNotifications => tr("Notification settings"),
+        MenuChoice::ServerNotifications | MenuChoice::FolderNotifications => {
+            tr("Notification settings")
+        }
+        MenuChoice::MuteFolder => tr("Mute folder"),
+        MenuChoice::UnmuteFolder => tr("Unmute folder"),
         MenuChoice::ShowAllChannels => tr("Show all channels"),
         MenuChoice::HideMuted => tr("Hide muted channels"),
         MenuChoice::Invite => tr("Invite to channel"),

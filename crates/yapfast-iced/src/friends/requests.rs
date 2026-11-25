@@ -17,7 +17,7 @@ use crate::{
     app::Message,
     controls::{self, Kind, action},
     fonts::{BOLD, MEDIUM},
-    pictures::Icon,
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     style::{rounded, scrollbar},
     theme::rgb,
 };
@@ -36,6 +36,7 @@ pub(super) struct Request<'a> {
     pub(super) id: &'a str,
     pub(super) name: &'a str,
     pub(super) avatar: Option<&'a str>,
+    pub(super) group_icon: Option<GroupIcon>,
     /// A friend request: sent to this account (true) or by it.
     pub(super) friend: Option<bool>,
     /// Their message request's room, its latest message and when it came.
@@ -90,6 +91,7 @@ pub(super) fn request_rows(
             id: &request.id,
             name: &request.name,
             avatar: request.avatar.as_deref(),
+            group_icon: None,
             friend: Some(request.incoming),
             room: room.map(|room| room.id.as_str()),
             message: room
@@ -125,6 +127,7 @@ pub(super) fn request_rows(
                 id: room.person.as_deref().unwrap_or(&room.id),
                 name: &room.name,
                 avatar: room.avatar.as_deref(),
+                group_icon: room_group_icon(room),
                 friend: None,
                 room: Some(&room.id),
                 message: room.preview.as_ref().map(|preview| preview.text.as_str()),
@@ -279,7 +282,10 @@ pub(super) fn request_item<'a>(
     }
     // No Discord badge on the avatar: it would show only with a setting,
     // which this client doesn't have yet.
-    let avatar = ctx.avatar(request.avatar, request.name, 40.0, 20.0, 1.0);
+    let avatar = ctx.face(
+        Face::new(request.avatar, request.name, 40.0)
+            .group(request.group_icon.as_ref().map(GroupIcon::as_face)),
+    );
     let pointed = ctx.pointed.member.as_deref() == Some(request.id);
     let ground = if pointed {
         theme.row_hover

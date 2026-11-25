@@ -43,16 +43,15 @@ pub fn take_edit(app: &mut App) -> Task<Message> {
     let Some(edit) = app.client.state().edit() else {
         return Task::none();
     };
-    let (item, text) = (edit.item.clone(), edit.text.clone());
-    app.composer.editing = Some(item.clone());
-    app.composer.edit.reset(&text);
-    app.composer.suggest.clear(&mut app.client);
-    let reveal = app
+    let index = app
         .timeline
         .messages
         .iter()
-        .position(|message| message.item == item)
-        .map_or_else(Task::none, |index| reveal_row(app, index));
+        .position(|message| message.item == edit.item);
+    app.composer.editing = Some(edit.item.clone());
+    app.composer.edit.reset(&edit.text);
+    app.composer.suggest.clear(&mut app.client);
+    let reveal = index.map_or_else(Task::none, |index| reveal_row(app, index));
     Task::batch([app.sync(), reveal, operation::focus(EDIT)])
 }
 
@@ -136,6 +135,7 @@ pub fn inline_edit<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: PAD,
         left: 6.0,
     })
+    .message_height(ctx.look.window.height, crate::style::scrollbar(theme))
     .font(theme.font("body", crate::fonts::REGULAR))
     .suggesting(crate::suggest::suggesting(ctx, Writing::Edit));
     let tint = match ctx.picker {

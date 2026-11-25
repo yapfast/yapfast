@@ -2565,6 +2565,10 @@ msgstr "Manuelle Verifizierung ({})"
 msgid "Mark as read"
 msgstr "Als gelesen markieren"
 
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mark folder as read"
+msgstr "Ordner als gelesen markieren"
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "Mark messages read on Discord"
 msgstr "Nachrichten auf Discord als gelesen markieren"
@@ -2816,6 +2820,10 @@ msgstr "Kategorie stummschalten"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Mute channel"
 msgstr "Kanal stummschalten"
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mute folder"
+msgstr "Ordner stummschalten"
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Mute server"
@@ -5308,6 +5316,10 @@ msgstr "Stummschaltung der Kategorie aufheben"
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Unmute channel"
 msgstr "Stummschaltung des Kanals aufheben"
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unmute folder"
+msgstr "Stummschaltung des Ordners aufheben"
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Unmute server"

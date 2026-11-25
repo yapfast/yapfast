@@ -2566,6 +2566,10 @@ msgstr ""
 msgid "Mark as read"
 msgstr ""
 
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mark folder as read"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/pages/discord.rs
 msgid "Mark messages read on Discord"
 msgstr ""
@@ -2816,6 +2820,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Mute channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Mute folder"
 msgstr ""
 
 #: crates/yapfast-iced/src/place_menus.rs
@@ -5308,6 +5316,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Unmute channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/place_menus.rs
+msgid "Unmute folder"
 msgstr ""
 
 #: crates/yapfast-iced/src/place_menus.rs

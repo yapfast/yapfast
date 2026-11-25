@@ -924,6 +924,7 @@ impl<'a> Page<'a> {
                 "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
             ))
             .view(self.cx.look),
+            self.desktop_icons(),
             self.title_bar_switch(),
             column![
                 form::heading(theme, tr("PROFILES")),

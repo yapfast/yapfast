@@ -774,7 +774,14 @@ fn stage_tile(
             let live = person.streaming && (person.local || person.video.is_none());
             let mut tile = Tile::new(size, content, Some(ground))
                 .ring(speaking(person).then_some(theme.live))
-                .chip(tile::chip(app.look(), marks, &person.user, live, note));
+                .chip(tile::chip_in(
+                    app.look(),
+                    marks,
+                    &person.user,
+                    call_name_font(app, &person.person),
+                    live,
+                    note,
+                ));
             if person.local && voice.camera_phase == voice::CameraPhase::Starting {
                 tile = tile.top_left(tile::pill(tr("Starting camera..."), GLASS, Color::WHITE));
             }
@@ -1206,4 +1213,23 @@ pub fn can_share(ctx: crate::ctx::Ctx<'_>) -> bool {
         && voice.room.as_deref().is_some_and(|room| {
             yapfast_core::network::Network::of(room) == yapfast_core::network::Network::Discord
         })
+}
+
+/// The font of someone's name on their call tile: their display name
+/// style's, as the call's voice channel lists them by their user id, else
+/// the usual bold.
+pub(crate) fn call_name_font(app: &App, person: &str) -> iced::Font {
+    let state = app.client.state();
+    let own = state
+        .voice
+        .room
+        .as_deref()
+        .and_then(|room| state.rooms.iter().find(|listed| listed.id == room))
+        .and_then(|room| room.people.iter().find(|listed| listed.id == person))
+        .and_then(|listed| {
+            let style = state.cosmetics.style(listed.style.as_deref())?;
+            crate::looks::name_look(Some(style), &listed.name, true, true)
+        })
+        .and_then(|look| look.font());
+    crate::fonts::style_font(own, 700)
 }

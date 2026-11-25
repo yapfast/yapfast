@@ -108,6 +108,7 @@ pub(super) fn found(
             .style(guild, &message.author_id)
             .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
+        color_end: server.and_then(|server| discord.gradient(server, &message.author_id)),
         bot: message.bot,
         body,
         author,
@@ -974,6 +975,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
+        color_end: member.color_end,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,

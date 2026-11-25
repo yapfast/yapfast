@@ -16,9 +16,13 @@ use yapfast_core::{
     i18n::{self, tr},
     runtime::BackgroundRuntime,
 };
-use yapfast_iced::{Heard, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus, UpdatesShown};
+use yapfast_iced::{
+    Heard, IconChoice, IconTarget, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus,
+    UpdatesShown,
+};
 
 use crate::{
+    icon::Artwork,
     keybinds, paste,
     update::{
         self, Outcome, Release, Version,
@@ -144,6 +148,10 @@ impl yapfast_iced::Tray for Tray {
     fn show(&self, unread: bool, call: bool) {
         self.0.show(crate::tray::Shown { unread, call });
     }
+
+    fn set_icon(&self, root: &Path, source: IconTarget, choice: &IconChoice) {
+        self.0.set_icon(&Artwork::load(root, source, choice));
+    }
 }
 
 struct Notifier(crate::notify::Notifier);
@@ -172,8 +180,15 @@ impl yapfast_iced::Desktop for Shell {
             });
     }
 
-    fn tray(&self, tell: Tell) -> Option<Box<dyn yapfast_iced::Tray>> {
-        let tray = crate::tray::Tray::start(Arc::new(move |choice| {
+    fn tray(
+        &self,
+        tell: Tell,
+        root: &Path,
+        source: IconTarget,
+        choice: &IconChoice,
+    ) -> Option<Box<dyn yapfast_iced::Tray>> {
+        let artwork = Artwork::load(root, source, choice);
+        let chosen = Arc::new(move |choice| {
             tell(Heard::Tray(match choice {
                 crate::tray::Choice::Open => TrayChoice::Open,
                 crate::tray::Choice::Disconnect => TrayChoice::Disconnect,
@@ -182,7 +197,8 @@ impl yapfast_iced::Desktop for Shell {
                 crate::tray::Choice::Quit => TrayChoice::Quit,
                 crate::tray::Choice::Available => TrayChoice::Available,
             }));
-        }))?;
+        });
+        let tray = crate::tray::Tray::start(chosen, &artwork)?;
         Some(Box::new(Tray(tray)))
     }
 
@@ -212,19 +228,9 @@ impl yapfast_iced::Desktop for Shell {
             .map(|pointer| Box::new(pointer) as Box<dyn yapfast_iced::PointerAt>)
     }
 
-    fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell, unread: u8) {
-        #[cfg(windows)]
-        if let Some(hwnd) = win32(window) {
-            crate::icon::set_on(hwnd, unread);
-        }
-        #[cfg(not(windows))]
-        let _ = unread;
-        #[cfg(target_os = "linux")]
+    #[cfg(target_os = "linux")]
+    fn decorate(&self, window: &dyn yapfast_iced::Window, tell: Tell) {
         watch_wayland_drops(window, tell);
-        #[cfg(not(target_os = "linux"))]
-        let _ = tell;
-        #[cfg(not(any(windows, target_os = "linux")))]
-        let _ = window;
     }
 
     #[cfg(windows)]
@@ -283,14 +289,57 @@ impl yapfast_iced::Desktop for Shell {
         }
     }
 
-    fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
-        #[cfg(target_os = "linux")]
-        {
-            let icon = crate::icon::window_icon()?;
-            Some((icon.pixels, icon.width, icon.height))
+    #[cfg(target_os = "linux")]
+    fn window_icon(&self, root: &Path, choice: &IconChoice) -> Option<(Vec<u8>, u32, u32)> {
+        let icon = Artwork::load(root, IconTarget::Application, choice).window(64)?;
+        Some((icon.pixels, icon.width, icon.height))
+    }
+
+    #[cfg(windows)]
+    fn set_window_icon(
+        &self,
+        window: &dyn yapfast_iced::Window,
+        root: &Path,
+        choice: &IconChoice,
+        unread: u8,
+    ) {
+        if let Some(window) = win32(window) {
+            crate::icon::set_on(
+                window,
+                &Artwork::load(root, IconTarget::Application, choice),
+                unread,
+            );
         }
-        #[cfg(not(target_os = "linux"))]
-        None
+    }
+
+    fn supports_desktop_icons(&self) -> bool {
+        cfg!(any(windows, target_os = "linux"))
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    fn icon_preview(
+        &self,
+        root: &Path,
+        target: IconTarget,
+        choice: &IconChoice,
+    ) -> Option<(Vec<u8>, u32, u32)> {
+        let artwork = Artwork::load(root, target, choice);
+        if *choice == IconChoice::Custom && !matches!(artwork, Artwork::Custom(_)) {
+            return None;
+        }
+        let icon = match target {
+            IconTarget::Application => artwork.window(48),
+            IconTarget::Tray => artwork.tray(48, false),
+        }?;
+        Some((icon.pixels, icon.width, icon.height))
+    }
+
+    fn prepare_icon(&self, path: &Path) -> Result<Vec<u8>, String> {
+        crate::icon::prepare(path)
+    }
+
+    fn save_icon(&self, root: &Path, target: IconTarget, png: &[u8]) -> Result<(), String> {
+        crate::icon::save(root, target, png)
     }
 
     fn autostart(&self) -> Option<bool> {
