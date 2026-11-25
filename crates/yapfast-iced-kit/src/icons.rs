@@ -361,6 +361,8 @@ pub enum Icon {
     AtSign,
     UserMinus,
     UserX,
+    /// A disc with a person cut out: Switch Accounts'.
+    UserCircle,
     FolderPlus,
     CopyPlus,
 }
@@ -573,6 +575,7 @@ impl Icon {
             Icon::AtSign => icon!("at-sign.svg"),
             Icon::UserMinus => icon!("user-minus.svg"),
             Icon::UserX => icon!("user-x.svg"),
+            Icon::UserCircle => icon!("user-circle.svg"),
             Icon::FolderPlus => icon!("folder-plus.svg"),
             Icon::CopyPlus => icon!("copy-plus.svg"),
             Icon::VideoOff => icon!("video-off.svg"),

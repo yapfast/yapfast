@@ -162,6 +162,9 @@ pub enum Request {
         user: String,
         location: &'static str,
     },
+    /// The menu of the games detection has found, where the pointer was
+    /// pressed, to choose one never to show.
+    DetectedGamesMenu,
 }
 
 /// Where the keys go.
