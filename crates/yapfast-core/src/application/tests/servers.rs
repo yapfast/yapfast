@@ -384,11 +384,18 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
     assert!(app.header_choices("discord:10:11").is_empty());
     assert_eq!(
         app.state.menu_choices("discord:10:11"),
-        [ChannelMute, ChannelNotifications, CopyLink, CopyId]
+        [
+            AddFavorite,
+            ChannelMute,
+            ChannelNotifications,
+            CopyLink,
+            CopyId
+        ]
     );
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             PinChannel,
             CopyLink,
             ChannelMute,
@@ -496,6 +503,7 @@ fn discord_invites_go_to_a_channel_this_account_may_invite_to() {
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             Invite,
             PinChannel,
             CopyLink,

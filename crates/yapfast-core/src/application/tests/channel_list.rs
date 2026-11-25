@@ -11,6 +11,7 @@ fn server_channels_pin_to_the_top_as_discords_client_pins_them() {
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             PinChannel,
             CopyLink,
             ChannelMute,
@@ -185,6 +186,7 @@ fn a_community_server_lists_only_the_channels_followed_as_discords_client_does()
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             PinChannel,
             RemoveFromChannelList,
             CopyLink,
@@ -420,6 +422,7 @@ fn discord_channels_and_categories_are_made_changed_and_deleted_from_their_menus
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             PinChannel,
             CopyLink,
             ChannelMute,
