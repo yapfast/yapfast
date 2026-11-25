@@ -842,9 +842,10 @@ fn written(theme: &Theme, parts: &Parts) -> std::collections::BTreeMap<String, S
         .iter()
         .enumerate()
         .filter_map(|(index, name)| Some((token(name), hex(theme.colour(index)?))));
-    let own = Parts::TOKENS.iter().enumerate().filter_map(|(index, part)| {
-        Some(((*part).to_owned(), hex(parts.own(index)??)))
-    });
+    let own = Parts::TOKENS
+        .iter()
+        .enumerate()
+        .filter_map(|(index, part)| Some(((*part).to_owned(), hex(parts.own(index)??))));
     colours.chain(own).collect()
 }
 
@@ -1254,7 +1255,12 @@ mod tests {
 
         // Every built-in theme survives it, so a custom theme made from any does.
         for built_in in &BUILT_IN {
-            let text = export(built_in.name, built_in.id, &built_in.theme, &Parts::default());
+            let text = export(
+                built_in.name,
+                built_in.id,
+                &built_in.theme,
+                &Parts::default(),
+            );
             assert_eq!(
                 import(text.as_bytes()).unwrap().theme,
                 built_in.theme,
