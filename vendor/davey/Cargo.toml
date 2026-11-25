@@ -81,24 +81,28 @@ version = "0.4.2"
 version = "0.2.19"
 
 [dependencies.openmls]
-version = "0.8.1"
+# Keep the OpenMLS packages on the same revision as yapfast-discord's tests.
+git = "https://github.com/openmls/openmls"
+rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2"
 features = ["js"]
 
 [dependencies.openmls_basic_credential]
-version = "0.5.0"
+git = "https://github.com/openmls/openmls"
+rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2"
 
 [dependencies.openmls_rust_crypto]
-version = "0.5.1"
+git = "https://github.com/openmls/openmls"
+rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2"
 
 [dependencies.p256]
-version = "0.13"
+version = "0.14"
 
 [dependencies.pyo3]
 version = "0.25.0"
 optional = true
 
 [dependencies.rand]
-version = "0.8"
+version = "0.10"
 
 [dependencies.scrypt]
 version = "0.11.0"

@@ -51,8 +51,7 @@ jobs:
       matrix:
         include:
           - tool: cargo-audit # audits dependencies & vulnerabilities
-            # TODO: once the audit errors are fixed, drop --ignore and use `--deny warnings`.
-            run: cargo audit --ignore RUSTSEC-2026-0459
+            run: cargo audit
           - tool: cargo-machete
             run: cargo machete # finds unused dependencies
     steps:

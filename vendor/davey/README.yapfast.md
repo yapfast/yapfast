@@ -18,3 +18,7 @@ Changes, marked `Yapfast:` in the source:
   joined group is left as it is.
 - `read_leb128` stops at ten bytes rather than shifting past a `u64`, which
   panics in a debug build when a received frame's nonce runs that long.
+
+This build pins OpenMLS to the revision that uses HPKE 0.8 and P-256 0.14.
+`DaveSession::process_commit` handles the resulting `OwnPendingCommit` as a
+processed message, and the media ratchet reads the bytes of the exported secret.

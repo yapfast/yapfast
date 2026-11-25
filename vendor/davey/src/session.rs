@@ -2,7 +2,7 @@
 use napi_derive::napi;
 use num_derive::FromPrimitive;
 use openmls::{
-  group::{ProcessMessageError, *},
+  group::*,
   prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *},
   schedule::EpochAuthenticator,
 };
@@ -11,7 +11,7 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::{borrow::Cow, collections::HashMap, fmt::Debug, num::NonZeroU16};
-use tracing::{debug, trace, warn};
+use tracing::{debug, warn};
 
 use crate::{
   errors::*, generate_key_fingerprint, pairwise_fingerprints_internal,
@@ -642,13 +642,12 @@ impl DaveSession {
         ProcessedMessageContent::StagedCommitMessage(staged_commit) => {
           group.merge_staged_commit(&self.provider, *staged_commit)?;
         }
+        ProcessedMessageContent::OwnPendingCommit => {
+          debug!("Found own commit, merging pending commit.");
+          group.merge_pending_commit(&self.provider)?;
+        }
         _ => return Err(ProcessCommitError::ProcessedMessageNotStagedCommit),
       },
-      Err(ProcessMessageError::InvalidCommit(StageCommitError::OwnCommit)) => {
-        // This is our own commit, lets merge pending instead
-        debug!("Found own commit, merging pending commit instead.");
-        group.merge_pending_commit(&self.provider)?;
-      }
       Err(error) => return Err(ProcessCommitError::ProcessingMessageFailed(error)),
     }
 
@@ -811,8 +810,7 @@ impl DaveSession {
       )
       .map_err(UpdateRatchetsError::ExportingSecretFailed)?;
 
-    trace!("Got base secret for user {:?}: {:?}", user_id, base_secret);
-    Ok(HashRatchet::new(base_secret))
+    Ok(HashRatchet::new(base_secret.as_slice().to_vec()))
   }
 
   /// End-to-end encrypt a packet.
