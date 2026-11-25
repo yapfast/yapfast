@@ -421,8 +421,11 @@ impl App {
                 self.client.dispatch(Action::Voice(voice::Command::Leave));
                 self.sync()
             }
+            // About isn't open to show what the look finds, so a newer
+            // release is told of in a notification, as a timed look does.
             Heard::Tray(TrayChoice::CheckForUpdates) => {
-                crate::updates::update(self, crate::updates::Event::CheckNow)
+                crate::updates::look_for_updates(self, true);
+                Task::none()
             }
             Heard::Tray(TrayChoice::Restart) => self.restart(),
             Heard::Tray(TrayChoice::Quit) => self.quit(),
