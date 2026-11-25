@@ -40,7 +40,7 @@ pub(crate) fn start(api: Arc<Api>, rescan: Arc<Notify>) -> watch::Receiver<Optio
         let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
         let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
             || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
-        if disabled || !sysinfo::IS_SUPPORTED_SYSTEM {
+        if disabled {
             shown.closed().await;
             return;
         }
@@ -386,7 +386,14 @@ impl Detector {
         }
         // A table of every process for this scan only: what lasts between
         // scans is what Yapfast learned of each, in `known`.
-        let mut system = System::new();
+        let mut system = match System::new() {
+            Ok(system) => system,
+            Err(sysinfo::Error::Unsupported) => return None,
+            Err(error) => {
+                tracing::debug!(%error, "could not start process scan");
+                return None;
+            }
+        };
         system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,

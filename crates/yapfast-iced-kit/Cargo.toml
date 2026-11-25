@@ -23,7 +23,7 @@ iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayl
 iced_tiny_skia = "=0.14.1"
 iced_wgpu = "=0.14.0"
 # The type of cosmic-text's `Fallback::script_fallback` argument.
-unicode-script = "0.5.5"
+unicode-script = "0.5.9"
 # The language Han ideographs are drawn for where no variable gives a
 # locale (Windows, macOS); the version cosmic-text already builds.
 sys-locale = "0.3"
@@ -33,7 +33,7 @@ ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
 # The kit's icons from icons/, drawn once per size and colour.
 # Without its default features it has no text, so it makes no font
 # database.
-resvg = { version = "0.49", default-features = false }
+resvg = { version = "0.50", default-features = false }
 # Words for a double press on selectable text (`widgets::Selectable`); the
 # version cosmic-text already builds.
 unicode-segmentation = "1.13"

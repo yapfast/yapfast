@@ -21,13 +21,13 @@ chrono.workspace = true
 aes-gcm = "0.10.3"
 chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
 davey = "0.1.4"
-rand = "0.9"
+rand = "0.10"
 # Linking by QR code: Discord's remote login encrypts what it sends with the
 # client's RSA key, OAEP with SHA-256.
 rsa = { version = "0.9", features = ["getrandom"] }
 sha2 = "0.10"
 anyhow.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 # The gateway's zlib-stream compression, as the web client asks for it.
 flate2 = "1"
 futures-util.workspace = true
@@ -42,7 +42,7 @@ rustls.workspace = true
 rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
-sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40.4", default-features = false, features = ["system"] }
 tempfile.workspace = true
 # The voice gateway's messages, DAVE's among them.
 serenity-voice-model = "0.3"
@@ -58,7 +58,7 @@ webrtc-sys = "=0.3.35"
 # The Rich Presence socket's lock opens with O_NOFOLLOW, whose value differs
 # from one processor to another.
 [target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2.189"
+libc = "0.2.191"
 
 [dev-dependencies]
 # Building DAVE handshake messages in tests, at the versions davey uses.

@@ -203,7 +203,7 @@ dependencies = [
  "percent-encoding",
  "windows-sys 0.61.2",
  "wl-clipboard-rs",
- "x11rb",
+ "x11rb 0.13.2",
 ]
 
 [[package]]
@@ -1033,7 +1033,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd63e33452ffdafd39924c4f05a5dd1e94db646c779c6bd59148a3d95fff5ad4"
 dependencies = [
  "thiserror 2.0.21",
- "x11rb",
+ "x11rb 0.13.2",
 ]
 
 [[package]]
@@ -5651,6 +5651,7 @@ dependencies = [
  "objc2 0.6.5",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
+ "objc2-uniform-type-identifiers 0.3.2",
 ]
 
 [[package]]
@@ -5919,7 +5920,7 @@ dependencies = [
  "objc2-link-presentation",
  "objc2-quartz-core 0.2.2",
  "objc2-symbols",
- "objc2-uniform-type-identifiers",
+ "objc2-uniform-type-identifiers 0.2.2",
  "objc2-user-notifications 0.2.2",
 ]
 
@@ -5953,6 +5954,16 @@ dependencies = [
  "block2 0.5.1",
  "objc2 0.5.3",
  "objc2-foundation 0.2.2",
+]
+
+[[package]]
+name = "objc2-uniform-type-identifiers"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7902ac02859fc1f7045f8b598c63f1ae0cc7efeaa06a9bc9f3d9a3c955974fa4"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]
@@ -6518,9 +6529,9 @@ dependencies = [
 
 [[package]]
 name = "pollster"
-version = "0.4.0"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
+checksum = "7e9b9cf600136f5b976fbc5727d58c26e1ecab8ee23088d44ef1c7af793550ab"
 
 [[package]]
 name = "poly1305"
@@ -6807,9 +6818,9 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qrcode"
-version = "0.14.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+checksum = "ace1a365f55004297f2cf24acfd96d02966246ca423385273b58a7dc873ee14d"
 
 [[package]]
 name = "quick-error"
@@ -7282,9 +7293,9 @@ dependencies = [
 
 [[package]]
 name = "resvg"
-version = "0.49.0"
+version = "0.50.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1572844b6727a1bf842190e9947641a68ac44bed83f50afb4bd1407a2564bee8"
+checksum = "77bb4b284cf8a5c8ae721594af53387fb755d2196fddb32b2acfb4fa9251fa0c"
 dependencies = [
  "bytemuck",
  "log",
@@ -7307,9 +7318,9 @@ dependencies = [
 
 [[package]]
 name = "rfd"
-version = "0.17.2"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20dafead71c16a34e1ff357ddefc8afc11e7d51d6d2b9fbd07eaa48e3e540220"
+checksum = "c4b9d4857b10297ffb0f64cae711e983a7aeaee561848d56d429d3858bd8ed93"
 dependencies = [
  "block2 0.6.2",
  "dispatch2",
@@ -7320,6 +7331,7 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
+ "objc2-uniform-type-identifiers 0.3.2",
  "percent-encoding",
  "pollster",
  "raw-window-handle",
@@ -8355,7 +8367,7 @@ dependencies = [
  "wayland-sys",
  "web-sys",
  "windows-sys 0.61.2",
- "x11rb",
+ "x11rb 0.13.2",
 ]
 
 [[package]]
@@ -8563,9 +8575,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.39.6"
+version = "0.40.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6"
+checksum = "3e80749408e2d8bec0ffa303012cf4e1b3b355f4a09087b4fdf7473680f6a2de"
 dependencies = [
  "libc",
  "memchr",
@@ -9495,9 +9507,9 @@ dependencies = [
 
 [[package]]
 name = "usvg"
-version = "0.49.0"
+version = "0.50.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d09b73ee83641d390ad7ffd9000f347b16eb128e437675b6ff277ea5c7fcf22c"
+checksum = "bdb896f04730b97805bbc3191fc57e4bf03face0f14577dd42e783c4d8c98802"
 dependencies = [
  "data-url",
  "imagesize",
@@ -10637,7 +10649,7 @@ dependencies = [
  "web-time",
  "windows-sys 0.52.0",
  "x11-dl",
- "x11rb",
+ "x11rb 0.13.2",
  "xkbcommon-dl",
 ]
 
@@ -10703,7 +10715,18 @@ dependencies = [
  "libloading",
  "once_cell",
  "rustix 1.1.6",
- "x11rb-protocol",
+ "x11rb-protocol 0.13.2",
+]
+
+[[package]]
+name = "x11rb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8885a854a8bfdf87a301e53e41b17c5f8f33639903131338b997b1eb614f44"
+dependencies = [
+ "gethostname",
+ "rustix 1.1.6",
+ "x11rb-protocol 0.14.0",
 ]
 
 [[package]]
@@ -10711,6 +10734,12 @@ name = "x11rb-protocol"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf4d1bc32aa46eec18caa634ec3cf4c05bfa151f12b93b510b15190f69a1ca8"
 
 [[package]]
 name = "x25519-dalek"
@@ -10806,7 +10835,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tempfile",
  "tracing",
  "wayland-backend",
@@ -10816,7 +10845,7 @@ dependencies = [
  "windows-sys 0.61.2",
  "winit",
  "wl-clipboard-rs",
- "x11rb",
+ "x11rb 0.14.0",
  "yapfast-core",
  "yapfast-iced",
  "zbus",
@@ -10827,7 +10856,7 @@ name = "yapfast-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "cc",
  "chrono",
  "cxx",
@@ -10858,13 +10887,13 @@ dependencies = [
  "nnnoiseless",
  "png",
  "pulldown-cmark",
- "rand 0.9.5",
+ "rand 0.10.4",
  "realfft",
  "resvg",
  "rustls",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tar",
  "tempfile",
  "thorvg-sys",
@@ -10888,7 +10917,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chacha20poly1305 0.10.1",
  "chrono",
  "cookie_store",
@@ -10901,7 +10930,7 @@ dependencies = [
  "openmls",
  "openmls_basic_credential",
  "openmls_rust_crypto",
- "rand 0.9.5",
+ "rand 0.10.4",
  "reqwest 0.13.5",
  "rsa",
  "rustls",

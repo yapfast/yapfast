@@ -29,7 +29,7 @@ zbus = { version = "5.19", default-features = false, features = ["async-io", "bl
 wayland-client = "0.31.15"
 wayland-backend = { version = "0.3.17", features = ["client_system"] }
 wayland-scanner = "0.31.11"
-libc = "0.2.189"
+libc = "0.2.191"
 memmap2 = "0.9"
 tempfile.workspace = true
 

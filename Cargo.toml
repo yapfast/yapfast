@@ -68,7 +68,7 @@ serde_json.workspace = true
 yapfast-core = { path = "crates/yapfast-core", default-features = false }
 yapfast-iced = { path = "crates/yapfast-iced", default-features = false, optional = true }
 # Pictures copied from messages.
-arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"], optional = true }
+arboard = { version = "3.7", default-features = false, features = ["image-data", "wayland-data-control"], optional = true }
 # Saves pictures pasted as pixels to PNG files to attach, after decoding the
 # bitmaps Windows pastes, and reads pictures copied from messages.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
@@ -79,7 +79,7 @@ tracing.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"], optional = true }
 rustls = { workspace = true, optional = true }
 # Checks a downloaded release against the SHA256SUMS.txt it was published with.
-sha2 = { version = "0.10", optional = true }
+sha2 = { version = "0.11", optional = true }
 # Checks the minisign signature on those sums, with the keys in packaging/keys.
 minisign-verify = { version = "0.3", optional = true }
 # The window's handles, which bringing it forward, following a drag over it
@@ -87,14 +87,14 @@ minisign-verify = { version = "0.3", optional = true }
 raw-window-handle = { version = "0.6.2", optional = true }
 # The tray's and the window's icons drawn from their SVGs; the version
 # yapfast-core already builds, without text.
-resvg = { version = "0.49", default-features = false, optional = true }
+resvg = { version = "0.50", default-features = false, optional = true }
 
 # Desktop notifications through the freedesktop service, on the session bus
 # the keyring already uses.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 # Pasted pictures as their copied bytes, through Wayland's data-control protocol.
-wl-clipboard-rs = { version = "0.9.4", optional = true }
+wl-clipboard-rs = { version = "0.9.5", optional = true }
 # Files dropped on the window, which winit doesn't take on Wayland, through a data
 # device on winit's own connection; see src/drop.rs. Already in the tree through winit.
 wayland-client = { version = "0.31.15", optional = true }
@@ -109,7 +109,7 @@ ksni = { version = "0.3.7", default-features = false, features = ["async-io", "b
 # XInput 2's raw key events on X11. Both are already in the tree, through
 # zbus and winit. x11rb also reads the X11 clipboard for a paste.
 futures-util = { workspace = true, optional = true }
-x11rb = { version = "0.13.2", default-features = false, features = ["xinput"], optional = true }
+x11rb = { version = "0.14.0", default-features = false, features = ["xinput"], optional = true }
 
 # The tray icon, giving memory back while the window is closed, the event a
 # later start sets to show the window, the clipboard's files and pictures for

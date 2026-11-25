@@ -45,7 +45,7 @@ iced_runtime = "=0.14.0"
 # The renderer's hook for video frames (patch 13), set by `video::install`.
 iced_tiny_skia = "=0.14.1"
 # Pictures' handles over the core's own bytes, without a copy.
-bytes = "1.10"
+bytes = "1.12"
 # Messages' local dates, as the core works them out.
 chrono.workspace = true
 # Message Markdown's inline styles, as the core already builds it.
@@ -56,12 +56,12 @@ emojis = "0.9"
 serde.workspace = true
 serde_json.workspace = true
 # The code Discord's phone app scans to link an account.
-qrcode = { version = "0.14", default-features = false }
+qrcode = { version = "0.15", default-features = false }
 # Opens pages where neither xdg-open nor gio is installed.
 webbrowser = "1"
 # The file dialog files to attach are chosen in, through the desktop's
 # portal on Linux.
-rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
+rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 # Push to talk's key as Settings records it: winit's scan code for iced's
 # key code (iced's window is winit's), and its keysym name for the portal.
 # Both already in the tree through iced.
