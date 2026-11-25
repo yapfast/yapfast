@@ -1926,7 +1926,9 @@ impl<'a> View<'a> {
             && let Some(group_icon) = &item.group_icon
         {
             return match group_icon {
-                GroupIcon::Placeholder => self.cx.group_placeholder(TILE, RADIUS, opacity),
+                GroupIcon::Placeholder(ground) => {
+                    self.cx.group_placeholder(*ground, TILE, RADIUS, opacity)
+                }
                 GroupIcon::Pair(pair) => self.cx.group_pair(pair, TILE, opacity),
             };
         }

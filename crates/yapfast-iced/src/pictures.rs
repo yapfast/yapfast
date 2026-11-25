@@ -429,8 +429,8 @@ pub fn plays(app: &App) -> bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroupIcon {
     /// Two-member group DM (or one without two known other members):
-    /// Discord's circular group-people placeholder icon.
-    Placeholder,
+    /// Discord's circular group-people placeholder icon, on this ground.
+    Placeholder(u32),
     /// Group DM with more than two members: two overlapping circular
     /// member avatars.
     Pair([yapfast_core::chat::GroupAvatar; 2]),
@@ -439,7 +439,7 @@ pub enum GroupIcon {
 impl GroupIcon {
     pub fn as_face(&self) -> GroupFace<'_> {
         match self {
-            Self::Placeholder => GroupFace::Placeholder,
+            Self::Placeholder(ground) => GroupFace::Placeholder(*ground),
             Self::Pair(pair) => GroupFace::Pair(pair),
         }
     }
@@ -448,8 +448,27 @@ impl GroupIcon {
 /// Borrowed form of [`GroupIcon`] passed to [`Face`].
 #[derive(Clone, Copy, Debug)]
 pub enum GroupFace<'a> {
-    Placeholder,
+    Placeholder(u32),
     Pair(&'a [yapfast_core::chat::GroupAvatar; 2]),
+}
+
+/// The grounds of Discord's eight group DM placeholders
+/// (`DEFAULT_GROUP_DM_AVATARS`), each the same white people glyph.
+const GROUP_PLACEHOLDERS: [u32; 8] = [
+    0xe1721f, 0xefbc12, 0x19b491, 0x29c566, 0x2d8dd6, 0x904fad, 0xe61b58, 0xe44235,
+];
+
+/// Which placeholder a group DM gets: Discord's client picks by the channel
+/// id's timestamp, read through a double, modulo eight (its epoch is a
+/// multiple of eight, so it drops out). An id that isn't a snowflake gets
+/// the green one.
+fn placeholder_ground(room: &str) -> u32 {
+    room.rsplit(':')
+        .next()
+        .and_then(|id| id.parse::<u64>().ok())
+        .map_or(GROUP_PLACEHOLDERS[3], |id| {
+            GROUP_PLACEHOLDERS[((id as f64 / 4_194_304.0).floor() as u64 % 8) as usize]
+        })
 }
 
 /// A group DM's fallback icon for `room`, if it is a group DM without a
@@ -458,7 +477,7 @@ pub fn room_group_icon(room: &yapfast_core::chat::ChatRoom) -> Option<GroupIcon>
     (room.direct && room.person.is_none() && room.avatar.is_none()).then(|| {
         match &room.group_avatars {
             Some(pair) => GroupIcon::Pair(pair.clone()),
-            None => GroupIcon::Placeholder,
+            None => GroupIcon::Placeholder(placeholder_ground(&room.id)),
         }
     })
 }
@@ -1000,11 +1019,16 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into()
     }
 
-    /// Discord's green group-people placeholder icon for a group DM without a
-    /// custom icon or two-avatar pair.
-    pub fn group_placeholder(self, size: f32, radius: f32, opacity: f32) -> Element<'a, Message> {
-        const GROUP_PLACEHOLDER_GREEN: u32 = 0x29c566;
-        let ground = faded(hex(GROUP_PLACEHOLDER_GREEN), opacity);
+    /// Discord's group-people placeholder icon on `ground` for a group DM
+    /// without a custom icon or two-avatar pair.
+    pub fn group_placeholder(
+        self,
+        ground: u32,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
+        let ground = faded(hex(ground), opacity);
         let glyph_size = (size * 0.5).round().max(10.0) as u32;
         container(
             self.look
@@ -1177,8 +1201,8 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into()
         } else {
             match (url, group) {
-                (None, Some(GroupFace::Placeholder)) => {
-                    self.group_placeholder(avatar_size, radius, opacity)
+                (None, Some(GroupFace::Placeholder(ground))) => {
+                    self.group_placeholder(ground, avatar_size, radius, opacity)
                 }
                 (None, Some(GroupFace::Pair(pair))) => self.group_pair(pair, avatar_size, opacity),
                 _ => self.avatar_tinted_exact(
@@ -1394,5 +1418,20 @@ mod tests {
         assert!(player.due().is_some());
         assert!(player.next(Instant::now()).is_none(), "no frame to give");
         assert!(player.due().is_none(), "and none due");
+    }
+
+    #[test]
+    fn a_group_placeholder_takes_discords_ground_for_its_channel() {
+        assert_eq!(
+            super::placeholder_ground("discord:@me:1234567890123456789"),
+            0xe44235
+        );
+        // Read through a double as Discord's client reads it, this id rounds
+        // into the next 2^22 step and gets the purple ground, not blue.
+        assert_eq!(
+            super::placeholder_ground("discord:@me:1152921504627818495"),
+            0x904fad
+        );
+        assert_eq!(super::placeholder_ground("discord:@me:two"), 0x29c566);
     }
 }

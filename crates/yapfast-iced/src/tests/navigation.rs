@@ -993,7 +993,7 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
     );
     assert_eq!(
         side_room(&app, "discord:@me:two").group_icon,
-        Some(GroupIcon::Placeholder)
+        Some(GroupIcon::Placeholder(0x29c566))
     );
     assert_eq!(
         side_room(&app, "discord:@me:two").presence,
@@ -1009,7 +1009,10 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
     );
 
     // Header reflects the currently selected group DM's icon variant.
-    assert_eq!(app.header.group_icon, Some(GroupIcon::Placeholder));
+    assert_eq!(
+        app.header.group_icon,
+        Some(GroupIcon::Placeholder(0x29c566))
+    );
     assert_eq!(app.header.presence, Some(Presence::Online));
 
     change(&mut app, |state| {
@@ -1038,7 +1041,7 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
     assert_eq!(rail_item("discord:@me:custom").group_icon, None);
     assert_eq!(
         rail_item("discord:@me:two").group_icon,
-        Some(GroupIcon::Placeholder)
+        Some(GroupIcon::Placeholder(0x29c566))
     );
     assert_eq!(
         rail_item("discord:@me:five").group_icon,
@@ -1095,7 +1098,7 @@ fn group_dm_icons_render_placeholder_and_overlapping_pair_with_cutout() {
     let (w, _, placeholder) = sample(
         &app,
         Face::new(None, "Two", 32.0)
-            .group(Some(GroupFace::Placeholder))
+            .group(Some(GroupFace::Placeholder(0x29c566)))
             .dot(Some((Presence::Online, 0x000000, Point::new(20.0, 20.0)))),
     );
     let top = at(w, &placeholder, 32, 8);
