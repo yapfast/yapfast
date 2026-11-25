@@ -364,14 +364,12 @@ impl Application {
         vec![]
     }
 
-    /// The members holding a role, as Discord sent them, and how many hold
-    /// it, once a change to them makes it differ.
+    /// The members holding a role, as Discord sent them.
     pub(crate) fn role_holders(
         &mut self,
         server: String,
         role: String,
         result: Result<Vec<RoleMember>, String>,
-        count: Option<u64>,
     ) {
         let Some(Page::Roles(page)) = self
             .state
@@ -382,7 +380,18 @@ impl Application {
         else {
             return;
         };
-        if let Some(count) = count
+        if let Some(draft) = page.open.as_mut().filter(|draft| draft.id == role) {
+            draft.members = Some(result);
+        }
+    }
+
+    pub(crate) fn role_count(&mut self, server: &str, role: &str, count: u64) {
+        if let Some(Page::Roles(page)) = self
+            .state
+            .server_settings
+            .as_mut()
+            .filter(|settings| settings.server == server)
+            .and_then(|settings| settings.page.as_mut())
             && let Some(known) = page
                 .original
                 .roles
@@ -390,9 +399,6 @@ impl Application {
                 .find(|known| known.id == role)
         {
             known.members = count;
-        }
-        if let Some(draft) = page.open.as_mut().filter(|draft| draft.id == role) {
-            draft.members = Some(result);
         }
     }
 

@@ -101,7 +101,8 @@ standalone rooms outside Spaces are not shown in this navigation yet.
 With the local services running, check the desktop messaging backend with:
 
 ```sh
-cargo test --locked -p yapfast-core matrix_chat::tests::encrypted_chat_restore_send_retry_and_security_gates -- --ignored
+cargo test --locked --profile fast -p yapfast-core --features matrix \
+  matrix_chat::tests::encrypted_chat_restore_send_retry_and_security_gates -- --ignored
 ```
 
 This creates disposable accounts and checks session restoration, encrypted

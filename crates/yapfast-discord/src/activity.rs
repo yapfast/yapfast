@@ -15,6 +15,9 @@ pub type Activities = Arc<[Activity]>;
 /// The most activities kept for one person; Discord's profile shows a few.
 const MOST: usize = 5;
 
+/// The most Rich Presence buttons an activity has, as Discord shows them.
+const BUTTONS: usize = 2;
+
 /// What an application's icon's address starts with until Discord says
 /// which picture it is; [`crate::service::Discord::download`] asks.
 const ICON: &str = "discord-app-icon:";
@@ -67,6 +70,33 @@ pub struct Activity {
     pub display: Option<Display>,
     /// The console it's played on, which its card's heading names.
     pub console: Option<Console>,
+    /// Its Rich Presence buttons, when it has any: apart, so an activity
+    /// without them holds only a pointer's worth.
+    pub buttons: Option<Box<RichButtons>>,
+}
+
+/// An activity's Rich Presence buttons, and what finding their addresses
+/// needs.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RichButtons {
+    /// The buttons, one or two, in their order.
+    pub list: Box<[ActivityButton]>,
+    /// Its presence carried metadata, which Discord's client reads the
+    /// buttons' addresses from rather than asking.
+    pub metadata: bool,
+    /// The gateway session the activity is from, by which Discord gives the
+    /// buttons' addresses.
+    pub session_id: Option<Box<str>>,
+}
+
+/// A Rich Presence button: its words, and where it goes when the presence's
+/// metadata said. Presences, others' and this account's own, carry the
+/// labels alone, and the addresses only sometimes; [`button_urls`] reads
+/// those Discord gives when one is clicked.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ActivityButton {
+    pub label: Box<str>,
+    pub url: Option<Box<str>>,
 }
 
 /// Which words of an activity the line under a name shows.
@@ -108,6 +138,7 @@ impl Activity {
             emoji: None,
             display: None,
             console: None,
+            buttons: None,
         }
     }
 
@@ -422,8 +453,66 @@ fn activity(activity: &Value) -> Option<Activity> {
             Some("ps4" | "ps5") => Some(Console::PlayStation),
             _ => None,
         },
+        buttons: buttons(activity).map(|list| {
+            Box::new(RichButtons {
+                list,
+                metadata: has_metadata(activity),
+                session_id: text("session_id"),
+            })
+        }),
         application_id,
     })
+}
+
+/// An activity's Rich Presence buttons, the first two; none without any.
+/// Presences, others' and this account's own, carry the labels as strings,
+/// and the addresses only sometimes, in `metadata.button_urls` in the same
+/// order. Only web addresses are kept, and a button without one still
+/// shows. Each keeps its place, which the addresses Discord gives later
+/// follow.
+fn buttons(activity: &Value) -> Option<Box<[ActivityButton]>> {
+    let urls = &activity["metadata"]["button_urls"];
+    let list: Box<[ActivityButton]> = activity["buttons"]
+        .as_array()?
+        .iter()
+        .take(BUTTONS)
+        .enumerate()
+        .filter_map(|(index, label)| {
+            Some(ActivityButton {
+                label: label.as_str()?.trim().into(),
+                url: web_address(urls[index].as_str()),
+            })
+        })
+        .collect();
+    (!list.is_empty()).then_some(list)
+}
+
+/// Whether the presence carried any metadata, as Discord's client asks
+/// before it reads the buttons' addresses from there.
+fn has_metadata(activity: &Value) -> bool {
+    activity["metadata"]
+        .as_object()
+        .is_some_and(|metadata| !metadata.is_empty())
+}
+
+/// The addresses Discord gives for an activity's buttons, in their order,
+/// from its metadata (`GET /users/{id}/sessions/{session}/activities/{id}/metadata`):
+/// none for a button whose address is missing or isn't a web address.
+pub fn button_urls(metadata: &Value) -> Box<[Option<Box<str>>]> {
+    metadata["button_urls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(BUTTONS)
+        .map(|url| web_address(url.as_str()))
+        .collect()
+}
+
+/// `url` when it's a web address, the only kind a button opens.
+fn web_address(url: Option<&str>) -> Option<Box<str>> {
+    url.map(str::trim)
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .map(Box::from)
 }
 
 /// A Spotify song's or episode's page, from the activity's `sync_id`, as
@@ -914,5 +1003,59 @@ mod tests {
             own(&[status], &[]).is_empty(),
             "a custom status has its own line"
         );
+    }
+
+    #[test]
+    fn reads_rich_presence_buttons_with_the_addresses_sent() {
+        let sent = activities(&json!([{
+            "type": 0,
+            "name": "Factorio",
+            "session_id": "b0b5e551000000000000000000fac70f",
+            "buttons": ["Join the factory", "Mod list", "A third"],
+            "metadata": {"button_urls": ["https://factorio.com/", "javascript:alert(1)"]},
+        }]));
+        let rich = sent[0].buttons.as_deref().expect("its buttons");
+        let buttons: Vec<_> = rich
+            .list
+            .iter()
+            .map(|button| (&*button.label, button.url.as_deref()))
+            .collect();
+        assert_eq!(
+            buttons,
+            [
+                ("Join the factory", Some("https://factorio.com/")),
+                ("Mod list", None),
+            ],
+            "two at most, as Discord shows, and only web addresses"
+        );
+        assert!(rich.metadata);
+        assert_eq!(
+            rich.session_id.as_deref(),
+            Some("b0b5e551000000000000000000fac70f")
+        );
+        // As others' presences mostly come: the labels alone.
+        let labels = activities(&json!([{
+            "type": 0,
+            "name": "Factorio",
+            "session_id": "b0b5e551000000000000000000fac70f",
+            "buttons": ["Join the factory", "Mod list"],
+        }]));
+        let rich = labels[0].buttons.as_deref().expect("its buttons");
+        assert_eq!(rich.list.len(), 2);
+        assert!(rich.list.iter().all(|button| button.url.is_none()));
+        assert!(!rich.metadata, "nothing to read them from");
+        // An activity without buttons keeps nothing of them, its session
+        // included.
+        let none = activities(&json!([
+            {"type": 0, "name": "Zed", "session_id": "abc"},
+            {"type": 0, "name": "Halo", "session_id": "abc", "buttons": []},
+        ]));
+        assert!(none.iter().all(|activity| activity.buttons.is_none()));
+        // What Discord gives on a click, in the buttons' order.
+        let urls = button_urls(&json!({
+            "button_urls": ["https://factorio.com/", "javascript:alert(1)", "https://example.com/"],
+        }));
+        assert_eq!(&*urls, [Some("https://factorio.com/".into()), None]);
+        assert!(button_urls(&json!({})).is_empty());
     }
 }

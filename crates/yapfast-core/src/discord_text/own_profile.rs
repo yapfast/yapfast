@@ -150,6 +150,42 @@ pub(super) fn command(
                 let _ = events.send(Event::ProfileRecent { user, recent });
             });
         }
+        // Read-only, and only on a click, as Discord's client asks.
+        DiscordCommand::ActivityLinks {
+            user,
+            session,
+            application,
+        } => {
+            let Ok(discord) = discord else {
+                let why = discord.err().unwrap_or(NOT_DISCORD);
+                let _ = events.send(Event::ActivityLinks {
+                    user,
+                    session,
+                    application,
+                    result: Err(why.into()),
+                });
+                return None;
+            };
+            let discord = discord.clone();
+            tokio::spawn(async move {
+                let result = discord
+                    .activity_button_urls(&user, &session, &application)
+                    .await
+                    .map(|urls| {
+                        urls.into_vec()
+                            .into_iter()
+                            .map(|url| url.map(String::from))
+                            .collect()
+                    })
+                    .map_err(|error| error.to_string());
+                let _ = events.send(Event::ActivityLinks {
+                    user,
+                    session,
+                    application,
+                    result,
+                });
+            });
+        }
         DiscordCommand::ProfilePicture { kind, path } => {
             tokio::task::spawn_blocking(move || {
                 let result = read_picture(&path, kind);

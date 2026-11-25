@@ -34,14 +34,17 @@ fn font(file: &str) -> Option<&'static [u8]> {
 
 /// Writes a spec's theme into a fresh folder and runs the checks an install
 /// runs on it, returning why it's refused, if it is.
-fn refused(spec: &Spec, picture: Option<&[u8]>) -> Option<String> {
+fn refused(spec: &Spec) -> Option<String> {
     let folder = tempfile::tempdir().expect("a temporary folder");
-    if let Some(jpeg) = picture {
-        store_picture(folder.path(), jpeg).expect("kept");
-    }
     let derived = derive(spec);
-    write_folder(folder.path(), spec, "Test", "custom:1", &derived, font).expect("written");
-    let files = Files::read(folder.path()).expect("read back");
+    refused_in(folder.path(), spec, &derived)
+}
+
+/// Each case replaces the manifest, while the folder keeps its fonts and
+/// its picture, if any. The installer reads the files the new manifest names.
+fn refused_in(folder: &Path, spec: &Spec, derived: &Derived) -> Option<String> {
+    write_folder(folder, spec, "Test", "custom:1", derived, font).expect("written");
+    let files = Files::read(folder).expect("read back");
     let report = check(&files, Strictness::Install);
     report.reason()
 }
@@ -190,6 +193,7 @@ fn every_derived_theme_passes_the_contrast_checks() {
     // Accents round the wheel at several lightnesses and strengths, on dark
     // and light grounds tinted every way, with every message style and with
     // and without glass: each must install, with no contrast refused.
+    let folder = tempfile::tempdir().expect("a temporary folder");
     let mut tried = 0;
     for hue in (0..360).step_by(30) {
         for (lightness, chroma) in [
@@ -218,7 +222,11 @@ fn every_derived_theme_passes_the_contrast_checks() {
                         density: [Density::Compact, Density::Cozy, Density::Roomy][index % 3],
                         ..Spec::default()
                     };
-                    assert_eq!(refused(&spec, None), None, "{spec:?}");
+                    assert_eq!(
+                        refused_in(folder.path(), &spec, &derive(&spec)),
+                        None,
+                        "{spec:?}"
+                    );
                 }
             }
         }
@@ -272,6 +280,8 @@ fn text_reads_over_any_picture_with_or_without_glass() {
     ];
     for picture in &pictures {
         let prepared = prepare_picture(&jpeg(picture)).expect("a picture");
+        let folder = tempfile::tempdir().expect("a temporary folder");
+        store_picture(folder.path(), &prepared.jpeg).expect("kept");
         for glass in [false, true] {
             for dim in [0, 35, 100] {
                 let spec = Spec {
@@ -283,9 +293,10 @@ fn text_reads_over_any_picture_with_or_without_glass() {
                     dim,
                     ..Spec::default()
                 };
-                assert_eq!(refused(&spec, Some(&prepared.jpeg)), None, "{spec:?}");
+                let derived = derive(&spec);
+                assert_eq!(refused_in(folder.path(), &spec, &derived), None, "{spec:?}");
                 // Dimmed at least as much as asked.
-                assert!(derive(&spec).dim + 0.001 >= f32::from(dim) / 100.0 * 0.85);
+                assert!(derived.dim + 0.001 >= f32::from(dim) / 100.0 * 0.85);
             }
         }
     }
@@ -365,7 +376,7 @@ fn the_default_spec_is_a_plain_theme() {
     for layer in ["shape", "type", "spacing", "layout", "art"] {
         assert!(value.get(layer).is_none(), "{layer} set by default");
     }
-    assert_eq!(refused(&spec, None), None);
+    assert_eq!(refused(&spec), None);
 }
 
 #[test]
@@ -376,7 +387,7 @@ fn every_built_in_font_ships_and_passes() {
             headings: Some("tech".to_owned()),
             ..Spec::default()
         };
-        assert_eq!(refused(&spec, None), None, "{}", font.key);
+        assert_eq!(refused(&spec), None, "{}", font.key);
     }
 }
 
@@ -538,7 +549,7 @@ fn a_font_that_isnt_one_is_never_copied() {
 fn hovers_are_washes_that_keep_text_readable_on_every_ground() {
     // A picture's colours as the creator reads them: bright, middling and
     // dark, and the grey-brown of the theme that showed a solid slab.
-    let pictures: Vec<(PreparedPicture, Vec<u8>)> = [
+    let pictures = [
         solid(64, 64, |_, _| [250, 245, 235]),
         solid(64, 64, |_, _| [128, 120, 118]),
         solid(64, 64, |x, y| {
@@ -550,12 +561,14 @@ fn hovers_are_washes_that_keep_text_readable_on_every_ground() {
         }),
         solid(64, 64, |_, _| [0x1f, 0x1e, 0x1e]),
     ]
-    .iter()
     .map(|picture| {
-        let bytes = jpeg(picture);
-        (prepare_picture(&bytes).expect("a picture"), bytes)
-    })
-    .collect();
+        let bytes = jpeg(&picture);
+        let prepared = prepare_picture(&bytes).expect("a picture");
+        let folder = tempfile::tempdir().expect("a temporary folder for this picture");
+        store_picture(folder.path(), &bytes).expect("kept");
+        (prepared.picture, folder)
+    });
+    let plain = tempfile::tempdir().expect("a temporary folder for solid backgrounds");
     let mut tried = 0;
     for hue in (0..360).step_by(45) {
         for (lightness, chroma) in [(0.45, 0.15), (0.7, 0.18), (0.95, 0.04)] {
@@ -571,8 +584,7 @@ fn hovers_are_washes_that_keep_text_readable_on_every_ground() {
                             background,
                             glass,
                             dim: [0, 35, 100][index % 3],
-                            picture: (background == Background::Picture)
-                                .then(|| picture.0.picture.clone()),
+                            picture: (background == Background::Picture).then(|| picture.0.clone()),
                             ..Spec::default()
                         };
                         let derived = derive(&spec);
@@ -636,8 +648,12 @@ fn hovers_are_washes_that_keep_text_readable_on_every_ground() {
                             }
                         }
                         // And the theme still installs.
-                        let stored = (background == Background::Picture).then_some(&picture.1[..]);
-                        assert_eq!(refused(&spec, stored), None, "{spec:?}");
+                        let folder = if background == Background::Picture {
+                            picture.1.path()
+                        } else {
+                            plain.path()
+                        };
+                        assert_eq!(refused_in(folder, &spec, &derived), None, "{spec:?}");
                     }
                 }
             }
