@@ -126,7 +126,10 @@ recording. Each change is kept at once in
   the window icon applies where the desktop uses X11 window icons. Desktops
   that use the application's desktop entry show the launcher icon there.
   Then the system title bar's switch, where Yapfast can draw its own, and
-  the profile switches, which the core is told of.
+  the profile switches, which the core is told of. The member list's own
+  section has Show activity cards, which keeps `activity_cards_hidden` —
+  the pref the panel's eye writes — and off leaves no heading, no eye and
+  no height where the cards were.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those

@@ -268,9 +268,9 @@ impl Roster {
     }
 
     /// The Activity panel's height over a list that shows (`shown`),
-    /// which the list starts below.
+    /// which the list starts below; none at all while the cards are hidden.
     pub fn activity_height(&self, state: &yapfast_core::application::AppState, shown: bool) -> f32 {
-        if self.activity_cards.is_empty() || !shown {
+        if self.activity_cards.is_empty() || !shown || state.activity_cards_hidden {
             return 0.0;
         }
         PANEL_TOP + ACTIVITY_HEAD + self.cards_shown(state) as f32 * CARD_PITCH + PANEL_BOTTOM
@@ -2697,7 +2697,9 @@ impl<'a> View<'a> {
     /// as Discord's: 8 px corners and padding, an outline, the name, the
     /// title in bold, the kind's icon with the time, the picture.
     fn activity_panel(self) -> Option<Element<'a, Message>> {
-        if self.s.activity_cards.is_empty() {
+        // Hidden, the panel goes whole: no heading, no eye, nothing left to
+        // open, so the list starts at its members.
+        if self.s.activity_cards.is_empty() || self.cx.state.activity_cards_hidden {
             return None;
         }
         let theme = self.cx.look.theme;

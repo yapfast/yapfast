@@ -185,6 +185,36 @@ fn a_right_click_on_an_activity_card_opens_its_menu_at_the_pointer() {
     );
 }
 
+/// Hidden, the Activity panel goes whole: no heading, no eye, no card, and
+/// no height for the list to start below.
+#[test]
+fn hidden_activity_cards_take_the_panel_whole() {
+    let (mut app, _folder) = preview();
+    app.show_roster(false);
+    app.roster.activity_cards = vec![crate::members::ActivityCard {
+        id: "riley".into(),
+        name: "Riley".into(),
+        avatar: None,
+        game: "Stardew Valley".into(),
+        since: "for 5m".into(),
+        thumb: None,
+        icon: 0,
+        live: true,
+    }];
+    let heading = "Activity \u{2014} 1";
+    sent(&app, |ui| {
+        ui.find("Stardew Valley").expect("the card");
+        ui.find(heading).expect("the panel's heading");
+    });
+    assert!(app.roster.activity_height(app.client.state(), true) > 0.0);
+    change(&mut app, |state| state.activity_cards_hidden = true);
+    sent(&app, |ui| {
+        assert!(ui.find("Stardew Valley").is_err(), "no card");
+        assert!(ui.find(heading).is_err(), "no heading");
+    });
+    assert_eq!(app.roster.activity_height(app.client.state(), true), 0.0);
+}
+
 #[test]
 fn the_hover_bar_of_a_grouped_message_keeps_it_where_it_reaches_over_the_row_above() {
     let (mut app, _folder) = preview();

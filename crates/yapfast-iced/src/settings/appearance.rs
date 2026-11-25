@@ -245,6 +245,9 @@ pub enum Cosmetic {
     NameStyles,
     ServerTags,
     Frames,
+    /// The member list's activity cards, which keep their own pref,
+    /// `activity_cards_hidden`, the panel's eye also writes.
+    MemberActivity,
 }
 
 pub(super) fn theme_message(event: Event) -> Message {
@@ -774,6 +777,16 @@ fn change_sound_prefs(
 
 /// A profile switch: kept, and the core told what may now show.
 fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
+    // The member list's activity cards aren't a profile's cosmetic: the
+    // layout and the core hold whether they show, and the panel's eye
+    // writes the same pref.
+    if cosmetic == Cosmetic::MemberActivity {
+        cx.layout.activity_cards_hidden = !on;
+        cx.keep("activity_cards_hidden", !on);
+        cx.dispatch(Action::ActivityCardsHidden(!on));
+        cx.request(Request::Changed(Shown::Roster));
+        return;
+    }
     let prefs = &mut cx.layout.prefs;
     let (slot, key) = match cosmetic {
         Cosmetic::Effects => (&mut prefs.profile_effects, "profile_effects"),
@@ -783,6 +796,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
+        Cosmetic::MemberActivity => return,
     };
     *slot = Some(on);
     cx.keep(key, on);
@@ -949,6 +963,13 @@ impl<'a> Page<'a> {
                     "The frames some people put around their profile cards.",
                     cosmetics.frames,
                     Cosmetic::Frames,
+                ),
+                form::heading(theme, "MEMBER LIST"),
+                profile(
+                    "Show activity cards",
+                    "What people in the server are playing, above its member list. Off, the list starts at its members.",
+                    !self.cx.layout.activity_cards_hidden,
+                    Cosmetic::MemberActivity,
                 ),
             ]
             .spacing(12)
