@@ -3042,6 +3042,25 @@ impl Discord {
         Ok(profile::recent_entries(&self.api.outbox(user).await?))
     }
 
+    /// The addresses Discord gives for someone's Rich Presence buttons, by
+    /// the activity's session and application, in the buttons' order: asked
+    /// only on a click, as Discord's client asks.
+    pub async fn activity_button_urls(
+        &self,
+        user: &str,
+        session: &str,
+        application: &str,
+    ) -> Result<Box<[Option<Box<str>>]>> {
+        let metadata = self
+            .api
+            .activity_metadata(user, session, application)
+            .await?;
+        Ok(metadata
+            .as_ref()
+            .map(activity::button_urls)
+            .unwrap_or_default())
+    }
+
     /// Names a board's games and applications. What Discord doesn't say
     /// stays as it is, and the board shows without it.
     pub async fn name_widgets(&self, widgets: &mut [crate::widgets::Widget]) {
