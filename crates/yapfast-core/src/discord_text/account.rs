@@ -203,6 +203,7 @@ pub(super) fn command(
         user,
         effect,
         frame,
+        badges: wants_badge_levels,
     }) = command
     {
         match (discord, discord::parse_room(&room)) {
@@ -272,6 +273,9 @@ pub(super) fn command(
                         }
                     };
                     let badges_task = async {
+                        if !wants_badge_levels {
+                            return;
+                        }
                         if discord.badge_levels(&guild, &user, &mut badges).await {
                             let _ = events.send(Event::BadgeLevels {
                                 user: user.clone(),
