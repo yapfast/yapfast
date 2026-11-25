@@ -693,3 +693,99 @@ async fn next_step(shown: &mut tokio::sync::mpsc::UnboundedReceiver<Step>) -> St
         .expect("timed out linking")
         .expect("linking stopped")
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn channel_favorites_sync_both_directions_and_preserve_settings() {
+    use yapfast_discord::favorites;
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        general,
+        snapshot,
+        ..
+    } = Fixture::start("channel_favorites").await;
+    let before = status_settings(server);
+    let dm = snapshot
+        .conversations
+        .iter()
+        .find(|dm| !dm.group && !dm.request && !dm.spam)
+        .unwrap();
+    // Concurrent edits in this client are serialized read/modify/write operations.
+    let group = snapshot
+        .conversations
+        .iter()
+        .find(|dm| dm.group && !dm.request && !dm.spam)
+        .unwrap();
+    let (a, b, c) = tokio::join!(
+        discord.favorite_channel(&general, true),
+        discord.favorite_channel(&dm.id, true),
+        discord.favorite_channel(&group.id, true)
+    );
+    a.unwrap();
+    b.unwrap();
+    c.unwrap();
+    let general_id = general.parse().unwrap();
+    let dm_id = dm.id.parse().unwrap();
+    let group_id = group.id.parse().unwrap();
+    let saved = snapshot_where(&discord, |snapshot| {
+        snapshot.favorites.contains(general_id)
+            && snapshot.favorites.contains(dm_id)
+            && snapshot.favorites.contains(group_id)
+    })
+    .await;
+    assert_eq!(
+        saved
+            .favorites
+            .entries
+            .iter()
+            .find(|entry| entry.id == dm_id)
+            .unwrap()
+            .channel_type,
+        Some(1)
+    );
+    assert_eq!(
+        saved
+            .favorites
+            .entries
+            .iter()
+            .find(|entry| entry.id == group_id)
+            .unwrap()
+            .channel_type,
+        Some(3)
+    );
+    assert_eq!(status_settings(server), before);
+    // A different Discord client changes Favorites, and this gateway follows it.
+    let settings: serde_json::Value =
+        serde_json::from_str(&control(server, "GET", "/_control/settings", "")).unwrap();
+    let removed = favorites::change(
+        settings["settings"].as_str().unwrap(),
+        general_id,
+        0,
+        false,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    post_control(
+        server,
+        "/_control/settings",
+        &serde_json::json!({"settings": removed}).to_string(),
+    );
+    snapshot_where(&discord, |snapshot| {
+        !snapshot.favorites.contains(general_id) && snapshot.favorites.contains(dm_id)
+    })
+    .await;
+    post_control(server, "/_control/settings", r#"{"reject_next":true}"#);
+    assert!(discord.favorite_channel(&dm.id, false).await.is_err());
+    assert!(discord.snapshots().borrow().favorites.contains(dm_id));
+    discord.favorite_channel(&dm.id, false).await.unwrap();
+    snapshot_where(&discord, |snapshot| {
+        !snapshot.favorites.contains(dm_id) && snapshot.favorites.contains(group_id)
+    })
+    .await;
+    discord.favorite_channel(&group.id, false).await.unwrap();
+    snapshot_where(&discord, |snapshot| snapshot.favorites.entries.is_empty()).await;
+    assert_eq!(status_settings(server), before);
+}
