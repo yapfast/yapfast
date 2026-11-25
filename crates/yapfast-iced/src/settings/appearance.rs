@@ -244,6 +244,7 @@ pub enum Cosmetic {
     Moving,
     NameStyles,
     ServerTags,
+    Badges,
     Frames,
 }
 
@@ -782,6 +783,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::Moving => (&mut prefs.moving_cosmetics, "moving_cosmetics"),
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
+        Cosmetic::Badges => (&mut prefs.badges, "badges"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
     };
     *slot = Some(on);
@@ -949,6 +951,12 @@ impl<'a> Page<'a> {
                     "The frames some people put around their profile cards.",
                     cosmetics.frames,
                     Cosmetic::Frames,
+                ),
+                profile(
+                    "Show badges",
+                    "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for.",
+                    cosmetics.badges,
+                    Cosmetic::Badges,
                 ),
             ]
             .spacing(12)
