@@ -79,6 +79,8 @@ fn links_discord_by_qr_code_and_unlinks_it() {
     assert!(!app.state.discord_linked);
     assert_eq!(app.state.discord_user, None);
     assert!(app.state.discord_friends.is_empty());
+    // Linked by QR code, its session ended: nothing to say.
+    assert!(!app.state.discord_session_kept);
 
     // Stopping linking ignores what the stopped linking says next.
     app.dispatch(Action::LinkDiscord);
@@ -608,4 +610,25 @@ fn going_idle_while_signed_out_tells_nobody() {
             DiscordCommand::Inactive { .. }
         ))]
     ));
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn says_a_pasted_tokens_session_stays_signed_in_until_linking_again() {
+    let mut app = connected();
+    app.state.discord_linked = true;
+    app.dispatch(Action::UnlinkDiscord);
+    app.apply(Event::DiscordUnlinked);
+    app.apply(Event::DiscordSessionKept);
+    assert!(app.state.discord_session_kept);
+    app.dispatch(Action::LinkDiscordToken("abc.def.ghi".into()));
+    assert!(!app.state.discord_session_kept);
+
+    // Signing out of a build without Matrix: the screen it resets to says so.
+    let mut app = connected();
+    app.apply(Event::LoggedOut);
+    app.apply(Event::DiscordSessionKept);
+    assert!(app.state.discord_session_kept);
+    app.dispatch(Action::LinkDiscord);
+    assert!(!app.state.discord_session_kept);
 }

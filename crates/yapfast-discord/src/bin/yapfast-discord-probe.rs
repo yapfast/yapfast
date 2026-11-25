@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("store-token") => {
             let token = read_hidden("Paste the test account's token (hidden): ")?;
-            token::store(&token)?;
+            token::store_as(&token, token::Origin::Pasted)?;
             println!("Saved in the OS credential store.");
             whoami().await
         }

@@ -43,8 +43,10 @@ pub struct ListedMember {
     /// The server tag they wear by their name.
     pub tag: Option<Tag>,
     pub presence: Presence,
-    /// The RGB colour of their highest coloured role.
+    /// The RGB colour of their highest coloured role, and where its
+    /// gradient ends when that role's name is one.
     pub color: Option<u32>,
+    pub color_end: Option<(u32, Option<u32>)>,
     /// Their custom status, else what they're doing, as Discord shows it.
     pub activity: Option<String>,
     /// What they're doing, in full, as their profile shows it.
@@ -341,6 +343,7 @@ impl MemberList {
                         tag: names.server_tag(user).cloned(),
                         presence: person.presence,
                         color: server.and_then(|server| server.color(&person.roles)),
+                        color_end: server.and_then(|server| server.gradient(&person.roles)),
                         activity: person.activity,
                         activities: person.activities,
                         roles: person.roles,

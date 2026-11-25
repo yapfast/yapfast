@@ -316,6 +316,7 @@ impl App {
                 self.shown_protected = self.protected();
                 self.show_wanted_theme();
             }
+            Pref::DesktopIcon(target) => task = self.change_desktop_icon(target),
             Pref::Noise => {
                 let suppressor = self.layout.voice.noise_suppression;
                 if suppressor != yapfast_core::noise::Suppressor::Off {

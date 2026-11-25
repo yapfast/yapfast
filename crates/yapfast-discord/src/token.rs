@@ -6,10 +6,12 @@
 //! one of them is the active account, which Yapfast connects.
 //! Each account is one credential, `discord-account-<id>`: its login, and the
 //! little the account switcher shows of it before it connects (its username,
-//! name, and its avatar's address). Another, `discord-accounts`, lists their
-//! ids and says which is active. A login linked before there could be several,
-//! under `discord-token`, becomes an account of its own the first time
-//! they're read.
+//! name, and its avatar's address) and how it was linked ([`Origin`]), which
+//! decides whether logging it out ends its session on Discord. Another,
+//! `discord-accounts`, lists their ids and says which is active. A login
+//! linked before there could be several, under `discord-token`, becomes an
+//! account of its own the first time they're read, linked as the marker
+//! beside it, `discord-token-origin`, says.
 
 use std::{
     collections::HashMap,
@@ -37,8 +39,82 @@ const ACCOUNT_PREFIX: &str = "discord-account-";
 const ACCOUNT: &str = "discord-token";
 /// Where the first probe kept the token; moved the same way.
 const EARLIER_ACCOUNT: &str = "discord-probe-token";
+/// How the login under `ACCOUNT` was linked, as [`marker`] writes it, kept
+/// beside it before there could be several; moved into its account with it.
+const ORIGIN: &str = "discord-token-origin";
 /// The key of the files [`crate::cache`] keeps, in hex.
 const CACHE_KEY: &str = "discord-cache-key";
+
+/// How a login came to Yapfast, which decides whether logging it out ends its
+/// session on Discord.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Origin {
+    /// Yapfast's own login, by QR code: a session of its own.
+    Qr,
+    /// A token the person pasted: the session of the app or browser it was
+    /// copied from.
+    Pasted,
+    /// Linked before Yapfast kept how, or by the developer probe.
+    Unknown,
+}
+
+impl Origin {
+    /// Whether logging out ends the session on Discord: only for Yapfast's
+    /// own login. Ending a pasted token's session signs out the app it came
+    /// from, so an unknown one is left as a pasted one is.
+    pub fn ends_session(self) -> bool {
+        self == Self::Qr
+    }
+
+    /// As an account's credential keeps it: empty for [`Origin::Unknown`].
+    fn name(self) -> &'static str {
+        match self {
+            Self::Qr => "qr",
+            Self::Pasted => "pasted",
+            Self::Unknown => "",
+        }
+    }
+
+    /// What [`Origin::name`] wrote; unknown for anything else.
+    fn named(name: &str) -> Self {
+        match name {
+            "qr" => Self::Qr,
+            "pasted" => Self::Pasted,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// What [`ORIGIN`] kept for `token` linked as `origin`: how, and a hash of
+/// the login it's for, so one left beside another login, by an earlier
+/// version say, doesn't count. Nothing for [`Origin::Unknown`].
+#[cfg(test)]
+fn marker(origin: Origin, token: &str) -> Option<String> {
+    match origin {
+        Origin::Unknown => None,
+        origin => Some(format!("{} {}", origin.name(), fingerprint(token))),
+    }
+}
+
+fn fingerprint(token: &str) -> String {
+    let mut hash = String::with_capacity(64);
+    for byte in Sha256::digest(token.as_bytes()) {
+        let _ = write!(hash, "{byte:02x}");
+    }
+    hash
+}
+
+/// How `token` was linked, by the [`ORIGIN`] marker kept beside it: unknown
+/// without one, or with one for another login or that can't be read.
+fn origin_in(marker: Option<&str>, token: &str) -> Origin {
+    let Some((how, hash)) = marker.and_then(|marker| marker.split_once(' ')) else {
+        return Origin::Unknown;
+    };
+    if hash != fingerprint(token) {
+        return Origin::Unknown;
+    }
+    Origin::named(how)
+}
 
 fn named(account: &str) -> Result<Entry> {
     Entry::new(SERVICE, account).map_err(|_| anyhow!("could not access the OS credential store"))
@@ -107,8 +183,9 @@ impl Vault for Memory {
 }
 
 /// With the test server, the links last while Yapfast runs. It starts with
-/// [`crate::client::TEST_TOKEN`] linked, unless `YAPFAST_DISCORD_TEST_UNLINKED`
-/// is set, which shows linking against the fake. With
+/// [`crate::client::TEST_TOKEN`] linked, not saying how, as a login an earlier
+/// version linked, unless `YAPFAST_DISCORD_TEST_UNLINKED` is set, which
+/// shows linking against the fake. With
 /// `YAPFAST_DISCORD_TEST_SECOND_ACCOUNT` set, [`crate::client::TEST_SECOND_TOKEN`]
 /// is linked too, which shows the account switcher with two. With
 /// `YAPFAST_DISCORD_TEST_LEGACY_ACCOUNT` set, only the login an earlier version
@@ -124,7 +201,7 @@ fn test_vault() -> &'static Memory {
             let _ = memory.write(ACCOUNT, crate::client::TEST_TOKEN);
         } else if !set("YAPFAST_DISCORD_TEST_UNLINKED") {
             let id = id_of(crate::client::TEST_TOKEN);
-            let _ = link(&memory, crate::client::TEST_TOKEN, true);
+            let _ = link(&memory, crate::client::TEST_TOKEN, true, None);
             let _ = describe_in(
                 &memory,
                 &id,
@@ -134,7 +211,7 @@ fn test_vault() -> &'static Memory {
             );
             if set("YAPFAST_DISCORD_TEST_SECOND_ACCOUNT") {
                 let id = id_of(crate::client::TEST_SECOND_TOKEN);
-                let _ = link(&memory, crate::client::TEST_SECOND_TOKEN, false);
+                let _ = link(&memory, crate::client::TEST_SECOND_TOKEN, false, None);
                 let _ = describe_in(
                     &memory,
                     &id,
@@ -196,10 +273,14 @@ impl Index {
     }
 }
 
-/// An account's credential: its login, and what the switcher shows of it.
+/// An account's credential: its login, how it was linked, and what the
+/// switcher shows of it.
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {
     token: String,
+    /// [`Origin::name`]; empty, or missing, when Yapfast can't tell.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    linked: String,
     #[serde(default)]
     username: String,
     #[serde(default)]
@@ -284,7 +365,9 @@ fn write_saved(vault: &dyn Vault, id: &str, saved: &Saved) -> Result<()> {
     vault.write(&account_name(id), &serde_json::to_string(saved)?)
 }
 
-/// The login linked before there could be several, made the account of its own.
+/// The login linked before there could be several, made the account of its
+/// own, linked as the marker beside it says: one without a marker of its own
+/// is unknown, as it was then.
 fn migrate(vault: &dyn Vault) -> Result<Index> {
     let mut index = Index::default();
     for earlier in [ACCOUNT, EARLIER_ACCOUNT] {
@@ -292,11 +375,13 @@ fn migrate(vault: &dyn Vault) -> Result<Index> {
             continue;
         };
         let id = id_of(&token);
+        let origin = origin_in(vault.read(ORIGIN)?.as_deref(), &token);
         write_saved(
             vault,
             &id,
             &Saved {
                 token,
+                linked: origin.name().to_owned(),
                 ..Saved::default()
             },
         )?;
@@ -305,7 +390,7 @@ fn migrate(vault: &dyn Vault) -> Result<Index> {
             ids: vec![id],
         };
         write_index(vault, &index)?;
-        for earlier in [ACCOUNT, EARLIER_ACCOUNT] {
+        for earlier in [ACCOUNT, EARLIER_ACCOUNT, ORIGIN] {
             vault.delete(earlier)?;
         }
         break;
@@ -329,8 +414,10 @@ fn locate(vault: &dyn Vault, index: &Index, token: &str) -> Result<Option<String
 }
 
 /// Links `token`, or, if its account is linked already, takes its new login.
-/// `activate` makes it the active account.
-fn link(vault: &dyn Vault, token: &str, activate: bool) -> Result<String> {
+/// `activate` makes it the active account. A login linked as `origin` keeps
+/// it; with none, an account linked already stays as it was linked, and a new
+/// one is unknown.
+fn link(vault: &dyn Vault, token: &str, activate: bool, origin: Option<Origin>) -> Result<String> {
     let mut index = read_index(vault)?;
     let id = match locate(vault, &index, token)? {
         Some(id) => id,
@@ -342,6 +429,9 @@ fn link(vault: &dyn Vault, token: &str, activate: bool) -> Result<String> {
     };
     let mut saved = read_saved(vault, &id)?.unwrap_or_default();
     token.clone_into(&mut saved.token);
+    if let Some(origin) = origin {
+        origin.name().clone_into(&mut saved.linked);
+    }
     write_saved(vault, &id, &saved)?;
     if activate || index.active().is_none() {
         index.active = Some(id.clone());
@@ -408,16 +498,24 @@ fn forget_in(vault: &dyn Vault, id: &str) -> Result<(bool, Option<String>)> {
     Ok((was_active, index.active().map(str::to_owned)))
 }
 
-/// Links the account `token` belongs to, and makes it the active one; one
-/// linked already takes the login.
+/// Links the account `token` belongs to, linked as `origin`, and makes it the
+/// active one; one linked already takes the login and how it came.
+pub fn store_as(token: &str, origin: Origin) -> Result<()> {
+    let token = clean(token)?;
+    with_vault(|vault| link(vault, &token, true, Some(origin)).map(drop))
+}
+
+/// Links the account `token` belongs to, and makes it the active one, not
+/// saying how: one linked already takes the login and stays as it was
+/// linked, and a new one is [`Origin::Unknown`].
 pub fn store(token: &str) -> Result<()> {
     let token = clean(token)?;
-    with_vault(|vault| link(vault, &token, true).map(drop))
+    with_vault(|vault| link(vault, &token, true, None).map(drop))
 }
 
 /// Discord refreshed the login `earlier` to `token`: its account keeps it,
-/// where it was in the list and whether it's the active one. Nothing is
-/// linked if the account was logged out meanwhile.
+/// where it was in the list, whether it's the active one and how it was
+/// linked. Nothing is linked if the account was logged out meanwhile.
 pub fn refresh(earlier: &str, token: &str) -> Result<()> {
     with_vault(|vault| {
         let index = read_index(vault)?;
@@ -455,6 +553,25 @@ pub fn load() -> Result<String> {
             _ => Err(NotLinked.into()),
         }
     })
+}
+
+/// How the active account was linked: [`Origin::Unknown`] when none is, or
+/// Yapfast can't tell.
+pub fn origin() -> Origin {
+    with_vault(|vault| match read_index(vault)?.active() {
+        Some(id) => origin_in_vault(vault, id),
+        None => Ok(Origin::Unknown),
+    })
+    .unwrap_or(Origin::Unknown)
+}
+
+/// How the account `id` was linked, whichever is active.
+pub fn origin_of(id: &str) -> Origin {
+    with_vault(|vault| origin_in_vault(vault, id)).unwrap_or(Origin::Unknown)
+}
+
+fn origin_in_vault(vault: &dyn Vault, id: &str) -> Result<Origin> {
+    Ok(read_saved(vault, id)?.map_or(Origin::Unknown, |saved| Origin::named(&saved.linked)))
 }
 
 /// The login of the account `id`, whichever is active.
@@ -526,7 +643,7 @@ pub fn forget() -> Result<()> {
         for id in read_index(vault)?.ids {
             vault.delete(&account_name(&id))?;
         }
-        for name in [INDEX, ACCOUNT, EARLIER_ACCOUNT, CACHE_KEY] {
+        for name in [INDEX, ACCOUNT, EARLIER_ACCOUNT, ORIGIN, CACHE_KEY] {
             vault.delete(name)?;
         }
         Ok(())
@@ -638,8 +755,8 @@ mod tests {
             login("100000000000000001", "a"),
             login("100000000000000002", "b"),
         );
-        link(&vault, &first, true).unwrap();
-        link(&vault, &second, true).unwrap();
+        link(&vault, &first, true, None).unwrap();
+        link(&vault, &second, true, None).unwrap();
         let listing = listing_in(&vault).unwrap();
         assert_eq!(listing.active.as_deref(), Some("100000000000000002"));
         assert_eq!(ids(&vault), ["100000000000000001", "100000000000000002"]);
@@ -648,9 +765,9 @@ mod tests {
     #[test]
     fn linking_an_account_again_takes_its_new_login_and_activates_it() {
         let vault = Memory::default();
-        link(&vault, &login("100000000000000001", "old"), true).unwrap();
-        link(&vault, &login("100000000000000002", "b"), true).unwrap();
-        link(&vault, &login("100000000000000001", "new"), true).unwrap();
+        link(&vault, &login("100000000000000001", "old"), true, None).unwrap();
+        link(&vault, &login("100000000000000002", "b"), true, None).unwrap();
+        link(&vault, &login("100000000000000001", "new"), true, None).unwrap();
         assert_eq!(ids(&vault).len(), 2, "one account, not two");
         let listing = listing_in(&vault).unwrap();
         assert_eq!(listing.active.as_deref(), Some("100000000000000001"));
@@ -662,7 +779,7 @@ mod tests {
     fn describes_an_account_for_the_switcher() {
         let vault = Memory::default();
         let token = login("100000000000000001", "a");
-        let id = link(&vault, &token, true).unwrap();
+        let id = link(&vault, &token, true, None).unwrap();
         assert_eq!(listing_in(&vault).unwrap().accounts[0].name, "");
         describe_in(&vault, &id, "ann", "Ann", "https://cdn/ann.png").unwrap();
         let account = listing_in(&vault).unwrap().accounts.remove(0);
@@ -684,8 +801,8 @@ mod tests {
         let vault = Memory::default();
         // Logins that don't spell an id are named by a hash of the first, which
         // the refreshed one doesn't match: it is found by the login it replaces.
-        let id = link(&vault, "first-login", true).unwrap();
-        link(&vault, "other-login", true).unwrap();
+        let id = link(&vault, "first-login", true, None).unwrap();
+        link(&vault, "other-login", true, None).unwrap();
         let index = read_index(&vault).unwrap();
         assert_eq!(
             locate(&vault, &index, "first-login").unwrap(),
@@ -708,6 +825,7 @@ mod tests {
                 &vault,
                 &login(&format!("10000000000000000{number}"), "x"),
                 true,
+                None,
             )
             .unwrap();
         }
@@ -756,5 +874,95 @@ mod tests {
         };
         assert_eq!(index.active(), Some("a"));
         assert_eq!(Index::default().active(), None);
+    }
+
+    #[test]
+    fn only_yapfasts_own_login_ends_its_session() {
+        assert!(Origin::Qr.ends_session());
+        assert!(!Origin::Pasted.ends_session());
+        assert!(!Origin::Unknown.ends_session());
+    }
+
+    #[test]
+    fn reads_how_a_login_was_linked() {
+        for origin in [Origin::Qr, Origin::Pasted] {
+            let kept = marker(origin, "abc.def.ghi");
+            assert_eq!(origin_in(kept.as_deref(), "abc.def.ghi"), origin);
+            assert_eq!(Origin::named(origin.name()), origin);
+        }
+        assert_eq!(marker(Origin::Unknown, "abc.def.ghi"), None);
+        assert_eq!(Origin::named(""), Origin::Unknown);
+    }
+
+    #[test]
+    fn a_login_without_a_marker_of_its_own_is_unknown() {
+        // Linked before Yapfast kept how.
+        assert_eq!(origin_in(None, "abc.def.ghi"), Origin::Unknown);
+        // A marker left beside another login.
+        let other = marker(Origin::Qr, "old.login.here");
+        assert_eq!(origin_in(other.as_deref(), "abc.def.ghi"), Origin::Unknown);
+        // One that can't be read.
+        assert_eq!(origin_in(Some("qr"), "abc.def.ghi"), Origin::Unknown);
+        let hash = marker(Origin::Qr, "abc.def.ghi").unwrap();
+        let odd = hash.replacen("qr", "phone", 1);
+        assert_eq!(origin_in(Some(&odd), "abc.def.ghi"), Origin::Unknown);
+    }
+
+    #[test]
+    fn each_account_keeps_how_it_was_linked() {
+        let vault = Memory::default();
+        let (qr, pasted) = (
+            login("100000000000000001", "a"),
+            login("100000000000000002", "b"),
+        );
+        let qr_id = link(&vault, &qr, true, Some(Origin::Qr)).unwrap();
+        let pasted_id = link(&vault, &pasted, true, Some(Origin::Pasted)).unwrap();
+        assert_eq!(origin_in_vault(&vault, &qr_id).unwrap(), Origin::Qr);
+        assert_eq!(origin_in_vault(&vault, &pasted_id).unwrap(), Origin::Pasted);
+
+        // A login Discord refreshed keeps how its account was linked, and so
+        // does linking it again without saying how.
+        let mut saved = read_saved(&vault, &qr_id).unwrap().unwrap();
+        saved.token = login("100000000000000001", "refreshed");
+        write_saved(&vault, &qr_id, &saved).unwrap();
+        link(&vault, &login("100000000000000001", "again"), false, None).unwrap();
+        assert_eq!(origin_in_vault(&vault, &qr_id).unwrap(), Origin::Qr);
+        // Linking it again by pasting its token makes it a pasted one.
+        link(
+            &vault,
+            &login("100000000000000001", "c"),
+            false,
+            Some(Origin::Pasted),
+        )
+        .unwrap();
+        assert_eq!(origin_in_vault(&vault, &qr_id).unwrap(), Origin::Pasted);
+        // One linked without saying how is unknown, and so is one not linked.
+        let other = link(&vault, &login("100000000000000003", "d"), false, None).unwrap();
+        assert_eq!(origin_in_vault(&vault, &other).unwrap(), Origin::Unknown);
+        assert_eq!(
+            origin_in_vault(&vault, "100000000000000009").unwrap(),
+            Origin::Unknown
+        );
+    }
+
+    #[test]
+    fn the_moved_login_keeps_how_it_was_linked() {
+        let token = login("100000000000000001", "a");
+        let moved = |marker: Option<String>| {
+            let vault = Memory::default();
+            vault.write(ACCOUNT, &token).unwrap();
+            if let Some(marker) = marker {
+                vault.write(ORIGIN, &marker).unwrap();
+            }
+            let id = listing_in(&vault).unwrap().active.unwrap();
+            assert!(vault.read(ORIGIN).unwrap().is_none(), "moved, not copied");
+            origin_in_vault(&vault, &id).unwrap()
+        };
+        assert_eq!(moved(marker(Origin::Qr, &token)), Origin::Qr);
+        assert_eq!(moved(marker(Origin::Pasted, &token)), Origin::Pasted);
+        // Linked before Yapfast kept how: as a pasted one, its session stays.
+        assert_eq!(moved(None), Origin::Unknown);
+        // A marker for another login doesn't count.
+        assert_eq!(moved(marker(Origin::Qr, "another.login")), Origin::Unknown);
     }
 }

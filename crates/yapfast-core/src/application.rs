@@ -613,6 +613,10 @@ pub struct AppState {
     pub discord_accounts: Vec<chat::DiscordAccount>,
     pub discord_active: String,
     pub manage_accounts: Option<ManageAccounts>,
+    /// The account last unlinked was linked with a pasted token, whose
+    /// session in the app or browser it came from stays signed in, as the
+    /// sign-in screen says until linking starts again.
+    pub discord_session_kept: bool,
     pub add_friend: Option<AddFriend>,
     /// A screen of the DM list open in place of a conversation.
     pub dm_screen: Option<DmScreen>,
@@ -1335,6 +1339,7 @@ impl AppState {
                 group_icon: None,
                 role_icon: None,
                 boosting_since: None,
+                color_end: None,
             });
         }
         // Someone in a Discord voice channel, as it lists them, the open
@@ -1367,6 +1372,7 @@ impl AppState {
                 group_icon: None,
                 role_icon: None,
                 boosting_since: None,
+                color_end: None,
             });
         }
         let target = Target::User(user.to_owned());
@@ -1399,6 +1405,7 @@ impl AppState {
             group_icon: None,
             role_icon: None,
             boosting_since: None,
+            color_end: None,
         })
     }
 
@@ -2866,8 +2873,11 @@ fn pictures_on_screen<'a>(
                 .into_iter()
                 .flatten()
                 .flat_map(move |room| {
+                    let group = room.group_avatars.as_ref();
                     [
                         room.avatar.as_deref(),
+                        group.map(|pair| pair[0].avatar.as_str()),
+                        group.map(|pair| pair[1].avatar.as_str()),
                         cosmetics.decoration(room.decoration.as_deref()),
                         tag_badge(cosmetics, &room.tag),
                     ]
@@ -2875,11 +2885,14 @@ fn pictures_on_screen<'a>(
                 .flatten()
                 .take(LISTED_PICTURES),
         )
-        .chain(
-            state
-                .selected_room()
-                .and_then(|room| room.avatar.as_deref()),
-        )
+        .chain(state.selected_room().into_iter().flat_map(|room| {
+            room.avatar.as_deref().into_iter().chain(
+                room.group_avatars
+                    .iter()
+                    .flatten()
+                    .map(|member| member.avatar.as_str()),
+            )
+        }))
         // A DM's row shows its nameplate only selected or under the pointer.
         .chain(
             state
@@ -4157,6 +4170,7 @@ impl Application {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Starting);
+                self.state.discord_session_kept = false;
                 vec![Effect::LinkDiscord]
             }
             Action::LinkDiscordToken(token) => {
@@ -4167,6 +4181,7 @@ impl Application {
                     return vec![];
                 }
                 self.state.discord_link = Some(DiscordLink::Checking);
+                self.state.discord_session_kept = false;
                 vec![Effect::LinkDiscordToken(token)]
             }
             Action::OpenDiscordCaptcha => match &self.state.discord_link {
@@ -4961,6 +4976,7 @@ impl Application {
                     self.state.manage_accounts = None;
                 }
             }
+            Event::DiscordSessionKept => self.state.discord_session_kept = true,
             Event::Note { user, result } => {
                 if let Ok(note) = &result {
                     for view in [&mut self.state.profile, &mut self.state.panel_profile]

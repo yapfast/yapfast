@@ -86,6 +86,7 @@ fn members_belong_to_the_selected_text_room() {
         group_icon: None,
         role_icon: None,
         boosting_since: None,
+        color_end: None,
     };
     app.apply(Event::Members {
         room: "games".into(),

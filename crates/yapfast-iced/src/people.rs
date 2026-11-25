@@ -242,6 +242,8 @@ pub struct NameInk<'a> {
     /// A theme list's own name ink, which beats the theme's content
     /// colours and a name style's, as Slint's `MemberLists.name-ink`.
     pub fixed: bool,
+    /// The style's font alone, in `color`: a row at rest.
+    pub plain: bool,
 }
 
 impl NameInk<'_> {
@@ -254,6 +256,7 @@ impl NameInk<'_> {
             style: None,
             key: None,
             fixed: false,
+            plain: false,
         }
     }
 }
@@ -276,6 +279,13 @@ impl<'a> NameInk<'a> {
 
     pub fn fixed(mut self, fixed: bool) -> Self {
         self.fixed = fixed;
+        self
+    }
+
+    /// The style's font alone, in the row's own colour, as a row at rest
+    /// shows it; `false` keeps the style's colours.
+    pub fn plain(mut self, plain: bool) -> Self {
+        self.plain = plain;
         self
     }
 }
@@ -411,7 +421,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             ink.style
         };
         let own = match style {
-            Some(style) if !style.colors.is_empty() => {
+            Some(style) if !style.colors.is_empty() && !ink.plain => {
                 crate::style::hex(style.main).scale_alpha(ink.color.a)
             }
             _ => ink.color,

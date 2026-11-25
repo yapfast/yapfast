@@ -1026,6 +1026,8 @@ fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
         streaming: false,
         video: false,
         elsewhere: false,
+        style: None,
+        tag: None,
     };
     // Discord lists a channel's people by name; this account is among them.
     let you = app.client.state().voice.participants[0].person.clone();
@@ -1300,6 +1302,33 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
     let room = app.client.state().voice.room.clone().expect("in a call");
     let _ = crate::call::update(&mut app, Event::Leave);
     assert!(app.call.members_hidden.contains(&room));
+}
+
+/// A call tile's name takes its person's display name style's font, as
+/// the call's voice channel lists them by user id; anyone else's is bold.
+#[test]
+fn a_call_tiles_name_takes_its_persons_style_font() {
+    use std::sync::Arc;
+    use yapfast_core::chat::{NameStyle, VoicePerson};
+    let (mut app, _folder) = preview();
+    super::change(&mut app, |state| {
+        state.voice.room = Some("party-voice".into());
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: "riley".into(),
+            name: "Riley".into(),
+            style: Some(Arc::new(NameStyle::new(12, 2, &[0xff00ff]))),
+            ..Default::default()
+        }];
+    });
+    let riley = crate::call::stage::call_name_font(&app, "riley");
+    assert_eq!(riley.family, iced::font::Family::Name("Tempo"));
+    let other = crate::call::stage::call_name_font(&app, "sam");
+    assert_eq!(other, crate::fonts::BOLD);
 }
 
 /// Up to nine people fit the stage under the preview's line and over the
