@@ -304,8 +304,11 @@ pub fn read_favorites(encoded: &str) -> Option<Vec<String>> {
             Field::Fixed64(value) => list.push(value),
             Field::Bytes(packed) => list.extend(
                 packed
-                    .chunks_exact(8)
-                    .map(|bytes| u64::from_le_bytes(bytes.try_into().expect("eight bytes"))),
+                    .as_chunks::<8>()
+                    .0
+                    .iter()
+                    .copied()
+                    .map(u64::from_le_bytes),
             ),
             _ => {}
         }

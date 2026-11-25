@@ -1288,7 +1288,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
                 "shape.card_section.bar_text",
                 shape.bar_text.map(|colour| vec![colour]).or(text),
                 "shape.card_section.bar",
-                ground.clone().map(|grounds| {
+                ground.map(|grounds| {
                     bar.colours()
                         .iter()
                         .flat_map(|bar| grounds.iter().map(move |ground| laid_over(*bar, *ground)))

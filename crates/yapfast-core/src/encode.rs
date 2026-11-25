@@ -509,7 +509,7 @@ mod tests {
         let mut rgba = vec![0u8; (width * height * 4) as usize];
         let mut frames = vec![];
         for frame in 0..4u64 {
-            for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+            for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 pixel.copy_from_slice(&[(index as u64 + frame * 8) as u8, 90, 200, 255]);
             }
             if frame == 1 {
