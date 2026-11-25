@@ -3400,12 +3400,15 @@ pub enum DiscordCommand {
     /// the effect it names as [`Event::ProfileEffect`] when `effect` asks
     /// for it; without, the shop isn't asked what the effect is made of.
     /// Its frame comes with it, or as [`Event::ProfileFrame`] the first time,
-    /// when `frame` asks for it.
+    /// when `frame` asks for it. The levels of its badges come as
+    /// [`Event::BadgeLevels`] when `badges` asks for them; without, they
+    /// aren't asked for.
     Profile {
         room: String,
         user: String,
         effect: bool,
         frame: bool,
+        badges: bool,
     },
     /// Download server icons and avatars by address. Each that arrives comes
     /// back as [`Event::Picture`]; one that fails doesn't.

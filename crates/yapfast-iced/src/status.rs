@@ -275,7 +275,9 @@ impl<'a> View<'a> {
         let status = state.discord_presence.as_deref().unwrap_or("online");
         let mut header = column![header];
         // Its badges, in Discord's pills.
-        if let Some(shown) = card.filter(|shown| !shown.look.profile().badges.is_empty()) {
+        if let Some(shown) = card.filter(|shown| {
+            self.cx.state.cosmetics.badges && !shown.look.profile().badges.is_empty()
+        }) {
             header = header.push(
                 container(crate::profile::body::badge_rows(self.cx, shown))
                     .padding(Padding::ZERO.left(16)),
