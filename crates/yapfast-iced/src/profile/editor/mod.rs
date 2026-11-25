@@ -594,10 +594,11 @@ pub(super) fn editor_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
     };
     let profile = editor.shown.look.profile();
     let cosmetics = ctx.state.cosmetics;
+    let banner = cosmetics.background(profile.banner.as_deref());
     let mut urls: Vec<String> = [
         profile.avatar.clone(),
-        profile.banner.clone(),
-        profile.banner.as_deref().and_then(chat::moving_banner),
+        banner.map(str::to_owned),
+        banner.and_then(chat::moving_banner),
     ]
     .into_iter()
     .flatten()

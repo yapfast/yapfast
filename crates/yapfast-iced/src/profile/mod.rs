@@ -820,7 +820,7 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
     let mut urls = crate::profile::editor::editor_pictures(ctx);
     if let Some((_, shown)) = &ctx.profiles.account {
         let profile = shown.look.profile();
-        urls.extend(profile.banner.clone());
+        urls.extend(cosmetics.background(profile.banner.clone()));
         urls.extend(
             cosmetics
                 .tag(profile.tag.as_ref())
@@ -845,8 +845,9 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
         }
         urls.extend(cosmetic::effect_pictures(state, shown, pointed));
         urls.extend(cosmetic::frame_pictures(state, shown));
-        urls.extend(profile.banner.clone());
-        urls.extend(profile.banner.as_deref().and_then(chat::moving_banner));
+        let banner = cosmetics.background(profile.banner.as_deref());
+        urls.extend(banner.map(str::to_owned));
+        urls.extend(banner.and_then(chat::moving_banner));
         urls.extend(
             cosmetics
                 .tag(profile.tag.as_ref())
