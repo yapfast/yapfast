@@ -372,7 +372,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::TreeActivate(key) => return tree::activate(app, &key),
         Event::Toggle(fold) => {
             app.lists_shown = None;
-            let Navigation::Server(server) = app.client.state().navigation.clone() else {
+            let navigation = app.client.state().navigation.clone();
+            let navigation = if navigation == Navigation::Favorites {
+                Navigation::Server("@favorites".into())
+            } else {
+                navigation
+            };
+            let Navigation::Server(server) = navigation else {
                 return Task::none();
             };
             let collapsed = app.layout.collapsed.entry(server.clone()).or_default();
