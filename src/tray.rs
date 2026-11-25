@@ -198,7 +198,7 @@ mod linux {
                 .filter_map(|size| artwork.tray(size, unread))
                 .map(|mut icon| {
                     // ARGB, in network byte order.
-                    for pixel in icon.pixels.chunks_exact_mut(4) {
+                    for pixel in icon.pixels.as_chunks_mut::<4>().0 {
                         pixel.rotate_right(1);
                     }
                     ksni::Icon {

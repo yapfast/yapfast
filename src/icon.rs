@@ -227,7 +227,7 @@ impl NativeIcon {
         use windows_sys::Win32::{
             System::LibraryLoader::GetModuleHandleW, UI::WindowsAndMessaging::CreateIcon,
         };
-        for pixel in image.pixels.chunks_exact_mut(4) {
+        for pixel in image.pixels.as_chunks_mut::<4>().0 {
             pixel.swap(0, 2);
         }
         // Rows of the 1-bit mask are padded to 16 bits.
@@ -442,16 +442,20 @@ mod tests {
                 .tray(32, false)
                 .unwrap()
                 .pixels
-                .chunks_exact(4)
-                .any(red)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| red(pixel))
         );
         assert!(
             artwork
                 .tray(32, true)
                 .unwrap()
                 .pixels
-                .chunks_exact(4)
-                .any(red)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| red(pixel))
         );
     }
 }
