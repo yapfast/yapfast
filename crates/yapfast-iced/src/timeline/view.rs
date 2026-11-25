@@ -68,9 +68,8 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         |heights| Message::Timeline(Event::Measured(heights)),
         ctx.lanes.timeline.found.clone(),
         pivot,
+        ctx.lanes.timeline.height,
     );
-    // A short history is held down, its newest message over the composer.
-    let lead = (ctx.lanes.timeline.height - ctx.lanes.timeline.total_height()).max(0.0);
     for index in first..last {
         rows.push(
             key(&ctx.lanes.timeline.messages[index].item),
@@ -79,7 +78,7 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             timeline_row(ctx, index),
         );
     }
-    let list = scroll_view(column![Space::new().height(lead), rows])
+    let list = scroll_view(rows)
         .id(TIMELINE)
         .anchor_bottom()
         .on_scroll(|viewport| Message::Timeline(Event::Scrolled(viewport)))
