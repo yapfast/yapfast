@@ -275,7 +275,8 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
     assert!(!app.layout.dm_search_switcher, "the filter by default");
-    assert!(!shows(&app, "Find or start a conversation"));
+    // The field's hint reads as Discord's box does, so it's typing that
+    // tells it from the button: it filters, the button opens the switcher.
     assert!(shows(&app, "Sam") && shows(&app, "Friday crew"));
     let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
     assert!(shows(&app, "Friday crew"));
