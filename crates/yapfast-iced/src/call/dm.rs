@@ -19,7 +19,7 @@ use crate::{
     controls::{self, Kind, call_button},
     dialog::dialog,
     fonts::BOLD,
-    pictures::Icon,
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     style::{card_shadow, fill, rounded},
     widgets::{At, Hooks, Inner, Renderer, Wrap},
 };
@@ -159,8 +159,10 @@ pub fn incoming_view(app: &App) -> Option<Element<'_, Message>> {
     // A ring that pulses while it rings.
     let ring = Pulse::new(
         container(
-            app.ctx()
-                .avatar(room.avatar.as_deref(), &room.name, 72.0, 36.0, 1.0),
+            app.ctx().face(
+                Face::new(room.avatar.as_deref(), &room.name, 72.0)
+                    .group(room_group_icon(room).as_ref().map(GroupIcon::as_face)),
+            ),
         )
         .center(92),
         theme.live,

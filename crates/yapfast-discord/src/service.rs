@@ -78,6 +78,11 @@ pub struct VoiceMember {
     /// This account, in the call on another client, such as Discord's app
     /// on a phone, rather than on this gateway session.
     pub elsewhere: bool,
+    /// The display name style they draw their name with in the call's
+    /// server, or everywhere, and the server tag they wear by it, as their
+    /// member row has them: voice states carry neither.
+    pub style: Option<crate::collectibles::Style>,
+    pub tag: Option<crate::message::Tag>,
 }
 
 /// The linked account, as Discord shows it outside any server.
@@ -117,13 +122,27 @@ pub struct Account {
     pub nsfw_commands_in_dms: bool,
 }
 
+/// One of the two members shown on a group DM's fallback icon when it has no
+/// custom icon and more than two members.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct GroupMemberAvatar {
+    pub id: String,
+    pub name: String,
+    pub avatar: String,
+}
+
 /// A DM or group DM, as the DM list shows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Conversation {
     pub id: String,
     pub name: String,
-    /// The other person's avatar in a DM, or a group DM's icon.
+    /// The other person's avatar in a DM, or a group DM's custom icon.
     pub avatar: Option<String>,
+    /// When a group DM has no custom icon and more than two members, the first
+    /// two other members (sorted by user id) whose avatars layer to form its
+    /// fallback icon.
+    #[serde(default)]
+    pub group_avatars: Option<[GroupMemberAvatar; 2]>,
     /// The decoration the other person in a DM wears around their avatar.
     #[serde(default)]
     pub decoration: Option<Arc<str>>,
@@ -242,6 +261,9 @@ pub struct Friend {
     pub activity: Option<String>,
     #[serde(skip)]
     pub activities: crate::activity::Activities,
+    /// Their display name style, as `Names` knows it.
+    #[serde(skip)]
+    pub style: Option<crate::collectibles::Style>,
 }
 
 /// Someone this account can start a DM with.
@@ -2706,6 +2728,18 @@ impl Discord {
         self.api.logout().await
     }
 
+    /// Signs this device out, as unlinking does, for a login linked as
+    /// `origin`: ends the session only if it's Yapfast's own, by QR code. A
+    /// pasted token's session is the app or browser it came from, which
+    /// Discord would sign out too, so it stays. Says whether it ended it.
+    pub async fn sign_out(&self, origin: crate::token::Origin) -> Result<bool> {
+        if !origin.ends_session() {
+            return Ok(false);
+        }
+        self.logout().await?;
+        Ok(true)
+    }
+
     /// Sends a friend request to whoever has this username.
     pub async fn add_friend_by_username(&self, username: &str) -> Result<()> {
         self.api.add_friend_by_username(username).await
@@ -3251,6 +3285,22 @@ impl Discord {
             .body(channel)
             .ok_or_else(|| anyhow!("Only a server has that setting."))?;
         self.api.guild_settings(guild, &body).await
+    }
+
+    /// Makes the same change to this account's notification settings for
+    /// each server of `guilds`, in one request, as a rail folder's menu
+    /// does; see [`crate::notifications::servers_body`]. Snapshots show it
+    /// when Discord confirms it.
+    pub async fn change_servers_notifications(
+        &self,
+        guilds: &[&str],
+        change: Change,
+    ) -> Result<()> {
+        if guilds.is_empty() {
+            return Ok(());
+        }
+        let body = crate::notifications::servers_body(guilds, change);
+        self.api.guilds_settings(&body).await
     }
 
     /// Sets the `flags` of a server's channel's override, which pin it to
@@ -4341,6 +4391,12 @@ impl Discord {
 
     pub fn color(&self, server: &Server, user: &str) -> Option<u32> {
         server.color(self.read_names().roles(&server.id, user))
+    }
+
+    /// Where a member's name's gradient ends in a server, when their
+    /// highest coloured role's name is one; see [`Server::gradient`].
+    pub fn gradient(&self, server: &Server, user: &str) -> Option<(u32, Option<u32>)> {
+        server.gradient(self.read_names().roles(&server.id, user))
     }
 
     /// [`Discord::render`], with the users and roles the message mentions and

@@ -59,8 +59,8 @@ is tinted marigold with an edge. The first row holds the history's edge:
 start, or Discord's welcome at a server channel's start. Until a
 conversation's first messages come, rows the shape of messages hold its
 place, still (`timeline::view::messages_skeleton`), as they do in the
-thread beside the channel. A short history
-is held down over the composer. A view within the 8 px padding below the
+thread beside the channel. A short history is held down over the composer
+using the row heights from the current layout. A view within the 8 px padding below the
 last message follows the bottom as messages arrive; scrolling above that
 keeps the earlier messages in place. While the "New" divider is
 out of view a bar jumps to it, saying how many messages are new; a window

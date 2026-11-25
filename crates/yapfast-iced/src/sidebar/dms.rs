@@ -12,7 +12,7 @@ use crate::{
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     people::StatusInk,
     people::{NameInk, Person},
-    pictures::{Face, Icon},
+    pictures::{Face, GroupIcon, Icon},
     style::rounded,
 };
 
@@ -39,6 +39,7 @@ impl<'a> super::View<'a> {
             .key(Some(&room.id))
             .opacity(opacity)
             .decoration(room.decoration.as_deref(), pointed)
+            .group(room.group_icon.as_ref().map(GroupIcon::as_face))
             .dot(room.presence.map(|presence| {
                 (
                     presence,
@@ -55,12 +56,16 @@ impl<'a> super::View<'a> {
             self.cx.person_name(
                 marked,
                 // As Slint's DM row: the window's face, not the theme's names.
+                // The style's colours show while the row is pointed at or
+                // selected; at rest its font alone, greyed with the row, as
+                // Discord's.
                 NameInk {
                     font_role: "small",
                     ..NameInk::new(15.0, 500, ink)
                 }
                 .style(room.style.as_ref())
-                .key(&room.id),
+                .key(&room.id)
+                .plain(!pointed && !room.selected),
             )
         ]
         .spacing(4)

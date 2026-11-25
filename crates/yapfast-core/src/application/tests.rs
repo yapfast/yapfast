@@ -138,6 +138,7 @@ fn member(id: &str, name: &str) -> ChatMember {
         group_icon: None,
         role_icon: None,
         boosting_since: None,
+        color_end: None,
     }
 }
 

@@ -71,7 +71,7 @@ yapfast-iced = { path = "crates/yapfast-iced", default-features = false, optiona
 arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"], optional = true }
 # Saves pictures pasted as pixels to PNG files to attach, after decoding the
 # bitmaps Windows pastes, and reads pictures copied from messages.
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"], optional = true }
 tempfile = { workspace = true, optional = true }
 tracing.workspace = true
 # The About page's one request, for the list of releases; the same TLS as the

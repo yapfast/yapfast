@@ -281,6 +281,18 @@ pub fn chip<'a, M: Clone + 'a>(
     live: bool,
     note: Option<&'a str>,
 ) -> Element<'a, M> {
+    chip_in(look, marks, name, BOLD, live, note)
+}
+
+/// [`chip`] with the name in `font`: a name style's own, in a call.
+pub fn chip_in<'a, M: Clone + 'a>(
+    look: Look<'a>,
+    marks: Vec<(Icon, Color)>,
+    name: &'a str,
+    font: iced::Font,
+    live: bool,
+    note: Option<&'a str>,
+) -> Element<'a, M> {
     let theme = look.theme;
     let mut face = row![].spacing(6).align_y(Alignment::Center);
     for (icon, ink) in marks {
@@ -290,7 +302,7 @@ pub fn chip<'a, M: Clone + 'a>(
         // As Slint's tile chip: 14 px bold in the window's face.
         text(name)
             .size(14.0)
-            .font(BOLD)
+            .font(font)
             .color(Color::WHITE)
             .wrapping(text::Wrapping::None),
     );

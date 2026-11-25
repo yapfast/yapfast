@@ -2247,6 +2247,49 @@ impl<'a> View<'a> {
             .key(&look.id)
             .fixed(themed_ink.is_some()),
         );
+        // A gradient role colour runs across the name, letter by letter,
+        // unless the theme inks names itself.
+        let name: Element<'a, Message> = match look
+            .color_end
+            .filter(|_| look.color.is_some())
+            .filter(|_| themed_ink.is_none() && self.cx.theme_content().is_none())
+        {
+            Some(end) => {
+                let stock = crate::fonts::style_font(
+                    look.style.as_ref().and_then(crate::looks::NameLook::font),
+                    500,
+                );
+                let font = if look.style.is_some() {
+                    stock
+                } else {
+                    theme.font(name_role, stock)
+                };
+                let size = themed
+                    .and_then(|rows| rows.size)
+                    .unwrap_or_else(|| theme.type_size(name_role, 16.0));
+                let spans: Vec<iced::widget::text::Span<'a, ()>> = crate::looks::gradient_letters(
+                    &look.name,
+                    [color, faded(hex(end.0), opacity)],
+                    end.1.map(|third| faded(hex(third), opacity)),
+                    size * 0.6,
+                )
+                .into_iter()
+                .map(|(letter, ink)| iced::widget::span(letter).color(ink).font(font))
+                .collect();
+                container(
+                    iced::widget::rich_text(spans)
+                        .size(
+                            themed
+                                .and_then(|rows| rows.size)
+                                .unwrap_or_else(|| theme.type_size(name_role, 16.0)),
+                        )
+                        .wrapping(iced::widget::text::Wrapping::None),
+                )
+                .clip(true)
+                .into()
+            }
+            None => name,
+        };
         // A theme's ransom-note names, for someone with no name style of
         // their own (as Slint).
         let name: Element<'a, Message> = match look

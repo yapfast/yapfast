@@ -282,6 +282,7 @@ fn discord_friends_are_listed_and_messaged() {
         presence,
         activity: None,
         activities: Default::default(),
+        style: None,
     };
     let snapshot = |dms: &[(&str, &str)]| Snapshot {
         status: Status::Online,
@@ -326,6 +327,7 @@ fn discord_friends_are_listed_and_messaged() {
             activity: Some("making tea".into()),
             activities: Default::default(),
             since: Some(1_788_253_200_000),
+            style: None,
         }
     );
     let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
@@ -534,6 +536,7 @@ fn discord_dms(extra: Vec<yapfast_discord::service::Conversation>) -> Applicatio
         presence: None,
         activity: None,
         activities: Default::default(),
+        style: None,
     };
     let mut conversations = vec![
         Conversation {
@@ -1018,4 +1021,57 @@ fn a_dm_search_closes_in_another_dm() {
     assert_eq!(app.state.search_place().as_deref(), Some("discord:@me:30"));
     app.dispatch(Action::SelectRoom("discord:@me:31".into()));
     assert!(app.state.search.is_none());
+}
+
+#[test]
+#[cfg(feature = "discord")]
+fn group_dm_fallback_avatars_are_mapped_and_requested() {
+    use yapfast_discord::{
+        member_list::Presence as DiscordPresence,
+        service::{Conversation, GroupMemberAvatar},
+    };
+    let group = Conversation {
+        id: "60".into(),
+        name: "Escape Room".into(),
+        group: true,
+        people: 5,
+        presence: Some(DiscordPresence::Online),
+        group_avatars: Some([
+            GroupMemberAvatar {
+                id: "2".into(),
+                name: "Annie".into(),
+                avatar: "https://cdn.example/a2.png".into(),
+            },
+            GroupMemberAvatar {
+                id: "3".into(),
+                name: "Ben".into(),
+                avatar: "https://cdn.example/a3.png".into(),
+            },
+        ]),
+        ..Default::default()
+    };
+    let mut app = discord_dms(vec![group]);
+    let room = app
+        .state
+        .rooms
+        .iter()
+        .find(|room| room.id == "discord:@me:60")
+        .expect("group room");
+    assert_eq!(room.avatar, None);
+    assert_eq!(room.presence, Some(crate::chat::Presence::Online));
+    let pair = room.group_avatars.as_ref().expect("fallback pair");
+    assert_eq!(pair[0].avatar, "https://cdn.example/a2.png");
+    assert_eq!(pair[1].avatar, "https://cdn.example/a3.png");
+
+    let effects = app.dispatch(Action::SelectRoom("discord:@me:60".into()));
+    let asked: Vec<String> = effects
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::Backend(Command::Discord(DiscordCommand::Pictures(urls))) => Some(urls),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(asked.iter().any(|url| url == "https://cdn.example/a2.png"));
+    assert!(asked.iter().any(|url| url == "https://cdn.example/a3.png"));
 }
