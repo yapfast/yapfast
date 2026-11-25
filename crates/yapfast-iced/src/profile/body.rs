@@ -420,15 +420,30 @@ fn profile_top<'a>(
     // The card's own corners: a theme's `card` shape (Zine's square cut).
     let corner = ctx.look.theme.surface_radius("card", 12.0);
     let top_corners = [corner, corner, 0.0, 0.0];
+    let background = ctx.state.cosmetics.background;
     let moving = profile
         .banner
         .as_deref()
+        .filter(|_| background)
         .and_then(chat::moving_banner)
         .and_then(|url| ctx.moving(&url, banner_size, Rectangle::with_size(banner_size), true));
-    let still = profile.banner.as_deref().and_then(|url| {
-        crate::profile::profile_picture(ctx, shown, url, width as u32, banner_height as u32, true)
-    });
-    let banner_ground = crate::profile::banner_ground(ctx, shown)
+    let still = profile
+        .banner
+        .as_deref()
+        .filter(|_| background)
+        .and_then(|url| {
+            crate::profile::profile_picture(
+                ctx,
+                shown,
+                url,
+                width as u32,
+                banner_height as u32,
+                true,
+            )
+        });
+    let banner_ground = background
+        .then(|| crate::profile::banner_ground(ctx, shown))
+        .flatten()
         .map(hex)
         .or(inks.themed.then_some(inks.primary))
         .unwrap_or(ctx.look.theme.raised);
