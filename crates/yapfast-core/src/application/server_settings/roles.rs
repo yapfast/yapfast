@@ -194,9 +194,20 @@ impl RolesPage {
     }
 
     /// The page as Discord now has it, keeping what `was` showed: its
-    /// searches, and the role it had open, on its tab, unless Discord's
+    /// member counts, searches, and the role it had open, on its tab, unless Discord's
     /// answer opens another.
     pub(super) fn carry(mut self, was: RolesPage) -> Self {
+        let counts: std::collections::HashMap<_, _> = was
+            .original
+            .roles
+            .into_iter()
+            .map(|role| (role.id, role.members))
+            .collect();
+        for role in &mut self.original.roles {
+            if let Some(&count) = counts.get(&role.id) {
+                role.members = count;
+            }
+        }
         self.search = was.search;
         self.permission_search = was.permission_search;
         if self.open.is_none()

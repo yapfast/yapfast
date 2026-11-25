@@ -88,6 +88,12 @@ on how many servers and DMs you have.
 
 ## Features
 
+### Favorites
+
+Discord's saved Favorites appear behind the star in the server rail, with their
+categories and order. Right-click a channel, DM or group DM to add or remove it;
+the change syncs to the same Discord account list. See [Favorites](docs/discord/favorites.md).
+
 ### The GIF picker
 
 My favorite part :p Your favorites live on disk as 40 KB clips, so they're
@@ -184,9 +190,10 @@ interested. Folders show up as they do in Discord.
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Profiles** as Discord draws them: badges, server tags, avatar decorations,
-  nameplates, name styles, profile effects and frames, and the full profile's
-  Board, Wishlist and recent activity. Edit Profile changes your own theme,
-  name style and server tag.
+  nameplates, name styles, profile effects and frames, what others are doing
+  with their Rich Presence buttons, and the full profile's Board, Wishlist and
+  recent activity. Edit Profile changes your own theme, name style and server
+  tag.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
@@ -195,7 +202,8 @@ interested. Folders show up as they do in Discord.
 - **Several accounts**: link as many as you like, and switch between them from your
   account card or manage them in a dialog, as Discord's own apps do.
 - **Notifications** that follow your Discord settings, muting for channels,
-  categories and servers, and unread markers.
+  categories and servers, and unread markers. The inbox lists unread channels
+  and your recent mentions, filtered by ping, jumping to their messages.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 
 ### Not there yet
@@ -458,7 +466,7 @@ on each system and for running against the fake Discord server.
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 
