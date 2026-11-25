@@ -784,7 +784,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
-        Cosmetic::Background => (&mut prefs.background, "background"),
+        Cosmetic::Background => (&mut prefs.profile_backgrounds, "profile_backgrounds"),
     };
     *slot = Some(on);
     cx.keep(key, on);
@@ -954,7 +954,7 @@ impl<'a> Page<'a> {
                 ),
                 profile(
                     "Show profile backgrounds",
-                    "The banner picture at the top of a profile card, and the two colours a themed card draws there. Off, neither is asked for.",
+                    "The banner picture at the top of a profile card, and its colour. Off, the top keeps the card's own colour and no banner is asked for.",
                     cosmetics.background,
                     Cosmetic::Background,
                 ),

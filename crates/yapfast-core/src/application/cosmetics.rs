@@ -23,8 +23,8 @@ pub struct Cosmetics {
     /// Profile frames show around profile cards: a request for what the
     /// frame is made of, then its stills.
     pub frames: bool,
-    /// A profile's background shows: its banner picture, and on a themed
-    /// card the gradient of its two colours.
+    /// A profile's background shows: its banner picture and its colour
+    /// (the accent, or the avatar's).
     pub background: bool,
 }
 
@@ -70,7 +70,7 @@ impl Cosmetics {
         effect.filter(|_| self.effects)
     }
 
-    /// A profile's banner and theme colours, if its background shows.
+    /// A profile's banner, if its background shows.
     pub fn background<T>(self, background: Option<T>) -> Option<T> {
         background.filter(|_| self.background)
     }
