@@ -8,6 +8,10 @@ repository = "https://github.com/Rikorose/DeepFilterNet"
 license = "MIT/Apache-2.0"
 rust-version = "1.70"
 
+[package.metadata.cargo-machete]
+# Enables the JavaScript entropy backend for transitive users in Wasm builds.
+ignored = ["getrandom"]
+
 [lib]
 name = "df"
 path = "src/lib.rs"

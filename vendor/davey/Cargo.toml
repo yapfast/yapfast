@@ -34,6 +34,10 @@ license = "MIT"
 repository = "https://github.com/Snazzah/davey"
 resolver = "2"
 
+[package.metadata.cargo-machete]
+# Used by the optional napi attributes and the FromPrimitive derive.
+ignored = ["napi", "num-traits"]
+
 [features]
 default = []
 napi = [

@@ -16,21 +16,31 @@
 
 #include "livekit/video_encoder_factory.h"
 
+#include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cstdlib>
+#include <deque>
 #include <optional>
 #include <string_view>
 #include <utility>
 
 #include "api/environment/environment_factory.h"
+#include "api/video/video_frame.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
+#include "livekit/encoded_video_frame_buffer.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/passthrough_video_encoder.h"
 #include "livekit/webrtc.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
+#include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
+
 #if defined(RTC_USE_LIBAOM_AV1_ENCODER)
 #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
 #endif
@@ -107,6 +117,8 @@ const char* BackendName(VideoEncoderBackend backend) {
       return "vaapi";
     case VideoEncoderBackend::VideoToolbox:
       return "videotoolbox";
+    case VideoEncoderBackend::PreEncoded:
+      return "preencoded";
   }
 }
 
@@ -131,6 +143,9 @@ std::optional<VideoEncoderBackend> BackendFromFormat(
   }
   if (it->second == BackendName(VideoEncoderBackend::VideoToolbox)) {
     return VideoEncoderBackend::VideoToolbox;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::PreEncoded)) {
+    return VideoEncoderBackend::PreEncoded;
   }
 
   return std::nullopt;
@@ -160,8 +175,43 @@ bool IsSpecificHardwareBackend(VideoEncoderBackend backend) {
 bool BackendMatches(VideoEncoderBackend requested, VideoEncoderBackend actual) {
   return requested == actual ||
          (requested == VideoEncoderBackend::Hardware &&
-          actual != VideoEncoderBackend::Software &&
-          actual != VideoEncoderBackend::Auto);
+          (actual == VideoEncoderBackend::Hardware ||
+           IsSpecificHardwareBackend(actual)));
+}
+
+bool IsAutomaticFallbackBackend(VideoEncoderBackend backend) {
+  return backend != VideoEncoderBackend::PreEncoded;
+}
+
+bool EqualsIgnoreAsciiCase(std::string_view a, std::string_view b) {
+  return a.size() == b.size() &&
+         std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+           return std::tolower(static_cast<unsigned char>(x)) ==
+                  std::tolower(static_cast<unsigned char>(y));
+         });
+}
+
+bool IsSameCodecName(std::string_view a, std::string_view b) {
+  if (EqualsIgnoreAsciiCase(a, b)) {
+    return true;
+  }
+  auto is_h265 = [](std::string_view name) {
+    return EqualsIgnoreAsciiCase(name, "H265") ||
+           EqualsIgnoreAsciiCase(name, "HEVC");
+  };
+  return is_h265(a) && is_h265(b);
+}
+
+// The pass-through backend forwards pre-encoded bytes, so SDP profile
+// parameters do not constrain it: match it by codec name only. Real
+// encoder backends keep exact profile matching.
+bool FormatSupportedByBackendFactory(VideoEncoderBackend backend,
+                                     const webrtc::SdpVideoFormat& supported,
+                                     const webrtc::SdpVideoFormat& requested) {
+  if (backend == VideoEncoderBackend::PreEncoded) {
+    return IsSameCodecName(supported.name, requested.name);
+  }
+  return supported.IsSameCodec(requested);
 }
 
 void AddBackendFactory(
@@ -256,6 +306,7 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   rust::Vec<VideoEncoderBackend> backends;
   backends.push_back(VideoEncoderBackend::Auto);
   backends.push_back(VideoEncoderBackend::Software);
+  backends.push_back(VideoEncoderBackend::PreEncoded);
 
   bool has_hardware_backend = false;
   bool hardware_backend_listed = false;
@@ -299,6 +350,11 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
 }
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
+  AddBackendFactory(
+      factories_,
+      VideoEncoderBackend::PreEncoded,
+      std::make_unique<livekit_ffi::PassthroughVideoEncoderFactory>());
+
 #ifdef __APPLE__
   AddBackendFactory(
       factories_,
@@ -331,17 +387,100 @@ VideoEncoderFactory::InternalFactory::GetSupportedFormats() const {
   std::vector<webrtc::SdpVideoFormat> formats = Factory().GetSupportedFormats();
 
   for (const auto& backend_factory : factories_) {
+    if (backend_factory.backend == VideoEncoderBackend::PreEncoded) {
+      continue;
+    }
     auto supported_formats = backend_factory.factory->GetSupportedFormats();
     formats.insert(formats.end(), supported_formats.begin(),
                    supported_formats.end());
   }
+
+  // Pre-encoded publishing forwards access units the application already
+  // encoded, so it must not depend on this host having a real encoder for
+  // the codec (e.g. H265 on a Linux box without a hardware encoder). Make
+  // every pass-through codec negotiable by adding one entry for each codec
+  // no real encoder listed. The pass-through matches by codec name at
+  // Create(), so the real encoder's own entry serves it when one exists. A
+  // raw sender is kept off a codec no real encoder implements by the Rust
+  // publish path, which picks its codec from BackendCodecs(), and otherwise
+  // by the encoder fallback described in GetImplementations().
+  for (const auto& backend_factory : factories_) {
+    if (backend_factory.backend != VideoEncoderBackend::PreEncoded) {
+      continue;
+    }
+    for (const auto& format : backend_factory.factory->GetSupportedFormats()) {
+      const bool codec_listed =
+          std::any_of(formats.begin(), formats.end(),
+                      [&](const webrtc::SdpVideoFormat& existing) {
+                        return IsSameCodecName(existing.name, format.name);
+                      });
+      if (!codec_listed) {
+        formats.push_back(format);
+      }
+    }
+  }
   return formats;
+}
+
+std::vector<std::string> VideoEncoderFactory::InternalFactory::BackendCodecs(
+    VideoEncoderBackend backend) const {
+  std::vector<std::string> codecs;
+  auto add_formats = [&](const std::vector<webrtc::SdpVideoFormat>& formats) {
+    for (const auto& format : formats) {
+      // Report one canonical name per codec; HEVC is an alias of H265.
+      std::string name = format.name;
+      if (IsSameCodecName(name, "H265")) {
+        name = "H265";
+      }
+      const bool listed = std::any_of(codecs.begin(), codecs.end(),
+                                      [&](const std::string& existing) {
+                                        return IsSameCodecName(existing, name);
+                                      });
+      if (!listed) {
+        codecs.push_back(std::move(name));
+      }
+    }
+  };
+
+  switch (backend) {
+    case VideoEncoderBackend::PreEncoded:
+      for (const auto& backend_factory : factories_) {
+        if (backend_factory.backend == VideoEncoderBackend::PreEncoded) {
+          add_formats(backend_factory.factory->GetSupportedFormats());
+        }
+      }
+      break;
+    case VideoEncoderBackend::Software:
+      add_formats(Factory().GetSupportedFormats());
+      break;
+    case VideoEncoderBackend::Auto:
+      // Everything a real encoder on this host can produce: the set Create()
+      // falls back to when a requested backend is unavailable.
+      for (const auto& backend_factory : factories_) {
+        if (IsAutomaticFallbackBackend(backend_factory.backend)) {
+          add_formats(backend_factory.factory->GetSupportedFormats());
+        }
+      }
+      add_formats(Factory().GetSupportedFormats());
+      break;
+    default:
+      for (const auto& backend_factory : factories_) {
+        if (BackendMatches(backend, backend_factory.backend)) {
+          add_formats(backend_factory.factory->GetSupportedFormats());
+        }
+      }
+      break;
+  }
+  return codecs;
 }
 
 std::vector<webrtc::SdpVideoFormat>
 VideoEncoderFactory::InternalFactory::GetImplementations() const {
   std::vector<webrtc::SdpVideoFormat> formats;
   for (const auto& backend_factory : factories_) {
+    if (backend_factory.backend == VideoEncoderBackend::PreEncoded) {
+      continue;
+    }
     for (const auto& format : backend_factory.factory->GetImplementations()) {
       formats.push_back(WithBackend(format, backend_factory.backend));
       if (IsSpecificHardwareBackend(backend_factory.backend)) {
@@ -352,6 +491,31 @@ VideoEncoderFactory::InternalFactory::GetImplementations() const {
 
   for (const auto& format : Factory().GetImplementations()) {
     formats.push_back(WithBackend(format, VideoEncoderBackend::Software));
+  }
+
+  // libwebrtc only sends a negotiated codec that appears here, so a codec
+  // only the pass-through implements must be listed too, or a pre-encoded
+  // sender fails with "No video codecs in common". List it last and
+  // untagged: real encoders keep priority for every codec they cover, and a
+  // raw sender that still lands on it fails encoder creation (Create() never
+  // falls back to the pass-through), letting libwebrtc switch to another
+  // negotiated codec. A pre-encoded sender's selector moves it onto the
+  // pass-through backend instead.
+  const size_t real_format_count = formats.size();
+  for (const auto& backend_factory : factories_) {
+    if (backend_factory.backend != VideoEncoderBackend::PreEncoded) {
+      continue;
+    }
+    for (const auto& format : backend_factory.factory->GetImplementations()) {
+      const bool codec_implemented = std::any_of(
+          formats.begin(), formats.begin() + real_format_count,
+          [&](const webrtc::SdpVideoFormat& existing) {
+            return IsSameCodecName(existing.name, format.name);
+          });
+      if (!codec_implemented) {
+        formats.push_back(format);
+      }
+    }
   }
 
   return formats;
@@ -384,7 +548,9 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
 
       for (const auto& supported_format :
            backend_factory.factory->GetSupportedFormats()) {
-        if (stripped_format.IsSameCodec(supported_format)) {
+        if (FormatSupportedByBackendFactory(backend_factory.backend,
+                                            supported_format,
+                                            stripped_format)) {
           return webrtc::VideoEncoderFactory::CodecSupport{
               .is_supported = true,
               .is_power_efficient = true,
@@ -406,6 +572,9 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
   }
 
   for (const auto& backend_factory : factories_) {
+    if (!IsAutomaticFallbackBackend(backend_factory.backend)) {
+      continue;
+    }
     for (const auto& supported_format :
          backend_factory.factory->GetSupportedFormats()) {
       if (stripped_format.IsSameCodec(supported_format)) {
@@ -448,13 +617,26 @@ VideoEncoderFactory::InternalFactory::Create(
 
       for (const auto& supported_format :
            backend_factory.factory->GetSupportedFormats()) {
-        if (supported_format.IsSameCodec(stripped_format)) {
+        if (FormatSupportedByBackendFactory(backend_factory.backend,
+                                            supported_format,
+                                            stripped_format)) {
           auto encoder = backend_factory.factory->Create(env, stripped_format);
           if (encoder) {
             return encoder;
           }
         }
       }
+    }
+
+    // A real encoder cannot consume the pre-encoded native frame buffers
+    // this session produces, so falling back would yield a silently broken
+    // sender. Fail loudly instead.
+    if (*requested_backend == VideoEncoderBackend::PreEncoded) {
+      RTC_LOG(LS_ERROR)
+          << "Pre-encoded pass-through encoder is unavailable for "
+          << stripped_format.name
+          << "; refusing to fall back to a real encoder.";
+      return nullptr;
     }
 
     requested_backend_unavailable = true;
@@ -468,6 +650,9 @@ VideoEncoderFactory::InternalFactory::Create(
   }
 
   for (const auto& backend_factory : factories_) {
+    if (!IsAutomaticFallbackBackend(backend_factory.backend)) {
+      continue;
+    }
     for (const auto& supported_format :
          backend_factory.factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(stripped_format))
@@ -496,6 +681,11 @@ std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
   return internal_factory_->GetSupportedFormats();
 }
 
+std::vector<std::string> VideoEncoderFactory::BackendCodecs(
+    VideoEncoderBackend backend) const {
+  return internal_factory_->BackendCodecs(backend);
+}
+
 std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetImplementations()
     const {
   return internal_factory_->GetImplementations();
@@ -507,6 +697,132 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
   return internal_factory_->QueryCodecSupport(format, scalability_mode);
 }
 
+namespace {
+
+// Real encoders can never consume pre-encoded access units, but frames
+// carrying an EncodedVideoFrameBuffer can still reach one in the window
+// between stream startup and the sender's encoder selector switching onto
+// the pass-through backend. Some platform encoders blind-cast native
+// buffers (macOS ObjCVideoEncoder casts to ObjCFrameBuffer and retains a
+// garbage pointer), so forwarding such a frame is a crash, not a graceful
+// failure. Drop it instead: the selector switches shortly after, and the
+// pass-through encoder requests a fresh keyframe when it takes over.
+// Also preserve presentation timestamps across raw encoder backends that
+// discard them. The pass-through encoder copies them directly from its input.
+class VideoEncoderWrapper final : public webrtc::VideoEncoder,
+                                  private webrtc::EncodedImageCallback {
+ public:
+  explicit VideoEncoderWrapper(std::unique_ptr<webrtc::VideoEncoder> encoder)
+      : encoder_(std::move(encoder)) {}
+
+  ~VideoEncoderWrapper() override { Release(); }
+
+  void SetFecControllerOverride(
+      webrtc::FecControllerOverride* fec_controller_override) override {
+    encoder_->SetFecControllerOverride(fec_controller_override);
+  }
+
+  int InitEncode(const webrtc::VideoCodec* codec_settings,
+                 const Settings& settings) override {
+    return encoder_->InitEncode(codec_settings, settings);
+  }
+
+  int32_t RegisterEncodeCompleteCallback(
+      webrtc::EncodedImageCallback* callback) override {
+    callback_ = callback;
+    return encoder_->RegisterEncodeCompleteCallback(callback ? this : nullptr);
+  }
+
+  int32_t Release() override {
+    // Release and unregister the backend before clearing local state.
+    // The backend holds only a non-owning pointer to this wrapper.
+    const int32_t result = encoder_->Release();
+    encoder_->RegisterEncodeCompleteCallback(nullptr);
+    callback_ = nullptr;
+    webrtc::MutexLock lock(&timestamps_mutex_);
+    timestamps_.clear();
+    return result;
+  }
+
+  int32_t Encode(
+      const webrtc::VideoFrame& frame,
+      const std::vector<webrtc::VideoFrameType>* frame_types) override {
+    if (livekit::EncodedVideoFrameBuffer::FromNative(
+            frame.video_frame_buffer().get())) {
+      static std::atomic<bool> logged{false};
+      if (!logged.exchange(true)) {
+        RTC_LOG(LS_WARNING)
+            << "Dropping pre-encoded access unit sent to a non pass-through "
+               "encoder; waiting for the sender to switch onto the "
+               "pass-through backend";
+      }
+      return WEBRTC_VIDEO_CODEC_OK;
+    }
+    if (auto timestamp = frame.presentation_timestamp()) {
+      webrtc::MutexLock lock(&timestamps_mutex_);
+      // Retain keys for all simulcast layers, bounded even when frames drop.
+      timestamps_.emplace_back(frame.rtp_timestamp(), *timestamp);
+      if (timestamps_.size() > kMaxTimestampEntries) {
+        timestamps_.pop_front();
+      }
+    }
+    return encoder_->Encode(frame, frame_types);
+  }
+
+  void SetRates(const RateControlParameters& parameters) override {
+    encoder_->SetRates(parameters);
+  }
+
+  void OnPacketLossRateUpdate(float packet_loss_rate) override {
+    encoder_->OnPacketLossRateUpdate(packet_loss_rate);
+  }
+
+  void OnRttUpdate(int64_t rtt_ms) override { encoder_->OnRttUpdate(rtt_ms); }
+
+  void OnLossNotification(const LossNotification& loss_notification) override {
+    encoder_->OnLossNotification(loss_notification);
+  }
+
+  EncoderInfo GetEncoderInfo() const override {
+    return encoder_->GetEncoderInfo();
+  }
+
+ private:
+  Result OnEncodedImage(
+      const webrtc::EncodedImage& image,
+      const webrtc::CodecSpecificInfo* codec_specific_info) override {
+    // EncodedImage copies share the encoded buffer; no payload is copied.
+    webrtc::EncodedImage output = image;
+    {
+      webrtc::MutexLock lock(&timestamps_mutex_);
+      auto it = std::find_if(timestamps_.rbegin(), timestamps_.rend(),
+                             [&image](const auto& entry) {
+                               return entry.first == image.RtpTimestamp();
+                             });
+      if (it != timestamps_.rend()) {
+        output.SetPresentationTimestamp(it->second);
+      }
+    }
+    return callback_->OnEncodedImage(output, codec_specific_info);
+  }
+
+  void OnFrameDropped(uint32_t rtp_timestamp, int spatial_id,
+                      bool is_end_of_temporal_unit) override {
+    callback_->OnFrameDropped(rtp_timestamp, spatial_id,
+                              is_end_of_temporal_unit);
+  }
+
+  // Non-owning downstream callback registered by WebRTC.
+  webrtc::EncodedImageCallback* callback_ = nullptr;
+  webrtc::Mutex timestamps_mutex_;
+  std::deque<std::pair<uint32_t, webrtc::Timestamp>> timestamps_;
+  static constexpr size_t kMaxTimestampEntries = 300;
+  // Destroy the backend before the state its callbacks can access.
+  std::unique_ptr<webrtc::VideoEncoder> encoder_;
+};
+
+}  // namespace
+
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
@@ -514,6 +830,10 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
         env, internal_factory_.get(), nullptr, format);
+  }
+
+  if (encoder && BackendFromFormat(format) != VideoEncoderBackend::PreEncoded) {
+    encoder = std::make_unique<VideoEncoderWrapper>(std::move(encoder));
   }
 
   return encoder;

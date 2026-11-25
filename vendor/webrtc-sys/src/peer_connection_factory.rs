@@ -79,6 +79,7 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
         type MediaType = crate::webrtc::ffi::MediaType;
+        type VideoEncoderBackend = crate::webrtc::ffi::VideoEncoderBackend;
     }
 
     unsafe extern "C++" {
@@ -88,6 +89,14 @@ pub mod ffi {
         type PeerConnectionFactory;
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory_with_zero_playout_delay(
+        ) -> SharedPtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory_with_options(
+            zero_playout_delay: bool,
+            enable_warp: bool,
+        ) -> SharedPtr<PeerConnectionFactory>;
+
+        fn zero_playout_delay_enabled(self: &PeerConnectionFactory) -> bool;
 
         fn create_peer_connection(
             self: &PeerConnectionFactory,
@@ -122,7 +131,14 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;
+
+        fn video_encoder_backend_codecs(
+            self: &PeerConnectionFactory,
+            backend: VideoEncoderBackend,
+        ) -> Vec<String>;
     }
+
+    impl WeakPtr<PeerConnectionFactory> {}
 
     extern "Rust" {
         type PeerConnectionObserverWrapper;

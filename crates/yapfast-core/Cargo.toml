@@ -49,9 +49,6 @@ resvg = { version = "0.50", default-features = false }
 gif = "0.14"
 keyring = { workspace = true, optional = true }
 livekit.workspace = true
-# LiveKit 0.7.48 needs the matching API and generated protocol types.
-livekit-api = "=0.5.3"
-livekit-protocol = "=0.7.9"
 # libDF's frames, at the version it uses.
 ndarray = { version = "0.17", optional = true }
 # The FFT for taking room reverb out of the Discord microphone, and for the
@@ -98,7 +95,7 @@ uuid.workspace = true
 url = { workspace = true, optional = true }
 # Levels the voice in LiveKit's calls, and sends the camera from pooled
 # buffers, through Yapfast's patch to its WebRTC bindings.
-webrtc-sys = "=0.3.35"
+webrtc-sys = "=0.3.55"
 # Holds the camera's video source from those bindings.
 cxx = "1"
 
@@ -106,7 +103,7 @@ cxx = "1"
 # The Go Live codec shims compile against the libvpx, OpenH264 and FFmpeg
 # headers in libwebrtc's archive.
 cc = "1"
-webrtc-sys-build = "=0.3.18"
+webrtc-sys-build = "=0.3.21"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Real-time priority for the audio threads.

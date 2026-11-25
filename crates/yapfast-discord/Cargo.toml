@@ -53,7 +53,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 # Links Yapfast's libwebrtc archive, whose libopus calls use.
-webrtc-sys = "=0.3.35"
+webrtc-sys = "=0.3.55"
 
 # The Rich Presence socket's lock opens with O_NOFOLLOW, whose value differs
 # from one processor to another.

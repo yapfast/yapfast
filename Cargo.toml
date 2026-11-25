@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 [workspace]
 members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit", "testing/hosts"]
 default-members = ["."]
-exclude = ["vendor/matrix-rtc-livekit", "vendor/rusqlite", "vendor/webrtc-sys", "vendor/webrtc-sys-build", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
+exclude = ["vendor/matrix-rtc-livekit", "vendor/rusqlite", "vendor/webrtc-sys", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
 # Lints beyond Clippy's defaults, for every crate in the workspace. scripts/check
@@ -132,7 +132,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 directories = "6"
 futures-util = "0.3"
 keyring = "=4.2.0"
-livekit = { version = "=0.7.48", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+livekit = { version = "=0.12.1", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
 # Keep this SDK source and revision identical to matrix-rust-rtc's workspace pin.
 matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = ["bundled-sqlite", "markdown"] }
 matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = ["unstable-msc4354"] }
@@ -153,7 +153,6 @@ url = "2"
 # Cargo does not inherit the SDK's patches through a git dependency.
 [patch.crates-io]
 webrtc-sys = { path = "vendor/webrtc-sys" }
-webrtc-sys-build = { path = "vendor/webrtc-sys-build" }
 davey = { path = "vendor/davey" }
 # Remove once the Matrix SDK revision shared with MatrixRTC accepts rusqlite 0.41.
 rusqlite = { path = "vendor/rusqlite" }
