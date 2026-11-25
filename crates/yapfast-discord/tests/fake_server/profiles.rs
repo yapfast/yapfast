@@ -4,14 +4,14 @@ use super::*;
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn fetches_the_profile_frame_a_profile_names() {
+async fn fetches_the_frame_and_effect_named_by_profiles() {
     let Fixture {
         _fake,
         discord,
         guild,
         bob,
         ..
-    } = Fixture::start("fetches_the_profile_frame_a_profile_names").await;
+    } = Fixture::start("fetches_the_frame_and_effect_named_by_profiles").await;
     // Dave's profile names a frame, and his banner moves; Bob's has no frame.
     let dave = discord
         .profile(&guild, "1400000000000000004", |_| {})
@@ -37,21 +37,9 @@ async fn fetches_the_profile_frame_a_profile_names() {
             .ends_with(&format!("/collectibles-shop/{sku}/1/static"))
     );
     assert_eq!(discord.kept_frame(&sku), Some(Some(layers)));
-}
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn fetches_the_profile_effect_a_profile_names() {
-    let Fixture {
-        _fake,
-        discord,
-        guild,
-        bob,
-        ..
-    } = Fixture::start("fetches_the_profile_effect_a_profile_names").await;
     // Bob's profile names an effect; Carol's, none.
-    let profile = discord.profile(&guild, &bob, |_| {}).await.unwrap();
-    let sku = profile.effect.expect("Bob equips an effect");
+    let sku = bob.effect.expect("Bob equips an effect");
     let carol = discord
         .profile(&guild, "1400000000000000003", |_| {})
         .await

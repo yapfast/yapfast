@@ -2004,8 +2004,14 @@ mod tests {
             r##""art": { "surfaces": { "window": { "image": "art/sky.jpg" } } }"##,
         );
         let report = check(&files(&manifest), Strictness::Install);
-        let image = "art/sky.jpg";
-        assert!(report.errors.iter().any(|error| error.contains(image)));
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("art/sky.jpg, which isn't in the theme")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]

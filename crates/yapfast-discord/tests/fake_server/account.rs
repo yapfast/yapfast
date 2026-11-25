@@ -29,7 +29,7 @@ async fn plays_through_rpc(discord: &Discord, server: &str, directory: &std::pat
         let game = directory.path().join("yapfast_detected_game");
         std::fs::hard_link(executable, &game).unwrap();
         let child = std::process::Command::new(game)
-            .args(["--exact", "waits_as_detected_game"])
+            .args(["--exact", "waits_as_detected_game", "--ignored"])
             .env("YAPFAST_TEST_DETECTED_GAME", "1")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
