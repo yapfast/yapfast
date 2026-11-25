@@ -190,9 +190,10 @@ interested. Folders show up as they do in Discord.
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Profiles** as Discord draws them: badges, server tags, avatar decorations,
-  nameplates, name styles, profile effects and frames, and the full profile's
-  Board, Wishlist and recent activity. Edit Profile changes your own theme,
-  name style and server tag.
+  nameplates, name styles, profile effects and frames, what others are doing
+  with their Rich Presence buttons, and the full profile's Board, Wishlist and
+  recent activity. Edit Profile changes your own theme, name style and server
+  tag.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what

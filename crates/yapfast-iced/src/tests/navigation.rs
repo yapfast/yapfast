@@ -521,6 +521,7 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: true,
             connected: true,

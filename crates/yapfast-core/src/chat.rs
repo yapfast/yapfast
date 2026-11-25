@@ -30,7 +30,9 @@ pub const VIEW_HEIGHT: u32 = 1200;
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.
 #[cfg(feature = "discord")]
-pub use yapfast_discord::activity::{Activities, Activity, Kind as ActivityKind};
+pub use yapfast_discord::activity::{
+    Activities, Activity, ActivityButton, Kind as ActivityKind, RichButtons,
+};
 
 /// Only Discord says what people are doing.
 #[cfg(not(feature = "discord"))]
@@ -495,6 +497,9 @@ pub struct VoicePerson {
     pub deafened: bool,
     /// Muted or deafened by the Discord server, which shows in red.
     pub server_muted: bool,
+    /// Discord won't let them speak here (`suppress`): no Speak
+    /// permission, the AFK channel, a stage's audience.
+    pub speaking_blocked: bool,
     pub server_deafened: bool,
     /// Sharing their screen.
     pub streaming: bool,
@@ -3391,6 +3396,14 @@ pub enum DiscordCommand {
     ProfileRecent {
         user: String,
     },
+    /// The addresses of someone's Rich Presence buttons, by the activity's
+    /// session and application, read-only, as a click on one that came
+    /// without its address asks; [`Event::ActivityLinks`] follows.
+    ActivityLinks {
+        user: String,
+        session: String,
+        application: String,
+    },
     /// This account's profile for its editor: in a Discord server, by its
     /// server id, or its main profile; [`Event::OwnProfile`] follows.
     OwnProfile {
@@ -4351,6 +4364,15 @@ pub enum Event {
         user: String,
         recent: Vec<RecentActivity>,
     },
+    /// The addresses [`DiscordCommand::ActivityLinks`] asked for of `user`'s
+    /// activity in `session` of `application`, in the buttons' order (none
+    /// for a button Discord gave none), or why they didn't come.
+    ActivityLinks {
+        user: String,
+        session: String,
+        application: String,
+        result: Result<Vec<Option<String>>, String>,
+    },
     /// The profile Yapfast kept of someone [`DiscordCommand::Profile`] asked
     /// for, to show until [`Event::Profile`] comes.
     KeptProfile {
@@ -4681,8 +4703,12 @@ pub enum Event {
         server: String,
         role: String,
         result: Result<Vec<RoleMember>, String>,
-        /// How many hold it, after a change to them.
-        count: Option<u64>,
+    },
+    /// How many members hold a role after a membership change.
+    RoleCount {
+        server: String,
+        role: String,
+        count: u64,
     },
     /// The members [`RoleAction::FindMembers`] found for a text.
     RoleCandidates {

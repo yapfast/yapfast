@@ -153,6 +153,12 @@
 // as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
+// Bob's Factorio has two Rich Presence buttons, "Join the factory" and "Mod
+// list", whose labels alone his presence carries, with its session_id, as
+// others' presences mostly come. GET
+// /users/{id}/sessions/{session}/activities/{application}/metadata answers
+// both addresses for his session's Factorio, and 204 with nothing for any
+// other; GET /_control/activity-metadata-reads counts those requests.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -2168,7 +2174,7 @@ const readStates = new Map<string, { last: string; mentions: number }>([
 // `mute` and `deaf` are the server's, which a moderator sets.
 type VoiceState = {
   guild: string | null; channel: string; self_mute: boolean; self_deaf: boolean; session: string; self_stream?: boolean; self_video?: boolean;
-  mute?: boolean; deaf?: boolean;
+  mute?: boolean; deaf?: boolean; suppress?: boolean;
 };
 /** The session of Alice's other client, such as her phone. */
 const OTHER_CLIENT = "voice-alice-phone";
@@ -2235,7 +2241,7 @@ function wireVoiceState(userId: string, state: VoiceState | undefined, left: str
     self_stream: state?.self_stream ?? false,
     mute: state?.mute ?? false,
     deaf: state?.deaf ?? false,
-    suppress: false,
+    suppress: state?.suppress ?? false,
     request_to_speak_timestamp: null,
   };
 }
@@ -3081,6 +3087,11 @@ function readySupplemental() {
 // Factorio, as Discord knows the game: Bob plays it, and its icon comes
 // from GET /applications/public and the CDN's /app-icons/.
 const FACTORIO = "1400000000000000900";
+// The gateway session Bob plays Factorio in, which his buttons' addresses
+// are asked by, and those addresses.
+const BOB_SESSION = "b0b5e551000000000000000000fac70f";
+const FACTORIO_BUTTONS = ["https://factorio.com/", "https://mods.factorio.com/"];
+let activityMetadataReads = 0;
 const applications: Record<string, { id: string; name: string; icon: string | null }> = {
   [FACTORIO]: { id: FACTORIO, name: "Factorio", icon: "factorioicon" },
 };
@@ -3093,7 +3104,11 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.alice.id]: { status: "online", activities: [] },
   [users.bob.id]: {
     status: "dnd",
-    activities: [{ type: 0, name: "Factorio", application_id: FACTORIO, timestamps: { start: fakeStarted - 42 * 60_000 } }],
+    activities: [{
+      type: 0, name: "Factorio", application_id: FACTORIO, session_id: BOB_SESSION,
+      timestamps: { start: fakeStarted - 42 * 60_000 },
+      buttons: ["Join the factory", "Mod list"],
+    }],
   },
   [users.carol.id]: {
     status: "idle",
@@ -3473,6 +3488,7 @@ function gatewayMessage(ws: Socket, text: string) {
           session: ws.data.session,
           self_stream: before?.channel === channel && before.self_stream,
           self_video: !!d.self_video,
+          suppress: before?.channel === channel && before.suppress,
         });
       } else {
         voice.delete(ALICE);
@@ -6466,6 +6482,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     });
   }
 
+  // The addresses behind someone's Rich Presence buttons, as the client asks
+  // for them on a click: Bob's Factorio has both, anything else none.
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/sessions\/([^/]+)\/activities\/([^/]+)\/metadata$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    activityMetadataReads += 1;
+    if (m[1] === users.bob.id && m[2] === BOB_SESSION && m[3] === FACTORIO) {
+      return json({ button_urls: FACTORIO_BUTTONS });
+    }
+    return empty();
+  }
+
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.
   if (method === "POST" && path === "/users/@me/channels") {
@@ -8669,7 +8696,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
           join(user);
           voice.set(user.id, {
             guild: id, channel: channelId, self_mute: !!seat.mute, self_deaf: !!seat.deaf, session: `voice-${user.id}`,
-            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf,
+            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf, suppress: !!seat.suppress,
           });
           if (!seat.stream) continue;
           const key = streamKey(id, channelId, user.id);
@@ -9363,6 +9390,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/list-requests") return Response.json(listRequests);
     if (path === "/_control/note-reads") return Response.json(noteReads);
     if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/activity-metadata-reads") return Response.json(activityMetadataReads);
     if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
     if (req.method === "POST" && path === "/_control/note-elsewhere") {
       const id = url.searchParams.get("user") ?? "";
