@@ -552,10 +552,12 @@ impl App {
         if let Some(viewer) = crate::image_viewer::view(&self.viewer, self.ctx()) {
             layers = layers.push(viewer);
         }
+        // A menu opened from the inbox shows over it (`frame_layers`).
         if let Some(menu) = self
             .win
             .menu
             .as_ref()
+            .filter(|_| !crate::window_bar::inbox_shown(self))
             .and_then(|menu| crate::menus::view(menu, self.ctx()))
         {
             layers = layers
@@ -638,6 +640,20 @@ impl App {
         }
         if let Some(inbox) = crate::window_bar::inbox_view(self) {
             layers = layers.push(inbox);
+            // Its filter menu, over it.
+            if let Some(menu) = self
+                .win
+                .menu
+                .as_ref()
+                .and_then(|menu| crate::menus::view(menu, self.ctx()))
+            {
+                layers = layers
+                    .push(crate::controls::outside(
+                        Message::Menu(crate::menus::Event::Close),
+                        false,
+                    ))
+                    .push(menu);
+            }
         }
         if let Some(bar) = crate::window_bar::window_bar(self) {
             layers = layers.push(column![bar, Space::new().height(Length::Fill)]);

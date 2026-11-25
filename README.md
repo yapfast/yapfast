@@ -199,7 +199,8 @@ interested. Folders show up as they do in Discord.
   blocked people write, and unblock them from a list in Settings. Active Now
   sits beside the friends list.
 - **Notifications** that follow your Discord settings, muting for channels,
-  categories and servers, and unread markers.
+  categories and servers, and unread markers. The inbox lists unread channels
+  and your recent mentions, filtered by ping, jumping to their messages.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 
 ### Not there yet
