@@ -155,6 +155,7 @@ pub(super) struct Tracker {
     friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
     server_list: Arc<settings::ServerList>,
+    favorites: Arc<crate::favorites::Favorites>,
     /// This account's status and custom status, from its settings.
     pub(super) status: String,
     pub(super) custom_status: Option<CustomStatus>,
@@ -246,6 +247,7 @@ impl Tracker {
             nicknames: HashMap::new(),
             friends_since: HashMap::new(),
             server_list: Arc::default(),
+            favorites: Arc::default(),
             status: "online".into(),
             custom_status: None,
             afk_timeout: settings::AFK_TIMEOUT,
@@ -1367,6 +1369,7 @@ impl Tracker {
         if let Some(offered) = read.nsfw_commands_in_dms {
             self.nsfw_commands_in_dms = offered;
         }
+        self.favorite_settings(encoded);
         let soundboard = crate::soundboard::read_settings(encoded);
         if let Some(volume) = soundboard.volume {
             self.soundboard_volume = Some(volume);
@@ -1378,6 +1381,14 @@ impl Tracker {
             && *self.server_list != list
         {
             self.set_server_list(Arc::new(list));
+        }
+    }
+
+    pub(super) fn favorite_settings(&mut self, encoded: &str) {
+        if let Ok(Some(favorites)) = crate::favorites::read(encoded)
+            && *self.favorites != favorites
+        {
+            self.favorites = Arc::new(favorites);
         }
     }
 
@@ -2071,6 +2082,7 @@ impl Tracker {
             }),
             servers,
             folders: self.server_list.folders.clone(),
+            favorites: self.favorites.clone(),
             conversations: people.conversations,
             friends: people.friends,
             friend_list: people.friend_list,
@@ -2560,6 +2572,36 @@ mod tests {
         );
         assert_eq!(presence(&mut tracker), Some(Presence::Online));
         assert!(!tracker.presences.contains_key("3"));
+    }
+
+    #[test]
+    fn favorites_follow_ready_and_partial_updates() {
+        let encoded = crate::favorites::change("", 42, 0, true, false)
+            .unwrap()
+            .unwrap();
+        let ready = json!({"user": {"id": "1", "username": "me"}, "guilds": [], "user_settings_proto": encoded});
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        assert!(tracker.snapshot().favorites.contains(42));
+        let before = tracker.snapshot().favorites;
+        tracker.favorite_settings(&settings::encode_status(&settings::write_status(
+            &[],
+            "idle",
+            1,
+        )));
+        assert_eq!(
+            tracker.status, "online",
+            "a Favorites refresh leaves unrelated settings alone"
+        );
+        tracker.apply(&Event::UserSettingsProtoUpdate, &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}));
+        assert!(Arc::ptr_eq(&before, &tracker.snapshot().favorites));
+        let cleared = crate::favorites::change(&encoded, 42, 0, false, false)
+            .unwrap()
+            .unwrap();
+        tracker.apply(
+            &Event::UserSettingsProtoUpdate,
+            &json!({"settings": {"type": 1, "proto": cleared}, "partial": true}),
+        );
+        assert!(tracker.snapshot().favorites.entries.is_empty());
     }
 
     #[test]

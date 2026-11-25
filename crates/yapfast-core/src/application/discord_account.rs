@@ -498,6 +498,25 @@ impl Application {
                 .collect();
             self.state.people_changed();
         }
+        if changed(|a, b| Arc::ptr_eq(&a.favorites, &b.favorites)) {
+            self.state.channel_favorites = snapshot
+                .favorites
+                .entries
+                .iter()
+                .map(|entry| ChannelFavorite {
+                    id: entry.id.to_string(),
+                    name: entry.nickname.clone(),
+                    category: entry.kind == 2,
+                    reference: entry.kind == 1,
+                    parent: entry.parent_id.to_string(),
+                    position: entry.position,
+                    collapsed: entry.collapsed,
+                })
+                .collect();
+            self.state.favorites_visible = snapshot.favorites.shown();
+            self.state.favorites_muted = snapshot.favorites.muted;
+            self.state.list_changes = self.state.list_changes.wrapping_add(1);
+        }
         self.state.discord_ignored = snapshot.ignored.clone();
         self.state.discord_names = Some(snapshot.names.clone());
         if changed(|a, b| Arc::ptr_eq(&a.friend_list, &b.friend_list)) {

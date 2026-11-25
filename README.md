@@ -88,6 +88,12 @@ on how many servers and DMs you have.
 
 ## Features
 
+### Favorites
+
+Discord's saved Favorites appear behind the star in the server rail, with their
+categories and order. Right-click a channel, DM or group DM to add or remove it;
+the change syncs to the same Discord account list. See [Favorites](docs/discord/favorites.md).
+
 ### The GIF picker
 
 My favorite part :p Your favorites live on disk as 40 KB clips, so they're

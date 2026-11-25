@@ -3272,6 +3272,12 @@ pub enum DiscordCommand {
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`;
     /// [`Event::StatusSet`] follows.
     SetStatus(String),
+    /// Adds a Discord channel, DM or group DM to the account's Favorites, or
+    /// takes it off; [`Event::ChannelFavorited`] follows.
+    FavoriteChannel {
+        room: String,
+        favorite: bool,
+    },
     /// Places a server in a folder or moves a server or folder beside a tile.
     FileServer {
         server: String,
@@ -4388,6 +4394,8 @@ pub enum Event {
     StatusSet(Result<(), String>),
     /// Whether the account's server folders were saved.
     ServerFiled(Result<(), String>),
+    /// Whether [`DiscordCommand::FavoriteChannel`] was saved, or why not.
+    ChannelFavorited(Result<(), String>),
     /// Whether [`DiscordCommand::ShowGame`] changed it, or why not.
     ShowGameSet(Result<(), String>),
     /// Whether [`DiscordCommand::SoundboardVolume`] changed it, or why not.

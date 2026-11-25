@@ -800,8 +800,8 @@ mod tests {
             Some(directory.path()),
         )
         .unwrap_err();
-        let image = Path::new("art").join("gone.png");
-        assert!(error.contains(image.to_str().unwrap()), "{error}");
+        let image = "art/gone.png";
+        assert!(error.contains(image), "{error}");
     }
 
     #[test]
