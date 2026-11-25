@@ -133,7 +133,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 # What `#[implement]` expands to names it.
-windows-core = "0.62"
+windows-core = "0.100"
 
 [dev-dependencies]
 # Animated PNGs to read frame timings from, the version the image crate uses.
