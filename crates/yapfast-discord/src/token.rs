@@ -529,7 +529,7 @@ fn adopt_in(vault: &dyn Vault, token: &str, username: &str, name: &str) -> Resul
     let added = known.is_none();
     let id = match known {
         Some(id) => id,
-        None => link(vault, token, false)?,
+        None => link(vault, token, false, None)?,
     };
     let avatar = read_saved(vault, &id)?.unwrap_or_default().avatar;
     describe_in(vault, &id, username, name, &avatar)?;
