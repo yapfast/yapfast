@@ -63,9 +63,6 @@ version = "0.9"
 version = "0.5"
 default-features = false
 
-[dependencies.hex-literal]
-version = "0.3"
-
 [dependencies.hmac]
 version = "0.12"
 

@@ -55,11 +55,10 @@ flac = ["dep:claxon"]
 bin = [
   "dep:clap",
   "dep:anyhow",
-  "dep:ctrlc",
   "dep:env_logger",
   "dep:rand",
   "dep:ndarray-rand",
-  "dep:rust-ini",
+  "dep:ini",
   "logging",
 ]
 wav-utils = ["dep:ndarray", "dep:hound"]
@@ -71,7 +70,7 @@ tract = [
   "dep:tract-onnx",
   "dep:tract-pulse",
   "dep:tract-hir",
-  "dep:rust-ini",
+  "dep:ini",
   "dep:ndarray",
   "dep:anyhow",
   "dep:flate2",
@@ -87,13 +86,11 @@ wasm = [
   "dep:ndarray",
   "dep:wasm-bindgen",
   "dep:getrandom",
-  "dep:console_error_panic_hook",
   "dep:js-sys",
 ]
 hdf5-static = ["hdf5?/static"]
 
 [dependencies]
-rustfft = "^6.1.0"
 realfft = "^3.1.0"
 itertools = "0.12"
 num-complex = { version = "^0.4", features = ["serde"] }
@@ -104,7 +101,6 @@ roots = { version = "0.0.7", optional = true }
 rand_xoshiro = { version = "0.6", optional = true }
 thiserror = { version = "1.0", optional = true }
 anyhow = { version = "1.0", optional = true, features = ["backtrace"] }
-ctrlc = { version = "3.2", optional = true }
 hound = { version = "3.4", optional = true }
 hdf5 = { optional = true, git = "https://github.com/aldanor/hdf5-rust.git", rev = "26046fb" }
 ndarray = { version = "0.17", optional = true, features = ["serde"] }
@@ -118,7 +114,7 @@ ogg = { version = "^0.8", optional = true }
 claxon = { version = "^0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
 clap = { version = "4.0", optional = true, features = ["derive"] }
-rust-ini = { version = "^0.21", optional = true }
+ini = { package = "rust-ini", version = "^0.21", optional = true }
 tract-core = { version = "0.23", optional = true }
 tract-onnx = { version = "0.23", optional = true }
 tract-pulse = { version = "0.23", optional = true }
@@ -127,7 +123,6 @@ flate2 = { version = "1.0.24", optional = true }
 tar = { version = "0.4.38", optional = true }
 wasm-bindgen = { version = "0.2.87", optional = true }
 getrandom = { version = "0.2", features = ["js"], optional = true }
-console_error_panic_hook = { version = "0.1.1", optional = true }
 js-sys = { version = "0.3", optional = true }
 
 
