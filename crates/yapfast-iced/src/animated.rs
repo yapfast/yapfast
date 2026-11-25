@@ -24,7 +24,8 @@ use crate::{
     widgets::{Renderer, draw_picture},
 };
 
-/// The most memory one moving picture's cached frames may take: 16 MB.
+/// The most memory one moving picture's cached frames may take, at the
+/// window's pixels: 16 MiB.
 const MAX_FRAME_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
 /// A moving picture on screen: its decoder and the frame showing, with
@@ -35,6 +36,9 @@ pub struct Playing {
     cached_frames: Vec<Handle>,
     cached_all: bool,
     can_cache: bool,
+    /// The look and window pixels its frames are made for, which cached
+    /// frames keep.
+    made_for: (MediaLook, u32, u32),
 }
 
 /// A moving picture by its core picture and the size it's drawn at.
@@ -243,13 +247,31 @@ impl Animated<'_> {
             return None;
         }
         let key = self.key();
+        // At the window's pixels, so the renderer copies it in unstretched.
+        let scale = crate::widgets::pixel_scale();
+        let (to_width, to_height) = (
+            crate::pictures::window_pixels(self.at.width as u32, scale),
+            crate::pictures::window_pixels(self.at.height as u32, scale),
+        );
+        let made_for = (self.media, to_width, to_height);
+        let total_frames = self
+            .picture
+            .animation
+            .as_ref()
+            .map_or(0, |animation| animation.delays.len());
         let mut playing = self.playing.borrow_mut();
+        // Cached frames have the look and scale they were made at: a theme
+        // or scale changed since starts the picture again.
+        if playing
+            .get(&key)
+            .is_some_and(|entry| entry.can_cache && entry.made_for != made_for)
+        {
+            playing.remove(&key);
+        }
         let entry = match playing.entry(key) {
             std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
             std::collections::hash_map::Entry::Vacant(entry) => {
                 let player = Player::new(&self.picture)?;
-                let (to_width, to_height) = (self.at.width as u32, self.at.height as u32);
-                let total_frames = self.picture.animation.as_ref().map_or(0, |a| a.delays.len());
                 let frame_bytes = (to_width as usize) * (to_height as usize) * 4;
                 let total_bytes = total_frames.saturating_mul(frame_bytes);
                 let can_cache = total_frames > 1 && total_bytes <= MAX_FRAME_CACHE_BYTES;
@@ -259,6 +281,7 @@ impl Animated<'_> {
                     cached_frames: Vec::new(),
                     cached_all: false,
                     can_cache,
+                    made_for,
                 })
             }
         };
@@ -280,12 +303,6 @@ impl Animated<'_> {
                 );
                 paint::to_native(&mut rgba);
                 let (width, height) = (self.picture.width, self.picture.height);
-                // At the window's pixels, so the renderer copies it in unstretched.
-                let scale = crate::widgets::pixel_scale();
-                let (to_width, to_height) = (
-                    crate::pictures::window_pixels(self.at.width as u32, scale),
-                    crate::pictures::window_pixels(self.at.height as u32, scale),
-                );
                 let handle = if (width, height) == (to_width, to_height) {
                     Handle::from_rgba(width, height, rgba)
                 } else {
@@ -295,7 +312,6 @@ impl Animated<'_> {
                     Handle::from_rgba(to_width, to_height, fitted)
                 };
                 if entry.can_cache {
-                    let total_frames = self.picture.animation.as_ref().map_or(0, |a| a.delays.len());
                     entry.cached_frames.push(handle.clone());
                     if entry.cached_frames.len() >= total_frames {
                         entry.cached_all = true;
@@ -365,5 +381,38 @@ mod tests {
         // Subsequent steps succeed using cached frames with dropped iterator
         let _due = animated.step(Point::ORIGIN, &viewport, now).expect("due");
         assert!(players.is_cached(&key));
+    }
+
+    #[test]
+    fn a_new_look_starts_cached_frames_again() {
+        let gif = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testing/fixtures/gifs/hello.gif"
+        );
+        let picture = Arc::new(
+            yapfast_core::chat::decode_picture_at(std::path::Path::new(gif), 64, 64)
+                .expect("decoded"),
+        );
+        let total = picture.animation.as_ref().unwrap().delays.len();
+        let players = Players::default();
+        let size = Size::new(64.0, 64.0);
+        let at = Rectangle::with_size(size);
+        let viewport = Rectangle::new(Point::ORIGIN, Size::new(500.0, 500.0));
+        let animated = players.animated(&picture, size, at, false, MediaLook::default());
+        let key = animated.key();
+        let mut now = Instant::now();
+        for _ in 0..total {
+            now = now.max(animated.step(Point::ORIGIN, &viewport, now).expect("due"));
+        }
+        assert!(players.is_cached(&key));
+
+        // The theme's look changed: the frames kept had the old one.
+        let look = MediaLook {
+            patterned: false,
+            ..MediaLook::default()
+        };
+        let animated = players.animated(&picture, size, at, false, look);
+        animated.step(Point::ORIGIN, &viewport, now).expect("due");
+        assert!(!players.is_cached(&key));
     }
 }
