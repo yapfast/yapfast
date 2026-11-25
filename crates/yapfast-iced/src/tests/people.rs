@@ -1473,7 +1473,7 @@ fn every_name_style_draws_a_name_that_shows() {
                     let [gr, gg, gb] = [(ground >> 16) & 255, (ground >> 8) & 255, ground & 255];
                     let mut over = Vec::with_capacity(canvas.pixels.len());
                     let mut seen = 0;
-                    for pixel in canvas.pixels.chunks_exact(4) {
+                    for pixel in canvas.pixels.as_chunks::<4>().0 {
                         let a = u32::from(pixel[3]);
                         let mix = |c: u8, g: u32| (u32::from(c) * a + g * (255 - a)) / 255;
                         let (r, g, b) = (mix(pixel[0], gr), mix(pixel[1], gg), mix(pixel[2], gb));
