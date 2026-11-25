@@ -186,12 +186,11 @@ opt-level = 3
 [profile.dev.package.rustfft]
 opt-level = 3
 
-# No LTO: on one source, thin LTO grew the Linux binary from 216.5 MiB to
-# 226.6 (zstd 60.8 to 63.1) and the Windows installer from 57.0 MiB to 60.8,
-# by inlining more, for CPU and memory that measured the same. "off", as
-# false still runs LTO within each crate.
+# Production only
 [profile.release]
-lto = "off"
+codegen-units = 1
+lto = "thin"
+panic = "abort"
 strip = true
 
 # Optimized like release, with symbols and incremental builds: for
