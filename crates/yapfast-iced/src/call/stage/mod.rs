@@ -756,7 +756,7 @@ fn stage_tile(
                 on_press = Message::Call(Event::Watch(person.id.clone()));
             }
             let mut marks = Vec::new();
-            if person.muted && !person.deafened {
+            if person.speaking_blocked || (person.muted && !person.deafened) {
                 marks.push((Icon::MicOff, theme.danger));
             }
             if person.deafened {
@@ -883,6 +883,16 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
+    let speaking_blocked = voice.speaking_blocked();
+    let mic_off = voice.muted || speaking_blocked;
+    let mic_label = if speaking_blocked {
+        "Speaking is restricted in this channel"
+    } else if voice.muted {
+        "Unmute"
+    } else {
+        "Mute"
+    };
+    let mic_action = (ready && !speaking_blocked).then_some(Message::Call(Event::Mute));
     let when = |message: Message| ready.then_some(message);
     // A gel theme's call buttons are glossy gel buttons (as asked):
     // plain at rest, lit while on, the danger gel while muted and to leave.
@@ -895,14 +905,14 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         };
         let mut row_of = row![].spacing(12).align_y(Alignment::Center);
         row_of = row_of.extend(gel(
-            if voice.muted { Icon::MicOff } else { Icon::Mic },
-            if voice.muted { "Unmute" } else { "Mute" },
-            if voice.muted {
+            if mic_off { Icon::MicOff } else { Icon::Mic },
+            mic_label,
+            if mic_off {
                 GelTone::Danger
             } else {
                 GelTone::Plain
             },
-            when(Message::Call(Event::Mute)),
+            mic_action,
         ));
         row_of = row_of.extend(gel(
             if voice.deafened {
@@ -996,11 +1006,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let face = |icon| app.look().glyph(icon, ROUND_GLYPH, theme.text);
     let mut controls = row![
         controls::round_button(
-            face(if voice.muted { Icon::MicOff } else { Icon::Mic }),
-            if voice.muted { "Unmute" } else { "Mute" },
-            if voice.muted { alert } else { theme.raised },
+            face(if mic_off { Icon::MicOff } else { Icon::Mic }),
+            mic_label,
+            if mic_off { alert } else { theme.raised },
             theme,
-            when(Message::Call(Event::Mute)),
+            mic_action,
         ),
         controls::round_button(
             face(if voice.deafened {

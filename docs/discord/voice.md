@@ -1,5 +1,8 @@
 # Discord voice
 
+The gateway voice state reports denied speaking permission through `suppress`.
+Yapfast keeps this flag separate from self-mute and moderator mute.
+
 Scope for the beta:
 
 - Server voice channels: join, leave, a participant list, speaking indicators,

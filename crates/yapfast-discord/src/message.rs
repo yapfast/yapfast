@@ -1827,6 +1827,30 @@ impl Names {
         self.version += u64::from(known && learned);
     }
 
+    /// Applies a confirmed role change to a member whose roles are known.
+    pub(crate) fn change_member_role(
+        &mut self,
+        guild: &str,
+        user: &str,
+        role: &str,
+        add: bool,
+    ) -> bool {
+        let Some(held) = member_key(guild, user).and_then(|key| self.roles.get_mut(&key)) else {
+            return false;
+        };
+        if held.iter().any(|known| known == role) == add {
+            return false;
+        }
+        *held = held
+            .iter()
+            .filter(|known| known.as_str() != role)
+            .cloned()
+            .chain(add.then(|| role.to_owned()))
+            .collect();
+        self.version += 1;
+        true
+    }
+
     /// Forgets what's known of someone as a member of a server they left,
     /// were kicked from or banned from.
     pub fn forget_member(&mut self, guild: &str, user: &str) {

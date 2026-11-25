@@ -13,7 +13,8 @@ kit is a crate of its own, `crates/yapfast-iced-kit`, which knows nothing
 of the core or of the app: the theme (`theme`, which the app fills in
 `themes.rs`), `style`, `fonts`, `icons` and `canvas`, `controls`, `form`,
 `sheet`, `dialog`, `tile`, `viewer`, `field`, `piece`, `popover`,
-`reorder`, `elide`, `timer`, `frames` and `widgets`. The client uses each
+`reorder`, `elide`, `timer`, `frames`, `widgets`, `custom_font` and
+`woff`. The client uses each
 module under its own name (`crate::widgets::Rows`), and what the kit
 can't know it's handed: the messages to send, the palette, a zoom wheel's
 steps. A piece
