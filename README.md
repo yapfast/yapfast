@@ -463,7 +463,7 @@ on each system and for running against the fake Discord server.
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 
