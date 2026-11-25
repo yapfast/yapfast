@@ -179,6 +179,7 @@ export type InVoice = {
   stream?: string | true;
   /** Muted or deafened by a moderator. */
   serverMute?: boolean;
+  /** Not allowed to speak there, Discord's `suppress`. */
   suppress?: boolean;
   serverDeaf?: boolean;
 };

@@ -495,6 +495,8 @@ pub struct VoicePerson {
     pub deafened: bool,
     /// Muted or deafened by the Discord server, which shows in red.
     pub server_muted: bool,
+    /// Discord won't let them speak here (`suppress`): no Speak
+    /// permission, the AFK channel, a stage's audience.
     pub speaking_blocked: bool,
     pub server_deafened: bool,
     /// Sharing their screen.

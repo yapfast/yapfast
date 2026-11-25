@@ -41,6 +41,8 @@ pub struct Account {
     /// joined.
     pub in_call: bool,
     pub muted: bool,
+    /// Discord won't let this account speak in the call's channel, so
+    /// its mute shows on and does nothing.
     pub speaking_blocked: bool,
     pub deafened: bool,
     /// The call's voice is through, so its mute and deafen act; while it

@@ -47,6 +47,8 @@ pub struct Participant {
     /// Muted or deafened by a Discord server, which shows in red; `muted`
     /// and `deafened` say so too.
     pub server_muted: bool,
+    /// Discord won't let them speak here (`suppress`), apart from any
+    /// mute; never shown speaking.
     pub speaking_blocked: bool,
     pub server_deafened: bool,
     pub speaking: bool,

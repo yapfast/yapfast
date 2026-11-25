@@ -67,6 +67,8 @@ pub struct VoiceMember {
     /// Muted or deafened by the server, which a moderator chose, and
     /// Discord's client shows in red.
     pub server_muted: bool,
+    /// The voice state's `suppress`: not allowed to speak here, from the
+    /// channel's permissions, the AFK channel or a stage's audience.
     pub speaking_blocked: bool,
     pub server_deafened: bool,
     /// Sharing their screen with Go Live.
