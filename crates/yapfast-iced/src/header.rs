@@ -123,13 +123,15 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
         group_icon: room_group_icon(room),
         // As in the DM list: Discord sends the presence of friends and of
         // those sharing a server, and anyone else in a one-to-one DM shows
-        // offline.
-        presence: if room.person.is_some()
-            && room.network == yapfast_core::network::Network::Discord
-        {
-            room.presence.or(Some(Presence::Offline))
-        } else {
-            room.presence
+        // offline. Discord's header bar draws a group DM's icon with no dot,
+        // though its row in the DM list has one.
+        presence: match (
+            room.person.is_some(),
+            room.network == yapfast_core::network::Network::Discord,
+        ) {
+            (true, true) => room.presence.or(Some(Presence::Offline)),
+            (false, true) => None,
+            (_, false) => room.presence,
         },
         icon: (!room.direct).then(|| room_icon(room)),
         parent,

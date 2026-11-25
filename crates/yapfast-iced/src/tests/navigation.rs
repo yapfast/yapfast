@@ -1011,18 +1011,19 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
         Some(Presence::Online)
     );
 
-    // Header reflects the currently selected group DM's icon variant.
+    // Header reflects the currently selected group DM's icon variant, with
+    // no dot, as Discord's header bar draws a group's icon.
     assert_eq!(
         app.header.group_icon,
         Some(GroupIcon::Placeholder(0x29c566))
     );
-    assert_eq!(app.header.presence, Some(Presence::Online));
+    assert_eq!(app.header.presence, None);
 
     change(&mut app, |state| {
         state.selected = Some("discord:@me:five".into());
     });
     assert_eq!(app.header.group_icon, Some(GroupIcon::Pair(pair.clone())));
-    assert_eq!(app.header.presence, Some(Presence::Online));
+    assert_eq!(app.header.presence, None);
 
     change(&mut app, |state| {
         state.selected = Some("discord:@me:custom".into());
