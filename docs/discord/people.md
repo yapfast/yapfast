@@ -1237,7 +1237,9 @@ rules that need arguments. It never reads CPU, memory, environments or
 threads, and drops the process list after each scan. A process seen before and unchanged
 isn't matched again. Wine and Proton processes match by the Windows program
 in their command line, and runtime helpers, crash reporters and anti-cheat
-services don't count. The game started last shows and stays while it runs.
+services don't count. Automatic detection also skips Wallpaper Engine's
+executables and processes running from its `wallpaper_engine` folder.
+The game started last shows and stays while it runs.
 One that ended clears after two scans without it, up to 30 s. Only the
 game's name, its application id and when it started go to Discord.
 

@@ -329,6 +329,10 @@ fn ignored(path: &str) -> bool {
             | "steam.exe"
             | "steamwebhelper"
             | "steamwebhelper.exe"
+            | "wallpaper32.exe"
+            | "wallpaper64.exe"
+            | "wallpaperui.exe"
+            | "webwallpaper32.exe"
             | "wine"
             | "wine64"
             | "wine-preloader"
@@ -344,7 +348,11 @@ fn ignored(path: &str) -> bool {
             | "rundll32.exe"
             | "conhost.exe"
             | "start.exe"
-    ) || file.starts_with("easyanticheat")
+    ) || path
+        .rsplit(['/', '\\'])
+        .skip(1)
+        .any(|directory| directory.eq_ignore_ascii_case("wallpaper_engine"))
+        || file.starts_with("easyanticheat")
         || file.starts_with("eac_launcher")
         || file.starts_with("battleye")
         || file.starts_with("beservice")
