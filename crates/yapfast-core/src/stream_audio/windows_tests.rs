@@ -103,7 +103,7 @@ impl Drop for Listening {
 /// capture jitter doesn't cancel the measurements across frame boundaries.
 fn power(frames: &[f32], hz: u32) -> f64 {
     let mut total = 0.0;
-    for frame in frames.chunks_exact(FRAME) {
+    for frame in frames.as_chunks::<FRAME>().0 {
         let (mut real, mut imaginary) = (0.0, 0.0);
         for (at, sample) in frame.iter().step_by(2).enumerate() {
             let phase = at as f64 * hz as f64 * std::f64::consts::TAU / RATE as f64;

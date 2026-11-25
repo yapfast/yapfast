@@ -3049,7 +3049,7 @@ fn baked_art_image(folder: &Path, layer: &art::Layer, ground: u32) -> Option<ima
         ((ground >> 8) & 0xff) as u8,
         (ground & 0xff) as u8,
     ];
-    for pixel in image.as_mut().chunks_exact_mut(4) {
+    for pixel in image.as_mut().as_chunks_mut::<4>().0 {
         for channel in 0..3 {
             let source = f32::from(pixel[channel]) / 255.0;
             let below = f32::from(base[channel]) / 255.0;
