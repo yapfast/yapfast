@@ -51,11 +51,14 @@
             nasm
           ];
           buildInputs = libraries;
+          # mold through the Nix ld wrapper, which puts the directories of the
+          # libraries it links (GLib, PulseAudio, libstdc++) in the binary's
+          # runpath, so a build also runs outside this shell.
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = pkgs.writeShellScript "yapfast-linker" ''
-            exec ${pkgs.llvmPackages_21.clang}/bin/clang --ld-path=${pkgs.mold}/bin/mold "$@"
+            exec ${pkgs.llvmPackages_21.clang}/bin/clang --ld-path=${pkgs.mold-wrapped}/bin/ld.mold "$@"
           '';
-          # Keep native libraries available when the linker bypasses the Nix
-          # ld wrapper that would add their directories to the binary's runpath.
+          # The libraries Yapfast opens at run time, such as the Vulkan loader,
+          # which no runpath names.
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
           CC = "clang";
           CXX = "clang++";
