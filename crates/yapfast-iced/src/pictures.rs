@@ -471,14 +471,16 @@ fn placeholder_ground(room: &str) -> u32 {
         })
 }
 
-/// A group DM's fallback icon for `room`, if it is a group DM without a
-/// custom icon.
+/// A group DM's fallback icon for `room`, if it is a Discord group DM
+/// without a custom icon. A Matrix room keeps its initials.
 pub fn room_group_icon(room: &yapfast_core::chat::ChatRoom) -> Option<GroupIcon> {
-    (room.direct && room.person.is_none() && room.avatar.is_none()).then(|| {
-        match &room.group_avatars {
-            Some(pair) => GroupIcon::Pair(pair.clone()),
-            None => GroupIcon::Placeholder(placeholder_ground(&room.id)),
-        }
+    (room.network == yapfast_core::network::Network::Discord
+        && room.direct
+        && room.person.is_none()
+        && room.avatar.is_none())
+    .then(|| match &room.group_avatars {
+        Some(pair) => GroupIcon::Pair(pair.clone()),
+        None => GroupIcon::Placeholder(placeholder_ground(&room.id)),
     })
 }
 

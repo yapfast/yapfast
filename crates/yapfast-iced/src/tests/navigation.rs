@@ -937,6 +937,7 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
             Arc::new(ChatRoom {
                 id: "discord:@me:custom".into(),
                 name: "Custom".into(),
+                network: yapfast_core::network::Network::Discord,
                 direct: true,
                 person: None,
                 members: 4,
@@ -950,6 +951,7 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
             Arc::new(ChatRoom {
                 id: "discord:@me:two".into(),
                 name: "Two".into(),
+                network: yapfast_core::network::Network::Discord,
                 direct: true,
                 person: None,
                 members: 2,
@@ -963,6 +965,7 @@ fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rai
             Arc::new(ChatRoom {
                 id: "discord:@me:five".into(),
                 name: "Five".into(),
+                network: yapfast_core::network::Network::Discord,
                 direct: true,
                 person: None,
                 members: 5,
