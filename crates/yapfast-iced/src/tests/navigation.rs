@@ -276,6 +276,23 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
 }
 
 #[test]
+fn a_short_dm_list_recovers_after_a_scrolled_sidebar() {
+    let (mut app, _folder) = preview();
+    // The sidebar can carry the scroll report from a long server list
+    // into the first frame of a shorter DM list.
+    app.sidebar.scroll.offset = 2000.0;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!shows(&app, "Friday crew"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.sidebar.scroll.offset, 0.0);
+    assert!(shows(&app, "Friday crew"));
+}
+
+#[test]
 fn with_its_setting_the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
     let (mut app, _folder) = preview();
     app.layout.dm_search_switcher = true;
