@@ -2,18 +2,20 @@
 //! dialog. The popover opens over the account card when its picture or name
 //! is clicked: the account as Discord's own card shows it, Edit Profile,
 //! the Discord status to choose, the custom status, Copy User ID and User
-//! Settings. The dialog sets the custom status: an emoji from the picker,
-//! words, and when it clears.
+//! Settings. With Discord accounts linked, Switch Accounts shows too: its
+//! list opens beside the card, to choose the account to use or go on to
+//! Manage Accounts (`accounts`). The dialog sets the custom status: an emoji
+//! from the picker, words, and when it clears.
 
 use std::sync::Arc;
 
 use iced::{
     Alignment, Element, Length, Padding, Point, Task,
-    widget::{Space, button, column, container, opaque, operation, row, stack, text},
+    widget::{Space, button, column, container, mouse_area, opaque, operation, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, AppState, ClearAfter},
-    chat::{Activities, Presence},
+    chat::{Activities, DiscordAccount, Presence},
 };
 
 use crate::{
@@ -37,6 +39,9 @@ const BANNER: f32 = 80.0;
 const ROW: f32 = 40.0;
 const DOT: f32 = 20.0;
 const DIALOG: f32 = 460.0;
+/// The accounts' list's width, and the gap between it and the card.
+const FLYOUT: f32 = 220.0;
+const FLYOUT_GAP: f32 = 4.0;
 pub const FIELD: &str = "status-text";
 /// What Clear After offers, as minutes where it's a time.
 const CLEAR: [&str; 5] = ["Never", "30 min", "1 hour", "4 hours", "Today"];
@@ -59,6 +64,14 @@ pub enum Event {
     Close,
     /// The status row: its choices show or go.
     Expand,
+    /// The Switch Accounts row, hovered: its list opens beside the card,
+    /// and stays until the popover goes.
+    Accounts,
+    /// An account of that list, by id, to use.
+    SwitchTo(String),
+    /// Manage Accounts at the foot of that list, or the Switch Accounts row
+    /// pressed, as in Discord's client: its dialog opens.
+    Manage,
     Choose(&'static str),
     EditProfile,
     CustomStatus,
@@ -83,6 +96,8 @@ fn message(event: Event) -> Message {
 #[derive(Default)]
 pub struct AccountPopover {
     expanded: bool,
+    /// The list of accounts is open beside the card.
+    pub switching: bool,
     activities: Activities,
     cards: Vec<crate::profile::look::ActivityLook>,
 }
@@ -152,6 +167,20 @@ impl Status {
                     popover.expanded = !popover.expanded;
                 }
                 return Task::none();
+            }
+            Event::Accounts => {
+                if let Some(popover) = &mut self.popover {
+                    popover.switching = true;
+                }
+                return Task::none();
+            }
+            Event::SwitchTo(id) => {
+                self.popover = None;
+                cx.dispatch(Action::SwitchDiscordAccount(id));
+            }
+            Event::Manage => {
+                self.popover = None;
+                cx.dispatch(Action::OpenManageAccounts);
             }
             Event::Choose(status) => {
                 self.popover = None;
@@ -342,6 +371,15 @@ impl<'a> View<'a> {
             message(Event::CustomStatus),
         ));
         let mut second = column![].spacing(4);
+        let accounts = !state.discord_accounts.is_empty();
+        if accounts {
+            second = second.push(self.switch_row(popover.switching)).push(
+                container(Space::new())
+                    .width(Length::Fill)
+                    .height(1)
+                    .style(move |_| rounded(line, 0)),
+            );
+        }
         if state.discord_user.is_some() {
             second =
                 second.push(self.popover_row("Copy User ID", Icon::Copy, message(Event::CopyId)));
@@ -362,11 +400,128 @@ impl<'a> View<'a> {
                 .style(crate::profile::frame_style(
                     inks, theme, theme.line, 8.0, true,
                 ));
-        Some(
-            Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
-                .anchor(Anchor::Bottom)
-                .into(),
+        let mut place = Place::new(opaque(card), Point::new(crate::account::INSET, bottom), 8.0)
+            .anchor(Anchor::Bottom);
+        if popover.switching && accounts {
+            // The list beside the card, its top level with the row's: the
+            // row is the second group's first, which comes after the
+            // custom status and the activity cards (or the game) when the body shows
+            // them.
+            let cards = if popover.cards.is_empty() {
+                usize::from(state.discord_playing.is_some())
+            } else {
+                popover.cards.len()
+            };
+            let group = usize::from(custom) + cards + 1;
+            place = place.beside(
+                opaque(self.flyout()),
+                vec![0, 0, 1, group, 0, 0],
+                0.0,
+                FLYOUT_GAP,
+            );
+        }
+        Some(place.into())
+    }
+
+    /// Switch Accounts, lit while its list is open, with the chevron of a
+    /// submenu. The pointer on it opens the list; pressing it opens Manage
+    /// Accounts, as Discord's client does.
+    fn switch_row(self, open: bool) -> Element<'a, Message> {
+        mouse_area(self.cx.look.menu_item_sized(
+            Item {
+                label: "Switch Accounts".into(),
+                icon: Some(Icon::UserCircle),
+                danger: false,
+                slot: false,
+                disabled: false,
+                subtitle: None,
+                check: Check::Submenu,
+            },
+            Light::Lit(open),
+            message(Event::Manage),
+            ROW,
+        ))
+        .on_enter(message(Event::Accounts))
+        .into()
+    }
+
+    /// Switch Accounts' list: the accounts linked here, the one in use
+    /// ticked, and Manage Accounts under them.
+    fn flyout(self) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let state = self.cx.state;
+        let active = theme.active;
+        let mut list = column![].padding(8).width(FLYOUT);
+        for account in &state.discord_accounts {
+            list = list.push(self.account_choice(account, account.id == state.discord_active));
+        }
+        let line = theme.line;
+        list = list
+            .push(
+                // The line alone is drawn, the room around it left bare.
+                container(
+                    container(Space::new().width(Length::Fill).height(1))
+                        .style(move |_| rounded(line, 0)),
+                )
+                .padding(Padding {
+                    top: 9.0,
+                    bottom: 3.0,
+                    ..Padding::ZERO
+                }),
+            )
+            .push(
+                button(
+                    container(
+                        text("Manage Accounts")
+                            .size(14)
+                            .font(BOLD)
+                            .color(theme.text)
+                            .wrapping(text::Wrapping::None),
+                    )
+                    .height(Length::Fill)
+                    .align_y(Alignment::Center),
+                )
+                .padding([0, 8])
+                .height(ROW)
+                .width(Length::Fill)
+                .on_press(message(Event::Manage))
+                .style(controls::lit_style(None, active, 4.0)),
+            );
+        let panel = theme.panel;
+        container(list)
+            .style(move |_| crate::style::panel(panel, line, 8.0))
+            .into()
+    }
+
+    /// One account in the list: its picture, its username and, on the one
+    /// in use, the accent's tick.
+    fn account_choice(self, account: &'a DiscordAccount, in_use: bool) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let mut line = row![
+            self.cx
+                .avatar(account.avatar.as_deref(), account.label(), 24.0, 12.0, 1.0),
+            crate::elide::elide(account.label())
+                .size(14)
+                .font(crate::fonts::SEMIBOLD)
+                .color(theme.text),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if in_use {
+            line = line.push(active_tick(self.cx));
+        }
+        let active = theme.active;
+        button(
+            container(line)
+                .height(Length::Fill)
+                .align_y(Alignment::Center),
         )
+        .padding([0, 8])
+        .height(ROW)
+        .width(Length::Fill)
+        .on_press(message(Event::SwitchTo(account.id.clone())))
+        .style(controls::lit_style(None, active, 4.0))
+        .into()
     }
 
     /// The popover's top, as Discord's card: the banner (its picture, else
@@ -697,6 +852,17 @@ fn presence(key: &str) -> Presence {
         "invisible" => Presence::Offline,
         _ => Presence::Online,
     }
+}
+
+/// The accent's disc with a tick in it, which marks the account in use.
+fn active_tick<'a>(cx: Ctx<'a>) -> Element<'a, Message> {
+    let theme = cx.look.theme;
+    let accent = theme.accent;
+    cx.look
+        .glyph(Icon::Check, 10, theme.on_accent)
+        .boxed(16)
+        .style(move |_| rounded(accent, 8))
+        .into()
 }
 
 /// A group of the popover's rows, on its raised ground.
