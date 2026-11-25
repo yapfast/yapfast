@@ -2,7 +2,7 @@
 name = "yapfast-iced-kit"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.100"
 publish = false
 license = "GPL-3.0-or-later"
 description = "The pieces Yapfast's iced client builds its screens from; see docs/client/kit.md"
@@ -24,9 +24,16 @@ iced_tiny_skia = "=0.14.1"
 iced_wgpu = "=0.14.0"
 # The type of cosmic-text's `Fallback::script_fallback` argument.
 unicode-script = "0.5.5"
-# A fallback font's character map, read where fontdb maps the file; the
-# version fontdb already builds.
-ttf-parser = { version = "0.25", default-features = false, features = ["std"] }
+# The language Han ideographs are drawn for where no variable gives a
+# locale (Windows, macOS); the version cosmic-text already builds.
+sys-locale = "0.3"
+# A fallback font's character map, read where fontdb maps the file, and
+# whether a font the person loads is variable (`custom_font`); the version
+# fontdb already builds.
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "variable-fonts"] }
+# Unpacks the tables of the WOFF fonts the person loads (`woff`). Pure Rust,
+# no zlib: the backend of miniz_oxide, which the tree already builds.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 # The kit's icons from icons/, drawn once per size and colour.
 # Without its default features it has no text, so it makes no font
 # database.
@@ -38,3 +45,5 @@ unicode-segmentation = "1.13"
 [dev-dependencies]
 # The headless simulator for the widgets' tests.
 iced_test = "=0.14.0"
+# The folders the custom font tests write font files in.
+tempfile.workspace = true

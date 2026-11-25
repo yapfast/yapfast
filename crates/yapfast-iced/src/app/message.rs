@@ -26,6 +26,11 @@ const EVENT_BATCH: usize = 64;
 
 #[derive(Clone)]
 pub enum Message {
+    Shortcut(
+        crate::shortcuts::Shortcut,
+        keyboard::key::Physical,
+        keyboard::Modifiers,
+    ),
     Events(Batch),
     /// Whether someone is using the window.
     Away(crate::away::Event),
@@ -81,12 +86,29 @@ pub enum Message {
     /// A key nothing in the window took; as the window hands it on, with
     /// where it is on the keyboard, which tells push to talk's key.
     Key(keyboard::Key, keyboard::Modifiers),
-    Pressed(keyboard::Key, keyboard::Modifiers, keyboard::key::Physical),
+    Pressed(
+        keyboard::Key,
+        keyboard::Modifiers,
+        keyboard::key::Physical,
+        Option<yapfast_iced_kit::field::Typed>,
+    ),
     /// Shift, Ctrl, Alt or the logo key went down or up.
     Modifiers(keyboard::Modifiers),
     /// Fallback fonts the shaper wanted are in (`fonts::load_wanted`): the
     /// view is built and its text laid out again.
     FontsLoaded,
+    /// The desktop's light/dark window preference, initially and on change.
+    SystemTheme(iced::theme::Mode),
+    /// The quarter-second theme trial countdown.
+    ThemeTrialTick(std::time::Instant),
+    /// The trial banner's Keep (`true`) or Revert (`false`).
+    ThemeTrial(bool),
+    /// Twice a second while `--theme-dev` watches a folder.
+    ThemeDevTick,
+    /// Frame tick for declared `Slot::Accent` colour animations.
+    ThemeAccentTick(std::time::Instant),
+    /// A retained conversation reached the end of its theme transition.
+    ThemeTransitionDone(std::time::Instant),
     /// Nothing to do: a click a backdrop takes.
     Nothing,
     /// The header's bell: the open channel's notification choices.
@@ -121,7 +143,7 @@ pub enum Message {
     /// Something done to the call or in it (`call/`).
     Call(crate::call::Event),
     /// Something done in Settings (`settings/`).
-    Settings(crate::settings::Event),
+    Settings(Box<crate::settings::Event>),
     /// The update check's, which runs with Settings closed.
     Updates(crate::updates::Event),
     /// The keybinds' watcher told where they work, or of a toggling one's
@@ -142,6 +164,8 @@ pub enum Message {
     /// The thread beside the channel, or the New Thread form (`thread.rs`).
     Thread(crate::thread::Event),
     Popover(crate::header_popovers::Event),
+    /// Peeking at a row of the sidebar while Alt is held (`peek.rs`).
+    Peek(crate::peek::Event),
     Modal(crate::bot_modal::Event),
     Forum(crate::forum::Event),
     BrowseChannels(crate::browse_channels::Event),
@@ -153,6 +177,10 @@ pub enum Message {
     Shell(crate::shell::Event),
     /// The window's own title bar (`window_bar.rs`).
     Bar(crate::window_bar::Event),
+}
+
+pub fn settings(event: crate::settings::Event) -> Message {
+    Message::Settings(Box::new(event))
 }
 
 /// The backend's events, up to [`EVENT_BATCH`] at a time; iced applies all

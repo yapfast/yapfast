@@ -179,6 +179,82 @@ fn server_channels_list_their_pins_and_search_them() {
 
 #[test]
 #[cfg(feature = "discord")]
+fn recent_mentions_come_newest_first_for_their_filter_up_to_a_hundred() {
+    use crate::chat::MentionsQuery;
+    let mut app = discord_server();
+    let all = MentionsQuery::default();
+    assert!(matches!(
+        app.dispatch(Action::LoadRecentMentions(all.clone())).as_slice(),
+        [Effect::Backend(Command::Discord(
+            DiscordCommand::RecentMentions(query)
+        ))] if *query == all
+    ));
+    let said = |id: u64, timestamp: u64| ChatMessage {
+        id: format!("d:{id}"),
+        item: format!("d:{id}"),
+        timestamp,
+        ..Default::default()
+    };
+    let room = "discord:10:11".to_owned();
+    let came = |app: &mut Application, query: &MentionsQuery, ids: &[u64]| {
+        app.apply(Event::RecentMentions {
+            query: query.clone(),
+            result: Ok(ids.iter().map(|&id| (room.clone(), said(id, id))).collect()),
+        });
+    };
+    let listed = |app: &Application| {
+        app.state
+            .recent_mentions
+            .iter()
+            .map(|(_, message)| message.item.clone())
+            .collect::<Vec<_>>()
+    };
+    came(&mut app, &all, &[2, 1]);
+    assert_eq!(listed(&app), ["d:2", "d:1"]);
+    // An answer takes the place of the one before, as Discord's first
+    // page does.
+    came(&mut app, &all, &[3, 2]);
+    assert_eq!(listed(&app), ["d:3", "d:2"]);
+    // A narrower filter keeps what is listed until its answer comes, which
+    // the view filters meanwhile.
+    let quiet = MentionsQuery {
+        everyone: false,
+        ..all.clone()
+    };
+    let _ = app.dispatch(Action::LoadRecentMentions(quiet.clone()));
+    assert_eq!(listed(&app), ["d:3", "d:2"]);
+    // An answer to the filter before is dropped.
+    came(&mut app, &all, &[9]);
+    assert_eq!(listed(&app), ["d:3", "d:2"]);
+    came(&mut app, &quiet, &[3]);
+    assert_eq!(listed(&app), ["d:3"]);
+    // A wider one, or another server, lets them go until its answer.
+    let _ = app.dispatch(Action::LoadRecentMentions(all.clone()));
+    assert!(listed(&app).is_empty());
+    came(&mut app, &all, &[3, 2]);
+    let here = MentionsQuery {
+        server: Some("discord:10".into()),
+        ..all
+    };
+    let _ = app.dispatch(Action::LoadRecentMentions(here));
+    assert_eq!(listed(&app), ["d:3", "d:2"], "one server is narrower");
+    let _ = app.dispatch(Action::LoadRecentMentions(MentionsQuery {
+        server: Some("discord:20".into()),
+        ..all
+    }));
+    assert!(listed(&app).is_empty(), "another server");
+    // Only the newest hundred stay.
+    let _ = app.dispatch(Action::LoadRecentMentions(all.clone()));
+    let many: Vec<u64> = (4..=200).rev().collect();
+    came(&mut app, &all, &many);
+    let kept = listed(&app);
+    assert_eq!(kept.len(), crate::application::RECENT_MENTIONS);
+    assert_eq!(kept[0], "d:200");
+    assert_eq!(kept[95], "d:105");
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn server_channels_and_categories_offer_their_notifications() {
     let app = discord_server();
     let notifying = [MenuChoice::ChannelMute, MenuChoice::ChannelNotifications];
@@ -384,11 +460,18 @@ fn a_discord_servers_menu_and_header_offer_its_notifications() {
     assert!(app.header_choices("discord:10:11").is_empty());
     assert_eq!(
         app.state.menu_choices("discord:10:11"),
-        [ChannelMute, ChannelNotifications, CopyLink, CopyId]
+        [
+            AddFavorite,
+            ChannelMute,
+            ChannelNotifications,
+            CopyLink,
+            CopyId
+        ]
     );
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             PinChannel,
             CopyLink,
             ChannelMute,
@@ -496,6 +579,7 @@ fn discord_invites_go_to_a_channel_this_account_may_invite_to() {
     assert_eq!(
         app.menu_choices("discord:10:11"),
         [
+            AddFavorite,
             Invite,
             PinChannel,
             CopyLink,

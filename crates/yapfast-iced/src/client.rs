@@ -42,6 +42,9 @@ pub struct Client {
     sounds: Vec<yapfast_core::sounds::Sound>,
     alerts: Vec<yapfast_core::chat::Alert>,
     copied_picture: Option<Vec<u8>>,
+    /// An address outside Yapfast to ask before opening, as a masked link
+    /// does: a Rich Presence button's.
+    leaving: Option<String>,
     /// Others see when this account types, as Messages' settings say; off,
     /// the core's typing commands go nowhere.
     pub share_typing: bool,
@@ -70,6 +73,7 @@ impl Client {
             sounds: Vec::new(),
             alerts: Vec::new(),
             copied_picture: None,
+            leaving: None,
             share_typing: true,
             #[cfg(test)]
             sent: Vec::new(),
@@ -79,6 +83,12 @@ impl Client {
     /// The backend's runtime, for what runs beside the window.
     pub fn runtime(&self) -> &BackgroundRuntime {
         &self.runtime
+    }
+
+    /// A shared handle for iced tasks which hand work to the backend's
+    /// runtime and may outlive the Settings update that started them.
+    pub fn shared_runtime(&self) -> Arc<BackgroundRuntime> {
+        self.runtime.clone()
     }
 
     /// The data folder.
@@ -137,6 +147,11 @@ impl Client {
         self.copied_picture.take()
     }
 
+    /// The address to ask before opening, since this was last asked.
+    pub fn take_leaving(&mut self) -> Option<String> {
+        self.leaving.take()
+    }
+
     /// Whether linking stopped since this was last asked.
     pub fn link_stopped(&mut self) -> bool {
         std::mem::take(&mut self.link_stopped)
@@ -192,6 +207,8 @@ impl Client {
                 // say (`shell.rs`).
                 Effect::Notify(alert) => self.alerts.push(alert),
                 Effect::CopyPicture(bytes) => self.copied_picture = Some(bytes),
+                // The window asks first (`dialogs::leaving_view`).
+                Effect::AskToOpen(link) => self.leaving = Some(link),
                 // The preview's device lists and camera come with the parts
                 // of the window that use them.
                 _ => {}

@@ -303,6 +303,9 @@ impl Picker {
                 Task::none()
             }
             Event::Pressed => Task::none(),
+            // Ctrl+E in the search toggles the emoji back off, as Ctrl+E
+            // (`shortcuts`) does elsewhere.
+            Event::Field(field::Event::Emoji) if tab == Tab::Emoji => self.ask_close(cx),
             Event::Field(field::Event::Escape) => match tab {
                 Tab::Gifs => self.gifs_escape(cx),
                 _ => self.ask_close(cx),
@@ -579,6 +582,13 @@ pub fn place_emoji(app: &mut App, target: Target, key: String) -> Task<Message> 
         Target::Edit => crate::composer::insert(app, Writing::Edit, &text),
         Target::React(item, _) => {
             app.client.dispatch(Action::React { item, key });
+            app.cue(yapfast_core::themes::media::SoundSlot::ReactionAdd);
+            let at = app.pressed.get();
+            app.themes.particle_event(
+                &app.theme.id,
+                yapfast_core::themes::package::art::Trigger::ReactionAdded,
+                Some((at.x, at.y)),
+            );
             app.dirty = true;
         }
         Target::Status(_) => app.status.emoji(key),
@@ -640,8 +650,13 @@ impl<'a> View<'a> {
         } else {
             body
         };
+        let surface = yapfast_core::themes::package::art::ArtSurface::Picker;
+        let decorated =
+            self.cx.themes.decorates(&theme.id, surface) || theme.package_paint("raised").is_some();
+        let frame = kit::frame(content, picker.size(), theme, decorated);
+        let frame = crate::theme_art::surface(frame, self.cx, surface);
         // A press nothing in it took gives the keys back to the search.
-        iced::widget::mouse_area(kit::frame(content, picker.size(), theme))
+        iced::widget::mouse_area(frame)
             .on_press(Message::Picker(Event::Pressed))
             .into()
     }

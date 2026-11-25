@@ -411,8 +411,9 @@ mod linux {
         frame
             .chunks_exact(width * 4)
             .map(|row| {
-                row[from * 4..to * 4]
-                    .chunks_exact(4)
+                let (pixels, _) = row[from * 4..to * 4].as_chunks::<4>();
+                pixels
+                    .iter()
                     .map(|pixel| u32::from(pixel[0]) + u32::from(pixel[1]) + u32::from(pixel[2]))
                     .sum()
             })
@@ -523,10 +524,11 @@ mod linux {
     /// A fast hash of a frame's pixels, to tell a changed frame from a still one.
     fn hash(bytes: &[u8]) -> u64 {
         let mut lanes = [0x9e37_79b9_7f4a_7c15u64; 4];
-        let mut chunks = bytes.chunks_exact(32);
-        for chunk in &mut chunks {
-            for (lane, word) in lanes.iter_mut().zip(chunk.chunks_exact(8)) {
-                let word = u64::from_le_bytes(word.try_into().expect("8 bytes"));
+        let (chunks, remainder) = bytes.as_chunks::<32>();
+        for chunk in chunks {
+            let (words, _) = chunk.as_chunks::<8>();
+            for (lane, word) in lanes.iter_mut().zip(words) {
+                let word = u64::from_le_bytes(*word);
                 *lane = (*lane ^ word)
                     .wrapping_mul(0x0100_0000_01b3)
                     .rotate_left(29);
@@ -535,7 +537,7 @@ mod linux {
         let mut total = lanes.iter().fold(0u64, |total, lane| {
             (total ^ lane).wrapping_mul(0xff51_afd7_ed55_8ccd)
         });
-        for byte in chunks.remainder() {
+        for byte in remainder {
             total = (total ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
         }
         total

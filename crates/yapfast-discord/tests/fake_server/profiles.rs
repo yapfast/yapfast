@@ -4,14 +4,14 @@ use super::*;
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn fetches_the_profile_frame_a_profile_names() {
+async fn fetches_the_frame_and_effect_named_by_profiles() {
     let Fixture {
         _fake,
         discord,
         guild,
         bob,
         ..
-    } = Fixture::start("fetches_the_profile_frame_a_profile_names").await;
+    } = Fixture::start("fetches_the_frame_and_effect_named_by_profiles").await;
     // Dave's profile names a frame, and his banner moves; Bob's has no frame.
     let dave = discord
         .profile(&guild, "1400000000000000004", |_| {})
@@ -37,21 +37,9 @@ async fn fetches_the_profile_frame_a_profile_names() {
             .ends_with(&format!("/collectibles-shop/{sku}/1/static"))
     );
     assert_eq!(discord.kept_frame(&sku), Some(Some(layers)));
-}
 
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn fetches_the_profile_effect_a_profile_names() {
-    let Fixture {
-        _fake,
-        discord,
-        guild,
-        bob,
-        ..
-    } = Fixture::start("fetches_the_profile_effect_a_profile_names").await;
     // Bob's profile names an effect; Carol's, none.
-    let profile = discord.profile(&guild, &bob, |_| {}).await.unwrap();
-    let sku = profile.effect.expect("Bob equips an effect");
+    let sku = bob.effect.expect("Bob equips an effect");
     let carol = discord
         .profile(&guild, "1400000000000000003", |_| {})
         .await
@@ -294,6 +282,71 @@ async fn shows_profiles() {
         .find(|friend| friend.user_id == bob)
         .expect("Bob is a friend");
     assert_eq!(friend.since, Some(1_788_253_200_000), "JOINED_AT");
+}
+
+/// Bob's Factorio has two Rich Presence buttons whose labels alone his
+/// presence carries; their addresses are asked of Discord only when one is
+/// wanted, by the activity's session and application.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn reads_rich_presence_buttons_and_asks_for_the_addresses_not_sent() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        bob,
+        ..
+    } = Fixture::start("reads_rich_presence_buttons_and_asks_for_the_addresses_not_sent").await;
+    let snapshot = snapshot_where(&discord, |snapshot| {
+        snapshot
+            .friend_list
+            .iter()
+            .any(|friend| friend.user_id == bob && !friend.activities.is_empty())
+    })
+    .await;
+    let friend = snapshot
+        .friend_list
+        .iter()
+        .find(|friend| friend.user_id == bob)
+        .expect("Bob is a friend");
+    let factorio = &friend.activities[0];
+    let rich = factorio.buttons.as_deref().expect("its buttons");
+    let buttons: Vec<_> = rich
+        .list
+        .iter()
+        .map(|button| (&*button.label, button.url.as_deref()))
+        .collect();
+    assert_eq!(buttons, [("Join the factory", None), ("Mod list", None)]);
+    assert!(!rich.metadata, "no metadata came");
+    assert_eq!(
+        control(server, "GET", "/_control/activity-metadata-reads", ""),
+        "0",
+        "nothing is asked before a click"
+    );
+    let session = rich.session_id.as_deref().expect("its session");
+    let application = factorio.application_id.as_deref().expect("Factorio's id");
+    let urls = discord
+        .activity_button_urls(&bob, session, application)
+        .await
+        .unwrap();
+    let urls: Vec<_> = urls.iter().map(Option::as_deref).collect();
+    assert_eq!(
+        urls,
+        [
+            Some("https://factorio.com/"),
+            Some("https://mods.factorio.com/")
+        ]
+    );
+    // Another activity has none, which Discord answers with nothing.
+    let none = discord
+        .activity_button_urls(&bob, "another-session", "0")
+        .await
+        .unwrap();
+    assert!(none.is_empty());
+    assert_eq!(
+        control(server, "GET", "/_control/activity-metadata-reads", ""),
+        "2"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

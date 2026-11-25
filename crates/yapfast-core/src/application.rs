@@ -40,6 +40,7 @@ mod messages;
 mod mfa;
 mod new_post;
 mod oauth;
+mod peek;
 mod place_search;
 mod places;
 mod polls;
@@ -122,6 +123,12 @@ use profiles::{dm_profile, keep_board, names_games, same_board};
 const MENTION_SUGGESTIONS: usize = 8;
 const MENTION_GROUPS: usize = 4;
 
+/// The end of the typing line after two or more names.
+const ARE_TYPING: &str = " are typing...";
+
+/// Discord's client starts a slowmode's wait this much past its length.
+const SLOWMODE_MARGIN_MS: u64 = 100;
+
 const STOPPED: &str = "The connection has stopped. Restart Yapfast to restore your session.";
 
 /// Reactions offered before someone has used any, in order.
@@ -131,7 +138,20 @@ pub const DEFAULT_REACTIONS: [&str; 4] = ["👍", "❤️", "😂", "🎉"];
 pub enum Navigation {
     #[default]
     DirectMessages,
+    Favorites,
     Server(String),
+}
+
+/// A saved Discord channel reference or Favorites category.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChannelFavorite {
+    pub id: String,
+    pub name: String,
+    pub reference: bool,
+    pub category: bool,
+    pub parent: String,
+    pub position: u32,
+    pub collapsed: bool,
 }
 
 /// The dialog for starting a DM, while it's open.
@@ -260,6 +280,18 @@ pub struct Pins {
     /// The latest pinned first; `None` while they're on their way.
     pub messages: Option<Result<Vec<ChatMessage>, String>>,
 }
+
+/// A room's newest messages, peeked at without opening or reading it, while
+/// the peek shows. They go when it closes.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Peek {
+    pub room: String,
+    /// Oldest first; `None` while they're on their way.
+    pub messages: Option<Result<Vec<ChatMessage>, String>>,
+}
+/// The most of this account's recent mentions Yapfast keeps, which is all
+/// Discord's page sends.
+pub const RECENT_MENTIONS: usize = 100;
 
 /// A search, while its results show: of a DM, or of a whole Discord server,
 /// which stays open while its channels do.
@@ -659,6 +691,13 @@ pub struct AppState {
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
+    /// When this account may send again in a room whose slowmode it waits
+    /// out, in Unix milliseconds: its slowmode after a message of its own
+    /// went, as Discord's client guesses it.
+    pub slowmode_until: HashMap<String, u64>,
+    /// How many sends a slowmode's wait has held back, for the window to
+    /// flash the strip's countdown, as Discord's does.
+    pub slowmode_held: u64,
     /// The `@` or `#` word being typed in the composer, if any: its sigil and
     /// what follows it.
     pub mention_query: Option<(char, String)>,
@@ -689,6 +728,10 @@ pub struct AppState {
     /// them.
     pub people_changes: u64,
     pub navigation: Navigation,
+    pub channel_favorites: Vec<ChannelFavorite>,
+    pub favorites_visible: bool,
+    /// Favorites muted as a whole: their tile shows mentions but no unread mark.
+    pub favorites_muted: bool,
     pub selected: Option<String>,
     /// The selected voice channel shows its chat in place of its call.
     pub voice_chat: bool,
@@ -759,7 +802,17 @@ pub struct AppState {
     /// The selected DM's pinned messages, a search of it, and adding friends
     /// to it, each while it's open.
     pub pins: Option<Pins>,
+    /// The room peeked at, and its newest messages once they came, while
+    /// the peek shows.
+    pub peek: Option<Peek>,
     pub search: Option<Search>,
+    /// This account's recent Discord mentions, each with its room, the
+    /// newest first, as its Mentions inbox lists them; see
+    /// [`DiscordCommand::RecentMentions`]. Each answer makes a new list, so
+    /// a view can tell it changed by its pointer.
+    pub recent_mentions: Arc<Vec<(String, Arc<ChatMessage>)>>,
+    /// What they were last asked for, whose answer the list holds or will.
+    pub recent_mentions_query: Option<crate::chat::MentionsQuery>,
     /// The open Discord channel's list of its threads.
     pub threads: Option<ThreadList>,
     /// The Discord forum on screen.
@@ -925,6 +978,15 @@ impl AppState {
         Some((format!("{}/{id}", network_link(room)), id.to_string()))
     }
 
+    /// A Discord message's link and id, as [`Self::message_link`] gives
+    /// them, from its room and item: for one found by a search, which
+    /// needn't be in the timeline. None for any other network's.
+    pub fn found_link(room: &str, item: &str) -> Option<(String, String)> {
+        let id = discord::item_order(item)?;
+        (Network::of(room) == Network::Discord)
+            .then(|| (format!("{}/{id}", network_link(room)), id.to_string()))
+    }
+
     /// Whether this account's devices can write to the selected room.
     pub fn can_write(&self) -> bool {
         !self.busy
@@ -1066,9 +1128,20 @@ impl AppState {
             .any(|place| Some(place) != current.as_ref() && self.place_exists(place))
     }
 
+    pub fn is_channel_favorite(&self, room: &str) -> bool {
+        discord::parse_room(room).is_some_and(|(_, id)| {
+            self.channel_favorites
+                .iter()
+                .any(|entry| entry.reference && entry.id == id)
+        })
+    }
+
     pub fn in_scope(&self, room: &ChatRoom) -> bool {
         match &self.navigation {
             Navigation::DirectMessages => room.direct,
+            Navigation::Favorites => {
+                !room.locked && !room.request && self.is_channel_favorite(&room.id)
+            }
             Navigation::Server(id) => {
                 !room.direct
                     && self
@@ -1092,12 +1165,28 @@ impl AppState {
     /// suits going through every room, as [`Self::in_scope`] for each
     /// doesn't with many servers.
     pub fn scoped_rooms(&self) -> impl Iterator<Item = &ChatRoom> {
-        let server = match &self.navigation {
-            Navigation::DirectMessages => None,
+        self.rooms_in(&self.navigation)
+    }
+
+    /// [`Self::scoped_rooms`] for `navigation` rather than the open one: a
+    /// server tree lists the channels of servers it isn't in.
+    pub fn rooms_in<'a>(
+        &'a self,
+        navigation: &Navigation,
+    ) -> impl Iterator<Item = &'a ChatRoom> + use<'a> {
+        let favorites = (*navigation == Navigation::Favorites).then(|| {
+            self.channel_favorites
+                .iter()
+                .filter(|entry| entry.reference)
+                .map(|entry| entry.id.as_str())
+                .collect::<HashSet<_>>()
+        });
+        let server = match navigation {
+            Navigation::DirectMessages | Navigation::Favorites => None,
             Navigation::Server(id) => self.servers.iter().find(|server| &server.id == id),
         };
-        let channels: Option<HashSet<&str>> = match &self.navigation {
-            Navigation::DirectMessages => None,
+        let channels: Option<HashSet<&str>> = match navigation {
+            Navigation::DirectMessages | Navigation::Favorites => None,
             Navigation::Server(_) => Some(
                 server
                     .map(|server| server.channels.iter().map(String::as_str).collect())
@@ -1115,36 +1204,81 @@ impl AppState {
             })
             .map(|room| room.parent.as_deref().unwrap_or(&room.id))
             .collect();
-        self.rooms
-            .iter()
-            .map(Arc::as_ref)
-            .filter(move |room| match &channels {
-                None => room.direct,
-                Some(channels) => {
-                    !room.direct
-                        && channels.contains(room.id.as_str())
-                        && !(hide_muted && self.hidden_muted(room))
-                        && !(room.unlisted
-                            && !shown.contains(room.parent.as_deref().unwrap_or(&room.id)))
+        self.rooms.iter().map(Arc::as_ref).filter(move |room| {
+            if let Some(favorites) = &favorites {
+                !room.locked
+                    && !room.request
+                    && discord::parse_room(&room.id).is_some_and(|(_, id)| favorites.contains(id))
+            } else {
+                match &channels {
+                    None => room.direct,
+                    Some(channels) => {
+                        !room.direct
+                            && channels.contains(room.id.as_str())
+                            && !(hide_muted && self.hidden_muted(room))
+                            && !(room.unlisted
+                                && !shown.contains(room.parent.as_deref().unwrap_or(&room.id)))
+                    }
                 }
-            })
+            }
+        })
     }
 
-    /// Who else is typing in the open conversation, as the composer says it; empty
-    /// when nobody is.
-    pub fn typing_line(&self) -> String {
-        let names = self
-            .selected
+    /// Who else is typing in the open conversation, as the strip over the
+    /// composer says it, Discord's way: "Sam is typing...", "Sam and Riley
+    /// are typing...", "A, B and C are typing...", then "Several people are
+    /// typing...". Its pieces in order, each with whether it's a name (drawn
+    /// strong); empty when nobody is.
+    pub fn typing_line(&self) -> Vec<(&str, bool)> {
+        match self.typing_names() {
+            [] => Vec::new(),
+            [one] => vec![(one.as_str(), true), (" is typing...", false)],
+            [one, two] => vec![
+                (one.as_str(), true),
+                (" and ", false),
+                (two.as_str(), true),
+                (ARE_TYPING, false),
+            ],
+            [one, two, three] => vec![
+                (one.as_str(), true),
+                (", ", false),
+                (two.as_str(), true),
+                (" and ", false),
+                (three.as_str(), true),
+                (ARE_TYPING, false),
+            ],
+            _ => vec![("Several people", true), (ARE_TYPING, false)],
+        }
+    }
+
+    /// What the strip says in place of [`Self::typing_line`] when its one to
+    /// three names don't fit, as Discord's does: "Multiple people are
+    /// typing...". None when there's no such line to shorten.
+    pub fn typing_line_short(&self) -> Option<[(&'static str, bool); 2]> {
+        (1..=3)
+            .contains(&self.typing_names().len())
+            .then_some([("Multiple people", true), (ARE_TYPING, false)])
+    }
+
+    fn typing_names(&self) -> &[String] {
+        self.selected
             .as_ref()
             .and_then(|room| self.typing.get(room))
             .map(Vec::as_slice)
-            .unwrap_or_default();
-        match names {
-            [] => String::new(),
-            [one] => format!("{one} is typing..."),
-            [one, two] => format!("{one} and {two} are typing..."),
-            [one, two, three] => format!("{one}, {two} and {three} are typing..."),
-            _ => "Several people are typing...".into(),
+            .unwrap_or_default()
+    }
+
+    /// How long until this account may send in `room` again, its
+    /// slowmode's wait after its last message, at `now` (Unix
+    /// milliseconds); 0 when it may.
+    pub fn slowmode_wait(&self, room: &str, now: u64) -> u64 {
+        let slowed = self
+            .rooms
+            .iter()
+            .any(|listed| listed.id == room && listed.slowed && listed.slowmode > 0);
+        match self.slowmode_until.get(room) {
+            Some(until) if slowed => until.saturating_sub(now),
+            _ => 0,
         }
     }
 
@@ -1259,18 +1393,14 @@ impl AppState {
     }
 
     /// Who and what a message in the selected room may mention: its members, those
-    /// found by name and those who wrote lately, then its roles and groups. This
-    /// account isn't one of them.
+    /// found by name and those who wrote lately, this account among them as
+    /// in Discord's client, then its roles and groups.
     pub fn mention_candidates(&self) -> Vec<Candidate> {
         let Some(room) = self.selected.as_deref() else {
             return vec![];
         };
         let on_discord = Network::of(room) == Network::Discord;
-        let mut seen: HashSet<String> = [&self.discord_user, &self.account]
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect();
+        let mut seen: HashSet<String> = HashSet::new();
         let mut candidates = Vec::new();
         let listed = self
             .members
@@ -1649,6 +1779,10 @@ pub enum Action {
     /// does: only here, with no request. Phase 1d; application/ephemeral.rs.
     DismissEphemeral(String),
     Navigate(Navigation),
+    FavoriteChannel {
+        room: String,
+        favorite: bool,
+    },
     SelectRoom(String),
     /// Mark a listed conversation read, or every conversation of a listed
     /// server, as their menus do.
@@ -1919,6 +2053,12 @@ pub enum Action {
     CloseDm(String),
     /// Show the selected DM's pinned messages, or stop.
     ShowPins(bool),
+    /// Peek at a room's newest messages without opening or reading it, as
+    /// holding Alt over it in the channel list asks, or stop.
+    Peek(Option<String>),
+    /// Asks for this account's recent Discord mentions, as its Mentions
+    /// inbox lists them under its filter.
+    LoadRecentMentions(crate::chat::MentionsQuery),
     /// The pointer went over a message's reaction, by item and key, or left
     /// it.
     HoverReaction(Option<(String, String)>),
@@ -2022,6 +2162,11 @@ pub enum Action {
         body: Option<String>,
     },
     SetThreadPrivate(bool),
+    /// Add files to the form's first message, take the one at this index
+    /// out, or mark it as a spoiler or not.
+    StageFirst(Vec<PathBuf>),
+    UnstageFirst(usize),
+    ToggleFirstSpoiler(usize),
     /// Start the thread the form describes.
     CreateThread,
     /// Close the form, asking first if something was written; close it
@@ -2313,6 +2458,12 @@ pub enum Action {
     CloseStatusEditor,
     /// Set the Discord status: `online`, `idle`, `dnd` or `invisible`.
     SetStatus(String),
+    /// Drops a Discord server or folder in the rail.
+    FileServer {
+        server: String,
+        target: String,
+        before: Option<bool>,
+    },
     /// Share the game the Discord account plays, or stop.
     ShowGame(bool),
     /// Set how loud the Discord account's soundboard plays, on its slider
@@ -2376,6 +2527,11 @@ pub enum Action {
     ActivityCardsHidden(bool),
     /// A tab of the full profile opened.
     OpenProfileTab(ProfileTab),
+    /// One of someone's Rich Presence buttons clicked: its address opens
+    /// after the question a link to outside asks. As Discord's client finds
+    /// it: in the presence's own metadata, else in what Discord gave for the
+    /// person's activity, else asked of Discord.
+    OpenActivityButton(ActivityButtonPress),
     /// The account's card opened: ask for its own profile, which it draws from.
     LoadOwnProfile,
     /// Pick the server whose tag to wear in the profile editor; empty for none.
@@ -2427,6 +2583,21 @@ pub enum Action {
     CloseRole,
 }
 
+/// A Rich Presence button clicked on someone's activity card: whose it is,
+/// the activity's session and application, by which Discord gives its
+/// buttons' addresses, which button, whether the presence carried metadata
+/// (which Discord's client then reads the address from rather than asking),
+/// and the address it gave.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ActivityButtonPress {
+    pub user: String,
+    pub session: Option<String>,
+    pub application: Option<String>,
+    pub index: usize,
+    pub metadata: bool,
+    pub url: Option<String>,
+}
+
 /// An adapter executes these effects with the shared backend, then applies its events.
 pub enum Effect {
     Start(chat::Start),
@@ -2446,6 +2617,10 @@ pub enum Effect {
     StopDiscordLink,
     /// Open this web page in the browser.
     OpenPage(String),
+    /// Ask before opening this address outside Yapfast, as a masked link
+    /// does: a Rich Presence button's, which Discord's client opens as
+    /// untrusted.
+    AskToOpen(String),
     /// Put this picture, a file as it was downloaded, on the clipboard.
     CopyPicture(Vec<u8>),
     /// Film for a preview call with the camera with this id, or the first,
@@ -2572,6 +2747,9 @@ pub struct Application {
     /// member list as they were left, shown again at once on going back
     /// while the backend sends them afresh.
     shown: Vec<Shown>,
+    /// The addresses Discord gave for people's activities' Rich Presence
+    /// buttons, for this account.
+    activity_links: profiles::ActivityLinks,
 }
 
 /// A message to someone, held until their DM is open and ready to send.
@@ -3659,6 +3837,8 @@ impl Application {
             }
             Action::CloseDm(room) => self.close_dm(room),
             Action::ShowPins(shown) => self.show_pins(shown),
+            Action::Peek(room) => self.peek(room),
+            Action::LoadRecentMentions(query) => self.load_recent_mentions(query),
             Action::HoverReaction(hovered) => self.hover_reaction(hovered),
             Action::OpenGifs => self.open_gifs(),
             Action::OpenStickers => self.open_stickers(),
@@ -3724,6 +3904,18 @@ impl Application {
                 self.set_thread_private(private);
                 vec![]
             }
+            Action::StageFirst(paths) => {
+                self.stage_first(paths);
+                vec![]
+            }
+            Action::UnstageFirst(index) => {
+                self.unstage_first(index);
+                vec![]
+            }
+            Action::ToggleFirstSpoiler(index) => {
+                self.toggle_first_spoiler(index);
+                vec![]
+            }
             Action::CreateThread => self.create_thread(),
             Action::CloseNewThread => {
                 self.close_new_thread(false);
@@ -3766,6 +3958,7 @@ impl Application {
                 self.change_notifications(place, change)
             }
             Action::PinChannel { room, pinned } => self.pin_channel(room, pinned),
+            Action::FavoriteChannel { room, favorite } => self.favorite_channel(room, favorite),
             Action::MoveChannel { room, landing } => self.move_channel(room, landing),
             Action::AnswerMoveSync(sync) => self.answer_move_sync(sync),
             Action::FollowChannel { room, follow } => self.follow_channel(room, follow),
@@ -3993,6 +4186,33 @@ impl Application {
                 self.state.status_editor = None;
                 vec![]
             }
+            Action::FileServer {
+                server,
+                target,
+                before,
+            } => {
+                if self.state.preview || self.state.discord_user.is_none() || server == target {
+                    return vec![];
+                }
+                let source_folder = crate::discord::parse_folder(&server);
+                let Some(server) = source_folder.or_else(|| crate::discord::parse_server(&server))
+                else {
+                    return vec![];
+                };
+                let folder = crate::discord::parse_folder(&target);
+                let Some(id) = folder.or_else(|| crate::discord::parse_server(&target)) else {
+                    return vec![];
+                };
+                vec![Effect::Backend(Command::Discord(
+                    DiscordCommand::FileServer {
+                        server: server.to_owned(),
+                        source_folder: source_folder.is_some(),
+                        target: id.to_owned(),
+                        folder: folder.is_some(),
+                        before,
+                    },
+                ))]
+            }
             Action::SetStatus(status) => {
                 if self.state.preview
                     || self.state.discord_user.is_none()
@@ -4123,6 +4343,7 @@ impl Application {
                 vec![]
             }
             Action::OpenProfileTab(tab) => self.open_profile_tab(tab),
+            Action::OpenActivityButton(press) => self.open_activity_button(press),
             Action::LoadOwnProfile => self.load_own_profile(),
             Action::OpenWishlist => self.open_wishlist(),
             Action::ChooseServerTag(server) => {
@@ -4399,8 +4620,20 @@ impl Application {
             Event::Wishlist { id, wishlist } => self.wishlist_loaded(&id, wishlist),
             Event::ProfileBoard { user, widgets } => self.profile_board_named(&user, widgets),
             Event::ProfileRecent { user, recent } => self.profile_recent_came(&user, recent),
+            Event::ActivityLinks {
+                user,
+                session,
+                application,
+                result,
+            } => return self.activity_links_came(&user, &session, &application, result),
             Event::BadgeLevels { user, badges } => self.show_badge_levels(&user, badges),
             Event::ProfileFrame { user, frame } => self.show_profile_frame(&user, &frame),
+            Event::ProfilePresence {
+                user,
+                presence,
+                activity,
+                activities,
+            } => self.show_profile_presence(&user, presence, activity, activities),
             Event::ProfileEffect(effect) => {
                 // The few of the cards seen lately.
                 let profile_effects = &mut self.state.profile_effects;
@@ -4440,6 +4673,8 @@ impl Application {
             }
             Event::ThreadOpened { room, result } => self.thread_opened(room, result),
             Event::Pins { room, result } => self.pins_came(room, result),
+            Event::Peeked { room, result } => self.peeked(room, result),
+            Event::RecentMentions { query, result } => self.recent_mentions_came(query, result),
             Event::GifCategories(result) => self.gif_categories_came(result),
             Event::Gifs { query, result } => self.gifs_came(query, result),
             Event::GifSuggestions { query, terms } => self.gif_suggestions_came(query, terms),
@@ -4609,8 +4844,12 @@ impl Application {
                 server,
                 role,
                 result,
+            } => self.role_holders(server, role, result),
+            Event::RoleCount {
+                server,
+                role,
                 count,
-            } => self.role_holders(server, role, result, count),
+            } => self.role_count(&server, &role, count),
             Event::RoleCandidates {
                 server,
                 query,
@@ -4671,6 +4910,16 @@ impl Application {
             }
             Event::CustomStatusSet(Ok(())) => {
                 self.state.status_editor = None;
+            }
+            Event::ChannelFavorited(result) => {
+                if let Err(error) = result {
+                    self.state.notice = Some(format!("Couldn't save your Favorites: {error}"));
+                }
+            }
+            Event::ServerFiled(result) => {
+                if let Err(error) = result {
+                    self.state.notice = Some(format!("Couldn't save your server folders: {error}"));
+                }
             }
             Event::StatusSet(result) => {
                 if let Err(error) = result {
@@ -4787,6 +5036,7 @@ impl Application {
                 let files = std::mem::take(&mut self.sent_files);
                 match result {
                     Ok(()) => {
+                        self.slowmode_starts(&room);
                         if self.state.drafts.get(&room) == Some(&sent) {
                             self.state.drafts.remove(&room);
                         }
@@ -5165,7 +5415,7 @@ impl Application {
             .iter()
             .filter_map(|(navigation, room)| match navigation {
                 Navigation::Server(server) => Some((server.clone(), room.clone())),
-                Navigation::DirectMessages => None,
+                Navigation::DirectMessages | Navigation::Favorites => None,
             })
             .collect()
     }

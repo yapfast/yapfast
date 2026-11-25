@@ -31,7 +31,6 @@ pub(super) fn command(
                 server,
                 role,
                 result: Err(why),
-                count: None,
             }),
             RoleAction::FindMembers(_) => Ok(()),
             _ => events.send(Event::ServerSettingsSaved {
@@ -50,7 +49,6 @@ pub(super) fn command(
                     server,
                     role,
                     result,
-                    count: None,
                 });
             });
         }
@@ -151,7 +149,7 @@ async fn act(
             // Just below the role it copies, as Discord's client puts it;
             // only the places that change go, so roles above this
             // account's stay out of it.
-            let now = discord.roles_page(guild).await?.roles;
+            let now = discord.roles_without_member_counts(guild).await?.roles;
             let mut order: Vec<&str> = now
                 .iter()
                 .map(|known| known.id.as_str())
@@ -190,7 +188,7 @@ async fn act(
         | RoleAction::AddMembers { .. }
         | RoleAction::RemoveMember { .. } => None,
     };
-    let mut page = page(discord.roles_page(guild).await?);
+    let mut page = page(discord.roles_without_member_counts(guild).await?);
     page.open = open;
     Ok(ServerSettingsPage::Roles(page))
 }
@@ -213,7 +211,7 @@ pub(super) async fn save(
         })
         .await?;
     Ok(ServerSettingsPage::Roles(page(
-        discord.roles_page(guild).await?,
+        discord.roles_without_member_counts(guild).await?,
     )))
 }
 
@@ -323,29 +321,31 @@ async fn changed_holders(
     changed: anyhow::Result<()>,
     events: &UnboundedSender<Event>,
 ) {
-    let (result, count) = match changed {
-        Ok(()) => {
-            let count = discord
-                .role_member_counts(guild)
-                .await
-                .ok()
-                .map(|counts| counts.get(&role).copied().unwrap_or_default());
-            (holders(discord, guild, &role).await, count)
-        }
-        Err(error) => {
-            tracing::warn!(
-                error = format!("{error:#}"),
-                "could not change a role's members"
-            );
-            (Err(format!("That didn't work: {error}")), None)
-        }
-    };
+    if let Err(error) = changed {
+        tracing::warn!(
+            error = format!("{error:#}"),
+            "could not change a role's members"
+        );
+        let _ = events.send(Event::RoleHolders {
+            server,
+            role,
+            result: Err(format!("That didn't work: {error}")),
+        });
+        return;
+    }
     let _ = events.send(Event::RoleHolders {
-        server,
-        role,
-        result,
-        count,
+        server: server.clone(),
+        role: role.clone(),
+        result: holders(discord, guild, &role).await,
     });
+    if let Ok(counts) = discord.role_member_counts(guild).await {
+        let count = counts.get(&role).copied().unwrap_or_default();
+        let _ = events.send(Event::RoleCount {
+            server,
+            role,
+            count,
+        });
+    }
 }
 
 #[cfg(test)]

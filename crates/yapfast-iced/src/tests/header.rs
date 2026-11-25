@@ -161,7 +161,7 @@ fn ctrl_f_goes_to_the_search_filled_with_the_channel_and_ctrl_shift_f_keeps_it()
     });
     assert_eq!(app.searching.text, "rules now");
     // Not over the settings.
-    let _ = app.update(Message::Settings(crate::settings::Event::Open(
+    let _ = app.update(crate::app::settings(crate::settings::Event::Open(
         crate::settings::Section::Appearance,
     )));
     let over = app.update(Message::Search(Event::Focus { channel: true }));
@@ -363,7 +363,7 @@ fn a_dms_call_buttons_do_nothing_while_a_call_cant_be_joined() {
     let starts = |app: &mut crate::app::App| {
         let mut ui =
             iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
-        let left = crate::rail::WIDTH + crate::sidebar::width(&app.layout);
+        let left = crate::rail::WIDTH + crate::sidebar::width(&app.layout, &app.theme);
         let mut rows = Vec::new();
         let _ = ui.find(|candidate: iced_test::selector::Candidate<'_>| {
             if let iced_test::selector::Candidate::Text {
@@ -676,6 +676,81 @@ fn results_from_someone_blocked_hide_behind_a_row_that_shows_them() {
     let _ = app.update(Message::Search(Event::ShowHidden(true)));
     assert!(super::present(&app, "Mallory's plan"));
     assert!(shows(&app, "Hide 1 message from blocked users"));
+}
+
+/// #general's search showing one result, Bob's, with `item`.
+fn found_in_general(item: &str) -> (crate::app::App, tempfile::TempDir) {
+    use yapfast_core::discord;
+    let (mut app, folder) = in_general();
+    let place = app.client.state().search_place().expect("a server");
+    change(&mut app, |state| {
+        state.search = Some(Search {
+            place,
+            query: "plan".into(),
+            total: 1,
+            results: vec![SearchHit {
+                room: "discord:10:11".into(),
+                message: ChatMessage {
+                    item: item.into(),
+                    body: "The plan for tonight".into(),
+                    author: "Bob".into(),
+                    sender: discord::sender_id("1400000000000000200"),
+                    ..ChatMessage::default()
+                },
+                thread: None,
+            }],
+            ..Default::default()
+        });
+    });
+    (app, folder)
+}
+
+/// The labels of the open menu's rows.
+fn menu_labels(app: &crate::app::App) -> Vec<String> {
+    let menu = app.win.menu.as_ref().expect("the result's menu");
+    menu.rows.iter().map(|row| row.label.to_string()).collect()
+}
+
+/// A result's menu is Discord's: Copy Message Link, and with Developer
+/// Mode on Copy Message ID and Copy Author ID, each copying the result's
+/// own, though it isn't in the timeline.
+#[test]
+fn a_search_results_menu_copies_its_link_and_with_developer_mode_its_ids() {
+    let (mut app, _folder) = found_in_general("d:1400000000000000900");
+    let open = |app: &mut crate::app::App| {
+        super::interact(app, |ui| super::right_click(ui, "The plan for tonight"));
+    };
+    let choose = |app: &mut crate::app::App, row| {
+        super::clipboard_writes(app.update(Message::Menu(crate::menus::Event::Choose(row))))
+    };
+    let link = "https://discord.com/channels/10/11/1400000000000000900";
+    open(&mut app);
+    assert_eq!(menu_labels(&app), ["Copy Message Link"]);
+    assert_eq!(choose(&mut app, 0), [link]);
+    assert!(app.win.menu.is_none(), "choosing closes it");
+
+    app.layout.developer_mode = true;
+    let mut copied = Vec::new();
+    for row in 0..3 {
+        open(&mut app);
+        assert_eq!(
+            menu_labels(&app),
+            ["Copy Message Link", "Copy Message ID", "Copy Author ID"]
+        );
+        copied.extend(choose(&mut app, row));
+    }
+    assert_eq!(copied, [link, "1400000000000000900", "1400000000000000200"]);
+}
+
+/// A result with no Discord id has nothing to copy, and no menu.
+#[test]
+fn a_search_result_without_an_id_opens_no_menu() {
+    let (mut app, _folder) = found_in_general("s0");
+    app.layout.developer_mode = true;
+    super::interact(&mut app, |ui| {
+        super::right_click(ui, "The plan for tonight");
+    });
+    assert!(app.win.menu.is_none());
 }
 
 /// Discord's Filters dialog reads the box, and Apply writes its filters

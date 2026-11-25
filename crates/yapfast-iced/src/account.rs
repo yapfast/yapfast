@@ -41,6 +41,9 @@ pub struct Account {
     /// joined.
     pub in_call: bool,
     pub muted: bool,
+    /// Discord won't let this account speak in the call's channel, so
+    /// its mute shows on and does nothing.
+    pub speaking_blocked: bool,
     pub deafened: bool,
     /// The call's voice is through, so its mute and deafen act; while it
     /// joins or leaves they wait.
@@ -68,7 +71,7 @@ impl Account {
     /// Shown muted: in a call, as it is; out of one, as calls are joined.
     fn shown_muted(&self, join: (bool, bool)) -> bool {
         if self.in_call {
-            self.muted
+            self.muted || self.speaking_blocked
         } else {
             !join.0 || join.1
         }
@@ -112,8 +115,19 @@ pub fn account(state: &AppState) -> Account {
         .discord_playing
         .as_ref()
         .filter(|_| live && state.discord_show_game);
+    // What this account shares, as Discord's panel writes it: the first
+    // activity's icon and words, or its icon, a bullet and the custom
+    // status.
+    let shared = (live && !state.discord_activities.is_empty()).then(|| {
+        crate::looks::Status::activity(
+            &state.discord_activities,
+            custom.as_ref().map(|(words, _)| words.as_str()),
+        )
+    });
     let words = if state.preview {
         "Local only".to_owned()
+    } else if let Some(shared) = shared.as_ref().filter(|shared| !shared.bullet) {
+        shared.words.clone()
     } else if let Some((words, _)) = &custom {
         words.clone()
     } else if let Some(playing) = playing {
@@ -142,14 +156,29 @@ pub fn account(state: &AppState) -> Account {
         username: state.account_username.clone().unwrap_or_default(),
         avatar: state.account_avatar.clone(),
         presence,
-        status: Status {
-            words,
-            emoji: custom.and_then(|(_, emoji)| emoji),
-            icon: u8::from(playing.is_some()),
-            bullet: playing.is_some() && state.custom_status.is_some(),
+        status: match &shared {
+            Some(shared) => Status {
+                words,
+                emoji: if shared.bullet {
+                    custom.and_then(|(_, emoji)| emoji)
+                } else {
+                    None
+                },
+                icon: shared.icon,
+                bullet: shared.bullet,
+                more: shared.more,
+            },
+            None => Status {
+                words,
+                emoji: custom.and_then(|(_, emoji)| emoji),
+                icon: u8::from(playing.is_some()),
+                bullet: playing.is_some() && state.custom_status.is_some(),
+                more: 0,
+            },
         },
         in_call: state.voice.active(),
         muted: state.voice.muted,
+        speaking_blocked: state.voice.speaking_blocked(),
         deafened: state.voice.deafened,
         ready: matches!(
             state.voice.phase,
@@ -237,9 +266,23 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             ),
     );
     let face = ring_and_dot(ctx, account, face);
+    // A theme may leave the account's own avatar out.
+    let face: Element<'a, Message> =
+        if crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar) {
+            iced::widget::Space::new().width(0).into()
+        } else {
+            face
+        };
+    let face = crate::theme_effects::slot(
+        face,
+        ctx,
+        yapfast_core::themes::package::Slot::OwnAvatar,
+        Some(theme.panel),
+    );
     let second: Element<'a, Message> = if pointed && !account.username.is_empty() {
         text(account.username.as_str())
-            .size(13)
+            .size(theme.type_size("small", 13.0))
+            .font(theme.font("small", crate::fonts::REGULAR))
             .color(theme.muted)
             .wrapping(text::Wrapping::None)
             .into()
@@ -253,11 +296,24 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let names = mouse_area(
         container(
             column![
-                text(account.name.as_str())
-                    .size(15)
-                    .font(BOLD)
-                    .color(theme.text)
-                    .wrapping(text::Wrapping::None),
+                // As Slint's dock: 15 px bold in the window's own face (a
+                // theme's body), not the theme's names.
+                if theme.packaged() {
+                    crate::elide::elide(account.name.as_str())
+                        .size(15.0)
+                        .font(theme.font("body", BOLD))
+                        .color(theme.text)
+                        .into()
+                } else {
+                    // The stock look, as main's.
+                    Element::from(
+                        text(account.name.as_str())
+                            .size(15)
+                            .font(BOLD)
+                            .color(theme.text)
+                            .wrapping(text::Wrapping::None),
+                    )
+                },
                 second
             ]
             .width(Length::Fill),
@@ -287,7 +343,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.layout.unmute_on_join.unwrap_or(true),
         ctx.layout.deafen_on_join,
     );
-    let (mic, mic_label) = if account.shown_muted(join) {
+    let (mic, mic_label) = if account.speaking_blocked {
+        (Icon::MicOff, "Speaking is restricted in this channel")
+    } else if account.shown_muted(join) {
         (
             Icon::MicOff,
             if account.in_call {
@@ -366,18 +424,38 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     };
     let toggles = !account.in_call || account.ready;
     let toggle = |event| toggles.then_some(Message::Account(event));
+    // In a call, a gel theme's mute and deafen are gel buttons (the
+    // as asked): the danger gel while on.
+    let device = |icon, label: &'static str, on: bool, glyph, event| -> Element<'a, Message> {
+        let message = if matches!(event, Event::Mute) && account.speaking_blocked {
+            None
+        } else {
+            toggle(event)
+        };
+        let gel = if account.in_call {
+            crate::theme_art::gel_call_button(
+                ctx,
+                icon,
+                glyph - 2,
+                label,
+                if on {
+                    crate::theme_art::GelTone::Danger
+                } else {
+                    crate::theme_art::GelTone::Plain
+                },
+                (30.0, 30.0),
+                message.clone(),
+            )
+        } else {
+            None
+        };
+        gel.unwrap_or_else(|| tinted_button(ctx, icon, label, alert(on), glyph, message))
+    };
     let controls = row![
         dimmed(
             account.shown_muted(join),
             row![
-                tinted_button(
-                    ctx,
-                    mic,
-                    mic_label,
-                    alert(account.shown_muted(join)),
-                    20,
-                    toggle(Event::Mute)
-                ),
+                device(mic, mic_label, account.shown_muted(join), 20, Event::Mute),
                 caret("Input options", crate::call::Popup::Input),
             ]
             .align_y(Alignment::Center),
@@ -385,13 +463,12 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         dimmed(
             account.shown_deafened(join),
             row![
-                tinted_button(
-                    ctx,
+                device(
                     ear,
                     ear_label,
-                    alert(account.shown_deafened(join)),
+                    account.shown_deafened(join),
                     21,
-                    toggle(Event::Deafen)
+                    Event::Deafen
                 ),
                 caret("Output options", crate::call::Popup::Output),
             ]
@@ -420,9 +497,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         "Settings",
         theme.text,
         24,
-        Some(Message::Settings(crate::settings::Event::Reopen)),
+        Some(crate::app::settings(crate::settings::Event::Reopen)),
     ));
-    let ground = theme.panel;
+    let ground = theme.token_colour("account", theme.panel);
     let face: Element<'a, Message> = match open {
         Some(open) => mouse_area(face)
             .on_press(open)
@@ -430,9 +507,15 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .into(),
         None => face,
     };
+    let face_width =
+        if crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar) {
+            14.0
+        } else {
+            50.0
+        };
     let card = row![
         container(face)
-            .width(50)
+            .width(face_width)
             .padding(Padding {
                 left: 8.0,
                 ..Padding::ZERO
@@ -457,6 +540,19 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .into(),
             None => card.into(),
         };
+    // A theme's glass account card floats as a pane of its own (see
+    // `app::view`): the glass is its ground and edge, as in Slint, so the
+    // card is bare and fills it.
+    if ctx
+        .themes
+        .glass(
+            &theme.id,
+            yapfast_core::themes::package::art::ArtSurface::Account,
+        )
+        .is_some()
+    {
+        return card;
+    }
     container(
         container(card)
             .clip(true)
@@ -507,7 +603,7 @@ fn ring_and_dot<'a>(
             Dot::Online => theme.live,
             Dot::Offline => theme.faint,
         };
-        let ground = theme.panel;
+        let ground = theme.token_colour("account", theme.panel);
         let dot = container(
             container(Space::new())
                 .width(8)

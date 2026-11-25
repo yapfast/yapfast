@@ -88,6 +88,12 @@ on how many servers and DMs you have.
 
 ## Features
 
+### Favorites
+
+Discord's saved Favorites appear behind the star in the server rail, with their
+categories and order. Right-click a channel, DM or group DM to add or remove it;
+the change syncs to the same Discord account list. See [Favorites](docs/discord/favorites.md).
+
 ### The GIF picker
 
 My favorite part :p Your favorites live on disk as 40 KB clips, so they're
@@ -135,13 +141,13 @@ change as you type each color.
 ### Games on your profile
 
 The game you play, found among your running programs on Linux, Windows and
-macOS, Steam's and Wine's included, and on Linux the Rich Presence games send,
-with details, elapsed time, images and buttons.
+macOS, Steam's and Wine's included, and on Linux and Windows the Rich Presence
+games send, with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
 does, and names games Yapfast doesn't know. See
 [game detection](docs/discord/people.md#game-detection) and
-[Rich Presence](docs/discord/people.md#linux-rich-presence).
+[Rich Presence](docs/discord/people.md#rich-presence).
 
 What your linked Spotify account plays shows as "Listening to Spotify" with only
 Yapfast open, from any player, as Discord's own "Display Spotify as your status"
@@ -184,16 +190,18 @@ interested. Folders show up as they do in Discord.
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Profiles** as Discord draws them: badges, server tags, avatar decorations,
-  nameplates, name styles, profile effects and frames, and the full profile's
-  Board, Wishlist and recent activity. Edit Profile changes your own theme,
-  name style and server tag.
+  nameplates, name styles, profile effects and frames, what others are doing
+  with their Rich Presence buttons, and the full profile's Board, Wishlist and
+  recent activity. Edit Profile changes your own theme, name style and server
+  tag.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
   blocked people write, and unblock them from a list in Settings. Active Now
   sits beside the friends list.
 - **Notifications** that follow your Discord settings, muting for channels,
-  categories and servers, and unread markers.
+  categories and servers, and unread markers. The inbox lists unread channels
+  and your recent mentions, filtered by ping, jumping to their messages.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 
 ### Not there yet
@@ -418,18 +426,30 @@ UX to my muscle memory, so switching over hurts as little as it can.
 
 ## Build it yourself
 
-Yapfast builds inside a pinned [Nix](https://nixos.org) environment, which
-brings the right Rust, Clang and native libraries. From the project folder:
+On Windows, develop, build and test directly with Cargo. Install Visual
+Studio Build Tools with C++ and a Windows SDK, LLVM/Clang (including
+`clang-cl` and `libclang`) and NASM as described in the
+[native prerequisites](docs/building.md#windows), then run from the project
+folder in Developer PowerShell for VS:
+
+```powershell
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+cargo test --locked --profile fast --workspace
+```
+
+On Linux, use the pinned [Nix](https://nixos.org) environment, which brings
+the right Rust, Clang and native libraries. From the project folder:
 
 ```sh
 # Try the UI without an account
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 
 # Run it for real: Discord only, like the release
-nix develop path:./nix --command cargo run --locked
+nix develop path:./nix --command cargo run --locked --profile fast
 
 # With Matrix too
-nix develop path:./nix --command cargo run --locked --features matrix
+nix develop path:./nix --command cargo run --locked --profile fast --features matrix
 
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
@@ -438,10 +458,14 @@ nix develop path:./nix#windows --command scripts/build-windows
 scripts/check --fast
 ```
 
+The Windows commands use the Rust version pinned in `rust-toolchain.toml`.
+See [Contributing](CONTRIBUTING.md#build-and-test) for the complete checks
+on each system and for running against the fake Discord server.
+
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 

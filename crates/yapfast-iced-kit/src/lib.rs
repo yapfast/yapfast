@@ -7,6 +7,7 @@
 
 pub mod canvas;
 pub mod controls;
+pub mod custom_font;
 pub mod dialog;
 pub mod elide;
 pub mod field;
@@ -22,10 +23,12 @@ pub mod reorder;
 pub mod sheet;
 pub mod style;
 pub mod theme;
+pub mod theme_page;
 pub mod tile;
 pub mod timer;
 pub mod viewer;
 pub mod widgets;
+pub mod woff;
 
 #[cfg(test)]
 mod testing;

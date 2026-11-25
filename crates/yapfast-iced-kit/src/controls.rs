@@ -106,9 +106,27 @@ pub fn action<'a, M: Clone + 'a>(
             },
             ring: None,
         },
-        accent: theme.accent,
+        accent: theme.token_colour("focus-ring", theme.accent),
+        radius: theme.surface_radius("button", 6.0),
+        border: theme.surface_border("button", 6.0, 0.0, Color::TRANSPARENT),
+        // A ghost has no face, so no shadow either: a theme's hard button
+        // shadow under its clear ground drew a dark pill behind its words.
+        shadow: if kind == Kind::Ghost {
+            Shadow::default()
+        } else {
+            theme.surface_shadow("button", Shadow::default())
+        },
+        motion: theme.motion(),
         small: false,
         icon: None,
+        // As Slint's ActionButton: the window's own face, 14 or 15 px bold,
+        // whatever the theme's labels are (Bubblegum's pixel caps read as
+        // section titles, not buttons).
+        label_font: BOLD,
+        small_size: 14.0,
+        large_size: 15.0,
+        hover_cue: theme.has_hover_cue(),
+        press_cue: theme.has_press_cue(),
     }
 }
 
@@ -120,9 +138,18 @@ pub struct Action<'a, M> {
     height: f32,
     faces: Faces,
     accent: Color,
+    radius: f32,
+    border: Border,
+    shadow: Shadow,
+    motion: crate::theme::Motion,
     small: bool,
     /// An icon before its label, drawn in its ink.
     icon: Option<iced::advanced::image::Handle>,
+    label_font: iced::Font,
+    small_size: f32,
+    large_size: f32,
+    hover_cue: bool,
+    press_cue: bool,
 }
 
 /// A button's ground and ink at rest and lit, and its ring.
@@ -165,16 +192,34 @@ impl<M: Clone> Action<'_, M> {
         self.height = height;
         self
     }
+
+    /// Uses another named surface's shape while keeping this action's
+    /// colours and behavior, as buttons embedded in cards do.
+    pub fn surface(mut self, theme: &Theme, surface: &str) -> Self {
+        self.radius = theme.surface_radius(surface, 6.0);
+        self.border = theme.surface_border(surface, 6.0, 0.0, Color::TRANSPARENT);
+        self.shadow = theme.surface_shadow(surface, Shadow::default());
+        self
+    }
 }
 
 impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
     fn from(action: Action<'a, M>) -> Self {
+        let enabled = action.message.is_some();
         let faces = action.faces;
-        button(
+        let radius = action.radius;
+        let base_border = action.border;
+        let shadow = action.shadow;
+        let motion = action.motion;
+        let shown: Element<'a, M> = button(
             container({
                 let label = text(action.label)
-                    .size(if action.small { 14 } else { 15 })
-                    .font(BOLD);
+                    .size(if action.small {
+                        action.small_size
+                    } else {
+                        action.large_size
+                    })
+                    .font(action.label_font);
                 let side = if action.small { 16.0 } else { 18.0 };
                 match action.icon {
                     Some(icon) => Element::from(
@@ -199,14 +244,31 @@ impl<'a, M: Clone + 'a> From<Action<'a, M>> for Element<'a, M> {
                 background: Some(faces.ground[lit].into()),
                 text_color: faces.ink[lit],
                 border: Border {
-                    color: faces.ring.unwrap_or(Color::TRANSPARENT),
-                    width: if faces.ring.is_some() { 2.0 } else { 0.0 },
-                    radius: 6.0.into(),
+                    color: faces.ring.unwrap_or(base_border.color),
+                    width: if faces.ring.is_some() {
+                        2.0
+                    } else {
+                        base_border.width
+                    },
+                    radius: radius.into(),
                 },
+                shadow,
                 ..Default::default()
             }
         })
-        .into()
+        .into();
+        if enabled {
+            crate::widgets::motion::interactive_cued(
+                shown,
+                motion,
+                action.accent,
+                radius,
+                action.hover_cue,
+                action.press_cue,
+            )
+        } else {
+            shown
+        }
     }
 }
 
@@ -293,11 +355,13 @@ pub fn field_style(
 ) -> impl Fn(&iced::Theme, text_input::Status) -> text_input::Style + use<> {
     let (ink, hint, faint, accent, selection) = (
         theme.text,
-        theme.muted,
+        theme.token_colour("placeholder", theme.muted),
         theme.faint,
-        theme.accent,
-        theme.selection,
+        theme.token_colour("focus-ring", theme.accent),
+        theme.token_colour("selection", theme.selection),
     );
+    let radius = theme.surface_radius("field", 6.0);
+    let idle = theme.surface_border("field", 6.0, 0.0, Color::TRANSPARENT);
     move |_, status| text_input::Style {
         background: ground.into(),
         border: Border {
@@ -305,9 +369,9 @@ pub fn field_style(
             width: if matches!(status, text_input::Status::Focused { .. }) {
                 1.0
             } else {
-                0.0
+                idle.width
             },
-            radius: 6.0.into(),
+            radius: radius.into(),
         },
         icon: ink,
         placeholder: if enabled { hint } else { faint },
@@ -317,22 +381,80 @@ pub fn field_style(
 }
 
 /// The window's tooltip: 32 px tall, 14 px bold on the theme's tooltip
-/// ground.
+/// ground, with any theme `tooltip` art/glass under it.
 pub fn tip<'a, M: Clone + 'a>(theme: &Theme, label: impl text::IntoFragment<'a>) -> Element<'a, M> {
-    container(text(label).size(14).font(BOLD).color(theme.text))
-        .padding([0, 10])
-        .height(32)
-        .align_y(Alignment::Center)
-        .style(tip_style(theme))
-        .into()
+    let tip = container(
+        // As Slint's tip: 14 px bold in the window's face (a theme's body
+        // face stands in for it), not the theme's labels.
+        text(label)
+            .size(14.0)
+            .font(BOLD)
+            .color(theme.token_colour("on-tooltip", theme.text)),
+    )
+    .padding([0, 10])
+    .height(32)
+    .align_y(Alignment::Center)
+    .style(tip_style(theme));
+    let tip = tip_wrap(theme, tip);
+    themed_outline(
+        tip,
+        theme,
+        "tooltip",
+        Color::TRANSPARENT,
+        1.0,
+        theme.surface_radius("tooltip", 6.0),
+    )
+}
+
+/// Wraps a tooltip's body with the active package's `tooltip` art, glass and
+/// reserve padding, when declared.
+pub fn tip_wrap<'a, M: 'a>(theme: &Theme, content: impl Into<Element<'a, M>>) -> Element<'a, M> {
+    let mut content = content.into();
+    let Some(surface) = theme.tooltip_surface() else {
+        return content;
+    };
+    if let Some([top, right, bottom, left]) = surface.reserve {
+        content = container(content)
+            .padding(iced::Padding {
+                top,
+                right,
+                bottom,
+                left,
+            })
+            .into();
+    }
+    let background = theme.surface_paint("tooltip");
+    let base = container(Space::new())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(background),
+            ..Default::default()
+        });
+    let mut layers = iced::widget::Stack::with_children([content]);
+    if !surface.layers.is_empty() {
+        layers = layers.push_under(Element::new(TooltipArtWidget {
+            surface: surface.clone(),
+        }));
+    }
+    if let Some(glass) = surface.glass.clone() {
+        layers = layers.push_under(Element::new(TooltipGlassWidget { glass }));
+    }
+    layers.push_under(base).into()
 }
 
 /// A tooltip's ground, round corners and shadow, for one with more in it
 /// than a label (a reaction's).
 pub fn tip_style(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + use<> {
-    let ground = theme.tooltip;
-    move |_| container::Style {
-        shadow: Shadow {
+    let decorated = theme.tooltip_surface().is_some();
+    let ground = theme.surface_paint("tooltip");
+    let mut border = theme.surface_border("tooltip", 6.0, 0.0, Color::TRANSPARENT);
+    if theme.outline("tooltip").is_some() {
+        border.width = 0.0;
+    }
+    let shadow = theme.surface_shadow(
+        "tooltip",
+        Shadow {
             color: Color {
                 a: 0.5,
                 ..Color::BLACK
@@ -340,7 +462,12 @@ pub fn tip_style(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + u
             offset: Vector::new(0.0, 3.0),
             blur_radius: 12.0,
         },
-        ..rounded(ground, 6)
+    );
+    move |_| container::Style {
+        background: (!decorated).then_some(ground),
+        shadow,
+        border,
+        ..Default::default()
     }
 }
 
@@ -379,7 +506,49 @@ pub fn edged<'a, M: Clone + 'a>(
     edge: Color,
     radius: f32,
 ) -> Element<'a, M> {
-    iced::widget::stack![content.into(), Outline { edge, radius }].into()
+    iced::widget::stack![
+        content.into(),
+        Outline {
+            edge,
+            radius,
+            width: 1.0,
+            dash: None,
+        }
+    ]
+    .into()
+}
+
+/// Draws a package layout outline over a surface. With no declaration it
+/// leaves the surface's normal solid container border alone.
+pub fn themed_outline<'a, M: Clone + 'a>(
+    content: impl Into<Element<'a, M>>,
+    theme: &Theme,
+    place: &str,
+    edge: Color,
+    width: f32,
+    radius: f32,
+) -> Element<'a, M> {
+    let content = content.into();
+    let Some(outline) = theme.outline(place) else {
+        return content;
+    };
+    let width = outline.width.unwrap_or(width).max(1.0);
+    let edge = outline.colour.unwrap_or(edge);
+    let dash = match outline.stroke {
+        crate::theme::OutlineStroke::Solid => None,
+        crate::theme::OutlineStroke::Dashed => Some((outline.dash.max(width), outline.gap, false)),
+        crate::theme::OutlineStroke::Dotted => Some((width, outline.gap, true)),
+    };
+    iced::widget::stack![
+        content,
+        Outline {
+            edge,
+            radius,
+            width,
+            dash,
+        }
+    ]
+    .into()
 }
 
 /// An edge alone, over what it's stacked on: it takes no event and shows
@@ -387,6 +556,8 @@ pub fn edged<'a, M: Clone + 'a>(
 struct Outline {
     edge: Color,
     radius: f32,
+    width: f32,
+    dash: Option<(f32, f32, bool)>,
 }
 
 impl<M> iced::advanced::Widget<M, iced::Theme, iced::Renderer> for Outline {
@@ -414,14 +585,112 @@ impl<M> iced::advanced::Widget<M, iced::Theme, iced::Renderer> for Outline {
         _viewport: &iced::Rectangle,
     ) {
         use iced::advanced::Renderer as _;
+        let bounds = layout.bounds();
+        if let Some((dash, gap, dotted)) = self.dash {
+            let width = self.width;
+            let inset = width / 2.0;
+            outline_dashes(
+                renderer,
+                iced::Point::new(bounds.x + inset, bounds.y),
+                (bounds.width - width).max(0.0),
+                width,
+                dash,
+                gap,
+                true,
+                dotted,
+                self.edge,
+            );
+            outline_dashes(
+                renderer,
+                iced::Point::new(bounds.x + inset, bounds.y + bounds.height - width),
+                (bounds.width - width).max(0.0),
+                width,
+                dash,
+                gap,
+                true,
+                dotted,
+                self.edge,
+            );
+            outline_dashes(
+                renderer,
+                iced::Point::new(bounds.x, bounds.y + inset),
+                (bounds.height - width).max(0.0),
+                width,
+                dash,
+                gap,
+                false,
+                dotted,
+                self.edge,
+            );
+            outline_dashes(
+                renderer,
+                iced::Point::new(bounds.x + bounds.width - width, bounds.y + inset),
+                (bounds.height - width).max(0.0),
+                width,
+                dash,
+                gap,
+                false,
+                dotted,
+                self.edge,
+            );
+            return;
+        }
         renderer.fill_quad(
             iced::advanced::renderer::Quad {
-                bounds: layout.bounds(),
-                border: crate::style::edge(self.edge, self.radius),
+                bounds,
+                border: Border {
+                    color: self.edge,
+                    width: self.width,
+                    radius: self.radius.into(),
+                },
                 ..Default::default()
             },
             Color::TRANSPARENT,
         );
+    }
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each part it draws is its own input"
+)]
+fn outline_dashes(
+    renderer: &mut iced::Renderer,
+    start: iced::Point,
+    length: f32,
+    width: f32,
+    dash: f32,
+    gap: f32,
+    horizontal: bool,
+    dotted: bool,
+    colour: Color,
+) {
+    use iced::advanced::Renderer as _;
+    let mut at = 0.0;
+    while at < length {
+        let run = dash.min(length - at);
+        let origin = if horizontal {
+            iced::Point::new(start.x + at, start.y)
+        } else {
+            iced::Point::new(start.x, start.y + at)
+        };
+        let size = if horizontal {
+            iced::Size::new(run, width)
+        } else {
+            iced::Size::new(width, run)
+        };
+        renderer.fill_quad(
+            iced::advanced::renderer::Quad {
+                bounds: iced::Rectangle::new(origin, size),
+                border: Border {
+                    radius: if dotted { width / 2.0 } else { 0.0 }.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            colour,
+        );
+        at += dash + gap.max(0.0);
     }
 }
 
@@ -434,13 +703,34 @@ impl<'a, M: Clone + 'a> From<Outline> for Element<'a, M> {
 /// A menu's panel: the menu's ground in its outline, round corners, the
 /// raised shadow.
 pub fn menu_panel(theme: &Theme) -> impl Fn(&iced::Theme) -> container::Style + use<> {
-    let ground = theme.menu;
-    let edge = if theme.bonfire {
+    menu_panel_over(theme, false)
+}
+
+/// A menu panel whose ground can be left clear for the theme's art/glass
+/// surface renderer. The ordinary form also keeps a package's own `menu`
+/// paint, from the theme's metrics.
+pub fn menu_panel_over(
+    theme: &Theme,
+    transparent: bool,
+) -> impl Fn(&iced::Theme) -> container::Style + use<> {
+    let ground = theme.surface_paint("menu");
+    let stock_edge = if theme.bonfire {
         crate::style::hex(0x35353a)
     } else {
         theme.menu_line
     };
-    move |_| crate::style::panel(ground, edge, 8.0)
+    let edge = theme.token_colour("menu-line", stock_edge);
+    let mut border = theme.surface_border("menu", 8.0, 1.0, edge);
+    if theme.outline("menu").is_some() {
+        border.width = 0.0;
+    }
+    let shadow = theme.surface_shadow("menu", crate::style::raised_shadow());
+    move |_| container::Style {
+        background: (!transparent).then_some(ground),
+        border,
+        shadow,
+        ..Default::default()
+    }
 }
 
 /// A box of one colour: a line between parts of the window, a bar, a dot.
@@ -591,6 +881,30 @@ impl crate::look::Look<'_> {
         press: M,
         height: f32,
     ) -> Element<'a, M> {
+        self.menu_row(item, None, light, press, height)
+    }
+
+    /// A row that opens its choices, with the one chosen now after its
+    /// label in the muted ink, cut off where it's longer than its room:
+    /// `Audio    All applications >`.
+    pub fn menu_item_valued<'a, M: Clone + 'a>(
+        self,
+        item: Item<'a>,
+        value: std::borrow::Cow<'a, str>,
+        light: Light,
+        press: M,
+    ) -> Element<'a, M> {
+        self.menu_row(item, Some(value), light, press, ITEM)
+    }
+
+    fn menu_row<'a, M: Clone + 'a>(
+        self,
+        item: Item<'a>,
+        value: Option<std::borrow::Cow<'a, str>>,
+        light: Light,
+        press: M,
+        height: f32,
+    ) -> Element<'a, M> {
         let theme = self.theme;
         let lit = light == Light::Lit(true);
         // Discord tints a destructive row under the pointer reddish and
@@ -611,20 +925,25 @@ impl crate::look::Look<'_> {
         let tall = item.subtitle.is_some();
         let mut face = row![].spacing(8).align_y(Alignment::Center);
         match item.icon {
-            _ if current => face = face.push(self.glyph(Icon::Check, ITEM_ICON, theme.accent)),
+            _ if current => {
+                face = face.push(self.glyph(Icon::Check, ITEM_ICON, theme.accent_text()));
+            }
             Some(icon) => face = face.push(self.glyph(icon, ITEM_ICON, icon_ink)),
             None if item.slot => face = face.push(Space::new().width(slot).height(slot)),
             None => {}
         }
+        // As Slint's menu row: 14 px in the window's face (a theme's body
+        // face stands in for it), not the theme's labels.
         let label = text(item.label)
-            .size(14)
+            .size(14.0)
             .font(if current { BOLD } else { MEDIUM })
             .wrapping(text::Wrapping::None);
         let words: Element<'a, M> = match item.subtitle {
             Some(subtitle) => column![
                 label,
                 text(subtitle)
-                    .size(12)
+                    .size(theme.type_size("small", 12.0))
+                    .font(theme.font("small", crate::fonts::REGULAR))
                     .color(theme.muted)
                     .wrapping(text::Wrapping::None)
             ]
@@ -632,7 +951,20 @@ impl crate::look::Look<'_> {
             .into(),
             None => label.into(),
         };
-        let mut face = face.push(container(words).width(Length::Fill).clip(true));
+        let mut face = match value {
+            None => face.push(container(words).width(Length::Fill).clip(true)),
+            // The label whole, and the value in what's left.
+            Some(value) => face.push(words).push(
+                container(
+                    text(value)
+                        .size(14.0)
+                        .color(theme.muted)
+                        .wrapping(text::Wrapping::None),
+                )
+                .align_right(Length::Fill)
+                .clip(true),
+            ),
+        };
         if let Check::Box(ticked) = item.check {
             face = face.push(self.checkbox(ticked, lit));
         }
@@ -655,7 +987,7 @@ impl crate::look::Look<'_> {
         } else {
             inks
         };
-        button(face)
+        let row_button: Element<'a, M> = button(face)
             .padding([0, 8])
             .width(Length::Fill)
             .height(height)
@@ -672,7 +1004,23 @@ impl crate::look::Look<'_> {
                     ..Default::default()
                 }
             })
-            .into()
+            .into();
+        if !item.disabled && (theme.has_hover_cue() || theme.has_press_cue()) {
+            crate::widgets::motion::interactive_cued(
+                row_button,
+                crate::theme::Motion {
+                    hover: crate::theme::Hover::None,
+                    press: crate::theme::Press::None,
+                    ..theme.motion()
+                },
+                theme.accent,
+                4.0,
+                theme.has_hover_cue(),
+                theme.has_press_cue(),
+            )
+        } else {
+            row_button
+        }
     }
 
     /// A menu row's checkbox: 18 px, the accent's with a tick in it while
@@ -716,6 +1064,7 @@ pub struct IconButton<'a, M> {
     side: f32,
     glyph: u32,
     ground: Ground,
+    hover_wash: Option<Color>,
     radius: f32,
     below: bool,
 }
@@ -754,6 +1103,7 @@ impl<'a> crate::look::Look<'a> {
             side: 28.0,
             glyph: 18,
             ground: Ground::Clear,
+            hover_wash: None,
             radius: 6.0,
             below: false,
         }
@@ -811,6 +1161,11 @@ impl<'a, M: Clone + 'a> IconButton<'a, M> {
         self.below = true;
         self
     }
+
+    pub fn hover_wash(mut self, color: Color) -> Self {
+        self.hover_wash = Some(color);
+        self
+    }
 }
 
 impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
@@ -824,10 +1179,12 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
             side,
             glyph,
             ground,
+            hover_wash,
             radius,
             below,
         } = icon_button;
         let theme = look.theme;
+        let radius = theme.surface_radius("button", radius);
         let enabled = message.is_some();
         let rest_ink = ink.unwrap_or(if enabled || matches!(ground, Ground::Clear) {
             theme.secondary
@@ -852,9 +1209,11 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
                 .style(style)
         };
         let shown: Element<'a, M> = match ground {
-            Ground::Clear => {
-                pressed(face_in(rest_ink), lit_style(None, theme.wash(0.1), radius)).into()
-            }
+            Ground::Clear => pressed(
+                face_in(rest_ink),
+                lit_style(None, hover_wash.unwrap_or_else(|| theme.wash(0.1)), radius),
+            )
+            .into(),
             Ground::Filled(fill) => {
                 let lit = crate::theme::mix(fill, theme.overlay, 0.9);
                 pressed(
@@ -878,6 +1237,18 @@ impl<'a, M: Clone + 'a> From<IconButton<'a, M>> for Element<'a, M> {
                 let lit = pressed(face_in(theme.danger), lit_style(Some(red), red, radius));
                 crate::widgets::Hover::new(rest, lit).into()
             }
+        };
+        let shown = if enabled {
+            crate::widgets::motion::interactive_cued(
+                shown,
+                theme.motion(),
+                theme.accent,
+                radius,
+                theme.has_hover_cue(),
+                theme.has_press_cue(),
+            )
+        } else {
+            shown
         };
         if label.is_empty() {
             return shown;
@@ -956,7 +1327,7 @@ pub fn count_pill<'a, M: Clone + 'a>(
     let danger = theme.danger;
     let number = text(count.to_owned())
         .size(look.size)
-        .font(BOLD)
+        .font(theme.font("small", BOLD))
         .color(theme.on_danger)
         .wrapping(text::Wrapping::None);
     let pill = container(number)
@@ -969,11 +1340,12 @@ pub fn count_pill<'a, M: Clone + 'a>(
     } else {
         pill
     };
-    let pill = pill.style(move |_| rounded(danger, look.height / 2.0));
+    let radius = theme.surface_radius("chip", look.height / 2.0);
+    let pill = pill.style(move |_| rounded(danger, radius));
     match ring {
         Some(ring) => container(pill)
             .padding(3)
-            .style(move |_| rounded(ring, look.height / 2.0 + 3.0))
+            .style(move |_| rounded(ring, radius + 3.0))
             .into(),
         None => pill.into(),
     }
@@ -983,29 +1355,58 @@ pub fn count_pill<'a, M: Clone + 'a>(
 /// on a tile's name, in the dock. With `press` it's a button that watches
 /// the stream, lit under the pointer.
 pub fn live_pill<'a, M: Clone + 'a>(theme: &Theme, press: Option<M>) -> Element<'a, M> {
-    let (rest, lit) = (theme.danger, theme.danger_hover);
-    let face = container(text("LIVE").size(10).font(BOLD).color(theme.on_danger))
-        .padding([0, 5])
-        .height(16)
-        .align_y(Alignment::Center);
+    live_pill_in(theme, false, press)
+}
+
+/// [`live_pill`], switching to the theme's accent colours when `themed` is
+/// set by an allowed package's `content.activity: theme`.
+pub fn live_pill_in<'a, M: Clone + 'a>(
+    theme: &Theme,
+    themed: bool,
+    press: Option<M>,
+) -> Element<'a, M> {
+    let (rest, lit, ink) = if themed {
+        (theme.accent, theme.accent_hover, theme.on_accent)
+    } else {
+        (theme.danger, theme.danger_hover, theme.on_danger)
+    };
+    let face = container(
+        text("LIVE")
+            .size(10)
+            .font(theme.font("small", BOLD))
+            .color(ink),
+    )
+    .padding([0, 5])
+    .height(16)
+    .align_y(Alignment::Center);
+    let border = theme.surface_border("chip", 8.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("chip", Shadow::default());
     match press {
         Some(press) => button(face)
             .padding(0)
             .on_press(press)
             .style(move |_, status| button::Style {
                 background: Some(if lights(status) { lit } else { rest }.into()),
-                border: Border::default().rounded(8),
+                border,
+                shadow,
                 ..Default::default()
             })
             .into(),
-        None => face.style(move |_| rounded(rest, 8)).into(),
+        None => face
+            .style(move |_| container::Style {
+                background: Some(rest.into()),
+                border,
+                shadow,
+                ..Default::default()
+            })
+            .into(),
     }
 }
 
 /// A heading over a group of a menu's choices, as the share menu's
 /// "SCREENS": 12 px bold in the muted ink.
 pub fn heading<'a, M: Clone + 'a>(theme: &Theme, label: &'a str, top: f32) -> Element<'a, M> {
-    container(text(label).size(12).font(BOLD).color(theme.muted))
+    container(text(label).size(12.0).font(BOLD).color(theme.muted))
         .padding(iced::Padding {
             top,
             right: 0.0,
@@ -1161,6 +1562,9 @@ pub fn round_button<'a, M: Clone + 'a>(
 ) -> Element<'a, M> {
     let lit = crate::theme::mix(fill, theme.overlay, 0.9);
     let enabled = message.is_some();
+    let radius = theme.surface_radius("button", ROUND / 2.0);
+    let border = theme.surface_border("button", ROUND / 2.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("button", Shadow::default());
     let face = button(face.boxed(ROUND))
         .padding(0)
         .width(ROUND)
@@ -1168,7 +1572,11 @@ pub fn round_button<'a, M: Clone + 'a>(
         .on_press_maybe(message)
         .style(move |_, status| button::Style {
             background: Some(if enabled && lights(status) { lit } else { fill }.into()),
-            border: Border::default().rounded(ROUND / 2.0),
+            border: Border {
+                radius: radius.into(),
+                ..border
+            },
+            shadow,
             ..Default::default()
         });
     iced::widget::tooltip(
@@ -1195,6 +1603,9 @@ pub fn call_button<'a, M: Clone + 'a>(
 ) -> Element<'a, M> {
     let lit = crate::theme::mix(fill, Color::BLACK, 0.85);
     let opacity = if message.is_some() { 1.0 } else { 0.5 };
+    let radius = theme.surface_radius("button", 24.0);
+    let border = theme.surface_border("button", 24.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("button", Shadow::default());
     let pill = button(face.boxed(Length::Fill))
         .padding(0)
         .width(64)
@@ -1204,7 +1615,11 @@ pub fn call_button<'a, M: Clone + 'a>(
             background: Some(
                 crate::style::faded(if lights(status) { lit } else { fill }, opacity).into(),
             ),
-            border: Border::default().rounded(24),
+            border: Border {
+                radius: radius.into(),
+                ..border
+            },
+            shadow,
             ..Default::default()
         });
     column![
@@ -1237,6 +1652,9 @@ pub fn dock_button<'a, M: Clone + 'a>(
         (theme.raised, theme.hover)
     };
     let enabled = message.is_some();
+    let radius = theme.surface_radius("button", 8.0);
+    let border = theme.surface_border("button", 8.0, 0.0, Color::TRANSPARENT);
+    let shadow = theme.surface_shadow("button", Shadow::default());
     let face = button(face.boxed(Length::Fill))
         .padding(0)
         .width(Length::Fill)
@@ -1244,7 +1662,11 @@ pub fn dock_button<'a, M: Clone + 'a>(
         .on_press_maybe(message)
         .style(move |_, status| button::Style {
             background: Some(if enabled && lights(status) { lit } else { rest }.into()),
-            border: Border::default().rounded(8),
+            border: Border {
+                radius: radius.into(),
+                ..border
+            },
+            shadow,
             ..Default::default()
         });
     iced::widget::tooltip(
@@ -1256,8 +1678,20 @@ pub fn dock_button<'a, M: Clone + 'a>(
     .into()
 }
 
+/// How tall a line of [`choices`] is.
+const CHOICE_LINE: f32 = 30.0;
+/// The gap between [`choices`]' options, and between its lines.
+const CHOICE_GAP: f32 = 3.0;
+/// The sunken frame's padding round [`choices`]' lines.
+const CHOICE_PAD: f32 = 3.0;
+/// The room at each side of an option's words, inside its share.
+const CHOICE_INSET: u16 = 4;
+/// The size of [`choices`]' words.
+const CHOICE_SIZE: f32 = 14.0;
+
 /// A row of choices, one chosen: on the sunken ground, the chosen one
-/// raised in the active colour and bold.
+/// raised in the active colour and bold. Options whose words don't all fit
+/// wrap onto even lines ([`choice_lines`]).
 pub fn choices<'a, M: Clone + 'a>(
     theme: &Theme,
     options: &[&'a str],
@@ -1267,7 +1701,9 @@ pub fn choices<'a, M: Clone + 'a>(
     choices_within(theme, options, current, 360.0, on_choose)
 }
 
-/// [`choices`] at most `widest` across, for a row of many.
+/// [`choices`] at most `widest` across, for a row of many. The lines are
+/// made for the width the row gets, which a narrow window may make less
+/// than `widest`.
 pub fn choices_within<'a, M: Clone + 'a>(
     theme: &Theme,
     options: &[&'a str],
@@ -1275,52 +1711,201 @@ pub fn choices_within<'a, M: Clone + 'a>(
     widest: f32,
     on_choose: impl Fn(usize) -> M,
 ) -> Element<'a, M> {
-    let mut row = row![].spacing(3).padding(3);
-    for (index, option) in options.iter().enumerate() {
-        let chosen = index == current;
-        let (active, hover) = (theme.active, theme.hover);
-        let (ink, lit_ink) = if chosen {
-            (theme.text, theme.text)
-        } else {
-            (theme.secondary, theme.text)
-        };
-        row = row.push(
-            button(
-                container(
-                    text(*option)
-                        .size(14)
-                        .font(if chosen { BOLD } else { MEDIUM })
-                        .wrapping(text::Wrapping::None),
-                )
-                .center_x(Length::Fill)
-                .height(Length::Fill)
-                .align_y(Alignment::Center),
-            )
-            .padding([0, 4])
-            .width(Length::FillPortion(option.len() as u16 + 6))
-            .height(Length::Fill)
-            .on_press(on_choose(index))
-            .style(move |_, status| {
-                let lit = lights(status);
-                button::Style {
-                    background: if chosen {
-                        Some(active.into())
-                    } else {
-                        lit.then(|| hover.into())
-                    },
-                    text_color: if lit { lit_ink } else { ink },
-                    border: Border::default().rounded(6),
-                    ..Default::default()
-                }
-            }),
-        );
+    let inks = ChoiceInks {
+        active: theme.active,
+        hover: theme.hover,
+        text: theme.text,
+        secondary: theme.secondary,
+        sunken: theme.sunken,
+    };
+    let options = options.to_vec();
+    let presses: Vec<M> = (0..options.len()).map(on_choose).collect();
+    // Capped as the row was, so a parent that centres or right-aligns it
+    // places it as before.
+    container(
+        iced::widget::responsive(move |size| {
+            choice_rows(inks, &options, current, size.width.min(widest), &presses)
+        })
+        .height(Length::Shrink),
+    )
+    .max_width(widest)
+    .into()
+}
+
+/// The colours [`choices`] are drawn in.
+#[derive(Clone, Copy)]
+struct ChoiceInks {
+    active: Color,
+    hover: Color,
+    text: Color,
+    secondary: Color,
+    sunken: Color,
+}
+
+/// [`choices`]' options on lines that fit `width`, in their sunken frame.
+fn choice_rows<'a, M: Clone + 'a>(
+    inks: ChoiceInks,
+    options: &[&'a str],
+    current: usize,
+    width: f32,
+    presses: &[M],
+) -> Element<'a, M> {
+    let shared = choice_lines(options, width);
+    let more = shared.len().saturating_sub(1) as f32;
+    let mut lines = column![].spacing(CHOICE_GAP).padding(CHOICE_PAD);
+    for line in shared {
+        let mut row = row![].spacing(CHOICE_GAP).height(CHOICE_LINE);
+        for index in line {
+            row = row.push(choice(
+                inks,
+                options[index],
+                index == current,
+                presses[index].clone(),
+            ));
+        }
+        lines = lines.push(row);
     }
-    let sunken = theme.sunken;
-    container(row)
-        .height(36)
-        .max_width(widest)
+    let sunken = inks.sunken;
+    container(lines)
+        .height(2.0 * CHOICE_PAD + CHOICE_LINE + (CHOICE_LINE + CHOICE_GAP) * more)
+        .max_width(width)
         .style(move |_| rounded(sunken, 8))
         .into()
+}
+
+/// One of [`choices`]' options, its share of its line as long as its words.
+fn choice<'a, M: Clone + 'a>(
+    inks: ChoiceInks,
+    option: &'a str,
+    chosen: bool,
+    press: M,
+) -> Element<'a, M> {
+    let (active, hover) = (inks.active, inks.hover);
+    let (ink, lit_ink) = if chosen {
+        (inks.text, inks.text)
+    } else {
+        (inks.secondary, inks.text)
+    };
+    button(
+        container(
+            text(option)
+                .size(CHOICE_SIZE)
+                .font(if chosen { BOLD } else { MEDIUM })
+                .wrapping(text::Wrapping::None),
+        )
+        .center_x(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::Center),
+    )
+    .padding([0, CHOICE_INSET])
+    .width(Length::FillPortion(choice_portion(option)))
+    .height(Length::Fill)
+    .on_press(press)
+    .style(move |_, status| {
+        let lit = lights(status);
+        button::Style {
+            background: if chosen {
+                Some(active.into())
+            } else {
+                lit.then(|| hover.into())
+            },
+            text_color: if lit { lit_ink } else { ink },
+            border: Border::default().rounded(6),
+            ..Default::default()
+        }
+    })
+    .into()
+}
+
+/// An option's share of its line, by its words' length.
+fn choice_portion(option: &str) -> u16 {
+    option.len() as u16 + 6
+}
+
+/// How wide an option's words are, bold as when it's chosen. Each is
+/// measured once, as the rows are built on every view, and measured again
+/// once the font system's version moves (a fallback face loaded).
+pub fn choice_words(option: &str) -> f32 {
+    use iced::advanced::graphics::text::{Version, font_system};
+    use std::{cell::RefCell, collections::HashMap};
+    thread_local! {
+        static MEASURED: RefCell<(Version, HashMap<Box<str>, f32>)> = RefCell::default();
+    }
+    let version = font_system().read().expect("font system").version();
+    MEASURED.with_borrow_mut(|(measured, widths)| {
+        if *measured != version {
+            widths.clear();
+            *measured = version;
+        }
+        if let Some(&width) = widths.get(option) {
+            return width;
+        }
+        let width = measure_choice(option);
+        widths.insert(option.into(), width);
+        width
+    })
+}
+
+fn measure_choice(option: &str) -> f32 {
+    use iced::advanced::{
+        graphics::text::Paragraph,
+        text::{self, LineHeight, Paragraph as _, Shaping, Wrapping},
+    };
+    Paragraph::with_text(text::Text {
+        content: option,
+        bounds: iced::Size::INFINITE,
+        size: CHOICE_SIZE.into(),
+        line_height: LineHeight::default(),
+        font: BOLD,
+        align_x: text::Alignment::Default,
+        align_y: iced::alignment::Vertical::Top,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::None,
+    })
+    .min_width()
+}
+
+/// [`choices`]' options as lines that each fit `widest`: one line when
+/// they all do, as they're shared out; otherwise as few as hold every
+/// option's words whole, each option given its share of its line as on one
+/// line, with the options kept in order and the lines as even as they can
+/// be (the first lines take one more where they don't share evenly).
+pub fn choice_lines(options: &[&str], widest: f32) -> Vec<Vec<usize>> {
+    // Inside the frame's padding, each option's words, then the gap. Its
+    // inset at each side may take the words' last pixels, as it always
+    // could; past that the row wraps.
+    let room = widest - 2.0 * CHOICE_PAD;
+    let words: Vec<f32> = options.iter().map(|option| choice_words(option)).collect();
+    // A line fits when each option's share of it (by its words' length, as
+    // `FillPortion` gives) holds its words.
+    let fits = |line: &[usize]| {
+        let portions: f32 = line
+            .iter()
+            .map(|&index| f32::from(choice_portion(options[index])))
+            .sum();
+        let free = room - CHOICE_GAP * line.len().saturating_sub(1) as f32;
+        line.iter().all(|&index| {
+            free * f32::from(choice_portion(options[index])) / portions >= words[index]
+        })
+    };
+    let all: Vec<usize> = (0..options.len()).collect();
+    if fits(&all) {
+        return vec![all];
+    }
+    for count in 2..=options.len() {
+        let (each, over) = (options.len() / count, options.len() % count);
+        let mut lines = Vec::with_capacity(count);
+        let mut from = 0;
+        for line in 0..count {
+            let take = each + usize::from(line < over);
+            lines.push(all[from..from + take].to_vec());
+            from += take;
+        }
+        if lines.iter().all(|line| fits(line)) {
+            return lines;
+        }
+    }
+    all.into_iter().map(|index| vec![index]).collect()
 }
 
 /// A tab with a bar under it while chosen (the full profile's, the voice
@@ -1372,4 +1957,328 @@ pub fn tab<'a, M: Clone + 'a>(tab: Tab<'a>, press: M) -> Element<'a, M> {
         ..Default::default()
     })
     .into()
+}
+
+struct TooltipArtWidget {
+    surface: std::sync::Arc<crate::theme::TooltipSurface>,
+}
+
+/// A tooltip's art clock: time it has been shown while its art moves.
+#[derive(Default)]
+struct TooltipClock {
+    elapsed: std::time::Duration,
+    last: Option<std::time::Instant>,
+}
+
+impl<M> iced::advanced::Widget<M, iced::Theme, iced::Renderer> for TooltipArtWidget {
+    fn size(&self) -> iced::Size<Length> {
+        iced::Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        iced::advanced::widget::tree::Tag::of::<TooltipClock>()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        iced::advanced::widget::tree::State::new(TooltipClock::default())
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut iced::advanced::widget::Tree,
+        _renderer: &iced::Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        iced::advanced::layout::Node::new(limits.max())
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        _layout: iced::advanced::Layout<'_>,
+        _cursor: iced::mouse::Cursor,
+        _renderer: &iced::Renderer,
+        _clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, M>,
+        _viewport: &iced::Rectangle,
+    ) {
+        let clock = tree.state.downcast_mut::<TooltipClock>();
+        match event {
+            iced::Event::Window(iced::window::Event::Unfocused) => clock.last = None,
+            iced::Event::Window(iced::window::Event::RedrawRequested(now))
+                if self.surface.layers.iter().any(|layer| layer.moves) =>
+            {
+                if let Some(last) = clock.last {
+                    clock.elapsed += now.saturating_duration_since(last);
+                }
+                clock.last = Some(*now);
+                // The art's own pace: its frames' rate, else smooth drift
+                // at 30 a second, as small as a tooltip is.
+                let every = self
+                    .surface
+                    .layers
+                    .iter()
+                    .filter(|layer| layer.moves)
+                    .map(|layer| {
+                        if layer.frames.len() > 1 && layer.drift == (0.0, 0.0) {
+                            (layer.period_ms / layer.frames.len() as f32).max(16.0)
+                        } else {
+                            33.0
+                        }
+                    })
+                    .fold(f32::MAX, f32::min);
+                shell.request_redraw_at(
+                    *now + std::time::Duration::from_millis(every.round() as u64),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut iced::Renderer,
+        _theme: &iced::Theme,
+        _style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        _cursor: iced::mouse::Cursor,
+        _viewport: &iced::Rectangle,
+    ) {
+        use crate::theme::TooltipFit;
+        use iced::advanced::Renderer as _;
+
+        let bounds = layout.bounds();
+        if bounds.width <= 0.0 || bounds.height <= 0.0 {
+            return;
+        }
+        let seconds = tree
+            .state
+            .downcast_ref::<TooltipClock>()
+            .elapsed
+            .as_secs_f32();
+        renderer.with_layer(bounds, |renderer| {
+            for layer in &self.surface.layers {
+                let Some((natural_w, natural_h)) = (layer.width > 0 && layer.height > 0)
+                    .then_some((layer.width as f32, layer.height as f32))
+                else {
+                    continue;
+                };
+                let drawn_size = if let Some((w, h)) = layer.size {
+                    iced::Size::new(w * layer.scale, h * layer.scale)
+                } else {
+                    match layer.fit {
+                        TooltipFit::Stretch => bounds.size(),
+                        TooltipFit::Cover => {
+                            let scale = (bounds.width / natural_w).max(bounds.height / natural_h)
+                                * layer.scale;
+                            iced::Size::new(natural_w * scale, natural_h * scale)
+                        }
+                        TooltipFit::Contain => {
+                            let scale = (bounds.width / natural_w).min(bounds.height / natural_h)
+                                * layer.scale;
+                            iced::Size::new(natural_w * scale, natural_h * scale)
+                        }
+                        TooltipFit::Tile => {
+                            iced::Size::new(natural_w * layer.scale, natural_h * layer.scale)
+                        }
+                    }
+                };
+                if drawn_size.width <= 0.0 || drawn_size.height <= 0.0 {
+                    continue;
+                }
+                let (handle, drift) = if layer.moves {
+                    let handle = if layer.frames.len() > 1 {
+                        let period = layer.period_ms.max(1.0);
+                        let index = ((seconds * 1000.0 / period * layer.frames.len() as f32).floor()
+                            as usize)
+                            % layer.frames.len();
+                        &layer.frames[index]
+                    } else {
+                        &layer.handle
+                    };
+                    (
+                        handle,
+                        Vector::new(layer.drift.0 * seconds, layer.drift.1 * seconds),
+                    )
+                } else {
+                    (&layer.handle, Vector::new(0.0, 0.0))
+                };
+                if layer.fit == TooltipFit::Tile {
+                    // As the surfaces' tiler: drift wraps within a tile, and
+                    // no more than 128 tiles a side, however small.
+                    let start = iced::Point::new(
+                        bounds.x - (bounds.x - drift.x).rem_euclid(drawn_size.width),
+                        bounds.y - (bounds.y - drift.y).rem_euclid(drawn_size.height),
+                    );
+                    let across = ((bounds.width / drawn_size.width).ceil() as usize + 2).min(128);
+                    let down = ((bounds.height / drawn_size.height).ceil() as usize + 2).min(128);
+                    for y in 0..down {
+                        for x in 0..across {
+                            crate::widgets::draw_picture(
+                                renderer,
+                                handle,
+                                iced::Rectangle::new(
+                                    start
+                                        + Vector::new(
+                                            x as f32 * drawn_size.width,
+                                            y as f32 * drawn_size.height,
+                                        ),
+                                    drawn_size,
+                                ),
+                                [0.0; 4],
+                                layer.opacity,
+                            );
+                        }
+                    }
+                } else {
+                    let pos = iced::Point::new(
+                        bounds.x + (bounds.width - drawn_size.width) * layer.position.0,
+                        bounds.y + (bounds.height - drawn_size.height) * layer.position.1,
+                    ) + drift;
+                    crate::widgets::draw_picture(
+                        renderer,
+                        handle,
+                        iced::Rectangle::new(pos, drawn_size),
+                        [0.0; 4],
+                        layer.opacity,
+                    );
+                }
+            }
+        });
+    }
+}
+
+struct TooltipGlassWidget {
+    glass: crate::theme::TooltipGlass,
+}
+
+impl<M> iced::advanced::Widget<M, iced::Theme, iced::Renderer> for TooltipGlassWidget {
+    fn size(&self) -> iced::Size<Length> {
+        iced::Size::new(Length::Fill, Length::Fill)
+    }
+
+    fn layout(
+        &mut self,
+        _tree: &mut iced::advanced::widget::Tree,
+        _renderer: &iced::Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        iced::advanced::layout::Node::new(limits.max())
+    }
+
+    fn draw(
+        &self,
+        _tree: &iced::advanced::widget::Tree,
+        renderer: &mut iced::Renderer,
+        _theme: &iced::Theme,
+        _style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        _cursor: iced::mouse::Cursor,
+        _viewport: &iced::Rectangle,
+    ) {
+        let glass = &self.glass;
+        crate::widgets::draw_glass(
+            renderer,
+            layout.bounds(),
+            &glass.blurred,
+            &crate::widgets::GlassLook {
+                ground: glass.ground.into(),
+                opacity: glass.opacity,
+                radii: [if glass.gap > 0.0 { glass.radius } else { 0.0 }; 4],
+                rim: glass.rim,
+                highlight: glass.highlight,
+                inset: glass.inset,
+            },
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CHOICE_GAP, CHOICE_PAD, choice_lines, choice_portion, choice_words};
+
+    /// The lines `names` take in `widest`, after checking they keep the
+    /// options in order and give each option a share that holds its words.
+    fn lines_of(names: &[&str], widest: f32, what: &str) -> Vec<Vec<usize>> {
+        crate::testing::install_fonts();
+        let lines = choice_lines(names, widest);
+        let order: Vec<usize> = lines.iter().flatten().copied().collect();
+        assert_eq!(order, (0..names.len()).collect::<Vec<_>>(), "{what}");
+        for line in &lines {
+            let portions: f32 = line
+                .iter()
+                .map(|&at| f32::from(choice_portion(names[at])))
+                .sum();
+            let free = widest - 2.0 * CHOICE_PAD - CHOICE_GAP * (line.len() - 1) as f32;
+            for &at in line {
+                let share = free * f32::from(choice_portion(names[at])) / portions;
+                let words = choice_words(names[at]);
+                assert!(share >= words, "{} in {what}: {share} < {words}", names[at]);
+            }
+        }
+        lines
+    }
+
+    /// Messages' date formats, bold as when chosen, are each a little wider
+    /// than their share of Settings' 360 px, so they take two lines, the
+    /// first one more.
+    #[test]
+    fn choices_wrap_onto_even_lines_only_when_their_words_dont_fit() {
+        let dates = ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
+        assert_eq!(
+            lines_of(&dates, 360.0, "Messages' date formats"),
+            [vec![0, 1], vec![2]],
+        );
+        assert_eq!(
+            lines_of(&dates, 600.0, "date formats with room"),
+            [vec![0, 1, 2]],
+        );
+    }
+
+    /// The other rows, at the width their screens draw them, stay one line.
+    #[test]
+    fn rows_that_fit_stay_on_one_line() {
+        for (names, widest, what) in [
+            (
+                &[
+                    "30 min", "1 hr", "6 hr", "12 hr", "1 day", "7 days", "Never",
+                ][..],
+                360.0,
+                "an invite's expiry",
+            ),
+            (
+                &["No limit", "1", "5", "10", "25", "50", "100"],
+                360.0,
+                "an invite's uses",
+            ),
+            (
+                &[
+                    "1 hour", "4 hours", "8 hours", "1 day", "3 days", "1 week", "2 weeks",
+                ],
+                460.0,
+                "a poll's duration",
+            ),
+            (
+                &[
+                    "New Kalimba",
+                    "Felt piano",
+                    "Soft marimba",
+                    "Mellow Rhodes",
+                    "Glow",
+                    "Flute",
+                ],
+                520.0,
+                "Sounds' sets",
+            ),
+            (
+                &["Never", "30 min", "1 hour", "4 hours", "Today"],
+                360.0,
+                "a status's clear after",
+            ),
+        ] {
+            assert_eq!(lines_of(names, widest, what).len(), 1, "{what}");
+        }
+    }
 }
