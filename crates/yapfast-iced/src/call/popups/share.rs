@@ -128,7 +128,7 @@ impl Share {
             Setting::Resolution => RESOLUTIONS
                 .iter()
                 .find(|(resolution, _)| *resolution == self.quality.resolution)
-                .map_or("", |(_, label)| tr(*label))
+                .map_or("", |(_, label)| tr(label))
                 .into(),
             Setting::FrameRate => i18n::fill(tr("{} fps"), &[&self.quality.fps]).into(),
         }
