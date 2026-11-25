@@ -1253,7 +1253,7 @@ pub fn nacked(mut rtcp: &[u8], media: u32) -> Vec<u16> {
             && packet[0] & 0x1f == 1
             && packet.get(8..12) == Some(&media.to_be_bytes()[..])
         {
-            for entry in packet[12..].chunks_exact(4) {
+            for entry in packet[12..].as_chunks::<4>().0 {
                 let first = u16::from_be_bytes([entry[0], entry[1]]);
                 let mask = u16::from_be_bytes([entry[2], entry[3]]);
                 lost.push(first);

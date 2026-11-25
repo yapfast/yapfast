@@ -29,7 +29,7 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1 and iced 0.14.0. Cargo.lock pins the complete Rust
+Yapfast pins Rust 1.100 and iced 0.14.0. Cargo.lock pins the complete Rust
 graph. iced's two renderers and its text shaper, cosmic-text, are patched in
 `vendor/`; see [dependency sources](#dependency-sources) and [the vendored
 toolkit](client/toolkit.md).
@@ -52,8 +52,9 @@ taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
 
 LiveKit's Rust crates must stay on the mutually compatible versions in
-Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
-MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
+Cargo.lock. The manifests pin the LiveKit API, protocol and WebRTC build
+helper versions. Use targeted Cargo updates and upgrade LiveKit against the
+MatrixRTC lockfile, then rebuild the native media stack. On Linux, the Nix shell
 supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
 that crate requires updating the archive URL and checksum in `nix/native.nix`
 (Linux) and `nix/flake.nix` (Windows) too.
@@ -412,7 +413,7 @@ required. Published packages are still made by the Linux MSVC cross-build.
 A native development build names this machine's folders and must not be
 shipped. Install these prerequisites before running Cargo:
 
-- Rust through rustup; `rust-toolchain.toml` pins Rust 1.97.1. Use the
+- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100. Use the
   `x86_64-pc-windows-msvc` toolchain.
 - Visual Studio Build Tools with the **Desktop development with C++**
   workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
