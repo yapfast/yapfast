@@ -443,8 +443,14 @@ Import, beside New theme, opens a file picker and keeps the theme in the file
 among the person's own, then chooses it, as Save does. Export, in the editor
 beside Save and Cancel, saves the theme as the editor shows it to a file, so
 a new theme can be shared before it is saved, and a built-in theme through a
-copy of it. A line under the title says how either went, or why a file wasn't
-taken. The editor owns the window's colours while it is open, so a file
+copy of it. Copy, beside Export, puts the same text on the clipboard, and
+Paste, beside Import, takes it from there as Import takes a file, so a theme
+can be shared in a chat message. A line under the title says how each went,
+or why a file wasn't taken.
+
+This is the colours alone. A theme from the creator, with its pictures, fonts
+and shapes, is shared as a package instead (its Export, or `yapfast theme
+export`). The editor owns the window's colours while it is open, so a file
 picked meanwhile (the picker can outlast opening the editor) is turned away
 with a note.
 

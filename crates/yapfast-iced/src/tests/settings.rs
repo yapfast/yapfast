@@ -1153,11 +1153,13 @@ fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() 
     assert!(file(&app).is_none());
     let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
 
-    // The unsaved edit exports as it stands.
+    // The unsaved edit exports as it stands, and Copy says it copied it.
+    let _ = app.update(theme(ThemeEvent::Copy));
+    assert!(shows(&app, "Copied the theme to the clipboard."));
     let (file_name, text) = file(&app).expect("a theme to export");
     assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
     let path = files.path().join(&file_name);
-    std::fs::write(&path, text).expect("the file");
+    std::fs::write(&path, &text).expect("the file");
     let _ = app.update(theme(ThemeEvent::Exported(file_name.clone(), Ok(()))));
     assert!(shows(&app, "Exported to Night - Shift.yapfast-theme.json."));
     assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(false));
@@ -1196,18 +1198,31 @@ fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() 
     assert_eq!(other.theme.id, "custom:2");
     assert_eq!(other.themes.custom.len(), 2);
 
+    // Pasting the same text, as Copy put it on the clipboard, adds one too;
+    // a clipboard without text or with other text changes nothing but the
+    // note.
+    let pasted = std::fs::read_to_string(&path).expect("the file");
+    let _ = other.update(theme(ThemeEvent::Pasted(Some(pasted))));
+    assert_eq!(other.theme.id, "custom:3");
+    assert_eq!(other.themes.custom[2].theme, made);
+    let _ = other.update(theme(ThemeEvent::Pasted(None)));
+    assert!(shows(&other, "The clipboard holds no text."));
+    let _ = other.update(theme(ThemeEvent::Pasted(Some("hello".into()))));
+    assert!(shows(&other, "That is not a Yapfast theme."));
+    assert_eq!(other.themes.custom.len(), 3);
+
     // A file that isn't a theme, or can't be read, changes nothing but the
     // note.
     let junk = files.path().join("junk.json");
     std::fs::write(&junk, "{}").expect("the file");
     let _ = other.update(theme(ThemeEvent::Imported(junk)));
-    assert!(shows(&other, "That file is not a Yapfast theme."));
+    assert!(shows(&other, "That is not a Yapfast theme."));
     assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(true));
     let missing = files.path().join("missing.json");
     let _ = other.update(theme(ThemeEvent::Imported(missing)));
     assert!(note(&other).is_some_and(|(note, wrong)| wrong && note.starts_with("Couldn't read")));
-    assert_eq!(other.theme.id, "custom:2");
-    assert_eq!(other.themes.custom.len(), 2);
+    assert_eq!(other.theme.id, "custom:3");
+    assert_eq!(other.themes.custom.len(), 3);
 
     // The editor owns the window's colours while it is open.
     interact(&mut other, |ui| {
@@ -1218,7 +1233,8 @@ fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() 
         &other,
         "Save or cancel the theme being edited first."
     ));
-    assert_eq!(other.themes.custom.len(), 2);
+    let _ = other.update(theme(ThemeEvent::Pasted(Some(text))));
+    assert_eq!(other.themes.custom.len(), 3);
     interact(&mut other, |ui| {
         ui.click("Cancel").expect("Cancel");
     });

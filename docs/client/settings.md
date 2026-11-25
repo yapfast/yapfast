@@ -103,8 +103,8 @@ recording. Each change is kept at once in
   or Settings) shows the theme from before, and a saved one's Delete asks
   once more. Import, beside New theme, and Export, in the editor beside Save
   and Cancel, open the system's file dialog and share a theme as a file (see
-  [themes](../themes.md#sharing-themes)); a line under the title says how it
-  went. Then the system
+  [themes](../themes.md#sharing-themes)); Paste and Copy beside them do the
+  same through the clipboard. A line under the title says how it went. Then the system
   title bar's switch, where Yapfast can draw its own, and the profile
   switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;

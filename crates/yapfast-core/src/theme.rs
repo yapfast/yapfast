@@ -945,8 +945,8 @@ pub enum ImportError {
 impl std::fmt::Display for ImportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::TooLarge => "That file is too large to be a theme.",
-            Self::NotATheme => "That file is not a Yapfast theme.",
+            Self::TooLarge => "That is too large to be a theme.",
+            Self::NotATheme => "That is not a Yapfast theme.",
             Self::Newer => "That theme was made by a newer Yapfast. Update to use it.",
             Self::Empty => "That theme names no colours Yapfast knows.",
         })

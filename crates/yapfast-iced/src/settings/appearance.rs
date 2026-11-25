@@ -226,6 +226,12 @@ pub enum Event {
     Export,
     /// The name the file was saved under, or why it couldn't be.
     Exported(String, Result<(), String>),
+    /// Puts the theme in the editor on the clipboard as a theme file's text.
+    Copy,
+    /// Reads the clipboard for a theme file's text to import.
+    Paste,
+    /// The clipboard's text, if it held any.
+    Pasted(Option<String>),
     Profile(Cosmetic, bool),
 }
 
@@ -443,6 +449,11 @@ impl Settings {
             Event::Imported(path) => self.import_theme(&path, cx),
             Event::Export => return self.export_dialog(),
             Event::Exported(name, result) => self.exported(&name, result),
+            Event::Copy => return self.copy_theme(),
+            Event::Paste => {
+                return iced::clipboard::read().map(|text| theme_message(Event::Pasted(text)));
+            }
+            Event::Pasted(text) => self.paste_theme(text.as_deref(), cx),
             Event::Profile(cosmetic, on) => self::cosmetic(cx, cosmetic, on),
         }
         iced::Task::none()
@@ -585,16 +596,47 @@ impl Settings {
         });
     }
 
+    /// Puts the theme in the editor on the clipboard, as the text Export
+    /// would write to a file.
+    fn copy_theme(&mut self) -> iced::Task<Message> {
+        let Some((_, text)) = self.theme_file() else {
+            return iced::Task::none();
+        };
+        self.theme_note = Some(("Copied the theme to the clipboard.".to_owned(), false));
+        iced::clipboard::write(text)
+    }
+
+    /// Keeps the theme in the clipboard's text among the person's own, as
+    /// Import does a file's.
+    fn paste_theme(&mut self, text: Option<&str>, cx: &mut Cx<'_>) {
+        if self.editing_theme() {
+            return;
+        }
+        match text {
+            Some(text) if !text.trim().is_empty() => self.keep_theme_file(text.as_bytes(), cx),
+            _ => self.theme_note = Some(("The clipboard holds no text.".to_owned(), true)),
+        }
+    }
+
+    /// Whether a theme is being edited, saying so: nothing is imported
+    /// meanwhile, as the colours the window shows are the edit's.
+    fn editing_theme(&mut self) -> bool {
+        let editing = self.editor.is_some() || self.creator.is_some();
+        if editing {
+            self.theme_note = Some((
+                "Save or cancel the theme being edited first.".to_owned(),
+                true,
+            ));
+        }
+        editing
+    }
+
     /// Keeps the theme in a file among the person's own, and chooses it, or
     /// says why it can't. Nothing changes while the editor is open: the
     /// colours the window shows are the edit's.
     fn import_theme(&mut self, path: &Path, cx: &mut Cx<'_>) {
         use std::io::Read;
-        if self.editor.is_some() || self.creator.is_some() {
-            self.theme_note = Some((
-                "Save or cancel the theme being edited first.".to_owned(),
-                true,
-            ));
+        if self.editing_theme() {
             return;
         }
         let mut bytes = Vec::new();
@@ -605,7 +647,13 @@ impl Settings {
             self.theme_note = Some((format!("Couldn't read the file: {error}"), true));
             return;
         }
-        let imported = match palette::import(&bytes) {
+        self.keep_theme_file(&bytes, cx);
+    }
+
+    /// Keeps the theme in a theme file's bytes among the person's own, and
+    /// chooses it, or says why it can't.
+    fn keep_theme_file(&mut self, bytes: &[u8], cx: &mut Cx<'_>) {
+        let imported = match palette::import(bytes) {
             Ok(imported) => imported,
             Err(error) => {
                 self.theme_note = Some((error.to_string(), true));
@@ -797,6 +845,18 @@ impl<'a> Page<'a> {
                 self.cx
                     .look
                     .icon(Icon::Folder, 16, crate::theme::rgb(theme.text))
+            ),
+            action(
+                theme,
+                "Paste",
+                Kind::Plain,
+                Some(theme_message(Event::Paste))
+            )
+            .small()
+            .icon(
+                self.cx
+                    .look
+                    .icon(Icon::Paste, 16, crate::theme::rgb(theme.text))
             ),
             action(
                 theme,
@@ -1076,27 +1136,29 @@ impl<'a> Page<'a> {
             column(parts).spacing(24).into()
         };
         let aside = move |_: f32| -> Element<'a, Message> {
-            let export = action(
-                theme,
-                "Export",
-                Kind::Plain,
-                editor.valid().then(|| theme_message(Event::Export)),
-            )
-            .small()
-            .icon(self.cx.look.icon(
-                Icon::Download,
-                16,
-                // Greyed with the label while a field holds no colour.
-                crate::theme::rgb(if editor.valid() {
-                    theme.text
-                } else {
-                    theme.faint
-                }),
-            ));
+            // Greyed with the label while a field holds no colour.
+            let ink = crate::theme::rgb(if editor.valid() {
+                theme.text
+            } else {
+                theme.faint
+            });
+            let share = |label, event: fn() -> Event, icon| {
+                action(
+                    theme,
+                    label,
+                    Kind::Plain,
+                    editor.valid().then(|| theme_message(event())),
+                )
+                .small()
+                .icon(self.cx.look.icon(icon, 16, ink))
+            };
+            let copy = share("Copy", || Event::Copy, Icon::Copy);
+            let export = share("Export", || Event::Export, Icon::Download);
             if editor.editing.is_none() {
-                return row![export].into();
+                return row![copy, export].spacing(8).into();
             }
             row![
+                copy,
                 export,
                 action(
                     theme,
