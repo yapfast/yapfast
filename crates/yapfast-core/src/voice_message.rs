@@ -458,8 +458,7 @@ impl Tempo {
     /// Takes interleaved stereo sound and adds to `output` what plays at
     /// `speed`; returns how many frames of the sound that stands for.
     fn run(&mut self, sound: &[f32], speed: f32, output: &mut Vec<[f32; 2]>) -> f64 {
-        self.input
-            .extend(sound.chunks_exact(2).map(|frame| [frame[0], frame[1]]));
+        self.input.extend(sound.as_chunks::<2>().0.iter().copied());
         let mut through = 0.0;
         loop {
             let around = self.next.round() as usize;

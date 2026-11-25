@@ -255,6 +255,10 @@ pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message>
 /// A place's menu row was chosen.
 pub fn choose_place(app: &mut App, place: String, choice: MenuChoice) -> Task<Message> {
     let action = match choice {
+        MenuChoice::AddFavorite | MenuChoice::RemoveFavorite => Action::FavoriteChannel {
+            room: place,
+            favorite: choice == MenuChoice::AddFavorite,
+        },
         MenuChoice::MarkRead => Action::MarkRead(place),
         MenuChoice::JoinVoice => Action::RequestJoinVoice(place),
         MenuChoice::OpenChat => Action::OpenChat(place),
@@ -648,6 +652,8 @@ pub fn group_of(choice: MenuChoice) -> u8 {
         | MenuChoice::EditChannel
         | MenuChoice::DuplicateChannel => 6,
         MenuChoice::DeleteChannel | MenuChoice::LeaveServer | MenuChoice::LeaveGroup => 7,
+        // A group of its own, as in Discord's menus.
+        MenuChoice::AddFavorite | MenuChoice::RemoveFavorite => 11,
         _ => 0,
     }
 }
@@ -656,6 +662,7 @@ pub fn group_of(choice: MenuChoice) -> u8 {
 pub fn icon(choice: MenuChoice) -> Icon {
     use MenuChoice as C;
     match choice {
+        C::AddFavorite | C::RemoveFavorite => Icon::Star,
         C::MarkRead => Icon::Check,
         C::JoinVoice | C::Call => Icon::Phone,
         C::OpenChat => Icon::ForumPost,
@@ -755,6 +762,8 @@ pub fn label(choice: MenuChoice) -> &'static str {
         MenuChoice::ShowAllChannels => tr("Show all channels"),
         MenuChoice::HideMuted => tr("Hide muted channels"),
         MenuChoice::Invite => tr("Invite to channel"),
+        MenuChoice::AddFavorite => tr("Add to Favorites"),
+        MenuChoice::RemoveFavorite => tr("Remove from Favorites"),
         MenuChoice::PinChannel => tr("Pin channel to top"),
         MenuChoice::UnpinChannel => tr("Unpin channel"),
         MenuChoice::AddToChannelList => tr("Add to channel list"),

@@ -353,7 +353,7 @@ msgstr "Ajouter des tags"
 msgid "Add to channel list"
 msgstr "Ajouter à la liste des salons"
 
-#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs
+#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Add to Favorites"
 msgstr "Ajouter aux favoris"
 
@@ -821,7 +821,7 @@ msgstr "Les salons que vous lisez dans Yapfast apparaissent aussi comme lus dans
 msgid "Check again"
 msgstr "Vérifier à nouveau"
 
-#: crates/yapfast-iced/src/settings/pages/about.rs
+#: src/tray.rs crates/yapfast-iced/src/settings/pages/about.rs
 msgid "Check for updates"
 msgstr "Rechercher des mises à jour"
 
@@ -1713,6 +1713,10 @@ msgstr "FICHIER"
 msgid "File should be APNG, JPG, PNG or GIF (512 KB max)"
 msgstr "Le fichier doit être au format APNG, JPG, PNG ou GIF (512 Ko max.)"
 
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Filter"
+msgstr "Filtrer"
+
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Filter by Action"
 msgstr "Filtrer par action"
@@ -2052,6 +2056,10 @@ msgstr "Utilisateur ignoré"
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "IMAGE"
 msgstr "IMAGE"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Import"
+msgstr "Importer"
 
 #: crates/yapfast-iced/src/active_now.rs
 msgid "In a Voice Channel"
@@ -2749,6 +2757,10 @@ msgstr "Plus"
 msgid "More actions"
 msgstr "Plus d'actions"
 
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "More channels with mentions"
+msgstr "Autres salons avec des mentions"
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "More Options"
 msgstr "Plus d'options"
@@ -3205,10 +3217,6 @@ msgstr "Rien ne porte ce nom."
 msgid "Nothing going on right now."
 msgstr "Rien ne se passe pour le moment."
 
-#: crates/yapfast-iced/src/window_bar.rs
-msgid "Nothing mentions you right now."
-msgstr "Rien ne vous mentionne pour le moment."
-
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Nothing on the board yet."
 msgstr "Rien sur le tableau pour l'instant."
@@ -3429,7 +3437,7 @@ msgstr "MOT DE PASSE"
 msgid "Password"
 msgstr "Mot de passe"
 
-#: crates/yapfast-iced/src/composer.rs
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/settings/appearance.rs
 msgid "Paste"
 msgstr "Coller"
 
@@ -3789,7 +3797,7 @@ msgstr "Retirer l'ami"
 msgid "Remove from channel list"
 msgstr "Retirer de la liste des salons"
 
-#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs
+#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Remove from Favorites"
 msgstr "Retirer des favoris"
 
@@ -3881,7 +3889,7 @@ msgstr "Résolution"
 msgid "Resolution:"
 msgstr "Résolution :"
 
-#: crates/yapfast-iced/src/settings/pages/advanced.rs
+#: src/tray.rs crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Restart Yapfast"
 msgstr "Redémarrer Yapfast"
 
@@ -4513,6 +4521,10 @@ msgstr "Table de sons désactivée quand le casque est coupé"
 msgid "Soundboard disabled when server muted"
 msgstr "Table de sons désactivée quand le micro est coupé par le serveur"
 
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Soundboard disabled when suppressed"
+msgstr "Table de sons désactivée quand la parole est supprimée"
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "SOUNDBOARD VOLUME"
 msgstr "VOLUME DE LA TABLE DE MIXAGE"
@@ -4544,6 +4556,14 @@ msgstr "HAUT-PARLEURS"
 #: crates/yapfast-iced/src/call/stage/layout.rs
 msgid "Speaking"
 msgstr "Parle"
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Speaking is restricted in this channel"
+msgstr "La prise de parole est restreinte dans ce salon"
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Speaking restricted"
+msgstr "Parole restreinte"
 
 #: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/media.rs
 msgid "SPOILER"
@@ -5673,6 +5693,10 @@ msgstr "NOUVEAUTÉS DE {}"
 msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
 msgstr "Lorsqu'un ami démarre une activité, comme jouer à un jeu ou discuter en vocal, nous l'afficherons ici !"
 
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Whenever someone mentions you it will be saved here for 7 days."
+msgstr "Chaque fois que quelqu'un vous mentionne, la mention est conservée ici pendant 7 jours."
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "Where would you like to go?"
 msgstr "Où voulez-vous aller ?"
@@ -5854,6 +5878,10 @@ msgstr "Vous avez installé Yapfast avec {}, mettez-le donc à jour là-bas."
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
 msgstr "Vous avez rejoint le serveur. Il demande aux nouveaux membres de remplir un formulaire avant de pouvoir parler, ce que Yapfast ne peut pas encore afficher. Terminez-le dans l'application web de Discord."
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "You made it through everything!"
+msgstr "Vous avez tout vu !"
 
 #: crates/yapfast-iced/src/call/details.rs
 msgid "You may notice delayed audio at 250 ms or higher. If the problem persists, disconnect and try again.{}"

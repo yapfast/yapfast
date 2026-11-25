@@ -321,15 +321,13 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
         Clip::Full(full) => {
             app.playback.clip_full = full && video.is_some();
             app.playback.clip_volume = 0;
-            let (width, height) = if app.playback.clip_full {
-                let size = crate::viewer::fitted(app.window, video.and_then(|video| video.size));
-                let scale = app.device_scale();
-                ((size.width * scale) as u32, (size.height * scale) as u32)
+            if app.playback.clip_full {
+                resize_full_clip(app);
             } else {
-                app.playback.clip_cell
-            };
-            app.client
-                .dispatch(Action::Video(VideoCommand::Size { width, height }));
+                let (width, height) = app.playback.clip_cell;
+                app.client
+                    .dispatch(Action::Video(VideoCommand::Size { width, height }));
+            }
             // Full screen keeps the keys from the fields under it.
             return Task::batch([app.sync(), crate::composer::refocus(app)]);
         }
@@ -339,6 +337,21 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
         }
     }
     app.sync()
+}
+
+/// Requests frames at the size of the full-window video viewer.
+pub(crate) fn resize_full_clip(app: &mut App) {
+    if app.playback.clip_full
+        && let Some(video) = app.client.state().video.as_ref()
+    {
+        let size = crate::viewer::fitted(app.shell.frame, video.size);
+        let scale = app.device_scale();
+        let pixels = |side: f32| ((side * scale).round() as u32).max(1);
+        app.client.dispatch(Action::Video(VideoCommand::Size {
+            width: pixels(size.width),
+            height: pixels(size.height),
+        }));
+    }
 }
 
 /// A key while a message's video is full screen: Escape brings it back

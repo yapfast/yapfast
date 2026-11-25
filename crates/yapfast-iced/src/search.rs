@@ -4,9 +4,10 @@
 //! Relevant), each run of results in one channel under that channel's
 //! name, the words searched for highlighted, results from people blocked
 //! or ignored behind a row that shows them, and 25 a page with Discord's
-//! pages under them. A result clicked, or its Jump, shows it; Close or
-//! clearing the box ends the search, and its cards go. Ctrl+F goes to the
-//! box (`App::subscription`).
+//! pages under them. A result clicked, or its Jump, shows it, and a right
+//! click opens its menu to copy its link or ids; Close or clearing the box
+//! ends the search, and its cards go. Ctrl+F goes to the box
+//! (`App::subscription`).
 
 use crate::widgets::scroll_view;
 use std::sync::Arc;
@@ -34,7 +35,7 @@ use crate::{
     found::Found,
     pictures::Icon,
     style::{fill, scrollbar},
-    widgets::{At, Hooks, Stateless, Wrap},
+    widgets::{At, Hooks, RightPress, Stateless, Wrap},
 };
 
 /// The panel's width, and the box's at rest and while it holds a search.
@@ -120,6 +121,8 @@ pub enum Event {
     /// A channel's heading clicked: it opens.
     Open(String),
     Jump(String, String),
+    /// A result, by its place in the page, right-clicked: its menu opens.
+    Menu(usize),
     /// Ctrl+F, or with `channel` off Ctrl+Shift+F: the box takes the keys.
     Focus {
         channel: bool,
@@ -186,8 +189,8 @@ impl Searching {
                 return to_top();
             }
             Event::Sort(sort) => cx.dispatch(Action::SearchSort(sort)),
-            // The window opens the menu, which needs its point.
-            Event::SortMenu => {}
+            // The window opens the menus, which need their point.
+            Event::SortMenu | Event::Menu(_) => {}
             Event::ShowHidden(shown) => cx.dispatch(Action::ShowHiddenResults(shown)),
             Event::Append(filter) => {
                 if !self.text.ends_with(' ') {
@@ -663,6 +666,35 @@ pub fn open_sort_menu(app: &mut App, at: iced::Point) -> Task<Message> {
     operation::focus(crate::app::NOBODY)
 }
 
+/// Opens the menu of the shown page's result `index` at `at`, as Discord's
+/// is: Copy Message Link, and with Developer Mode on Copy Message ID and
+/// Copy Author ID. Each row carries what it copies, as the result needn't
+/// be in the timeline; one with no Discord id has no menu.
+pub fn open_found_menu(app: &mut App, index: usize, at: iced::Point) -> Task<Message> {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    let Some(result) = app.searching.results.get(index) else {
+        return Task::none();
+    };
+    let message = &result.found.message;
+    let Some((link, id)) = AppState::found_link(&result.room, &message.item) else {
+        return Task::none();
+    };
+    let copy =
+        |label, icon, copied: String| MenuRow::new(MenuAct::CopyTextLink, label, icon).key(copied);
+    let mut rows = vec![copy("Copy Message Link", Icon::Chain, link)];
+    if app.layout.developer_mode {
+        rows.push(MenuRow {
+            separated: true,
+            ..copy("Copy Message ID", Icon::Id, id)
+        });
+        if let Some(author) = discord::sender_user(&message.sender) {
+            rows.push(copy("Copy Author ID", Icon::Id, author.to_owned()));
+        }
+    }
+    app.win.menu = Some(Menu::new(at, rows));
+    operation::focus(crate::app::NOBODY)
+}
+
 /// The order a Sort menu row's key names.
 pub fn sort_of(key: &str) -> SearchSort {
     match key {
@@ -857,7 +889,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         );
     }
     let (mut blocked, mut ignored) = (0, 0);
-    for result in &searching.results {
+    for (index, result) in searching.results.iter().enumerate() {
         let hidden = hidden_why(cx, &result.found.message);
         match hidden {
             Some(true) => blocked += 1,
@@ -875,7 +907,10 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
             result.room.clone(),
             result.found.message.item.clone(),
         ));
-        entry = entry.push(crate::found::found_view(cx, &result.found, jump));
+        let found = crate::found::found_view(cx, &result.found, jump);
+        entry = entry.push(RightPress::new(found, move |_| {
+            Message::Search(Event::Menu(index))
+        }));
         list = list.push(entry);
     }
     if blocked + ignored > 0 {

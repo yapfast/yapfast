@@ -276,6 +276,23 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
 }
 
 #[test]
+fn a_short_dm_list_recovers_after_a_scrolled_sidebar() {
+    let (mut app, _folder) = preview();
+    // The sidebar can carry the scroll report from a long server list
+    // into the first frame of a shorter DM list.
+    app.sidebar.scroll.offset = 2000.0;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!shows(&app, "Friday crew"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.sidebar.scroll.offset, 0.0);
+    assert!(shows(&app, "Friday crew"));
+}
+
+#[test]
 fn with_its_setting_the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
     let (mut app, _folder) = preview();
     app.layout.dm_search_switcher = true;
@@ -504,6 +521,7 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: true,
             connected: true,
@@ -1052,4 +1070,154 @@ fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
     // A late timer for a row left asks for nothing.
     let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
     assert!(app.client.state().peek.is_none());
+}
+
+#[test]
+fn favorites_keep_saved_category_order_and_open_real_conversations() {
+    use crate::sidebar::SideRow;
+    use yapfast_core::{
+        application::{ChannelFavorite, MenuChoice},
+        network::Network,
+    };
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_linked = true;
+        state.discord_online = true;
+        state.favorites_visible = true;
+        for (index, room) in state.rooms.iter_mut().take(3).enumerate() {
+            let room = std::sync::Arc::make_mut(room);
+            room.id = if index == 2 {
+                "discord:10:43".into()
+            } else {
+                format!("discord:@me:{}", index + 41)
+            };
+            room.network = Network::Discord;
+            room.direct = index < 2;
+            room.person = (index == 0).then(|| "2".into());
+            room.voice = false;
+            room.parent = None;
+            room.locked = false;
+            room.request = false;
+            room.unread = 0;
+            room.mentions = 0;
+            room.forum = index == 2;
+            room.people.clear();
+        }
+        let mut post = (*state.rooms[2]).clone();
+        post.id = "discord:10:44".into();
+        post.parent = Some("discord:10:43".into());
+        post.forum = false;
+        post.unread = 1;
+        post.mentions = 2;
+        state.rooms.push(std::sync::Arc::new(post));
+        state.channel_favorites = vec![
+            ChannelFavorite {
+                id: "900".into(),
+                name: "Friends".into(),
+                category: true,
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "42".into(),
+                name: "Second".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 1,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "41".into(),
+                name: "First".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "43".into(),
+                name: "Top level".into(),
+                reference: true,
+                position: 1,
+                ..Default::default()
+            },
+        ];
+        state.list_changes += 1;
+    });
+    let _ = app.update(Message::Rail(crate::rail::Event::Server(
+        "@favorites".into(),
+    )));
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    let labels: Vec<_> = app
+        .sidebar
+        .rows
+        .iter()
+        .filter_map(|row| match row {
+            SideRow::Heading { name, .. } => Some(name.as_str()),
+            SideRow::Room(room) => Some(room.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    // The channels in no category come first, as in Discord's client, and a
+    // one-to-one DM keeps its person's name.
+    let dm = app
+        .client
+        .state()
+        .rooms
+        .iter()
+        .find(|room| room.id == "discord:@me:41")
+        .unwrap()
+        .name
+        .clone();
+    assert_eq!(labels, ["Top level", "Friends", dm.as_str(), "Second"]);
+    let forum = app
+        .sidebar
+        .rows
+        .iter()
+        .find_map(|row| match row {
+            SideRow::Room(room) if room.id == "discord:10:43" => Some(room),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!((forum.posts.as_str(), forum.badge.as_str()), ("1", "2"));
+    // The tile counts the mentions of what's saved and its threads, as
+    // Discord's does, and is unread unless Favorites are muted.
+    let tile = |app: &App| {
+        crate::rail::rail(app.client.state(), &Default::default())
+            .into_iter()
+            .find(|item| item.id == "@favorites")
+            .unwrap()
+    };
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (true, "2".to_owned())
+    );
+    change(&mut app, |state| state.favorites_muted = true);
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (false, "2".to_owned())
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Select(
+        "discord:@me:42".into(),
+    )));
+    assert_eq!(
+        app.client.state().selected.as_deref(),
+        Some("discord:@me:42")
+    );
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    assert!(
+        app.client
+            .state()
+            .menu_choices("discord:@me:42")
+            .contains(&MenuChoice::RemoveFavorite)
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Toggle("900".into())));
+    assert!(app.sidebar.rows.iter().any(|row| matches!(
+        row,
+        SideRow::Heading {
+            collapsed: true,
+            ..
+        }
+    )));
 }

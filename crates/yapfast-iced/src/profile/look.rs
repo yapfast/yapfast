@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use iced::Color;
 use yapfast_core::{
-    application::{AppState, MenuChoice, ProfileView, Relation},
+    application::{ActivityButtonPress, AppState, MenuChoice, ProfileView, Relation},
     chat::{Activities, Activity, Presence, Profile, Wishlist},
     i18n::{self, tr},
 };
@@ -129,6 +129,10 @@ pub struct ActivityLook {
     pub link: Option<String>,
     /// A game played, whose menu on one's own card offers its privacy.
     pub game: bool,
+    /// Its Rich Presence buttons: each one's words, and what a click on it
+    /// asks of the core, shared with the message the view makes of it. None
+    /// on the account's own, as Discord's card shows none there.
+    pub buttons: Vec<(String, Arc<ActivityButtonPress>)>,
 }
 
 impl Look {
@@ -186,15 +190,19 @@ impl Look {
                 }) => status_of(line, activities),
                 _ => thought(state, profile),
             },
-            activities: activity_looks(match &live {
-                Some(live) => &live.activities,
-                None if profile.activities.is_empty()
-                    && state.discord_user.as_deref() == Some(profile.id.as_str()) =>
-                {
-                    &state.discord_activities
-                }
-                None => &profile.activities,
-            }),
+            activities: activity_looks(
+                match &live {
+                    Some(live) => &live.activities,
+                    None if profile.activities.is_empty()
+                        && state.discord_user.as_deref() == Some(profile.id.as_str()) =>
+                    {
+                        &state.discord_activities
+                    }
+                    None => &profile.activities,
+                },
+                // One's own shows no buttons, as Discord's card doesn't.
+                (!own).then_some(profile.id.as_str()),
+            ),
             presence: live
                 .as_ref()
                 .and_then(|live| live.presence)
@@ -323,17 +331,18 @@ fn status_of(line: &str, activities: &Activities) -> Status {
     }
 }
 
-fn activity_looks(activities: &Activities) -> Vec<ActivityLook> {
+fn activity_looks(activities: &Activities, user: Option<&str>) -> Vec<ActivityLook> {
     yapfast_core::yapfast_discord::activity::shown(activities)
         .into_iter()
-        .filter_map(activity_look)
+        .filter_map(|activity| activity_look(activity, user))
         .collect()
 }
 
 /// An activity as its card shows it, as Discord's web client's activity
-/// card (and Spotify's own card) lays it out; none for a Hang status,
-/// which Discord gives no card.
-pub fn activity_look(activity: &Activity) -> Option<ActivityLook> {
+/// card (and Spotify's own card) lays it out, with its buttons when it's
+/// someone else's, `user`; none for a Hang status, which Discord gives no
+/// card.
+pub fn activity_look(activity: &Activity, user: Option<&str>) -> Option<ActivityLook> {
     use yapfast_core::chat::ActivityKind as Kind;
     let heading = activity.heading()?;
     let text = |text: &Option<Box<str>>| text.as_deref().map(str::to_owned);
@@ -409,6 +418,25 @@ pub fn activity_look(activity: &Activity) -> Option<ActivityLook> {
         small,
         url: text(&activity.url).filter(|_| activity.kind == Kind::Streaming),
         link: text(&activity.link),
+        buttons: match (user, activity.buttons.as_deref()) {
+            (Some(user), Some(rich)) => rich
+                .list
+                .iter()
+                .enumerate()
+                .map(|(index, button)| {
+                    let press = ActivityButtonPress {
+                        user: user.to_owned(),
+                        session: text(&rich.session_id),
+                        application: text(&activity.application_id),
+                        index,
+                        metadata: rich.metadata,
+                        url: text(&button.url),
+                    };
+                    (button.label.to_string(), Arc::new(press))
+                })
+                .collect(),
+            _ => Vec::new(),
+        },
     })
 }
 
@@ -628,7 +656,7 @@ mod tests {
 
     /// The card of one activity read from Discord's JSON.
     fn card(value: serde_json::Value) -> Option<ActivityLook> {
-        activity_look(&activities(&json!([value]))[0])
+        activity_look(&activities(&json!([value]))[0], Some("1"))
     }
 
     /// Its heading, title and lines, as the card shows them.
@@ -774,11 +802,14 @@ mod tests {
             card(json!({"type": 6, "name": "Hang Status", "state": "chilling"})),
             None
         );
-        let looks = activity_looks(&activities(&json!([
-            {"type": 6, "name": "Hang Status", "state": "chilling"},
-            {"type": 0, "name": "Halo"},
-            {"type": 0, "name": "Halo", "details": "again"},
-        ])));
+        let looks = activity_looks(
+            &activities(&json!([
+                {"type": 6, "name": "Hang Status", "state": "chilling"},
+                {"type": 0, "name": "Halo"},
+                {"type": 0, "name": "Halo", "details": "again"},
+            ])),
+            Some("1"),
+        );
         assert_eq!(looks.len(), 1);
     }
 

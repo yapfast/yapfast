@@ -119,6 +119,8 @@ pub enum Event {
     /// Its View All Activity and Manage Privacy.
     AllActivity,
     ActivityPrivacy,
+    /// One of an activity's Rich Presence buttons.
+    ActivityButton(Arc<yapfast_core::application::ActivityButtonPress>),
     /// The pointer on the card (its decoration plays), on the docked one,
     /// and on the status's bubble (it shows whole).
     Pointed(bool),
@@ -311,6 +313,9 @@ impl Profiles {
                 cx.request(Request::Focus(Focus::Default));
             }
             Event::Befriend(user) => cx.dispatch(Action::Befriend(user)),
+            Event::ActivityButton(press) => {
+                cx.dispatch(Action::OpenActivityButton(Arc::unwrap_or_clone(press)));
+            }
             Event::Relate(user, relate) => {
                 use yapfast_core::{application::PersonAsk, chat::RelationshipChange};
                 let location = crate::person_menu::CONTEXT_MENU;

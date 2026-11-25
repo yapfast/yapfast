@@ -8,11 +8,14 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Element, Length, Padding, Point, Task,
+    Element, Length, Padding, Point, Rectangle, Task, Vector,
+    advanced::widget::{Id, Operation, operation::Scrollable},
     keyboard::key,
-    widget::{Space, column, container, mouse_area, opaque, operation, row},
+    widget::{
+        Space, column, container, mouse_area, opaque, operation, row, scrollable::AbsoluteOffset,
+    },
 };
-use yapfast_core::application::{Action, ThreadFrom};
+use yapfast_core::application::{Action, MenuChoice, ThreadFrom};
 
 use crate::{
     app::{App, Message, NOBODY},
@@ -28,6 +31,10 @@ use yapfast_core::i18n::tr;
 
 /// How far a menu stays in from the window's edges.
 const MENU_MARGIN: f32 = 8.0;
+/// The Roles submenu's scrollable, and its rows' height, which
+/// [`RevealRole`] counts on.
+const ROLE_LIST: &str = "menu-roles";
+const ROLE_ROW_HEIGHT: f32 = 36.0;
 
 /// A message's menu's width; the composer's is wider.
 pub const WIDTH: f32 = 224.0;
@@ -215,6 +222,8 @@ pub enum MenuAct {
     ActivityPrivacy,
     /// An order of the search's Sort menu, by its row's `key`.
     SearchSort,
+    /// A box of the inbox's Mentions filter, by its row's `key`.
+    MentionsFilter,
 }
 
 #[derive(Clone)]
@@ -243,6 +252,13 @@ pub struct MenuRow {
 }
 
 impl MenuRow {
+    fn opens_roles(&self) -> bool {
+        matches!(
+            self.act,
+            MenuAct::Person(MenuChoice::Roles) | MenuAct::Place(MenuChoice::Roles)
+        )
+    }
+
     /// A row with its icon.
     pub fn new(act: MenuAct, label: &'static str, icon: Icon) -> Self {
         Self {
@@ -557,7 +573,6 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
         .as_ref()
         .and_then(|menu| menu.rows.get(index))
         .filter(|row| !row.disabled)
-        .cloned()
     else {
         return Task::none();
     };
@@ -568,7 +583,7 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
                 let row = MenuRow {
                     act: click,
                     check: crate::controls::Check::None,
-                    ..row
+                    ..row.clone()
                 };
                 return pick(app, row, None);
             }
@@ -581,7 +596,7 @@ pub fn choose(app: &mut App, index: usize) -> Task<Message> {
             }
         }
     }
-    pick(app, row, Some(index))
+    pick(app, row.clone(), Some(index))
 }
 
 /// A row of the open submenu was chosen.
@@ -696,6 +711,12 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
         }
         MenuAct::OpenTextLink => {
             crate::browser::open(&row.key);
+            focus
+        }
+        MenuAct::MentionsFilter => {
+            if let Some(on) = ticked {
+                crate::window_bar::change_filter(app, &row.key, on);
+            }
             focus
         }
         act => {
@@ -854,6 +875,7 @@ pub fn act(
         }
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
+        | MenuAct::MentionsFilter
         | MenuAct::Notify(_)
         | MenuAct::MuteDm(_)
         | MenuAct::ShowAll
@@ -906,6 +928,13 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
                 }
                 _ => {}
             }
+            if menu.sub == Some(sub)
+                && menu.sub_lit != Some(lit)
+                && menu.rows[sub].opens_roles()
+                && let Some(index) = menu.sub_lit
+            {
+                return iced_runtime::task::widget(RevealRole(index));
+            }
             return Task::none();
         }
         if named == Some(key::Named::Escape) || named == Some(key::Named::ArrowLeft) {
@@ -938,6 +967,11 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
             if !rows[lit].submenu.is_empty() && !rows[lit].disabled {
                 menu.sub = Some(lit);
                 menu.sub_lit = step(&rows[lit].submenu, 0, 1);
+                if rows[lit].opens_roles()
+                    && let Some(index) = menu.sub_lit
+                {
+                    return iced_runtime::task::widget(RevealRole(index));
+                }
             } else if named != Some(key::Named::ArrowRight) {
                 return choose(app, lit);
             }
@@ -946,6 +980,45 @@ pub fn menu_key(app: &mut App, named: Option<key::Named>) -> Task<Message> {
         _ => {}
     }
     Task::none()
+}
+
+/// Keeps the keyboard selection in view using the scrollable's current layout.
+struct RevealRole(usize);
+
+impl Operation<Message> for RevealRole {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<Message>)) {
+        operate(self);
+    }
+
+    fn scrollable(
+        &mut self,
+        id: Option<&Id>,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+        translation: Vector,
+        state: &mut dyn Scrollable,
+    ) {
+        if id != Some(&Id::new(ROLE_LIST)) {
+            return;
+        }
+        let top = self.0 as f32 * ROLE_ROW_HEIGHT;
+        let bottom = top + ROLE_ROW_HEIGHT;
+        let offset = if top < translation.y {
+            top
+        } else if bottom > translation.y + bounds.height {
+            bottom - bounds.height
+        } else {
+            return;
+        };
+        state.scroll_by(
+            AbsoluteOffset {
+                x: 0.0,
+                y: offset - translation.y,
+            },
+            bounds,
+            content_bounds,
+        );
+    }
 }
 
 /// The menu open, at its place, with its submenu beside its row.
@@ -1136,25 +1209,45 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let surface = yapfast_core::themes::package::art::ArtSurface::Menu;
         let decorated = self.cx.themes.decorates(&theme.id, surface);
-        let entries = &menu.rows[sub].submenu;
+        let parent = &menu.rows[sub];
+        let roles = parent.opens_roles();
+        let entries = &parent.submenu;
         let slot = ticks(entries);
-        let mut rows = column![].padding(PAD);
+        let mut rows = column![].padding(if roles { [0.0, PAD] } else { [PAD, PAD] });
         for (index, entry) in entries.iter().enumerate() {
             if entry.separated && index > 0 {
                 rows = rows.push(crate::controls::menu_separator(theme));
             }
             let light = Light::Lit(menu.sub_lit == Some(index) && !entry.disabled);
-            rows = rows.push(
-                mouse_area(self.cx.look.context_item(
-                    self.menu_entry(entry, slot),
-                    light,
-                    Message::Menu(Event::SubChoose(index)),
-                ))
-                .on_enter(Message::Menu(Event::SubLight(index))),
-            );
+            let item = self.menu_entry(entry, slot);
+            let press = Message::Menu(Event::SubChoose(index));
+            let row = if roles {
+                self.cx
+                    .look
+                    .menu_item_sized(item, light, press, ROLE_ROW_HEIGHT)
+            } else {
+                self.cx.look.context_item(item, light, press)
+            };
+            rows = rows.push(mouse_area(row).on_enter(Message::Menu(Event::SubLight(index))));
         }
+        let rows: Element<'a, Message> = if roles {
+            scroll_view(rows)
+                .id(ROLE_LIST)
+                .height(Length::Shrink)
+                .style(crate::style::scrollbar(theme))
+                .into()
+        } else {
+            rows.into()
+        };
         let panel: Element<'a, Message> = container(rows)
             .width(menu.fit(Some(sub)))
+            .padding(if roles { [PAD, 0.0] } else { [0.0, 0.0] })
+            // As tall as the window allows, as Discord's submenus are.
+            .max_height(if roles {
+                (self.cx.look.window.height - 2.0 * MENU_MARGIN).max(0.0)
+            } else {
+                f32::INFINITY
+            })
             .style(menu_panel_over(theme, decorated))
             .into();
         let panel = crate::theme_art::surface(panel, self.cx, surface);

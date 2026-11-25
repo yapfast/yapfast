@@ -354,7 +354,7 @@ msgstr ""
 msgid "Add to channel list"
 msgstr ""
 
-#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs
+#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Add to Favorites"
 msgstr ""
 
@@ -822,7 +822,7 @@ msgstr ""
 msgid "Check again"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/pages/about.rs
+#: src/tray.rs crates/yapfast-iced/src/settings/pages/about.rs
 msgid "Check for updates"
 msgstr ""
 
@@ -1714,6 +1714,10 @@ msgstr ""
 msgid "File should be APNG, JPG, PNG or GIF (512 KB max)"
 msgstr ""
 
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Filter"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Filter by Action"
 msgstr ""
@@ -2052,6 +2056,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "IMAGE"
+msgstr ""
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Import"
 msgstr ""
 
 #: crates/yapfast-iced/src/active_now.rs
@@ -2750,6 +2758,10 @@ msgstr ""
 msgid "More actions"
 msgstr ""
 
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "More channels with mentions"
+msgstr ""
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "More Options"
 msgstr ""
@@ -3206,10 +3218,6 @@ msgstr ""
 msgid "Nothing going on right now."
 msgstr ""
 
-#: crates/yapfast-iced/src/window_bar.rs
-msgid "Nothing mentions you right now."
-msgstr ""
-
 #: crates/yapfast-iced/src/profile/full.rs
 msgid "Nothing on the board yet."
 msgstr ""
@@ -3430,7 +3438,7 @@ msgstr ""
 msgid "Password"
 msgstr ""
 
-#: crates/yapfast-iced/src/composer.rs
+#: crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/settings/appearance.rs
 msgid "Paste"
 msgstr ""
 
@@ -3790,7 +3798,7 @@ msgstr ""
 msgid "Remove from channel list"
 msgstr ""
 
-#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs
+#: crates/yapfast-iced/src/call/popups/soundboard.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Remove from Favorites"
 msgstr ""
 
@@ -3882,7 +3890,7 @@ msgstr ""
 msgid "Resolution:"
 msgstr ""
 
-#: crates/yapfast-iced/src/settings/pages/advanced.rs
+#: src/tray.rs crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Restart Yapfast"
 msgstr ""
 
@@ -4514,6 +4522,10 @@ msgstr ""
 msgid "Soundboard disabled when server muted"
 msgstr ""
 
+#: crates/yapfast-iced/src/call/popups/soundboard.rs
+msgid "Soundboard disabled when suppressed"
+msgstr ""
+
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "SOUNDBOARD VOLUME"
 msgstr ""
@@ -4544,6 +4556,14 @@ msgstr ""
 
 #: crates/yapfast-iced/src/call/stage/layout.rs
 msgid "Speaking"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Speaking is restricted in this channel"
+msgstr ""
+
+#: crates/yapfast-iced/src/call/stage/layout.rs
+msgid "Speaking restricted"
 msgstr ""
 
 #: crates/yapfast-iced/src/forum.rs crates/yapfast-iced/src/media.rs
@@ -5674,6 +5694,10 @@ msgstr ""
 msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
 msgstr ""
 
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "Whenever someone mentions you it will be saved here for 7 days."
+msgstr ""
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "Where would you like to go?"
 msgstr ""
@@ -5854,6 +5878,10 @@ msgstr ""
 
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr ""
+
+#: crates/yapfast-iced/src/window_bar.rs
+msgid "You made it through everything!"
 msgstr ""
 
 #: crates/yapfast-iced/src/call/details.rs

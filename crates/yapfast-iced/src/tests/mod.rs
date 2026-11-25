@@ -247,6 +247,26 @@ fn right_click(ui: &mut Simulator<'_, Message>, text: &str) {
     ]);
 }
 
+/// What a task the window's update returned writes to the clipboard.
+fn clipboard_writes(task: iced::Task<Message>) -> Vec<String> {
+    use iced::futures::StreamExt;
+    let Some(mut actions) = iced_runtime::task::into_stream(task) else {
+        return Vec::new();
+    };
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    let mut written = Vec::new();
+    while let std::task::Poll::Ready(Some(action)) = actions.poll_next_unpin(&mut cx) {
+        if let iced_runtime::Action::Clipboard(iced_runtime::clipboard::Action::Write {
+            contents,
+            ..
+        }) = action
+        {
+            written.push(contents);
+        }
+    }
+    written
+}
+
 /// The core's state, changed as the backend would, then taken in.
 fn change(app: &mut App, change: impl FnOnce(&mut yapfast_core::application::AppState)) {
     change(&mut app.client.app.state);

@@ -24,17 +24,27 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import runpy
 import signal
 import statistics
 import subprocess
 import time
+from pathlib import Path
 
-from voice_harness import (HEIGHT, ROOT, WIDTH, Participant, locate_rail, process_cpu_seconds, process_memory_breakdown,
-                           process_memory_mib, provision, wait_for)
 import voice_harness
+from voice_harness import (
+    HEIGHT,
+    ROOT,
+    WIDTH,
+    Participant,
+    locate_rail,
+    process_cpu_seconds,
+    process_memory_breakdown,
+    process_memory_mib,
+    provision,
+    wait_for,
+)
 
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
