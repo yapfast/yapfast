@@ -675,7 +675,9 @@ impl Application {
             }
             Err(error) => {
                 links.remove(at);
-                self.state.notice = Some(format!("Couldn't open the button's link: {error}"));
+                self.state.notice = Some(Notice::Error(format!(
+                    "Couldn't open the button's link: {error}"
+                )));
                 vec![]
             }
         }

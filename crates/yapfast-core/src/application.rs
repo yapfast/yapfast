@@ -5046,7 +5046,9 @@ impl Application {
             }
             Event::ChannelFavorited(result) => {
                 if let Err(error) = result {
-                    self.state.notice = Some(format!("Couldn't save your Favorites: {error}"));
+                    self.state.notice = Some(Notice::Error(format!(
+                        "Couldn't save your Favorites: {error}"
+                    )));
                 }
             }
             Event::ServerFiled(result) => {
