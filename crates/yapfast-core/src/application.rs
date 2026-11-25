@@ -2839,8 +2839,11 @@ fn pictures_on_screen<'a>(
                 .into_iter()
                 .flatten()
                 .flat_map(move |room| {
+                    let group = room.group_avatars.as_ref();
                     [
                         room.avatar.as_deref(),
+                        group.map(|pair| pair[0].avatar.as_str()),
+                        group.map(|pair| pair[1].avatar.as_str()),
                         cosmetics.decoration(room.decoration.as_deref()),
                         tag_badge(cosmetics, &room.tag),
                     ]
@@ -2848,11 +2851,14 @@ fn pictures_on_screen<'a>(
                 .flatten()
                 .take(LISTED_PICTURES),
         )
-        .chain(
-            state
-                .selected_room()
-                .and_then(|room| room.avatar.as_deref()),
-        )
+        .chain(state.selected_room().into_iter().flat_map(|room| {
+            room.avatar.as_deref().into_iter().chain(
+                room.group_avatars
+                    .iter()
+                    .flatten()
+                    .map(|member| member.avatar.as_str()),
+            )
+        }))
         // A DM's row shows its nameplate only selected or under the pointer.
         .chain(
             state

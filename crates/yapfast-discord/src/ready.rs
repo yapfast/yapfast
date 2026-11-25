@@ -640,6 +640,18 @@ pub struct Private {
     pub spam: bool,
 }
 
+/// Sorts Discord snowflake ids numerically ascending (falling back to
+/// lexicographical order for non-numeric test ids) and removes duplicates.
+pub fn sort_snowflakes(ids: &mut Vec<String>) {
+    ids.sort_by(|a, b| match (a.parse::<u64>(), b.parse::<u64>()) {
+        (Ok(a), Ok(b)) => a.cmp(&b),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        (Err(_), Err(_)) => a.cmp(b),
+    });
+    ids.dedup();
+}
+
 /// A DM or group DM, or a message request, from a channel object.
 pub fn private_channel(channel: &Value) -> Option<Private> {
     let group = match channel["type"].as_u64() {
@@ -650,7 +662,7 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
     let spam = channel["is_spam"] == true;
     let id = channel["id"].as_str()?.to_owned();
     // With deduplicated users, READY gives ids and lists the users apart.
-    let recipients = match channel["recipient_ids"].as_array() {
+    let mut recipients: Vec<String> = match channel["recipient_ids"].as_array() {
         Some(ids) => ids
             .iter()
             .filter_map(Value::as_str)
@@ -663,18 +675,22 @@ pub fn private_channel(channel: &Value) -> Option<Private> {
             .filter_map(|user| user["id"].as_str().map(str::to_owned))
             .collect(),
     };
+    sort_snowflakes(&mut recipients);
     Some(Private {
         group,
         name: channel["name"]
             .as_str()
             .filter(|name| !name.is_empty())
             .map(str::to_owned),
-        icon: channel["icon"].as_str().map(|hash| {
-            format!(
-                "{}/channel-icons/{id}/{hash}.png?size={PICTURE_SIZE}",
-                cdn()
-            )
-        }),
+        icon: channel["icon"]
+            .as_str()
+            .filter(|hash| !hash.is_empty())
+            .map(|hash| {
+                format!(
+                    "{}/channel-icons/{id}/{hash}.png?size={PICTURE_SIZE}",
+                    cdn()
+                )
+            }),
         recipients,
         owner: group
             .then(|| channel["owner_id"].as_str().map(str::to_owned))
@@ -2599,5 +2615,23 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(dm.owner, None);
+    }
+
+    #[test]
+    fn a_group_dm_sorts_recipients_deterministically_by_snowflake() {
+        let from_ids = private_channel(&json!({
+            "id": "5", "type": 3, "icon": "", "recipient_ids": ["10", "2", "3", "2"],
+        }))
+        .unwrap();
+        assert_eq!(from_ids.recipients, ["2", "3", "10"]);
+        assert_eq!(from_ids.icon, None);
+
+        let from_users = private_channel(&json!({
+            "id": "5",
+            "type": 3,
+            "recipients": [{"id": "30"}, {"id": "5"}, {"id": "12"}],
+        }))
+        .unwrap();
+        assert_eq!(from_users.recipients, ["5", "12", "30"]);
     }
 }

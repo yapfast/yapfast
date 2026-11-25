@@ -18,7 +18,10 @@ member list, the DMs, and the lists still to come build on it.
   joined. Hidden (its toggle off, a thread or search in its place), the
   list keeps no lines, cards or pictures and builds none as the roster
   changes; shown again, it's built as the roster is then.
-- A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
+- A DM's row (`sidebar/dms.rs`) shows the person's face (or for a group DM
+  without a custom icon, Discord's coloured group-people placeholder for two
+  members or two overlapping circular member avatars with a cutout for more, and
+  an online dot while any other member is online), styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in (a click
   goes to it, in its server) or what they're up to, a group's members, and its
   nameplate under the pointer or while open, filling the row to its edges and

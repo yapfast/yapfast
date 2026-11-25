@@ -63,6 +63,15 @@ pub use yapfast_discord::commands::CommandIndex;
 #[derive(Clone, Debug, PartialEq)]
 pub enum CommandIndex {}
 
+/// One of the two members shown on a group DM's fallback icon when it has no
+/// custom icon and more than two members.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct GroupAvatar {
+    pub id: String,
+    pub name: String,
+    pub avatar: String,
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct ChatRoom {
     pub id: String,
@@ -125,6 +134,9 @@ pub struct ChatRoom {
     /// The address of a Discord DM's picture: the other person's avatar or
     /// the group's icon. See [`DiscordCommand::Pictures`].
     pub avatar: Option<String>,
+    /// When a group DM has no custom icon and more than two members, the two
+    /// members whose overlapping avatars form its fallback icon.
+    pub group_avatars: Option<[GroupAvatar; 2]>,
     /// The address of the decoration the other person in a one-to-one DM
     /// wears around their avatar, their nameplate, and how they draw their
     /// name.

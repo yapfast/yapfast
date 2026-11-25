@@ -762,6 +762,13 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             .collect(),
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
+        group_avatars: dm.group_avatars.as_ref().map(|pair| {
+            pair.clone().map(|member| chat::GroupAvatar {
+                id: member.id,
+                name: member.name,
+                avatar: member.avatar,
+            })
+        }),
         decoration: dm.decoration.clone(),
         nameplate: dm.nameplate.clone().map(|plate| Arc::new(plate.into())),
         style: dm.style.map(|style| Arc::new(style.into())),
@@ -914,6 +921,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                group_avatars: None,
                 decoration: None,
                 nameplate: None,
                 style: None,
@@ -969,6 +977,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                group_avatars: None,
                 decoration: None,
                 nameplate: None,
                 style: None,
@@ -1129,6 +1138,7 @@ fn thread_room(
         ringing: vec![],
         incoming: false,
         avatar: None,
+        group_avatars: None,
         decoration: None,
         nameplate: None,
         style: None,
