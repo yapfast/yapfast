@@ -27,8 +27,9 @@ iced builds the whole view again after every message and lays it out, so
 what costs is kept out of the view:
 
 - The backend's events come on its receiver, batched, as messages
-  (`app::batches`); nothing polls. Fonts the shaper wants, the control file and
-  the window's size as it opens and is resized come as subscriptions.
+  (`app::batches`); nothing polls. Fonts the shaper wants and the control
+  file come as subscriptions; the window's size comes from a sensor around
+  the whole view, as iced lays it out, on the redraw after it changes.
 - After each batch of the backend's events, `sync.rs` takes in only what
   changed, by what the core gives to tell: the core counts changes to its
   rooms and servers (`list_changes`), to the people lists (friends,
