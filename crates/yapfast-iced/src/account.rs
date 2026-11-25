@@ -41,6 +41,9 @@ pub struct Account {
     /// joined.
     pub in_call: bool,
     pub muted: bool,
+    /// Discord won't let this account speak in the call's channel, so
+    /// its mute shows on and does nothing.
+    pub speaking_blocked: bool,
     pub deafened: bool,
     /// The call's voice is through, so its mute and deafen act; while it
     /// joins or leaves they wait.
@@ -68,7 +71,7 @@ impl Account {
     /// Shown muted: in a call, as it is; out of one, as calls are joined.
     fn shown_muted(&self, join: (bool, bool)) -> bool {
         if self.in_call {
-            self.muted
+            self.muted || self.speaking_blocked
         } else {
             !join.0 || join.1
         }
@@ -175,6 +178,7 @@ pub fn account(state: &AppState) -> Account {
         },
         in_call: state.voice.active(),
         muted: state.voice.muted,
+        speaking_blocked: state.voice.speaking_blocked(),
         deafened: state.voice.deafened,
         ready: matches!(
             state.voice.phase,
@@ -341,7 +345,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     );
     let muted = account.shown_muted(join);
     let deafened = account.shown_deafened(join);
-    let (mic, mic_label) = if muted {
+    let (mic, mic_label) = if account.speaking_blocked {
+        (Icon::MicOff, "Speaking is restricted in this channel")
+    } else if muted {
         (
             Icon::MicOff,
             if account.in_call {
@@ -441,7 +447,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     // In a call, a gel theme's mute and deafen are gel buttons (the
     // as asked): the danger gel while on.
     let device = |icon, label: &'static str, on: bool, glyph, event| -> Element<'a, Message> {
-        let message = toggle(event);
+        let message = if matches!(event, Event::Mute) && account.speaking_blocked {
+            None
+        } else {
+            toggle(event)
+        };
         let gel = if account.in_call {
             crate::theme_art::gel_call_button(
                 ctx,

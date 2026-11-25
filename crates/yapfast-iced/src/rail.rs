@@ -532,6 +532,52 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             }
         }
     }
+    if state.discord_linked
+        && (state.favorites_visible || state.navigation == Navigation::Favorites)
+    {
+        // As Discord's client marks the tile: the mentions of the channels
+        // saved and of their threads, and unread unless Favorites are muted.
+        let saved: HashSet<&str> = state
+            .channel_favorites
+            .iter()
+            .filter(|entry| entry.reference)
+            .map(|entry| entry.id.as_str())
+            .collect();
+        let is_saved =
+            |room: &str| discord::parse_room(room).is_some_and(|(_, id)| saved.contains(id));
+        let (unread, mentions) = state
+            .rooms
+            .iter()
+            .filter(|room| {
+                !room.locked
+                    && !room.request
+                    && (is_saved(&room.id) || room.parent.as_deref().is_some_and(is_saved))
+            })
+            .fold((false, 0), |(unread, mentions), room| {
+                (
+                    unread
+                        || room.mentions > 0
+                        || (room.unread > 0 && !room.muted && !(room.voice && !room.direct)),
+                    mentions + room.mentions,
+                )
+            });
+        items.insert(
+            0,
+            RailItem {
+                id: "@favorites".into(),
+                name: "Favorites".into(),
+                icon: None,
+                kind: Kind::Server,
+                selected: state.navigation == Navigation::Favorites,
+                unread: unread && !state.favorites_muted,
+                badge: count_badge(mentions),
+                call: false,
+                media: None,
+                busy: Busy::default(),
+                unavailable: false,
+            },
+        );
+    }
     if state.discord_online || state.preview {
         items.extend(
             [
@@ -804,8 +850,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 .dispatch(Action::Navigate(Navigation::DirectMessages));
         }
         Event::Server(id) => {
-            app.client
-                .dispatch(Action::Navigate(Navigation::Server(id)));
+            app.client.dispatch(Action::Navigate(if id == "@favorites" {
+                Navigation::Favorites
+            } else {
+                Navigation::Server(id)
+            }));
         }
         Event::Folder(id) => {
             app.lists_shown = None;
@@ -1858,6 +1907,16 @@ impl<'a> View<'a> {
     /// A server's or a DM's face: its picture, else its initials on the
     /// raised ground (the accent while lit); faded while out of reach.
     fn server_face(self, item: &RailItem, lit: bool) -> Element<'a, Message> {
+        if item.id == "@favorites" {
+            let theme = self.cx.look.theme;
+            let ground = if lit { theme.raised } else { theme.rail };
+            let (width, height) = self.tile_size();
+            return container(self.cx.look.glyph(Icon::StarFilled, 20, theme.text))
+                .center_x(width)
+                .center_y(height)
+                .style(move |_| rounded(ground, RADIUS))
+                .into();
+        }
         self.server_face_at(item, lit, 1.0)
     }
 

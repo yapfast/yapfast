@@ -4,29 +4,21 @@ use super::*;
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn fetches_the_favourite_and_used_emoji_with_the_favourite_gifs() {
+async fn saves_favourite_emoji_without_changing_gifs_or_usage() {
     let Fixture { _fake, discord, .. } =
-        Fixture::start("fetches_the_favourite_and_used_emoji_with_the_favourite_gifs").await;
-    let (gifs, emojis) = discord.favorite_gifs_and_emojis().await.unwrap();
-    assert!(!gifs.is_empty());
-    let names = |used: Option<Vec<(String, yapfast_discord::frecency::Uses)>>| {
-        used.unwrap()
-            .into_iter()
-            .map(|(name, _)| name)
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(emojis.favorites.unwrap()[1], "skull_crossbones");
-    assert_eq!(names(emojis.used), ["joy", "thumbsup_tone4"]);
-    assert_eq!(names(emojis.reactions), ["fire", "100"]);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
-async fn a_star_saves_the_favourite_emoji_and_leaves_the_rest() {
-    let Fixture { _fake, discord, .. } =
-        Fixture::start("a_star_saves_the_favourite_emoji_and_leaves_the_rest").await;
+        Fixture::start("saves_favourite_emoji_without_changing_gifs_or_usage").await;
     let (gifs, before) = discord.favorite_gifs_and_emojis().await.unwrap();
+    assert!(!gifs.is_empty());
+    fn names(used: &[(String, yapfast_discord::frecency::Uses)]) -> Vec<&str> {
+        used.iter().map(|(name, _)| name.as_str()).collect()
+    }
+    assert_eq!(
+        names(before.used.as_deref().unwrap()),
+        ["joy", "thumbsup_tone4"]
+    );
+    assert_eq!(names(before.reactions.as_deref().unwrap()), ["fire", "100"]);
     let mut favorites = before.favorites.unwrap();
+    assert_eq!(favorites[1], "skull_crossbones");
     favorites.push("joy".into());
     discord.set_favorite_emojis(&favorites).await.unwrap();
     // The favourites are the new ones, and the GIFs and the uses stay.
@@ -34,6 +26,7 @@ async fn a_star_saves_the_favourite_emoji_and_leaves_the_rest() {
     assert_eq!(after.favorites.as_ref(), Some(&favorites));
     assert_eq!(kept_gifs, gifs);
     assert_eq!(after.used, before.used);
+    assert_eq!(after.reactions, before.reactions);
 }
 
 /// Emoji and Stickers in Server Settings: listing them with who uploaded
@@ -145,6 +138,13 @@ async fn keeps_emoji_and_stickers_as_discords_client_does() {
         .find(|sticker| sticker.name == "Mine")
         .expect("the new sticker lists");
     assert_eq!(mine.user_id, None);
+    let created = &mine.id;
+    snapshot_where(discord, |snapshot| {
+        snapshot.servers.iter().any(|server| {
+            server.id == guild && server.stickers.iter().any(|sticker| &sticker.id == created)
+        })
+    })
+    .await;
     let listed = discord.guild_stickers(guild).await.unwrap();
     let mine = listed
         .iter()
@@ -203,6 +203,7 @@ async fn picks_the_stickers_of_the_default_packs() {
         discord,
         guild,
         general,
+        snapshot,
         ..
     } = Fixture::start("picks_the_stickers_of_the_default_packs").await;
     // Discord's default packs, as its client offers them.
@@ -233,31 +234,7 @@ async fn picks_the_stickers_of_the_default_packs() {
     // Kept on disk by the app beside its account cache, which this test has
     // none of; `cache`'s own tests read and write them.
 
-    // The server's own stickers come with the snapshot, for the picker to
-    // list above the packs, and GUILD_STICKERS_UPDATE keeps them current.
-    use base64::Engine;
-    let dot = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-    let png = base64::engine::general_purpose::STANDARD
-        .decode(dot)
-        .unwrap();
-    discord
-        .create_sticker(
-            &guild,
-            [("name", "Wave"), ("tags", "\u{1f44b}"), ("description", "")],
-            ("wave.png", "image/png", &png),
-        )
-        .await
-        .unwrap();
-    let server_stickers = |snapshot: &Snapshot| {
-        snapshot
-            .servers
-            .iter()
-            .find(|known| known.id == guild)
-            .is_some_and(|known| known.stickers.iter().any(|sticker| sticker.name == "Wave"))
-    };
-    let snapshot = snapshot_where(&discord, server_stickers).await;
-    // The picker lists them from there, as Discord's client reads them from
-    // READY, at the tiles' size.
+    // The picker reads the server's stickers from READY, at the tiles' size.
     let owned = &snapshot
         .servers
         .iter()

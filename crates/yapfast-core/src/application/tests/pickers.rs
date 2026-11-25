@@ -845,6 +845,10 @@ fn the_sticker_picker_lists_the_servers_own_stickers_from_discord() {
     use crate::{backend::Backend, chat::Start, runtime::BackgroundRuntime};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
+    assert!(
+        yapfast_discord::client::test_server().is_some(),
+        "set YAPFAST_DISCORD_TEST_SERVER to the fake Discord"
+    );
     // The fake's server and #general.
     let (guild, general) = ("1400000000000000100", "1400000000000000102");
     let runtime = Arc::new(BackgroundRuntime::new().unwrap());
@@ -911,31 +915,18 @@ fn the_sticker_picker_lists_the_servers_own_stickers_from_discord() {
         let effects = app.apply(event);
         send(&backend, effects);
     }
-    let server = app
-        .state
-        .stickers
-        .servers
+    let collections = app.state.stickers.listed(false);
+    let server = collections
         .iter()
-        .find(|server| server.id == guild)
-        .unwrap();
+        .find(|collection| collection.id == guild)
+        .expect("the picker lists the open server's own stickers");
     assert_eq!(server.name, "Server");
     assert!(
-        server.stickers.iter().any(|sticker| sticker.name == "Wave"),
-        "the server's own stickers list: {:?}",
-        server.stickers
-    );
-    // The picker lists them before Discord's packs.
-    let names: Vec<String> = app
-        .state
-        .stickers
-        .collections(true)
-        .iter()
-        .map(|collection| collection.name.clone())
-        .collect();
-    assert_eq!(
-        names.first().map(String::as_str),
-        Some("Server"),
-        "the server's stickers come first: {names:?}"
+        server
+            .stickers
+            .iter()
+            .any(|(sticker, usable)| sticker.name == "Wave" && *usable),
+        "the open server's Wave sticker is usable without Nitro"
     );
 }
 

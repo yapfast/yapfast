@@ -74,10 +74,18 @@ impl Shell {
         })
     }
 
-    /// The window closed for good: pasted pictures go. The window keeps
-    /// this shell until the process ends, so nothing drops them.
+    /// The window closed for good. The window keeps this shell until the
+    /// process ends, so release what the next start needs here.
     pub fn closed(&self) {
         drop(self.pasted.lock().map(|mut folder| folder.take()));
+        // On Windows the replacement starts before this process exits.
+        #[cfg(windows)]
+        drop(std::mem::take(
+            &mut *self
+                .instance
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        ));
     }
 
     /// The update downloaded and checked, for `main` to finish.
@@ -96,6 +104,29 @@ impl Shell {
             tell(heard);
         }
     }
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn the_replacement_can_claim_the_folder_before_the_old_process_exits() {
+    use crate::instance::{Start, claim};
+
+    let root = tempfile::tempdir().expect("data folder");
+    let claim = || claim(root.path(), true, false, None);
+    let Start::Run(instance) = claim() else {
+        panic!("the first start runs");
+    };
+    let shell = Shell::new(
+        Arc::new(BackgroundRuntime::new().expect("background workers")),
+        false,
+        instance,
+    );
+    yapfast_iced::Desktop::start(&*shell, Arc::new(|_| {}));
+    assert!(matches!(claim(), Start::Handed));
+
+    shell.closed();
+
+    assert!(matches!(claim(), Start::Run(_)));
 }
 
 /// The tray, as `tray::Tray`.
@@ -142,6 +173,8 @@ impl yapfast_iced::Desktop for Shell {
             tell(Heard::Tray(match choice {
                 crate::tray::Choice::Open => TrayChoice::Open,
                 crate::tray::Choice::Disconnect => TrayChoice::Disconnect,
+                crate::tray::Choice::CheckForUpdates => TrayChoice::CheckForUpdates,
+                crate::tray::Choice::Restart => TrayChoice::Restart,
                 crate::tray::Choice::Quit => TrayChoice::Quit,
                 crate::tray::Choice::Available => TrayChoice::Available,
             }));

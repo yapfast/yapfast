@@ -77,3 +77,6 @@ sketches: a comic shout balloon with typing dots cut out of it.
   Styles and Hide Styles.
 - Drawn for Yapfast: compass, after Discord's, for the rail's Discover tile.
 - Drawn for Yapfast: orbs, after Discord's Orbs mark, for the Shop and the quests' rewards.
+- Drawn for Yapfast: filters-horizontal (two sliders, each a line with a
+  solid knob), for the Filter button of the inbox's Mentions tab, after
+  Discord's FiltersHorizontalIcon there.

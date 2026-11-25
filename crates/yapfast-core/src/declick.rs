@@ -157,7 +157,7 @@ impl Declicker {
 
     /// Hears the suppressor's input, in 16-bit range, for clicks.
     pub(crate) fn input(&mut self, block: &[f32]) {
-        for frame in block.chunks_exact(FRAME) {
+        for frame in block.as_chunks::<FRAME>().0 {
             let [mut high, mut higher, mut whole] = [0.0f32; 3];
             for &sample in frame {
                 let sample = sample / 32768.0;
@@ -207,7 +207,7 @@ impl Declicker {
     /// where clicks come out, and puts it [`DELAY`] samples later.
     pub(crate) fn output(&mut self, block: &mut [f32]) {
         self.out_history.extend_from_slice(block);
-        for (index, frame) in block.chunks_exact_mut(FRAME).enumerate() {
+        for (index, frame) in block.as_chunks_mut::<FRAME>().0.iter_mut().enumerate() {
             let offset = index * FRAME;
             for (index, sample) in frame.iter_mut().enumerate() {
                 *sample = self.out_history[offset + index + TAPS - 1 - DELAY];

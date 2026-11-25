@@ -1,0 +1,50 @@
+# Favorites
+
+Favorites is Discord's account-wide pseudo-guild, stored in field 15 of
+`PreloadedUserSettings`, independently of GIF favorites in settings type 2.
+The [settings schema](https://docs.discord.food/resources/user-settings-proto#favorites-structure)
+and [protobuf definition](https://github.com/discord-userdoccers/discord-protos/blob/master/discord_protos/discord_users/v1/PreloadedUserSettings.proto)
+describe the map of fixed64 IDs to channel references or categories.
+
+READY loads the list and `USER_SETTINGS_PROTO_UPDATE` of type 1 updates it.
+Updates without Favorites leave it alone; an explicitly empty Favorites field
+clears it. Snapshots share the parsed list until it changes and the disk cache
+keeps it with the account's existing snapshot.
+
+The rail's star opens Favorites when Discord's visibility setting permits it.
+Its channels, DMs and group DMs open with the usual navigation and voice behavior.
+Unread and mention badges follow the source conversation, including unread forum posts.
+The star's tile counts the mentions of the saved channels and their threads and
+shows an unread mark unless Favorites are muted, as Discord's tile does.
+Category names, channel nicknames (not for one-to-one DMs, which keep their
+person's name), positions and initial collapsed states come
+from Discord. Local category toggles don't modify Discord. Missing, inaccessible
+and message-request channels stay out of the list; their saved references survive
+all writes. A reference whose category is missing appears at the top level. As in
+Discord's client, the channels in no category come first, then each category in
+its order, and voice channels follow the rest in each.
+
+A connected account can right-click a channel or accepted DM to add or remove it.
+As in Discord's client, a new reference goes at the top level after every entry
+(categories and their channels included), adding one shows Favorites on the rail
+again if they were hidden, and adding stops at Discord's limits: three channels
+and DMs without Nitro (Nitro Basic too), and 200 entries in all, categories
+included. Saved references Yapfast can't see count against them, where Discord's
+client would drop those first. The service serializes local edits,
+GETs `/users/@me/settings-proto/1`, and PATCHes only the complete Favorites field.
+It preserves the other entries, categories, unknown fields and mute. Malformed settings abort the write. A fresh GET reconciles the result;
+the gateway distributes the change to other clients. A rejected edit shows a
+notice and leaves the confirmed list intact. Discord decides whether the account
+can write these settings. Simultaneous edits from independent clients can still
+race between the GET and PATCH, as with other whole-field settings writes.
+
+Category creation, renaming, moving references and drag-to-reorder are deferred.
+No additional dependency or image download is introduced. Heap cost scales with
+the number of entries and their names. The sidebar indexes only referenced
+conversations rather than retaining an index of every Discord room.
+
+Tests cover codec preservation, partial tracker updates, navigation, category
+ordering, local serialization, rejected writes and changes from another client.
+`scripts/test-fake-discord channel_favorites` runs the service test. The fake's
+`/_control/settings` returns submitted patches and accepts another client's
+settings update or a request to reject the next PATCH.

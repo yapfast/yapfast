@@ -63,6 +63,20 @@ pub struct App {
     /// The title bar's inbox, while open, and a press on it that may move
     /// the window (`window_bar.rs`).
     pub inbox: Option<crate::window_bar::Inbox>,
+    /// The pings this account's open rooms hold, newest first, for the
+    /// inbox's Mentions tab (`window_bar.rs`).
+    pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
+    /// Whether this account's recent mentions were asked for since Discord
+    /// came online, or since the filter changed (`window_bar.rs` asks as
+    /// the Mentions tab shows), and the room open when they last were
+    /// (`sync.rs`).
+    pub mentions_fetched: bool,
+    pub mentions_room: Option<String>,
+    /// The Discord account `mention_hits` are of, and the recent mentions
+    /// last seen, to tell a new fetch (`window_bar.rs`).
+    pub mentions_of: Option<String>,
+    pub mentions_seen:
+        std::sync::Arc<Vec<(String, std::sync::Arc<yapfast_core::chat::ChatMessage>)>>,
     pub bar_drag: crate::window_bar::Drag,
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
@@ -298,6 +312,11 @@ impl App {
             window: Size::new(width, height),
             shell,
             inbox: None,
+            mention_hits: Default::default(),
+            mentions_fetched: false,
+            mentions_room: None,
+            mentions_of: None,
+            mentions_seen: Default::default(),
             bar_drag: Default::default(),
             announce_updates: false,
             win: Window::new(crate::pictures::Pictures::new(fitter), theme_icons),
@@ -686,6 +705,10 @@ impl App {
             Message::Search(crate::search::Event::SortMenu) => {
                 let at = self.pressed.get();
                 crate::search::open_sort_menu(self, at)
+            }
+            Message::Search(crate::search::Event::Menu(index)) => {
+                let at = self.pressed.get();
+                crate::search::open_found_menu(self, index, at)
             }
             Message::Search(crate::search::Event::Filters(event)) => {
                 crate::search_filters::update(self, event)

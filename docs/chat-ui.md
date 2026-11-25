@@ -774,9 +774,15 @@ offline sending across a restart, and messages missed while a room was
 closed. Run them after `scripts/test-stack up`:
 
 ```sh
-nix develop path:./nix --command cargo test --locked --profile fast -p
-yapfast-core matrix_chat::tests -- --ignored --test-threads=1
+nix develop path:./nix --command cargo test --locked --profile fast -p yapfast-core \
+  --features matrix matrix_chat::tests -- --ignored --test-threads=1 \
+  --skip fixture_conversation --skip opening_a_discord_channel_leaves_the_matrix_room_unread
 ```
+
+The cross-network test also needs [fake Discord](../CONTRIBUTING.md#build-and-test).
+With both services running and `YAPFAST_DISCORD_TEST_SERVER` set, replace
+`matrix_chat::tests` and the two `--skip` options with the individual test
+filter `opening_a_discord_channel_leaves_the_matrix_room_unread` before `--`.
 
 To check the window by hand, see [Seeing the app](building.md#seeing-the-app).
 The native file dialogs need an XDG portal, which `scripts/ui-session` doesn't

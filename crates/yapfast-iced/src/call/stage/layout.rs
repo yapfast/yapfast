@@ -343,6 +343,8 @@ pub fn status(person: &Participant) -> &str {
         "Connection lost"
     } else if person.deafened {
         "Deafened"
+    } else if person.speaking_blocked {
+        "Speaking restricted"
     } else if person.muted {
         "Muted"
     } else if person.speaking {
@@ -464,6 +466,7 @@ mod tests {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: false,
             connected: true,

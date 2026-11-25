@@ -588,6 +588,49 @@ Yapfast is back, rather than showing an error.
   opcode 3 once connected, whenever the settings change, and clears it when
   it ends. A custom emoji in a status needs Nitro.
 
+## Recent mentions
+
+When the inbox's Mentions tab first shows, as Discord's client asks, Yapfast
+asks Discord for this account's recent mentions,
+`GET /users/@me/mentions?limit=100&roles=…&everyone=…[&guild_id=…]`: the
+messages that called on it in the past week, by name, by a reply that
+pinged it, through one of its roles in the message's server, or with
+@everyone or @here, newest first (docs.discord.food, "List Recent
+Mentions", where `roles` and `everyone` default to true). Discord keeps
+only that week, so an older ping never comes from this page: opening its
+channel brings it into the Mentions tab instead, which merges the open
+rooms' pings with the fetch, newest first. A reply that didn't ping, or
+the account's own message, isn't one. It keeps up to 100 of each in
+memory, one per message, and shows the newest 30 as a pinned message or a
+search result shows: the author's name, colour and avatar in their server,
+and the message's text, files and embeds, their pictures coming when they
+show. Nothing is acknowledged at Discord, so the inbox there stays as it
+is.
+
+The tab's Filter button (Discord's `navId:"mentions-filter"` menu) holds
+three boxes, as Discord's client words them and starts them, all on:
+"Include @everyone mentions", sent as `everyone`; "Include @role
+mentions", sent as `roles`; and, only while the open room is in a server,
+"Include all servers": off, the request names that server as `guild_id`.
+The client sends `roles` and `everyone` with every request and `guild_id`
+only for one server. A box changed asks again at once; so does the tab
+showing after Discord reconnects, and, while only one server's list,
+after another channel opened, as the client marks its list unloaded on
+selecting a channel. Asked without a server (in a DM, say), "Include all
+servers" turns back on, as the client's store does. A narrower filter
+keeps the list until the answer replaces it, and hides meanwhile what it
+leaves out, as does every ping the open rooms bring: one in another server
+while only this one's list, one that calls on the account only with
+@everyone or @here, or only through a role, while that kind is left out;
+naming it or replying to it always shows. A wider one empties the list
+until the answer comes, as the client clears its own. Like the client's
+`recentMentionFilterSettings` in local storage, the filter stays on the
+device (`recent_mention_filter` in `layout.json`), not with the account.
+All of this is from the client's code (the menu, the store's defaults and
+its `SET_RECENT_MENTIONS_FILTER` and `CHANNEL_SELECT` handlers, and
+`fetchRecentMentions`); which kind a ping in the open rooms is comes from
+the mentions its text shows, Yapfast's own reading.
+
 ## Bots' buttons, menus and forms
 
 A bot's buttons and select menus under its message work in the timeline and

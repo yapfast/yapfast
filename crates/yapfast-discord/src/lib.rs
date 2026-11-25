@@ -18,6 +18,7 @@ pub mod cookies;
 mod dave;
 pub mod embed;
 pub mod event;
+pub mod favorites;
 pub mod forum;
 pub mod frecency;
 pub mod game_detection;

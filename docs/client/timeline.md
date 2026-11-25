@@ -32,8 +32,13 @@ while it holds something and clears with its X; Enter searches the DM, or
 the channel's server. What it found shows beside the conversation in the
 member list's place (`search::view`), 420 px wide: how many, the newest
 first as found cards, a server's under their channels' names, Show more
-for the next page, a click jumping to the message in its room. Close,
-Escape or clearing the box ends the search and lets go of the cards.
+for the next page, a click jumping to the message in its room. A right
+click on a result opens its menu (`search::open_found_menu`): Copy Message
+Link, and with Developer Mode on Copy Message ID and Copy Author ID. Its
+rows carry what they copy in their `key` (`MenuAct::CopyTextLink`), as a
+result needn't be in the timeline; a result with no Discord id has no
+menu. Close, Escape or clearing the box ends the search and lets go of
+the cards.
 
 Over the timeline, and under the header of a voice channel's call
 (`banners::view`), stacked from the top: the
@@ -115,11 +120,12 @@ slash command, where one may write, is written in the composer
   picture clicked shows large (`image_viewer.rs`):
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
-  its bars; its name and place among the message's pictures, Save and
-  Close above, round buttons and the arrow keys stepping through them, a
-  note while the full one loads or why it can't; Escape, Close or a click
-  outside closes it, and the core lets go of it. A right click on a
-  picture or video, there or in the timeline, offers Copy Image, Save
+  its bars in the current window layout; its name and place among the
+  message's pictures, Save and Close above, round buttons and the arrow
+  keys stepping through them, a note while the full one loads or why it
+  can't; Escape, Close or a click outside closes it, and the core lets go
+  of it. A right click on a picture or video, there or in the timeline,
+  offers Copy Image, Save
   Image or Video, Copy Link and Open Link, after the message's own rows
   (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
@@ -133,8 +139,9 @@ slash command, where one may write, is written in the composer
   5 % a step (a touchpad by the part of a step it moved, a turn sideways
   not at all), and the last button shows it full screen in the viewer
   (`viewer::Viewer`), its name, Save and Exit full screen above it and the
-  same bar below, its frames made at the viewer's size. Full screen it
-  takes the keys (`playback::clip_key`): Space plays or pauses, Left and
+  same bar below. Its frames follow the viewer's size as the window
+  layout changes. In full screen it takes the keys
+  (`playback::clip_key`): Space plays or pauses, Left and
   Right move five seconds, Escape brings it back; a right click on it
   opens the video's rows of the menu alone.
 - Stickers show at 160 px, playing if they move (Lottie ones as the core

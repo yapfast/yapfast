@@ -113,7 +113,11 @@ impl Node {
     fn navigation(&self) -> Option<Navigation> {
         match self {
             Node::Dms => Some(Navigation::DirectMessages),
-            Node::Server(id) => Some(Navigation::Server(id.clone())),
+            Node::Server(id) => Some(if id == "@favorites" {
+                Navigation::Favorites
+            } else {
+                Navigation::Server(id.clone())
+            }),
             Node::Folder(_) => None,
         }
     }
@@ -169,6 +173,7 @@ pub fn folders_shown(app: &App) -> std::borrow::Cow<'_, std::collections::BTreeS
 /// A place's key in `tree_open`.
 fn place_key(navigation: &Navigation) -> &str {
     match navigation {
+        Navigation::Favorites => "@favorites",
         Navigation::DirectMessages => DMS,
         Navigation::Server(id) => id,
     }
@@ -350,7 +355,11 @@ pub fn build(app: &App) -> Vec<TreeRow> {
 }
 
 fn server_entry(app: &App, item: &RailItem) -> Entry {
-    let navigation = Navigation::Server(item.id.clone());
+    let navigation = if item.id == "@favorites" {
+        Navigation::Favorites
+    } else {
+        Navigation::Server(item.id.clone())
+    };
     let open = place_open(app, &navigation);
     let node = Node::Server(item.id.clone());
     Entry {
@@ -385,7 +394,7 @@ fn place_entries(app: &App, navigation: &Navigation) -> Vec<Entry> {
     } else {
         let categories = match navigation {
             Navigation::Server(server) => app.client.app.categories(server),
-            Navigation::DirectMessages => Vec::new(),
+            Navigation::DirectMessages | Navigation::Favorites => Vec::new(),
         };
         other = super::rows::sidebar_in(
             state,
@@ -400,6 +409,7 @@ fn place_entries(app: &App, navigation: &Navigation) -> Vec<Entry> {
     let place = Node::navigation_key(navigation);
     let server = match navigation {
         Navigation::Server(id) => id.as_str(),
+        Navigation::Favorites => "@favorites",
         Navigation::DirectMessages => "",
     };
     let side = |index: usize, row: &SideRow| Entry {
@@ -481,6 +491,7 @@ fn place_entries(app: &App, navigation: &Navigation) -> Vec<Entry> {
 impl Node {
     fn navigation_key(navigation: &Navigation) -> String {
         match navigation {
+            Navigation::Favorites => Node::Server("@favorites".into()).key(),
             Navigation::DirectMessages => Node::Dms.key(),
             Navigation::Server(id) => Node::Server(id.clone()).key(),
         }
@@ -817,7 +828,7 @@ impl<'a> super::View<'a> {
         }
         let list = scroll_view(list)
             .id(LIST)
-            .on_scroll(|viewport| Message::Side(Event::Scrolled(viewport)))
+            .on_vertical_viewport(super::scrolled)
             .height(Length::Fill)
             .style(scrollbar(theme));
         let mut top = column![];

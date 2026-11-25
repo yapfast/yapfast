@@ -88,6 +88,12 @@ on how many servers and DMs you have.
 
 ## Features
 
+### Favorites
+
+Discord's saved Favorites appear behind the star in the server rail, with their
+categories and order. Right-click a channel, DM or group DM to add or remove it;
+the change syncs to the same Discord account list. See [Favorites](docs/discord/favorites.md).
+
 ### The GIF picker
 
 My favorite part :p Your favorites live on disk as 40 KB clips, so they're
@@ -189,9 +195,10 @@ purchases and management.
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Profiles** as Discord draws them: badges, server tags, avatar decorations,
-  nameplates, name styles, profile effects and frames, and the full profile's
-  Board, Wishlist and recent activity. Edit Profile changes your own theme,
-  name style and server tag.
+  nameplates, name styles, profile effects and frames, what others are doing
+  with their Rich Presence buttons, and the full profile's Board, Wishlist and
+  recent activity. Edit Profile changes your own theme, name style and server
+  tag.
 - **Account settings**: main and server profile editors in Yapfast, with
   [official browser workflows](docs/discord/account-settings.md) and clearly
   labelled help for account details, Connections, Authorized Apps, Devices and
@@ -203,7 +210,8 @@ purchases and management.
   blocked people write, and unblock them from a list in Settings. Active Now
   sits beside the friends list.
 - **Notifications** that follow your Discord settings, muting for channels,
-  categories and servers, and unread markers.
+  categories and servers, and unread markers. The inbox lists unread channels
+  and your recent mentions, filtered by ping, jumping to their messages.
 - **Nitro, Shop and Quests** as screens of their own on the DM home, as in
   Discord: the quests with their progress (accept one without leaving
   Yapfast), the Shop's categories, products and search, and what Nitro gives.
@@ -473,7 +481,7 @@ on each system and for running against the fake Discord server.
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 

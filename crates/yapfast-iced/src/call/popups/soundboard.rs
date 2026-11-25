@@ -234,7 +234,8 @@ fn sound_button<'a>(
 /// Discord's soundboard in the call: the favourites, the call's
 /// server's sounds, others', Discord's own, three to a row. A click
 /// plays one for everyone; the pointer on one offers hearing it first
-/// and starring it. While deafened or server muted, why none plays.
+/// and starring it. While deafened, server muted or suppressed, why none
+/// plays.
 pub(super) fn soundboard<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let voice = &ctx.state.voice;
     let server_muted = voice
@@ -245,6 +246,8 @@ pub(super) fn soundboard<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         Some("Soundboard disabled when deafened")
     } else if server_muted {
         Some("Soundboard disabled when server muted")
+    } else if voice.speaking_blocked() {
+        Some("Soundboard disabled when suppressed")
     } else {
         None
     };
