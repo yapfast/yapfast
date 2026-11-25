@@ -8,7 +8,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding, Point, Task,
-    widget::{Space, column, container, row, scrollable::Viewport, stack},
+    widget::{Space, column, container, row, stack},
 };
 use yapfast_core::application::{Action, DmScreen, MenuChoice, Navigation};
 
@@ -260,7 +260,7 @@ const INVITE: f32 = 32.0;
 /// What's done in the sidebar.
 #[derive(Clone, Debug)]
 pub enum Event {
-    Scrolled(Viewport),
+    Scrolled(Scroll),
     /// The pointer came onto a row or left it, by its key.
     Point(String, bool),
     /// The sidebar's edge was dragged this far from where it was pressed,
@@ -309,11 +309,15 @@ pub enum Event {
     TreeActivate(String),
 }
 
+fn scrolled(offset: f32, height: f32) -> Message {
+    Message::Side(Event::Scrolled(Scroll { offset, height }))
+}
+
 /// What's done in the sidebar.
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
-            app.sidebar.scroll = Scroll::of(viewport);
+            app.sidebar.scroll = viewport;
             return app.ask();
         }
         Event::Resize(by) => {
@@ -603,7 +607,7 @@ impl<'a> View<'a> {
         let list_height = Length::Fill;
         let list = scroll_view(rows)
             .id(LIST)
-            .on_scroll(|viewport| Message::Side(Event::Scrolled(viewport)))
+            .on_vertical_viewport(scrolled)
             .height(list_height)
             .style(scrollbar(theme));
         // What's dragged follows the pointer, faint, over the list;
