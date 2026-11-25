@@ -456,13 +456,16 @@ impl<'a> View<'a> {
         let line = theme.line;
         list = list
             .push(
-                container(Space::new().width(Length::Fill).height(1))
-                    .padding(Padding {
-                        top: 9.0,
-                        bottom: 3.0,
-                        ..Padding::ZERO
-                    })
-                    .style(move |_| rounded(line, 0)),
+                // The line alone is drawn, the room around it left bare.
+                container(
+                    container(Space::new().width(Length::Fill).height(1))
+                        .style(move |_| rounded(line, 0)),
+                )
+                .padding(Padding {
+                    top: 9.0,
+                    bottom: 3.0,
+                    ..Padding::ZERO
+                }),
             )
             .push(
                 button(
