@@ -1065,7 +1065,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         left: 6.0,
     })
     .enabled(look.enabled)
-    .message_height(ctx.window_height, crate::style::scrollbar(theme))
+    .message_height(ctx.look.window.height, crate::style::scrollbar(theme))
     .font(theme.font("body", crate::fonts::REGULAR))
     .pastes()
     .tabs(commanding)

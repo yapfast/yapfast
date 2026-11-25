@@ -729,7 +729,7 @@ impl<'a> SideComposer<'a> {
             left: 6.0,
         })
         .enabled(self.enabled)
-        .message_height(cx.window_height, scrollbar(theme))
+        .message_height(cx.look.window.height, scrollbar(theme))
         .suggesting(crate::suggest::suggesting(cx, self.which));
         // Ctrl+V takes files and pictures in the thread's composer, the
         // New Thread form's and a new post's message, as in the channel's

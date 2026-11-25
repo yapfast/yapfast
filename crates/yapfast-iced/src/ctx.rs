@@ -74,7 +74,6 @@ pub struct Ctx<'a> {
     /// How far the content starts below the window's top: the title bar
     /// Yapfast draws, when it does.
     pub above: f32,
-    pub window_height: f32,
     /// The composer and the edit in its row, and what the timeline's voice
     /// messages and videos show of their playing.
     pub composer: &'a crate::composer::Composer,

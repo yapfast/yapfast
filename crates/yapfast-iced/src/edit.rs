@@ -134,7 +134,7 @@ pub fn inline_edit<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: PAD,
         left: 6.0,
     })
-    .message_height(ctx.window_height, crate::style::scrollbar(theme))
+    .message_height(ctx.look.window.height, crate::style::scrollbar(theme))
     .font(theme.font("body", crate::fonts::REGULAR))
     .suggesting(crate::suggest::suggesting(ctx, Writing::Edit));
     let tint = match ctx.picker {
