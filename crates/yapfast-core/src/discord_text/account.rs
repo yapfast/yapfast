@@ -561,6 +561,27 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::FavoriteChannel { room, favorite }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = match discord::parse_room(&room) {
+                        Some((_, channel)) => discord
+                            .favorite_channel(channel, favorite)
+                            .await
+                            .map_err(|error| error.to_string()),
+                        None => Err("Invalid Discord channel".into()),
+                    };
+                    let _ = events.send(Event::ChannelFavorited(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ChannelFavorited(Err(why.into())));
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {

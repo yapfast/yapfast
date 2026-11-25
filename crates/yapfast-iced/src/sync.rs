@@ -144,7 +144,7 @@ impl App {
         }
         let categories = match &state.navigation {
             Navigation::Server(server) => self.client.app.categories(server),
-            Navigation::DirectMessages => Vec::new(),
+            Navigation::DirectMessages | Navigation::Favorites => Vec::new(),
         };
         let state = self.client.state();
         let side = sidebar(
@@ -162,7 +162,7 @@ impl App {
                 .servers
                 .iter()
                 .any(|known| known.discord && &known.id == server),
-            Navigation::DirectMessages => false,
+            Navigation::DirectMessages | Navigation::Favorites => false,
         };
         let places =
             crate::arrange::places(&self.sidebar.rows, discord, !self.sidebar.filter.is_empty());
