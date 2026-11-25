@@ -3084,10 +3084,17 @@ fn pictures_on_screen<'a>(
                                     .map(|layer| layer.src.as_str()),
                             )
                         }))
-                        .chain(profile.badges.iter().flat_map(|badge| {
-                            std::iter::once(badge.icon.as_str())
-                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
-                        }))
+                        .chain(
+                            cosmetics
+                                .badges(&profile.badges)
+                                .into_iter()
+                                .flatten()
+                                .flat_map(|badge| {
+                                    std::iter::once(badge.icon.as_str()).chain(
+                                        badge.level.iter().map(|level| level.picture.as_str()),
+                                    )
+                                }),
+                        )
                 }),
         )
         .chain(

@@ -827,7 +827,8 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
                 .and_then(|tag| tag.badge.as_deref())
                 .map(str::to_owned),
         );
-        urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+        let badges = cosmetics.badges(&profile.badges).into_iter().flatten();
+        urls.extend(badges.map(|badge| badge.icon.clone()));
     }
     for (shown, pointed) in [
         (&ctx.profiles.shown, ctx.profiles.pointed),
@@ -854,12 +855,11 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
                 .map(str::to_owned),
         );
         urls.extend(shown.look.thought.emoji.clone());
-        urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+        let badges = cosmetics.badges(&profile.badges).into_iter().flatten();
+        urls.extend(badges.clone().map(|badge| badge.icon.clone()));
         // A levelled badge's large picture, for its tooltip.
         urls.extend(
-            profile
-                .badges
-                .iter()
+            badges
                 .filter_map(|badge| badge.level.as_ref())
                 .map(|level| level.picture.clone())
                 .filter(|picture| !picture.is_empty()),
