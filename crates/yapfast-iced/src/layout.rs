@@ -240,6 +240,8 @@ pub struct Prefs {
     /// Profile badges and the levels their tooltips name.
     pub badges: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// Profile backgrounds: the banner picture and its colour.
+    pub profile_backgrounds: Option<bool>,
     /// A theme's text glow: the soft edge it puts round text, which is
     /// drawing rather than a profile's cosmetic.
     pub text_glow: Option<bool>,
@@ -343,6 +345,7 @@ impl Prefs {
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             badges: self.badges.unwrap_or(default.badges),
             frames: self.profile_frames.unwrap_or(default.frames),
+            background: self.profile_backgrounds.unwrap_or(default.background),
         }
     }
 

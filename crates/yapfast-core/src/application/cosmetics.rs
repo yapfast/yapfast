@@ -26,6 +26,9 @@ pub struct Cosmetics {
     /// Profile frames show around profile cards: a request for what the
     /// frame is made of, then its stills.
     pub frames: bool,
+    /// A profile's background shows: its banner picture and its colour
+    /// (the accent, or the avatar's).
+    pub background: bool,
 }
 
 impl Default for Cosmetics {
@@ -40,6 +43,7 @@ impl Default for Cosmetics {
             server_tags: true,
             badges: true,
             frames: true,
+            background: true,
         }
     }
 }
@@ -74,6 +78,11 @@ impl Cosmetics {
     pub fn effect<T>(self, effect: Option<T>) -> Option<T> {
         effect.filter(|_| self.effects)
     }
+
+    /// A profile's banner, if its background shows.
+    pub fn background<T>(self, background: Option<T>) -> Option<T> {
+        background.filter(|_| self.background)
+    }
 }
 
 #[cfg(test)]
@@ -90,6 +99,7 @@ mod tests {
             server_tags: false,
             badges: false,
             frames: false,
+            background: false,
         };
         assert_eq!(off.decoration(Some("https://cdn/static")), None);
         assert_eq!(off.tag(Some(&"TAG")), None);
@@ -97,6 +107,7 @@ mod tests {
         assert_eq!(off.style(Some(1)), None);
         assert_eq!(off.effect(Some("sku")), None);
         assert_eq!(off.frame(Some("sku")), None);
+        assert_eq!(off.background(Some("https://cdn/banner.png")), None);
     }
 
     #[test]
@@ -109,12 +120,14 @@ mod tests {
             server_tags: true,
             badges: true,
             frames: true,
+            background: true,
         };
         assert_eq!(on.decoration(Some("url")), Some("url"));
         assert_eq!(on.tag(Some(&"TAG")), Some(&"TAG"));
         assert_eq!(on.badges(vec!["a"]), Some(vec!["a"]));
         assert_eq!(on.style(Some(1)), Some(1));
         assert_eq!(on.effect(Some("sku")), Some("sku"));
+        assert_eq!(on.background(Some("url")), Some("url"));
         // Every switch starts on.
         assert_eq!(Cosmetics::default(), on);
     }

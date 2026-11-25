@@ -248,6 +248,7 @@ pub enum Cosmetic {
     ServerTags,
     Badges,
     Frames,
+    Background,
 }
 
 pub(super) fn theme_message(event: Event) -> Message {
@@ -794,6 +795,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
         Cosmetic::Badges => (&mut prefs.badges, "badges"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
+        Cosmetic::Background => (&mut prefs.profile_backgrounds, "profile_backgrounds"),
     };
     *slot = Some(on);
     cx.keep(key, on);
@@ -977,6 +979,12 @@ impl<'a> Page<'a> {
                     "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for.",
                     cosmetics.badges,
                     Cosmetic::Badges,
+                ),
+                profile(
+                    "Show profile backgrounds",
+                    "The banner picture at the top of a profile card, and its colour. Off, the top keeps the card's own colour and no banner is asked for.",
+                    cosmetics.background,
+                    Cosmetic::Background,
                 ),
             ]
             .spacing(12)
