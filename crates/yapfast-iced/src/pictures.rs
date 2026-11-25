@@ -513,6 +513,11 @@ pub struct Face<'a> {
     /// Degrees a theme's frame turns about the face's centre (Zine's
     /// member prints); the picture in it stays straight.
     pub turn: f32,
+    /// Discord's typing badge in the presence dot's place while someone
+    /// types: the ring's colour and where the dot goes. It takes the dot's
+    /// presence's colour, or online's with no dot (a group DM's, as
+    /// Discord's).
+    pub typing: Option<(u32, Point)>,
 }
 
 impl<'a> Face<'a> {
@@ -534,6 +539,7 @@ impl<'a> Face<'a> {
             frame: None,
             initial: None,
             turn: 0.0,
+            typing: None,
         }
     }
 
@@ -589,6 +595,10 @@ impl<'a> Face<'a> {
 
     pub fn frame(self, frame: Option<&'a yapfast_core::themes::lists::TileArt>) -> Self {
         Self { frame, ..self }
+    }
+
+    pub fn typing(self, typing: Option<(u32, Point)>) -> Self {
+        Self { typing, ..self }
     }
 }
 
@@ -1133,6 +1143,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             frame,
             initial,
             turn,
+            typing,
         } = face;
         let content = self.themes.content(
             &self.look.theme.id,
@@ -1303,7 +1314,19 @@ impl<'a> crate::ctx::Ctx<'a> {
         {
             layers = layers.push(art);
         }
-        if let Some((presence, ring, at)) = dot
+        if let Some((ring, at)) = typing {
+            // Discord's pill takes the status's colour: the theme's live
+            // green and faint grey, as the dot has them.
+            let theme = self.look.theme;
+            let fill = match dot.map(|(presence, ..)| presence) {
+                Some(Presence::Idle) => hex(0xf0b232),
+                Some(Presence::DoNotDisturb) => hex(0xf23f43),
+                Some(Presence::Offline) => theme.faint,
+                Some(Presence::Online | Presence::Mobile) | None => theme.live,
+            };
+            let scale = dot_size.unwrap_or(16.0).max(1.0) / 16.0;
+            layers = layers.push(crate::typing::badge(fill, hex(ring), self.plays, scale, at));
+        } else if let Some((presence, ring, at)) = dot
             && let Some(dot) = self.mark(Mark::Dot(presence, ring))
         {
             // The phone stands 5 px taller than the dot.

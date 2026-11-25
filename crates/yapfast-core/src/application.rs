@@ -704,6 +704,13 @@ pub struct AppState {
     pub tag_server: Option<(String, chat::TagServerAnswer)>,
     /// Who else is typing, by room.
     pub typing: HashMap<String, Vec<String>>,
+    /// The DMs and group DMs someone else is typing in, whose rows in the
+    /// DM list show typing dots in place of the status dot, as Discord's.
+    /// Kept as each typing change comes, so a row looks itself up once. A
+    /// Discord DM's stays as other rooms open, since Discord says who types
+    /// in every channel; a Matrix one's goes, as Matrix says it only for
+    /// the open room.
+    pub typing_dms: std::collections::BTreeSet<String>,
     /// When this account may send again in a room whose slowmode it waits
     /// out, in Unix milliseconds: its slowmode after a message of its own
     /// went, as Discord's client guesses it.
@@ -4654,6 +4661,26 @@ impl Application {
             Event::Notify(_) if self.state.do_not_disturb() => {}
             Event::Notify(notification) => return vec![Effect::Notify(self.alert(notification))],
             Event::Typing { room, names } => {
+                // A Discord DM's id names it; a Matrix room says it's one,
+                // and counts only while it's open: Matrix says who types
+                // only there, so a late word for a room closed since would
+                // never be taken back.
+                let direct = match discord::parse_room(&room) {
+                    Some((guild, _)) => guild == discord::DM_GUILD,
+                    None => {
+                        self.state.selected.as_deref() == Some(room.as_str())
+                            && self
+                                .state
+                                .rooms
+                                .iter()
+                                .any(|known| known.id == room && known.direct)
+                    }
+                };
+                if !direct || names.is_empty() {
+                    self.state.typing_dms.remove(&room);
+                } else if !self.state.typing_dms.contains(&room) {
+                    self.state.typing_dms.insert(room.clone());
+                }
                 if names.is_empty() {
                     self.state.typing.remove(&room);
                 } else {

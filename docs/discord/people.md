@@ -29,6 +29,20 @@ presence, and a crown on whoever made it (the channel's `owner_id`), named
 "Group Owner", as a server's member list crowns its owner. Yapfast downloads the pictures of the first
 150 DMs listed; the rest keep their initials.
 
+While someone other than this account types in a DM or group DM, its row's
+avatar shows typing dots in place of the status dot, as Discord's DM list
+does (its `PrivateChannel` row's `isTyping`, from the `TypingStore`): in a
+one-to-one DM the other person typing, in a group DM anyone but this
+account. Discord colours the pill as the person's status; a group DM's,
+which has no status of its own, is online's green. It shows in muted DMs and
+in the open one too, as Discord's does. TYPING_START comes for every
+channel, so a DM's dots show and stop whatever conversation is open: ten
+seconds after the last, or when that person's message comes. Blocked
+people never light a row here, since Yapfast drops their typing; Discord's
+row still would. Switching or signing out of the account clears every
+Discord DM's dots, as Discord's own list of typers empties when it
+connects.
+
 Friend requests, message requests and spam have their own screen. A
 "Requests" entry below Friends at the top of the DM list opens it in place of the
 conversation, with a badge counting the people waiting for an answer: an
