@@ -150,6 +150,11 @@ impl Dave {
         self.version != 0 && self.session.as_ref().is_some_and(DaveSession::can_encrypt)
     }
 
+    /// Call audio can flow once the negotiated DAVE version has a send key.
+    pub fn can_send_call_audio(&self) -> bool {
+        self.version == 0 || self.encrypting()
+    }
+
     /// The group's voice privacy code, 30 digits, which Discord's clients
     /// show so the people in a call can compare it, while frames leave
     /// end-to-end encrypted.
@@ -745,8 +750,10 @@ mod tests {
         other.create_key_package().unwrap();
 
         let mut dave = Dave::new(me, channel);
+        assert!(dave.can_send_call_audio());
         dave.recognise(friend);
         let package = key_package(&dave.start(1));
+        assert!(!dave.can_send_call_audio());
         dave.handle(Event::from(sender));
         let commit = other
             .process_proposals(
@@ -777,6 +784,7 @@ mod tests {
         other.prepare_transition(3, 1).unwrap();
         other.execute_transition(3).unwrap();
 
+        assert!(dave.can_send_call_audio());
         let sealed = other.encrypt_opus(b"friend's voice").unwrap().into_owned();
         assert_eq!(
             dave.decrypt_opus(friend, sealed),

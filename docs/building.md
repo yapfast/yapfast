@@ -110,8 +110,6 @@ dependency in Cargo.toml:
   camera capture from pooled buffers and the pointer in Windows monitor shares.
 - `rusqlite`: forwards the pinned Matrix SDK's SQLite API and features to
   rusqlite 0.41, which bundles the patched SQLite library.
-- `davey`: davey 0.2.0 with the OpenMLS revision that uses HPKE 0.8 and a
-  P-256 update. See [the local patch](../vendor/davey/README.yapfast.md).
 - `tungstenite`: tungstenite 0.26.2, giving back the read buffer a large frame
   such as Discord's READY grew.
 - `iced_tiny_skia`: iced 0.14's CPU renderer, 0.14.1: pictures drawn from the

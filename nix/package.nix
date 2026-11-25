@@ -30,7 +30,6 @@ rustPlatform.buildRustPackage {
     lockFile = ../Cargo.lock;
     # One crate per Git repository and commit; update a hash with the commit.
     outputHashes = {
-      "openmls-0.9.0" = "sha256-fNC5L4IV/7qmcNjcJiO1P8TYGLhokLzVdZbT6D9Nox4=";
       "const_panic-0.2.15" = "sha256-zEmo8lKncnNhn2LL5aRT95AZD/LqjmNcRg2qTKXLcic=";
       "matrix-rtc-bridge-0.4.0-rc.1" = "sha256-Zm+5xARhyrix22Ihz2fesWkwg21FaT/eqi240eT1lnQ=";
       "matrix-sdk-0.19.1" = "sha256-MzEIaDxJVssAiTd2r7qRSdkZvD+IYpC71shuJU5TATE=";

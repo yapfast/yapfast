@@ -62,6 +62,6 @@ libc = "0.2.191"
 
 [dev-dependencies]
 # Building DAVE handshake messages in tests, at the versions davey uses.
-openmls = { git = "https://github.com/openmls/openmls", rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2" }
-openmls_basic_credential = { git = "https://github.com/openmls/openmls", rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2" }
-openmls_rust_crypto = { git = "https://github.com/openmls/openmls", rev = "6100df3fb1d8c3eeab53e349fcbd621f98c44fe2" }
+openmls = "0.8.1"
+openmls_basic_credential = "0.5.0"
+openmls_rust_crypto = "0.5.1"
