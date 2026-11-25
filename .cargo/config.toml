@@ -1,8 +1,12 @@
-# Match LiveKit's Windows runtime linkage, including its prebuilt libwebrtc.
-# scripts/release-env repeats this for release builds.
-[target.x86_64-pc-windows-msvc]
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
 linker = "lld-link.exe"
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = [
+    # reduce the size of `windows::core::Error` from 16 bytes to 4 bytes
+    "--cfg", "windows_slim_errors",
+    # fixes the linking issue when compiling livekit on Windows
+    "-C", "target-feature=+crt-static",
+]
 
-[target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+# lld needed to link libwebrtc.a successfully on aarch64-linux
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
