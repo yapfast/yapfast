@@ -1775,17 +1775,11 @@ mod tests {
             .find(|note| note.contains("Readable text"))
             .expect("a note about display type");
         assert!(
-            note.contains(&format!(
-                "names in blackletter ({})",
-                Path::new("fonts").join("HurtFraktur-Bold.ttf").display()
-            )),
+            note.contains("names in blackletter (fonts/HurtFraktur-Bold.ttf)"),
             "{note}"
         );
         assert!(
-            note.contains(&format!(
-                "labels in pixel ({})",
-                Path::new("fonts").join("Silkscreen-Regular.ttf").display()
-            )),
+            note.contains("labels in pixel (fonts/Silkscreen-Regular.ttf)"),
             "{note}"
         );
         assert!(note.contains("ransom"), "{note}");
@@ -2010,13 +2004,8 @@ mod tests {
             r##""art": { "surfaces": { "window": { "image": "art/sky.jpg" } } }"##,
         );
         let report = check(&files(&manifest), Strictness::Install);
-        let image = Path::new("art").join("sky.jpg");
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|error| error.contains(image.to_str().unwrap()))
-        );
+        let image = "art/sky.jpg";
+        assert!(report.errors.iter().any(|error| error.contains(image)));
     }
 
     #[test]

@@ -1310,7 +1310,10 @@ impl Api {
         let answer = self
             .json(self.request(Method::GET, "/users/@me/settings-proto/1"))
             .await?;
-        Ok(answer["settings"].as_str().unwrap_or_default().to_owned())
+        answer["settings"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord did not return account settings")
     }
 
     /// Replaces the top-level fields `settings`, base64
