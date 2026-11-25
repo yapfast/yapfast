@@ -185,6 +185,9 @@ pub struct Settings {
     /// Themes' editor while it's open, and the theme as edited,
     /// which the window shows meanwhile.
     pub editor: Option<Editor>,
+    /// How the last theme import or export went, under Appearance's title,
+    /// and whether it failed.
+    pub theme_note: Option<(String, bool)>,
     /// The Slint build's guided, step-based creator. The palette editor above
     /// remains available as the legacy Advanced fallback while this flow is
     /// being ported.
