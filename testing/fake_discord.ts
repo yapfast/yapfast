@@ -113,8 +113,12 @@
 // #general, his question in his DM and Carol's in the group. PUT and DELETE
 // /channels/{id}/messages/pins/{message} pin a message and unpin it, which
 // takes Pin Messages in "Server", as Alice's Crew role gives; pinning posts
-// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE. GET
-// /channels/{id}/messages/search finds a DM's messages by their text, 25 at
+// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE.
+// GET /users/@me/mentions lists the messages that mentioned her, newest
+// first: 1 to 100 with `limit`, before a message with `before`, in one server
+// with `guild_id`, and with role and @everyone mentions as `roles` and
+// `everyone` say.
+// GET /channels/{id}/messages/search finds a DM's messages by their text, 25 at
 // a time, and GET /guilds/{id}/messages/search a server's, in the channels
 // channel_id names or in all of them; both take author_id, mentions, has
 // (has=poll among them, -link without links), author_type, link_hostname,
@@ -210,7 +214,9 @@
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
 // /_control/presence shows the presence her session last sent with op 3, GET
 // /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
-// and how many times that was asked.
+// and how many times that was asked. It also returns `writes`, each submitted
+// settings-proto/1 patch. POST /_control/settings with {settings: base64} simulates
+// another client's partial update; {reject_next: true} rejects the next PATCH.
 // POST /_control/other-session brings her phone online playing a song, with
 // SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
@@ -699,6 +705,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
 }
 // How many times GET /users/@me/settings-proto/1 was asked.
 let settingsReads = 0;
+const settingsWrites: string[] = [];
+let rejectSettings = false;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -7061,6 +7069,44 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     );
   }
 
+  // This account's recent mentions, as Discord's Mentions inbox lists them:
+  // the newest first, up to 100, only before `before`, and in one server with
+  // `guild_id`. A role counts for Alice when she has it, and @everyone and
+  // @here when the author may use them, as `roles` and `everyone` say.
+  if (method === "GET" && path === "/users/@me/mentions") {
+    const limit = Number(url.searchParams.get("limit") ?? 25);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const before = url.searchParams.get("before");
+    const beforeId = before && /^\d+$/.test(before) ? BigInt(before) : null;
+    const inGuild = url.searchParams.get("guild_id");
+    const withRoles = url.searchParams.get("roles") !== "false";
+    const withEveryone = url.searchParams.get("everyone") !== "false";
+    const herRoles = new Set(memberRoles.get(ALICE) ?? []);
+    const found = [...byId.values()]
+      .filter((message) => beforeId === null || BigInt(message.id) < beforeId)
+      .filter((message) => !inGuild || guildOf(message.channel).guild_id === inGuild)
+      .filter((message) => {
+        if (message.author.id === ALICE) return false;
+        // A reply that pings her names her in its metadata rather than its
+        // text, as Discord's own inbox lists it: `reply` is the id of the
+        // message it answers.
+        if (message.reply && byId.get(message.reply)?.author.id === ALICE) return true;
+        const named = [...message.content.matchAll(/<@!?(\d+)>/g)].map((match) => match[1]);
+        if (named.includes(ALICE)) return true;
+        // As Discord, only roles and @everyone that the author may mention count.
+        if (message.author.id !== users.bob.id && !message.author.bot && !world) return false;
+        if (withEveryone && /@(everyone|here)\b/.test(message.content)) return true;
+        return withRoles
+          && [...message.content.matchAll(/<@&(\d+)>/g)].some((match) => herRoles.has(match[1]!));
+      })
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1))
+      .slice(0, limit)
+      .map((message) => ({ ...wireMessage(message, origin), ...guildOf(message.channel) }));
+    return json(found);
+  }
+
   // Accepting a message request makes it a DM; ignoring it closes the DM.
   if ((m = path.match(/^\/channels\/(\d+)\/recipients\/@me$/))) {
     const id = m[1]!;
@@ -7116,6 +7162,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    settingsWrites.push(body.settings);
+    if (rejectSettings) {
+      rejectSettings = false;
+      return json({ message: "Missing Access", code: 50001 }, 403);
+    }
     settings = mergeSettings(settings, body.settings);
     dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
     return json({ settings });
@@ -9071,7 +9122,17 @@ const server = Bun.serve<SocketData>({
       }]);
       return new Response("online\n");
     }
-    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
+    if (path === "/_control/settings") {
+      if (req.method === "POST") {
+        const body: any = await req.json();
+        if (body.reject_next === true) rejectSettings = true;
+        if (typeof body.settings === "string") {
+          settings = mergeSettings(settings, body.settings);
+          dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
+        }
+      }
+      return Response.json({ settings, reads: settingsReads, writes: settingsWrites });
+    }
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
