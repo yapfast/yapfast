@@ -57,7 +57,7 @@ pub enum Shown {
 pub struct Group {
     heading: Option<&'static str>,
     clears: bool,
-    rows: Vec<Row>,
+    pub(crate) rows: Vec<Row>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,6 +88,15 @@ pub enum Row {
     /// filters before the people and channels a word may be.
     MoreFilters,
     AddFilters,
+    /// A place the word names, to jump to instead of searching for
+    /// messages: a conversation or a server.
+    Jump {
+        id: String,
+        name: String,
+        detail: String,
+        avatar: Option<String>,
+        icon: Option<Icon>,
+    },
 }
 
 /// How a person's or channel's row looks.
@@ -164,11 +173,50 @@ pub fn shown(searching: &Searching, state: &AppState, history: &[String]) -> Opt
             groups
         }
         Mode::Words(at) => {
-            let mut groups = vec![Group {
+            let mut groups = Vec::new();
+            // The places the word names, to jump to, before the search of
+            // what's typed, as Discord's box offers its suggestions first.
+            let word_typed = text[at.clone()].trim().to_owned();
+            let jumps: Vec<Row> = state
+                .search_suggestions(&word_typed)
+                .iter()
+                .map(|place| match place {
+                    yapfast_core::application::Place::Room(room) => Row::Jump {
+                        id: room.id.clone(),
+                        name: room.name.clone(),
+                        detail: if room.direct {
+                            "Direct message".to_owned()
+                        } else {
+                            "Channel".to_owned()
+                        },
+                        avatar: if room.direct { room.avatar.clone() } else { None },
+                        icon: if room.direct {
+                            None
+                        } else {
+                            Some(crate::sidebar::room_icon(room))
+                        },
+                    },
+                    yapfast_core::application::Place::Server(server) => Row::Jump {
+                        id: server.id.clone(),
+                        name: server.name.clone(),
+                        detail: "Server".to_owned(),
+                        avatar: server.icon.clone(),
+                        icon: None,
+                    },
+                })
+                .collect();
+            if !jumps.is_empty() {
+                groups.push(Group {
+                    heading: Some("Jump to"),
+                    clears: false,
+                    rows: jumps,
+                });
+            }
+            groups.push(Group {
                 heading: None,
                 clears: false,
                 rows: vec![Row::SearchFor(text.trim().to_owned())],
-            }];
+            });
             let word = text[at.clone()].trim_start_matches(['@', '#']);
             let mut suggested = Vec::new();
             if !word.is_empty() {
@@ -556,6 +604,15 @@ pub fn event(app: &mut App, event: PopoutEvent) -> Task<Message> {
                     (Some((put, text[at.end..].trim_start().to_owned())), true)
                 }
                 Row::History(query) => (Some((query, String::new())), true),
+                Row::Jump { id, .. } => {
+                    // There to go, as the quick switcher's Enter: the
+                    // search ends, the place opens.
+                    let mut cx = crate::ctx::cx!(app);
+                    let _ = app.searching.update(Event::Clear, &mut cx);
+                    cx.dispatch(yapfast_core::application::Action::SwitchTo(id));
+                    cx.request(crate::ctx::Request::Focus(crate::ctx::Focus::Default));
+                    return Task::none();
+                }
                 Row::MoreFilters | Row::AddFilters => {
                     return crate::search_filters::update(
                         app,
@@ -785,6 +842,31 @@ fn row_view<'a>(ctx: Ctx<'a>, row: &Row, index: usize, lit: bool) -> Element<'a,
         .spacing(8)
         .align_y(Alignment::Center)
         .into(),
+        Row::Jump {
+            name,
+            detail,
+            avatar,
+            icon,
+            ..
+        } => {
+            let mark: Element<'a, Message> = match icon {
+                Some(icon) => ctx.look.glyph(*icon, 16, theme.muted).into(),
+                None => ctx.avatar(avatar.as_deref(), name, 20.0, 10.0, 1.0),
+            };
+            row![
+                mark,
+                container(label(name.clone()))
+                    .width(Length::Fill)
+                    .clip(true),
+                text(detail.clone())
+                    .size(13)
+                    .color(theme.muted)
+                    .wrapping(text::Wrapping::None),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into()
+        }
     };
     let (active, hover) = (theme.active, theme.hover);
     button(container(face).height(ROW).align_y(Alignment::Center))

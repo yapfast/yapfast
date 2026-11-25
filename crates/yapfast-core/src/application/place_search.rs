@@ -23,6 +23,8 @@ const VISITED: usize = 8;
 const VISITED_KEPT: usize = 16;
 /// The most places the quick switcher lists for a search.
 const FOUND: usize = 50;
+/// How many places the header search suggests to jump to.
+const SUGGESTED: usize = 3;
 /// The most used places that count, and the uses of each kept.
 const FREQUENT: usize = 100;
 const SAMPLES: usize = 10;
@@ -498,6 +500,33 @@ impl AppState {
             .map(|server| (ranking.server(server, query), Place::Server(server)));
         let mut found = found(rooms.chain(servers), Place::name);
         found.truncate(FOUND);
+        found
+    }
+
+    /// Where the header search's suggestions jump to: the conversations
+    /// and servers whose names hold what's typed, the best first, three at
+    /// most. The quick switcher's ranking and prefix keys serve as they
+    /// are, so `@`, `#`, `!` and `*` at the start narrow the search as
+    /// they do there. Conversations this account may not read stay out,
+    /// and so do message requests.
+    pub fn search_suggestions(&self, query: &str) -> Vec<Place<'_>> {
+        let query = query.trim().to_lowercase();
+        if query.is_empty() {
+            return vec![];
+        }
+        let places = self.rooms.iter().map(Arc::as_ref).filter(|room| {
+            !room.locked && room.category != discord::REQUESTS && room.category != discord::SPAM
+        });
+        let ranking = Ranking::new(self);
+        let (only, query) = Only::of(&query, true);
+        let rooms = places.map(|room| (ranking.room(room, only, query), Place::Room(room)));
+        let servers = self
+            .servers
+            .iter()
+            .filter(|_| matches!(only, Only::Everything | Only::Servers))
+            .map(|server| (ranking.server(server, query), Place::Server(server)));
+        let mut found = found(rooms.chain(servers), Place::name);
+        found.truncate(SUGGESTED);
         found
     }
 
