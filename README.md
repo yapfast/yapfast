@@ -145,7 +145,8 @@ macOS, Steam's and Wine's included, and on Linux and Windows the Rich Presence
 games send, with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
-does, and names games Yapfast doesn't know. See
+does, names games Yapfast doesn't know, and lists programs it never shows as a
+game. See
 [game detection](docs/discord/people.md#game-detection) and
 [Rich Presence](docs/discord/people.md#rich-presence).
 

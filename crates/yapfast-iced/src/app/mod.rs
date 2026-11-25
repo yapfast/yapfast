@@ -288,6 +288,7 @@ impl App {
         layout.voice.apply();
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
+        layout.prefs.apply_blocked_games();
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         // The window opens at its size in the desktop's pixels whatever the
         // zoom, and its layout gets fewer.
