@@ -715,10 +715,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "child process of the game detection tests"]
     fn fixture_process() {
-        if std::env::var_os("YAPFAST_TEST_GAME_FIXTURE").is_none() {
-            return;
-        }
+        std::env::var_os("YAPFAST_TEST_GAME_FIXTURE").expect("test harness only");
         use std::io::Read;
         let _ = std::io::stdin().read_exact(&mut [0_u8]);
     }
@@ -753,7 +752,11 @@ mod tests {
         std::fs::hard_link(&executable, &game).unwrap();
         let mut child = Child(
             std::process::Command::new(&game)
-                .args(["--exact", "game_detection::tests::fixture_process"])
+                .args([
+                    "--exact",
+                    "game_detection::tests::fixture_process",
+                    "--ignored",
+                ])
                 .env("YAPFAST_TEST_GAME_FIXTURE", "1")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
@@ -810,7 +813,7 @@ mod tests {
             std::process::Command::new("sh")
                 .args([
                     "-c",
-                    "read -r ready; exec \"$1\" --exact game_detection::tests::fixture_process",
+                    "read -r ready; exec \"$1\" --exact game_detection::tests::fixture_process --ignored",
                     "yapfast-test-launcher",
                 ])
                 .arg(&game)

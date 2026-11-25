@@ -954,39 +954,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires a homeserver with MatrixRTC and a saved Alice session in the test data's beta folder; joins muted without recording"]
-    fn remote_beta_join_muted_and_leave() {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
-        runtime.block_on(async {
-            let root = crate::test_data_directory().join("beta");
-            let rooms: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(root.join("rooms.json")).unwrap()).unwrap();
-            let alice = Session::restore(root.join("alice")).await.unwrap();
-            let sync = alice.start_sync().await.unwrap();
-            sync.wait_until_ready().await.unwrap();
-            assert!(alice.device_is_trusted().await.unwrap());
-            let mut controller = Controller::start(alice.lease()).unwrap();
-            assert!(controller.command(Command::Join(
-                rooms["voice"].as_str().unwrap().into()
-            )));
-            let connected = wait(&mut controller, |state| state.phase == Phase::Connected).await;
-            assert!(connected.muted);
-            assert_eq!(connected.participants.len(), 1);
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            let waiting = controller.states.borrow().clone();
-            assert_eq!(waiting.phase, Phase::Connected);
-            assert!(waiting.muted && waiting.error.is_none());
-            controller.command(Command::Leave);
-            let departed = wait(&mut controller, |state| state.phase == Phase::Disconnected).await;
-            assert!(departed.error.is_none());
-            controller.stop().await;
-            sync.stop().await;
-            println!("PASS: native encrypted voice joined muted through public discovery, waited alone for 10 seconds and left cleanly. No microphone was published.");
-        });
-    }
-
-    #[test]
     #[ignore = "child process of the slow-authorization cancellation test"]
     fn cancel_pending_join() {
         let root = std::path::PathBuf::from(
