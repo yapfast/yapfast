@@ -233,6 +233,8 @@ pub enum Event {
     /// The clipboard's text, if it held any.
     Pasted(Option<String>),
     Profile(Cosmetic, bool),
+    /// Draws a theme's text glow, or leaves it out.
+    TextGlow(bool),
 }
 
 /// Appearance's profile switches.
@@ -306,6 +308,13 @@ impl Settings {
                 cx.layout.readable_text = on;
                 cx.keep("readable_text", on);
                 cx.themes.readable_changed(on);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            // Drawing, not data: the window draws it again and the core is
+            // told nothing.
+            Event::TextGlow(on) => {
+                cx.layout.prefs.text_glow = Some(on);
+                cx.keep("text_glow", on);
                 cx.request(Request::Changed(Shown::Theme));
             }
             Event::ThemeOption(id, option, value) => {
@@ -904,6 +913,17 @@ impl<'a> Page<'a> {
             )
             .description(
                 "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
+            )
+            .view(self.cx.look),
+            switch(
+                "Draw text glow",
+                self.cx.layout.prefs.text_glow.unwrap_or(true),
+                Some(theme_message(Event::TextGlow(
+                    !self.cx.layout.prefs.text_glow.unwrap_or(true),
+                ))),
+            )
+            .description(
+                "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing.",
             )
             .view(self.cx.look),
             self.desktop_icons(),
