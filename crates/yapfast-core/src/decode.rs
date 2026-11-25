@@ -257,9 +257,13 @@ mod tests {
         assert_eq!((picture.width, picture.height), (320, 180), "{codec:?}");
         let mut rgba = vec![0; 320 * 180 * 4];
         picture.to_rgba(&mut rgba);
-        assert!(rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
-        let colours: std::collections::HashSet<_> =
-            rgba.chunks_exact(4).map(|pixel| pixel[0] / 32).collect();
+        assert!(rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255));
+        let colours: std::collections::HashSet<_> = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[0] / 32)
+            .collect();
         assert!(
             colours.len() > 3,
             "{codec:?} decoded to a picture, not a flat colour"

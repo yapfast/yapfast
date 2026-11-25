@@ -37,6 +37,9 @@ The call's views and what they do are in `call/`.
   the tray meanwhile, the tile is back in the call and the next window
   opens as a window; brought forward while full screen, it stays so. A
   right click opens the person's voice menu.
+- Participants whose speaking permission Discord denies show a red blocked
+  microphone. The local microphone control shows the restriction in both
+  the account panel and the call stage.
 - The controls under the stage, in this order: mute and
   deafen (each with its device menu), the camera, Go Live, the soundboard,
   and leave.

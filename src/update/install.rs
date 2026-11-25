@@ -43,7 +43,11 @@ pub enum Target {
     /// The AppImage at this path.
     AppImage { asset: Asset, current: PathBuf },
     /// The installed program at this path.
-    Installer { asset: Asset, program: PathBuf },
+    Installer {
+        asset: Asset,
+        program: PathBuf,
+        download_dir: PathBuf,
+    },
 }
 
 impl Target {
@@ -58,9 +62,11 @@ impl Target {
     pub fn part(&self) -> PathBuf {
         match self {
             Target::AppImage { current, .. } => current.with_file_name(".yapfast-update.part"),
-            Target::Installer { asset, .. } => std::env::temp_dir()
-                .join("yapfast-update")
-                .join(&asset.name),
+            Target::Installer {
+                asset,
+                download_dir,
+                ..
+            } => download_dir.join(&asset.name),
         }
     }
 }
@@ -153,6 +159,7 @@ pub fn target_for(
             Ok(Target::Installer {
                 asset,
                 program: program.to_path_buf(),
+                download_dir: std::env::temp_dir().join("yapfast-update"),
             })
         }
     }
@@ -449,7 +456,7 @@ async fn prepare_in(
                 Err("AppImages are for Linux.".into())
             }
         }
-        Target::Installer { asset, program } => {
+        Target::Installer { asset, program, .. } => {
             let installer = part.with_file_name(&asset.name);
             std::fs::rename(part, &installer).map_err(|error| error.to_string())?;
             progress.stage(Stage::Installing);
@@ -595,15 +602,13 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn each_flavour_installs_its_own_file_whatever_the_order() {
         let folder = tempfile::tempdir().unwrap();
         let app = folder.path().join("Yapfast.AppImage");
         let program = folder.path().join("yapfast.exe");
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
-        if !cfg!(target_arch = "x86_64") {
-            return;
-        }
         let names = [
             "Yapfast-0.4.1-full-preview-x86_64.AppImage",
             "Yapfast-0.4.1-x86_64.AppImage",
@@ -654,15 +659,13 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn a_release_without_its_file_sums_or_signature_is_not_installed() {
         let folder = tempfile::tempdir().unwrap();
         let app = folder.path().join("Yapfast.AppImage");
         let program = folder.path().join("yapfast.exe");
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
-        if !cfg!(target_arch = "x86_64") {
-            return;
-        }
         let mut release = release();
         release
             .assets
@@ -783,10 +786,6 @@ mod tests {
         format!("http://{address}")
     }
 
-    /// The installer's download folder is shared, so the tests that use it
-    /// take turns.
-    static INSTALLER_FOLDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn client() -> reqwest::Client {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         reqwest::Client::new()
@@ -809,7 +808,6 @@ mod tests {
     /// that isn't there, stops the update before the download.
     #[test]
     fn a_release_without_its_own_signature_is_not_downloaded() {
-        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = BackgroundRuntime::new().unwrap();
         runtime.block_on(async {
             let new = b"#!/bin/sh\nexit 0\n".to_vec();
@@ -832,6 +830,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     program: folder.path().join("yapfast.exe"),
+                    download_dir: folder.path().join("download"),
                 };
                 let progress = Arc::new(Progress::default());
                 let result = prepare(&runtime, &client(), &release, &target, progress.clone())
@@ -855,7 +854,6 @@ mod tests {
 
     #[test]
     fn a_download_that_matches_its_sum_is_installed() {
-        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = BackgroundRuntime::new().unwrap();
         runtime.block_on(matching_download(&runtime));
     }
@@ -880,6 +878,7 @@ mod tests {
                 .unwrap()
                 .clone(),
             program: program.clone(),
+            download_dir: folder.path().join("download"),
         };
         let progress = Arc::new(Progress::default());
         let prepared = prepare(runtime, &client(), &release, &target, progress.clone())
@@ -892,12 +891,10 @@ mod tests {
         let (stage, fraction) = progress.read();
         assert_eq!(stage, Stage::Installing);
         assert_eq!(fraction, Some(1.0));
-        let _ = std::fs::remove_dir_all(installer.parent().unwrap());
     }
 
     #[test]
     fn a_download_that_does_not_match_leaves_nothing_behind() {
-        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = BackgroundRuntime::new().unwrap();
         runtime.block_on(mismatched_download(&runtime));
     }
@@ -923,6 +920,7 @@ mod tests {
                 .unwrap()
                 .clone(),
             program: folder.path().join("yapfast.exe"),
+            download_dir: folder.path().join("download"),
         };
         let error = prepare(
             runtime,

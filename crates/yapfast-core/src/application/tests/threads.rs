@@ -66,6 +66,7 @@ fn discord_threads_open_once_listed() {
         choices,
         [
             MenuChoice::JoinThread,
+            MenuChoice::AddFavorite,
             MenuChoice::CopyLink,
             MenuChoice::CopyId
         ]
@@ -88,6 +89,7 @@ fn discord_threads_open_once_listed() {
         app.thread_more_choices("discord:10:30"),
         [
             MenuChoice::JoinThread,
+            MenuChoice::AddFavorite,
             MenuChoice::CopyLink,
             MenuChoice::CopyId
         ]
