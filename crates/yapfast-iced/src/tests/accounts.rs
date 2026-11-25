@@ -71,6 +71,18 @@ fn switch_accounts_lists_the_accounts_and_switches_to_one() {
 }
 
 #[test]
+fn pressing_switch_accounts_opens_manage_accounts() {
+    let (mut app, _folder) = preview();
+    two(&mut app);
+    let _ = app.update(Message::Status(StatusEvent::Toggle));
+    interact(&mut app, |ui| {
+        ui.click("Switch Accounts").expect("Switch Accounts");
+    });
+    assert!(app.status.popover.is_none(), "the popover goes");
+    assert!(app.client.state().manage_accounts.is_some());
+}
+
+#[test]
 fn manage_accounts_opens_from_the_list_and_logs_an_account_out() {
     let (mut app, _folder) = preview();
     two(&mut app);
@@ -81,23 +93,28 @@ fn manage_accounts_opens_from_the_list_and_logs_an_account_out() {
     });
     assert!(app.status.popover.is_none(), "the popover goes");
     assert!(app.client.state().manage_accounts.is_some());
-    assert!(shows(&app, "Manage Accounts") && shows(&app, "Add Account"));
-    assert!(shows(&app, "Active Account"), "the one in use says so");
-    // The account in use has Log Out only; the other can be switched to.
+    assert!(shows(&app, "Manage Accounts") && shows(&app, "Add an account"));
+    assert!(shows(&app, "Switch accounts, sign in, sign out, go wild."));
+    assert!(shows(&app, "Active account"), "the one in use says so");
+    // Switch on the other account only, and a menu with Log out alone.
     let _ = app.update(Message::Accounts(AccountsEvent::Menu("1".into())));
-    assert!(shows(&app, "Log Out") && !shows(&app, "Switch Account"));
-    let _ = app.update(Message::Accounts(AccountsEvent::Menu("2".into())));
-    assert!(shows(&app, "Log Out") && shows(&app, "Switch Account"));
-    // Escape closes the menu, then the dialog.
+    assert!(shows(&app, "Log out") && !shows(&app, "Switch Account"));
     escape(&mut app);
-    assert!(!shows(&app, "Log Out"));
+    assert!(!shows(&app, "Log out"));
     assert!(app.client.state().manage_accounts.is_some());
+    interact(&mut app, |ui| {
+        ui.click("Switch").expect("Switch on the other account");
+    });
+    assert!(matches!(sent(&app).as_slice(), [DiscordCommand::SwitchAccount(id)] if id == "2"));
     let _ = app.update(Message::Accounts(AccountsEvent::Menu("2".into())));
     interact(&mut app, |ui| {
-        ui.click("Log Out").expect("Log Out");
+        ui.click("Log out").expect("Log out");
     });
-    assert!(matches!(sent(&app).as_slice(), [DiscordCommand::RemoveAccount(id)] if id == "2"));
-    assert!(!shows(&app, "Log Out"), "the menu closes");
+    assert!(matches!(
+        sent(&app).as_slice(),
+        [DiscordCommand::SwitchAccount(_), DiscordCommand::RemoveAccount(id)] if id == "2"
+    ));
+    assert!(!shows(&app, "Log out"), "the menu closes");
     escape(&mut app);
     assert!(app.client.state().manage_accounts.is_none());
     assert!(!shows(&app, "Manage Accounts"));
@@ -117,12 +134,13 @@ fn add_account_links_another_in_the_dialog_and_back_leaves_it() {
     let _ = app.sync();
     assert!(shows(&app, "Manage Accounts"));
     interact(&mut app, |ui| {
-        ui.click("Add Account").expect("Add Account");
+        ui.click("Add an account").expect("Add an account");
     });
     // The linking steps take the dialog's place.
+    assert!(shows(&app, "Add Account"));
     assert!(shows(
         &app,
-        "Link another Discord account to switch between them."
+        "Logging in to another account will let you easily switch between accounts on this device."
     ));
     assert!(shows(&app, "Show the code") && shows(&app, "Back"));
     assert!(!shows(&app, "alex_main"));
@@ -147,7 +165,7 @@ fn add_account_links_another_in_the_dialog_and_back_leaves_it() {
     assert!(app.client.state().discord_link.is_none());
     assert!(app.sign_in.token.is_empty() && !app.sign_in.token_open);
     assert!(app.sign_in.code.is_none(), "the code let go");
-    assert!(shows(&app, "alex_main") && shows(&app, "Add Account"));
+    assert!(shows(&app, "alex_main") && shows(&app, "Add an account"));
     assert!(app.client.state().manage_accounts.is_some());
     // Escape in the step goes back first, then closes.
     let _ = app.update(Message::Accounts(AccountsEvent::Add));

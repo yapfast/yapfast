@@ -191,20 +191,22 @@ Store the Discord token in the OS credential store, next to the Matrix session.
 The token gives full control of the account, so it never goes into Matrix, not
 even encrypted. A device that links appears in Discord as its own session.
 
-Unlinking a device, from Settings or by signing out of a build without Matrix,
-leaves any Discord call, ends the session with `POST /auth/logout`, and deletes
-the tokens of every account.
+Logging out, from Settings or by signing out of a build without Matrix, leaves
+any Discord call, ends the session with `POST /auth/logout`, and deletes the
+account's token; with other accounts linked, the next one connects in its
+place (see below).
 
 ### Several accounts
 
 A device links several accounts, as Discord's apps do. The account's popover
-(`crates/yapfast-iced/src/status.rs`) has Switch Accounts, which opens a list
-beside the card: each account with its picture and name, a check on the
-active one, and Manage Accounts. Manage Accounts opens a dialog
-(`crates/yapfast-iced/src/accounts.rs`) with a row for each account, the
-active one marked, a menu on each row (Switch Account, Log Out) and Add
-Account, which links another by the same QR code or token as the first.
-Adding an account switches to it.
+(`crates/yapfast-iced/src/status.rs`) has Switch Accounts: pointing at it
+opens a list beside the card, each account with its picture and username, a
+check on the active one, and Manage Accounts; pressing it opens Manage
+Accounts. That dialog (`crates/yapfast-iced/src/accounts.rs`) has a row for
+each account, with "Active account" under the one in use, Switch on the
+others and a menu with Log out on each, and "Add an account", which links
+another by the same QR code or token as the first. Adding an account switches
+to it. The words are Discord's client's.
 
 Each account has an entry of its own in the credential store
 (`discord-account-<id>`), with an index of the ids and the active one
@@ -222,11 +224,25 @@ the other's, and the chat actor (`DiscordCommand::SwitchAccount` in
 `crates/yapfast-core/src/chat.rs`) drops the old session before the new one
 starts, so the old one saves what it kept under its own login. What Yapfast
 keeps to show while it connects holds one account at a time, labelled by its
-login: after a switch the other account's files read as empty, and the first
+login: after a switch the other account's files are deleted, and the first
 connect fills them again. Logging out of the account in use ends its session
 on Discord and activates the next one; logging out of another ends its
 session with that account's own token and leaves the connection alone. Logging
 out of the last one is unlinking.
+
+A switch goes Home, to the friends list, and drops the way back to the other
+account's places. Discord's client goes to the new account's last channel when
+it knows one, else Home; Yapfast keeps no last channel per account, so it goes
+Home. Drafts, replies, files waiting to send and an edit under way in
+Discord's rooms go with it, so none of them is sent as the new account.
+
+Where it differs from Discord's client: logging out of the account in use
+connects the next one, where Discord's client shows its sign-in page with the
+accounts left to choose from; any number of accounts can be linked, where
+Discord's client takes five; a login Discord no longer accepts isn't found
+until the switch to it, where Discord's client marks it "Please log in
+again."; and there is no "Switched to {username}" toast or "{username} logged
+out" notice.
 
 ## Later
 

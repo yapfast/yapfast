@@ -64,12 +64,13 @@ pub enum Event {
     Close,
     /// The status row: its choices show or go.
     Expand,
-    /// The Switch Accounts row, hovered or pressed: its list opens beside
-    /// the card, and stays until the popover goes.
+    /// The Switch Accounts row, hovered: its list opens beside the card,
+    /// and stays until the popover goes.
     Accounts,
-    /// An account of that list, by id, to use; Manage Accounts opens its
-    /// dialog.
+    /// An account of that list, by id, to use.
     SwitchTo(String),
+    /// Manage Accounts at the foot of that list, or the Switch Accounts row
+    /// pressed, as in Discord's client: its dialog opens.
     Manage,
     Choose(&'static str),
     EditProfile,
@@ -421,7 +422,8 @@ impl<'a> View<'a> {
     }
 
     /// Switch Accounts, lit while its list is open, with the chevron of a
-    /// submenu.
+    /// submenu. The pointer on it opens the list; pressing it opens Manage
+    /// Accounts, as Discord's client does.
     fn switch_row(self, open: bool) -> Element<'a, Message> {
         mouse_area(self.cx.look.menu_item_sized(
             Item {
@@ -434,7 +436,7 @@ impl<'a> View<'a> {
                 check: Check::Submenu,
             },
             Light::Lit(open),
-            message(Event::Accounts),
+            message(Event::Manage),
             ROW,
         ))
         .on_enter(message(Event::Accounts))
