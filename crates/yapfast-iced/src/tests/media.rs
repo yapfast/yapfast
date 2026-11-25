@@ -77,6 +77,31 @@ fn the_viewer_closes_when_its_message_goes_and_gives_the_keys_back() {
 }
 
 #[test]
+fn a_picture_opened_after_the_layout_shrinks_fits_the_new_room() {
+    use crate::{app::Message, image_viewer::Event};
+    let (mut app, _folder) = preview();
+    let opened = app.shell.frame;
+    redraw_at(&mut app, opened);
+    only(
+        &mut app,
+        ChatMessage {
+            attachments: vec![picture_at("large.png", 500, Placement::Message, false)],
+            ..Default::default()
+        },
+    );
+    let smaller = iced::Size::new(660.0, 410.0);
+    redraw_at(&mut app, smaller);
+    let _ = app.update(Message::Image(Event::Open("i0".into(), 0)));
+    let on_picture = |x| {
+        clicked(&app, iced::Point::new(x, 220.0), iced::mouse::Button::Right)
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Menu(..))))
+    };
+    assert!(on_picture(330.0));
+    assert!(!on_picture(530.0));
+}
+
+#[test]
 fn a_voice_messages_volume_opens_over_its_mute_and_the_wheel_turns_it() {
     use crate::playback::Event;
     let (mut app, _folder) = preview();
@@ -156,6 +181,18 @@ fn apply(app: &mut crate::app::App, messages: Vec<crate::app::Message>) {
     for message in messages {
         let _ = app.update(message);
     }
+}
+
+/// A redraw in the given layout, with no window resize event.
+fn redraw_at(app: &mut crate::app::App, size: iced::Size) {
+    let messages = {
+        let mut ui = iced_test::Simulator::with_size(iced::Settings::default(), size, app.view());
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+        ui.into_messages().collect()
+    };
+    apply(app, messages);
 }
 
 /// A spoiler beside a card's text: a click uncovers it, the next shows
@@ -380,6 +417,24 @@ fn video_commands(app: &mut crate::app::App) -> Vec<yapfast_core::chat::VideoCom
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn a_full_screen_videos_frames_follow_the_window_layout() {
+    use yapfast_core::chat::VideoCommand;
+    let (mut app, _folder) = preview();
+    let opened = app.shell.frame;
+    redraw_at(&mut app, opened);
+    a_video_full_screen(&mut app);
+    let smaller = iced::Size::new(660.0, 410.0);
+    redraw_at(&mut app, smaller);
+    assert_eq!(
+        video_commands(&mut app),
+        [VideoCommand::Size {
+            width: 501,
+            height: 282,
+        }]
+    );
 }
 
 #[test]

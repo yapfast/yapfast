@@ -2001,6 +2001,158 @@ async fn a_server_channels_pins_and_search_show_its_members() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn recent_mentions_come_newest_first_with_their_rooms() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    // Bob mentions her in #general, as Discord's Mentions inbox would list it.
+    let server = yapfast_discord::client::test_server().unwrap();
+    let address = server.trim_start_matches("http://").trim_end_matches('/');
+    let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+    control
+        .write_all(
+            format!(
+                "POST /_control/mention HTTP/1.1\r\nHost: {address}\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut answer = String::new();
+    control.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.contains("Bob mentioned Alice"), "{answer}");
+
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let mentions = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                result: Ok(mentions),
+                ..
+            } = received.recv().await.expect("events go on")
+            {
+                return mentions;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(mentions.len(), 1);
+    let (room, message) = &mentions[0];
+    assert_eq!(*room, discord::room_id(FAKE_GUILD, FAKE_GENERAL));
+    assert!(message.body.contains("are you in for co-op tonight?"));
+    assert_eq!(message.author, "Bob");
+    assert_eq!(message.color, Some(0x3498db), "Bob is a Mod");
+    assert_eq!(message.sender, discord::sender_id("1400000000000000002"));
+    // Every way Bob calls on her lists, among them a reply to her message:
+    // a reply that pings her holds no `<@id>` in its text, so the fetch
+    // marks it from its metadata, as the timeline does.
+    let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+    control
+        .write_all(
+            format!(
+                "POST /_control/mentions HTTP/1.1\r\nHost: {address}\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut answer = String::new();
+    control.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.contains("Bob mentioned Alice"), "{answer}");
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let mentions = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                result: Ok(mentions),
+                ..
+            } = received.recv().await.expect("events go on")
+            {
+                return mentions;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(mentions.len(), 1 + 5);
+    assert!(
+        mentions.iter().any(
+            |(_, message)| message.body.contains("Good idea, bring the big one")
+                && (message.mentions_me || message.replies_to_me)
+        ),
+        "a reply that pings her stays marked"
+    );
+    // Nothing else mentioned her, and what was fetched stays.
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let again = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                result: Ok(mentions),
+                ..
+            } = received.recv().await.expect("events go on")
+            {
+                return mentions;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(again, mentions);
+    // The filter goes with the request: in this server, without @everyone
+    // and @here, the answer saying what it was for.
+    let query = chat::MentionsQuery {
+        everyone: false,
+        roles: true,
+        server: Some(discord::server_id(FAKE_GUILD)),
+    };
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(query.clone())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let (answered, filtered) = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                query,
+                result: Ok(mentions),
+            } = received.recv().await.expect("events go on")
+            {
+                return (query, mentions);
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(answered, query);
+    assert_eq!(filtered.len(), 1 + 3, "the @everyone and @here pings go");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
     let discord = fake_discord().await;
     let (done, _finished) = tokio::sync::mpsc::unbounded_channel();

@@ -195,8 +195,8 @@ pub enum Exit {
     Closed,
     /// An update was downloaded and checked; `main` finishes it.
     Update,
-    /// Settings' Restart Yapfast, for the GPU setting: `main` starts
-    /// Yapfast again, which follows the setting.
+    /// Restart Yapfast, in Settings for the GPU setting or in the tray:
+    /// `main` starts Yapfast again, which follows the setting.
     Restart,
     /// The GPU failed to start, for this reason: `main` starts Yapfast
     /// again on the CPU, which tells of it.
