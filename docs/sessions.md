@@ -66,7 +66,10 @@ attachments and links, each file encrypted with XChaCha20-Poly1305
 (`crates/yapfast-discord/src/cache/sealed.rs`). The names of the messages'
 and profiles' files carry channel and user ids. Avatars, emoji and other
 pictures public on Discord's CDN are kept plain, as is the video playing,
-deleted once it stops. Unlinking deletes the files and the key.
+deleted once it stops. Unlinking deletes the files and the key. With several
+Discord accounts linked, each has its own entry in the credential store, and
+the files belong to the account in use: switching accounts empties them for the
+next, as another login's files read as empty.
 
 Writes use a private temporary file, flush its contents and replace the prior
 file. Store passwords are preserved separately from active login credentials.

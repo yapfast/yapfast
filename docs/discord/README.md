@@ -2,7 +2,7 @@
 
 | Area | Works on Linux | Open |
 | --- | --- | --- |
-| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; unlinking; Discord's captcha, in the browser | Verify the reported two-captcha ticket rejection against real Discord |
+| [Linking](#account-linking) | QR code from Settings, or the sign-in of a build without Matrix; [several accounts](#several-accounts), switched from the account card as in Discord; unlinking; Discord's captcha, in the browser | Verify the reported two-captcha ticket rejection against real Discord |
 | [Voice](voice.md) | Server voice channels, [a card of who is in one](voice.md#who-is-in-a-voice-channel), [how long each one's call has gone on](voice.md#how-long-a-channels-call-has-gone-on), mute, deafen, per-person volume, [moving people to another channel](servers.md#someones-menu-in-a-voice-channel) from their menu or [by dragging them](servers.md#dragging-someone-to-another-voice-channel), voice gate with its sensitivity, [push-to-talk](voice.md#push-to-talk) and [keybinds](../keybinds.md) for mute, deafen and the input mode, [DeepFilterNet noise suppression](voice.md#microphone) and its strength, taking a room's echo out, [camera video](voice.md#camera-video), [the soundboard](voice.md#soundboard) | A check of Windows audio, cameras and keybinds on real Windows, and of keybinds on real Wayland desktops |
 | [DM calls](voice.md#dm-calls) | Starting, ringing, answering and declining DM and group DM calls, with cameras | A check by hand through real Discord |
 | [Go Live](go-live.md) | Sharing a screen with its sound, watching streams | A check on real Windows |
@@ -194,16 +194,67 @@ shows Discord's captchas the same way.
 Store the Discord token in the OS credential store, next to the Matrix session.
 The token gives full control of the account, so it never goes into Matrix, not
 even encrypted. A device that links by QR code appears in Discord as its own
-session. Beside the token, `discord-token-origin` says how it was linked (`qr`
-or `pasted`) with the SHA-256 of the token it's for; a refreshed login keeps
-it. A token without one, linked before Yapfast kept it, or with one for
-another token, counts as pasted.
+session. Each account keeps how it was linked (`qr` or `pasted`) with its
+token (see Several accounts below); a refreshed login keeps it. An account
+without it, linked before Yapfast kept it, counts as pasted.
 
-Unlinking a device, from Settings or by signing out of a build without Matrix,
-leaves any Discord call and deletes its token. For a QR login it also ends the
-session with `POST /auth/logout`. A pasted token's session is the app or
-browser it came from, which that would sign out, so Yapfast only forgets it
-and says the other app stays signed in.
+Logging out, from Settings or by signing out of a build without Matrix, leaves
+any Discord call and deletes the account's token; with other accounts linked,
+the next one connects in its place (see below). For a QR login it also ends
+the session with `POST /auth/logout`. A pasted token's session is the app or
+browser it came from, which that would sign out, so Yapfast only forgets it,
+and when no account is left, says the other app stays signed in.
+
+### Several accounts
+
+A device links several accounts, as Discord's apps do. The account's popover
+(`crates/yapfast-iced/src/status.rs`) has Switch Accounts: pointing at it
+opens a list beside the card, each account with its picture and username, a
+check on the active one, and Manage Accounts; pressing it opens Manage
+Accounts. That dialog (`crates/yapfast-iced/src/accounts.rs`) has a row for
+each account, with "Active account" under the one in use, Switch on the
+others and a menu with Log out on each, and "Add an account", which links
+another by the same QR code or token as the first. Adding an account switches
+to it. The words are Discord's client's.
+
+Each account has an entry of its own in the credential store
+(`discord-account-<id>`), with an index of the ids and the active one
+(`discord-accounts`), so no entry outgrows what Windows allows one to hold. The
+id is the user id its token spells, or a hash of it. A device that linked
+before this keeps its account: the old entry is moved into the new layout the
+first time it's read, with how it was linked from `discord-token-origin` (`qr`
+or `pasted` and the SHA-256 of the token it's for), which goes too; without
+one, or with one for another token, it counts as pasted. The name and picture each row shows are kept with the
+account once it has connected, so the list is complete without connecting
+every account. `crates/yapfast-discord/src/token.rs` holds all of it; a login
+Discord refreshes (`auth_token` in READY) goes to the account it belongs to,
+whichever is active by then.
+
+Only the active account is connected. Switching drops its session and starts
+the other's, and the chat actor (`DiscordCommand::SwitchAccount` in
+`crates/yapfast-core/src/chat.rs`) drops the old session before the new one
+starts, so the old one saves what it kept under its own login. What Yapfast
+keeps to show while it connects holds one account at a time, labelled by its
+login: after a switch the other account's files are deleted, and the first
+connect fills them again. Logging out of the account in use ends its session
+on Discord, if it was a QR login, and activates the next one; logging out of
+another ends its session with that account's own token, again only for a QR
+login, and leaves the connection alone. Logging out of the last one is
+unlinking.
+
+A switch goes Home, to the friends list, and drops the way back to the other
+account's places. Discord's client goes to the new account's last channel when
+it knows one, else Home; Yapfast keeps no last channel per account, so it goes
+Home. Drafts, replies, files waiting to send and an edit under way in
+Discord's rooms go with it, so none of them is sent as the new account.
+
+Where it differs from Discord's client: logging out of the account in use
+connects the next one, where Discord's client shows its sign-in page with the
+accounts left to choose from; any number of accounts can be linked, where
+Discord's client takes five; a login Discord no longer accepts isn't found
+until the switch to it, where Discord's client marks it "Please log in
+again."; and there is no "Switched to {username}" toast or "{username} logged
+out" notice.
 
 ## Later
 
@@ -262,7 +313,9 @@ channel on screen. Measure settled idle and a Discord call with the method in
 HTTP API Yapfast uses, a voice server that answers the handshake without DAVE,
 Go Live signalling, and the remote login gateway. Set
 `YAPFAST_DISCORD_TEST_SERVER` to it, and Yapfast uses a test token instead of
-the linked account, kept in memory. With `YAPFAST_DISCORD_TEST_UNLINKED=1` too,
+the linked account, kept in memory. `YAPFAST_DISCORD_TEST_SECOND_ACCOUNT=1`
+links a second one, Bea, whose login the fake takes beside Alice's and answers
+as hers, to show the account switcher. With `YAPFAST_DISCORD_TEST_UNLINKED=1` too,
 Yapfast starts unlinked and links against the fake, whose controls scan and
 confirm the code. The fake resumes a dropped gateway session, replaying what it
 missed, and can send op 7. The tests in `crates/yapfast-discord/tests/fake_server/`
