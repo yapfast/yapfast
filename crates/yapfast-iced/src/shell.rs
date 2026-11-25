@@ -129,7 +129,7 @@ pub enum Event {
     MonitorScaled(window::Id, Option<f32>),
     /// The banner that the GPU failed to start, dismissed.
     DismissGpuNotice,
-    /// The window took another size, or opened at one.
+    /// The size iced laid out for the window.
     Resized(Size),
     /// Glass art baked for the window's new size, off its thread.
     GlassBaked(Option<crate::themes::GlassBaked>),
@@ -239,6 +239,7 @@ impl App {
                     self.shell.display_scale = Some(scale);
                     // Frames are made at the window's pixels.
                     crate::call::stage::place_videos(self);
+                    crate::playback::resize_full_clip(self);
                 }
                 Task::none()
             }
@@ -260,6 +261,7 @@ impl App {
                     tracing::info!(?scale, window = ?self.shell.display_scale, "the monitor's scale");
                     self.shell.monitor_scale = scale;
                     crate::call::stage::place_videos(self);
+                    crate::playback::resize_full_clip(self);
                 }
                 Task::none()
             }
@@ -283,6 +285,7 @@ impl App {
                 self.fit_zoom();
                 let fitted = crate::active_now::active_now_fits(self.ctx());
                 crate::window_bar::fit_window(self);
+                crate::playback::resize_full_clip(self);
                 if crate::active_now::active_now_fits(self.ctx()) == fitted {
                     return Task::batch([glass, crate::window_bar::read_window_state(self)]);
                 }
@@ -422,6 +425,13 @@ impl App {
                 self.client.dispatch(Action::Voice(voice::Command::Leave));
                 self.sync()
             }
+            // About isn't open to show what the look finds, so a newer
+            // release is told of in a notification, as a timed look does.
+            Heard::Tray(TrayChoice::CheckForUpdates) => {
+                crate::updates::look_for_updates(self, true);
+                Task::none()
+            }
+            Heard::Tray(TrayChoice::Restart) => self.restart(),
             Heard::Tray(TrayChoice::Quit) => self.quit(),
             Heard::Tray(TrayChoice::Available) => {
                 let available = self
@@ -723,6 +733,11 @@ impl App {
         settled
     }
 
+    pub fn restart(&mut self) -> Task<Message> {
+        crate::exit_for(crate::Exit::Restart);
+        self.quit()
+    }
+
     /// Ends Yapfast: the icon goes first, rather than when the desktop next
     /// looks at it.
     pub fn quit(&mut self) -> Task<Message> {
@@ -779,6 +794,11 @@ impl App {
         }
         if let Some(bytes) = self.client.take_copied_picture() {
             desktop::desktop().copy_picture(bytes);
+        }
+        // The question before leaving takes the keys, as a masked link's does.
+        if let Some(link) = self.client.take_leaving() {
+            self.leaving = Some(link);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
         }
         if self.shell.pending_link.is_some() && self.shell.window.is_some() {
             tasks.push(self.open_pending_link());

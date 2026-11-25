@@ -2,7 +2,7 @@
 name = "yapfast"
 version = "0.4.1"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.100"
 publish = false
 license = "GPL-3.0-or-later"
 

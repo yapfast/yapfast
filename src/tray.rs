@@ -1,7 +1,7 @@
 //! Yapfast's icon in the system tray, which keeps Yapfast running with its window
 //! closed: a StatusNotifierItem on Linux, on the session bus Yapfast is given,
 //! and a notification-area icon on Windows. Clicking it opens the window; its
-//! menu opens Yapfast, leaves a call and quits.
+//! menu opens Yapfast, leaves a call, checks for updates, restarts and quits.
 
 use std::cell::Cell;
 
@@ -34,6 +34,8 @@ pub fn take_activation_token() -> Option<String> {
 pub enum Choice {
     Open,
     Disconnect,
+    CheckForUpdates,
+    Restart,
     Quit,
     /// A tray came or went, which decides what closing the window does.
     Available,
@@ -305,6 +307,9 @@ mod linux {
                 menu.push(item("Disconnect", Choice::Disconnect));
             }
             menu.push(MenuItem::Separator);
+            menu.push(item("Check for updates", Choice::CheckForUpdates));
+            menu.push(item("Restart Yapfast", Choice::Restart));
+            menu.push(MenuItem::Separator);
             menu.push(item("Quit", Choice::Quit));
             menu
         }
@@ -340,11 +345,12 @@ mod windows {
                 },
                 WindowsAndMessaging::{
                     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-                    DestroyWindow, GetCursorPos, GetSystemMetrics, MF_SEPARATOR, MF_STRING,
-                    PostMessageW, RegisterClassW, RegisterWindowMessageW, SM_CXSMICON,
-                    SetForegroundWindow, SetMenuDefaultItem, TPM_NONOTIFY, TPM_RETURNCMD,
-                    TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL,
-                    WM_RBUTTONUP, WM_USER, WNDCLASSW, WS_OVERLAPPED,
+                    DestroyWindow, GetCursorPos, GetSystemMetrics, MENUINFO, MF_SEPARATOR,
+                    MF_STRING, MIM_STYLE, MNS_NOCHECK, PostMessageW, RegisterClassW,
+                    RegisterWindowMessageW, SM_CXSMICON, SetForegroundWindow, SetMenuDefaultItem,
+                    SetMenuInfo, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+                    WM_APP, WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_USER,
+                    WNDCLASSW, WS_OVERLAPPED,
                 },
             },
         },
@@ -361,7 +367,9 @@ mod windows {
     const NIN_KEYSELECT: u32 = WM_USER + 1;
     const OPEN: usize = 1;
     const DISCONNECT: usize = 2;
-    const QUIT: usize = 3;
+    const CHECK_FOR_UPDATES: usize = 3;
+    const RESTART: usize = 4;
+    const QUIT: usize = 5;
 
     thread_local! {
         /// What the hidden window's procedure needs: the tray runs on the UI
@@ -404,7 +412,7 @@ mod windows {
                 let window = CreateWindowExW(
                     0,
                     w!("YapfastTray"),
-                    w!("Yapfast"),
+                    w!("Open Yapfast"),
                     WS_OVERLAPPED,
                     0,
                     0,
@@ -552,10 +560,25 @@ mod windows {
         // this thread.
         let picked = unsafe {
             let menu = CreatePopupMenu();
+            if menu.is_null() {
+                return;
+            }
+            SetMenuInfo(
+                menu,
+                &MENUINFO {
+                    cbSize: size_of::<MENUINFO>() as u32,
+                    fMask: MIM_STYLE,
+                    dwStyle: MNS_NOCHECK,
+                    ..std::mem::zeroed()
+                },
+            );
             AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
             if call {
                 AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
             }
+            AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
+            AppendMenuW(menu, MF_STRING, CHECK_FOR_UPDATES, w!("Check for updates"));
+            AppendMenuW(menu, MF_STRING, RESTART, w!("Restart Yapfast"));
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
             AppendMenuW(menu, MF_STRING, QUIT, w!("Quit"));
             SetMenuDefaultItem(menu, OPEN as u32, 0);
@@ -579,6 +602,8 @@ mod windows {
         match picked {
             OPEN => choose(Choice::Open),
             DISCONNECT => choose(Choice::Disconnect),
+            CHECK_FOR_UPDATES => choose(Choice::CheckForUpdates),
+            RESTART => choose(Choice::Restart),
             QUIT => choose(Choice::Quit),
             _ => {}
         }
@@ -615,9 +640,30 @@ mod tests {
         assert_eq!((plain.width, plain.height), (32, 32));
         let marigold = |pixel: &[u8]| pixel == [0xff, 0xbf, 0x47, 255];
         let red = |pixel: &[u8]| pixel == [0xf0, 0x54, 0x5e, 255];
-        assert!(plain.pixels.chunks_exact(4).any(marigold));
-        assert!(!plain.pixels.chunks_exact(4).any(red));
-        assert!(unread.pixels.chunks_exact(4).any(marigold));
+        assert!(
+            plain
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| marigold(pixel))
+        );
+        assert!(
+            !plain
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| red(pixel))
+        );
+        assert!(
+            unread
+                .pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| marigold(pixel))
+        );
         // The dot is in the bottom-right corner.
         let corner = (24 * 32 + 24) * 4;
         assert!(red(&unread.pixels[corner..corner + 4]));

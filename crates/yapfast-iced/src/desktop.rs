@@ -22,6 +22,8 @@ use yapfast_core::{
 pub enum TrayChoice {
     Open,
     Disconnect,
+    CheckForUpdates,
+    Restart,
     Quit,
     /// A tray came or went, which decides what closing the window does.
     Available,

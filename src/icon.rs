@@ -404,7 +404,13 @@ mod tests {
     fn the_window_icon_is_drawn_square() {
         let icon = Artwork::Default.window(64).unwrap();
         assert_eq!((icon.width, icon.height), (64, 64));
-        assert!(icon.pixels.chunks_exact(4).any(|pixel| pixel[3] == 255));
+        assert!(
+            icon.pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel[3] == 255)
+        );
     }
 
     #[test]

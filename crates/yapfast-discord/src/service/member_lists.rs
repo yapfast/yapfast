@@ -323,11 +323,25 @@ impl MemberLists {
     /// that came without a list operation, as GUILD_MEMBER_UPDATE's roles,
     /// nickname or timeout may.
     pub(super) fn member_changed(&self, tracker: &Tracker, data: &Value) {
-        let user = data["user"]["id"].as_str();
-        let listed = self.shown.as_ref().is_some_and(|list| {
-            data["guild_id"] == list.guild() && user.is_some_and(|user| list.lists(user))
-        });
-        if listed {
+        if let Some(guild) = data["guild_id"].as_str() {
+            let user = data["user"]["id"]
+                .as_str()
+                .or_else(|| data["user_id"].as_str());
+            self.members_changed(tracker, guild, user.into_iter());
+        }
+    }
+
+    pub(super) fn members_changed<'a>(
+        &self,
+        tracker: &Tracker,
+        guild: &str,
+        mut users: impl Iterator<Item = &'a str>,
+    ) {
+        if self
+            .shown
+            .as_ref()
+            .is_some_and(|list| guild == list.guild() && users.any(|user| list.lists(user)))
+        {
             self.publish(tracker);
         }
     }

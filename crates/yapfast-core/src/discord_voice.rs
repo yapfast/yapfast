@@ -513,7 +513,8 @@ pub(crate) async fn call(
             }
             if let Some(until) = join_sound {
                 let snapshot = discord_states.borrow().clone();
-                let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                // Discord's client also keeps the soundboard from one it suppresses.
+                let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                 let found = crate::soundboard::join_sound(&snapshot, guild).map(|join| {
                     soundboard
                         .find(&snapshot, &me, guild, &channel, &join.sound)
@@ -709,7 +710,7 @@ pub(crate) async fn call(
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
                         Some(Command::Soundboard(id)) => {
-                            let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                            let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                             let found = soundboard.find(&discord_states.borrow(), &me, guild, &channel, &id);
                             if let Some(sound) = found.filter(|_| !state.deafened && !server_muted) {
                                 let gain = crate::soundboard::gain(&discord_states.borrow());
@@ -1194,15 +1195,17 @@ fn discord_participants(
                     member.deafened
                 },
                 server_muted: member.server_muted,
+                speaking_blocked: member.speaking_blocked,
                 server_deafened: member.server_deafened,
-                speaking: if local {
-                    talking && !state.muted
-                } else {
-                    member
-                        .user_id
-                        .parse()
-                        .is_ok_and(|user: u64| speaking.contains(&user))
-                },
+                speaking: !member.speaking_blocked
+                    && if local {
+                        talking && !state.muted
+                    } else {
+                        member
+                            .user_id
+                            .parse()
+                            .is_ok_and(|user: u64| speaking.contains(&user))
+                    },
                 connected: true,
                 problem: None,
                 avatar: Some(member.avatar.clone()),
@@ -1231,6 +1234,7 @@ fn discord_participants(
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 speaking: false,
                 connected: false,

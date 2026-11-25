@@ -1,13 +1,13 @@
 //! Commands about the account rather than a channel: finding people,
 //! profiles, role members, member search, friends, the status, calls
-//! ringing, message requests, a channel's pins and search, group DMs,
-//! notification settings and invites.
+//! ringing, message requests, a channel's pins and search, recent mentions,
+//! group DMs, notification settings and invites.
 
 use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
     commands::NOT_DISCORD,
-    render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
+    render::{chat_badges, chat_profile, found_in, hits_in, mentioned, with_previews},
     *,
 };
 use crate::chat::{
@@ -677,6 +677,36 @@ pub(super) fn command(
                 let _ = events.send(Event::Pins {
                     room,
                     result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::RecentMentions(query)) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    // Only a Discord server's id names a server to ask of.
+                    let guild = query.server.as_deref().and_then(discord::parse_server);
+                    let asked = discord.recent_mentions(query.everyone, query.roles, guild);
+                    let result = match asked.await {
+                        Ok(messages) => Ok(mentioned(&discord, &messages)),
+                        Err(error) => {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not list recent mentions"
+                            );
+                            Err(error.to_string())
+                        }
+                    };
+                    let _ = events.send(Event::RecentMentions { query, result });
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::RecentMentions {
+                    query,
+                    result: Err(why.into()),
                 });
             }
         }

@@ -234,10 +234,7 @@ impl App {
                     Request::KeepEmoji { near, first } => {
                         crate::picker::keep_emoji(self, near, first);
                     }
-                    Request::Restart => {
-                        crate::exit_for(crate::Exit::Restart);
-                        tasks.push(self.quit());
-                    }
+                    Request::Restart => tasks.push(self.restart()),
                     Request::PlaceEmoji { target, key } => {
                         tasks.push(crate::picker::place_emoji(self, target, key));
                     }

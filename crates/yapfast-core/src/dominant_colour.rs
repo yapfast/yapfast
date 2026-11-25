@@ -19,7 +19,7 @@ pub fn dominant(pixels: &[u8], order: Order) -> Option<u32> {
     // About 1000 samples are enough for an average.
     let step = (pixels.len() / 4 / 1024).max(1);
     let (mut total, mut sum, mut count) = (0.0f64, [0.0f64; 3], 0.0f64);
-    for pixel in pixels.chunks_exact(4).step_by(step) {
+    for pixel in pixels.as_chunks::<4>().0.iter().step_by(step) {
         if pixel[3] < 128 {
             continue;
         }

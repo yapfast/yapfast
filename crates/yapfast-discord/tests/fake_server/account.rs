@@ -29,7 +29,7 @@ async fn plays_through_rpc(discord: &Discord, server: &str, directory: &std::pat
         let game = directory.path().join("yapfast_detected_game");
         std::fs::hard_link(executable, &game).unwrap();
         let child = std::process::Command::new(game)
-            .args(["--exact", "waits_as_detected_game"])
+            .args(["--exact", "waits_as_detected_game", "--ignored"])
             .env("YAPFAST_TEST_DETECTED_GAME", "1")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
@@ -509,6 +509,96 @@ async fn fetches_the_activity_feed_and_who_a_channel_may_show() {
             .map(|person| &*person.name),
         Some("Bob"),
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_the_accounts_recent_mentions() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("recent_mentions").await;
+    // Nothing has mentioned her yet.
+    assert!(
+        discord
+            .recent_mentions(true, true, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    post_control(server, "/_control/mention", "");
+    post_control(server, "/_control/mention", "");
+    let mentions = discord.recent_mentions(true, true, None).await.unwrap();
+    assert_eq!(mentions.len(), 2);
+    // Discord's list is newest first, and each message keeps its server.
+    assert!(mentions[0].order() > mentions[1].order());
+    let message = &mentions[0];
+    assert_eq!(message.channel_id, general);
+    assert_eq!(message.guild_id.as_deref(), Some(guild.as_str()));
+    assert_eq!(message.author_id, bob);
+    assert_eq!(message.author, "Bob", "learned by its own name");
+    assert!(message.content.contains("are you in for co-op tonight?"));
+    assert!(
+        message
+            .mentions
+            .iter()
+            .any(|user| user == "1400000000000000001"),
+        "it mentions Alice"
+    );
+    // Every way Bob calls on her lists: by name, through her Crew role,
+    // with @everyone and @here, and in a reply to her message; not through
+    // Mods, which she lacks, nor the one that names nobody.
+    post_control(server, "/_control/mentions", "");
+    let mentions = discord.recent_mentions(true, true, None).await.unwrap();
+    assert_eq!(mentions.len(), 2 + 5);
+    assert!(
+        mentions
+            .windows(2)
+            .all(|pair| pair[0].order() > pair[1].order()),
+        "newest first"
+    );
+    assert!(
+        mentions
+            .iter()
+            .any(|message| message.replies_to("1400000000000000001")),
+        "a reply that pings her lists"
+    );
+    // The filter's boxes go as `everyone` and `roles`: without @everyone
+    // the @everyone and @here pings go, without roles the Crew one, and
+    // what names her or replies to her stays either way.
+    let without_everyone = discord.recent_mentions(false, true, None).await.unwrap();
+    assert_eq!(without_everyone.len(), 2 + 3);
+    assert!(
+        !without_everyone
+            .iter()
+            .any(|message| message.mention_everyone)
+    );
+    let without_roles = discord.recent_mentions(true, false, None).await.unwrap();
+    assert_eq!(without_roles.len(), 2 + 4);
+    assert!(
+        without_roles
+            .iter()
+            .all(|message| message.mention_roles.is_empty())
+    );
+    let named_only = discord.recent_mentions(false, false, None).await.unwrap();
+    assert_eq!(named_only.len(), 2 + 2);
+    // `guild_id` keeps to one server's.
+    let here = discord
+        .recent_mentions(true, true, Some(guild.as_str()))
+        .await
+        .unwrap();
+    assert_eq!(here.len(), mentions.len());
+    let elsewhere = discord
+        .recent_mentions(true, true, Some("1"))
+        .await
+        .unwrap();
+    assert!(elsewhere.is_empty(), "no mention in another server");
 }
 
 #[tokio::test(flavor = "multi_thread")]

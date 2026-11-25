@@ -98,6 +98,7 @@ struct VoiceEntry {
     muted: bool,
     deafened: bool,
     server_muted: bool,
+    speaking_blocked: bool,
     server_deafened: bool,
     streaming: bool,
     video: bool,
@@ -1125,6 +1126,7 @@ impl Tracker {
                         muted: flag("self_mute"),
                         deafened: flag("self_deaf"),
                         server_muted: flag("mute"),
+                        speaking_blocked: flag("suppress"),
                         server_deafened: flag("deaf"),
                         streaming: flag("self_stream"),
                         video: flag("self_video"),
@@ -1833,6 +1835,7 @@ impl Tracker {
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 streaming: false,
                 video: false,
@@ -1981,6 +1984,7 @@ impl Tracker {
                     muted: entry.muted || entry.server_muted,
                     deafened: entry.deafened || entry.server_deafened,
                     server_muted: entry.server_muted,
+                    speaking_blocked: entry.speaking_blocked,
                     server_deafened: entry.server_deafened,
                     streaming: entry.streaming,
                     video: entry.video,
@@ -2141,6 +2145,19 @@ mod tests {
         assert_eq!(lounge[0].name, "Annie");
         assert!(lounge[0].avatar.ends_with("/avatars/2/abc.png?size=128"));
         assert!(lounge[0].muted);
+        assert!(!lounge[0].speaking_blocked);
+
+        for suppress in [true, false] {
+            tracker.apply(
+                &Event::VoiceStateUpdate,
+                &json!({"guild_id": "10", "user_id": "2", "channel_id": "11", "suppress": suppress}),
+            );
+            let snapshot = tracker.snapshot();
+            let ann = &snapshot.voice["11"][0];
+            assert_eq!(ann.speaking_blocked, suppress);
+            assert!(!ann.muted);
+            assert!(!ann.server_muted);
+        }
 
         tracker.apply(
             &Event::VoiceStateUpdate,

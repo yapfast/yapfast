@@ -1021,6 +1021,7 @@ fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
         muted: false,
         deafened: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
         streaming: false,
         video: false,
