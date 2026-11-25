@@ -200,6 +200,8 @@ interested. Folders show up as they do in Discord.
   people from their menu, block and unblock them from their profile, hide what
   blocked people write, and unblock them from a list in Settings. Active Now
   sits beside the friends list.
+- **Several accounts**: link as many as you like, and switch between them from your
+  account card or manage them in a dialog, as Discord's own apps do.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers. The inbox lists unread channels
   and your recent mentions, filtered by ping, jumping to their messages.
