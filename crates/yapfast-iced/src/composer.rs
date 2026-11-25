@@ -55,6 +55,8 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
+    /// Whether the composer's field has the keys, which its outline shows.
+    pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
     /// edit's own field.
     pub editing: Option<String>,
@@ -491,6 +493,9 @@ fn field_event(app: &mut App, which: Writing, event: field::Event) -> Task<Messa
         field::Event::UpToMessages => crate::timeline::keys::step_into_messages(app),
         field::Event::Paste => paste(app, which),
         field::Event::Focus(focused) => {
+            if which == Writing::Draft {
+                app.composer.focused = focused;
+            }
             if focused {
                 crate::timeline::keys::leave_messages(app);
             }

@@ -236,7 +236,7 @@ fn tab<'a>(cx: Ctx<'a>, label: &'static str, chosen: bool, event: Event) -> Elem
 /// How wide the page's content is: the window less the navigation and the
 /// room each side, at most [`MOST`].
 fn room(cx: Ctx<'_>) -> f32 {
-    (cx.look.window.width - crate::conversation::navigation(cx.layout) - 2.0 * SIDE)
+    (cx.look.window.width - crate::conversation::navigation_ctx(cx) - 2.0 * SIDE)
         .clamp(280.0, MOST)
         .floor()
 }
