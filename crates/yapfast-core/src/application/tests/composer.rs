@@ -510,3 +510,68 @@ fn a_slowmode_waits_after_a_message_and_holds_one_sent_too_soon() {
         Command::Send { .. }
     ));
 }
+
+/// An edit keeps mentioning someone the message mentioned even when they're
+/// no longer among the people to suggest (they left the server): their
+/// `@Name` goes back as `<@id>`, not as plain text. A name that only starts
+/// the same is left alone.
+#[test]
+#[cfg(feature = "discord")]
+fn an_edit_keeps_mentions_of_people_no_longer_suggested() {
+    use crate::mention::{Mentioned, Target};
+    let room = "discord:10:11";
+    let mut app = discord_server();
+    app.dispatch(Action::Open(room.into()));
+    let mut mine = message("d:5", true);
+    mine.body = "hi @Gone".into();
+    mine.mentions = vec![Mentioned {
+        text: "@Gone".into(),
+        target: Target::User("42".into()),
+        color: None,
+        at: vec![3],
+    }];
+    app.apply(Event::Timeline {
+        room: room.into(),
+        messages: timeline(vec![mine]),
+    });
+    app.dispatch(Action::Edit("d:5".into()));
+    app.dispatch(Action::SetEditText("hi @Gone and @Gonzo".into()));
+    assert_eq!(
+        edit_command(app.dispatch(Action::SaveEdit)),
+        ("d:5".into(), "hi <@42> and @Gonzo".into())
+    );
+}
+
+/// Two people the message mentioned under the same name (unknown people
+/// both show as `@Discord user`) can't be told apart in the edit's text, so
+/// neither is turned into a mention: the edit mustn't send `<@1>` twice.
+#[test]
+#[cfg(feature = "discord")]
+fn an_edit_leaves_a_name_two_mentioned_people_share_as_text() {
+    use crate::mention::{Mentioned, Target};
+    let room = "discord:10:11";
+    let mut app = discord_server();
+    app.dispatch(Action::Open(room.into()));
+    let mut mine = message("d:6", true);
+    mine.body = "@Discord user and @Discord user".into();
+    mine.mentions = ["1", "2"]
+        .into_iter()
+        .zip([0, 19])
+        .map(|(id, at)| Mentioned {
+            text: "@Discord user".into(),
+            target: Target::User(id.into()),
+            color: None,
+            at: vec![at],
+        })
+        .collect();
+    app.apply(Event::Timeline {
+        room: room.into(),
+        messages: timeline(vec![mine]),
+    });
+    app.dispatch(Action::Edit("d:6".into()));
+    app.dispatch(Action::SetEditText(
+        "@Discord user and @Discord user!".into(),
+    ));
+    let (_, body) = edit_command(app.dispatch(Action::SaveEdit));
+    assert_eq!(body, "@Discord user and @Discord user!");
+}

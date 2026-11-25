@@ -8,7 +8,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Padding, Point, Task,
-    widget::{Space, column, container, row, scrollable::Viewport, stack},
+    widget::{Space, column, container, row, stack},
 };
 use yapfast_core::application::{Action, DmScreen, MenuChoice, Navigation};
 
@@ -260,7 +260,7 @@ const INVITE: f32 = 32.0;
 /// What's done in the sidebar.
 #[derive(Clone, Debug)]
 pub enum Event {
-    Scrolled(Viewport),
+    Scrolled(Scroll),
     /// The pointer came onto a row or left it, by its key.
     Point(String, bool),
     /// The sidebar's edge was dragged this far from where it was pressed,
@@ -277,6 +277,9 @@ pub enum Event {
     /// A category's heading, by what it folds by.
     Toggle(String),
     Filter(String),
+    /// The DM list's "Find or start a conversation" button, shown instead
+    /// of the filter when the setting is on: the quick switcher.
+    FindConversation,
     Friends,
     Requests,
     Browse,
@@ -306,11 +309,15 @@ pub enum Event {
     TreeActivate(String),
 }
 
+fn scrolled(offset: f32, height: f32) -> Message {
+    Message::Side(Event::Scrolled(Scroll { offset, height }))
+}
+
 /// What's done in the sidebar.
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
-            app.sidebar.scroll = Scroll::of(viewport);
+            app.sidebar.scroll = viewport;
             return app.ask();
         }
         Event::Resize(by) => {
@@ -341,9 +348,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.sidebar.voice_card_off = false;
             }
             crate::app::point(&mut app.pointed.side, id, entered);
+            // Where the pointer came onto the row, for a peek's height.
+            app.peek.placing = entered && app.layout.peek_channels;
             // A DM's nameplate and moving decoration come as it's
-            // pointed at.
-            return app.ask();
+            // pointed at; a peek follows the row.
+            return Task::batch([app.ask(), crate::peek::follow(app)]);
         }
         // A server tree lists other places' channels too, which go to
         // their place first.
@@ -363,7 +372,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::TreeActivate(key) => return tree::activate(app, &key),
         Event::Toggle(fold) => {
             app.lists_shown = None;
-            let Navigation::Server(server) = app.client.state().navigation.clone() else {
+            let navigation = app.client.state().navigation.clone();
+            let navigation = if navigation == Navigation::Favorites {
+                Navigation::Server("@favorites".into())
+            } else {
+                navigation
+            };
+            let Navigation::Server(server) = navigation else {
                 return Task::none();
             };
             let collapsed = app.layout.collapsed.entry(server.clone()).or_default();
@@ -378,6 +393,9 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Filter(filter) => {
             app.lists_shown = None;
             app.sidebar.filter = filter;
+        }
+        Event::FindConversation => {
+            return app.switcher_event(crate::switcher::Event::Toggle);
         }
         Event::Friends => app.client.dispatch(Action::OpenDmScreen(DmScreen::Friends)),
         Event::Requests => app
@@ -595,7 +613,7 @@ impl<'a> View<'a> {
         let list_height = Length::Fill;
         let list = scroll_view(rows)
             .id(LIST)
-            .on_scroll(|viewport| Message::Side(Event::Scrolled(viewport)))
+            .on_vertical_viewport(scrolled)
             .height(list_height)
             .style(scrollbar(theme));
         // What's dragged follows the pointer, faint, over the list;

@@ -1,5 +1,6 @@
 //! The rail and the sidebar: servers, folders and DMs opening, their
-//! unread marks, categories folding and the DMs' search.
+//! unread marks, categories folding, and the DMs' search or, with its
+//! setting, Find or start a conversation.
 
 use std::sync::Arc;
 
@@ -173,6 +174,23 @@ fn a_folder_on_the_rail_holds_its_servers_until_opened_and_stays_so() {
 }
 
 #[test]
+fn a_middle_click_on_a_server_marks_it_read() {
+    // A Discord server whose #general mentions her.
+    let (mut app, _folder) = super::server::discord_server(0, |_, _| {});
+    let _ = app.update(Message::Rail(crate::rail::Event::MarkRead(
+        "discord:10".into(),
+    )));
+    let marked: Vec<String> = std::mem::take(&mut app.client.sent)
+        .into_iter()
+        .filter_map(|command| match command {
+            yapfast_core::chat::Command::MarkRead { room, .. } => Some(room),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(marked, ["discord:10:11"], "its unread channel is read");
+}
+
+#[test]
 fn a_server_on_the_rail_opens_its_channels() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
@@ -243,6 +261,8 @@ fn opening_an_unread_channel_clears_its_mark() {
 fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     let (mut app, _folder) = preview();
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!app.layout.dm_search_switcher, "the filter by default");
+    assert!(!shows(&app, "Find or start a conversation"));
     assert!(shows(&app, "Sam") && shows(&app, "Friday crew"));
     let _ = app.update(Message::Side(crate::sidebar::Event::Filter("fri".into())));
     assert!(shows(&app, "Friday crew"));
@@ -253,6 +273,37 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
     assert!(shows(&app, "looking-for-group"), "the server's channels");
     let _ = app.update(Message::Rail(crate::rail::Event::Home));
     assert!(shows(&app, "Riley"), "every DM again");
+}
+
+#[test]
+fn a_short_dm_list_recovers_after_a_scrolled_sidebar() {
+    let (mut app, _folder) = preview();
+    // The sidebar can carry the scroll report from a long server list
+    // into the first frame of a shorter DM list.
+    app.sidebar.scroll.offset = 2000.0;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!shows(&app, "Friday crew"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.sidebar.scroll.offset, 0.0);
+    assert!(shows(&app, "Friday crew"));
+}
+
+#[test]
+fn with_its_setting_the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
+    let (mut app, _folder) = preview();
+    app.layout.dm_search_switcher = true;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(shows(&app, "Find or start a conversation"));
+    interact(&mut app, |ui| {
+        ui.click("Find or start a conversation")
+            .expect("the button");
+    });
+    assert!(app.client.state().switcher.is_some(), "the quick switcher");
+    assert!(shows(&app, "Where would you like to go?"));
 }
 
 #[test]
@@ -470,6 +521,7 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: true,
             connected: true,
@@ -686,6 +738,35 @@ fn voice_server(app: &mut App) {
             avatar: None,
         }];
     });
+}
+
+/// A voice channel hidden from this account, listed with Show channels you
+/// can't access, shows who is in it under its lock, as other voice channels
+/// do, and a click on it joins nothing.
+#[test]
+fn a_hidden_voice_channel_lists_who_is_in_it_and_joins_nothing() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    change(&mut app, |state| {
+        let staff = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "staff")
+            .expect("staff");
+        let staff = Arc::make_mut(staff);
+        staff.name = "No Access".into();
+        staff.people[0].name = "Hana".into();
+        staff.people[0].deafened = true;
+    });
+    assert!(shows(&app, "No Access"));
+    assert!(shows(&app, "Hana"), "who is in it shows under it");
+    interact(&mut app, |ui| {
+        ui.click("No Access").expect("the hidden channel");
+    });
+    let _ = app.sync();
+    let state = app.client.state();
+    assert_eq!(state.voice.room, None, "it can't be joined");
+    assert!(!state.voice.active());
 }
 
 #[test]
@@ -950,4 +1031,193 @@ fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
             "slot {index} picture at ({cx}, {cy}) should be green, got [{r}, {g}, {b}]"
         );
     }
+}
+
+#[test]
+fn holding_alt_over_a_channel_peeks_at_it_only_with_the_switch_on() {
+    use crate::{peek, sidebar};
+    let (mut app, _folder) = preview();
+    let open = app.client.state().selected.clone();
+    assert_ne!(open.as_deref(), Some("games"));
+    let hold = |app: &mut App, alt: bool| {
+        let modifiers = if alt {
+            iced::keyboard::Modifiers::ALT
+        } else {
+            iced::keyboard::Modifiers::default()
+        };
+        let _ = app.update(Message::Modifiers(modifiers));
+    };
+    let _ = app.update(Message::Side(sidebar::Event::Point("games".into(), true)));
+    hold(&mut app, true);
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none(), "off, Alt does nothing");
+    hold(&mut app, false);
+
+    app.layout.peek_channels = true;
+    hold(&mut app, true);
+    assert!(app.peek.wanted.is_some(), "the row under the pointer");
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_some());
+    assert!(!app.peek.found.is_empty(), "its messages' cards");
+    assert!(shows(&app, "#games"), "beside the list");
+    assert_eq!(app.client.state().selected, open, "the open channel stays");
+    // Ctrl and Alt together don't peek; letting go closes it.
+    let _ = app.update(Message::Modifiers(
+        iced::keyboard::Modifiers::ALT | iced::keyboard::Modifiers::CTRL,
+    ));
+    assert!(app.client.state().peek.is_none());
+    assert!(app.peek.found.is_empty(), "its cards go with it");
+    // A late timer for a row left asks for nothing.
+    let _ = app.update(Message::Peek(peek::Event::Due("games".into())));
+    assert!(app.client.state().peek.is_none());
+}
+
+#[test]
+fn favorites_keep_saved_category_order_and_open_real_conversations() {
+    use crate::sidebar::SideRow;
+    use yapfast_core::{
+        application::{ChannelFavorite, MenuChoice},
+        network::Network,
+    };
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_linked = true;
+        state.discord_online = true;
+        state.favorites_visible = true;
+        for (index, room) in state.rooms.iter_mut().take(3).enumerate() {
+            let room = std::sync::Arc::make_mut(room);
+            room.id = if index == 2 {
+                "discord:10:43".into()
+            } else {
+                format!("discord:@me:{}", index + 41)
+            };
+            room.network = Network::Discord;
+            room.direct = index < 2;
+            room.person = (index == 0).then(|| "2".into());
+            room.voice = false;
+            room.parent = None;
+            room.locked = false;
+            room.request = false;
+            room.unread = 0;
+            room.mentions = 0;
+            room.forum = index == 2;
+            room.people.clear();
+        }
+        let mut post = (*state.rooms[2]).clone();
+        post.id = "discord:10:44".into();
+        post.parent = Some("discord:10:43".into());
+        post.forum = false;
+        post.unread = 1;
+        post.mentions = 2;
+        state.rooms.push(std::sync::Arc::new(post));
+        state.channel_favorites = vec![
+            ChannelFavorite {
+                id: "900".into(),
+                name: "Friends".into(),
+                category: true,
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "42".into(),
+                name: "Second".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 1,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "41".into(),
+                name: "First".into(),
+                reference: true,
+                parent: "900".into(),
+                position: 0,
+                ..Default::default()
+            },
+            ChannelFavorite {
+                id: "43".into(),
+                name: "Top level".into(),
+                reference: true,
+                position: 1,
+                ..Default::default()
+            },
+        ];
+        state.list_changes += 1;
+    });
+    let _ = app.update(Message::Rail(crate::rail::Event::Server(
+        "@favorites".into(),
+    )));
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    let labels: Vec<_> = app
+        .sidebar
+        .rows
+        .iter()
+        .filter_map(|row| match row {
+            SideRow::Heading { name, .. } => Some(name.as_str()),
+            SideRow::Room(room) => Some(room.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    // The channels in no category come first, as in Discord's client, and a
+    // one-to-one DM keeps its person's name.
+    let dm = app
+        .client
+        .state()
+        .rooms
+        .iter()
+        .find(|room| room.id == "discord:@me:41")
+        .unwrap()
+        .name
+        .clone();
+    assert_eq!(labels, ["Top level", "Friends", dm.as_str(), "Second"]);
+    let forum = app
+        .sidebar
+        .rows
+        .iter()
+        .find_map(|row| match row {
+            SideRow::Room(room) if room.id == "discord:10:43" => Some(room),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!((forum.posts.as_str(), forum.badge.as_str()), ("1", "2"));
+    // The tile counts the mentions of what's saved and its threads, as
+    // Discord's does, and is unread unless Favorites are muted.
+    let tile = |app: &App| {
+        crate::rail::rail(app.client.state(), &Default::default())
+            .into_iter()
+            .find(|item| item.id == "@favorites")
+            .unwrap()
+    };
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (true, "2".to_owned())
+    );
+    change(&mut app, |state| state.favorites_muted = true);
+    assert_eq!(
+        (tile(&app).unread, tile(&app).badge),
+        (false, "2".to_owned())
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Select(
+        "discord:@me:42".into(),
+    )));
+    assert_eq!(
+        app.client.state().selected.as_deref(),
+        Some("discord:@me:42")
+    );
+    assert_eq!(app.client.state().navigation, Navigation::Favorites);
+    assert!(
+        app.client
+            .state()
+            .menu_choices("discord:@me:42")
+            .contains(&MenuChoice::RemoveFavorite)
+    );
+    let _ = app.update(Message::Side(crate::sidebar::Event::Toggle("900".into())));
+    assert!(app.sidebar.rows.iter().any(|row| matches!(
+        row,
+        SideRow::Heading {
+            collapsed: true,
+            ..
+        }
+    )));
 }

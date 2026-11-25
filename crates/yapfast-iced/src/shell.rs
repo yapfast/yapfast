@@ -49,6 +49,8 @@ pub struct Start {
 pub struct Shell {
     /// The window, while open.
     pub window: Option<window::Id>,
+    #[cfg(windows)]
+    pub(crate) taskbar_unread: Option<(window::Id, u8)>,
     pub focused: bool,
     pub minimized: bool,
     pub maximized: bool,
@@ -92,6 +94,10 @@ pub struct Shell {
     /// The window's own title bar is drawn (`window_bar.rs`), its frame left
     /// out.
     pub own_title_bar: bool,
+    /// Under the desktop's own title bar, or none, Discord's bar still
+    /// shows, without the window's buttons; the tests lay the window out
+    /// without it unless one asks.
+    pub bar_under_frame: bool,
     /// That the GPU failed to start, until the banner is dismissed.
     pub gpu_notice: bool,
 }
@@ -123,7 +129,7 @@ pub enum Event {
     MonitorScaled(window::Id, Option<f32>),
     /// The banner that the GPU failed to start, dismissed.
     DismissGpuNotice,
-    /// The window took another size, or opened at one.
+    /// The size iced laid out for the window.
     Resized(Size),
     /// Glass art baked for the window's new size, off its thread.
     GlassBaked(Option<crate::themes::GlassBaked>),
@@ -150,7 +156,12 @@ impl App {
         self.shell.gpu_notice = start.gpu_failed;
         self.shell.fixed_size = start.fixed_size;
         self.place_as_kept();
-        self.show_tray();
+        if let Some(tray) = &self.shell.tray {
+            tray.show(
+                self.desktop_unread() > 0,
+                self.client.state().voice.active(),
+            );
+        }
         // Once at start with the check on.
         if self.layout.prefs.check_for_updates {
             crate::updates::look_for_updates(self, true);
@@ -188,6 +199,11 @@ impl App {
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
+                if !focused {
+                    // Alt may be let go elsewhere.
+                    self.modifiers = iced::keyboard::Modifiers::default();
+                    return crate::peek::follow(self);
+                }
                 if focused {
                     return window::request_user_attention(id, None);
                 }
@@ -222,6 +238,7 @@ impl App {
                     self.shell.display_scale = Some(scale);
                     // Frames are made at the window's pixels.
                     crate::call::stage::place_videos(self);
+                    crate::playback::resize_full_clip(self);
                 }
                 Task::none()
             }
@@ -243,6 +260,7 @@ impl App {
                     tracing::info!(?scale, window = ?self.shell.display_scale, "the monitor's scale");
                     self.shell.monitor_scale = scale;
                     crate::call::stage::place_videos(self);
+                    crate::playback::resize_full_clip(self);
                 }
                 Task::none()
             }
@@ -266,6 +284,7 @@ impl App {
                 self.fit_zoom();
                 let fitted = crate::active_now::active_now_fits(self.ctx());
                 crate::window_bar::fit_window(self);
+                crate::playback::resize_full_clip(self);
                 if crate::active_now::active_now_fits(self.ctx()) == fitted {
                     return Task::batch([glass, crate::window_bar::read_window_state(self)]);
                 }
@@ -405,6 +424,13 @@ impl App {
                 self.client.dispatch(Action::Voice(voice::Command::Leave));
                 self.sync()
             }
+            // About isn't open to show what the look finds, so a newer
+            // release is told of in a notification, as a timed look does.
+            Heard::Tray(TrayChoice::CheckForUpdates) => {
+                crate::updates::look_for_updates(self, true);
+                Task::none()
+            }
+            Heard::Tray(TrayChoice::Restart) => self.restart(),
             Heard::Tray(TrayChoice::Quit) => self.quit(),
             Heard::Tray(TrayChoice::Available) => {
                 let available = self
@@ -508,9 +534,18 @@ impl App {
         self.shell.minimized = false;
         self.focus_changed(true);
         let tell = self.shell.tell.clone();
+        let unread = if cfg!(windows) {
+            self.desktop_unread()
+        } else {
+            0
+        };
+        #[cfg(windows)]
+        {
+            self.shell.taskbar_unread = Some((id, unread));
+        }
         let decorate = window::run(id, move |window| {
             if let Some(tell) = tell {
-                desktop::desktop().decorate(window, tell);
+                desktop::desktop().decorate(window, tell, unread);
             }
         })
         .discard();
@@ -666,6 +701,11 @@ impl App {
         settled
     }
 
+    pub fn restart(&mut self) -> Task<Message> {
+        crate::exit_for(crate::Exit::Restart);
+        self.quit()
+    }
+
     /// Ends Yapfast: the icon goes first, rather than when the desktop next
     /// looks at it.
     pub fn quit(&mut self) -> Task<Message> {
@@ -673,32 +713,60 @@ impl App {
         iced::exit()
     }
 
-    /// The tray icon's unread dot, for a mention or an unread DM as Discord
-    /// counts them, and Disconnect in its menu during a call.
-    pub fn show_tray(&self) {
-        let Some(tray) = &self.shell.tray else {
-            return;
-        };
-        let state = self.client.state();
-        tray.show(
-            state
-                .rooms
-                .iter()
-                .any(|room| room.mentions > 0 || (room.direct && !room.muted && room.unread > 0)),
-            state.voice.active(),
-        );
+    /// Discord already counts DM messages as mentions. Fall back to the
+    /// unread state for unmuted DMs when there is no count.
+    fn desktop_unread(&self) -> u8 {
+        let limit = if cfg!(windows) { 10 } else { 1 };
+        let mut total = 0;
+        for room in &self.client.state().rooms {
+            let unread_dm = if room.direct && !room.muted {
+                room.unread
+            } else {
+                0
+            };
+            total += room.mentions.max(unread_dm).min(u64::from(limit)) as u8;
+            if total >= limit {
+                return limit;
+            }
+        }
+        total
     }
 
     /// After each change: the tray's icon, the alerts the core raised, and a
     /// link waiting for Discord.
     pub fn shell_sync(&mut self) -> Task<Message> {
-        self.show_tray();
+        let unread = if cfg!(windows) || self.shell.tray.is_some() {
+            self.desktop_unread()
+        } else {
+            0
+        };
+        if let Some(tray) = &self.shell.tray {
+            tray.show(unread > 0, self.client.state().voice.active());
+        }
         let mut tasks = Vec::new();
+        #[cfg(windows)]
+        if let Some((id, shown)) = self.shell.taskbar_unread
+            && self.shell.window == Some(id)
+            && shown != unread
+        {
+            self.shell.taskbar_unread = Some((id, unread));
+            tasks.push(
+                window::run(id, move |window| {
+                    desktop::desktop().taskbar_unread(window, unread);
+                })
+                .discard(),
+            );
+        }
         for alert in self.client.take_alerts() {
             tasks.push(self.alert(alert));
         }
         if let Some(bytes) = self.client.take_copied_picture() {
             desktop::desktop().copy_picture(bytes);
+        }
+        // The question before leaving takes the keys, as a masked link's does.
+        if let Some(link) = self.client.take_leaving() {
+            self.leaving = Some(link);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
         }
         if self.shell.pending_link.is_some() && self.shell.window.is_some() {
             tasks.push(self.open_pending_link());

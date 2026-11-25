@@ -36,12 +36,33 @@ use crate::{
     widgets::Pic,
 };
 
+/// The window's pixels across `units` of the view at `scale` (its display
+/// scale times the zoom), rounded as the renderer rounds a picture's span,
+/// so a picture made at it is copied in as it is rather than stretched.
+pub fn window_pixels(units: u32, scale: f32) -> u32 {
+    ((units as f32 * scale).round() as u32).max(1)
+}
+
 /// A picture's pixels as tiny-skia draws them, premultiplied BGRA.
 struct NativePixels(Vec<u8>);
 
 impl yapfast_core::chat::PixelBuffer for NativePixels {
     fn bytes(&self) -> &[u8] {
         &self.0
+    }
+
+    fn straight_rgba(&self) -> Vec<u8> {
+        let mut pixels = self.0.clone();
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
+            let straight = |value: u8| match a {
+                0 => 0,
+                255 => value,
+                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
+            };
+            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
+        }
+        pixels
     }
 }
 
@@ -102,22 +123,6 @@ impl Default for MediaLook {
     }
 }
 
-fn straight_pixels(picture: &Picture) -> Vec<u8> {
-    let mut pixels = picture.rgba.to_vec();
-    if byte_order(picture) == yapfast_core::dominant_colour::Order::Bgra {
-        for pixel in pixels.chunks_exact_mut(4) {
-            let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
-            let straight = |value: u8| match a {
-                0 => 0,
-                255 => value,
-                _ => ((u16::from(value) * 255 + u16::from(a) / 2) / u16::from(a)).min(255) as u8,
-            };
-            pixel.copy_from_slice(&[straight(r), straight(g), straight(b), a]);
-        }
-    }
-    pixels
-}
-
 fn apply_media(look: MediaLook, pixels: &mut [u8], width: u32, height: u32) {
     match look.media {
         Media::Dither(dither) if look.patterned && content::Dither::patterned(width, height) => {
@@ -133,7 +138,7 @@ fn themed_native(picture: &Picture, look: MediaLook) -> std::borrow::Cow<'_, [u8
     if look.media == Media::Normal {
         return std::borrow::Cow::Borrowed(&picture.rgba);
     }
-    let mut pixels = straight_pixels(picture);
+    let mut pixels = picture.rgba.straight_rgba();
     apply_media(look, &mut pixels, picture.width, picture.height);
     paint::to_native(&mut pixels);
     std::borrow::Cow::Owned(pixels)
@@ -199,8 +204,9 @@ pub struct Pictures {
     /// Copies of other pictures, at each size they're drawn at (width,
     /// height, cut to cover).
     pub scaled: RefCell<HashMap<(u32, u32, bool), Converted<Handle>>>,
-    /// Presence dots, by what they are and their ring's colour.
-    pub marks: RefCell<HashMap<Mark, Handle>>,
+    /// Presence dots, by what they are and their ring's colour, and the
+    /// scale they're drawn at.
+    pub marks: RefCell<HashMap<(Mark, u32), Handle>>,
     /// Emoji for the menu's quick reactions and the reactions' tooltips.
     pub emoji: RefCell<HashMap<(&'static str, u32), Option<Handle>>>,
     /// Moving pictures playing: those the last view didn't show go after
@@ -229,7 +235,12 @@ impl Pictures {
     /// Whether `picture` is opaque all over.
     pub fn opaque(&self, picture: &Arc<Picture>) -> bool {
         self.opaque.borrow_mut().get(picture, |picture| {
-            picture.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255)
+            picture
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
         })
     }
 
@@ -721,6 +732,16 @@ impl<'a> crate::ctx::Ctx<'a> {
         self.fit(picture, width, height, cover)
     }
 
+    /// The window's pixels across `units` of the view (its display scale
+    /// times the zoom), rounded as the renderer rounds a picture's span:
+    /// what a picture shown `units` across is made at, so the renderer
+    /// copies it in as it is rather than stretching it.
+    pub fn pixels(self, units: u32) -> u32 {
+        window_pixels(units, self.scale)
+    }
+
+    /// `picture` to show `width` by `height` units, made at the window's
+    /// pixels ([`Self::pixels`]).
     pub fn fit(
         self,
         picture: &Arc<Picture>,
@@ -731,16 +752,11 @@ impl<'a> crate::ctx::Ctx<'a> {
         if picture.width == 0 || picture.height == 0 || width == 0 || height == 0 {
             return None;
         }
-        let media = self.media_look();
+        let (width, height) = (self.pixels(width), self.pixels(height));
         if picture.width == width && picture.height == height {
-            return Some(self.pictures.previews.borrow_mut().get(picture, |picture| {
-                if media.media == Media::Normal {
-                    shared(picture)
-                } else {
-                    Handle::from_rgba(width, height, themed_native(picture, media).into_owned())
-                }
-            }));
+            return Some(self.own_size(picture));
         }
+        let media = self.media_look();
         Some(
             self.pictures
                 .scaled
@@ -758,6 +774,23 @@ impl<'a> crate::ctx::Ctx<'a> {
                     Handle::from_rgba(width, height, pixels)
                 }),
         )
+    }
+
+    /// `picture` at its own pixels: the core's own, shared, unless the
+    /// theme's content look changes them.
+    pub fn own_size(self, picture: &Arc<Picture>) -> Handle {
+        let media = self.media_look();
+        self.pictures.previews.borrow_mut().get(picture, |picture| {
+            if media.media == Media::Normal {
+                shared(picture)
+            } else {
+                Handle::from_rgba(
+                    picture.width,
+                    picture.height,
+                    themed_native(picture, media).into_owned(),
+                )
+            }
+        })
     }
 
     /// An animated custom emoji's picture at `url`, `side` across, playing
@@ -800,9 +833,10 @@ impl<'a> crate::ctx::Ctx<'a> {
         )
     }
 
-    /// A presence dot, drawn once.
+    /// A presence dot, drawn once at the window's pixels.
     pub fn mark(self, mark: Mark) -> Option<Handle> {
-        if let Some(handle) = self.pictures.marks.borrow().get(&mark) {
+        let key = (mark, self.scale.to_bits());
+        if let Some(handle) = self.pictures.marks.borrow().get(&key) {
             return Some(handle.clone());
         }
         let canvas = match mark {
@@ -813,19 +847,19 @@ impl<'a> crate::ctx::Ctx<'a> {
                 ring,
                 crate::theme::rgb(self.look.theme.live),
                 crate::theme::rgb(self.look.theme.faint),
+                self.scale,
             )?,
         };
         let handle = handle(canvas);
-        self.pictures
-            .marks
-            .borrow_mut()
-            .insert(mark, handle.clone());
+        self.pictures.marks.borrow_mut().insert(key, handle.clone());
         Some(handle)
     }
 
-    /// An emoji's picture at `size`, for the menu's quick reactions and
-    /// tooltips: made once, kept with the client's marks.
+    /// An emoji's picture to show at `size`, for the menu's quick reactions
+    /// and tooltips: made once at the window's pixels, kept with the
+    /// client's marks.
     pub fn emoji_picture(self, key: &'static str, size: u32) -> Option<Handle> {
+        let size = self.pixels(size);
         if let Some(handle) = self.pictures.emoji.borrow().get(&(key, size)) {
             return handle.clone();
         }
@@ -1103,7 +1137,23 @@ mod tests {
 
     use yapfast_core::themes::content::{Dither, Media};
 
-    use super::{MediaLook, Player, apply_media};
+    use super::{MediaLook, NativePixels, Player, apply_media};
+
+    #[test]
+    fn native_pixels_leave_as_straight_rgba() {
+        use yapfast_core::chat::PixelBuffer;
+        // Opaque, half see-through and clear: red stays red, not blue.
+        let rgba = [200, 40, 10, 255, 200, 40, 10, 128, 0, 0, 0, 0];
+        let mut native = rgba.to_vec();
+        crate::paint::to_native(&mut native);
+        assert_ne!(native[..3], rgba[..3]);
+        let straight = NativePixels(native).straight_rgba();
+        assert_eq!(straight[..4], rgba[..4]);
+        for (got, want) in straight[4..8].iter().zip(&rgba[4..8]) {
+            assert!(got.abs_diff(*want) <= 2, "{straight:?}");
+        }
+        assert_eq!(straight[8..], rgba[8..]);
+    }
 
     #[test]
     fn media_recolouring_keeps_alpha() {
@@ -1156,7 +1206,9 @@ mod tests {
         assert_ne!(patterned, gradient);
         assert!(
             patterned
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| { pixel[..3] == [0, 0, 0] || pixel[..3] == [255, 255, 255] })
         );
     }

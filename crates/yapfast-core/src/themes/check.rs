@@ -106,11 +106,12 @@ impl Files {
                 if metadata.len() > MAX_FONT_BYTES.max(MAX_IMAGE_BYTES) || total > MAX_THEME_BYTES {
                     return Err(format!(
                         "{} is too large: a theme holds at most 24 MiB, a font 4 MiB and a picture 2 MiB",
-                        relative.display()
+                        super::theme_path(&relative)
                     ));
                 }
-                let bytes = std::fs::read(&path)
-                    .map_err(|error| format!("{} couldn't be read: {error}", relative.display()))?;
+                let bytes = std::fs::read(&path).map_err(|error| {
+                    format!("{} couldn't be read: {error}", super::theme_path(&relative))
+                })?;
                 files.insert(relative, bytes);
             }
         }
@@ -474,8 +475,8 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
             if *known != relative {
                 report.errors.push(format!(
                     "{} and {} differ only in letter case, which Windows and macOS read as one file",
-                    known.display(),
-                    relative.display()
+                    super::theme_path(known),
+                    super::theme_path(&relative)
                 ));
             }
         } else {
@@ -489,7 +490,7 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
         let Some(bytes) = files.files.get(&relative) else {
             report.errors.push(format!(
                 "{MANIFEST} names {}, which isn't in the theme",
-                relative.display()
+                super::theme_path(&relative)
             ));
             continue;
         };
@@ -503,7 +504,7 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
         if let Err(error) = checked {
             report
                 .errors
-                .push(format!("{}: {error}", relative.display()));
+                .push(format!("{}: {error}", super::theme_path(&relative)));
         }
     }
     for variant in &resolved {
@@ -514,7 +515,7 @@ pub fn check(files: &Files, strictness: Strictness) -> Report {
                 {
                     let sentence = format!(
                         "{}: lasts {seconds:.1} s, and a {} sound lasts at most {} s",
-                        file.display(),
+                        super::theme_path(file),
                         slot.name(),
                         slot.longest()
                     );
@@ -726,7 +727,11 @@ fn display_type(resolved: &[Resolved], files: &Files) -> Option<String> {
                 continue;
             };
             if let Some(face) = display_face(font, bytes) {
-                add(format!("{} in {face} ({})", role.name(), font.display()));
+                add(format!(
+                    "{} in {face} ({})",
+                    role.name(),
+                    super::theme_path(font)
+                ));
             }
         }
         if variant.layout.names.is_some() {
@@ -1283,7 +1288,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
                 "shape.card_section.bar_text",
                 shape.bar_text.map(|colour| vec![colour]).or(text),
                 "shape.card_section.bar",
-                ground.clone().map(|grounds| {
+                ground.map(|grounds| {
                     bar.colours()
                         .iter()
                         .flat_map(|bar| grounds.iter().map(move |ground| laid_over(*bar, *ground)))
@@ -2003,7 +2008,9 @@ mod tests {
             report
                 .errors
                 .iter()
-                .any(|error| error.contains("art/sky.jpg"))
+                .any(|error| error.contains("art/sky.jpg, which isn't in the theme")),
+            "{:?}",
+            report.errors
         );
     }
 

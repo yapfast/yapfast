@@ -371,6 +371,10 @@ impl App {
         // come and go: the card, the suggestions, the picker, a menu, the
         // modal, each over the last.
         let mut layers = stack![base];
+        // A peek beside the sidebar, under everything that opens.
+        if let Some(peek) = crate::peek::view(self, self.ctx()) {
+            layers = layers.push(peek);
+        }
         if let Some(face) = crate::rail::drag_face(&self.rail, self.ctx()) {
             layers = layers.push(face);
         }
@@ -430,7 +434,9 @@ impl App {
         if let Some(viewer) = crate::call::corner::clip_viewer(self) {
             layers = layers.push(viewer);
         }
-        if let Some(popup) = crate::call::popups::call_popup_view(self.ctx()) {
+        if let Some(popup) =
+            crate::call::popups::call_popup_view(self.ctx(), self.shell.frame.width)
+        {
             layers = layers
                 .push(outside(Message::Call(crate::call::Event::Close), false))
                 .push(popup);
@@ -546,10 +552,12 @@ impl App {
         if let Some(viewer) = crate::image_viewer::view(&self.viewer, self.ctx()) {
             layers = layers.push(viewer);
         }
+        // A menu opened from the inbox shows over it (`frame_layers`).
         if let Some(menu) = self
             .win
             .menu
             .as_ref()
+            .filter(|_| !crate::window_bar::inbox_shown(self))
             .and_then(|menu| crate::menus::view(menu, self.ctx()))
         {
             layers = layers
@@ -632,6 +640,20 @@ impl App {
         }
         if let Some(inbox) = crate::window_bar::inbox_view(self) {
             layers = layers.push(inbox);
+            // Its filter menu, over it.
+            if let Some(menu) = self
+                .win
+                .menu
+                .as_ref()
+                .and_then(|menu| crate::menus::view(menu, self.ctx()))
+            {
+                layers = layers
+                    .push(crate::controls::outside(
+                        Message::Menu(crate::menus::Event::Close),
+                        false,
+                    ))
+                    .push(menu);
+            }
         }
         if let Some(bar) = crate::window_bar::window_bar(self) {
             layers = layers.push(column![bar, Space::new().height(Length::Fill)]);
@@ -639,7 +661,13 @@ impl App {
         if let Some(edges) = crate::window_bar::resize_edges(self) {
             layers = layers.push(edges);
         }
-        crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset).into()
+        let frame =
+            crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset);
+        // A display change can alter the logical layout independently of
+        // a window resize event. Fit the overlays to the room iced lays out.
+        iced::widget::sensor(frame)
+            .on_resize(|size| Message::Shell(crate::shell::Event::Resized(size)))
+            .into()
     }
 
     /// The zoom level, a moment after it changes.

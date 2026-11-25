@@ -3,7 +3,7 @@
 //! and the server's top.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -200,6 +200,11 @@ pub fn side_header(app: &Application) -> SideHeader {
                     .then_some(server.events.len()),
                 menu: server.discord && !state.preview,
             }),
+        Navigation::Favorites => SideHeader {
+            server: Some("@favorites".into()),
+            name: "Favorites".into(),
+            ..Default::default()
+        },
         Navigation::DirectMessages => SideHeader::default(),
     }
 }
@@ -271,7 +276,10 @@ pub fn sidebar_in(
     filter: &str,
     dark: bool,
 ) -> Vec<SideRow> {
-    let cosmetics = state.cosmetics;
+    if *navigation == Navigation::Favorites {
+        return favorite_rows(state, collapsed.get("@favorites"), filter, dark);
+    }
+
     let direct = *navigation == Navigation::DirectMessages;
     let query = filter.to_lowercase();
     // Who is in a voice channel of a server this account is in, as the DM
@@ -324,7 +332,7 @@ pub fn sidebar_in(
     }
     let server = match navigation {
         Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
-        Navigation::DirectMessages => None,
+        Navigation::DirectMessages | Navigation::Favorites => None,
     };
     // Browse Channels browses the open server.
     if server.is_some_and(|server| server.community)
@@ -432,15 +440,6 @@ pub fn sidebar_in(
         {
             continue;
         }
-        let status = if room.direct && room.network == Network::Discord {
-            if room.person.is_none() {
-                Status::words(format!("{} members", room.members))
-            } else {
-                Status::of(room.activity.as_deref())
-            }
-        } else {
-            Status::default()
-        };
         // Join consecutive visible rows only when they belong to the same tree.
         if let Some(parent) = room.parent.as_deref()
             && let Some(SideRow::Room(previous)) = rows.last_mut()
@@ -449,124 +448,9 @@ pub fn sidebar_in(
             previous.has_threads = previous.id == parent;
         }
         previous_parent = room.parent.as_deref();
-        rows.push(SideRow::Room(Box::new(Room {
-            id: room.id.clone(),
-            name: room.name.clone(),
-            icon: room_icon(room),
-            selected,
-            unread,
-            badge: count_badge(
-                room.mentions
-                    + posts
-                        .get(room.id.as_str())
-                        .filter(|_| room.forum)
-                        .map_or(0, |&(_, mentions)| mentions),
-            ),
-            posts: posts
-                .get(room.id.as_str())
-                .filter(|_| room.forum)
-                .map_or_else(String::new, |&(unread, _)| count_badge(unread)),
-            muted: room.muted && !room.voice,
-            locked: room.locked || room.join_locked,
-            voice: room.voice,
-            direct: room.direct,
-            avatar: room.avatar.clone(),
-            // Discord sends the presence of friends and of those sharing a
-            // server; anyone else in a one-to-one DM shows offline.
-            presence: if room.person.is_some() && room.network == Network::Discord {
-                room.presence.or(Some(Presence::Offline))
-            } else {
-                room.presence
-            },
-            status,
-            decoration: cosmetics
-                .decoration(room.decoration.as_deref())
-                .map(Arc::from),
-            nameplate: room
-                .nameplate
-                .as_ref()
-                .filter(|_| !state.hide_nameplates && room.direct)
-                .map(|plate| {
-                    let palette = plate.colors.map(|colors| colors[usize::from(!dark)]);
-                    (plate.picture.clone(), palette)
-                }),
-            style: room
-                .direct
-                .then(|| {
-                    crate::looks::name_look(
-                        cosmetics.style(room.style.as_deref()),
-                        &room.name,
-                        false,
-                        dark,
-                    )
-                })
-                .flatten(),
-            tag: cosmetics
-                .tag(room.tag.as_ref())
-                .map(|tag| (tag.text.clone(), tag.badge.clone())),
-            official: room.official,
-            wave: (room.direct && room.empty && !room.request)
-                .then(|| room.person.clone())
-                .flatten(),
-            voice_spot: room
-                .person
-                .as_deref()
-                .filter(|_| room.network == Network::Discord)
-                .and_then(|person| spots.get(person))
-                .map(|(room, channel, server)| {
-                    (
-                        (*room).to_owned(),
-                        (*channel).to_owned(),
-                        (*server).to_owned(),
-                    )
-                }),
-            call: room.direct && !room.people.is_empty(),
-            pinned: room.direct && state.pinned.contains(&room.id),
-            thread: room.parent.is_some(),
-            thread_continues: false,
-            has_threads: false,
-            people: if room.voice && !room.direct {
-                // The channel this account is connected to lists the call's
-                // participants while the server lists no one there yet, as
-                // Slint's (the preview's "You").
-                if room.people.is_empty()
-                    && state.voice.active()
-                    && state.voice.room.as_deref() == Some(room.id.as_str())
-                {
-                    state
-                        .voice
-                        .participants
-                        .iter()
-                        .map(|person| yapfast_core::chat::VoicePerson {
-                            id: person.person.clone(),
-                            name: person.user.clone(),
-                            avatar: person.avatar.clone(),
-                            muted: person.muted,
-                            deafened: person.deafened,
-                            server_muted: person.server_muted,
-                            server_deafened: person.server_deafened,
-                            streaming: person.streaming,
-                            video: person.video.is_some(),
-                            elsewhere: false,
-                            ..Default::default()
-                        })
-                        .collect()
-                } else {
-                    room.people.clone()
-                }
-            } else {
-                Vec::new()
-            },
-            started: room.voice_started.filter(|_| room.voice && !room.direct),
-            chat: !room.direct && room.voice_chat(),
-            close: (room.direct && room.network == Network::Discord).then_some(
-                if room.person.is_some() {
-                    "Close DM"
-                } else {
-                    "Leave Group"
-                },
-            ),
-        })));
+        rows.push(SideRow::Room(Box::new(room_row(
+            state, room, dark, &posts, &spots,
+        ))));
     }
     if !direct && query.is_empty() {
         rows.extend(
@@ -588,6 +472,264 @@ pub fn sidebar_in(
             "No channels in this server that you can see."
         };
         rows.push(SideRow::Empty(empty));
+    }
+    rows
+}
+
+fn room_row(
+    state: &AppState,
+    room: &ChatRoom,
+    dark: bool,
+    posts: &HashMap<&str, (u64, u64)>,
+    spots: &HashMap<&str, (&str, &str, &str)>,
+) -> Room {
+    let cosmetics = state.cosmetics;
+    let selected = state.selected.as_ref() == Some(&room.id);
+    let unread = room.unread > 0;
+    let status = if room.direct && room.network == Network::Discord {
+        if room.person.is_none() {
+            Status::words(format!("{} members", room.members))
+        } else {
+            Status::activity(&room.activities, room.activity.as_deref())
+        }
+    } else {
+        Status::default()
+    };
+    Room {
+        id: room.id.clone(),
+        name: room.name.clone(),
+        icon: room_icon(room),
+        selected,
+        unread,
+        badge: count_badge(
+            room.mentions
+                + posts
+                    .get(room.id.as_str())
+                    .filter(|_| room.forum)
+                    .map_or(0, |&(_, mentions)| mentions),
+        ),
+        posts: posts
+            .get(room.id.as_str())
+            .filter(|_| room.forum)
+            .map_or_else(String::new, |&(unread, _)| count_badge(unread)),
+        muted: room.muted && !room.voice,
+        locked: room.locked || room.join_locked,
+        voice: room.voice,
+        direct: room.direct,
+        avatar: room.avatar.clone(),
+        // Discord sends the presence of friends and of those sharing a
+        // server; anyone else in a one-to-one DM shows offline.
+        presence: if room.person.is_some() && room.network == Network::Discord {
+            room.presence.or(Some(Presence::Offline))
+        } else {
+            room.presence
+        },
+        status,
+        decoration: cosmetics
+            .decoration(room.decoration.as_deref())
+            .map(Arc::from),
+        nameplate: room
+            .nameplate
+            .as_ref()
+            .filter(|_| !state.hide_nameplates && room.direct)
+            .map(|plate| {
+                let palette = plate.colors.map(|colors| colors[usize::from(!dark)]);
+                (plate.picture.clone(), palette)
+            }),
+        style: room
+            .direct
+            .then(|| {
+                crate::looks::name_look(
+                    cosmetics.style(room.style.as_deref()),
+                    &room.name,
+                    false,
+                    dark,
+                )
+            })
+            .flatten(),
+        tag: cosmetics
+            .tag(room.tag.as_ref())
+            .map(|tag| (tag.text.clone(), tag.badge.clone())),
+        official: room.official,
+        wave: (room.direct && room.empty && !room.request)
+            .then(|| room.person.clone())
+            .flatten(),
+        voice_spot: room
+            .person
+            .as_deref()
+            .filter(|_| room.network == Network::Discord)
+            .and_then(|person| spots.get(person))
+            .map(|(room, channel, server)| {
+                (
+                    (*room).to_owned(),
+                    (*channel).to_owned(),
+                    (*server).to_owned(),
+                )
+            }),
+        call: room.direct && !room.people.is_empty(),
+        pinned: room.direct && state.pinned.contains(&room.id),
+        thread: room.parent.is_some(),
+        thread_continues: false,
+        has_threads: false,
+        people: if room.voice && !room.direct {
+            // The channel this account is connected to lists the call's
+            // participants while the server lists no one there yet, as
+            // Slint's (the preview's "You").
+            if room.people.is_empty()
+                && state.voice.active()
+                && state.voice.room.as_deref() == Some(room.id.as_str())
+            {
+                state
+                    .voice
+                    .participants
+                    .iter()
+                    .map(|person| yapfast_core::chat::VoicePerson {
+                        id: person.person.clone(),
+                        name: person.user.clone(),
+                        avatar: person.avatar.clone(),
+                        muted: person.muted,
+                        deafened: person.deafened,
+                        server_muted: person.server_muted,
+                        speaking_blocked: person.speaking_blocked,
+                        server_deafened: person.server_deafened,
+                        streaming: person.streaming,
+                        video: person.video.is_some(),
+                        elsewhere: false,
+                        ..Default::default()
+                    })
+                    .collect()
+            } else {
+                room.people.clone()
+            }
+        } else {
+            Vec::new()
+        },
+        started: room.voice_started.filter(|_| room.voice && !room.direct),
+        chat: !room.direct && room.voice_chat(),
+        close: (room.direct && room.network == Network::Discord).then_some(
+            if room.person.is_some() {
+                "Close DM"
+            } else {
+                "Leave Group"
+            },
+        ),
+    }
+}
+fn favorite_rows(
+    state: &AppState,
+    folded: Option<&BTreeSet<String>>,
+    filter: &str,
+    dark: bool,
+) -> Vec<SideRow> {
+    let query = filter.to_lowercase();
+    let references: HashSet<&str> = state
+        .channel_favorites
+        .iter()
+        .filter(|entry| entry.reference)
+        .map(|entry| entry.id.as_str())
+        .collect();
+    let mut rooms: HashMap<&str, &ChatRoom> = HashMap::new();
+    let mut posts = HashMap::new();
+    for room in &state.rooms {
+        if let Some((_, id)) = discord::parse_room(&room.id)
+            && references.contains(id)
+        {
+            rooms.insert(id, room.as_ref());
+        }
+        if let Some(parent) = room.parent.as_deref()
+            && discord::parse_room(parent).is_some_and(|(_, id)| references.contains(id))
+            && (room.unread > 0 || room.mentions > 0)
+        {
+            let counts = posts.entry(parent).or_insert((0_u64, 0_u64));
+            counts.0 += u64::from(room.unread > 0);
+            counts.1 += room.mentions;
+        }
+    }
+    let spots = crate::people::voice_spots(state);
+    let categories: BTreeSet<&str> = state
+        .channel_favorites
+        .iter()
+        .filter(|entry| entry.category)
+        .map(|entry| entry.id.as_str())
+        .collect();
+    // As Discord's client lists them: the channels in no category first, then
+    // each category in its order; in each, voice channels after the rest.
+    let mut children: HashMap<&str, Vec<_>> = HashMap::new();
+    let mut roots = Vec::new();
+    let mut headings = Vec::new();
+    for entry in &state.channel_favorites {
+        if entry.category {
+            headings.push(entry);
+        } else if entry.reference && categories.contains(entry.parent.as_str()) {
+            children
+                .entry(entry.parent.as_str())
+                .or_default()
+                .push(entry);
+        } else {
+            roots.push(entry);
+        }
+    }
+    let voice = |entry: &yapfast_core::application::ChannelFavorite| {
+        rooms
+            .get(entry.id.as_str())
+            .is_some_and(|room| room.voice && !room.direct)
+    };
+    roots.sort_by_key(|entry| (voice(entry), entry.position, &entry.id));
+    headings.sort_by_key(|entry| (entry.position, &entry.id));
+    for group in children.values_mut() {
+        group.sort_by_key(|entry| (voice(entry), entry.position, &entry.id));
+    }
+    let make_row = |entry: &yapfast_core::application::ChannelFavorite, collapsed: bool| {
+        if !entry.reference {
+            return None;
+        }
+        let room = rooms
+            .get(entry.id.as_str())
+            .copied()
+            .filter(|room| !room.locked && !room.request)?;
+        // Discord's client names a one-to-one DM by its person, whatever
+        // its nickname in Favorites.
+        let name = if entry.name.is_empty() || (room.direct && room.person.is_some()) {
+            &room.name
+        } else {
+            &entry.name
+        };
+        if !name.to_lowercase().contains(&query) {
+            return None;
+        }
+        if collapsed
+            && state.selected.as_ref() != Some(&room.id)
+            && room.unread == 0
+            && room.people.is_empty()
+        {
+            return None;
+        }
+        let mut row = room_row(state, room, dark, &posts, &spots);
+        row.name.clone_from(name);
+        row.close = None;
+        Some(SideRow::Room(Box::new(row)))
+    };
+    let mut rows: Vec<SideRow> = roots
+        .into_iter()
+        .filter_map(|entry| make_row(entry, false))
+        .collect();
+    for entry in headings {
+        // Local toggles override the saved fold without rewriting categories.
+        let collapsed = query.is_empty()
+            && (entry.collapsed ^ folded.is_some_and(|set| set.contains(&entry.id)));
+        rows.push(SideRow::Heading {
+            name: entry.name.clone(),
+            fold: entry.id.clone(),
+            collapsed,
+        });
+        if let Some(group) = children.get(entry.id.as_str()) {
+            rows.extend(group.iter().filter_map(|entry| make_row(entry, collapsed)));
+        }
+    }
+    if rows.is_empty() {
+        rows.push(SideRow::Empty(
+            "No Favorites yet. Right-click a Discord channel or DM to add one.",
+        ));
     }
     rows
 }

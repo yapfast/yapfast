@@ -156,11 +156,11 @@ async fn live_where<T>(
 }
 
 #[test]
+#[ignore = "child process of the fake Discord presence test"]
 fn waits_as_detected_game() {
-    if std::env::var_os("YAPFAST_TEST_DETECTED_GAME").is_some() {
-        use std::io::Read;
-        let _ = std::io::stdin().read_exact(&mut [0_u8]);
-    }
+    std::env::var_os("YAPFAST_TEST_DETECTED_GAME").expect("test harness only");
+    use std::io::Read;
+    let _ = std::io::stdin().read_exact(&mut [0_u8]);
 }
 
 /// The fake Discord, started afresh for each test, so no test sees what

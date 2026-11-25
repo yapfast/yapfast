@@ -114,11 +114,9 @@ impl Status {
             popover.cards = popover
                 .activities
                 .iter()
-                .map(|activity| {
-                    let mut card = crate::profile::look::activity_look(activity);
-                    card.heading = activity.heading();
-                    card
-                })
+                // Discord's lines in Discord's places, as on a profile, but
+                // no buttons, as on one's own; a Hang status has no card.
+                .filter_map(|activity| crate::profile::look::activity_look(activity, None))
                 .collect();
         }
     }

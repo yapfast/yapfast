@@ -243,9 +243,16 @@ pub struct Binding {
     pub id: u32,
     #[serde(default)]
     pub action: Action,
+    /// Disabling keeps the recorded keys without watching them.
+    #[serde(default = "binding_enabled")]
+    pub enabled: bool,
     /// None until recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keys: Option<Shortcut>,
+}
+
+fn binding_enabled() -> bool {
+    true
 }
 
 impl Binding {
@@ -478,6 +485,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(binding.action, Action::Unassigned);
+        assert!(binding.enabled, "existing bindings remain enabled");
         assert_eq!(binding.shortcut_id(), "keybind-4");
         let unrecorded: Binding = serde_json::from_value(serde_json::json!({ "id": 1 })).unwrap();
         assert_eq!(unrecorded.keys, None);
@@ -485,10 +493,11 @@ mod tests {
             serde_json::to_value(Binding {
                 id: 2,
                 action: Action::ToggleDeafen,
+                enabled: true,
                 keys: None
             })
             .unwrap(),
-            serde_json::json!({ "id": 2, "action": "toggle_deafen" })
+            serde_json::json!({ "id": 2, "action": "toggle_deafen", "enabled": true })
         );
     }
 

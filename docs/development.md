@@ -6,31 +6,38 @@ covers the toolchain, Cargo features and packaging in depth; the
 
 ## The development shell
 
-On NixOS, or anywhere with Nix, enter the pinned environment from the project
-folder:
+On Windows, use Cargo directly in PowerShell after installing the
+[native prerequisites](building.md#windows):
+
+```powershell
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+```
+
+On Linux, enter the pinned Nix environment from the project folder:
 
 ```sh
 nix develop path:./nix
-cargo run --locked
+cargo run --locked --profile fast
 ```
 
 `path:./nix` also works before files are tracked and keeps Cargo output out of
-the Nix source snapshot. Run the `cargo` commands below inside the shell;
+the Nix source snapshot. On Linux, run the `cargo` commands below inside the shell;
 [the shells](building.md#shells) says what each one provides. Local work
 builds with `--profile fast`.
 
 ```sh
 scripts/check --fast
-cargo build --locked --release
 ```
 
 `scripts/check` enters the Nix shell itself when Nix is installed; [building](building.md#checks)
-lists what it covers.
+lists what it covers. On Windows, run the native Cargo checks in
+[Contributing](../CONTRIBUTING.md#build-and-test).
 
 ## Try the UI without an account
 
 ```sh
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 ```
 
 Use the upper-left DM button for direct messages. Server buttons sit below it;
@@ -41,6 +48,12 @@ sign-in. Normal launch restores your saved session. Use `--data-dir PATH` for
 a separate test session. Passwords and recovery keys are entered in masked
 native fields.
 
+When testing links from a Linux desktop, use `--data-dir` to isolate Yapfast's
+files and keep the desktop's normal XDG environment. Yapfast uses `xdg-open`,
+or `gio open` when `xdg-open` is unavailable, to open web links and CAPTCHA
+pages in the configured default browser. Without either it falls back to the
+`webbrowser` crate, which reads `$BROWSER` first.
+
 Closing the window leaves Yapfast running in the system tray, with any call,
 where its icon opens it again or quits; without a tray it quits Yapfast
 ([the tray](tray.md)). For Yapfast's icon on its window and in the launcher,
@@ -48,8 +61,10 @@ run `scripts/install-desktop-entry` once after a release build
 ([the app icon](packaging.md#the-app-icon)).
 
 Discord runs only against the fake server, `testing/fake_discord.ts`, in
-development; `scripts/ui-session start --discord` starts both on a private
-display ([seeing the app](building.md#seeing-the-app)).
+development. On Linux, `scripts/ui-session start --discord` starts both on a
+private display ([seeing the app](building.md#seeing-the-app)). On Windows,
+start the fake with Bun and run Cargo with the PowerShell environment setup in
+[Contributing](../CONTRIBUTING.md#build-and-test).
 
 ## Renderer
 
@@ -86,7 +101,8 @@ standalone rooms outside Spaces are not shown in this navigation yet.
 With the local services running, check the desktop messaging backend with:
 
 ```sh
-cargo test --locked -p yapfast-core matrix_chat::tests::encrypted_chat_restore_send_retry_and_security_gates -- --ignored
+cargo test --locked --profile fast -p yapfast-core --features matrix \
+  matrix_chat::tests::encrypted_chat_restore_send_retry_and_security_gates -- --ignored
 ```
 
 This creates disposable accounts and checks session restoration, encrypted
@@ -161,7 +177,10 @@ button selects microphone and speakers. The
 
 ## Windows
 
-Build the Windows packages from this Linux checkout:
+For development on Windows, build and run natively with Cargo as shown
+[above](#the-development-shell). Nix and Wine are not required.
+
+To produce the release packages from Linux, use the Nix cross-build:
 
 ```sh
 nix develop path:./nix#windows --command scripts/build-windows        # Discord release

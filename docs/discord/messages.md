@@ -7,7 +7,12 @@ Yapfast lists the linked account's Discord servers in the rail with their
 channels. Channels the account's roles and channel overwrites keep it out of
 show greyed out with a lock, as in Discord; channels hidden from it appear the
 same way only with the "Show channels you can't access" setting, which is off
-by default. Server text channels are listed under their Discord categories and
+by default. Discord sends a hidden channel with the `OBFUSCATED` flag
+(`1 << 17`) and its name and topic as `___hidden___`, so such a channel, or
+category, is named "No Access", as Discord's client names it, has no topic,
+and counts as hidden whatever its overwrites say. A hidden voice channel
+still lists who is in it, from the voice states Discord sends for every
+voice channel, as any voice channel does; a click on it joins nothing. Server text channels are listed under their Discord categories and
 open in Yapfast's timeline. Clicking a category's heading collapses it, leaving
 the open channel, unread ones and voice channels with people in them, as in
 Discord; Yapfast remembers which categories are collapsed, per server. History
@@ -87,6 +92,8 @@ roles. A ping reply puts the account in `mentions`, so it is a mention,
 highlighted always, as Discord's client does. A reply to its message with the
 ping off is highlighted too, but only while it's new: after the last message
 read when the channel or thread opened, by snowflake.
+The account's own message that names it is highlighted as well, as
+Discord's client does, though it counts as no mention.
 Each server in the rail shows its mentions as a count, and the DM button
 counts DM mentions and the friend requests waiting for an answer. A voice
 channel's unread chat marks its server in the rail only by mentions, as
@@ -267,7 +274,9 @@ Yapfast is back, rather than showing an error.
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
   menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
-  message says. Pictures come through Discord's
+  message says. A link straight to a video file, which Discord embeds as the
+  video alone, plays under the message as an attached video does, its first
+  frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
@@ -330,9 +339,11 @@ Yapfast is back, rather than showing an error.
   its cell. A right click on it offers Save Video, Copy Link and Open Link. The worker draws its pictures at the size they show: playing,
   the next ones come at a new size; paused, the one showing is redrawn,
   which moving back to it would hold up while playing. MP4, MOV and WebM
-  play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
-  8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound;
-  HEVC, which iPhones record, doesn't, as libwebrtc's FFmpeg lacks it.
+  play, with H264, VP8, VP9, AV1 or HEVC pictures in 4:2:0, 4:2:2 or 4:4:4
+  at 8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound.
+  HEVC uses the separate FFmpeg decoder on Windows and Linux x86-64.
+  MP4 and MOV display matrices with quarter turns and reflections are applied
+  to the picture and its display size.
   A WebM's transparency shows, at 8 bits: it's a second video, in each block's
   BlockAdditional, whose brightness is the picture's alpha, which
   `native/video.c` decodes with a second libvpx decoder when a packet has one.
@@ -525,11 +536,14 @@ Yapfast is back, rather than showing an error.
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
-  wrote lately, and server members a search by name finds (the gateway's
+  wrote lately, this account among them as in Discord's client, and server
+  members a search by name finds (the gateway's
   member request with a query, as Discord's client does), then the roles
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's
-  `<@id>` or `<@&id>`.
+  `<@id>` or `<@&id>`. Saving an edit also turns the `@Name` of anyone the
+  message mentioned into their `<@id>`, even someone no longer suggested; a
+  name two of them share stays text.
 - Typing `#` in a server channel suggests the server's text and voice
   channels this account can see, in Discord's order, under CHANNELS, voice
   channels with a speaker. Sending turns each `#name` into Discord's `<#id>`;
@@ -570,6 +584,49 @@ Yapfast is back, rather than showing an error.
   as when another device clears it or it runs out there. Each session shows the status to others itself, so Yapfast sends it with
   opcode 3 once connected, whenever the settings change, and clears it when
   it ends. A custom emoji in a status needs Nitro.
+
+## Recent mentions
+
+When the inbox's Mentions tab first shows, as Discord's client asks, Yapfast
+asks Discord for this account's recent mentions,
+`GET /users/@me/mentions?limit=100&roles=…&everyone=…[&guild_id=…]`: the
+messages that called on it in the past week, by name, by a reply that
+pinged it, through one of its roles in the message's server, or with
+@everyone or @here, newest first (docs.discord.food, "List Recent
+Mentions", where `roles` and `everyone` default to true). Discord keeps
+only that week, so an older ping never comes from this page: opening its
+channel brings it into the Mentions tab instead, which merges the open
+rooms' pings with the fetch, newest first. A reply that didn't ping, or
+the account's own message, isn't one. It keeps up to 100 of each in
+memory, one per message, and shows the newest 30 as a pinned message or a
+search result shows: the author's name, colour and avatar in their server,
+and the message's text, files and embeds, their pictures coming when they
+show. Nothing is acknowledged at Discord, so the inbox there stays as it
+is.
+
+The tab's Filter button (Discord's `navId:"mentions-filter"` menu) holds
+three boxes, as Discord's client words them and starts them, all on:
+"Include @everyone mentions", sent as `everyone`; "Include @role
+mentions", sent as `roles`; and, only while the open room is in a server,
+"Include all servers": off, the request names that server as `guild_id`.
+The client sends `roles` and `everyone` with every request and `guild_id`
+only for one server. A box changed asks again at once; so does the tab
+showing after Discord reconnects, and, while only one server's list,
+after another channel opened, as the client marks its list unloaded on
+selecting a channel. Asked without a server (in a DM, say), "Include all
+servers" turns back on, as the client's store does. A narrower filter
+keeps the list until the answer replaces it, and hides meanwhile what it
+leaves out, as does every ping the open rooms bring: one in another server
+while only this one's list, one that calls on the account only with
+@everyone or @here, or only through a role, while that kind is left out;
+naming it or replying to it always shows. A wider one empties the list
+until the answer comes, as the client clears its own. Like the client's
+`recentMentionFilterSettings` in local storage, the filter stays on the
+device (`recent_mention_filter` in `layout.json`), not with the account.
+All of this is from the client's code (the menu, the store's defaults and
+its `SET_RECENT_MENTIONS_FILTER` and `CHANNEL_SELECT` handlers, and
+`fetchRecentMentions`); which kind a ping in the open rooms is comes from
+the mentions its text shows, Yapfast's own reading.
 
 ## Bots' buttons, menus and forms
 

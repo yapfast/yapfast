@@ -16,7 +16,15 @@ The call's views and what they do are in `call/`.
   decoding and the large tile fills the stage's height; the pill then sits
   just over the controls (Show Members) to bring it back. Each voice
   channel keeps its choice while Yapfast runs, through leaving and joining
-  again, as Discord's client keeps it. The tiles scroll when there are more than fit. Each tile is a
+  again, as Discord's client keeps it. The stage takes the height left
+  between the line over it and the controls, laid out where it is drawn
+  (`responsive`), so a banner over the call (the preview's line, a notice)
+  never pushes the tiles under the controls; the size it last had is kept
+  (`Call::stage_seen`) for placing the cameras' frames. Everyone fits while
+  tiles stay 120 px wide, and the tiles scroll past that. On a tile under
+  200 px tall the avatar sits above the name's chip, where its neighbours'
+  do, and Watch stream goes on the chip's line opposite it, or as its eye
+  icon alone where both don't fit. Each tile is a
   `tile::Tile`: a camera, a stream or the avatar (a camera shows the
   avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream
@@ -29,6 +37,9 @@ The call's views and what they do are in `call/`.
   the tray meanwhile, the tile is back in the call and the next window
   opens as a window; brought forward while full screen, it stays so. A
   right click opens the person's voice menu.
+- Participants whose speaking permission Discord denies show a red blocked
+  microphone. The local microphone control shows the restriction in both
+  the account panel and the call stage.
 - The controls under the stage, in this order: mute and
   deafen (each with its device menu), the camera, Go Live, the soundboard,
   and leave.
@@ -39,16 +50,27 @@ The call's views and what they do are in `call/`.
   the microphone's level, measured only while the menu shows and read
   as it's drawn, and the
   noise suppression kind.
-- Go Live's menu lists the screens with a picture of each (from a stream
-  worker started for them and gone once they're in), the windows, the
-  system's own dialog where the portal picks, and the cameras, then the
-  resolution, frame rate and encoding; it fits a short window by
-  scrolling, keeping its button in view. It opens once they're listed (on
-  a thread of their own); meanwhile Escape, a second click, another popup
-  or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
-  switches what's shared; where the system's dialog is its only choice
-  (the portal picks and no camera is connected), Switch screen or window
-  opens the dialog with no menu.
+- Go Live's menu (`call/popups/share.rs`) lists what to share: screen and
+  window previews two to a row, the system dialog where supported and the
+  available cameras, which scroll past two rows of previews. The preview
+  worker exits when it finishes or the menu closes. Under them, always in
+  view, each setting is one row that names what's chosen (Audio,
+  Resolution, Frame rate), then Higher quality's checkbox and the action
+  button. The pointer on a setting's row, or a click, opens its choices
+  beside the menu, level with the row, the one chosen ticked: a context
+  menu's submenu, placed by the same `Place::beside`, on the right or the
+  left without room. The menu neither moves nor changes size for them.
+  One list shows at a time; a choice is taken and its list closes, as it
+  does with the pointer on Higher quality, a source picked, or Escape,
+  which closes the menu only after. The audio's list scrolls where many
+  windows are open. The audio chosen is the call's at once and is kept
+  for the next start; on Windows an application is kept by its program
+  and found again by a window it has as the menu opens, and everything
+  is shared while it isn't running
+  ([Go Live](../discord/go-live.md)). While live only Audio has a row,
+  and its changes apply immediately; pick a source and select Switch to
+  change the video. Escape, a second click, another popup or leaving the
+  call cancels a pending source listing.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.
@@ -89,7 +111,15 @@ The call's views and what they do are in `call/`.
 - While the call isn't on screen, the stream watched, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a
-  drag moves it to the nearest corner.
+  drag moves it to the nearest corner. A drag at its grip, the corner of
+  it away from the window's, where the pointer takes the shape that
+  resizes, makes it larger or smaller, its 16:9 shape kept, as Discord's
+  picture in picture: the width follows the pointer across only, 320 px
+  at first, between 200 and 960 px (20 past while dragged) and within the
+  window's room, and settles on the nearest 40 px when let go. The grip
+  takes its press before the stop button under it (the picture sat top
+  left). The width is kept in `layout.json` (`corner_width`), narrowed
+  while the window has less room, and its frames are made at it.
 - Sounds play as the core says (joining, leaving, muting, someone
   streaming), and a DM's call rings while it's incoming.
 - Push to talk and the other keybinds (the root `src/keybinds.rs`,

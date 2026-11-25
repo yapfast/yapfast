@@ -621,7 +621,7 @@ pub fn recolour(media: Media, rgba: &mut [u8]) {
                 })
             });
             let keep = 1.0 - amount;
-            for pixel in rgba.chunks_exact_mut(4) {
+            for pixel in rgba.as_chunks_mut::<4>().0 {
                 let washed = table[usize::from(luma(pixel))];
                 for channel in 0..3 {
                     pixel[channel] = (f32::from(pixel[channel]) * keep + f32::from(washed[channel]))
@@ -632,7 +632,7 @@ pub fn recolour(media: Media, rgba: &mut [u8]) {
             return;
         }
     };
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         let mapped = table[usize::from(luma(pixel))];
         pixel[..3].copy_from_slice(&mapped);
     }
@@ -656,7 +656,7 @@ pub fn dither(dither: &Dither, rgba: &mut [u8], width: u32) {
     let along: [u32; 256] = std::array::from_fn(|level| level as u32 * steps * cells / 255);
     let scale = usize::from(dither.scale.max(1));
     let width = width as usize;
-    for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let (x, y) = ((index % width) / scale, (index / width) / scale);
         let threshold = u32::from(matrix[(y % side) * side + x % side]);
         let step = ((along[usize::from(luma(pixel))] + threshold) / cells).min(steps);
@@ -869,7 +869,7 @@ mod tests {
         super::dither(&dither, &mut grey, 4);
         let palette: Vec<[u8; 3]> = dither.palette().iter().map(|c| channels(*c)).collect();
         let mut seen = std::collections::BTreeSet::new();
-        for pixel in grey.chunks_exact(4) {
+        for pixel in grey.as_chunks::<4>().0 {
             assert!(
                 palette.contains(&[pixel[0], pixel[1], pixel[2]]),
                 "{pixel:?}"

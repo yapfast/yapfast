@@ -283,6 +283,17 @@ impl OpenChannel {
         })
     }
 
+    /// Its newest `count` messages, oldest first, while they're as Discord
+    /// has them: a channel that may have missed live events has none.
+    pub(super) fn newest(&self, count: usize) -> Option<Vec<Message>> {
+        if !self.synced {
+            return None;
+        }
+        let run = self.latest.as_ref().unwrap_or(&self.shown);
+        let skip = run.messages.len().saturating_sub(count);
+        Some(run.messages.values().skip(skip).cloned().collect())
+    }
+
     /// A window of older messages shows in place of the newest.
     pub fn detached(&self) -> bool {
         self.latest.is_some()
@@ -717,8 +728,9 @@ impl OpenChannel {
         options: SendOptions,
         files: Vec<OutgoingFile>,
     ) -> Result<(), &'static str> {
-        if (body.trim().is_empty() && files.is_empty()) || body.chars().count() > MAX_CHARS {
-            return Err("Discord messages must contain text and be at most 2,000 characters.");
+        let limit = super::max_chars(discord);
+        if (body.trim().is_empty() && files.is_empty()) || body.chars().count() > limit {
+            return Err(super::too_long(limit));
         }
         if files.len() > yapfast_discord::api::MAX_FILES {
             return Err("A Discord message carries up to 10 files.");
@@ -871,8 +883,9 @@ impl OpenChannel {
         item: String,
         body: String,
     ) -> Result<(), &'static str> {
-        if body.trim().is_empty() || body.chars().count() > MAX_CHARS {
-            return Err("Discord messages must contain text and be at most 2,000 characters.");
+        let limit = super::max_chars(discord);
+        if body.trim().is_empty() || body.chars().count() > limit {
+            return Err(super::too_long(limit));
         }
         let id = sent_id(&item)
             .ok_or("Only sent messages can be edited.")?
@@ -1842,7 +1855,7 @@ impl OpenChannel {
             deleted: false,
             blocked: snapshot.blocked.contains(&message.author_id),
             ignored: snapshot.ignored.contains(&message.author_id),
-            mentions_me: message.names_me(me, marks),
+            mentions_me: message.highlights_me(me, marks),
             replies_to_me: message.replies_to(me),
             delivery: Delivery::Sent,
             reply,

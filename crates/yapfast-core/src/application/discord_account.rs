@@ -437,6 +437,64 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// Asks for this account's recent mentions under the Mentions inbox's
+    /// filter. A filter that may list what the kept ones lack (a kind turned
+    /// back on, another server or all of them) lets them go until the answer
+    /// comes, as Discord's client clears its list; a narrower one keeps
+    /// them, the view hiding what it leaves out.
+    pub(super) fn load_recent_mentions(
+        &mut self,
+        query: crate::chat::MentionsQuery,
+    ) -> Vec<Effect> {
+        if self
+            .state
+            .recent_mentions_query
+            .as_ref()
+            .is_some_and(|before| query.widens(before))
+        {
+            self.state.recent_mentions = Arc::default();
+        }
+        self.state.recent_mentions_query = Some(query.clone());
+        if self.state.preview {
+            return vec![];
+        }
+        tracing::info!(?query, "asking for recent mentions");
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::RecentMentions(query),
+        ))]
+    }
+
+    /// The account's recent mentions came for `query`, each with its room:
+    /// the newest first, as Discord lists them, up to [`RECENT_MENTIONS`].
+    /// They take the place of those kept, as Discord's client's first page
+    /// does; an answer to a query since changed is dropped.
+    pub(super) fn recent_mentions_came(
+        &mut self,
+        query: crate::chat::MentionsQuery,
+        result: Result<Vec<(String, ChatMessage)>, String>,
+    ) {
+        match result {
+            // One that came after the account was unlinked isn't kept.
+            Ok(_) if self.state.discord_user.is_none() => {}
+            Ok(_) if self.state.recent_mentions_query.as_ref() != Some(&query) => {
+                tracing::info!(?query, "dropped recent mentions for an old filter");
+            }
+            Ok(mentions) => {
+                let mut kept: Vec<_> = mentions
+                    .into_iter()
+                    .map(|(room, message)| (room, Arc::new(message)))
+                    .collect();
+                kept.sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
+                kept.truncate(RECENT_MENTIONS);
+                tracing::info!(kept = kept.len(), "listed recent mentions");
+                self.state.recent_mentions = Arc::new(kept);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not list recent mentions");
+            }
+        }
+    }
+
     /// Shows what a Discord snapshot says about the account and its lists.
     #[cfg(feature = "discord")]
     pub(super) fn show_snapshot(
@@ -468,6 +526,9 @@ impl Application {
             });
         }
         self.state.discord_linked = true;
+        if self.state.discord_user != snapshot.user_id {
+            self.forget_activity_links();
+        }
         self.state.discord_user.clone_from(&snapshot.user_id);
         self.state.discord_presence =
             Some(snapshot.presence.clone()).filter(|presence| !presence.is_empty());
@@ -494,6 +555,25 @@ impl Application {
                 })
                 .collect();
             self.state.people_changed();
+        }
+        if changed(|a, b| Arc::ptr_eq(&a.favorites, &b.favorites)) {
+            self.state.channel_favorites = snapshot
+                .favorites
+                .entries
+                .iter()
+                .map(|entry| ChannelFavorite {
+                    id: entry.id.to_string(),
+                    name: entry.nickname.clone(),
+                    category: entry.kind == 2,
+                    reference: entry.kind == 1,
+                    parent: entry.parent_id.to_string(),
+                    position: entry.position,
+                    collapsed: entry.collapsed,
+                })
+                .collect();
+            self.state.favorites_visible = snapshot.favorites.shown();
+            self.state.favorites_muted = snapshot.favorites.muted;
+            self.state.list_changes = self.state.list_changes.wrapping_add(1);
         }
         self.state.discord_ignored = snapshot.ignored.clone();
         self.state.discord_names = Some(snapshot.names.clone());
@@ -683,7 +763,10 @@ impl Application {
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
+        self.state.recent_mentions = Arc::default();
+        self.state.recent_mentions_query = None;
         self.forget_activity_feed();
+        self.forget_activity_links();
         #[cfg(feature = "discord")]
         {
             self.state.discord_names = None;

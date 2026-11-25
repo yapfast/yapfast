@@ -63,6 +63,20 @@ pub struct App {
     /// The title bar's inbox, while open, and a press on it that may move
     /// the window (`window_bar.rs`).
     pub inbox: Option<crate::window_bar::Inbox>,
+    /// The pings this account's open rooms hold, newest first, for the
+    /// inbox's Mentions tab (`window_bar.rs`).
+    pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
+    /// Whether this account's recent mentions were asked for since Discord
+    /// came online, or since the filter changed (`window_bar.rs` asks as
+    /// the Mentions tab shows), and the room open when they last were
+    /// (`sync.rs`).
+    pub mentions_fetched: bool,
+    pub mentions_room: Option<String>,
+    /// The Discord account `mention_hits` are of, and the recent mentions
+    /// last seen, to tell a new fetch (`window_bar.rs`).
+    pub mentions_of: Option<String>,
+    pub mentions_seen:
+        std::sync::Arc<Vec<(String, std::sync::Arc<yapfast_core::chat::ChatMessage>)>>,
     pub bar_drag: crate::window_bar::Drag,
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
@@ -192,6 +206,8 @@ pub struct App {
     pub seen_aside: Option<String>,
     pub drafts: crate::thread::Drafts,
     pub popovers: crate::header_popovers::Popovers,
+    /// The room peeked at while Alt is held over the sidebar.
+    pub peek: crate::peek::Peeking,
     pub modal: crate::bot_modal::Shown,
     pub searching: crate::search::Searching,
     /// The forum's form for a post, as typed (`forum.rs`).
@@ -216,6 +232,8 @@ impl App {
     /// What views read besides their own state.
     /// The theme, icons and room the kit draws with.
     pub fn look(&self) -> crate::look::Look<'_> {
+        // Icons are drawn at the window's pixels, as the zoom has them now.
+        self.win.icons.set_scale(self.device_scale());
         crate::look::Look {
             theme: &self.theme,
             icons: &self.win.icons,
@@ -283,6 +301,7 @@ impl App {
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
+            bar_under_frame: !cfg!(test),
             frame: Size::new(width / zoom, height / zoom),
             ..Default::default()
         };
@@ -291,6 +310,11 @@ impl App {
             window: Size::new(width, height),
             shell,
             inbox: None,
+            mention_hits: Default::default(),
+            mentions_fetched: false,
+            mentions_room: None,
+            mentions_of: None,
+            mentions_seen: Default::default(),
             bar_drag: Default::default(),
             announce_updates: false,
             win: Window::new(crate::pictures::Pictures::new(fitter), theme_icons),
@@ -353,6 +377,7 @@ impl App {
             seen_aside: None,
             drafts: Default::default(),
             popovers: Default::default(),
+            peek: Default::default(),
             modal: Default::default(),
             searching: Default::default(),
             forum_post: Default::default(),
@@ -533,8 +558,25 @@ impl App {
                 self.person.update(event, &mut cx)
             }
             Message::Dialog(event) => crate::dialogs::update(self, event),
-            Message::Key(key, modifiers) => self.key(key, modifiers),
-            Message::Pressed(key, modifiers, physical) => {
+            Message::Shortcut(shortcut, physical, modifiers) => {
+                if crate::shortcuts::custom_owns(self, physical, modifiers) {
+                    Task::none()
+                } else {
+                    crate::shortcuts::update(self, shortcut)
+                }
+            }
+            Message::Key(key, modifiers) => {
+                let typed = yapfast_iced_kit::field::Typed::of(&key, modifiers);
+                self.key(key, modifiers, typed)
+            }
+            Message::Pressed(key, modifiers, physical, typed) => {
+                // Built-ins have a subscription of their own, including
+                // captured presses. Do not also edit/step a focused message.
+                if self.recording_keybind()
+                    || crate::shortcuts::pressed(&key, physical, modifiers).is_some()
+                {
+                    return Task::none();
+                }
                 self.talk_pressed = crate::keybinds::is_talk_key(self, physical);
                 // A shortcut's letter, where the layout has no Latin ones
                 // (Cyrillic, Greek, Thai), is the key's in a layout that does.
@@ -544,13 +586,13 @@ impl App {
                     }
                     _ => key,
                 };
-                let task = self.key(key, modifiers);
+                let task = self.key(key, modifiers, typed);
                 self.talk_pressed = false;
                 task
             }
             Message::Modifiers(modifiers) => {
                 self.modifiers = modifiers;
-                Task::none()
+                crate::peek::follow(self)
             }
             Message::FontsLoaded => Task::none(),
             Message::SystemTheme(mode) => {
@@ -647,6 +689,7 @@ impl App {
             Message::Image(event) => self.image_event(event),
             Message::Thread(event) => crate::thread::update(self, event),
             Message::Popover(event) => crate::header_popovers::popover_event(self, event),
+            Message::Peek(event) => crate::peek::update(self, event),
             Message::Modal(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.modal.update(event, &mut cx)
@@ -659,6 +702,10 @@ impl App {
             Message::Search(crate::search::Event::SortMenu) => {
                 let at = self.pressed.get();
                 crate::search::open_sort_menu(self, at)
+            }
+            Message::Search(crate::search::Event::Menu(index)) => {
+                let at = self.pressed.get();
+                crate::search::open_found_menu(self, index, at)
             }
             Message::Search(crate::search::Event::Filters(event)) => {
                 crate::search_filters::update(self, event)

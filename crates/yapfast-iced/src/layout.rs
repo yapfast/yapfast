@@ -82,6 +82,13 @@ pub struct Layout {
     pub deafen_on_join: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
+    /// Holding Alt over a channel or DM in the sidebar peeks at its newest
+    /// messages; off unless turned on.
+    pub peek_channels: bool,
+    /// The DM list's search is Discord's "Find or start a conversation"
+    /// button, which opens the quick switcher, instead of a filter; off
+    /// unless turned on.
+    pub dm_search_switcher: bool,
     /// DMs pinned to the top of the list, by room id, the first pinned
     /// first.
     pub pinned: Vec<String>,
@@ -98,6 +105,9 @@ pub struct Layout {
     pub members_width: Option<f32>,
     /// How wide the thread beside the channel was dragged.
     pub aside_width: Option<f32>,
+    /// How wide the picture in the window's corner was dragged: the stream
+    /// watched, this account's screen or a camera.
+    pub corner_width: Option<f32>,
     /// How wide the expression picker's edge was dragged.
     #[serde(alias = "gif_picker_width")]
     pub picker_width: Option<f32>,
@@ -123,6 +133,12 @@ pub struct Layout {
     /// Each place's searches, newest first, by server or DM id, as
     /// Discord's box keeps them (`search_popout::HISTORY`).
     pub search_history: HashMap<String, Vec<String>>,
+    /// The inbox's last tab ("unreads" or "mentions").
+    pub inbox_tab: Option<String>,
+    /// The Mentions tab's filter, kept as `recent_mention_filter`
+    /// ([`crate::window_bar::MENTION_FILTER_KEY`]).
+    #[serde(rename = "recent_mention_filter")]
+    pub mention_filter: crate::window_bar::MentionFilter,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,
@@ -222,6 +238,9 @@ pub struct Prefs {
     pub name_styles: Option<bool>,
     pub server_tags: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// The font files Appearance's Font chose to draw the window in, in the
+    /// order they were added; none keeps DM Sans.
+    pub ui_font_files: Vec<String>,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,

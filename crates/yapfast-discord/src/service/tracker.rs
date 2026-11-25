@@ -98,6 +98,7 @@ struct VoiceEntry {
     muted: bool,
     deafened: bool,
     server_muted: bool,
+    speaking_blocked: bool,
     server_deafened: bool,
     streaming: bool,
     video: bool,
@@ -155,6 +156,7 @@ pub(super) struct Tracker {
     friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
     server_list: Arc<settings::ServerList>,
+    favorites: Arc<crate::favorites::Favorites>,
     /// This account's status and custom status, from its settings.
     pub(super) status: String,
     pub(super) custom_status: Option<CustomStatus>,
@@ -246,6 +248,7 @@ impl Tracker {
             nicknames: HashMap::new(),
             friends_since: HashMap::new(),
             server_list: Arc::default(),
+            favorites: Arc::default(),
             status: "online".into(),
             custom_status: None,
             afk_timeout: settings::AFK_TIMEOUT,
@@ -1123,6 +1126,7 @@ impl Tracker {
                         muted: flag("self_mute"),
                         deafened: flag("self_deaf"),
                         server_muted: flag("mute"),
+                        speaking_blocked: flag("suppress"),
                         server_deafened: flag("deaf"),
                         streaming: flag("self_stream"),
                         video: flag("self_video"),
@@ -1368,6 +1372,7 @@ impl Tracker {
         if let Some(offered) = read.nsfw_commands_in_dms {
             self.nsfw_commands_in_dms = offered;
         }
+        self.favorite_settings(encoded);
         let soundboard = crate::soundboard::read_settings(encoded);
         if let Some(volume) = soundboard.volume {
             self.soundboard_volume = Some(volume);
@@ -1379,6 +1384,14 @@ impl Tracker {
             && *self.server_list != list
         {
             self.set_server_list(Arc::new(list));
+        }
+    }
+
+    pub(super) fn favorite_settings(&mut self, encoded: &str) {
+        if let Ok(Some(favorites)) = crate::favorites::read(encoded)
+            && *self.favorites != favorites
+        {
+            self.favorites = Arc::new(favorites);
         }
     }
 
@@ -1824,6 +1837,7 @@ impl Tracker {
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 streaming: false,
                 video: false,
@@ -1974,6 +1988,7 @@ impl Tracker {
                     muted: entry.muted || entry.server_muted,
                     deafened: entry.deafened || entry.server_deafened,
                     server_muted: entry.server_muted,
+                    speaking_blocked: entry.speaking_blocked,
                     server_deafened: entry.server_deafened,
                     streaming: entry.streaming,
                     video: entry.video,
@@ -2077,6 +2092,7 @@ impl Tracker {
             }),
             servers,
             folders: self.server_list.folders.clone(),
+            favorites: self.favorites.clone(),
             conversations: people.conversations,
             friends: people.friends,
             friend_list: people.friend_list,
@@ -2177,6 +2193,19 @@ mod tests {
         assert_eq!(lounge[0].name, "Annie");
         assert!(lounge[0].avatar.ends_with("/avatars/2/abc.png?size=128"));
         assert!(lounge[0].muted);
+        assert!(!lounge[0].speaking_blocked);
+
+        for suppress in [true, false] {
+            tracker.apply(
+                &Event::VoiceStateUpdate,
+                &json!({"guild_id": "10", "user_id": "2", "channel_id": "11", "suppress": suppress}),
+            );
+            let snapshot = tracker.snapshot();
+            let ann = &snapshot.voice["11"][0];
+            assert_eq!(ann.speaking_blocked, suppress);
+            assert!(!ann.muted);
+            assert!(!ann.server_muted);
+        }
 
         tracker.apply(
             &Event::VoiceStateUpdate,
@@ -2608,6 +2637,36 @@ mod tests {
         );
         assert_eq!(presence(&mut tracker), Some(Presence::Online));
         assert!(!tracker.presences.contains_key("3"));
+    }
+
+    #[test]
+    fn favorites_follow_ready_and_partial_updates() {
+        let encoded = crate::favorites::change("", 42, 0, true, false)
+            .unwrap()
+            .unwrap();
+        let ready = json!({"user": {"id": "1", "username": "me"}, "guilds": [], "user_settings_proto": encoded});
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        assert!(tracker.snapshot().favorites.contains(42));
+        let before = tracker.snapshot().favorites;
+        tracker.favorite_settings(&settings::encode_status(&settings::write_status(
+            &[],
+            "idle",
+            1,
+        )));
+        assert_eq!(
+            tracker.status, "online",
+            "a Favorites refresh leaves unrelated settings alone"
+        );
+        tracker.apply(&Event::UserSettingsProtoUpdate, &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}));
+        assert!(Arc::ptr_eq(&before, &tracker.snapshot().favorites));
+        let cleared = crate::favorites::change(&encoded, 42, 0, false, false)
+            .unwrap()
+            .unwrap();
+        tracker.apply(
+            &Event::UserSettingsProtoUpdate,
+            &json!({"settings": {"type": 1, "proto": cleared}, "partial": true}),
+        );
+        assert!(tracker.snapshot().favorites.entries.is_empty());
     }
 
     #[test]

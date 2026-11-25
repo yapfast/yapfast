@@ -185,7 +185,16 @@ impl<'a> super::View<'a> {
                 });
                 face = face.push(controls::live_pill_in(theme, activity_themed, watch));
             }
-            if person.muted || person.deafened {
+            if person.speaking_blocked {
+                face = face.push(
+                    tooltip(
+                        self.cx.look.glyph(Icon::MicOff, 16, theme.danger),
+                        controls::tip(theme, "Speaking is restricted in this channel"),
+                        tooltip::Position::Top,
+                    )
+                    .gap(4),
+                );
+            } else if person.muted || person.deafened {
                 let ink = if person.server_muted {
                     theme.danger
                 } else {

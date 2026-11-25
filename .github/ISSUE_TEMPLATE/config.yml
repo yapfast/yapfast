@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discord Server
+    url: https://yapfast.com/discord-invite
+    about: Ask for help or discuss a larger change on the Yapfast Discord server(or just yap about smth else).
+  - name: Documentation & Architecture
+    url: https://github.com/yapfast/yapfast#readme
+    about: Consult the README, client compatibility, and platform support.

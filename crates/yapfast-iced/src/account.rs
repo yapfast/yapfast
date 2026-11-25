@@ -41,6 +41,9 @@ pub struct Account {
     /// joined.
     pub in_call: bool,
     pub muted: bool,
+    /// Discord won't let this account speak in the call's channel, so
+    /// its mute shows on and does nothing.
+    pub speaking_blocked: bool,
     pub deafened: bool,
     /// The call's voice is through, so its mute and deafen act; while it
     /// joins or leaves they wait.
@@ -68,7 +71,7 @@ impl Account {
     /// Shown muted: in a call, as it is; out of one, as calls are joined.
     fn shown_muted(&self, join: (bool, bool)) -> bool {
         if self.in_call {
-            self.muted
+            self.muted || self.speaking_blocked
         } else {
             !join.0 || join.1
         }
@@ -112,8 +115,19 @@ pub fn account(state: &AppState) -> Account {
         .discord_playing
         .as_ref()
         .filter(|_| live && state.discord_show_game);
+    // What this account shares, as Discord's panel writes it: the first
+    // activity's icon and words, or its icon, a bullet and the custom
+    // status.
+    let shared = (live && !state.discord_activities.is_empty()).then(|| {
+        crate::looks::Status::activity(
+            &state.discord_activities,
+            custom.as_ref().map(|(words, _)| words.as_str()),
+        )
+    });
     let words = if state.preview {
         "Local only".to_owned()
+    } else if let Some(shared) = shared.as_ref().filter(|shared| !shared.bullet) {
+        shared.words.clone()
     } else if let Some((words, _)) = &custom {
         words.clone()
     } else if let Some(playing) = playing {
@@ -142,14 +156,29 @@ pub fn account(state: &AppState) -> Account {
         username: state.account_username.clone().unwrap_or_default(),
         avatar: state.account_avatar.clone(),
         presence,
-        status: Status {
-            words,
-            emoji: custom.and_then(|(_, emoji)| emoji),
-            icon: u8::from(playing.is_some()),
-            bullet: playing.is_some() && state.custom_status.is_some(),
+        status: match &shared {
+            Some(shared) => Status {
+                words,
+                emoji: if shared.bullet {
+                    custom.and_then(|(_, emoji)| emoji)
+                } else {
+                    None
+                },
+                icon: shared.icon,
+                bullet: shared.bullet,
+                more: shared.more,
+            },
+            None => Status {
+                words,
+                emoji: custom.and_then(|(_, emoji)| emoji),
+                icon: u8::from(playing.is_some()),
+                bullet: playing.is_some() && state.custom_status.is_some(),
+                more: 0,
+            },
         },
         in_call: state.voice.active(),
         muted: state.voice.muted,
+        speaking_blocked: state.voice.speaking_blocked(),
         deafened: state.voice.deafened,
         ready: matches!(
             state.voice.phase,
@@ -314,7 +343,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.layout.unmute_on_join.unwrap_or(true),
         ctx.layout.deafen_on_join,
     );
-    let (mic, mic_label) = if account.shown_muted(join) {
+    let (mic, mic_label) = if account.speaking_blocked {
+        (Icon::MicOff, "Speaking is restricted in this channel")
+    } else if account.shown_muted(join) {
         (
             Icon::MicOff,
             if account.in_call {
@@ -396,7 +427,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     // In a call, a gel theme's mute and deafen are gel buttons (the
     // as asked): the danger gel while on.
     let device = |icon, label: &'static str, on: bool, glyph, event| -> Element<'a, Message> {
-        let message = toggle(event);
+        let message = if matches!(event, Event::Mute) && account.speaking_blocked {
+            None
+        } else {
+            toggle(event)
+        };
         let gel = if account.in_call {
             crate::theme_art::gel_call_button(
                 ctx,

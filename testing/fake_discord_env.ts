@@ -179,6 +179,8 @@ export type InVoice = {
   stream?: string | true;
   /** Muted or deafened by a moderator. */
   serverMute?: boolean;
+  /** Not allowed to speak there, Discord's `suppress`. */
+  suppress?: boolean;
   serverDeaf?: boolean;
 };
 
@@ -291,4 +293,3 @@ export function parseColor(color: string | undefined): number {
   if (!/^[0-9a-f]{6}$/i.test(hex)) throw new Error(`env: colour "${color}" isn't #rrggbb`);
   return parseInt(hex, 16);
 }
-

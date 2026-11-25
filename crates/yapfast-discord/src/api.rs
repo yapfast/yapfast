@@ -83,6 +83,9 @@ const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 const FORWARD: u64 = 1;
 /// The most messages one history request returns.
 pub const PAGE: usize = 50;
+/// The most mentions one request to the Mentions inbox returns: Discord's
+/// whole page, up to which Yapfast keeps them.
+pub const MENTIONS_PAGE: usize = 100;
 
 /// How many archived threads a page of a channel's list of threads holds,
 /// as Discord's client asks for them.
@@ -168,6 +171,18 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
         _ => 0,
     };
     own.max(boosted)
+}
+
+/// The longest message this account may send or edit to, in characters, by
+/// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
+/// Nitro (2) alone, whose perks are the only ones in Discord's client with
+/// `INCREASED_MESSAGE_LENGTH`; 2,000 without, or with Nitro Classic (1) or
+/// Nitro Basic (3).
+pub fn message_limit(premium_type: u8) -> usize {
+    match premium_type {
+        2 => 4000,
+        _ => 2000,
+    }
 }
 
 /// Discord answered a download with this error status.
@@ -547,6 +562,16 @@ impl Api {
         }
     }
 
+    /// A channel's newest `limit` messages, newest first, as a glance at it
+    /// takes them: no read acknowledgement goes with them.
+    pub async fn newest(&self, channel: &str, limit: usize) -> Result<Vec<Value>> {
+        let path = format!("/channels/{channel}/messages?limit={limit}");
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
     /// A message of a channel, or none once it's gone. User accounts can't
     /// ask for one message by its id, so this asks as Discord's client does,
     /// for the one around it, which is another message when it's gone.
@@ -710,6 +735,35 @@ impl Api {
     pub async fn badges(&self, user: &str) -> Result<Value> {
         self.json(self.request(Method::GET, &format!("/users/{user}/badges")))
             .await
+    }
+
+    /// What someone's activity carries beyond their presence, by its
+    /// session and application (`0` for none, as Discord's client sends),
+    /// as the client asks for it when a Rich Presence button whose address
+    /// the presence didn't carry is clicked: `{button_urls}`, or none when
+    /// Discord answers 204, having none.
+    pub async fn activity_metadata(
+        &self,
+        user: &str,
+        session: &str,
+        application: &str,
+    ) -> Result<Option<Value>> {
+        let path = format!(
+            "/users/{user}/sessions/{}/activities/{}/metadata",
+            encode(session),
+            encode(application)
+        );
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        serde_json::from_slice(&body)
+            .map(Some)
+            .context("could not understand Discord's answer")
     }
 
     /// A shop product, such as the profile effect of a SKU, as the client
@@ -1061,6 +1115,30 @@ impl Api {
         }
     }
 
+    /// This account's recent mentions, the newest first: the messages that
+    /// called on it in the past week, up to [`MENTIONS_PAGE`]; Discord's
+    /// Mentions inbox. `everyone` counts @everyone and @here mentions,
+    /// `roles` role mentions, and a `guild` keeps to that server's. See
+    /// "List Recent Mentions" in <https://docs.discord.food/resources/user>;
+    /// Discord's client sends `roles` and `everyone` every time, and
+    /// `guild_id` only for one server.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Value>> {
+        let mut path =
+            format!("/users/@me/mentions?limit={MENTIONS_PAGE}&roles={roles}&everyone={everyone}");
+        if let Some(guild) = guild {
+            let _ = write!(path, "&guild_id={guild}");
+        }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(items) => Ok(items),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
     /// Discord's answer to a search of messages in `sort`'s order, from the
     /// `offset`th; see [`crate::service::Found`]. With a server, it searches
     /// the server, in the channels `params` names with `channel_id`, or all
@@ -1288,7 +1366,10 @@ impl Api {
         let answer = self
             .json(self.request(Method::GET, "/users/@me/settings-proto/1"))
             .await?;
-        Ok(answer["settings"].as_str().unwrap_or_default().to_owned())
+        answer["settings"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord did not return account settings")
     }
 
     /// Replaces the top-level fields `settings`, base64
@@ -2862,6 +2943,15 @@ mod tests {
         assert_eq!(upload_limit(0, Some(2)), 50 * MIB);
         assert_eq!(upload_limit(0, Some(3)), 100 * MIB);
         assert_eq!(upload_limit(2, Some(3)), 500 * MIB, "the larger wins");
+    }
+
+    #[test]
+    fn message_limits_follow_nitro() {
+        use super::message_limit;
+        assert_eq!(message_limit(0), 2000, "without Nitro");
+        assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
+        assert_eq!(message_limit(1), 2000, "nor has Nitro Classic");
+        assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
     #[test]
