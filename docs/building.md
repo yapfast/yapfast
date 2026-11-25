@@ -52,8 +52,9 @@ taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
 
 LiveKit's Rust crates must stay on the mutually compatible versions in
-Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
-MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
+Cargo.lock. The manifests pin the LiveKit API, protocol and WebRTC build
+helper versions. Use targeted Cargo updates and upgrade LiveKit against the
+MatrixRTC lockfile, then rebuild the native media stack. On Linux, the Nix shell
 supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
 that crate requires updating the archive URL and checksum in `nix/native.nix`
 (Linux) and `nix/flake.nix` (Windows) too.
