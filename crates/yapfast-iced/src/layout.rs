@@ -238,6 +238,9 @@ pub struct Prefs {
     pub name_styles: Option<bool>,
     pub server_tags: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// Profile backgrounds: the banner picture, and a themed card's two
+    /// colours.
+    pub background: Option<bool>,
     pub application_icon: crate::desktop::IconChoice,
     pub tray_icon: Option<crate::desktop::IconChoice>,
     pub tray_uses_application_icon: Option<bool>,
@@ -314,6 +317,7 @@ impl Prefs {
             name_styles: self.name_styles.unwrap_or(default.name_styles),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
             frames: self.profile_frames.unwrap_or(default.frames),
+            background: self.background.unwrap_or(default.background),
         }
     }
 

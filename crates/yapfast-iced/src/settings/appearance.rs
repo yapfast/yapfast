@@ -245,6 +245,7 @@ pub enum Cosmetic {
     NameStyles,
     ServerTags,
     Frames,
+    Background,
 }
 
 pub(super) fn theme_message(event: Event) -> Message {
@@ -783,6 +784,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
+        Cosmetic::Background => (&mut prefs.background, "background"),
     };
     *slot = Some(on);
     cx.keep(key, on);
@@ -949,6 +951,12 @@ impl<'a> Page<'a> {
                     "The frames some people put around their profile cards.",
                     cosmetics.frames,
                     Cosmetic::Frames,
+                ),
+                profile(
+                    "Show profile backgrounds",
+                    "The banner picture at the top of a profile card, and the two colours a themed card draws there. Off, neither is asked for.",
+                    cosmetics.background,
+                    Cosmetic::Background,
                 ),
             ]
             .spacing(12)
