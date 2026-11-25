@@ -456,6 +456,10 @@ variable font both work; a variable font is one face, drawn at its default
 weight. A style the files don't have is synthesised from the nearest, as it is
 for any font.
 
+While the files are loaded they also stand in for the body face an installed
+theme brings: its colours and other faces stay, and Reset to default
+gives its body face back.
+
 The formats are TrueType and OpenType (TTF, OTF), collections (TTC, which
 register all of their faces) and WOFF. WOFF2 isn't supported, and says so in
 the list. A file is told by its first four bytes, not its extension. A file

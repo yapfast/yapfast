@@ -56,22 +56,49 @@ const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
 const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
 
+/// The theme's body face that text asking for DM Sans takes, and the one
+/// it takes now: none while the person's own font files are loaded.
+struct Alias {
+    theme: Option<&'static str>,
+    shown: Option<&'static str>,
+}
+
+static ALIAS: Mutex<Alias> = Mutex::new(Alias {
+    theme: None,
+    shown: None,
+});
+
 /// Makes `family` (a theme's body face, loaded) the face of all text that
 /// asks for the app's own DM Sans, as Slint's `default-font-family`
-/// follows a theme's body face; `None` gives DM Sans back. Text already
-/// shown is shaped again in the new face.
+/// follows a theme's body face; `None` gives DM Sans back. The person's own
+/// font files ([`crate::custom_font`]) stand in for both while they're
+/// loaded. Text already shown is shaped again in the new face.
 pub fn set_default_family(family: Option<&'static str>) {
-    static ALIAS: Mutex<Option<&'static str>> = Mutex::new(None);
-    let family = family.filter(|family| *family != "DM Sans");
+    update_alias(Some(family.filter(|family| *family != FAMILY)));
+}
+
+/// Has text asking for DM Sans take the person's own font files, or the
+/// theme's body face again, after they changed.
+pub(crate) fn own_font_changed() {
+    update_alias(None);
+}
+
+/// Sets the theme's body face to `theme`, when given, and the alias to it
+/// unless the person's own font files are loaded.
+fn update_alias(theme: Option<Option<&'static str>>) {
     // Held while the alias is set, so the two never fall out of step.
     let mut alias = ALIAS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if *alias == family {
+    if let Some(theme) = theme {
+        alias.theme = theme;
+    }
+    let shown = alias.theme.filter(|_| !crate::custom_font::in_use());
+    if alias.shown == shown {
         return;
     }
-    *alias = family;
-    cosmic_text::set_family_alias(family.map(|family| ("DM Sans", family)));
+    alias.shown = shown;
+    cosmic_text::set_family_alias(shown.map(|family| (FAMILY, family)));
     let mut fonts = font_system().write().expect("font system");
     // The fallback's matches are cached by what text asks for, which
     // doesn't change.

@@ -181,7 +181,8 @@ pub fn in_use() -> bool {
 
 /// Loads `paths` in place of the files loaded, and has the window shape its
 /// text again. A file that gives no font stays in [`entries`] with the
-/// reason; when none gives one, the window keeps DM Sans.
+/// reason; when none gives one, the window keeps DM Sans. While some are
+/// loaded they stand in for a theme's body face too.
 pub fn set(paths: &[String]) {
     let mut loaded = loaded();
     let previous = std::mem::take(&mut *loaded);
@@ -191,6 +192,7 @@ pub fn set(paths: &[String]) {
         *loaded = load_into(system.raw().db_mut(), previous, paths);
     }
     drop(loaded);
+    fonts::own_font_changed();
     fonts::shape_again();
 }
 
