@@ -233,6 +233,8 @@ pub enum Event {
     /// The clipboard's text, if it held any.
     Pasted(Option<String>),
     Profile(Cosmetic, bool),
+    /// Draws a theme's text glow, or leaves it out.
+    TextGlow(bool),
 }
 
 /// Appearance's profile switches.
@@ -246,6 +248,7 @@ pub enum Cosmetic {
     /// Role colour gradients, which are drawing rather than fetching.
     NameColours,
     ServerTags,
+    Badges,
     Frames,
 }
 
@@ -307,6 +310,13 @@ impl Settings {
                 cx.layout.readable_text = on;
                 cx.keep("readable_text", on);
                 cx.themes.readable_changed(on);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            // Drawing, not data: the window draws it again and the core is
+            // told nothing.
+            Event::TextGlow(on) => {
+                cx.layout.prefs.text_glow = Some(on);
+                cx.keep("text_glow", on);
                 cx.request(Request::Changed(Shown::Theme));
             }
             Event::ThemeOption(id, option, value) => {
@@ -785,6 +795,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
         Cosmetic::NameColours => (&mut prefs.name_colours, "name_colours"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
+        Cosmetic::Badges => (&mut prefs.badges, "badges"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
     };
     *slot = Some(on);
@@ -907,6 +918,17 @@ impl<'a> Page<'a> {
                 "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
             )
             .view(self.cx.look),
+            switch(
+                "Draw text glow",
+                self.cx.layout.prefs.text_glow.unwrap_or(true),
+                Some(theme_message(Event::TextGlow(
+                    !self.cx.layout.prefs.text_glow.unwrap_or(true),
+                ))),
+            )
+            .description(
+                "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing.",
+            )
+            .view(self.cx.look),
             self.desktop_icons(),
             self.title_bar_switch(),
             column![
@@ -958,6 +980,12 @@ impl<'a> Page<'a> {
                     "The frames some people put around their profile cards.",
                     cosmetics.frames,
                     Cosmetic::Frames,
+                ),
+                profile(
+                    "Show badges",
+                    "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for.",
+                    cosmetics.badges,
+                    Cosmetic::Badges,
                 ),
             ]
             .spacing(12)

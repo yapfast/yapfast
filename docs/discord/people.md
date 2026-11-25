@@ -905,6 +905,7 @@ window draws carry no address for it, so the window asks for nothing either.
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
 | Draw role colour gradients (`name_colours`) | One span a name in the role's first colour, instead of a span a letter redrawn with the name | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show badges (`badges`) | No badge picture on a profile card, and no levels request for one | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
 
 Every switch starts on, so profiles look as in Discord's client. The

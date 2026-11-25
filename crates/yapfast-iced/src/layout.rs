@@ -240,7 +240,12 @@ pub struct Prefs {
     /// across the name, a span a letter; off, the role's first colour.
     pub name_colours: Option<bool>,
     pub server_tags: Option<bool>,
+    /// Profile badges and the levels their tooltips name.
+    pub badges: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// A theme's text glow: the soft edge it puts round text, which is
+    /// drawing rather than a profile's cosmetic.
+    pub text_glow: Option<bool>,
     pub application_icon: crate::desktop::IconChoice,
     pub tray_icon: Option<crate::desktop::IconChoice>,
     pub tray_uses_application_icon: Option<bool>,
@@ -340,6 +345,7 @@ impl Prefs {
             name_styles: self.name_styles.unwrap_or(default.name_styles),
             name_colours: self.name_colours.unwrap_or(default.name_colours),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
+            badges: self.badges.unwrap_or(default.badges),
             frames: self.profile_frames.unwrap_or(default.frames),
         }
     }

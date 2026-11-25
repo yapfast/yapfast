@@ -608,7 +608,8 @@ pub(super) fn editor_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
             .decoration(profile.decoration.as_deref())
             .map(str::to_owned),
     );
-    urls.extend(profile.badges.iter().map(|badge| badge.icon.clone()));
+    let badges = cosmetics.badges(&profile.badges).into_iter().flatten();
+    urls.extend(badges.map(|badge| badge.icon.clone()));
     urls.extend(profile.server_icon.clone());
     urls.extend(
         cosmetics

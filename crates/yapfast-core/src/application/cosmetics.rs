@@ -24,6 +24,9 @@ pub struct Cosmetics {
     pub name_colours: bool,
     /// Server tags show beside names, with their badges.
     pub server_tags: bool,
+    /// Badges show on profile cards: a picture each, and one levels request
+    /// per profile while its card is open.
+    pub badges: bool,
     /// Profile frames show around profile cards: a request for what the
     /// frame is made of, then its stills.
     pub frames: bool,
@@ -40,6 +43,7 @@ impl Default for Cosmetics {
             name_styles: true,
             name_colours: true,
             server_tags: true,
+            badges: true,
             frames: true,
         }
     }
@@ -66,6 +70,11 @@ impl Cosmetics {
         end.filter(|_| self.name_colours)
     }
 
+    /// A profile's badges, if they show.
+    pub fn badges<T>(self, badges: T) -> Option<T> {
+        self.badges.then_some(badges)
+    }
+
     /// A profile's frame, if frames show.
     pub fn frame<T>(self, frame: Option<T>) -> Option<T> {
         frame.filter(|_| self.frames)
@@ -90,10 +99,12 @@ mod tests {
             name_styles: false,
             name_colours: false,
             server_tags: false,
+            badges: false,
             frames: false,
         };
         assert_eq!(off.decoration(Some("https://cdn/static")), None);
         assert_eq!(off.tag(Some(&"TAG")), None);
+        assert_eq!(off.badges(vec!["a"]), None);
         assert_eq!(off.style(Some(1)), None);
         assert_eq!(off.colours(Some((1, Some(2)))), None);
         assert_eq!(off.effect(Some("sku")), None);
@@ -109,10 +120,12 @@ mod tests {
             name_styles: true,
             name_colours: true,
             server_tags: true,
+            badges: true,
             frames: true,
         };
         assert_eq!(on.decoration(Some("url")), Some("url"));
         assert_eq!(on.tag(Some(&"TAG")), Some(&"TAG"));
+        assert_eq!(on.badges(vec!["a"]), Some(vec!["a"]));
         assert_eq!(on.style(Some(1)), Some(1));
         assert_eq!(on.colours(Some((1, Some(2)))), Some((1, Some(2))));
         assert_eq!(on.effect(Some("sku")), Some("sku"));
