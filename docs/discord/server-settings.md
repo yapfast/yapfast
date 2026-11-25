@@ -140,12 +140,13 @@ page: a role changed elsewhere shows unless the draft changed the same
 field, and one deleted elsewhere closes if it was open.
 
 Roles reads `GET /guilds/{id}` for the roles, boost level and features,
-and `GET /guilds/{id}/roles/member-counts` when it opens. After creating,
-copying, deleting or editing a role, the page refreshes the roles and
-keeps the existing member counts. After granting or removing a role, the
-role's member list refreshes before the separate member count request.
-Members come by id, with names from
-those Yapfast already knows or asks the gateway for. It saves with:
+and `GET /guilds/{id}/roles/member-counts` when it opens, and holds them
+only while it's open. Creating, copying, deleting or editing a role reads
+the roles again but not the counts, as Discord's client keeps its own: a
+role keeps the count it had, and a new one shows 0. Giving or taking a
+role shows its members again first, then its count once Discord sends
+it. Members come by id, with names from those Yapfast already knows or
+asks the gateway for. It saves with:
 
 - `PATCH /guilds/{id}/roles`, `[{id, position}]`, only the roles that
   move; @everyone stays at 0.
