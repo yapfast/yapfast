@@ -1253,8 +1253,7 @@ sends for itself.
 
 Each entry has a switch: on, it's hidden; off, it's allowed to show as a game
 again, and stays listed to be hidden with one press. `layout.json` keeps each
-as `{"name": "...", "on": true}` (`BlockedGame`) and reads a bare name, as the
-first version kept them, as an entry that's on. Detection is handed only the
+as `{"name": "...", "on": true}` (`BlockedGame`). Detection is handed only the
 names that are on (`Prefs::apply_blocked_games`), so turning one off or on
 rescans at once, as adding or removing one does, and one that's off isn't left
 out of the detected games below. Adding a name that's listed and off, from

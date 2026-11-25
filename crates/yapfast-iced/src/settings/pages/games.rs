@@ -443,30 +443,4 @@ mod tests {
         assert!(blocked[0].on, "and is hidden again");
         assert_eq!(active_blocked(&blocked), ["Roblox", "Spotify"]);
     }
-
-    #[test]
-    fn the_list_reads_names_as_its_first_version_kept_them_and_keeps_each_with_its_switch() {
-        let read: Vec<BlockedGame> = serde_json::from_str(
-            r#"["Roblox", {"name": "Spotify", "on": false}, {"name": "Discord"}]"#,
-        )
-        .expect("a list of either form");
-        let entry = |name: &str, on| BlockedGame {
-            name: name.to_owned(),
-            on,
-        };
-        assert_eq!(
-            read,
-            [
-                entry("Roblox", true),
-                entry("Spotify", false),
-                entry("Discord", true)
-            ],
-            "a bare name, or one without its switch, is on"
-        );
-        let written = serde_json::to_string(&read).expect("written");
-        assert_eq!(
-            serde_json::from_str::<Vec<BlockedGame>>(&written).expect("read again"),
-            read
-        );
-    }
 }

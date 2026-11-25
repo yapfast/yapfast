@@ -273,40 +273,11 @@ pub struct Prefs {
 /// played: an executable (a file name or a full path) or the name shown after
 /// Playing, and whether it's hidden now. One turned off stays on the list and
 /// is shown as a game again, until it's turned back on. `layout.json` keeps
-/// each as `{"name": "...", "on": true}`, and reads a bare name, as the
-/// first version of the list kept them, as one that's on.
+/// each as `{"name": "...", "on": true}`.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(from = "BlockedGameForm")]
 pub struct BlockedGame {
     pub name: String,
     pub on: bool,
-}
-
-/// What `layout.json` may hold for a [`BlockedGame`].
-#[derive(serde::Deserialize)]
-#[serde(untagged)]
-enum BlockedGameForm {
-    Name(String),
-    Entry {
-        name: String,
-        #[serde(default = "BlockedGameForm::on")]
-        on: bool,
-    },
-}
-
-impl BlockedGameForm {
-    fn on() -> bool {
-        true
-    }
-}
-
-impl From<BlockedGameForm> for BlockedGame {
-    fn from(form: BlockedGameForm) -> Self {
-        match form {
-            BlockedGameForm::Name(name) => Self { name, on: true },
-            BlockedGameForm::Entry { name, on } => Self { name, on },
-        }
-    }
 }
 
 /// The names on `blocked` that are on, which is what detection leaves out.
