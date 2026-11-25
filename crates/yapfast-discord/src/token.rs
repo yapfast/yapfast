@@ -697,7 +697,7 @@ mod tests {
         let vault = Memory::default();
         let id = "100000000000000001";
         let independent = login(id, "qr-session");
-        link(&vault, &independent, true).unwrap();
+        link(&vault, &independent, true, None).unwrap();
         describe_in(&vault, id, "old", "Old", "avatar").unwrap();
         assert!(!adopt_in(&vault, &login(id, "desktop-session"), "new", "New").unwrap());
         let saved = read_saved(&vault, id).unwrap().unwrap();
@@ -844,7 +844,7 @@ mod tests {
         let vault = Memory::default();
         let first = login("100000000000000001", "a");
         let second = login("100000000000000002", "b");
-        link(&vault, &first, true).unwrap();
+        link(&vault, &first, true, None).unwrap();
         assert!(adopt_in(&vault, &second, "bea", "Bea").unwrap());
         assert_eq!(
             listing_in(&vault).unwrap().active.as_deref(),
