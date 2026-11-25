@@ -5,7 +5,7 @@
 
 use std::fmt::Write as _;
 
-use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInPlace};
+use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInOut};
 use anyhow::{Result, anyhow, bail};
 use chacha20poly1305::XChaCha20Poly1305;
 
@@ -1054,14 +1054,14 @@ impl Transport {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(&counter);
                 cipher
-                    .encrypt_in_place_detached(&nonce, header, body)
+                    .encrypt_inout_detached(&nonce, header, body.into())
                     .map(|tag| tag.to_vec())
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(&counter);
                 cipher
-                    .encrypt_in_place_detached(&nonce, header, body)
+                    .encrypt_inout_detached(&nonce, header, body.into())
                     .map(|tag| tag.to_vec())
             }
         }
@@ -1079,17 +1079,18 @@ impl Transport {
         let (rest, counter) = packet.split_at(packet.len() - 4);
         let (sealed, tag) = rest.split_at(rest.len() - TAG);
         let (header, body) = sealed.split_at(clear);
+        let tag: &[u8; TAG] = tag.try_into().ok()?;
         let mut plain = body.to_vec();
         let opened = match &self.cipher {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, &mut plain, tag.into())
+                cipher.decrypt_inout_detached(&nonce, header, (&mut plain[..]).into(), tag.into())
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, &mut plain, tag.into())
+                cipher.decrypt_inout_detached(&nonce, header, (&mut plain[..]).into(), tag.into())
             }
         };
         opened.ok()?;

@@ -24,8 +24,7 @@ Settings turns that off, mute and deafen show in Discord, and a voice gate
 sends audio only during speech. Audio goes through `audio_io.rs`, PulseAudio
 on Linux and WASAPI on Windows, and libwebrtc's processing module; see the
 [Windows guide](../windows-beta.md#discord-voice-on-windows) for what's been checked there.
-davey's change for Go Live groups is described in
-`vendor/davey/README.yapfast.md`.
+Go Live uses a [separate DAVE group](go-live.md).
 
 Discord may move a call to another voice server, saying so with a new
 `VOICE_SERVER_UPDATE` while the call is connected. Yapfast connects the call

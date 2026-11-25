@@ -147,7 +147,7 @@ impl Dave {
 
     /// Whether frames leave end-to-end encrypted.
     pub fn encrypting(&self) -> bool {
-        self.version != 0 && self.session.as_ref().is_some_and(DaveSession::is_ready)
+        self.version != 0 && self.session.as_ref().is_some_and(DaveSession::can_encrypt)
     }
 
     /// The group's voice privacy code, 30 digits, which Discord's clients
@@ -193,17 +193,23 @@ impl Dave {
                     version = event.protocol_version,
                     "DAVE prepares a transition"
                 );
+                if let Some(session) = self.session.as_mut() {
+                    if let Err(error) =
+                        session.prepare_transition(event.transition_id, event.protocol_version)
+                    {
+                        tracing::warn!(?error, "could not prepare the DAVE protocol transition");
+                        return vec![];
+                    }
+                    if event.protocol_version == 0 && event.transition_id != 0 {
+                        session.set_passthrough_mode(true, None);
+                    }
+                }
                 self.pending
                     .insert(event.transition_id, event.protocol_version);
                 if event.transition_id == 0 {
                     self.execute(event.transition_id);
                     vec![]
                 } else {
-                    if event.protocol_version == 0
-                        && let Some(session) = self.session.as_mut()
-                    {
-                        session.set_passthrough_mode(true, Some(120));
-                    }
                     vec![self.ready(event.transition_id, event.protocol_version)]
                 }
             }
@@ -237,10 +243,11 @@ impl Dave {
                     DaveMlsProposalsOperationType::Append => ProposalsOperationType::APPEND,
                     DaveMlsProposalsOperationType::Revoke => ProposalsOperationType::REVOKE,
                 };
-                if operation == ProposalsOperationType::APPEND {
-                    self.follow(proposals_group(&event.proposals));
-                }
-                let mut out = vec![];
+                let mut out = if operation == ProposalsOperationType::APPEND {
+                    self.follow(proposals_group(&event.proposals))
+                } else {
+                    vec![]
+                };
                 let users: Vec<u64> = self.users.iter().copied().collect();
                 let result = self.session.as_mut().map(|session| {
                     session.process_proposals(operation, &event.proposals, Some(&users))
@@ -274,7 +281,7 @@ impl Dave {
                 out
             }
             Event::DaveMlsAnnounceCommitTransition(event) => {
-                self.follow(message_group(&event.commit_message));
+                let mut out = self.follow(message_group(&event.commit_message));
                 // Before Yapfast has a group, or has committed to its pending
                 // one, a commit is for a group a welcome will bring it
                 // into. libdave ignores it; refusing it would start over
@@ -289,22 +296,25 @@ impl Dave {
                         transition_id = event.transition_id,
                         "a DAVE commit before Yapfast is in the group; waiting for its welcome"
                     );
-                    return vec![];
+                    return out;
                 }
                 let result = self
                     .session
                     .as_mut()
                     .map(|session| session.process_commit(&event.commit_message));
-                self.joined(
+                out.extend(self.joined(
                     event.transition_id,
                     result.map(|result| result.map_err(|error| format!("{error:?}"))),
-                )
+                ));
+                out
             }
             Event::DaveMlsWelcome(event) => {
-                let result = self
-                    .session
-                    .as_mut()
-                    .map(|session| session.process_welcome(&event.welcome));
+                let users: Vec<u64> = self.users.iter().copied().collect();
+                let result = self.session.as_mut().map(|session| {
+                    session
+                        .process_welcome(&event.welcome, Some(&users))
+                        .map(|()| true)
+                });
                 self.joined(
                     event.transition_id,
                     result.map(|result| result.map_err(|error| format!("{error:?}"))),
@@ -316,9 +326,16 @@ impl Dave {
 
     /// Moves to the group the voice server's messages name, when it isn't
     /// the guessed one. A stream's group isn't its voice channel's.
-    fn follow(&mut self, group: Option<u64>) {
+    fn follow(&mut self, group: Option<u64>) -> Vec<Out> {
+        if self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.status() == SessionStatus::ACTIVE)
+        {
+            return vec![];
+        }
         let Some(group) = group.filter(|&group| group != self.channel_id) else {
-            return;
+            return vec![];
         };
         tracing::info!(
             group,
@@ -326,16 +343,12 @@ impl Dave {
             "the stream's DAVE group isn't the one guessed; moving to it"
         );
         self.channel_id = group;
-        if let Some(session) = self.session.as_mut()
-            && let Err(error) = session.set_channel_id(group)
-        {
-            tracing::warn!(?error, "could not move to the stream's DAVE group");
-        }
+        self.reinit()
     }
 
     /// After a commit or welcome: ready for the transition, or start over.
-    fn joined(&mut self, transition_id: u16, result: Option<Result<(), String>>) -> Vec<Out> {
-        if let Some(Ok(())) = result {
+    fn joined(&mut self, transition_id: u16, result: Option<Result<bool, String>>) -> Vec<Out> {
+        if let Some(Ok(true)) = result {
             tracing::info!(
                 transition_id,
                 dave = self.status(),
@@ -343,10 +356,28 @@ impl Dave {
             );
         }
         match result {
-            Some(Ok(())) if transition_id != 0 => {
+            Some(Ok(true)) => {
+                let prepared = self
+                    .session
+                    .as_mut()
+                    .expect("a DAVE result has a session")
+                    .prepare_transition(transition_id, self.version)
+                    .map_err(|error| format!("{error:?}"));
+                if let Err(error) = prepared {
+                    tracing::warn!(%error, "could not prepare the DAVE transition");
+                    let mut out = vec![Out::Json(Event::from(DaveMlsInvalidCommitWelcome {
+                        transition_id,
+                    }))];
+                    out.extend(self.reinit());
+                    return out;
+                }
+                if transition_id == 0 {
+                    return vec![];
+                }
                 self.pending.insert(transition_id, self.version);
                 vec![self.ready(transition_id, self.version)]
             }
+            Some(Ok(false)) => vec![],
             Some(Err(error)) => {
                 tracing::warn!(%error, "MLS commit or welcome failed");
                 let mut out = vec![Out::Json(Event::from(DaveMlsInvalidCommitWelcome {
@@ -367,6 +398,7 @@ impl Dave {
     }
 
     fn reinit(&mut self) -> Vec<Out> {
+        self.pending.clear();
         let Some(version) = NonZeroU16::new(self.version) else {
             if let Some(session) = self.session.as_mut() {
                 if let Err(error) = session.reset() {
@@ -411,6 +443,17 @@ impl Dave {
             tracing::warn!(transition_id, "DAVE transition to an unknown id");
             return;
         };
+        if transition_id != 0
+            && let Some(session) = self.session.as_mut()
+            && let Err(error) = session.execute_transition(transition_id)
+        {
+            tracing::warn!(
+                ?error,
+                transition_id,
+                "could not execute the DAVE transition"
+            );
+            return;
+        }
         let old = std::mem::replace(&mut self.version, version);
         // Upgraded from transport-only encryption: unencrypted frames pass
         // for libdave's transition expiry, 10 s, while senders switch. In
@@ -581,40 +624,37 @@ mod tests {
     #[test]
     fn joins_a_stream_group_it_guessed_wrong() {
         use davey::DaveSession;
-        let (streamer, viewer, group) = (10, 20, 77);
+        let (streamer, viewer, group) = (10, 20, 77u64);
         let server = Server::new();
         let sender = serenity_voice_model::payload::DaveMlsExternalSender {
             external_sender: server.external_sender(),
         };
 
+        let mut dave = Dave::new(viewer, 2);
+        dave.recognise(streamer);
+        let old_package = key_package(&dave.start(1));
+        dave.handle(Event::from(sender.clone()));
+
+        // Discord sends the proposals to everyone. Changing the group in
+        // davey resets its key package, so Yapfast restarts in the named group
+        // and sends a key package for it before the streamer makes the commit.
+        let proposals = server.propose_add(&old_package, group);
+        let out = dave.handle(Event::from(
+            serenity_voice_model::payload::DaveMlsProposals {
+                operation_type: DaveMlsProposalsOperationType::Append,
+                proposals,
+            },
+        ));
+        assert_eq!(dave.channel_id, group);
+        let package = key_package(&out);
         let mut host = DaveSession::new(1.try_into().unwrap(), streamer, group, None).unwrap();
         host.set_external_sender(&sender.external_sender).unwrap();
         host.create_key_package().unwrap();
-
-        let mut dave = Dave::new(viewer, 2);
-        dave.recognise(streamer);
-        let package = key_package(&dave.start(1));
-        dave.handle(Event::from(sender));
-
         let proposals = server.propose_add(&package, group);
         let commit = host
             .process_proposals(ProposalsOperationType::APPEND, &proposals, None)
             .unwrap()
             .expect("the streamer commits the viewer's addition");
-        // Discord sends the proposals to everyone; the viewer learns the
-        // group from them and doesn't make a new key package.
-        let out = dave.handle(Event::from(
-            serenity_voice_model::payload::DaveMlsProposals {
-                operation_type: DaveMlsProposalsOperationType::Append,
-                proposals: proposals.clone(),
-            },
-        ));
-        assert_eq!(dave.channel_id, group);
-        assert!(
-            !out.iter()
-                .any(|out| matches!(out, Out::Binary(Event::DaveMlsKeyPackage(_)))),
-            "{out:?}"
-        );
 
         let out = dave.handle(Event::from(serenity_voice_model::payload::DaveMlsWelcome {
             transition_id: 4,
@@ -624,16 +664,18 @@ mod tests {
             matches!(out.as_slice(), [Out::Json(Event::DaveTransitionReady(ready))] if ready.transition_id == 4),
             "{out:?}"
         );
+        assert!(!dave.encrypting());
         dave.handle(Event::from(
             serenity_voice_model::payload::DaveExecuteTransition { transition_id: 4 },
         ));
-        assert!(dave.session.as_ref().unwrap().is_ready());
+        assert!(dave.encrypting());
 
         // The server announces the commit to the streamer, who then sends
         // an encrypted H264 frame. Packetized, reassembled and decrypted, it
         // arrives as it was.
-        host.process_commit(&commit.commit).unwrap();
-        assert!(host.is_ready());
+        assert!(host.process_commit(&commit.commit).unwrap());
+        host.prepare_transition(4, 1).unwrap();
+        assert!(host.execute_transition(4).unwrap());
         let idr: Vec<u8> = [0x65]
             .into_iter()
             .chain((0..3000u32).map(|index| (index % 251) as u8 + 1))
@@ -732,6 +774,8 @@ mod tests {
         );
         dave.handle(Event::from(DaveExecuteTransition { transition_id: 3 }));
         other.process_commit(&commit.commit).unwrap();
+        other.prepare_transition(3, 1).unwrap();
+        other.execute_transition(3).unwrap();
 
         let sealed = other.encrypt_opus(b"friend's voice").unwrap().into_owned();
         assert_eq!(
@@ -752,7 +796,7 @@ mod tests {
     }
 
     #[test]
-    fn moves_to_the_proposed_group_keeping_its_key_package() {
+    fn moves_to_the_proposed_group_with_a_new_key_package() {
         let mut dave = Dave::new(1, 2);
         dave.start(1);
         dave.handle(Event::from(
@@ -773,7 +817,7 @@ mod tests {
             session.group().is_some(),
             "a pending group under the new id"
         );
-        assert!(out.is_empty(), "no new key package: {out:?}");
+        key_package(&out);
     }
 
     #[test]

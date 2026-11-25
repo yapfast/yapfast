@@ -9,7 +9,7 @@ license = "GPL-3.0-or-later"
 [workspace]
 members = ["crates/yapfast-core", "crates/yapfast-discord", "crates/yapfast-iced", "crates/yapfast-iced-kit", "testing/hosts"]
 default-members = ["."]
-exclude = ["vendor/matrix-rtc-livekit", "vendor/rusqlite", "vendor/webrtc-sys", "vendor/davey", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
+exclude = ["vendor/matrix-rtc-livekit", "vendor/rusqlite", "vendor/webrtc-sys", "vendor/deep_filter", "vendor/x264-src", "vendor/ffmpeg-src"]
 resolver = "3"
 
 # Lints beyond Clippy's defaults, for every crate in the workspace. scripts/check
@@ -92,7 +92,7 @@ resvg = { version = "0.50", default-features = false, optional = true }
 # Desktop notifications through the freedesktop service, on the session bus
 # the keyring already uses.
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+zbus = { version = "6.5", default-features = false, features = ["default-rt", "proxy", "service"], optional = true }
 # Pasted pictures as their copied bytes, through Wayland's data-control protocol.
 wl-clipboard-rs = { version = "0.9.5", optional = true }
 # Files dropped on the window, which winit doesn't take on Wayland, through a data
@@ -153,10 +153,8 @@ url = "2"
 # Cargo does not inherit the SDK's patches through a git dependency.
 [patch.crates-io]
 webrtc-sys = { path = "vendor/webrtc-sys" }
-davey = { path = "vendor/davey" }
 # Remove once the Matrix SDK revision shared with MatrixRTC accepts rusqlite 0.41.
 rusqlite = { path = "vendor/rusqlite" }
-tungstenite = { path = "vendor/tungstenite" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
 # iced 0.14's renderers with Yapfast's patches; see docs/building.md.
 iced_tiny_skia = { path = "vendor/iced_tiny_skia" }

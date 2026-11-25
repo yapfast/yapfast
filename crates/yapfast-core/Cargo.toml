@@ -132,8 +132,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
-# What `#[implement]` expands to names it.
-windows-core = "0.100"
+# `#[implement]` names this crate directly and must use the same version as windows.
+windows-core = "0.62"
 
 [dev-dependencies]
 # Animated PNGs to read frame timings from, the version the image crate uses.
