@@ -414,6 +414,7 @@ async fn connected(
                     muted: if person.is_local { state.muted } else { person.streams.iter().filter(|stream| stream.kind == MediaStreamKind::Microphone).all(|stream| stream.muted) },
                     deafened: person.is_local && state.deafened,
                     server_muted: false,
+                    speaking_blocked: false,
                     server_deafened: false,
                     speaking: speaking.contains(&person.member_id),
                     connected,

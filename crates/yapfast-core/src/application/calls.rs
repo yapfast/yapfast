@@ -309,6 +309,7 @@ impl Application {
                             muted: true,
                             deafened: false,
                             server_muted: false,
+                            speaking_blocked: false,
                             server_deafened: false,
                             speaking: false,
                             connected: true,

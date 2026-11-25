@@ -737,6 +737,35 @@ impl Api {
             .await
     }
 
+    /// What someone's activity carries beyond their presence, by its
+    /// session and application (`0` for none, as Discord's client sends),
+    /// as the client asks for it when a Rich Presence button whose address
+    /// the presence didn't carry is clicked: `{button_urls}`, or none when
+    /// Discord answers 204, having none.
+    pub async fn activity_metadata(
+        &self,
+        user: &str,
+        session: &str,
+        application: &str,
+    ) -> Result<Option<Value>> {
+        let path = format!(
+            "/users/{user}/sessions/{}/activities/{}/metadata",
+            encode(session),
+            encode(application)
+        );
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        serde_json::from_slice(&body)
+            .map(Some)
+            .context("could not understand Discord's answer")
+    }
+
     /// A shop product, such as the profile effect of a SKU, as the client
     /// fetches it to show the effect.
     pub async fn collectibles_product(&self, sku: &str) -> Result<Value> {

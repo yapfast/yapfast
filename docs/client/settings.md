@@ -101,8 +101,12 @@ recording. Each change is kept at once in
   its field shows its change at once, or says "Not a colour"; Save keeps the
   theme among the person's own and chooses it, Cancel (or leaving Appearance
   or Settings) shows the theme from before, and a saved one's Delete asks
-  once more. Then Font (`font.rs`): Choose font files opens the system's file
-  dialog for TTF, OTF, TTC and WOFF files, which draw the whole window in
+  once more. Import, beside New theme, and Export, in the editor beside Save
+  and Cancel, open the system's file dialog and share a theme as a file (see
+  [themes](../themes.md#sharing-themes)); Paste and Copy beside them do the
+  same through the clipboard. A line under the title says how it went. Then
+  Font (`font.rs`): Choose font files opens the system's file dialog for TTF,
+  OTF, TTC and WOFF files, which draw the whole window in
   their font; each file is listed with the faces it gave and a Remove, a file
   that isn't a font is left out with the reason under the list, and Reset to
   default goes back to DM Sans. The paths are kept as `ui_font_files` in

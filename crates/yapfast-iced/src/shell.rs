@@ -763,6 +763,11 @@ impl App {
         if let Some(bytes) = self.client.take_copied_picture() {
             desktop::desktop().copy_picture(bytes);
         }
+        // The question before leaving takes the keys, as a masked link's does.
+        if let Some(link) = self.client.take_leaving() {
+            self.leaving = Some(link);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
+        }
         if self.shell.pending_link.is_some() && self.shell.window.is_some() {
             tasks.push(self.open_pending_link());
         }
