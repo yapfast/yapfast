@@ -60,7 +60,13 @@ member list, the DMs, and the lists still to come build on it.
   kind, the level and the progress), the activities with their times (on the
   floating card each with Discord's more menu: View All Activity opens the
   full profile on Activity, and one's own game's Manage Privacy opens Game
-  Activity's settings), the mutual line
+  Activity's settings; someone else's with their Rich Presence buttons
+  after Watch, small plain `action`s worked out once per profile view in
+  `ActivityLook::buttons`, whose click sends
+  `Action::OpenActivityButton`: the core answers with
+  `Effect::AskToOpen`, which the `Client` keeps until `App::shell_sync`
+  puts it in `app.leaving`, the "Leaving Yapfast" question a masked link
+  asks, and moves the keys to `NOBODY`), the mutual line
   (which opens the full profile on its tab; in the docked card with no
   mutual friend it leads with the first three mutual servers' icons, 16 px
   and overlapping, then the servers' count), the bio cut to three lines

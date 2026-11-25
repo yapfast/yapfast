@@ -129,7 +129,10 @@ pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> V
             let mut sum = [0u32; 4];
             for row in y0..y1 {
                 let start = ((row * source_width + x0) * 4) as usize;
-                for pixel in source[start..start + ((x1 - x0) * 4) as usize].chunks_exact(4) {
+                for pixel in source[start..start + ((x1 - x0) * 4) as usize]
+                    .as_chunks::<4>()
+                    .0
+                {
                     let weight = if straight { u32::from(pixel[3]) } else { 1 };
                     for channel in 0..3 {
                         sum[channel] += u32::from(pixel[channel]) * weight;
@@ -173,7 +176,9 @@ pub fn styled_name(
     use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping, SwashCache, SwashContent, Weight};
     let em = size;
     let line_height = (size * 1.3).ceil();
-    let family = look.family.map_or(Family::Name("DM Sans"), Family::Name);
+    let family = look
+        .family
+        .map_or(Family::Name(crate::fonts::FAMILY), Family::Name);
     let weight = if look.family.is_some() {
         look.weight
     } else {
@@ -425,7 +430,7 @@ pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Op
     }
     // Premultiplied BGRA, as a canvas is.
     let mut source = image.data;
-    for pixel in source.chunks_exact_mut(4) {
+    for pixel in source.as_chunks_mut::<4>().0 {
         let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
         pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
@@ -555,8 +560,8 @@ mod tests {
         }
         let out = fitted(&source, (4, 1), (2, 2), true);
         assert_eq!(out.len(), 2 * 2 * 4);
-        for pixel in out.chunks_exact(4) {
-            assert_eq!(pixel, [0, 255, 0, 255]);
+        for pixel in out.as_chunks::<4>().0 {
+            assert_eq!(*pixel, [0, 255, 0, 255]);
         }
     }
 
@@ -577,7 +582,12 @@ mod tests {
         assert_eq!(pixel(1, 3), [0, 0, 255, 255]);
         // One of its own shape is scaled to it whole.
         let same = fitted(&[9, 9, 9, 255].repeat(4), (2, 2), (4, 4), false);
-        assert!(same.chunks_exact(4).all(|pixel| pixel == [9, 9, 9, 255]));
+        assert!(
+            same.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [9, 9, 9, 255])
+        );
     }
 
     #[test]

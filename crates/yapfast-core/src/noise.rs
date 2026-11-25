@@ -448,7 +448,7 @@ mod tests {
             })
             .collect();
         let mut output = Vec::with_capacity(input.len());
-        for (index, noisy) in input.chunks_exact(PAIR * BLOCK).enumerate() {
+        for (index, noisy) in input.as_chunks::<{ PAIR * BLOCK }>().0.iter().enumerate() {
             let mut pair = [[0.0; BLOCK]; PAIR];
             pair.as_flattened_mut().copy_from_slice(noisy);
             // Sent whatever it is, as push-to-talk's held key sends it: a
@@ -530,8 +530,10 @@ mod tests {
     fn compares_suppressors() {
         let input: Vec<f32> = std::fs::read(std::env::var("YAPFAST_NOISE_IN").unwrap())
             .unwrap()
-            .chunks_exact(4)
-            .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap()) * 32768.0)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|bytes| f32::from_le_bytes(*bytes) * 32768.0)
             .collect();
         let out = std::env::var("YAPFAST_NOISE_OUT").unwrap();
         let resident = || {
@@ -571,14 +573,14 @@ mod tests {
             let suppressor = denoiser.suppressor();
             let (mut samples, mut rows) = (Vec::new(), String::from("us,snr,vad\n"));
             let mut times = Vec::new();
-            for noisy in input.chunks_exact(PAIR * BLOCK) {
+            for noisy in input.as_chunks::<{ PAIR * BLOCK }>().0 {
                 let mut pair = [[0.0; BLOCK]; PAIR];
                 pair.as_flattened_mut().copy_from_slice(noisy);
                 let started = Instant::now();
                 denoiser.pair(&mut pair, Sent::Gated, false);
                 // Each block of the pair takes half its time.
                 let took = started.elapsed().as_secs_f64() * 1e6 / PAIR as f64;
-                for (noisy, block) in noisy.chunks_exact(BLOCK).zip(&pair) {
+                for (noisy, block) in noisy.as_chunks::<BLOCK>().0.iter().zip(&pair) {
                     times.push(took);
                     let scaled: Vec<f32> = noisy.iter().map(|sample| sample / 32768.0).collect();
                     let estimate = snr

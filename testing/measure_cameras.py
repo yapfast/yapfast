@@ -14,15 +14,15 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import runpy
 import signal
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
-from voice_harness import provision
+from voice_harness import LoadParticipants, provision
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
@@ -93,50 +93,13 @@ def sample(pid, name, notes):
     return result
 
 
-class Load:
-    def __init__(self, fixture):
-        self.fixture = fixture
-        self.commands = fixture / 'load.commands'
-        self.commands.write_text('')
-        self.log = (fixture / 'load.log').open('ab')
-        self.process = subprocess.Popen([str(args.load_executable.resolve()), '--exact',
-                                         'matrix_voice::tests::load_participants', '--ignored', '--nocapture'],
-                                        cwd=ROOT, stdout=self.log, stderr=self.log,
-                                        env=dict(CAMERA, YAPFAST_TEST_VOICE_ROOT=str(fixture),
-                                                 YAPFAST_TEST_EXTRA_ACCOUNTS=str(EXTRA)),
-                                        start_new_session=True)
-
-    def send(self, command, expect, timeout=240):
-        if command:
-            with self.commands.open('a') as commands:
-                commands.write(command + '\n')
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if (self.fixture / 'load.status').exists() and (self.fixture / 'load.status').read_text() == expect:
-                return
-            if self.process.poll() is not None:
-                raise RuntimeError('load process exited; see load.log')
-            time.sleep(.2)
-        raise RuntimeError(f'load did not reach {expect!r}')
-
-    def stop(self):
-        if self.process.poll() is None:
-            with self.commands.open('a') as commands:
-                commands.write('exit\n')
-            try:
-                self.process.wait(timeout=60)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-        self.log.close()
-
-
 results = []
 load = None
 fixture = provision()
 print(f'Fixture {fixture}', flush=True)
 try:
-    load = Load(fixture)
-    load.send('', 'ready', 600)  # Waits for the load accounts to sync.
+    load = LoadParticipants(args.load_executable.resolve(), fixture, EXTRA, env=CAMERA)
+    load.wait('ready', 600)  # Waits for the load accounts to sync.
     for renderer in renderers:
         environment = dict(CAMERA, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}')
         log = (args.output / f'{renderer}.log').open('wb')

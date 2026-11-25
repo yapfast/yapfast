@@ -53,7 +53,7 @@ impl yapfast_core::chat::PixelBuffer for NativePixels {
 
     fn straight_rgba(&self) -> Vec<u8> {
         let mut pixels = self.0.clone();
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
             let straight = |value: u8| match a {
                 0 => 0,
@@ -243,7 +243,12 @@ impl Pictures {
     /// Whether `picture` is opaque all over.
     pub fn opaque(&self, picture: &Arc<Picture>) -> bool {
         self.opaque.borrow_mut().get(picture, |picture| {
-            picture.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255)
+            picture
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
         })
     }
 
@@ -1364,7 +1369,9 @@ mod tests {
         assert_ne!(patterned, gradient);
         assert!(
             patterned
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| { pixel[..3] == [0, 0, 0] || pixel[..3] == [255, 255, 255] })
         );
     }

@@ -578,7 +578,7 @@ fn leaving_a_group_dm_asks_first_and_may_tell_no_one() {
     // After muting, as in Discord's menu; a one-to-one DM closes instead.
     assert_eq!(
         app.state.menu_choices(&group),
-        [Pin, Call, Mute, LeaveGroup, CopyLink, CopyId]
+        [Pin, AddFavorite, Call, Mute, LeaveGroup, CopyLink, CopyId]
     );
     assert!(
         !app.state
