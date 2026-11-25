@@ -115,7 +115,9 @@ own, which a stream hands to the event loop as messages; nothing polls.
   window back.
   On Windows the taskbar icon counts the mentions and unread DMs that
   trigger the tray dot. It shows 1–9, or 9+ for ten or more. An unread
-  unmuted DM with no message count contributes one.
+  unmuted DM with no message count contributes one. While the count is
+  visible, the taskbar uses Yapfast's badged logo. The chosen app icon stays
+  in the title bar and returns to the taskbar when the count clears.
 - A later start of Yapfast on the same data folder hands over to the
   running one and ends: the window comes forward with that start's token,
   and a Discord link it brought (a `LINK` on its command line, or a

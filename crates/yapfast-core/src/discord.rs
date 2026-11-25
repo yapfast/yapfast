@@ -274,6 +274,8 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        style: member.style.map(|style| Arc::new(style.into())),
+        tag: server_tag(member.tag.clone()),
     }
 }
 
@@ -762,6 +764,13 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             .collect(),
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
+        group_avatars: dm.group_avatars.as_ref().map(|pair| {
+            pair.clone().map(|member| chat::GroupAvatar {
+                id: member.id,
+                name: member.name,
+                avatar: member.avatar,
+            })
+        }),
         decoration: dm.decoration.clone(),
         nameplate: dm.nameplate.clone().map(|plate| Arc::new(plate.into())),
         style: dm.style.map(|style| Arc::new(style.into())),
@@ -914,6 +923,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                group_avatars: None,
                 decoration: None,
                 nameplate: None,
                 style: None,
@@ -969,6 +979,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                group_avatars: None,
                 decoration: None,
                 nameplate: None,
                 style: None,
@@ -1129,6 +1140,7 @@ fn thread_room(
         ringing: vec![],
         incoming: false,
         avatar: None,
+        group_avatars: None,
         decoration: None,
         nameplate: None,
         style: None,
@@ -2558,6 +2570,8 @@ mod tests {
             server_muted: false,
             speaking_blocked: false,
             server_deafened: false,
+            style: None,
+            tag: None,
         };
         let first = Snapshot {
             servers: vec![server("10", "11", "12"), server("20", "21", "22")],
@@ -2727,6 +2741,8 @@ mod tests {
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: None,
+                tag: None,
             }],
         );
         assert!(kept.update_into(&call, false, &mut rooms, &mut servers));
@@ -2822,6 +2838,8 @@ mod tests {
             streaming: false,
             video: false,
             elsewhere: false,
+            style: None,
+            tag: None,
         };
         let snapshot = Snapshot {
             servers: vec![MarkedServer::marked(
@@ -2908,6 +2926,8 @@ mod tests {
                         server_muted: false,
                         speaking_blocked: false,
                         server_deafened: false,
+                        style: None,
+                        tag: None,
                     }],
                 ),
                 // Discord sends who is in a hidden voice channel too.
@@ -2925,6 +2945,8 @@ mod tests {
                         server_muted: false,
                         speaking_blocked: false,
                         server_deafened: false,
+                        style: None,
+                        tag: None,
                     }],
                 ),
             ]

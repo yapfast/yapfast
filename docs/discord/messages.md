@@ -213,6 +213,8 @@ Yapfast is back, rather than showing an error.
   The rail applies the move immediately from the last known server list.
   The update replaces the `guild_folders` field. A failed save restores the
   previous arrangement unless Discord has since sent a newer one.
+  A folder's menu leaves out Discord's Move to and Folder Settings; what it
+  offers is in [Notification settings](#notification-settings).
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`
@@ -1249,6 +1251,20 @@ Discord's do, built alike in `crates/yapfast-iced/src/place_menus.rs`
   heading names its first channel, and Yapfast finds the channel's category
   (`Application::category_of`); an empty category's heading names the
   category itself.
+
+A folder's menu changes its servers together, which Discord's own folder
+menu doesn't offer: `Action::ChangeNotifications` with the folder's id sends
+`DiscordCommand::FolderNotifications`, one `PATCH
+/users/@me/guilds/settings` with the same partial settings for each server,
+`{"guilds": {"<id>": {"muted": true, "mute_config": {...}}, ...}}`, the
+request Discord's client sends a server's own settings through. A mute with
+an end ends at the same moment for each. Discord answers with a
+USER_GUILD_SETTINGS_UPDATE for each server. A server right-clicked under
+Servers opens its own choices, which change that server alone with the
+same request its own menu sends.
+Mark folder as read marks every server's unread channels read, as each
+server's Mark as read does, which is what Discord's client does for a
+folder.
 
 ## Writing without permission
 
