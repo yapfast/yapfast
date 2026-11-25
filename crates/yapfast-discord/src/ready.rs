@@ -225,6 +225,12 @@ pub struct Server {
     /// would go on drawing icons the client doesn't.
     #[serde(default)]
     pub role_icons_allowed: bool,
+    /// Whether its roles' names may be gradients: the
+    /// `ENHANCED_ROLE_COLORS` feature, a boost perk. Discord's client draws
+    /// a role's second colour only while the server has it, and keeps the
+    /// colours on the role after it goes.
+    #[serde(default)]
+    pub role_gradients_allowed: bool,
     /// What its owner chose about the member list's Activity panel; see
     /// [`crate::activity_feed::shown_in`].
     pub activity_feed: Option<bool>,
@@ -1397,6 +1403,9 @@ impl Server {
     /// highest coloured role they have, when that role's name is a
     /// gradient, as Discord's enhanced role colours draw it.
     pub fn gradient(&self, roles: &[String]) -> Option<(u32, Option<u32>)> {
+        if !self.role_gradients_allowed {
+            return None;
+        }
         let top = roles
             .iter()
             .filter_map(|role| Some((role, self.role_colors.get(role)?)))
@@ -1480,6 +1489,7 @@ pub fn server(guild: &Value) -> Option<Server> {
             Some(1 | 3)
         ),
         role_icons_allowed: premium_tier >= 2 || has("ROLE_ICONS"),
+        role_gradients_allowed: has("ENHANCED_ROLE_COLORS"),
         activity_feed: if has("ACTIVITY_FEED_ENABLED_BY_USER") {
             Some(true)
         } else if has("ACTIVITY_FEED_DISABLED_BY_USER") {
@@ -1991,7 +2001,10 @@ mod tests {
     /// second colour too, from the highest coloured role only.
     #[test]
     fn a_gradient_roles_second_colour_ends_its_members_names() {
-        let mut server = Server::default();
+        let mut server = Server {
+            role_gradients_allowed: true,
+            ..Server::default()
+        };
         server.put_role(&json!({"id": "1", "name": "Fade", "position": 5, "color": 0xff0000,
             "colors": {"primary_color": 0xff0000, "secondary_color": 0x0000ff, "tertiary_color": null}}));
         server.put_role(
@@ -2023,8 +2036,32 @@ mod tests {
             Some((0xffbbec, Some(0xffc3a0))),
             "holographic: a third colour"
         );
+        // Without the server's ENHANCED_ROLE_COLORS the role's colours
+        // stay on it, but its name is the one colour, as in Discord's client.
+        server.role_gradients_allowed = false;
+        assert_eq!(server.gradient(&has(&["4"])), None, "the perk is gone");
+        server.role_gradients_allowed = true;
         server.put_role(&json!({"id": "1", "name": "Fade", "position": 5, "color": 0xff0000}));
         assert_eq!(server.gradient(&has(&["1"])), None, "made plain again");
+    }
+
+    /// A server's roles may be gradients only with ENHANCED_ROLE_COLORS.
+    #[test]
+    fn role_gradients_follow_the_servers_feature() {
+        let guild = |features: &[&str]| {
+            json!({
+                "id": "10",
+                "properties": {"name": "Test", "features": features},
+                "roles": [{"id": "20", "name": "Fade", "permissions": "0", "position": 2,
+                    "color": 0xff0000, "colors": {"primary_color": 0xff0000, "secondary_color": 0x0000ff}}],
+            })
+        };
+        let mine = ["20".to_owned()];
+        let plain = server(&guild(&[])).unwrap();
+        assert_eq!(plain.gradient(&mine), None);
+        assert_eq!(plain.color(&mine), Some(0xff0000));
+        let enhanced = server(&guild(&["ENHANCED_ROLE_COLORS"])).unwrap();
+        assert_eq!(enhanced.gradient(&mine), Some((0x0000ff, None)));
     }
 
     #[test]

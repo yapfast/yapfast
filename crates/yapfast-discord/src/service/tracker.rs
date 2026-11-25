@@ -592,6 +592,7 @@ impl Tracker {
                 known.premium_tier = update.premium_tier;
                 known.age_restricted = update.age_restricted;
                 known.role_icons_allowed = update.role_icons_allowed;
+                known.role_gradients_allowed = update.role_gradients_allowed;
                 known.mfa_level = update.mfa_level;
                 known.default_level = update.default_level;
                 known.forwarding_disabled = update.forwarding_disabled;
