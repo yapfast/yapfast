@@ -47,18 +47,32 @@ The call's views and what they do are in `call/`.
   the microphone's level, measured only while the menu shows and read
   as it's drawn, and the
   noise suppression kind.
-- Go Live's menu lists the screens with a picture of each (from a stream
-  worker started for them and gone once they're in), the windows, the
-  system's own dialog where the portal picks, and the cameras, then the
-  resolution, frame rate and encoding. Source shows the selected screen's
-  dimensions when its thumbnail arrives. Higher presets are disabled and
-  Source is selected if the saved resolution exceeds the screen's height.
-  The menu fits a short window by scrolling, keeping its button in view. It opens once they're listed (on
-  a thread of their own); meanwhile Escape, a second click, another popup
-  or leaving the call cancels it, and a listing cancelled opens nothing. While live, the same menu
-  switches what's shared; where the system's dialog is its only choice
-  (the portal picks and no camera is connected), Switch screen or window
-  opens the dialog with no menu.
+- Go Live's menu (`call/popups/share.rs`) lists what to share: screen and
+  window previews two to a row, the system dialog where supported and the
+  available cameras, which scroll past two rows of previews. The preview
+  worker exits when it finishes or the menu closes. Under them, always in
+  view, each setting is one row that names what's chosen (Audio,
+  Resolution, Frame rate), then Higher quality's checkbox and the action
+  button. The pointer on a setting's row, or a click, opens its choices
+  beside the menu, level with the row, the one chosen ticked: a context
+  menu's submenu, placed by the same `Place::beside`, on the right or the
+  left without room. Taller lists shift up to fit the window. The menu
+  neither moves nor changes size for them.
+  One list shows at a time; a choice is taken and its list closes, as it
+  does with the pointer on Higher quality, a source picked, or Escape,
+  which closes the menu only after. The audio's list scrolls where many
+  windows are open. The resolution list shows the selected screen's source
+  dimensions when its preview arrives and disables presets above its height.
+  If the saved resolution exceeds that height, the menu uses Source.
+  The audio chosen is the call's at once and is kept
+  for the next start; on Windows an application is kept by its program
+  and found again by a window it has as the menu opens, and everything
+  is shared while it isn't running
+  ([Go Live](../discord/go-live.md)). While live only Audio has a row,
+  and its changes apply immediately; pick a source and select Switch to
+  change the video. If the system dialog is the only source while switching,
+  it opens directly. Escape, a second click, another popup or leaving the
+  call cancels a pending source listing.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
   pointer and starred as a favourite.

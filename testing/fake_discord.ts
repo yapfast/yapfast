@@ -210,7 +210,9 @@
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
 // /_control/presence shows the presence her session last sent with op 3, GET
 // /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
-// and how many times that was asked.
+// and how many times that was asked. It also returns `writes`, each submitted
+// settings-proto/1 patch. POST /_control/settings with {settings: base64} simulates
+// another client's partial update; {reject_next: true} rejects the next PATCH.
 // POST /_control/other-session brings her phone online playing a song, with
 // SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
@@ -699,6 +701,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
 }
 // How many times GET /users/@me/settings-proto/1 was asked.
 let settingsReads = 0;
+const settingsWrites: string[] = [];
+let rejectSettings = false;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -7116,6 +7120,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    settingsWrites.push(body.settings);
+    if (rejectSettings) {
+      rejectSettings = false;
+      return json({ message: "Missing Access", code: 50001 }, 403);
+    }
     settings = mergeSettings(settings, body.settings);
     dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
     return json({ settings });
@@ -9071,7 +9080,17 @@ const server = Bun.serve<SocketData>({
       }]);
       return new Response("online\n");
     }
-    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
+    if (path === "/_control/settings") {
+      if (req.method === "POST") {
+        const body: any = await req.json();
+        if (body.reject_next === true) rejectSettings = true;
+        if (typeof body.settings === "string") {
+          settings = mergeSettings(settings, body.settings);
+          dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
+        }
+      }
+      return Response.json({ settings, reads: settingsReads, writes: settingsWrites });
+    }
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
@@ -9369,7 +9388,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/gateway-reconnect") {
       // Discord's op 7: the client should drop the connection and resume.
-      for (const ws of sockets) if (ws.data.identified) send(ws, 7, null);
+      for (const ws of sockets) {
+        if (!ws.data.identified) continue;
+        // Later dispatches belong to the replay, even before the old socket closes.
+        parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+        ws.data.identified = false;
+        send(ws, 7, null);
+      }
       return new Response("asked gateways to reconnect\n");
     }
     if (req.method === "POST" && path === "/_control/refresh-token") {

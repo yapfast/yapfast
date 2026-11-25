@@ -51,7 +51,8 @@ impl Share {
             stream_worker::Source::Screen
         };
         let enhanced_preview = stream_worker::enhanced_preview();
-        let (worker, frames, reports) = Worker::share(source, quality, enhanced_preview)?;
+        let (worker, frames, reports) =
+            Worker::share(source, quality, enhanced_preview, state.stream_audio)?;
         state.sharing = Some(Sharing {
             phase: SharePhase::Choosing,
             frames: Arc::new(frames),
@@ -654,6 +655,15 @@ pub(crate) async fn call(
                             }
                             state.camera_phase = CameraPhase::Off;
                         }
+                        Some(Command::StreamAudio(audio)) => {
+                            state.share_audio(audio);
+                            Chosen::write(remembered, state);
+                            if let Some(going) = share.as_mut()
+                                && let Err(error) = going.worker.tell(&stream_worker::Control::Audio(audio))
+                            {
+                                state.error = Some(format!("Could not change stream audio: {error:#}"));
+                            }
+                        }
                         Some(Command::GoLive(quality)) => {
                             if share.is_none() {
                                 state.quality = quality;
@@ -762,6 +772,7 @@ pub(crate) async fn call(
                 }
                 report = next_report(&mut share) => {
                     match report {
+                        Some(Report::AudioError(error)) => state.error = Some(error),
                         Some(Report::Ready) => {
                             if let Some(sharing) = &state.sharing {
                                 sharing.frames.unlink();
@@ -906,7 +917,8 @@ pub(crate) async fn call(
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
-                            Report::Sharing { .. }
+                            Report::AudioError(_)
+                            | Report::Sharing { .. }
                             | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }

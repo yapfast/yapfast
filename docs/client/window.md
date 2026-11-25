@@ -216,8 +216,11 @@ core's palettes (`yapfast_core::theme`, see [themes](../themes.md)), turned
 into iced's colour type once (`themes::theme`), plus the colours
 `Theme::worked_out` works out from them
 (the menu's ground and outline, the composer's ground and placeholder, a
-destructive row's text, the selection, a mention's colour) and iced's own
-theme for the few styles iced draws itself. Views take it by reference;
+destructive row's text, the selection, a mention's colour), a custom
+theme's own rail pill and header ground where it sets them
+(`themes::custom_theme`; `Theme::pill` and `Theme::header_ground` read
+them under a package's), and iced's own theme for the few styles iced
+draws itself. Views take it by reference;
 nothing else in the client names a colour, but for Discord's own (the
 crown, blurple, role and name colours, the nameplates' two grounds).
 

@@ -26,6 +26,11 @@ const EVENT_BATCH: usize = 64;
 
 #[derive(Clone)]
 pub enum Message {
+    Shortcut(
+        crate::shortcuts::Shortcut,
+        keyboard::key::Physical,
+        keyboard::Modifiers,
+    ),
     Events(Batch),
     /// Whether someone is using the window.
     Away(crate::away::Event),

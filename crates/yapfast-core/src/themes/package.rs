@@ -1679,6 +1679,51 @@ pub fn export(name: &str, author: &str, base: &str, dark: bool, colours: &[(&str
     text
 }
 
+/// One of the person's own themes as a package's `theme.json`, through
+/// [`export_with`]: its colours, and the parts it colours on its own under a
+/// package's names for them, its pill as the `pill` colour and its header
+/// as the `header` surface's ground. Like its colours, they win over its
+/// folder's `layers`.
+pub fn export_custom(
+    custom: &crate::theme::Custom,
+    author: &str,
+    layers: Option<&str>,
+) -> Result<String, String> {
+    let mut colours: Vec<(&str, u32)> = crate::theme::Theme::TOKENS
+        .iter()
+        .enumerate()
+        .filter_map(|(index, token)| Some((*token, custom.theme.colour(index)?.argb())))
+        .collect();
+    if let Some(pill) = custom.parts.pill {
+        colours.push(("pill", pill.argb()));
+    }
+    let text = export_with(
+        &custom.name,
+        author,
+        custom.base,
+        custom.theme.dark,
+        &colours,
+        layers,
+    )?;
+    let Some(header) = custom.parts.header else {
+        return Ok(text);
+    };
+    let mut value: Value = serde_json::from_str(&text).expect("just written");
+    let mode = if custom.theme.dark { "dark" } else { "light" };
+    let variant = &mut value["variants"][mode];
+    if !variant["shape"].is_object() {
+        variant["shape"] = Value::Object(serde_json::Map::new());
+    }
+    if !variant["shape"]["header"].is_object() {
+        variant["shape"]["header"] = Value::Object(serde_json::Map::new());
+    }
+    variant["shape"]["header"]["ground"] = Value::String(hex(header.argb()));
+    let mut text = serde_json::to_string_pretty(&value).expect("JSON values serialise");
+    text.push('\n');
+    Package::parse(&text).map_err(|error| error.0)?;
+    Ok(text)
+}
+
 /// A folder name for an exported theme.
 pub fn folder_name(name: &str) -> String {
     slug(name)
@@ -3078,6 +3123,31 @@ mod tests {
             "the danger colours stay Yapfast's"
         );
         assert_eq!(folder_name("Plum Night!"), "plum-night");
+    }
+
+    #[test]
+    fn a_custom_themes_own_parts_export_by_a_packages_names() {
+        let mut custom: crate::theme::Custom = serde_json::from_str(
+            r##"{"id": "custom:1", "name": "Frame", "base": "nord",
+                "colours": {"chat": "#000000", "header": "#0a141d", "pill": "#d5a85a"}}"##,
+        )
+        .unwrap();
+        // The folder's own header keeps its text; the theme's ground wins.
+        let layers = r##"{ "shape": { "header": { "ground": "#ffffff", "text": "#eeeeee" } },
+            "variants": { "dark": { "shape": { "header": { "ground": "#ff0000" } } } } }"##;
+        let text = export_custom(&custom, "", Some(layers)).unwrap();
+        let resolved = Package::parse(&text).unwrap().resolve(Mode::Dark).unwrap();
+        assert_eq!(resolved.paint("pill"), Some(&Paint::Colour(0xffd5_a85a)));
+        assert_eq!(resolved.paint("chat"), Some(&Paint::Colour(0xff00_0000)));
+        let header = &resolved.shapes[&Surface::Header];
+        assert_eq!(header.ground, Some(Paint::Colour(0xff0a_141d)));
+        assert_eq!(header.text, Some(0xffee_eeee));
+        // Unset, they stay out: the package's own follow them as before.
+        custom.parts = crate::theme::Parts::default();
+        let text = export_custom(&custom, "", None).unwrap();
+        let resolved = Package::parse(&text).unwrap().resolve(Mode::Dark).unwrap();
+        assert!(resolved.paint("pill").is_none());
+        assert!(!resolved.shapes.contains_key(&Surface::Header));
     }
 
     #[test]
