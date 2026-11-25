@@ -19,7 +19,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: main
       - id: version
@@ -37,11 +37,11 @@ jobs:
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
           fetch-depth: 0
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32
         with:
           github_access_token: ${{ github.token }}
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
@@ -52,7 +52,7 @@ jobs:
       - run: scripts/build-appimage
       # The AppImage's binary as an Arch package, in an Arch container.
       - run: scripts/package-arch
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: |
@@ -67,26 +67,26 @@ jobs:
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
-      - uses: cachix/install-nix-action@v31.11.5
+      - uses: cachix/install-nix-action@v32
         with:
           github_access_token: ${{ github.token }}
       # The MSVC CRT and Windows SDK cargo-xwin downloads.
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/cargo-xwin
           key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
       # Cache dependencies before scripts/set-version changes Cargo.lock.
-      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
       # Wine doesn't start on the runner (kernel32.dll, c0000135), so Inno
       # Setup can't make the installer there.
       - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: target/dist/discord/Yapfast-*
@@ -106,14 +106,14 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       COMMIT: ${{ needs.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
           sparse-checkout: |
             .github
             packaging/keys
       - run: sudo apt-get install -y --no-install-recommends minisign
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/download-artifact@v8
         with:
           path: dist
       - name: Publish
