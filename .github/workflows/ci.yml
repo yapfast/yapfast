@@ -75,9 +75,9 @@ jobs:
       matrix:
         include:
           - name: clippy
-            run: cargo clippy --locked --profile fast --workspace --all-targets -- -D warnings
+            run: cargo clippy --locked --profile ci --workspace --all-targets -- -D warnings
           - name: tests
-            run: cargo nextest run --locked --cargo-profile fast --workspace --no-fail-fast
+            run: cargo nextest run --locked --cargo-profile ci --workspace --no-fail-fast
     steps:
       - uses: actions/checkout@v7
         with:
