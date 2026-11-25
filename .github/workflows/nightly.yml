@@ -19,7 +19,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: main
       - id: version
@@ -37,11 +37,11 @@ jobs:
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
           fetch-depth: 0
-      - uses: cachix/install-nix-action@v32.1.0
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
         with:
           github_access_token: ${{ github.token }}
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
@@ -52,7 +52,7 @@ jobs:
       - run: scripts/build-appimage
       # The AppImage's binary as an Arch package, in an Arch container.
       - run: scripts/package-arch
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: |
@@ -67,14 +67,14 @@ jobs:
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
-      - uses: cachix/install-nix-action@v32.1.0
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
         with:
           github_access_token: ${{ github.token }}
       # The MSVC CRT and Windows SDK cargo-xwin downloads.
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/cargo-xwin
           key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
@@ -86,7 +86,7 @@ jobs:
           github-cache: false
           pr-comment: false
       - id: restore
-        uses: actions/cache/restore@v6.1.0
+        uses: actions/cache/restore@v6
         with:
           path: |
             ${{ runner.temp }}/kache
@@ -104,7 +104,7 @@ jobs:
         run: |
           kache gc
           kache daemon stop || true
-      - uses: actions/cache/save@v6.1.0
+      - uses: actions/cache/save@v6
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
         with:
           path: |
@@ -113,7 +113,7 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
           key: ${{ steps.restore.outputs.cache-primary-key }}
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: target/dist/discord/Yapfast-*
@@ -133,14 +133,14 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       COMMIT: ${{ needs.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
           sparse-checkout: |
             .github
             packaging/keys
       - run: sudo apt-get install -y --no-install-recommends minisign
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/download-artifact@v8
         with:
           path: dist
       - name: Publish
