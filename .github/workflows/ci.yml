@@ -38,7 +38,7 @@ jobs:
   #   runs-on: ubuntu-26.04
   #   timeout-minutes: 5
   #   steps:
-  #     - uses: actions/checkout@v7
+  #     - uses: actions/checkout@v7.0.1
   #       with:
   #         persist-credentials: false
   #     - uses: j178/prek-action@7b101f8338a08d2bd6fdb3625e4e7692428763a3 # v3.1.1
@@ -58,7 +58,7 @@ jobs:
   #         - tool: cargo-machete
   #           run: cargo machete # finds unused dependencies
   #   steps:
-  #     - uses: actions/checkout@v7
+  #     - uses: actions/checkout@v7.0.1
   #       with:
   #         persist-credentials: false
   #     - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
@@ -79,7 +79,7 @@ jobs:
           - name: tests
             run: cargo nextest run --locked --cargo-profile fast --workspace --no-fail-fast
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: packaging font notices test
@@ -115,7 +115,7 @@ jobs:
           github-cache: false
           pr-comment: false # needs pull-requests: write
       - id: restore
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@v6.1.0
         with:
           path: |
             ${{ runner.temp }}/kache
@@ -149,7 +149,7 @@ jobs:
         run: |
           kache gc
           kache daemon stop || true
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@v6.1.0
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
         with:
           path: |
