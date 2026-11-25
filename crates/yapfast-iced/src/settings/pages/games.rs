@@ -10,10 +10,10 @@ use super::{GameDraft, GameEvent};
 use crate::settings::{Event, Page, Settings};
 use crate::{
     app::{App, Message},
-    layout::BlockedGame,
     controls::{Kind, action},
     ctx::{Cx, Request},
     form::{self, switch},
+    layout::BlockedGame,
 };
 
 /// A custom game's name, at its longest.
@@ -433,7 +433,11 @@ mod tests {
         add_blocked(&mut blocked, "Roblox");
         add_blocked(&mut blocked, "Spotify");
         blocked[0].on = false;
-        assert_eq!(active_blocked(&blocked), ["Spotify"], "an allowed game isn't left out");
+        assert_eq!(
+            active_blocked(&blocked),
+            ["Spotify"],
+            "an allowed game isn't left out"
+        );
         assert!(add_blocked(&mut blocked, "roblox"));
         assert_eq!(blocked.len(), 2, "it stayed one entry");
         assert!(blocked[0].on, "and is hidden again");
@@ -452,7 +456,11 @@ mod tests {
         };
         assert_eq!(
             read,
-            [entry("Roblox", true), entry("Spotify", false), entry("Discord", true)],
+            [
+                entry("Roblox", true),
+                entry("Spotify", false),
+                entry("Discord", true)
+            ],
             "a bare name, or one without its switch, is on"
         );
         let written = serde_json::to_string(&read).expect("written");

@@ -686,14 +686,34 @@ mod tests {
             .map(String::from)
             .to_vec();
         // By file name, in any case and folder on Windows.
-        assert!(blocked_match(&blocked, "C:\\Music\\SPOTIFY.EXE", "Anything", true));
+        assert!(blocked_match(
+            &blocked,
+            "C:\\Music\\SPOTIFY.EXE",
+            "Anything",
+            true
+        ));
         // By full path, which is exact elsewhere.
-        assert!(blocked_match(&blocked, "/usr/bin/browser", "Browser", false));
+        assert!(blocked_match(
+            &blocked,
+            "/usr/bin/browser",
+            "Browser",
+            false
+        ));
         assert!(!blocked_match(&blocked, "/opt/browser", "Browser", false));
         // By the name shown after Playing, whatever its case.
-        assert!(blocked_match(&blocked, "/opt/code/code", "visual studio code", false));
+        assert!(blocked_match(
+            &blocked,
+            "/opt/code/code",
+            "visual studio code",
+            false
+        ));
         // What isn't named stays, and nothing is blocked from an empty list.
-        assert!(!blocked_match(&blocked, "/games/factorio", "Factorio", false));
+        assert!(!blocked_match(
+            &blocked,
+            "/games/factorio",
+            "Factorio",
+            false
+        ));
         assert!(!blocked_match(&[], "/games/factorio", "Factorio", false));
     }
 
@@ -713,7 +733,12 @@ mod tests {
                 name: name.into(),
             }))
         };
-        for (pid, game) in [(1, game("Zelda")), (2, game("apex")), (3, game("Zelda")), (4, None)] {
+        for (pid, game) in [
+            (1, game("Zelda")),
+            (2, game("apex")),
+            (3, game("Zelda")),
+            (4, None),
+        ] {
             detector.known.insert(
                 pid,
                 Known {
