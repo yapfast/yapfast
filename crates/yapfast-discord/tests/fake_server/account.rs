@@ -633,6 +633,61 @@ async fn resumes_the_gateway() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn keeps_two_accounts_and_switches_between_them() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("keeps_two_accounts_and_switches_between_them").await;
+    // Alice is linked and active. Linking Bea makes her the active one, and
+    // the fake answers each login as its own account.
+    let alice = token::listing().unwrap().active.unwrap();
+    token::store(client::TEST_SECOND_TOKEN).unwrap();
+    let listing = token::listing().unwrap();
+    assert_eq!(listing.accounts.len(), 2);
+    let bea = listing.active.clone().unwrap();
+    assert_ne!(bea, alice);
+    assert_eq!(token::load().unwrap(), client::TEST_SECOND_TOKEN);
+    let me = Api::new(token::load().unwrap())
+        .unwrap()
+        .me()
+        .await
+        .unwrap();
+    assert_eq!(me.username, "bea");
+    assert_eq!(me.global_name.as_deref(), Some("Bea"));
+
+    // A session of hers connects, and the switcher gets her name and picture
+    // once it has.
+    let hers = Discord::start(token::load().unwrap()).unwrap();
+    snapshot_where(&hers, |snapshot| snapshot.status == Status::Online).await;
+    timeout(WAIT, async {
+        while !token::listing()
+            .unwrap()
+            .accounts
+            .iter()
+            .any(|account| account.id == bea && account.username == "bea")
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the account wasn't described once it connected");
+    drop(hers);
+
+    // Switching back gives Alice's login again; logging Bea out leaves her.
+    token::switch(&alice).unwrap();
+    assert_eq!(token::load().unwrap(), client::TEST_TOKEN);
+    let me = Api::new(token::load().unwrap())
+        .unwrap()
+        .me()
+        .await
+        .unwrap();
+    assert_eq!(me.username, "alice");
+    assert_eq!(token::forget_account(&bea).unwrap(), Some(alice.clone()));
+    assert_eq!(token::listing().unwrap().accounts.len(), 1);
+    assert_eq!(token::load().unwrap(), client::TEST_TOKEN);
+    drop(discord);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn links_by_qr_code() {
     let Fixture { _fake, server, .. } = Fixture::start("links_by_qr_code").await;
     // Linking by QR code: the code shows, Alice scans it and confirms on her
@@ -803,11 +858,25 @@ async fn unlinking_ends_only_the_session_yapfast_made() {
     assert_eq!(logouts(), "0");
 
     // Yapfast's own login, by QR code, keeps how it was linked when Discord
-    // refreshes it, and unlinking ends its session.
+    // refreshes it.
     token::store_as(client::TEST_TOKEN, Origin::Qr).unwrap();
-    token::store("yapfast-refreshed-token").unwrap();
+    token::refresh(client::TEST_TOKEN, "yapfast-refreshed-token").unwrap();
     assert_eq!(token::origin(), Origin::Qr);
-    token::store(client::TEST_TOKEN).unwrap();
+    token::refresh("yapfast-refreshed-token", client::TEST_TOKEN).unwrap();
+    assert_eq!(token::origin(), Origin::Qr);
+
+    // Each account keeps its own: Bea's pasted token, linked beside Alice's
+    // QR login, is the active one, and her session stays.
+    let alice = token::listing().unwrap().active.unwrap();
+    token::store_as(client::TEST_SECOND_TOKEN, Origin::Pasted).unwrap();
+    let bea = token::listing().unwrap().active.unwrap();
+    assert_ne!(bea, alice);
+    assert_eq!(token::origin(), Origin::Pasted);
+    assert_eq!(token::origin_of(&alice), Origin::Qr);
+    assert_eq!(token::origin_of(&bea), Origin::Pasted);
+    // Logging Bea out leaves Alice active, still a QR login, whose session
+    // unlinking ends.
+    assert_eq!(token::forget_account(&bea).unwrap(), Some(alice.clone()));
     assert_eq!(token::origin(), Origin::Qr);
     assert!(discord.sign_out(token::origin()).await.unwrap());
     assert_eq!(logouts(), "1");
