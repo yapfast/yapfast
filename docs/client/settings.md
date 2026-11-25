@@ -87,7 +87,9 @@ recording. Each change is kept at once in
   folding, boost gems in the member list, sharing that this account types
   (off, the core's typing commands go nowhere), mentioning those replied
   to and tracking taken out of links.
-- Notifications, Sounds (the set, which plays a sound when chosen, the
+- Notifications (desktop notifications, what they say, whom a reply
+  answers in its title, off by default and greyed while notifications are
+  off, and the taskbar's flash), Sounds (the set, which plays a sound when chosen, the
   volume, and each sound's own with its play button) and Advanced.
   Advanced holds Start when you sign in, Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where

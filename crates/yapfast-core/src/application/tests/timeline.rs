@@ -576,6 +576,7 @@ fn notifications_say_whether_they_mention_this_account() {
         body: "@alice co-op?".into(),
         avatar: None,
         mention: true,
+        replied: None,
     }));
     assert!(matches!(effects.as_slice(), [Effect::Notify(alert)] if alert.mention && !alert.call));
 }

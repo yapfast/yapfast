@@ -244,6 +244,8 @@ pub struct Prefs {
     /// The font files Appearance's Font chose to draw the window in, in the
     /// order they were added; none keeps DM Sans.
     pub ui_font_files: Vec<String>,
+    /// Notifications' title for a reply saying whom it answers.
+    pub reply_titles: bool,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,
@@ -519,6 +521,7 @@ impl Layout {
             Action::ShowHiddenChannels(self.prefs.show_hidden_channels),
             Action::SyncDiscordReads(self.prefs.sync_discord_reads.unwrap_or(true)),
             Action::ReplyPing(self.prefs.reply_ping.unwrap_or(true)),
+            Action::ReplyTitles(self.prefs.reply_titles),
             Action::SetCosmetics(self.prefs.cosmetics()),
             Action::StripTracking(self.prefs.strip_tracking.unwrap_or(true)),
             Action::HideNameplates(!self.prefs.nameplates.unwrap_or(true)),

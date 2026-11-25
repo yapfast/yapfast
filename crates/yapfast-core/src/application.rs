@@ -635,6 +635,8 @@ pub struct AppState {
     /// Whether a new reply notifies the person it replies to, until it's
     /// switched for that reply.
     pub reply_ping: bool,
+    /// A reply's notification says whom it answers in its title.
+    pub reply_titles: bool,
     /// Tracking parameters come out of the links in sent messages.
     pub strip_tracking: bool,
     /// Nameplates aren't fetched or shown, in member lists or on the
@@ -2539,6 +2541,8 @@ pub enum Action {
     ToggleReplyPing {
         aside: bool,
     },
+    /// Whether a reply's notification says whom it answers in its title.
+    ReplyTitles(bool),
     /// Take tracking parameters out of links in sent messages.
     StripTracking(bool),
     /// Turns nameplates off, or on again.
@@ -4423,6 +4427,10 @@ impl Application {
                 }
                 vec![]
             }
+            Action::ReplyTitles(on) => {
+                self.state.reply_titles = on;
+                vec![]
+            }
             Action::StripTracking(strip) => {
                 self.state.strip_tracking = strip;
                 vec![]
@@ -4532,7 +4540,8 @@ impl Application {
     }
 
     /// A notification titled with who wrote where: the person alone in a DM, else with
-    /// the group, the Matrix room, or the Discord channel and its server.
+    /// the group, the Matrix room, or the Discord channel and its server. A reply says
+    /// whom it answers too, when that's asked for.
     fn alert(&self, notification: chat::Notification) -> chat::Alert {
         let chat::Notification {
             room,
@@ -4540,7 +4549,13 @@ impl Application {
             body,
             avatar,
             mention,
+            replied,
         } = notification;
+        let author = match replied.filter(|_| self.state.reply_titles) {
+            Some(chat::Replied::You) => format!("{author} replied to you"),
+            Some(chat::Replied::Person(person)) => format!("{author} replied to {person}"),
+            None => author,
+        };
         let place = self.state.rooms.iter().find(|known| known.id == room);
         let server = self
             .state

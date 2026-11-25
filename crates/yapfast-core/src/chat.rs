@@ -5514,6 +5514,17 @@ pub struct Notification {
     pub avatar: Option<String>,
     /// It mentions this account, rather than notifying as any message there does.
     pub mention: bool,
+    /// Whom it replies to, when it's a reply whose original is known.
+    pub replied: Option<Replied>,
+}
+
+/// Whom a reply answers, for its notification's title.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Replied {
+    /// The account the message came to.
+    You,
+    /// Someone else, by their name where the message is.
+    Person(String),
 }
 
 /// A notification ready to show: its conversation, a title naming who wrote where, the

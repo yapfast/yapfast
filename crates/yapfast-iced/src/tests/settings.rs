@@ -1505,6 +1505,26 @@ fn a_device_chosen_in_voice_settings_is_the_one_used() {
     );
 }
 
+/// Saying whom a reply answers in its notification is off until it's
+/// turned on, in Notifications; then the core says it at once, and again
+/// after a restart.
+#[test]
+fn say_whom_a_reply_answers_is_kept_and_reaches_the_core() {
+    let (mut app, folder) = preview();
+    assert!(!app.layout.prefs.reply_titles);
+    assert!(!app.client.state().reply_titles, "off by default");
+    open(&mut app, Section::Notifications);
+    interact(&mut app, |ui| {
+        ui.click("Say whom a reply answers").expect("the switch");
+    });
+    assert!(app.layout.prefs.reply_titles);
+    assert!(app.client.state().reply_titles, "the core hears at once");
+    let again = start(&folder, true);
+    assert!(again.layout.prefs.reply_titles);
+    assert!(again.client.state().reply_titles, "and as the window opens");
+    assert_eq!(stored(&folder)["reply_titles"], true);
+}
+
 #[test]
 fn the_soundboard_volume_moves_with_its_drag() {
     let (mut app, _folder) = preview();
