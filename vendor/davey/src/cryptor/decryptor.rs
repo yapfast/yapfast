@@ -14,7 +14,6 @@ use super::{
   hash_ratchet::HashRatchet, *,
 };
 
-#[cfg_attr(feature = "pyo3", pyclass(get_all, from_py_object))]
 #[derive(Clone)]
 pub struct DecryptionStats {
   /// Number of decryption successes

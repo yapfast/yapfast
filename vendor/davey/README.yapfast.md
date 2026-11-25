@@ -8,4 +8,6 @@ OpenMLS revision in `crates/yapfast-discord/Cargo.toml` in sync for the tests.
 
 The patch adapts signing key generation, commit processing and MLS secret
 export to those versions. It also removes traces containing media key material.
+The local crate only exposes the Rust API used by Yapfast. It omits the
+Node.js and Python binding hooks and the unused numeric proposal conversion.
 Remove it when a compatible davey release includes the dependency updates.

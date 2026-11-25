@@ -1,6 +1,3 @@
-#[cfg(feature = "napi")]
-use napi_derive::napi;
-use num_derive::FromPrimitive;
 use openmls::{
   group::*,
   prelude::{hash_ref::ProposalRef, tls_codec::Serialize, *},
@@ -9,8 +6,6 @@ use openmls::{
 use openmls_basic_credential::SignatureKeyPair;
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use openmls_traits::storage::StorageProvider;
-#[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
 use std::{
   borrow::Cow,
   collections::{HashMap, HashSet},
@@ -67,28 +62,17 @@ fn dave_protocol_version_to_capabilities(
 }
 
 /// The maximum supported version of the DAVE protocol.
-#[cfg_attr(feature = "napi", napi)]
 pub const DAVE_PROTOCOL_VERSION: u16 = 1;
 
 /// The operation type of the proposals payload.
 /// @see https://daveprotocol.com/#dave_mls_proposals-27
-#[cfg_attr(feature = "napi", napi)]
-#[cfg_attr(
-  feature = "pyo3",
-  pyclass(eq, eq_int, rename_all = "snake_case", from_py_object)
-)]
-#[derive(Clone, Copy, Debug, FromPrimitive, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProposalsOperationType {
   APPEND = 0,
   REVOKE = 1,
 }
 
 /// The status of the DAVE session.
-#[cfg_attr(feature = "napi", napi)]
-#[cfg_attr(
-  feature = "pyo3",
-  pyclass(eq, eq_int, rename_all = "snake_case", from_py_object)
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum SessionStatus {

@@ -22,8 +22,6 @@ rand = "0.10"
 sha2 = { version = "0.10" }
 hmac = { version = "0.12" }
 scrypt = { version = "0.11.0", default-features = false }
-num-derive = "0.4.2"
-num-traits = "0.2.19"
 # aes-gcm
 aead = { version = "0.5", default-features = false }
 aes = { version = "0.8" }
@@ -31,14 +29,3 @@ cipher = { version = "0.4" }
 ctr = { version = "0.9" }
 ghash = { version = "0.5", default-features = false }
 subtle = { version = "2", default-features = false }
-hex-literal = { version = "0.3" }
-# NAPI
-napi-derive = { version = "3", optional = true }
-napi = { version = "3", optional = true }
-# PyO3
-pyo3 = { version = "0.29.3", optional = true }
-
-[features]
-default = []
-napi = ["dep:napi", "dep:napi-derive"]
-pyo3 = ["dep:pyo3"]

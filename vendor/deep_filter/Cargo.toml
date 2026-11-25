@@ -8,10 +8,6 @@ repository = "https://github.com/Rikorose/DeepFilterNet"
 license = "MIT/Apache-2.0"
 rust-version = "1.70"
 
-[package.metadata.cargo-machete]
-# Enables the JavaScript entropy backend for transitive users in Wasm builds.
-ignored = ["getrandom"]
-
 [lib]
 name = "df"
 path = "src/lib.rs"
@@ -89,7 +85,6 @@ wasm = [
   "default-model",
   "dep:ndarray",
   "dep:wasm-bindgen",
-  "dep:getrandom",
   "dep:js-sys",
 ]
 hdf5-static = ["hdf5?/static"]
@@ -126,7 +121,6 @@ tract-hir = { version = "0.23", optional = true }
 flate2 = { version = "1.0.24", optional = true }
 tar = { version = "0.4.38", optional = true }
 wasm-bindgen = { version = "0.2.87", optional = true }
-getrandom = { version = "0.2", features = ["js"], optional = true }
 js-sys = { version = "0.3", optional = true }
 
 

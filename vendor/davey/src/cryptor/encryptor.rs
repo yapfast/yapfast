@@ -16,7 +16,6 @@ use super::{
   *,
 };
 
-#[cfg_attr(feature = "pyo3", pyclass(get_all, from_py_object))]
 #[derive(Clone)]
 pub struct EncryptionStats {
   /// Number of encryption successes
