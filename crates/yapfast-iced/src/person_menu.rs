@@ -222,6 +222,12 @@ pub fn choose_person(
             room,
             pinned: choice == MenuChoice::Pin,
         }),
+        MenuChoice::AddFavorite | MenuChoice::RemoveFavorite => {
+            room.map(|room| Action::FavoriteChannel {
+                room,
+                favorite: choice == MenuChoice::AddFavorite,
+            })
+        }
         MenuChoice::CloseDm => room.map(Action::CloseDm),
         MenuChoice::Unmute => room.map(|room| Action::MuteDm {
             room,
@@ -636,6 +642,7 @@ pub(crate) fn danger(choice: MenuChoice) -> bool {
             | MenuChoice::LeaveServer
             | MenuChoice::LeaveGroup
             | MenuChoice::TransferOwnership
+            | MenuChoice::RemoveFavorite
     )
 }
 
@@ -660,6 +667,8 @@ pub(crate) fn acts(choice: MenuChoice) -> bool {
             | MenuChoice::Unblock
             | MenuChoice::Pin
             | MenuChoice::Unpin
+            | MenuChoice::AddFavorite
+            | MenuChoice::RemoveFavorite
             | MenuChoice::CloseDm
             | MenuChoice::Unmute
             | MenuChoice::ServerNickname

@@ -561,6 +561,12 @@ impl Session<'_> {
                 let _ = reply.send(change);
                 Ok(())
             }
+            Request::Favorites(encoded) => {
+                self.tracker.favorite_settings(&encoded);
+                self.publisher
+                    .publish(&mut self.tracker, &self.shared.lists);
+                Ok(())
+            }
             Request::RestoreServerList(change) => {
                 if self.tracker.restore_server_list(change) {
                     self.publisher

@@ -14,6 +14,7 @@ use yapfast_core::application::Navigation;
 use super::{change, interact, preview, shows, unread};
 use crate::{
     app::{App, Message},
+    controls::Check,
     desktop::{ABOUT, Heard, Tray, TrayChoice},
     settings::Section,
     shell::Event,
@@ -77,6 +78,20 @@ fn closing_with_a_tray_drops_the_window_and_the_tray_brings_it_back() {
         app.shell.window.is_some_and(|id| id != first),
         "a new window"
     );
+}
+
+#[test]
+fn checking_for_updates_from_the_tray_keeps_the_window_closed() {
+    let (mut app, _folder) = preview();
+    with_tray(&mut app, true);
+    let id = app.shell.window.expect("the window");
+    let _ = app.update(Message::Shell(Event::CloseRequested(id)));
+    assert!(app.shell.window.is_none());
+
+    heard(&mut app, Heard::Tray(TrayChoice::CheckForUpdates));
+
+    assert!(app.shell.window.is_none());
+    assert!(!app.win.settings.is_open());
 }
 
 /// A theme being edited in Themes, a colour changed: what the window
@@ -239,6 +254,368 @@ fn the_own_title_bar_names_the_place_and_its_inbox_lists_the_unreads() {
     let _ = app.update(Message::Bar(window_bar::Event::InboxOpen("games".into())));
     assert_eq!(app.client.state().selected.as_deref(), Some("games"));
     assert!(app.inbox.is_none(), "opening a row closes it");
+}
+
+#[test]
+fn the_inbox_mentions_tab_lists_pings_filters_them_and_jumps_to_them() {
+    use yapfast_core::{
+        chat::ChatMessage,
+        mention::{Mentioned, Target},
+    };
+    let ping = |item: &str, body: &str, mentions: Vec<Mentioned>, replies: bool| {
+        Arc::new(ChatMessage {
+            id: item.into(),
+            item: item.into(),
+            author: "Riley".into(),
+            body: body.into(),
+            timestamp: 1_700_000_000,
+            mentions_me: true,
+            replies_to_me: replies,
+            mentions,
+            ..Default::default()
+        })
+    };
+    let (mut app, _folder) = preview();
+    own_bar(&mut app);
+    let _ = app.update(Message::Rail(crate::rail::Event::Server("coop".into())));
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![
+            ping(
+                "d:9",
+                "hey you look",
+                vec![Mentioned {
+                    text: "@you".into(),
+                    target: Target::User("1".into()),
+                    color: None,
+                    at: vec![4],
+                }],
+                false,
+            ),
+            ping(
+                "d:10",
+                "mods look",
+                vec![Mentioned {
+                    text: "@mods".into(),
+                    target: Target::Role("7".into()),
+                    color: None,
+                    at: vec![0],
+                }],
+                false,
+            ),
+            ping("d:11", "as said above", vec![], true),
+            // A reply that didn't ping her isn't a mention.
+            Arc::new(ChatMessage {
+                id: "d:12".into(),
+                item: "d:12".into(),
+                body: "agreed".into(),
+                timestamp: 1_700_000_000,
+                replies_to_me: true,
+                ..Default::default()
+            }),
+        ]);
+    });
+    assert_eq!(app.mention_hits.len(), 3, "the open room's pings kept"); // A room with mentions but no message kept still lists as a row.
+    unread(&mut app, "general", 1);
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Mentions,
+    )));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.mentions.len(), 3);
+    assert!(
+        shows(&app, "#general"),
+        "a room with mentions but no message kept still lists"
+    );
+    // The Filter button's menu: outside a Discord server, only its two
+    // kinds, both on at first.
+    let _ = app.update(Message::Bar(window_bar::Event::MentionsFilter));
+    assert_eq!(
+        filter_rows(&app),
+        [
+            ("Include @everyone mentions".to_owned(), Check::Box(true)),
+            ("Include @role mentions".to_owned(), Check::Box(true)),
+        ]
+    );
+    assert!(shows(&app, "Include @role mentions"), "over the inbox");
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    assert_eq!(
+        filter_rows(&app)[1],
+        ("Include @role mentions".to_owned(), Check::Box(false)),
+        "the menu stays, its box cleared"
+    );
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.mentions.len(), 2, "the role ping goes");
+    assert!(inbox.mentions.iter().all(|row| row.message.item != "d:10"));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(1)));
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    assert!(app.inbox.is_some(), "closing the menu leaves the inbox");
+    assert_eq!(app.inbox.as_ref().expect("open").mentions.len(), 3);
+    // A ping's row jumps to its message rather than just its room.
+    let room = app.client.state().selected.clone().expect("a room");
+    let _ = app.update(Message::Bar(window_bar::Event::InboxOpenMessage {
+        room: room.clone(),
+        item: "d:9".into(),
+    }));
+    assert!(app.inbox.is_none(), "jumping closes it");
+    assert_eq!(app.client.state().selected.as_deref(), Some(room.as_str()));
+    assert!(
+        app.client.state().jump.is_some(),
+        "jumped to the ping's message"
+    );
+    // What the fetch brings lists with them: its rooms need no visit
+    // before their pings list and jump.
+    change(&mut app, |state| {
+        let fetched = Arc::make_mut(&mut state.recent_mentions);
+        fetched.push((
+            "general".into(),
+            Arc::new(ChatMessage {
+                id: "d:20".into(),
+                item: "d:20".into(),
+                author: "Bob".into(),
+                body: "joined the server".into(),
+                timestamp: 1_700_000_100,
+                mentions_me: true,
+                ..Default::default()
+            }),
+        ));
+        // A fetched reply holds no `<@id>` in its text, as the fetch path
+        // marks it from its metadata.
+        fetched.push((
+            "general".into(),
+            Arc::new(ChatMessage {
+                id: "d:21".into(),
+                item: "d:21".into(),
+                author: "Bob".into(),
+                body: "good idea, bring the big one".into(),
+                timestamp: 1_699_999_900,
+                replies_to_me: true,
+                ..Default::default()
+            }),
+        ));
+    });
+    assert_eq!(
+        app.mention_hits.len(),
+        3,
+        "the fetched pings stay the fetch's"
+    );
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Mentions,
+    )));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert!(
+        inbox.mentions.iter().any(|row| row.message.item == "d:20"),
+        "the fetched ping lists without visiting its room"
+    );
+    assert!(
+        inbox.mentions.iter().any(|row| row.message.item == "d:21"),
+        "a fetched reply lists without visiting its room"
+    );
+    assert_eq!(
+        inbox.mentions.first().map(|row| row.message.item.as_str()),
+        Some("d:20"),
+        "the newer fetched ping leads the older live ones"
+    );
+    assert_eq!(
+        inbox.mentions.last().map(|row| row.message.item.as_str()),
+        Some("d:21"),
+        "the older fetched reply sorts under the newer live ones"
+    );
+    // The tab comes back as it was left.
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    assert!(app.inbox.is_none());
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.tab, window_bar::Tab::Mentions);
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Unreads,
+    )));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let inbox = app.inbox.as_ref().expect("open");
+    assert_eq!(inbox.tab, window_bar::Tab::Unreads);
+}
+
+/// The open menu's rows: each label and its box.
+fn filter_rows(app: &App) -> Vec<(String, Check)> {
+    app.win
+        .menu
+        .as_ref()
+        .expect("a menu")
+        .rows
+        .iter()
+        .map(|row| (row.label.to_string(), row.check))
+        .collect()
+}
+
+#[test]
+fn the_mentions_filter_asks_discord_as_its_client_does() {
+    use yapfast_core::chat::{Command, DiscordCommand, MentionsQuery};
+    let (mut app, folder) = super::server::discord_server(0, |_, _| {});
+    own_bar(&mut app);
+    let asked = |app: &mut App| -> Vec<MentionsQuery> {
+        std::mem::take(&mut app.client.sent)
+            .into_iter()
+            .filter_map(|command| match command {
+                Command::Discord(DiscordCommand::RecentMentions(query)) => Some(query),
+                _ => None,
+            })
+            .collect()
+    };
+    let menu = |app: &mut App| {
+        let _ = app.update(Message::Bar(window_bar::Event::MentionsFilter));
+        filter_rows(app)
+    };
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:11".into());
+    });
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    assert!(asked(&mut app).is_empty(), "not before the tab shows");
+    let _ = app.update(Message::Bar(window_bar::Event::InboxTab(
+        window_bar::Tab::Mentions,
+    )));
+    let all = MentionsQuery::default();
+    assert_eq!(
+        asked(&mut app),
+        std::slice::from_ref(&all),
+        "every kind, every server"
+    );
+    // Shown again, it asks no more.
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    let _ = app.update(Message::Bar(window_bar::Event::Inbox));
+    assert!(asked(&mut app).is_empty());
+    // Inside a server the menu offers all servers too; each box asks again
+    // at once.
+    assert_eq!(
+        menu(&mut app),
+        [
+            ("Include @everyone mentions".to_owned(), Check::Box(true)),
+            ("Include @role mentions".to_owned(), Check::Box(true)),
+            ("Include all servers".to_owned(), Check::Box(true)),
+        ]
+    );
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(0)));
+    let quiet = MentionsQuery {
+        everyone: false,
+        ..all
+    };
+    assert_eq!(asked(&mut app), std::slice::from_ref(&quiet));
+    let _ = app.update(Message::Menu(crate::menus::Event::Choose(2)));
+    let here = MentionsQuery {
+        server: Some("discord:10".into()),
+        ..quiet
+    };
+    assert_eq!(
+        asked(&mut app),
+        std::slice::from_ref(&here),
+        "this server only"
+    );
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // Only this server's: another channel opened asks again.
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:12".into());
+    });
+    assert_eq!(asked(&mut app), [here]);
+    // Outside a server the box isn't offered, and asking turns all servers
+    // back on, as Discord's client does.
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:5".into());
+    });
+    assert_eq!(asked(&mut app), [quiet]);
+    assert!(app.layout.mention_filter.all_servers);
+    assert_eq!(menu(&mut app).len(), 2);
+    let _ = app.update(Message::Menu(crate::menus::Event::Close));
+    // All servers' list doesn't ask again for another channel.
+    change(&mut app, |state| {
+        state.selected = Some("discord:10:11".into());
+    });
+    assert!(asked(&mut app).is_empty());
+    // The device keeps the filter, as Discord's client does.
+    crate::layout::flush(folder.path());
+    assert_eq!(
+        crate::layout::Layout::read(folder.path()).mention_filter,
+        window_bar::MentionFilter {
+            everyone: false,
+            roles: true,
+            all_servers: true,
+        }
+    );
+}
+
+#[test]
+fn the_mentions_filter_hides_what_it_leaves_out() {
+    use window_bar::MentionFilter;
+    use yapfast_core::{
+        chat::ChatMessage,
+        mention::{Mentioned, Target},
+    };
+    let naming = |targets: &[Target], replies: bool| ChatMessage {
+        mentions_me: true,
+        replies_to_me: replies,
+        mentions: targets
+            .iter()
+            .map(|target| Mentioned {
+                text: "@someone".into(),
+                target: target.clone(),
+                color: None,
+                at: vec![0],
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let me = Some("1");
+    let (alice, bob) = (Target::User("1".into()), Target::User("2".into()));
+    let mods = Target::Role("7".into());
+    let all = MentionFilter::default();
+    let quiet = MentionFilter {
+        everyone: false,
+        roles: false,
+        ..all
+    };
+    let room = "discord:10:11";
+    let shows = |filter: MentionFilter, targets: &[Target], replies| {
+        filter.shows(&naming(targets, replies), room, me, Some("discord:10"))
+    };
+    for filter in [all, quiet] {
+        // Naming her, or replying to her, shows whatever else it names.
+        assert!(shows(filter, &[mods.clone(), alice.clone()], false));
+        assert!(shows(filter, &[Target::Everyone, alice.clone()], false));
+        assert!(shows(filter, std::slice::from_ref(&bob), true));
+        // A ping its text doesn't show counts as naming her.
+        assert!(shows(filter, &[], false));
+    }
+    assert!(shows(all, &[bob.clone(), mods.clone()], false));
+    assert!(!shows(quiet, &[bob, mods.clone()], false), "a role ping");
+    assert!(shows(all, &[Target::Everyone], false));
+    assert!(
+        !shows(quiet, &[Target::Everyone], false),
+        "an @everyone ping"
+    );
+    let roles_only = MentionFilter {
+        everyone: false,
+        ..all
+    };
+    assert!(shows(roles_only, &[mods, Target::Everyone], false));
+    // Only this server's: another server's ping goes, unless no server is
+    // open.
+    let here = MentionFilter {
+        all_servers: false,
+        ..all
+    };
+    let elsewhere = naming(&[alice], false);
+    assert!(here.shows(&elsewhere, room, me, Some("discord:10")));
+    assert!(!here.shows(&elsewhere, "discord:20:21", me, Some("discord:10")));
+    assert!(!here.shows(&elsewhere, "discord:@me:5", me, Some("discord:10")));
+    assert!(here.shows(&elsewhere, "discord:20:21", me, None));
+    assert!(all.shows(&elsewhere, "discord:20:21", me, Some("discord:10")));
+    let quiet_message = ChatMessage {
+        mentions: elsewhere.mentions,
+        ..Default::default()
+    };
+    assert!(
+        !all.shows(&quiet_message, room, me, None),
+        "nothing pinged her"
+    );
 }
 
 #[test]

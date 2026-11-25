@@ -246,7 +246,11 @@ threads](servers.md#a-channels-list-of-threads).
   word marked when its Porter stem is one of theirs (`search_words`), but
   not in code blocks. Results from people blocked or ignored are hidden
   behind Discord's "We've hidden 1 result from users you've blocked."
-  row, which shows them. On the first page, ten results or more of which
+  row, which shows them. A result's right-click menu is Discord's: Copy
+  Message Link (`https://discord.com/channels/{server or @me}/{channel}/{message}`,
+  from the result's channel, `AppState::found_link`), and with Developer
+  Mode on Copy Message ID and Copy Author ID; a click on the result, or
+  its Jump, already shows it. On the first page, ten results or more of which
   three in four are bots' or webhooks', with no `authorType:` yet, Discord's
   hint adds `authorType: user` and searches. Nothing found says "We
   searched far and wide. Unfortunately, no results were found."; a failed
