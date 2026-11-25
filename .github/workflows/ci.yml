@@ -51,6 +51,7 @@ jobs:
       matrix:
         include:
           - tool: cargo-audit # audits dependencies & vulnerabilities
+            # run: cargo audit --deny warnings
             run: cargo audit
           - tool: cargo-machete
             run: cargo machete # finds unused dependencies
