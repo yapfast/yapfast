@@ -1,15 +1,14 @@
 # Yapfast
 
-- On Windows, build, run and test natively with Cargo, with the `fast`
-  profile: `cargo build --locked --profile fast`. Use Developer PowerShell
-  for VS with Visual Studio C++ Build Tools, a Windows SDK, LLVM/Clang
+- On Windows, build, run and test natively with Cargo: `cargo build --locked`.
+  Use Developer PowerShell for VS with Visual Studio C++ Build Tools, a Windows SDK, LLVM/Clang
   (`clang-cl` and `libclang`) and NASM; set `LIBCLANG_PATH` as described in
   `docs/building.md#windows`. Nix is not required on Windows.
-- On Linux, run every cargo command in the Nix dev shell, with the `fast`
-  profile: `nix develop path:./nix --command cargo build --locked --profile fast`.
+- On Linux, run every cargo command in the Nix dev shell:
+  `nix develop path:./nix --command cargo build --locked`.
 - While working, build and test only what changed, such as
-  `cargo test --profile fast -p yapfast-core history`; incremental builds take
-  seconds. On Linux, run `scripts/check --fast` once, before the last commit of a piece
+  `cargo test -p yapfast-core history`; incremental builds take
+  seconds. On Linux, run `scripts/check` once, before the last commit of a piece
   of work, not before each commit. It enters the dev shell itself and checks
   the default build, the window with Discord; `--matrix` adds the builds with
   Matrix, for changes to code Matrix shares and before a release. It prints
@@ -23,11 +22,10 @@
 - An edit under `vendor/iced_*` or `vendor/cosmic-text` recompiles iced and
   the window's crates; settle such a patch in as few builds as possible.
 - See the app on Linux: `scripts/ui-session` (private display, screenshots,
-  input; run it with `--help`). On Windows, use `cargo run --locked --profile
-  fast -- --preview`, or run against the fake as described in
-  `CONTRIBUTING.md`. Discord runs only against `testing/fake_discord.ts`.
-- Measure and profile with the `measure` profile, whose builds stay apart
-  from the `fast` ones everyday work replaces.
+  input; run it with `--help`). On Windows, use `cargo run --locked -- --preview`,
+  or run against the fake as described in `CONTRIBUTING.md`. Discord runs only against `testing/fake_discord.ts`.
+- Measure and profile with the `local` profile, whose builds stay apart
+  from everyday builds in `target/debug/`.
 - Discord's API, as its own apps use it: https://docs.discord.food. Look up
   an endpoint, payload or gateway event there before adding or changing one,
   and give the fake the same shape. How Yapfast does each Discord feature,

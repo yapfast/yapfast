@@ -261,23 +261,23 @@ logs and the Wine prefixes.
 
 ## Native development on Windows
 
-On Windows, use Cargo directly in PowerShell, with the `fast` profile.
+On Windows, use Cargo directly in PowerShell.
 Install the [native prerequisites](building.md#windows), then run:
 
 ```powershell
-cargo build --locked --profile fast
-cargo run --locked --profile fast -- --preview
-cargo test --locked --profile fast -p yapfast-core history
+cargo build --locked
+cargo run --locked -- --preview
+cargo test --locked -p yapfast-core history
 ```
 
-Nix and Wine are not required. The executable is `target/fast/yapfast.exe`.
+Nix and Wine are not required. The executable is `target/debug/yapfast.exe`.
 For Discord development, run against the fake server using the PowerShell
 commands in [Contributing](../CONTRIBUTING.md#build-and-test), which also
 lists the checks to run before review.
 
 ## Cross-build for development from Linux
 
-For work on Windows code from Linux, build with the `fast` profile in the Nix Windows shell,
+For work on Windows code from Linux, build with the default Cargo profile in the Nix Windows shell,
 with cargo-xwin's environment. thorvg-sys's bindgen needs the target that
 `scripts/release-env` adds, which `cargo xwin build` would overwrite. That
 environment also exports an empty `RUSTFLAGS`, which Cargo takes in place
@@ -289,7 +289,7 @@ nix develop path:./nix#windows --command bash -c '
   eval "$(cargo xwin env --target x86_64-pc-windows-msvc)"
   unset RUSTFLAGS
   export BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc="$BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_msvc --target=x86_64-pc-windows-msvc"
-  cargo build --profile fast --target x86_64-pc-windows-msvc'
+  cargo build --target x86_64-pc-windows-msvc'
 ```
 
 Add `--features matrix` for the full build. The executable is
@@ -303,7 +303,7 @@ Build the test executable without running it, then run it with Wine:
 
 ```sh
 nix develop path:./nix#windows --command \
-  cargo xwin test --no-run --profile fast --target x86_64-pc-windows-msvc -p
+  cargo xwin test --no-run --target x86_64-pc-windows-msvc -p
   yapfast-core --lib
 ```
 

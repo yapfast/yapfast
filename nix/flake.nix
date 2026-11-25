@@ -69,7 +69,7 @@
           shellHook = ''
             export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
             # Only people see the greeting; commands run through the shell don't.
-            [ -t 1 ] && echo "Yapfast dev shell. Run scripts/check --fast or cargo run --profile fast."
+            [ -t 1 ] && echo "Yapfast dev shell. Run scripts/check or cargo run."
           '';
         };
         windows = pkgs.mkShell {

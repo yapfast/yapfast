@@ -14,7 +14,7 @@ the time from launch until Yapfast's CPU stays under 5% of a core for a second,
 the CPU it used until then, and the CPU it used in its first 3 s.
 
 Runs Yapfast through scripts/ui-session --tray, which builds the Discord-only
-`measure` build, or runs --bin, and runs testing/tray_host.rs as the tray, on a
+`local` build, or runs --bin, and runs testing/tray_host.rs as the tray, on a
 private display and bus.
 """
 import argparse
@@ -154,7 +154,7 @@ try:
         startup = {'run': run}
         watcher = threading.Thread(target=watch_startup, args=(startup,))
         watcher.start()
-        session('start', '--discord', '--tray', '--profile', 'measure', '--fake-args', args.fake_args,
+        session('start', '--discord', '--tray', '--profile', 'local', '--fake-args', args.fake_args,
                 '--renderer', args.renderer,
                 *(['--bin', str(args.bin)] if args.bin else [] if build else ['--no-build']))
         build = False
@@ -176,7 +176,7 @@ finally:
     subprocess.run([str(ROOT / 'scripts/ui-session'), 'stop'], cwd=ROOT, capture_output=True)
     (args.output / 'results.json').write_text(json.dumps({
         'recorded_on': time.strftime('%Y-%m-%d'),
-        'binary': str(args.bin or ROOT / 'target/measure/yapfast'),
+        'binary': str(args.bin or ROOT / 'target/local/yapfast'),
         'environment': args.env,
         'os': f'{platform.system()} {platform.release()}', 'machine': platform.machine(),
         'isolation': 'scripts/ui-session --tray: private headless Weston, PulseAudio and D-Bus, '

@@ -433,9 +433,9 @@ Studio Build Tools with C++ and a Windows SDK, LLVM/Clang (including
 folder in Developer PowerShell for VS:
 
 ```powershell
-cargo build --locked --profile fast
-cargo run --locked --profile fast -- --preview
-cargo test --locked --profile fast --workspace
+cargo build --locked
+cargo run --locked -- --preview
+cargo test --locked --workspace
 ```
 
 On Linux, use the pinned [Nix](https://nixos.org) environment, which brings
@@ -443,19 +443,19 @@ the right Rust, Clang and native libraries. From the project folder:
 
 ```sh
 # Try the UI without an account
-nix develop path:./nix --command cargo run --locked --profile fast -- --preview
+nix develop path:./nix --command cargo run --locked -- --preview
 
 # Run it for real: Discord only, like the release
-nix develop path:./nix --command cargo run --locked --profile fast
+nix develop path:./nix --command cargo run --locked
 
 # With Matrix too
-nix develop path:./nix --command cargo run --locked --profile fast --features matrix
+nix develop path:./nix --command cargo run --locked --features matrix
 
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
 
 # Format, lint and test everything
-scripts/check --fast
+scripts/check
 ```
 
 The Windows commands use the Rust version pinned in `rust-toolchain.toml`.

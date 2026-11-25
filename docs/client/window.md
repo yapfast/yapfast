@@ -6,8 +6,8 @@ A plain build makes the `yapfast` executable: the window with Discord and
 both its renderers, tiny-skia on the CPU and wgpu on the GPU.
 
 ```sh
-nix develop path:./nix --command cargo build --profile fast
-target/fast/yapfast --preview
+nix develop path:./nix --command cargo build
+target/debug/yapfast --preview
 ```
 
 With `--features matrix` it carries Matrix too, and signs in with Matrix
@@ -45,7 +45,7 @@ are microseconds since the window began, so a frame's lines line up. Off,
 it reads no clock.
 
 Under the private test display, `scripts/ui-session start --bin
-target/fast/yapfast` runs a built binary on the preview, and with
+target/debug/yapfast` runs a built binary on the preview, and with
 `--discord` against the fake Discord. It reads the
 window-control file (`YAPFAST_UI_TEST_CONTROL`, `control_file.rs`):
 `stats` logs the allocator's figures, `trim` gives back

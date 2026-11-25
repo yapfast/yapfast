@@ -74,14 +74,11 @@ SDK and the C++ media bindings do not exhaust it.
 Development builds omit debug symbols for dependencies; the app keeps line
 tables. They optimize DeepFilterNet's crates and turn off tract-core's debug
 assertions, which reject its model; see Cargo.toml. Release builds strip
-symbols and use no LTO, which made both platforms' binaries bigger for no
-measured speed. Use them for builds people run. The `measure` profile
-optimizes like release, keeps symbols and builds incrementally. Use it for
-[measurements](measurements/README.md) and profiling: `cargo build --profile
-measure`. The `fast` profile has the same settings in a target folder of its
-own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
---profile fast` or `cargo test --profile fast`. Builds to measure then stay
-apart from the ones everyday work replaces.
+symbols, use ThinLTO and one codegen unit, and abort on panic. The default
+Cargo profile is used for everyday builds and tests in `target/debug/`.
+For [measurements](measurements/README.md) and profiling, run
+`cargo build --profile local`. This profile inherits the release settings,
+keeps line tables and builds incrementally in `target/local/`.
 
 The Linux x86-64 Nix dev shell links Rust binaries with mold through Clang.
 
@@ -200,12 +197,12 @@ or Intel's driver.
 ## Checks
 
 `scripts/check` enters the development shell itself when Nix is installed, and
-uses the tools already installed otherwise. `scripts/check --fast`
-builds with the `fast` profile, as local work does. It runs, in order:
+uses the tools already installed otherwise. It uses Cargo's default profile and
+runs, in order:
 formatting; `scripts/check-doc-links`, which fails on a Markdown link to a
 missing file or heading; Clippy with warnings denied and the tests for the
 whole workspace; a build; and the smoke test, which runs
-`target/<profile>/yapfast` from that build. These build the default features,
+`target/debug/yapfast` from that build. These build the default features,
 the release's: the window with Discord (see [Networks](#networks)).
 
 Clippy checks more than its defaults: the root `Cargo.toml`'s
@@ -230,7 +227,7 @@ step and exits non-zero if any failed.
 
 A new worktree starts with an empty `target/`, and its first check compiles
 every dependency. `scripts/warm-worktree`, run inside it
-before the first build, copies the main checkout's `target/fast/` and
+before the first build, copies the main checkout's `target/debug/` and
 `target/check-combinations/` as reflinks, which share disk space with the
 originals, and cleans the crates whose sources are in the repository, so those
 build from the worktree's own files. The first check then takes about 3.5
@@ -238,7 +235,7 @@ minutes. Reflinks need a filesystem such as btrfs.
 
 After a change under `vendor/ffmpeg-src` or `vendor/x264-src`, each check
 step compiles it again; Clippy alone takes about 4 minutes. Run Clippy on the
-changed crate first, `cargo clippy --profile fast -p <crate> --all-targets --
+changed crate first, `cargo clippy -p <crate> --all-targets --
 -D warnings`, to catch lints in seconds before `scripts/check`.
 
 `git config core.hooksPath .githooks` turns on the pre-commit hook, which
@@ -264,7 +261,7 @@ scripts/ui-session relaunch   # rebuild and restart Yapfast on the same display
 scripts/ui-session stop
 ```
 
-`start` builds the default build, the release's, into `target/fast/yapfast`
+`start` builds the default build, the release's, into `target/debug/yapfast`
 and runs a copy of it: on the preview, or with `--discord` against the fake
 Discord. Screenshots go to `.local/ui-session/shots/`, and `scripts/ui-session
 --help` lists every option and command. `start --tray` adds a stand-in tray on
@@ -293,7 +290,7 @@ another refresh rate, and `steps` records every repaint's row sums instead
 of a video:
 
 ```sh
-scripts/ui-session start --discord --size 1920x1080 --refresh 180 --bin target/fast/yapfast
+scripts/ui-session start --discord --size 1920x1080 --refresh 180 --bin target/debug/yapfast
 scripts/ui-session do 'move 900 500' 'steps start notch 400 1300' 'wheel -1' 'sleep 1' 'steps stop'
 testing/frame_steps.py .local/ui-session/videos/notch.rows --from 60 --to 1000
 ```
@@ -337,7 +334,7 @@ the commands that need none.
 `testing/fake_discord.ts` (`bun testing/fake_discord.ts --port 18400`). It uses
 a test token instead of the linked account, so the real token never reaches it.
 `scripts/test-fake-discord [FILTER]` runs the ignored tests in
-`crates/yapfast-discord/tests/fake_server/` with the `fast` profile, or those
+`crates/yapfast-discord/tests/fake_server/` with the default Cargo profile, or those
 a filter names, such as `forum` or `calls_in_dms`, a second or so apiece. Each starts a
 fake of its own, so none depends on another and a filter runs any alone. `cargo
 nextest`, in the development shell, runs them side by side, eight at a time
@@ -444,9 +441,9 @@ assembly and the camera shim's Clang warning flags need it; an explicitly
 selected compiler wins.
 
 ```powershell
-cargo build --locked --profile fast
-cargo run --locked --profile fast -- --preview
-cargo test --locked --profile fast -p yapfast-core history
+cargo build --locked
+cargo run --locked -- --preview
+cargo test --locked -p yapfast-core history
 ```
 
 The downloadable package needs none of these tools to run.
@@ -467,8 +464,8 @@ output.
 
 ## Initial resource measurement
 
-After a `measure` build with the release's features (see
-[Networks](#networks)), open `target/measure/yapfast` inside the Nix shell;
+After a `local` build with the release's features (see
+[Networks](#networks)), open `target/local/yapfast` inside the Nix shell;
 measure `release` only for the shipped build's absolute numbers. Leave it
 inactive for at least 15 seconds, then sample its PID on Linux.
 `scripts/ui-session` writes the PID of the Yapfast it runs to

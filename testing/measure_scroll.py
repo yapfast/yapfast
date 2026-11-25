@@ -53,7 +53,7 @@ if len(sys.argv) == 4 and sys.argv[1] == '--frames':
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument('--exe', type=Path, default=ROOT / 'target/measure/yapfast')
+parser.add_argument('--exe', type=Path, default=ROOT / 'target/local/yapfast')
 parser.add_argument('--renderer', action='append', choices=['gpu', 'software'])
 parser.add_argument('--fixture-executable', type=Path, required=True, help='yapfast-core test binary')
 parser.add_argument('--messages', type=int, default=300, help='history posted before measuring')

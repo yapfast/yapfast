@@ -194,26 +194,10 @@ lto = "thin"
 panic = "abort"
 strip = true
 
-# ── ci: cheap to build, small cache, tests still usable ──────────────
-[profile.ci]
-inherits = "dev"
-opt-level = 1
-debug = false
-incremental = false
-codegen-units = 16
-split-debuginfo = "off"
-
-[profile.ci.package."*"]
-opt-level = 1
-
-# ── measure: release speed + symbols, for benchmarks and profilers ───
-[profile.measure]
+# ── local: release speed + symbols, for benchmarks and profilers ───
+[profile.local]
 inherits = "release"
 debug = "line-tables-only"
 codegen-units = 16
 strip = false
 incremental = true
-
-# ── fast: tests, local runs and checks ───────────────────────────────
-[profile.fast]
-inherits = "measure"

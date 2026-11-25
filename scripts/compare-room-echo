@@ -26,7 +26,7 @@ python() {
 }
 python make "$noise/speech.f32" "$work"
 
-tests=$(cargo test --profile fast --locked -p yapfast-core --no-run --message-format json 2>/dev/null |
+tests=$(cargo test --locked -p yapfast-core --no-run --message-format json 2>/dev/null |
   jq -r 'select(.profile.test == true and .target.name == "yapfast_core" and .executable != null) | .executable')
 for dereverb in off on; do
   for input in "$work"/{dry,rt40,rt60,rt80}.s16 "$noise"/{typing,fan,hiss,typing_fan}.s16; do

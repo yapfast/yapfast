@@ -49,7 +49,7 @@ python() {
 }
 python mix "$work/raw" "$work/mixes"
 
-tests=$(cargo test --profile fast --locked -p yapfast-core --no-run --message-format json 2>/dev/null |
+tests=$(cargo test --locked -p yapfast-core --no-run --message-format json 2>/dev/null |
   jq -r 'select(.profile.test == true and .target.name == "yapfast_core" and .executable != null) | .executable')
 for mix in clean typing fan hiss typing_fan typing_hiss quiet_typing_fan quiet_typing_hiss; do
   echo "== $mix"

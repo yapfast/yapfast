@@ -1303,8 +1303,8 @@ desktop's socket.
 and prints counts, times and heap, never process names or paths:
 
 ```sh
-nix develop path:./nix --command cargo build --profile measure -p yapfast-discord --bin yapfast-game-detection-probe
-target/measure/yapfast-game-detection-probe /path/to/discord-games.json 30
+nix develop path:./nix --command cargo build --profile local -p yapfast-discord --bin yapfast-game-detection-probe
+target/local/yapfast-game-detection-probe /path/to/discord-games.json 30
 ```
 
 ## Role icons

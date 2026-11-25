@@ -11,16 +11,12 @@
 # runs them side by side, eight at a time (.config/nextest.toml); without
 # it, cargo test runs them one after another.
 # For the yapfast-core tests it starts one fake, waits until it answers,
-# runs them one at a time with the selected Cargo profile (default: `fast`), then stops it; its log is
-# target/fake-discord.log. Then it does the same for fake_env.rs, against
+# runs them one at a time, then stops it. Its log is target/fake-discord.log.
+# Then it does the same for fake_env.rs, against
 # a fake running testing/envs/example.json, whose log is
 # target/fake-discord-env.log.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-
-# CI sets this to ci so these tests share its cheap, cacheable artifacts.
-# Local runs keep using the fast profile unless explicitly overridden.
-profile=${YAPFAST_CARGO_PROFILE:-fast}
 
 # Without Nix, it uses the tools already installed.
 if [[ -z "${IN_NIX_SHELL:-}" ]] && command -v nix >/dev/null; then
@@ -64,7 +60,7 @@ start_fake() {
 }
 
 if command -v cargo-nextest >/dev/null; then
-  nextest=(cargo nextest run --locked --cargo-profile "$profile" --run-ignored only --no-fail-fast)
+  nextest=(cargo nextest run --locked --run-ignored only --no-fail-fast)
   no_tests=()
   if [[ $# -gt 0 ]]; then
     # A filter can match only the core or example environment tests below.
@@ -85,13 +81,13 @@ if command -v cargo-nextest >/dev/null; then
   exit 0
 fi
 
-cargo test --locked --profile "$profile" -p yapfast-discord --test fake_server -- --ignored \
+cargo test --locked -p yapfast-discord --test fake_server -- --ignored \
   --skip waits_as_detected_game "$@"
-cargo test --locked --profile "$profile" -p yapfast-discord --test fake_interactions -- --ignored "$@"
-cargo test --locked --profile "$profile" -p yapfast-discord --test fake_commands -- --ignored "$@"
+cargo test --locked -p yapfast-discord --test fake_interactions -- --ignored "$@"
+cargo test --locked -p yapfast-discord --test fake_commands -- --ignored "$@"
 # Libtest combines name filters with OR. Match them against the ignored
 # tests in these modules before giving libtest the exact names to run.
-core=(cargo test --locked --profile "$profile" -p yapfast-core --lib)
+core=(cargo test --locked -p yapfast-core --lib)
 listed=$("${core[@]}" -- --ignored --list --format terse \
   discord_text::tests:: discord_voice::tests:: application::tests::pickers::)
 core_tests=()
@@ -117,4 +113,4 @@ fi
 # The example environment, in a fake of its own.
 start_fake target/fake-discord-env.log --env testing/envs/example.json
 YAPFAST_DISCORD_TEST_SERVER=$server \
-  cargo test --locked --profile "$profile" -p yapfast-discord --test fake_env -- --ignored "$@"
+  cargo test --locked -p yapfast-discord --test fake_env -- --ignored "$@"

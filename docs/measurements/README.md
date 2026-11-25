@@ -81,16 +81,16 @@ real Windows.
 
 ## How to measure
 
-Measure a `measure` build of the release features, which are the default.
-`measure` is optimized as `fast` is and builds into a target folder of its
+Measure a `local` build of the release features, which are the default.
+`local` inherits release optimizations and builds into a target folder of its
 own, so a measurement never runs a build that tests or local runs made. Use
 `release` only when the question is the shipped build's absolute number.
 
 ```sh
-nix develop path:./nix --command cargo build --locked --profile measure --bin yapfast
+nix develop path:./nix --command cargo build --locked --profile local --bin yapfast
 ```
 
-`scripts/ui-session start --discord --profile measure` builds the same and
+`scripts/ui-session start --discord --profile local` builds the same and
 runs it against `testing/fake_discord.ts` on a private display; `--bin PATH`
 runs a build saved outside `target` instead, so two builds can alternate.
 
@@ -120,11 +120,11 @@ Discord, so a Matrix-only window is not a supported comparison. Prepare
 the two binaries on Linux before starting the harness:
 
 ```sh
-nix develop path:./nix --command cargo build --locked --profile measure --bin yapfast
+nix develop path:./nix --command cargo build --locked --profile local --bin yapfast
 mkdir -p target/networks
-cp target/measure/yapfast target/networks/yapfast-discord
-nix develop path:./nix --command cargo build --locked --profile measure --bin yapfast --features matrix
-cp target/measure/yapfast target/networks/yapfast-combined
+cp target/local/yapfast target/networks/yapfast-discord
+nix develop path:./nix --command cargo build --locked --profile local --bin yapfast --features matrix
+cp target/local/yapfast target/networks/yapfast-combined
 ```
 
 The harness runs both builds against test services, including during the

@@ -224,7 +224,7 @@ then catch a broken or cut-off download.
 
 The window ends with `yapfast_iced::Exit::Update`, and `main::finish_update`
 finishes it once the window, the tray icon and the session are gone. Test it
-with `cargo test --profile fast update`: the tests serve files from a
+with `cargo test update`: the tests serve files from a
 local HTTP server, and on Unix start a script as the AppImage.
 
 ### New tags

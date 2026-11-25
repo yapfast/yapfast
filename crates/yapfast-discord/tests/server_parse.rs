@@ -1,8 +1,8 @@
 //! Times parsing servers from guild objects, as READY and GUILD_CREATE give
-//! them, and counts the allocations. Ignored: run it with the measure profile,
+//! them, and counts the allocations. Ignored: run it with the local profile,
 //!
 //! ```sh
-//! cargo test --profile measure -p yapfast-discord --test server_parse -- --ignored --nocapture
+//! cargo test --profile local -p yapfast-discord --test server_parse -- --ignored --nocapture
 //! ```
 //!
 //! and `SERVER_PARSE_READY=ready.json` for a READY payload's `d` saved from
