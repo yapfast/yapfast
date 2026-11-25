@@ -233,6 +233,8 @@ pub enum Event {
     /// The clipboard's text, if it held any.
     Pasted(Option<String>),
     Profile(Cosmetic, bool),
+    /// Draws a theme's text glow, or leaves it out.
+    TextGlow(bool),
 }
 
 /// Appearance's profile switches.
@@ -245,9 +247,6 @@ pub enum Cosmetic {
     NameStyles,
     ServerTags,
     Frames,
-    /// A theme's text glow, which is drawing rather than a profile's
-    /// cosmetic.
-    TextGlow,
 }
 
 pub(super) fn theme_message(event: Event) -> Message {
@@ -308,6 +307,13 @@ impl Settings {
                 cx.layout.readable_text = on;
                 cx.keep("readable_text", on);
                 cx.themes.readable_changed(on);
+                cx.request(Request::Changed(Shown::Theme));
+            }
+            // Drawing, not data: the window draws it again and the core is
+            // told nothing.
+            Event::TextGlow(on) => {
+                cx.layout.prefs.text_glow = Some(on);
+                cx.keep("text_glow", on);
                 cx.request(Request::Changed(Shown::Theme));
             }
             Event::ThemeOption(id, option, value) => {
@@ -777,14 +783,6 @@ fn change_sound_prefs(
 
 /// A profile switch: kept, and the core told what may now show.
 fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
-    // A theme's text glow is drawing, not data: the window shows it again
-    // and the core is told nothing.
-    if cosmetic == Cosmetic::TextGlow {
-        cx.layout.prefs.text_glow = Some(on);
-        cx.keep("text_glow", on);
-        cx.request(Request::Changed(Shown::Theme));
-        return;
-    }
     let prefs = &mut cx.layout.prefs;
     let (slot, key) = match cosmetic {
         Cosmetic::Effects => (&mut prefs.profile_effects, "profile_effects"),
@@ -794,7 +792,6 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::NameStyles => (&mut prefs.name_styles, "name_styles"),
         Cosmetic::ServerTags => (&mut prefs.server_tags, "server_tags"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
-        Cosmetic::TextGlow => return,
     };
     *slot = Some(on);
     cx.keep(key, on);
@@ -919,13 +916,12 @@ impl<'a> Page<'a> {
             switch(
                 "Draw text glow",
                 self.cx.layout.prefs.text_glow.unwrap_or(true),
-                Some(theme_message(Event::Profile(
-                    Cosmetic::TextGlow,
+                Some(theme_message(Event::TextGlow(
                     !self.cx.layout.prefs.text_glow.unwrap_or(true),
                 ))),
             )
             .description(
-                "The soft edge a theme puts round text. Off, text keeps its shadow and outline and skips sixteen extra draws a piece.",
+                "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing.",
             )
             .view(self.cx.look),
             self.desktop_icons(),
