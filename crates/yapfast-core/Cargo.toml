@@ -86,7 +86,7 @@ tar = { version = "0.4", default-features = false }
 # A theme's fonts are parsed whole before anything draws with them; the
 # version Yapfast's dependencies already build.
 ttf-parser = "0.25"
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # CPU rendering of Discord's Lottie stickers, without file access or expressions.

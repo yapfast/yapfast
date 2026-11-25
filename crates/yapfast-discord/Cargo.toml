@@ -36,7 +36,7 @@ futures-util.workspace = true
 iana-time-zone = "0.1.65"
 keyring.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
-cookie_store = { version = "0.22", features = ["serde_json"] }
+cookie_store = "0.22"
 rustls.workspace = true
 # Which certificates the WebSockets trust: the same as reqwest's HTTPS.
 rustls-platform-verifier = "0.7"
@@ -46,11 +46,10 @@ sysinfo = { version = "0.40.4", default-features = false, features = ["system"] 
 tempfile.workspace = true
 # The voice gateway's messages, DAVE's among them.
 serenity-voice-model = "0.3"
-tokio = { workspace = true, features = ["macros", "signal", "io-util", "fs"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "net", "macros", "io-util", "fs"] }
 # The voice gateway.
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "__rustls-tls"] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
 url.workspace = true
 # Links Yapfast's libwebrtc archive, whose libopus calls use.
 webrtc-sys = "=0.3.55"
@@ -61,7 +60,10 @@ webrtc-sys = "=0.3.55"
 libc = "0.2.191"
 
 [dev-dependencies]
+# The manual Discord probe.
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+tracing-subscriber.workspace = true
 # Building DAVE handshake messages in tests, at the versions davey uses.
-openmls = "0.8.1"
+openmls = "0.8.3"
 openmls_basic_credential = "0.5.0"
 openmls_rust_crypto = "0.5.1"

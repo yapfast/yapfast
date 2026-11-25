@@ -35,6 +35,8 @@ transforms = ["dep:thiserror", "dep:ndarray", "dep:rubato"]
 dataset = [
   "dep:thiserror",
   "dep:ndarray",
+  "ndarray/serde",
+  "num-complex/serde",
   "dep:ndarray-rand",
   "dep:rand_xoshiro",
   "dep:hdf5",
@@ -92,7 +94,7 @@ hdf5-static = ["hdf5?/static"]
 [dependencies]
 realfft = "^3.1.0"
 itertools = "0.12"
-num-complex = { version = "^0.4", features = ["serde"] }
+num-complex = "^0.4"
 log = { version = "0.4", features = ["std"], optional = true }
 rand = { version = "0.8", optional = true }
 rubato = { version = "0.14", optional = true }
@@ -102,7 +104,7 @@ thiserror = { version = "1.0", optional = true }
 anyhow = { version = "1.0", optional = true, features = ["backtrace"] }
 hound = { version = "3.4", optional = true }
 hdf5 = { optional = true, git = "https://github.com/aldanor/hdf5-rust.git", rev = "26046fb" }
-ndarray = { version = "0.17", optional = true, features = ["serde"] }
+ndarray = { version = "0.17", optional = true }
 ndarray-rand = { version = "^0.14", optional = true }
 rayon = { version = "1.5", optional = true }
 crossbeam-channel = { version = "^0.5", optional = true }

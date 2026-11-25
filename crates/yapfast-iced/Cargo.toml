@@ -24,7 +24,7 @@ anyhow.workspace = true
 yapfast-iced-kit = { path = "../yapfast-iced-kit" }
 # Discord's names, activities and stream worker, which the window shows.
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 tracing.workspace = true
 # Installed themes and the marketplace are fetched from their checked GitHub
 # addresses on the core's background runtime.

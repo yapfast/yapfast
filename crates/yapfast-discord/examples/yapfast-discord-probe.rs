@@ -20,7 +20,8 @@ use yapfast_discord::{
     voice::{CHANNELS, Call, FRAME, Listener, SAMPLE_RATE, live_microphone},
 };
 
-const USAGE: &str = "usage: yapfast-discord-probe <command>
+const USAGE: &str =
+    "usage: cargo run -p yapfast-discord --example yapfast-discord-probe -- <command>
   store-token              save the test account's token in the OS credential store
   whoami                   show which account the saved token belongs to
   servers                  list servers and their text and voice channels
