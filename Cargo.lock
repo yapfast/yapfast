@@ -4374,9 +4374,9 @@ dependencies = [
 
 [[package]]
 name = "libsqlite3-sys"
-version = "0.39.1"
+version = "0.38.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
+checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
 dependencies = [
  "cc",
  "pkg-config",
@@ -4595,9 +4595,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.7"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52fb8712633820ca0d186fadd7ca76c373d1cb3b555d143d7fee232b2493794b"
+checksum = "62ffccb3c6dcd01855b2eac592298919048ab261a19d52951c808769b7c9c5db"
 dependencies = [
  "base64 0.21.7",
  "device-info",
@@ -4614,6 +4614,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "url",
 ]
 
@@ -5120,7 +5121,7 @@ dependencies = [
  "num_cpus",
  "rmp-serde",
  "ruma",
- "rusqlite 0.40.2",
+ "rusqlite",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -7672,15 +7673,8 @@ dependencies = [
 [[package]]
 name = "rusqlite"
 version = "0.40.2"
-dependencies = [
- "rusqlite 0.41.1",
-]
-
-[[package]]
-name = "rusqlite"
-version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594"
+checksum = "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
 dependencies = [
  "bitflags 2.13.2",
  "fallible-iterator",

@@ -16,7 +16,6 @@ members = [
 ]
 default-members = ["."]
 exclude = [
-    "vendor/rusqlite",
     "vendor/webrtc-sys",
     "vendor/deep_filter",
     "vendor/x264-src",
@@ -244,8 +243,6 @@ url = "2"
 
 [patch.crates-io]
 webrtc-sys = { path = "vendor/webrtc-sys" }
-# Remove once the Matrix SDK revision shared with MatrixRTC accepts rusqlite 0.41.
-rusqlite = { path = "vendor/rusqlite" }
 # iced 0.14's renderers with Yapfast's patches; see docs/building.md.
 iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 iced_wgpu = { path = "vendor/iced_wgpu" }
