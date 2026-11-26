@@ -145,6 +145,15 @@ impl Decoder {
         self.codec
     }
 
+    /// The library that decodes, as the Stream tab names it.
+    pub fn engine(&self) -> &'static str {
+        match self.codec {
+            Codec::Vp8 => "libvpx",
+            Codec::H264 | Codec::H265 => "FFmpeg",
+            Codec::Av1 => "dav1d",
+        }
+    }
+
     /// Decodes a whole frame. None while the decoder holds it back.
     pub fn decode(&mut self, frame: &[u8]) -> Result<Option<Picture<'_>>> {
         let mut raw = RawPicture {

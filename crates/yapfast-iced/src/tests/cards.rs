@@ -454,6 +454,48 @@ fn a_profile_without_a_banner_takes_its_avatars_colour() {
     );
 }
 
+/// The accounts someone links show on their floating card only once
+/// Appearance's switch is on; the full profile shows them either way.
+#[test]
+fn connections_show_on_the_card_once_turned_on() {
+    use yapfast_core::chat::ProfileConnection;
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(500.0, 200.0));
+    let view = app
+        .client
+        .app
+        .state
+        .profile
+        .as_mut()
+        .map(std::sync::Arc::make_mut)
+        .expect("open");
+    assert!(!view.large, "the floating card");
+    view.profile.connections = vec![ProfileConnection {
+        kind: "steam".into(),
+        name: "riley_plays".into(),
+        verified: true,
+        url: Some("https://steamcommunity.com/profiles/76561190000000000".into()),
+        since: None,
+    }];
+    let _ = app.sync();
+    assert!(!app.layout.prefs.card_connections, "off by default");
+    assert!(!super::present(&app, "Connections"));
+    assert!(!super::present(&app, "riley_plays"));
+    app.layout.prefs.card_connections = true;
+    assert!(super::present(&app, "Connections"));
+    assert!(super::present(&app, "riley_plays"));
+}
+
 #[test]
 fn an_emoji_in_a_messages_text_opens_its_card_until_escape() {
     let (mut app, _folder) = preview();

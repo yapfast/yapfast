@@ -1,11 +1,11 @@
 //! The call: the dock's noise toggle, the device menus' volumes and a
 //! device gone away, the share menu in a short window, its settings' rows
 //! with their choices beside them, the application remembered for the
-//! stream's audio, the microphone's
-//! level only while its menu shows, the dock's channel line, a voice
-//! channel's Join, someone's volumes and menu from their tile, a camera's
-//! tile before its first frame, the corner picture's grip resizing it,
-//! and the call's own order under its channel.
+//! stream's audio, the microphone's level only while its menu shows, the
+//! dock's channel line, the call's hint closed for good, a voice channel's
+//! Join, someone's volumes and menu from their tile, a camera's tile
+//! before its first frame, the corner picture's grip resizing it, and the
+//! call's own order under its channel.
 
 use iced::{Point, Rectangle, Size};
 use yapfast_core::{
@@ -655,6 +655,45 @@ fn clicking_the_docks_channel_line_opens_the_call() {
 }
 
 #[test]
+fn the_calls_stays_connected_hint_closes_for_good() {
+    let (mut app, folder, _) = in_call();
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        state.voice.participants.push(bob);
+    });
+    let hint = "Voice stays connected while you browse other conversations.";
+    assert_eq!(crate::call::stage::voice_description(&app), hint);
+    assert!(shows(&app, hint));
+    // Its close button sits just after it.
+    interact(&mut app, |ui| {
+        let words = ui.find(hint).expect("the hint");
+        let bounds = words.visible_bounds().expect("in view");
+        ui.point_at(Point::new(
+            bounds.x + bounds.width + 14.0,
+            bounds.center_y(),
+        ));
+        ui.simulate(iced_test::simulator::click());
+    });
+    assert!(app.layout.hide_voice_hint);
+    assert!(!super::present(&app, hint));
+    assert!(
+        crate::layout::Layout::read(folder.path()).hide_voice_hint,
+        "kept for the next start"
+    );
+    // The call's other lines still show.
+    super::change(&mut app, |state| {
+        state.voice.participants.truncate(1);
+    });
+    let alone = crate::call::stage::voice_description(&app);
+    assert!(alone.starts_with("You're here alone."), "{alone}");
+    assert!(shows(&app, &alone));
+}
+
+#[test]
 fn a_voice_channel_this_account_isnt_in_offers_to_join() {
     let (mut app, _folder, _) = in_call();
     let _ = crate::call::update(&mut app, Event::Leave);
@@ -721,13 +760,28 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
         stream: Some(voice::StreamStats {
             engine: "h264_nvenc".into(),
             codec: "H264".into(),
+            captured: "2560×1440 screen".into(),
             width: 1920,
             height: 1080,
             fps: 60,
             target_kbps: 4000,
             sent_kbps: 3812,
             keyframe_requests: 2,
+            packets: 1000,
             resent: 5,
+        }),
+        watching: Some(voice::WatchStats {
+            decoder: "dav1d".into(),
+            codec: "AV1".into(),
+            width: 1280,
+            height: 720,
+            fps: 30,
+            received_kbps: 2500,
+            packets: 4000,
+            lost: 8,
+            repaired: 31,
+            keyframe_requests: 1,
+            dropped: 0,
         }),
     };
     app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
@@ -769,14 +823,26 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
     assert!(shows(&app, "Copy"));
     let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Tab(LinkTab::Stream)));
     for words in [
+        "Sharing",
         "NVENC on the GPU",
         "H264",
+        "2560×1440 screen",
         "1920×1080 at 60 fps",
         "3.8 Mbit/s",
         "4.0 Mbit/s",
+        "5 (0.5%)",
+        "Watching",
+        "dav1d on the CPU",
+        "1280×720 at 30 fps",
+        "2.5 Mbit/s",
+        "8 (0.2%)",
+        "Copy diagnostics",
     ] {
         assert!(shows(&app, words), "{words}");
     }
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Diagnostics));
+    assert!(shows(&app, "Copied"));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::CopiedDone));
     // Closed with the pointer gone, nothing is copied out of the call.
     let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Pointed(false)));
     let _ = crate::call::update(&mut app, Event::Close);
@@ -1057,6 +1123,46 @@ fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
     // This account first, then the call's others in its order, then
     // anyone the call hasn't got yet.
     assert!(at[0] < at[2] && at[2] < at[1], "{at:?}");
+}
+
+#[test]
+fn this_accounts_own_row_marks_its_mute_deafening_camera_and_stream() {
+    use crate::sidebar::voice::Marks;
+    let (app, _folder, _) = in_call();
+    let mut me = app.client.state().voice.participants[0].clone();
+    assert!(me.local);
+    // Discord's listing, not yet caught up with any of it.
+    let listed = yapfast_core::chat::VoicePerson {
+        id: me.person.clone(),
+        name: me.user.clone(),
+        ..Default::default()
+    };
+    me.muted = true;
+    me.deafened = true;
+    me.streaming = true;
+    me.video = Some(yapfast_core::picture::Feed::new());
+    let own = Marks::of(&listed, Some(&me));
+    assert!(own.muted && own.deafened && own.streaming && own.video);
+    // Unmuting in the call clears the mark, whatever the listing says.
+    me.muted = false;
+    me.deafened = false;
+    let stale = yapfast_core::chat::VoicePerson {
+        muted: true,
+        deafened: true,
+        ..listed.clone()
+    };
+    let own = Marks::of(&stale, Some(&me));
+    assert!(!own.muted && !own.deafened);
+    // Joined on this client, so not dimmed as another client's.
+    let elsewhere = yapfast_core::chat::VoicePerson {
+        elsewhere: true,
+        ..listed
+    };
+    assert!(!Marks::of(&elsewhere, Some(&me)).elsewhere);
+    // Someone else's row keeps what Discord lists.
+    me.local = false;
+    assert_eq!(Marks::of(&stale, Some(&me)), Marks::of(&stale, None));
+    assert!(Marks::of(&elsewhere, None).elsewhere);
 }
 
 #[test]

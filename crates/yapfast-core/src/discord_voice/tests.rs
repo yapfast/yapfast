@@ -18,6 +18,55 @@ fn a_failed_join_shows_the_step_that_failed() {
     );
 }
 
+/// This account's own stream shows as LIVE in the call once its worker
+/// reports it, whether or not Discord's voice state says so yet.
+#[test]
+fn the_own_stream_is_live_in_the_call_once_it_is() {
+    let member = |user: &str| yapfast_discord::service::VoiceMember {
+        user_id: user.into(),
+        name: user.into(),
+        avatar: String::new(),
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        speaking_blocked: false,
+        server_deafened: false,
+        streaming: false,
+        video: false,
+        elsewhere: false,
+        style: None,
+        tag: None,
+    };
+    let mut snapshot = yapfast_discord::service::Snapshot::default();
+    snapshot
+        .voice
+        .insert("5".into(), vec![member("me"), member("you")]);
+    let mut state = State::default();
+    let cameras = Cameras::start(None);
+    let streaming = |state: &State| -> Vec<bool> {
+        discord_participants(&snapshot, "5", "me", state, &[], false, None, &cameras)
+            .iter()
+            .map(|person| person.streaming)
+            .collect()
+    };
+    assert_eq!(streaming(&state), [false, false]);
+    let frames = Arc::new(crate::frames::Frames::create(2, 2).unwrap());
+    state.sharing = Some(Sharing {
+        phase: SharePhase::Starting,
+        frames,
+        viewers: vec![],
+    });
+    assert_eq!(streaming(&state), [false, false], "not until it's live");
+    if let Some(sharing) = state.sharing.as_mut() {
+        sharing.phase = SharePhase::Live;
+    }
+    assert_eq!(
+        streaming(&state),
+        [true, false],
+        "this account, and no other"
+    );
+}
+
 /// Held by each test that joins a call in the fake Discord, so one runs at
 /// a time: they join as the same account, which sees another's join as
 /// joining elsewhere and ends its call, and the fake's voice controls are

@@ -377,7 +377,12 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. The full profile,
+and the servers and friends the account shares with them. It also carries the
+accounts they linked (`connected_accounts`), which the full profile lists under
+Connections. The small card leaves them to the full profile, unless Settings ›
+Appearance's "Show connections on profile cards" is on (off by default): then
+it lists them too, from the same answer, asking for nothing more. The full
+profile,
 the DM's panel and the profile editor's preview show the dates under "Member
 Since" in one row, as the client does: the Discord logo and the account's
 date, then a bullet, the server's icon (its initial without one) and the date
@@ -903,8 +908,11 @@ window draws carry no address for it, so the window asks for nothing either.
 | Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
+| Draw role colour gradients (`name_colours`) | One span a name in the role's first colour, instead of a span a letter redrawn with the name | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show badges (`badges`) | No badge picture on a profile card, and no levels request for one | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
+| Show profile backgrounds (`profile_backgrounds`) | No banner picture asked for, shown or kept going, and the top in the card's own colour rather than the accent or the avatar's | On |
 
 Every switch starts on, so profiles look as in Discord's client. The
 switches are there for the cheaper side: an effect's layers are APNGs up
@@ -915,6 +923,12 @@ Decorations, nameplates and tags are a still each, decoded once, and name
 styles use bundled fonts. Turning a switch off takes what it covers off
 what's shown at once; turning effects on shows a profile's effect the
 next time the profile is fetched.
+
+Role colour gradients, like name styles, fetch nothing; their switch is
+over drawing: a gradient name is a text span for every letter, rebuilt
+each time the row is drawn, member list and timeline alike, where one
+colour is a single span. A client with every switch off asks Discord for
+none of these pictures and draws none of them.
 
 ## Editing one's main profile
 
@@ -1156,9 +1170,11 @@ Disconnects and CLOSE are read while an image lookup is in flight, so closing
 an application restores the previous RPC activity without waiting for HTTP
 or the game detector's next scan. Completed clients are removed before queued
 updates are applied. If no RPC activity remains, the process detector verifies
-its fallback immediately; a closed application needs no second periodic scan
-before another running application takes its place. Local cards follow this,
-subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+its fallback immediately, and what shows stays until that scan replaces
+it. A closed application needs no second periodic scan before another running
+application takes its place. The local Playing label is reserved for
+activities of type Playing. Local cards follow these changes with the snapshot publisher's
+100 ms batching. Sending the update to other users still
 obeys the Gateway limit of five presence updates per 20 seconds. At most four
 commands and 64 KiB of payload wait behind an in-flight lookup per client;
 exceeding that bound closes the connection.
@@ -1236,7 +1252,9 @@ rules that need arguments. It never reads CPU, memory, environments or
 threads, and drops the process list after each scan. A process seen before and unchanged
 isn't matched again. Wine and Proton processes match by the Windows program
 in their command line, and runtime helpers, crash reporters and anti-cheat
-services don't count. The game started last shows and stays while it runs.
+services don't count. Automatic detection also skips Wallpaper Engine's
+executables and processes running from its `wallpaper_engine` folder.
+The game started last shows and stays while it runs.
 One that ended clears after two scans without it, up to 30 s. Only the
 game's name, its application id and when it started go to Discord.
 

@@ -989,7 +989,10 @@ fn gutter<'a>(
                     .size(theme.type_size("time", 12.0))
                     .font(theme.font("time", MEDIUM))
                     .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
+                    .wrapping(text::Wrapping::None)
+                    // A clock too wide for the gutter, with seconds say,
+                    // grows to the left, never into the message.
+                    .align_x(Alignment::End),
             )
             .width(avatar)
             .align_x(Alignment::End),
@@ -1260,8 +1263,8 @@ fn author_line<'a>(
     // A gradient role colour runs across the name, letter by letter, as
     // Discord draws it, unless the theme inks names itself; otherwise the
     // one colour.
-    let spans = match message
-        .color_end
+    let spans = match cosmetics
+        .colours(message.color_end)
         .filter(|_| message.color.is_some() && content.is_none())
     {
         Some(end) => crate::looks::gradient_letters(
