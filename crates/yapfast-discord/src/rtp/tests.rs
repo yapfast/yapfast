@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::congestion::PACE;
+
 #[test]
 fn reads_report_blocks() {
     let report = receiver_report(1, 77, (1000, 12, 3), (0, 0));
@@ -16,6 +18,7 @@ fn reads_what_a_report_says_about_one_ssrc() {
     assert_eq!(
         reception(&both, 77),
         Some(Reception {
+            reporter: 1,
             ssrc: 77,
             fraction_lost: 30,
             lost: 12,
@@ -250,8 +253,70 @@ fn puts_packets_back_in_order_and_asks_for_lost_ones() {
     assert_eq!(reorder.ready(at(399)), (vec![], 0));
     let (ready, skipped) = reorder.ready(at(400));
     assert_eq!((sequences(ready), skipped), (vec![4], 2));
-    assert_eq!(reorder.insert(held(3), at(410)), Arrival::Late);
-    assert_eq!(reorder.counts(), Some((65536 + 4, 2)), "one wrap, two lost");
+    // 3 was given up on, and comes anyway: it arrived, so the report says
+    // the path lost one rather than two.
+    assert_eq!(reorder.insert(held(3), at(410)), Arrival::Recovered);
+    assert_eq!(reorder.counts(), Some((65536 + 4, 1)), "one wrap, one lost");
+    // And once it has come, another copy of it isn't a second packet.
+    assert_eq!(reorder.insert(held(3), at(420)), Arrival::Late);
+    assert_eq!(reorder.counts(), Some((65536 + 4, 1)));
+}
+
+#[test]
+fn counts_a_packet_that_came_late_as_arrived() {
+    // A report says what the path lost, not what arrived out of order: the
+    // delivery point went on without 12, so a count read from it called 12
+    // lost, and a streamer reads that as its own uplink losing it.
+    let now = std::time::Instant::now();
+    let later = now + std::time::Duration::from_millis(400);
+    let held = |sequence: u16| Held {
+        payload_type: VP8,
+        marker: false,
+        sequence,
+        timestamp: 0,
+        ssrc: 5,
+        payload: vec![0],
+        orientation: None,
+    };
+    let mut reorder = Reorder::default();
+    for sequence in [10, 11, 13, 14] {
+        reorder.insert(held(sequence), now);
+    }
+    assert_eq!(reorder.ready(now).0.len(), 2, "10 and 11, without 12");
+    assert_eq!(reorder.counts(), Some((14, 1)));
+    assert_eq!(reorder.ready(later).0.len(), 2, "13 and 14, given up on 12");
+    assert_eq!(reorder.counts(), Some((14, 1)), "12 never came");
+    assert_eq!(reorder.insert(held(12), later), Arrival::Recovered);
+    assert_eq!(reorder.counts(), Some((14, 0)), "and then it did");
+    // A second copy of it is not a second packet.
+    assert_eq!(reorder.insert(held(12), later), Arrival::Late);
+    assert_eq!(reorder.counts(), Some((14, 0)));
+}
+
+#[test]
+fn remembers_the_arrivals_near_the_highest() {
+    let mut arrived = Arrived::default();
+    assert!(arrived.note(1000));
+    assert!(!arrived.note(1000), "a duplicate");
+    assert!(arrived.note(999), "out of order, and new");
+    assert_eq!(arrived.count, 2);
+    // Older than what's remembered: it can't be told from a packet counted
+    // when it first came, so it isn't counted again.
+    assert!(!arrived.note(1000 - ARRIVED));
+    assert_eq!(arrived.count, 2);
+    // A window that moves keeps what it holds, across a word's worth of it.
+    let mut arrived = Arrived::default();
+    arrived.note(100);
+    arrived.note(99);
+    arrived.note(170);
+    assert!(!arrived.note(100));
+    assert!(!arrived.note(99));
+    assert!(arrived.note(98));
+    assert_eq!(arrived.count, 4);
+    // Far ahead, everything before it is out of reach and it counts.
+    assert!(arrived.note(170 + ARRIVED * 4));
+    assert!(!arrived.note(169));
+    assert_eq!(arrived.count, 5);
 }
 
 #[test]
@@ -816,10 +881,11 @@ fn describes_receiver_reports_and_remb() {
 fn retransmits_what_viewers_report_lost() {
     let mut packetizer = Packetizer::new(77, Codec::H264);
     let mut history = History::default();
+    let sent_at = Instant::now();
     let frame = [&[0, 0, 0, 1, 0x65][..], &[9; 3000]].concat();
     let sent = packetizer.packets(&frame, 9000, false);
     for packet in &sent {
-        history.remember(packet);
+        history.remember(packet, sent_at);
     }
     let first = parse(&sent[0]).unwrap().sequence;
     // A NACK for the first packet and, by its bitmask, the third.
@@ -831,7 +897,7 @@ fn retransmits_what_viewers_report_lost() {
     assert_eq!(lost, [first, first.wrapping_add(2)]);
     assert!(nacked(&nack, 78).is_empty(), "about another stream");
     let again = packetizer
-        .retransmit(history.get(lost[1]).unwrap(), 79)
+        .retransmit(history.get(lost[1], sent_at).unwrap(), 79)
         .unwrap();
     let original = parse(&sent[2]).unwrap();
     let resent = parse(&again).unwrap();
@@ -847,7 +913,10 @@ fn retransmits_what_viewers_report_lost() {
     assert_eq!(&resent.payload[..2], &lost[1].to_be_bytes());
     assert_eq!(&resent.payload[2..], original.payload);
     assert_eq!(again[21], 0xc2, "the repaired stream id, not the stream id");
-    assert!(history.get(first.wrapping_sub(1)).is_none(), "never sent");
+    assert!(
+        history.get(first.wrapping_sub(1), sent_at).is_none(),
+        "never sent"
+    );
     assert!(packetizer.retransmit(&again, 79).is_none(), "not video");
 }
 
@@ -859,4 +928,372 @@ fn finds_keyframe_requests() {
     assert!(!wants_keyframe(&report));
     assert!(wants_keyframe(&[&report[..], &pli[..]].concat()));
     assert!(is_rtcp(&pli) && !is_rtcp(&[0x90, VP8]));
+}
+
+/// Discord's stream server relays every viewer's report in one datagram, so
+/// the same hole is named in two blocks: one resend answers both, and the
+/// second name must not cost a second packet.
+#[test]
+fn a_packet_two_viewers_lost_is_named_once() {
+    let mut packet = vec![0x81, 205, 0, 4, 0, 0, 0, 1];
+    packet.extend_from_slice(&9u32.to_be_bytes());
+    for _ in 0..2 {
+        packet.extend_from_slice(&7u16.to_be_bytes());
+        packet.extend_from_slice(&0b100u16.to_be_bytes());
+    }
+    assert_eq!(nacked(&packet, 9), [7, 10]);
+}
+
+/// Two sequences a history apart: they land on the same slot.
+fn same_slot(sequence: u16, slots: usize) -> u16 {
+    sequence + slots as u16
+}
+
+#[test]
+fn reuses_the_vector_in_an_rtx_history_slot() {
+    let mut history = History::default();
+    let slots = history.packets.len();
+    let first = 1000u16;
+    let second = same_slot(first, slots);
+    assert_eq!(
+        usize::from(first) % slots,
+        usize::from(second) % slots,
+        "the same slot"
+    );
+    let before = packet(first, 500, false, &[1; 400]);
+    let after = packet(second, 900, true, &[2; 300]);
+
+    history.remember(&before, Instant::now());
+    let slot = history.packets[usize::from(first) % slots]
+        .as_ref()
+        .expect("a slot filled");
+    assert_eq!(
+        (slot.sequence, slot.packet.as_slice()),
+        (first, before.as_slice())
+    );
+    let storage = (slot.packet.as_ptr(), slot.packet.capacity());
+
+    let replaced_at = Instant::now();
+    history.remember(&after, replaced_at);
+    let slot = history.packets[usize::from(second) % slots]
+        .as_ref()
+        .expect("the slot holds a packet still");
+    assert_eq!(
+        (slot.packet.as_ptr(), slot.packet.capacity()),
+        storage,
+        "the slot's own vector, not a new one"
+    );
+    assert_eq!(
+        (slot.sequence, slot.packet.as_slice()),
+        (second, after.as_slice()),
+        "the packet just kept, with no bytes left over from the last"
+    );
+    assert_eq!(
+        history.get(first, replaced_at),
+        None,
+        "replaced in that slot"
+    );
+    assert_eq!(history.get(second, replaced_at), Some(after.as_slice()));
+}
+
+#[test]
+fn an_rtx_history_slot_holds_packets_of_changing_length() {
+    let mut history = History::default();
+    let slots = history.packets.len();
+    let sequence = 7u16;
+    let long_sequence = same_slot(sequence, slots);
+    let shortest_sequence = sequence + 2 * (slots as u16);
+    let short = packet(sequence, 1, false, &[3; 100]);
+    let long = packet(long_sequence, 2, false, &[4; 2000]);
+    let shortest = packet(shortest_sequence, 3, true, &[5; 20]);
+    for other in [long_sequence, shortest_sequence] {
+        assert_eq!(
+            usize::from(other) % slots,
+            usize::from(sequence) % slots,
+            "the same slot"
+        );
+    }
+    let slot = usize::from(sequence) % slots;
+    let sent_at = Instant::now();
+
+    history.remember(&short, sent_at);
+    history.remember(&long, sent_at);
+    let stored = &history.packets[slot]
+        .as_ref()
+        .expect("a slot filled")
+        .packet;
+    assert_eq!(stored.as_slice(), long.as_slice(), "grown to fit");
+    assert!(stored.capacity() >= long.len(), "room for the whole packet");
+    let grown = stored.capacity();
+
+    history.remember(&shortest, sent_at);
+    let stored = &history.packets[slot]
+        .as_ref()
+        .expect("a slot filled")
+        .packet;
+    assert_eq!(
+        stored.as_slice(),
+        shortest.as_slice(),
+        "cut to the shorter packet"
+    );
+    assert_eq!(stored.capacity(), grown, "the larger vector kept");
+    assert_eq!(history.get(long_sequence, sent_at), None, "replaced");
+    assert_eq!(
+        history.get(shortest_sequence, sent_at),
+        Some(shortest.as_slice())
+    );
+}
+
+#[test]
+fn an_rtx_history_slot_validates_its_sequence_across_wraparound() {
+    let mut history = History::default();
+    let slots = history.packets.len();
+    let before_wrap = 65_500u16;
+    let after_wrap = before_wrap.wrapping_add(slots as u16);
+    assert!(
+        after_wrap < before_wrap,
+        "across the end of the sequence numbers"
+    );
+    assert_eq!(
+        usize::from(after_wrap) % slots,
+        usize::from(before_wrap) % slots,
+        "the same slot"
+    );
+    let tail = packet(before_wrap, 1, false, &[6; 200]);
+    let head = packet(after_wrap, 2, true, &[7; 200]);
+
+    let sent_at = Instant::now();
+    history.remember(&tail, sent_at);
+    assert_eq!(history.get(before_wrap, sent_at), Some(tail.as_slice()));
+
+    history.remember(&head, sent_at);
+    assert_eq!(history.get(after_wrap, sent_at), Some(head.as_slice()));
+    assert_eq!(
+        history.get(before_wrap, sent_at),
+        None,
+        "replaced in that slot"
+    );
+    assert!(
+        history.get(1234, sent_at).is_none(),
+        "a slot nothing has filled"
+    );
+}
+
+#[test]
+fn rtx_history_remembers_only_parsable_packets() {
+    let mut history = History::default();
+    let sent_at = Instant::now();
+    history.remember(&[], sent_at);
+    history.remember(&[0x80, H264], sent_at);
+    history.remember(&[0x40; 20], sent_at);
+    assert!(
+        history.packets.iter().all(|slot| slot.is_none()),
+        "no slot filled, nor partly"
+    );
+}
+
+#[test]
+fn an_rtx_slot_ages_out_rather_than_lasting_through_a_stall() {
+    // Nothing ages a slot but the packets that follow it, so a stream that
+    // stops sending leaves the history as it was: minutes later a viewer's
+    // NACK for one of those packets is about a packet no viewer can still
+    // be waiting for, and the uplink a recovering stream needs is not
+    // spent on it. What the slot holds is never handed out in its place.
+    let mut history = History::default();
+    let sent_at = Instant::now();
+    let stalled = sent_at + RESEND_WINDOW + Duration::from_millis(1);
+    let old = packet(200, 1, false, &[8; 300]);
+    let new = packet(same_slot(200, history.packets.len()), 2, true, &[9; 300]);
+
+    history.remember(&old, sent_at);
+    assert_eq!(history.get(200, sent_at), Some(old.as_slice()));
+    assert_eq!(
+        history.get(200, stalled),
+        None,
+        "in the history still, and too old to resend"
+    );
+
+    // The slot takes the packet the sequence numbers put in it next, with
+    // their own bytes: neither the old sequence nor the new one is ever
+    // answered with the other's packet.
+    let replaced_at = Instant::now();
+    history.remember(&new, replaced_at);
+    let kept = parse(&new).unwrap().sequence;
+    assert_eq!(history.get(200, replaced_at), None, "gone from that slot");
+    assert_eq!(history.get(kept, replaced_at), Some(new.as_slice()));
+    assert_eq!(
+        history.get(kept, replaced_at + RESEND_WINDOW),
+        None,
+        "and ages out in its turn"
+    );
+}
+
+#[test]
+fn an_rtx_slot_costs_no_more_than_the_packet_alone() {
+    // What a slot keeps for ageing it is the room the tuple had spare:
+    // the store is bounded by its 2048 slots whatever the stream does.
+    assert_eq!(
+        std::mem::size_of::<Option<Sent>>(),
+        std::mem::size_of::<Option<(u16, Vec<u8>)>>(),
+        "a kept packet, its sequence and its age in a packet's worth of slot"
+    );
+}
+
+/// What each turn of the send loop writes for a run of `packets` at `target`
+/// and `factor`, on a timer whose turns take `turn`.
+fn paced(target: u64, packets: usize, turn: Duration, factor: u64) -> Vec<usize> {
+    let start = Instant::now();
+    let mut pace = Pace::new(start);
+    let mut at = start;
+    let mut left = packets;
+    let mut sizes = vec![];
+    while left > 0 {
+        let batch = pace.batch(target, factor, at).min(left);
+        for _ in 0..batch {
+            pace.went();
+        }
+        left -= batch;
+        sizes.push(batch);
+        pace.wrote(at);
+        at += turn;
+    }
+    sizes
+}
+
+#[test]
+fn a_run_goes_out_a_batch_a_turn() {
+    // Each turn of the send loop writes one batch and polls the rest of its
+    // arms before the next, so a keyframe of 250 packets is a hundred turns
+    // for sound, feedback and the gateway to be heard in, rather than one
+    // turn that lasts as long as the frame takes to put on the wire.
+    let sizes = paced(9_000_000, 250, STEP, PACE);
+    assert_eq!(sizes[0], BURST, "a run starts at once");
+    assert!(
+        sizes[1..].iter().all(|&batch| (2..=3).contains(&batch)),
+        "and goes on two packets and a quarter a turn: {sizes:?}"
+    );
+    assert_eq!(sizes.len(), 109, "{sizes:?}");
+}
+
+#[test]
+fn a_fine_timer_paces_at_the_multiple_of_the_target() {
+    // A 1 ms turn pays for a packet and a fraction at most rates. Rounded up
+    // to a floor it sent an 8.7 Mbit keyframe at 40 Mbit into a path the
+    // controller had just backed off from; carried, a second of turns sends
+    // what 2.5 times the target pays for, and no more.
+    for target in [500_000, 2_500_000, 8_700_000, 20_000_000] {
+        let sizes = paced(target, BURST + 6_000, STEP, PACE);
+        let second: usize = sizes[1..=1000].iter().sum();
+        let paid = (target * PACE / 100 / (8 * PACE_PACKET as u64)) as usize;
+        assert!(
+            second.abs_diff(paid) <= 1,
+            "{target} bit/s sent {second} packets in a second for {paid}"
+        );
+    }
+    // A rate that pays for less than a packet a turn writes none in most, and
+    // waits for the next rather than sending ahead of the target.
+    let sizes = paced(500_000, BURST + 10, STEP, PACE);
+    assert!(sizes[1..].iter().all(|&batch| batch <= 1), "{sizes:?}");
+}
+
+#[test]
+fn a_slow_turn_sends_what_the_target_pays_for() {
+    // Windows serves a 1 ms sleep in 15.6 ms, measured, so a batch sized by
+    // the constant alone would put a 20 Mbit stream out at under four Mbit.
+    // The batch is paid for over the time the turn took, so a coarse timer
+    // paces at the multiple a fine one does.
+    let windows = Duration::from_micros(15_600);
+    let turn = |target| paced(target, BURST + 1_000, windows, PACE)[1];
+    assert_eq!(turn(9_000_000), 35, "2.5 times 9 Mbit for 15.6 ms");
+    assert_eq!(turn(2_500_000), 9);
+    assert_eq!(turn(20_805_000), MAX_BATCH, "still bounded");
+    assert_eq!(turn(120_000_000), MAX_BATCH);
+    // A turn that came late sends what the bound lets it, and owes the rest
+    // of its wait to nobody.
+    let start = Instant::now();
+    let mut pace = Pace::new(start);
+    for _ in 0..BURST {
+        pace.went();
+    }
+    let late = start + Duration::from_secs(1);
+    assert_eq!(pace.batch(9_000_000, PACE, late), MAX_BATCH);
+    for _ in 0..MAX_BATCH {
+        pace.went();
+    }
+    pace.wrote(late);
+    assert_eq!(pace.batch(9_000_000, PACE, late + STEP), 2);
+}
+
+#[test]
+fn resends_wait_their_turn_in_the_order_they_were_asked_for() {
+    let at = Instant::now();
+    let mut again = Resends::default();
+    assert!(!again.waiting());
+    // A viewer names what a gap left it missing: the packets a burst lost.
+    for sequence in [40, 39, 41] {
+        assert!(again.ask(sequence, at, None), "{sequence}");
+    }
+    assert!(again.waiting());
+    assert_eq!(again.due(at), at, "the first batch is due at once");
+    assert!(
+        again.batch(9_000_000, PACE, at) >= 3,
+        "the burst covers three"
+    );
+    assert_eq!(
+        std::iter::from_fn(|| again.next(at)).collect::<Vec<_>>(),
+        [40, 39, 41],
+        "longest waiting first"
+    );
+    assert!(!again.waiting());
+}
+
+#[test]
+fn a_repeat_request_is_answered_once_while_the_first_copy_is_on_its_way() {
+    // A viewer asks again every 80 ms while it holds a gap, so on a path whose
+    // round trip is worth waiting for, the second request is the same lost
+    // packet: one copy is already on its way, and a second is the flood that
+    // lost it. Past half a round trip the first copy would be a lost cause.
+    let at = Instant::now();
+    let window = Duration::from_millis(40);
+    let mut again = Resends::default();
+    assert!(again.ask(7, at, Some(window)));
+    assert!(!again.ask(7, at, Some(window)), "named twice in one report");
+    assert_eq!(again.next(at), Some(7));
+    assert!(
+        !again.ask(7, at + Duration::from_millis(20), Some(window)),
+        "the copy is still on its way"
+    );
+    assert!(
+        again.ask(7, at + Duration::from_millis(41), Some(window)),
+        "that copy would have gone astray by now"
+    );
+    assert!(
+        again.ask(8, at + Duration::from_millis(41), Some(window)),
+        "another packet is its own"
+    );
+    // With no round trip measured, nothing is assumed to be on its way.
+    let mut unmeasured = Resends::default();
+    assert!(unmeasured.ask(9, at, None));
+    assert_eq!(unmeasured.next(at), Some(9));
+    assert!(unmeasured.ask(9, at, None), "asked again, sent again");
+}
+
+#[test]
+fn a_run_of_resends_is_paced_past_its_burst() {
+    // A NACK can name a hundred packets, and it names them because a burst
+    // just left the path's queue full: one burst back fills it again. So they
+    // go out as a frame's packets do, eight at once and the rest a turn at the
+    // rate, where the whole hundred went at once before.
+    let at = Instant::now();
+    let mut again = Resends::default();
+    for sequence in 0..100 {
+        assert!(again.ask(sequence, at, None), "{sequence}");
+    }
+    assert_eq!(again.batch(9_000_000, PACE, at), BURST);
+    for _ in 0..BURST {
+        assert!(again.next(at).is_some());
+    }
+    again.wrote(at);
+    assert_eq!(again.due(at), at + STEP, "the next batch waits a turn");
+    assert_eq!(again.batch(9_000_000, PACE, at + STEP), 2);
 }

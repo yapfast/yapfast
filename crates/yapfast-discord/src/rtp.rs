@@ -4,12 +4,14 @@
 //! RTCP that goes with them.
 
 use std::fmt::Write as _;
+use std::time::{Duration, Instant};
 
 use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInPlace};
 use anyhow::{Result, anyhow, bail};
 use chacha20poly1305::XChaCha20Poly1305;
 
 mod audio;
+mod pace;
 mod packetize;
 mod receive;
 mod resend;
@@ -18,6 +20,7 @@ mod timing;
 mod transport;
 
 pub use audio::*;
+pub(crate) use pace::*;
 pub use packetize::*;
 pub use receive::*;
 pub use resend::*;
