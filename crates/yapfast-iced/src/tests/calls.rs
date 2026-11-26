@@ -1087,6 +1087,46 @@ fn the_call_this_account_is_in_lists_it_first_under_its_channel() {
 }
 
 #[test]
+fn this_accounts_own_row_marks_its_mute_deafening_camera_and_stream() {
+    use crate::sidebar::voice::Marks;
+    let (app, _folder, _) = in_call();
+    let mut me = app.client.state().voice.participants[0].clone();
+    assert!(me.local);
+    // Discord's listing, not yet caught up with any of it.
+    let listed = yapfast_core::chat::VoicePerson {
+        id: me.person.clone(),
+        name: me.user.clone(),
+        ..Default::default()
+    };
+    me.muted = true;
+    me.deafened = true;
+    me.streaming = true;
+    me.video = Some(yapfast_core::picture::Feed::new());
+    let own = Marks::of(&listed, Some(&me));
+    assert!(own.muted && own.deafened && own.streaming && own.video);
+    // Unmuting in the call clears the mark, whatever the listing says.
+    me.muted = false;
+    me.deafened = false;
+    let stale = yapfast_core::chat::VoicePerson {
+        muted: true,
+        deafened: true,
+        ..listed.clone()
+    };
+    let own = Marks::of(&stale, Some(&me));
+    assert!(!own.muted && !own.deafened);
+    // Joined on this client, so not dimmed as another client's.
+    let elsewhere = yapfast_core::chat::VoicePerson {
+        elsewhere: true,
+        ..listed
+    };
+    assert!(!Marks::of(&elsewhere, Some(&me)).elsewhere);
+    // Someone else's row keeps what Discord lists.
+    me.local = false;
+    assert_eq!(Marks::of(&stale, Some(&me)), Marks::of(&stale, None));
+    assert!(Marks::of(&elsewhere, None).elsewhere);
+}
+
+#[test]
 fn the_large_tile_full_screen_puts_the_window_full_screen() {
     use crate::app::Message;
     use iced::keyboard::{Key, key};

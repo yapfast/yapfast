@@ -1222,7 +1222,14 @@ fn discord_participants(
                 connected: true,
                 problem: None,
                 avatar: Some(member.avatar.clone()),
-                streaming: member.streaming,
+                // This account's own stream is live once its worker reports
+                // it, before Discord's voice state says so, if it does.
+                streaming: member.streaming
+                    || (local
+                        && state
+                            .sharing
+                            .as_ref()
+                            .is_some_and(|sharing| sharing.phase == SharePhase::Live)),
                 video,
             }
         })
