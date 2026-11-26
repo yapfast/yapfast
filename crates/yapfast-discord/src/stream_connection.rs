@@ -104,6 +104,19 @@ pub struct Sound {
     pub timestamp: u32,
 }
 
+/// One Opus frame of a watched stream's sound as it came: its payload, its
+/// place in the sender's numbering, and when it reached Yapfast.
+#[derive(Debug)]
+pub struct ReceivedSound {
+    pub opus: Vec<u8>,
+    pub sequence: u16,
+    pub timestamp: u32,
+    pub ssrc: u32,
+    /// When it arrived, on the monotonic clock that runs across threads in
+    /// this process, which is what the player compares against.
+    pub arrived: std::time::Instant,
+}
+
 /// Queues the stream's sound, from a thread of the sender's own.
 #[derive(Clone)]
 pub struct SoundSender(mpsc::Sender<Sound>);
@@ -327,7 +340,7 @@ pub struct SentSoFar {
 /// connection.
 pub struct StreamReceiver {
     frames: channel::Receiver<ReceivedFrame>,
-    sounds: Option<channel::Receiver<Vec<u8>>>,
+    sounds: Option<channel::Receiver<ReceivedSound>>,
     shared: Arc<Shared>,
     _stop: oneshot::Sender<()>,
 }
@@ -373,7 +386,7 @@ impl StreamReceiver {
 
     /// The stream's sound, decrypted Opus frames, for a player of its own.
     /// It ends with the connection.
-    pub fn take_sounds(&mut self) -> Option<channel::Receiver<Vec<u8>>> {
+    pub fn take_sounds(&mut self) -> Option<channel::Receiver<ReceivedSound>> {
         self.sounds.take()
     }
 
@@ -953,7 +966,7 @@ async fn receive_stream(
     // Where whole video frames and the sound's Opus frames go.
     (frames, sounds): (
         channel::SyncSender<ReceivedFrame>,
-        channel::SyncSender<Vec<u8>>,
+        channel::SyncSender<ReceivedSound>,
     ),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -1073,7 +1086,13 @@ async fn receive_stream(
                     received.sounds += 1;
                     match connection.dave.decrypt_opus(streamer_id, packet.payload) {
                         // A full queue drops sound the player can't keep up with.
-                        Some(sound) => drop(sounds.try_send(sound.into_owned())),
+                        Some(opus) => drop(sounds.try_send(ReceivedSound {
+                            opus: opus.into_owned(),
+                            sequence: packet.sequence,
+                            timestamp: packet.timestamp,
+                            ssrc: packet.ssrc,
+                            arrived: std::time::Instant::now(),
+                        })),
                         None => received.unheard += 1,
                     }
                     continue;
