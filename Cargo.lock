@@ -4595,9 +4595,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.9"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62ffccb3c6dcd01855b2eac592298919048ab261a19d52951c808769b7c9c5db"
+checksum = "52fb8712633820ca0d186fadd7ca76c373d1cb3b555d143d7fee232b2493794b"
 dependencies = [
  "base64 0.21.7",
  "device-info",
@@ -4614,7 +4614,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
- "tokio-util",
  "url",
 ]
 
@@ -10883,6 +10882,7 @@ dependencies = [
  "libpulse-binding",
  "libpulse-simple-binding",
  "livekit",
+ "livekit-signaling",
  "matrix-rtc-call",
  "matrix-rtc-call-sdk",
  "matrix-rtc-core",
