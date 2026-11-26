@@ -95,7 +95,19 @@ built from source) through `native/h264.c`, with a keyframe at least every 3 s
 and whenever RTCP asks for one; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
-work sends H264. H264 goes as whole NAL units or FU-A fragments, H265 as whole
+work sends H264. Each encoded frame owns the buffer it was encoded into
+(`yapfast_discord::pool`): the encoder takes one of three and the frame gives
+it back when it's dropped, so its bytes reach DAVE without another copy. The
+encoder says how big the unit it produced is before it is copied, and the
+buffer grows to hold it, so a picture is never encoded a second time and its
+unit is copied once, straight out of the encoder's own memory: x264's output or
+FFmpeg's packet. Only a frame that came out of FFmpeg as several packets is
+gathered first, into a buffer one frame big, and libvpx's frame always is. The
+buffers start at 512 KiB, or at a frame's own cap where that is smaller, and
+double as a frame needs, up to 2 bytes a pixel and 4 KiB more; three of those
+are 1.5 MiB at rest, where one buffer of the cap took 4 MiB at 1080p before. A
+frame beyond the three allocates its buffer rather than waiting for one. H264
+goes as whole NAL units or FU-A fragments, H265 as whole
 units or FU fragments (RFC 7798), and AV1 in AOM's [RTP payload
 format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html), as
 libwebrtc's packetizer sends it: OBU elements without their size fields,
