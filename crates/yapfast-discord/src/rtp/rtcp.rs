@@ -139,13 +139,15 @@ pub(super) fn remb(packet: &[u8]) -> Option<(u64, Vec<u32>)> {
     let count = usize::from(*packet.get(16)?);
     let exponent = packet.get(17)? >> 2;
     let mantissa = u32::from_be_bytes(packet.get(16..20)?.try_into().ok()?) & 0x3_ffff;
+    packet.get(..20 + count * 4)?;
     let ssrcs = (0..count)
         .filter_map(|index| {
             let at = 20 + index * 4;
             Some(u32::from_be_bytes(packet.get(at..at + 4)?.try_into().ok()?))
         })
         .collect();
-    Some((u64::from(mantissa) << exponent, ssrcs))
+    let bitrate = u64::from(mantissa).saturating_mul(1u64 << exponent);
+    Some((bitrate, ssrcs))
 }
 
 /// The lowest bitrate a decrypted compound RTCP packet estimates for `ssrc`.
@@ -270,6 +272,10 @@ pub fn report_blocks(rtcp: &[u8]) -> Vec<(u32, u32, u32)> {
 /// What one report block of a sender or receiver report says about an SSRC.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Reception {
+    /// The SSRC of the end that reported: Discord's stream server, or a viewer
+    /// whose report the server passed on, so that one end's count of the video
+    /// isn't taken for another's.
+    pub reporter: u32,
     pub ssrc: u32,
     /// Packets lost since the previous report, out of 256.
     pub fraction_lost: u8,
@@ -300,6 +306,8 @@ pub(super) fn blocks(mut rtcp: &[u8]) -> Vec<Reception> {
                 .get(at..at + 4)
                 .map(|bytes| u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
         };
+        // A sender or receiver report names its own SSRC after the header.
+        let reporter = word(4).unwrap_or_default();
         // A sender report's blocks follow its 20 bytes of sender information.
         let first = match packet[1] {
             200 => Some(28),
@@ -312,6 +320,7 @@ pub(super) fn blocks(mut rtcp: &[u8]) -> Vec<Reception> {
             let block = || {
                 let lost = word(at + 4)?;
                 Some(Reception {
+                    reporter,
                     ssrc: word(at)?,
                     fraction_lost: (lost >> 24) as u8,
                     lost: lost & 0x00ff_ffff,

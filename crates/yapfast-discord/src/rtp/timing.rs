@@ -16,6 +16,78 @@ pub(super) const HELD: usize = 1000;
 pub(super) const MAX_MISSING: usize = HELD;
 pub(super) const MAX_ASKED: usize = 256;
 
+/// The sequence numbers below the highest whose arrival is remembered: a
+/// packet that came out of order is counted received once, however late it was,
+/// and a duplicate isn't counted twice. About a quarter of a second at the rate
+/// a stream sends, and longer than a gap is waited for.
+pub(super) const ARRIVED: u64 = 256;
+pub(super) const ARRIVED_WORDS: usize = (ARRIVED / 64) as usize;
+
+/// Which packets near the highest sequence number have arrived, for the count a
+/// receiver report carries.
+///
+/// A packet that arrives behind the one the frames are being built from has
+/// still arrived: Discord's client, and RFC 3550 with it, counts it as received,
+/// so a report says the path lost what it lost rather than what arrived out of
+/// order. Reading it from the delivery point instead — "the highest less the
+/// packets handed on" — called every reordered packet lost, which is a loss a
+/// streamer reads as its own uplink's.
+#[derive(Default)]
+pub(super) struct Arrived {
+    /// The highest sequence number marked.
+    newest: u64,
+    /// Bit `index * 64 + bit` is the packet `newest - (index * 64 + bit)`.
+    bits: [u64; ARRIVED_WORDS],
+    /// The packets marked since the stream began.
+    pub(super) count: u64,
+}
+
+impl Arrived {
+    /// Marks `sequence` as arrived: whether this is its first arrival, which is
+    /// what a report counts.
+    pub(super) fn note(&mut self, sequence: u64) -> bool {
+        if sequence > self.newest {
+            self.advance(sequence - self.newest);
+            self.newest = sequence;
+        }
+        let below = self.newest - sequence;
+        // Older than what's remembered: it can't be told from a packet counted
+        // when it first came, so it isn't counted again.
+        let Some((word, bit)) =
+            (below < ARRIVED).then_some(((below / 64) as usize, (below % 64) as u32))
+        else {
+            return false;
+        };
+        if self.bits[word] & (1 << bit) != 0 {
+            return false;
+        }
+        self.bits[word] |= 1 << bit;
+        self.count += 1;
+        true
+    }
+
+    /// The highest is `shift` further on, so every packet remembered is that
+    /// much older.
+    fn advance(&mut self, shift: u64) {
+        if shift >= ARRIVED {
+            self.bits = [0; ARRIVED_WORDS];
+            return;
+        }
+        let (words, bits) = ((shift / 64) as usize, (shift % 64) as u32);
+        let mut moved = [0; ARRIVED_WORDS];
+        for (index, word) in moved.iter_mut().enumerate() {
+            let Some(from) = index.checked_sub(words) else {
+                continue;
+            };
+            *word = self.bits[from] << bits;
+            if bits > 0 && from > 0 {
+                *word |= self.bits[from - 1] >> (64 - bits);
+            }
+        }
+        self.bits = moved;
+    }
+}
+
 /// Puts one SSRC's packets back in sequence for the assembler, as they can
 /// arrive out of order, and asks for missing ones again (NACK), as Discord's
 /// client does, rather than losing every frame until the next keyframe.
@@ -26,10 +98,10 @@ pub struct Reorder {
     highest: Option<u64>,
     held: std::collections::BTreeMap<u64, Held>,
     pub(super) missing: std::collections::BTreeMap<u64, Missing>,
-    /// For receiver reports: the first extended sequence number, and the
-    /// packets received since.
+    /// For receiver reports: the first extended sequence number, and which of
+    /// the packets since have come.
     first: Option<u64>,
-    received: u64,
+    arrived: Arrived,
 }
 
 pub(super) struct Missing {
@@ -64,10 +136,21 @@ impl Reorder {
         let sequence = self.extend(packet.sequence);
         let next = *self.next.get_or_insert(sequence);
         self.first.get_or_insert(sequence);
-        if sequence < next || self.held.contains_key(&sequence) {
+        // A copy of one still waiting is a copy, not a packet that arrived.
+        if self.held.contains_key(&sequence) {
             return Arrival::Late;
         }
-        self.received += 1;
+        let fresh = self.arrived.note(sequence);
+        if sequence < next {
+            // Behind what the frames were built from: the packets after it went
+            // on without it, so it can't join one, but it did arrive and the
+            // report says so.
+            return if fresh {
+                Arrival::Recovered
+            } else {
+                Arrival::Late
+            };
+        }
         let recovered = self.missing.remove(&sequence).is_some();
         match self.highest {
             // Far ahead: the sender started again, so start with it.
@@ -158,7 +241,7 @@ impl Reorder {
         let expected = highest + 1 - first;
         Some((
             highest as u32,
-            expected.saturating_sub(self.received) as u32,
+            expected.saturating_sub(self.arrived.count) as u32,
         ))
     }
 }
