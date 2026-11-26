@@ -836,6 +836,8 @@ mod tests {
             "C:\\Windows\\explorer.exe",
             "/games/game/EasyAntiCheat_EOS.exe",
             "/games/game/UnityCrashHandler64.exe",
+            "C:\\Steam\\steamapps\\common\\wallpaper_engine\\launcher.exe",
+            "/steam/steamapps/common/Wallpaper_Engine/bin/ui32.exe",
         ] {
             assert!(ignored(path), "{path}");
         }
