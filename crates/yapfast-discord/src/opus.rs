@@ -279,7 +279,12 @@ mod tests {
             .expect_err("libopus refuses a loss estimate over 100");
         assert!(error.to_string().contains("packet loss"), "{error}");
         let mut packet = [0u8; 1500];
-        let mono: Vec<f32> = tone().chunks_exact(2).map(|pair| pair[0]).collect();
+        let mono: Vec<f32> = tone()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| pair[0])
+            .collect();
         assert!(encoder.encode_float(&mono, &mut packet).unwrap() > 3);
     }
 

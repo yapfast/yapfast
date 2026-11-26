@@ -693,7 +693,7 @@ async fn send(
                 }
             }
             received = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..received?];
+                let packet = &mut datagram[..received?];
                 if !rtp::is_rtcp(packet) {
                     sent.rtp_back += 1;
                     continue;
@@ -702,23 +702,23 @@ async fn send(
                     sent.unopened += 1;
                     continue;
                 };
-                for (kind, said) in rtp::rtcp_kinds(&rtcp) {
+                for (kind, said) in rtp::rtcp_kinds(rtcp) {
                     *sent.rtcp.entry(kind.clone()).or_default() += 1;
                     if !said.is_empty() {
                         sent.said.insert(kind, said);
                     }
                 }
-                if rtp::wants_keyframe(&rtcp) {
+                if rtp::wants_keyframe(rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
                     shared.keyframe.store(true, Ordering::Relaxed);
                 }
-                if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video)
+                if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
                     && let Some(reason) = pacing.set_estimate(estimate)
                 {
                     retarget(shared, &pacing, reason, None);
                 }
-                if let Some(reception) = rtp::reception(&rtcp, video) {
+                if let Some(reception) = rtp::reception(rtcp, video) {
                     let now = std::time::Instant::now();
                     let trip = echoed
                         .iter()
@@ -738,7 +738,7 @@ async fn send(
                 // lost packet, not another.
                 let now = std::time::Instant::now();
                 let in_flight = pacing.in_flight();
-                for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
+                for lost in rtp::nacked(rtcp, video).into_iter().take(RESENDS) {
                     if again.ask(lost, now, in_flight) {
                         sent.asked += 1;
                     } else {
@@ -1041,12 +1041,12 @@ async fn receive_stream(
                 flowing = received.decoded;
             }
             length = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..length?];
+                let packet = &mut datagram[..length?];
                 received.packets += 1;
                 if rtp::is_rtcp(packet) {
                     received.rtcp += 1;
                     let rtcp = connection.transport.open(packet, rtp::RTCP_CLEAR).unwrap_or_default();
-                    for (sender, middle) in rtp::sender_reports(&rtcp) {
+                    for (sender, middle) in rtp::sender_reports(rtcp) {
                         if Some(sender) == streamer.video {
                             last_report = Some((middle, std::time::Instant::now()));
                         }
@@ -1061,7 +1061,7 @@ async fn receive_stream(
                     received.unopened += 1;
                     continue;
                 };
-                let Some(packet) = rtp::parse(&plain) else {
+                let Some(packet) = rtp::parse(plain) else {
                     received.unparsed += 1;
                     continue;
                 };
@@ -1071,9 +1071,9 @@ async fn receive_stream(
                 }
                 if packet.payload_type == rtp::OPUS {
                     received.sounds += 1;
-                    match connection.dave.decrypt_opus(streamer_id, packet.payload.to_vec()) {
+                    match connection.dave.decrypt_opus(streamer_id, packet.payload) {
                         // A full queue drops sound the player can't keep up with.
-                        Some(sound) => drop(sounds.try_send(sound)),
+                        Some(sound) => drop(sounds.try_send(sound.into_owned())),
                         None => received.unheard += 1,
                     }
                     continue;
