@@ -89,22 +89,21 @@ async fn combine(
     let mut detection_open = true;
     let mut awaiting_scan = None;
     loop {
-        let next = rpc_open
-            .then(|| rpc.borrow().clone())
-            .flatten()
-            .or_else(|| {
-                (detection_open && awaiting_scan.is_none())
-                    .then(|| detected.borrow().clone())
-                    .flatten()
+        let rich = rpc_open.then(|| rpc.borrow().clone()).flatten();
+        // Until the scan a closed app asked for ends, the fallback may still
+        // name that app. What shows stays meanwhile: clearing it first would
+        // send Discord one more presence update when a game remains.
+        if rich.is_some() || awaiting_scan.is_none() {
+            let next = rich.or_else(|| detection_open.then(|| detected.borrow().clone()).flatten());
+            shown.send_if_modified(|old| {
+                if *old == next {
+                    false
+                } else {
+                    *old = next;
+                    true
+                }
             });
-        shown.send_if_modified(|old| {
-            if *old == next {
-                false
-            } else {
-                *old = next;
-                true
-            }
-        });
+        }
         tokio::select! {
             () = shown.closed() => return,
             result = rpc.changed(), if rpc_open => {
@@ -165,14 +164,14 @@ mod tests {
         rpc.send_replace(Some(rich.clone()));
         receiver.changed().await.unwrap();
         assert_eq!(receiver.borrow_and_update().as_ref(), Some(&rich));
-        // A source that dies without clearing must not leave a stale activity.
+        // A source that dies without clearing must not leave a stale activity,
+        // and what shows stays until the scan says what replaces it.
         drop(rpc);
-        receiver.changed().await.unwrap();
-        assert!(receiver.borrow_and_update().is_none());
         let reply = tokio::time::timeout(std::time::Duration::from_secs(1), requests.recv())
             .await
             .expect("RPC disconnect requests an immediate detection scan")
             .unwrap();
+        tokio::task::yield_now().await;
         assert!(!receiver.has_changed().unwrap());
         reply.send(()).unwrap();
         receiver.changed().await.unwrap();
