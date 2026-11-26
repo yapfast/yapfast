@@ -491,16 +491,7 @@ impl AppState {
                 .map(Place::Room)
                 .collect();
         }
-        let (only, query) = Only::of(&query, true);
-        let rooms = places.map(|room| (ranking.room(room, only, query), Place::Room(room)));
-        let servers = self
-            .servers
-            .iter()
-            .filter(|_| matches!(only, Only::Everything | Only::Servers))
-            .map(|server| (ranking.server(server, query), Place::Server(server)));
-        let mut found = found(rooms.chain(servers), Place::name);
-        found.truncate(FOUND);
-        found
+        self.matching_places(places, &ranking, &query, FOUND)
     }
 
     /// Where the header search's suggestions jump to: the conversations
@@ -517,8 +508,20 @@ impl AppState {
         let places = self.rooms.iter().map(Arc::as_ref).filter(|room| {
             !room.locked && room.category != discord::REQUESTS && room.category != discord::SPAM
         });
-        let ranking = Ranking::new(self);
-        let (only, query) = Only::of(&query, true);
+        self.matching_places(places, &Ranking::new(self), &query, SUGGESTED)
+    }
+
+    /// The conversations among `places`, and the servers, that match
+    /// `query` (in lower case, its prefix key read as the quick
+    /// switcher's), the best first, `most` at most.
+    fn matching_places<'a>(
+        &'a self,
+        places: impl Iterator<Item = &'a ChatRoom>,
+        ranking: &Ranking<'_>,
+        query: &str,
+        most: usize,
+    ) -> Vec<Place<'a>> {
+        let (only, query) = Only::of(query, true);
         let rooms = places.map(|room| (ranking.room(room, only, query), Place::Room(room)));
         let servers = self
             .servers
@@ -526,7 +529,7 @@ impl AppState {
             .filter(|_| matches!(only, Only::Everything | Only::Servers))
             .map(|server| (ranking.server(server, query), Place::Server(server)));
         let mut found = found(rooms.chain(servers), Place::name);
-        found.truncate(SUGGESTED);
+        found.truncate(most);
         found
     }
 
