@@ -36,6 +36,19 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
     .expect("JSON")
 }
 
+/// The text glow switch stops a theme's soft edge, and is kept.
+#[test]
+fn the_text_glow_switch_stops_the_soft_edge_and_is_kept() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "Draw text glow"), "the switch");
+    interact(&mut app, |ui| {
+        ui.click("Draw text glow").expect("the switch");
+    });
+    assert_eq!(app.layout.prefs.text_glow, Some(false), "off at once");
+    assert_eq!(stored(&folder)["text_glow"], false, "and kept");
+}
+
 /// Settings open moving, once: their motion starts as they open, stays
 /// through what's done in them, and turns to closing as they close, the
 /// Settings closed kept, taking nothing, until they've been drawn going.

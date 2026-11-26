@@ -1,8 +1,9 @@
 //! The call's connection in words and lines, as the voice details popout
 //! shows it: the pings, the loss, the graph's steps, the privacy code's
-//! groups and how a shared screen goes out. No toolkit in it.
+//! groups, how a shared screen goes out and how a watched one comes in,
+//! and all of it as text to paste into a bug report. No toolkit in it.
 
-use crate::voice::{LinkStats, StreamStats};
+use crate::voice::{LinkStats, StreamStats, WatchStats};
 
 /// The graph's box, and the pings it spans: five minutes of them, as the
 /// call keeps.
@@ -112,6 +113,96 @@ pub fn picture(stream: &StreamStats) -> String {
     format!("{}×{} at {} fps", stream.width, stream.height, stream.fps)
 }
 
+/// A count, and what share of `of` it is when there's any: "12 (0.4%)".
+fn share(count: u64, of: u64) -> String {
+    if count == 0 || of == 0 {
+        count.to_string()
+    } else {
+        format!("{count} ({:.1}%)", count as f64 * 100.0 / of as f64)
+    }
+}
+
+/// The Stream tab's rows for the screen this account shares.
+pub fn sharing_rows(stream: &StreamStats) -> Vec<(&'static str, String)> {
+    let mut rows = vec![
+        ("Encoder:", encoder(&stream.engine)),
+        ("Codec:", stream.codec.clone()),
+    ];
+    if !stream.captured.is_empty() {
+        rows.push(("Captured:", stream.captured.clone()));
+    }
+    rows.extend([
+        ("Resolution:", picture(stream)),
+        ("Sending:", rate(stream.sent_kbps)),
+        ("Aiming for:", rate(stream.target_kbps)),
+        (
+            "Keyframes viewers asked for:",
+            stream.keyframe_requests.to_string(),
+        ),
+        ("Packets sent:", stream.packets.to_string()),
+        ("Packets resent:", share(stream.resent, stream.packets)),
+    ]);
+    rows
+}
+
+/// The Stream tab's rows for the stream this account watches.
+pub fn watching_rows(watching: &WatchStats) -> Vec<(&'static str, String)> {
+    let decoder = if watching.decoder.is_empty() {
+        "Starting".to_owned()
+    } else {
+        format!("{} on the CPU", watching.decoder)
+    };
+    vec![
+        ("Decoder:", decoder),
+        ("Codec:", watching.codec.clone()),
+        (
+            "Resolution:",
+            format!(
+                "{}×{} at {} fps",
+                watching.width, watching.height, watching.fps
+            ),
+        ),
+        ("Receiving:", rate(watching.received_kbps)),
+        ("Packets received:", watching.packets.to_string()),
+        ("Packets lost:", share(watching.lost, watching.packets)),
+        ("Packets resent to you:", watching.repaired.to_string()),
+        (
+            "Keyframes asked for:",
+            watching.keyframe_requests.to_string(),
+        ),
+        ("Frames dropped:", watching.dropped.to_string()),
+    ]
+}
+
+/// Everything the details show, as text for a bug report: `build`, the
+/// build's one-line summary, then the connection and each stream's rows.
+pub fn diagnostics(build: &str, stats: &LinkStats) -> String {
+    use std::fmt::Write as _;
+    // Writing to a String can't fail.
+    let mut text = String::new();
+    let _ = writeln!(text, "{build}\n{}\n\nConnection", std::env::consts::OS);
+    let average = average(&stats.pings).map_or_else(|| "Unknown".to_owned(), milliseconds);
+    let _ = writeln!(text, "Average ping: {average}");
+    if let Some(ping) = last_ping(stats) {
+        let _ = writeln!(text, "Last ping: {ping}");
+    }
+    if let Some(loss) = loss(stats) {
+        let _ = writeln!(text, "Outbound packet loss rate: {loss}");
+    }
+    let sections = [
+        ("Sharing", stats.stream.as_ref().map(sharing_rows)),
+        ("Watching", stats.watching.as_ref().map(watching_rows)),
+    ];
+    for (title, rows) in sections {
+        let Some(rows) = rows else { continue };
+        let _ = writeln!(text, "\n{title}");
+        for (label, value) in rows {
+            let _ = writeln!(text, "{label} {value}");
+        }
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +219,49 @@ mod tests {
         assert_eq!(rounded, [(290.0, 295.0, 60.0), (295.0, 300.0, 20.0)]);
         assert_eq!(graph(&[260]).1, 500);
         assert_eq!(graph(&[1500]).1, 2000);
+    }
+
+    /// The copied report holds the connection and each stream's rows, as
+    /// the tab words them, under the build it came from.
+    #[test]
+    fn diagnostics_say_everything_the_details_show() {
+        let stats = LinkStats {
+            pings: vec![40, 80],
+            loss: Some(1.5),
+            privacy_code: Some("123456789012345678901234567890".into()),
+            stream: None,
+            watching: Some(WatchStats {
+                decoder: "FFmpeg".into(),
+                codec: "H264".into(),
+                width: 1920,
+                height: 1080,
+                fps: 30,
+                received_kbps: 5200,
+                packets: 2000,
+                lost: 0,
+                repaired: 4,
+                keyframe_requests: 1,
+                dropped: 2,
+            }),
+        };
+        let text = diagnostics("Yapfast 0.5.0 (abc1234)", &stats);
+        assert!(text.starts_with("Yapfast 0.5.0 (abc1234)\n"), "{text}");
+        for line in [
+            "Average ping: 60 ms",
+            "Last ping: 80 ms",
+            "Outbound packet loss rate: 1.5%",
+            "Watching",
+            "Decoder: FFmpeg on the CPU",
+            "Resolution: 1920×1080 at 30 fps",
+            "Receiving: 5.2 Mbit/s",
+            "Packets lost: 0",
+            "Packets resent to you: 4",
+            "Frames dropped: 2",
+        ] {
+            assert!(text.contains(line), "{line} in {text}");
+        }
+        assert!(!text.contains("Sharing"), "nothing shared");
+        assert!(!text.contains("12345"), "never the privacy code");
     }
 
     #[test]
