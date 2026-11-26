@@ -197,7 +197,7 @@ impl Application {
     pub(super) fn close_gifs(&mut self) -> Vec<Effect> {
         self.state.gifs.open = false;
         self.state.gifs.pictures = HashMap::new();
-        vec![]
+        vec![Effect::Backend(Command::Discord(DiscordCommand::CloseGifs))]
     }
 
     /// The search field changed, after a pause in typing: search for it,

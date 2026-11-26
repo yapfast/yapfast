@@ -736,6 +736,23 @@ int yapfast_video_next(struct yapfast_video *video, int64_t *time_ms, int pictur
   }
 }
 
+/* Reads the next picture packet's time in milliseconds without decoding its
+ * picture, or END when none remain. */
+int yapfast_video_packet_time(struct yapfast_video *video, int64_t *time_ms) {
+  for (;;) {
+    int read = demux(video, video->packet);
+    if (read < 0) return read;
+    if (read == 0) {
+      if (video->read_all) return END;
+      continue;
+    }
+    int64_t pts = video->packet->pts != AV_NOPTS_VALUE ? video->packet->pts : video->packet->dts;
+    *time_ms = milliseconds(video, video->stream, pts);
+    av_packet_unref(video->packet);
+    return PICTURE;
+  }
+}
+
 typedef int (*scale_8)(const uint8_t *, int, const uint8_t *, int, const uint8_t *, int, int, int,
                        uint8_t *, int, uint8_t *, int, uint8_t *, int, int, int, enum FilterMode);
 typedef int (*scale_16)(const uint16_t *, int, const uint16_t *, int, const uint16_t *, int, int,

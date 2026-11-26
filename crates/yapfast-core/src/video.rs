@@ -42,6 +42,7 @@ unsafe extern "C" {
         info: *mut Info,
     ) -> *mut Raw;
     fn yapfast_video_next(video: *mut Raw, time_ms: *mut i64, pictures: c_int) -> c_int;
+    fn yapfast_video_packet_time(video: *mut Raw, time_ms: *mut i64) -> c_int;
     fn yapfast_video_picture(
         video: *mut Raw,
         rgba: *mut c_uchar,
@@ -220,6 +221,19 @@ impl<'a> Video<'a> {
         self.next(true).map(|next| next.expect("pictures come"))
     }
 
+    /// Reads the next picture packet's timestamp in milliseconds without
+    /// decoding the frame itself.
+    fn packet_time(&mut self) -> Result<Option<Option<u64>>> {
+        let mut time_ms = -1;
+        // SAFETY: raw is a live video.
+        let got = unsafe { yapfast_video_packet_time(self.raw, &mut time_ms) };
+        match got {
+            1 => Ok(Some(u64::try_from(time_ms).ok())),
+            0 => Ok(None),
+            _ => bail!("could not read the video's timestamps ({got})"),
+        }
+    }
+
     /// Decodes up to the next sound, reading past pictures and keeping them
     /// for [`Self::decode`]: in a file, sound can trail the pictures it plays
     /// with by a second. None at the end of the sound, or when no more
@@ -324,30 +338,45 @@ pub(crate) fn decode_kept_animation(
     height: u32,
     kept: Option<&std::path::Path>,
 ) -> Option<Picture> {
-    let mut video = Video::open(std::io::Cursor::new(data), false)?;
+    let mut video = Video::open_with(std::io::Cursor::new(data), false, 1)?;
     let (width, height) = fit(video.width, video.height, width, height);
-    let mut first = None;
-    let mut delays = Vec::new();
-    let (mut start, mut delay) = (None::<u64>, 100);
+    let mut times = Vec::new();
     let mut ended = false;
-    loop {
-        let time = match video.decode() {
-            Ok(Next::Picture(time)) => time,
-            Ok(Next::Sound(_)) => continue,
-            Ok(Next::End) => {
-                ended = true;
-                break;
-            }
-            Err(error) => {
-                tracing::debug!(%error, "could not decode a video's picture");
-                break;
-            }
+    while let Ok(next) = video.packet_time() {
+        let Some(time) = next else {
+            ended = true;
+            break;
         };
-        if first.is_none() {
-            let mut rgba = vec![0; width as usize * height as usize * 4];
-            video.picture(&mut rgba, width, height).ok()?;
-            first = Some(rgba);
+        times.push(time);
+        if times.len() > ANIMATION_FRAMES
+            || time.is_some_and(|ms| ms >= ANIMATION_MS && times.len() > 1)
+        {
+            break;
         }
+    }
+    if times.iter().all(Option::is_some) {
+        times.sort_unstable();
+    }
+    if video.seek(0).is_err() {
+        video = Video::open_with(std::io::Cursor::new(data), false, 1)?;
+    }
+    let mut first = None;
+    loop {
+        match video.decode() {
+            Ok(Next::Picture(_)) => {
+                let mut rgba = vec![0; width as usize * height as usize * 4];
+                video.picture(&mut rgba, width, height).ok()?;
+                first = Some(rgba);
+                break;
+            }
+            Ok(Next::Sound(_)) => continue,
+            Ok(Next::End) | Err(_) => break,
+        }
+    }
+    let rgba = first?;
+    let mut delays = Vec::with_capacity(times.len().max(1));
+    let (mut start, mut delay) = (None::<u64>, 100);
+    for time in times {
         let shows = match start {
             None => time.unwrap_or(0),
             Some(before) => {
@@ -366,12 +395,12 @@ pub(crate) fn decode_kept_animation(
             break;
         }
     }
-    let last = start?;
-    delays.push(match video.duration_ms {
-        Some(end) if ended && end > last => (end - last).min(10_000) as u32,
-        _ => delay,
-    });
-    let rgba = first?;
+    if let Some(last) = start {
+        delays.push(match video.duration_ms {
+            Some(end) if ended && end > last => (end - last).min(10_000) as u32,
+            _ => delay,
+        });
+    }
     let animation = (delays.len() > 1).then(|| Animation::video(data, kept, delays));
     Some(Picture {
         width,
