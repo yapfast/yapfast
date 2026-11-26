@@ -18,7 +18,8 @@ use std::{
 use anyhow::{Context, Result};
 use yapfast_discord::{
     opus,
-    stream_connection::{Sound, SoundSender},
+    stream_connection::{ReceivedSound, Sound, SoundSender},
+    voice::Surplus,
 };
 
 use crate::audio_io::{Heard, LastingOutput, RATE};
@@ -34,10 +35,25 @@ const PRIMED: usize = FRAME * 2;
 const BACKLOG: usize = FRAME * 10;
 /// What Discord's client gives a stream's sound.
 const BITRATE: i32 = 64_000;
+/// Where a mixed sample starts bending towards full scale rather than
+/// flat-topping, in sample values. Under it every sample is mixed as it came:
+/// an application playing quietly is never made quieter for the company it
+/// keeps, and one whose sound stays under it sounds exactly as it played. No
+/// curve can be the identity all the way to full scale and still round the
+/// corner there, so the bend starts a little under it; a single application at
+/// full scale gives up 0.45 dB, which is under the step an ear hears as a
+/// change in loudness.
+const KNEE: f32 = 0.9;
+/// The room a sample over [`KNEE`] has to bend in, up to full scale.
+const BEND: f32 = 1.0 - KNEE;
 
 #[cfg(all(test, windows))]
 #[path = "stream_audio/windows_tests.rs"]
 mod windows_tests;
+
+mod player;
+
+pub use player::Player;
 
 /// Whether an application, by its name or program, is Yapfast or a Discord
 /// client, whose sound is a call or a stream: Yapfast's other workers, such as
@@ -65,15 +81,45 @@ struct Input {
 }
 
 impl Input {
+    /// Adds sound to the backlog, keeping only the newest [`BACKLOG`]
+    /// samples: the oldest go first, so a long callback's chunk needs no more
+    /// room than its last [`BACKLOG`] samples ever take.
     fn push(&mut self, samples: impl IntoIterator<Item = f32>) {
-        self.samples.extend(samples);
-        let excess = self.samples.len().saturating_sub(BACKLOG);
-        self.samples.drain(..excess);
+        for sample in samples {
+            // A driver that lost its place can hand over a number that isn't
+            // one, and the mix would carry it: a clamp returns a NaN as it
+            // came, and Opus has no way to answer for it. Silence costs one
+            // sample of one application, which the rest of the frame covers.
+            let sample = if sample.is_finite() { sample } else { 0.0 };
+            if self.samples.len() >= BACKLOG {
+                self.samples.pop_front();
+            }
+            self.samples.push_back(sample);
+        }
     }
 }
 
 /// Each monitored application's sound, by the system's number for it.
 type Inputs = Arc<Mutex<HashMap<u32, Input>>>;
+
+/// A mixed sample, bent rather than clipped at full scale: up to [`KNEE`]
+/// exactly as it summed, and above it towards full scale without reaching it.
+/// The bend is what several loud applications adding up need, since their sum
+/// would otherwise flat-top at the first sample past full scale and tear the
+/// sound; 1.4 comes out at 0.98 of full scale instead. Slope is one where the
+/// bend starts, so nothing jumps where it begins, and the curve carries
+/// nothing from frame to frame: a loud passage can't pull down the sound after
+/// it, and the bend is not a gain heard as the mix pumping.
+fn bend(sample: f32) -> f32 {
+    let over = (sample.abs() - KNEE) / BEND;
+    if over <= 0.0 {
+        return sample;
+    }
+    // The one over one plus it, written so a sum that overflowed to infinity
+    // still lands on full scale rather than on a NaN.
+    let eased = 1.0 - 1.0 / (1.0 + over);
+    (KNEE + BEND * eased).copysign(sample)
+}
 
 /// Mixes the next frame from every application with enough waiting into
 /// `out`, interleaved stereo. False when none had any, so nothing plays.
@@ -94,7 +140,7 @@ fn mix(inputs: &mut HashMap<u32, Input>, out: &mut [f32]) -> bool {
         input.primed = taken == out.len();
     }
     for sample in out.iter_mut() {
-        *sample = sample.clamp(-1.0, 1.0);
+        *sample = bend(*sample);
     }
     heard
 }
@@ -210,13 +256,6 @@ impl Drop for Capture {
     }
 }
 
-/// Plays a watched stream's sound until its Opus frames end or it's
-/// dropped, on the speakers the call uses.
-pub struct Player {
-    stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
-}
-
 /// How loud a watched stream plays, which Yapfast can change while it does.
 #[derive(Debug)]
 pub struct Volume(std::sync::atomic::AtomicU32);
@@ -247,98 +286,6 @@ fn scale(pcm: &mut [i16], volume: f32) {
     }
 }
 
-impl Player {
-    /// Plays `sounds` on `speakers`, or the default output, at `volume`, while
-    /// `hearing` is set: being deafened silences streams too.
-    pub fn start(
-        sounds: std::sync::mpsc::Receiver<Vec<u8>>,
-        speakers: Option<String>,
-        hearing: Arc<AtomicBool>,
-        volume: Arc<Volume>,
-    ) -> Result<Self> {
-        let stop = Arc::new(AtomicBool::new(false));
-        let thread = play(sounds, speakers, hearing, volume, stop.clone())?;
-        Ok(Self {
-            stop,
-            thread: Some(thread),
-        })
-    }
-}
-
-impl Drop for Player {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-    }
-}
-
-fn play(
-    sounds: std::sync::mpsc::Receiver<Vec<u8>>,
-    speakers: Option<String>,
-    hearing: Arc<AtomicBool>,
-    volume: Arc<Volume>,
-    stop: Arc<AtomicBool>,
-) -> Result<JoinHandle<()>> {
-    use std::sync::mpsc;
-    let (ready, started) = mpsc::sync_channel(1);
-    let thread = std::thread::Builder::new()
-        .name("yapfast-stream-player".into())
-        .spawn(move || {
-            // About 100 ms queued, which rides out the network's jitter.
-            let output = LastingOutput::<i16>::open(
-                speakers.as_deref(),
-                "Stream sound",
-                RATE,
-                CHANNELS as u16,
-                Some(Duration::from_millis(100)),
-            );
-            let mut output = match output {
-                Ok(output) => {
-                    let _ = ready.send(Ok(()));
-                    output
-                }
-                Err(error) => {
-                    let _ = ready.send(Err(error.context("could not open the speakers")));
-                    return;
-                }
-            };
-            let mut decoder = match opus::Decoder::new(2) {
-                Ok(decoder) => decoder,
-                Err(error) => {
-                    tracing::warn!(%error, "could not start the Opus decoder");
-                    return;
-                }
-            };
-            // Opus's longest frame, 120 ms.
-            let mut pcm = vec![0i16; RATE as usize / 1000 * 120 * CHANNELS];
-            while !stop.load(Ordering::Relaxed) {
-                let opus = match sounds.recv_timeout(Duration::from_millis(100)) {
-                    Ok(opus) => opus,
-                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                };
-                if !hearing.load(Ordering::Relaxed) {
-                    continue;
-                }
-                match decoder.decode(&opus, &mut pcm, false) {
-                    Ok(samples) => {
-                        let pcm = &mut pcm[..samples * CHANNELS];
-                        scale(pcm, volume.get());
-                        output.write(pcm);
-                    }
-                    Err(error) => tracing::debug!(%error, "a stream sound frame didn't decode"),
-                }
-            }
-        })
-        .context("could not start playing the stream's sound")?;
-    started
-        .recv()
-        .context("the stream's sound stopped before it started")??;
-    Ok(thread)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,7 +308,7 @@ mod tests {
             .push(std::iter::repeat_n(0.5, FRAME));
         assert!(mix(&mut inputs, &mut out));
         assert_eq!(out[0], 0.75);
-        // The first ran dry: it waits again, and loud sums clip.
+        // The first ran dry: it waits again, and the second goes loud.
         inputs
             .get_mut(&2)
             .unwrap()
@@ -373,9 +320,59 @@ mod tests {
             .unwrap()
             .push(std::iter::repeat_n(0.9, PRIMED));
         assert!(mix(&mut inputs, &mut out));
-        assert_eq!(out[0], 1.0);
+        // 1.8 summed: bent towards full scale rather than flat-topped at it.
+        assert!(out[0] < 1.0, "{} is inside full scale", out[0]);
+        assert!(out[0] > 0.98, "{} of full scale, not pulled down", out[0]);
         inputs.clear();
         assert!(!mix(&mut inputs, &mut out), "silence sends nothing");
+    }
+
+    #[test]
+    fn loud_applications_stay_inside_full_scale_and_quiet_ones_keep_their_loudness() {
+        let mut inputs = HashMap::new();
+        let mut out = vec![0.0; FRAME];
+        for (source, loudness) in [(1, 0.25), (2, 0.5)] {
+            let mut input = Input::default();
+            input.push(std::iter::repeat_n(loudness, PRIMED));
+            inputs.insert(source, input);
+        }
+        assert!(mix(&mut inputs, &mut out));
+        assert_eq!(out[0], 0.75, "under the knee, mixed exactly as it summed");
+
+        for (source, loudness) in [(1, 0.9), (2, 0.9)] {
+            let mut input = Input::default();
+            input.push(std::iter::repeat_n(loudness, PRIMED));
+            inputs.insert(source, input);
+        }
+        assert!(mix(&mut inputs, &mut out));
+        assert!(
+            out.iter().all(|sample| sample.abs() <= 1.0),
+            "two applications at 1.8 summed stay inside full scale"
+        );
+        assert!(out[0] < 1.0, "{} is inside full scale", out[0]);
+        assert!(out[0] > 0.98, "{} of full scale, not pulled down", out[0]);
+
+        inputs.clear();
+        let mut quiet = Input::default();
+        quiet.push(std::iter::repeat_n(0.25, PRIMED));
+        inputs.insert(1, quiet);
+        assert!(mix(&mut inputs, &mut out));
+        assert_eq!(out[0], 0.25, "one quiet application alone is untouched");
+
+        // The one thing the bend costs a single application: full scale it
+        // played, and 0.95 of full scale it comes out, so the loudest sound
+        // gives up under half a decibel.
+        inputs.clear();
+        let mut loudest = Input::default();
+        loudest.push(std::iter::repeat_n(1.0, PRIMED));
+        inputs.insert(1, loudest);
+        assert!(mix(&mut inputs, &mut out));
+        assert!(out[0] < 1.0, "{} is inside full scale", out[0]);
+        assert!(
+            out[0] > 0.94,
+            "{} of full scale at most a half decibel down",
+            out[0]
+        );
     }
 
     /// Plays a quiet tone with paplay and hears it through the monitor:
@@ -492,28 +489,6 @@ mod tests {
         );
     }
 
-    /// With `YAPFAST_TEST_AUDIO=1`, on a private PulseAudio.
-    #[cfg(target_os = "linux")]
-    #[test]
-    #[ignore]
-    fn plays_a_streams_sound_until_it_ends() {
-        let (sounds, heard) = std::sync::mpsc::sync_channel(32);
-        for _ in 0..20 {
-            sounds.send(vec![0xf8, 0xff, 0xfe]).unwrap();
-        }
-        drop(sounds);
-        let started = Instant::now();
-        let mut player = Player::start(
-            heard,
-            None,
-            Arc::new(AtomicBool::new(true)),
-            Arc::new(Volume::new(1.0)),
-        )
-        .unwrap();
-        player.thread.take().unwrap().join().unwrap();
-        assert!(started.elapsed() < Duration::from_secs(3));
-    }
-
     #[test]
     fn unavailable_audio_window_never_captures_all_applications() {
         let inputs = Inputs::default();
@@ -531,5 +506,106 @@ mod tests {
         let mut input = Input::default();
         input.push(std::iter::repeat_n(0.1, BACKLOG * 3));
         assert_eq!(input.samples.len(), BACKLOG);
+    }
+
+    /// Samples numbered in the order they were played, so what a backlog
+    /// keeps says which ones did.
+    fn counted(count: usize) -> impl Iterator<Item = f32> {
+        (0..count).map(|sample| sample as f32)
+    }
+
+    #[test]
+    fn a_sample_that_is_not_a_number_becomes_silence() {
+        let mut input = Input::default();
+        input.push([0.25, f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.5]);
+        assert_eq!(
+            input.samples.len(),
+            5,
+            "a replaced sample keeps its place in the frame"
+        );
+        assert!(
+            input.samples.iter().all(|sample| sample.is_finite()),
+            "nothing Opus can't encode gets past the boundary"
+        );
+        assert_eq!(input.samples[0], 0.25);
+        assert_eq!(input.samples[1], 0.0);
+        assert_eq!(input.samples[2], 0.0);
+        assert_eq!(input.samples[4], 0.5);
+    }
+
+    #[test]
+    fn keeps_the_newest_samples_of_a_huge_callback() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG * 3));
+        assert_eq!(input.samples.len(), BACKLOG);
+        assert_eq!(
+            input.samples[0],
+            (BACKLOG * 2) as f32,
+            "the oldest go first"
+        );
+        assert_eq!(input.samples[BACKLOG - 1], (BACKLOG * 3 - 1) as f32);
+        for (older, newer) in input.samples.iter().zip(input.samples.iter().skip(1)) {
+            assert_eq!(newer - older, 1.0, "kept samples stay in the order played");
+        }
+    }
+
+    #[test]
+    fn a_huge_callback_needs_no_more_room_than_the_backlog() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG * 3));
+        let room = input.samples.capacity();
+        assert!(room >= BACKLOG, "room for the backlog it keeps");
+        for scale in [10, 100] {
+            input.push(std::iter::repeat_n(0.0, BACKLOG * scale));
+            assert_eq!(input.samples.len(), BACKLOG);
+            assert_eq!(
+                input.samples.capacity(),
+                room,
+                "a bigger callback reuses the room instead of growing it"
+            );
+        }
+    }
+
+    #[test]
+    fn pushes_that_cross_the_bound_keep_the_newest() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG - 2));
+        assert_eq!(input.samples.len(), BACKLOG - 2);
+        input.push(std::iter::repeat_n(-1.0, 2));
+        assert_eq!(
+            input.samples.len(),
+            BACKLOG,
+            "exactly full, nothing dropped yet"
+        );
+        assert_eq!(input.samples[0], 0.0);
+        input.push(std::iter::repeat_n(-2.0, 3));
+        assert_eq!(input.samples.len(), BACKLOG);
+        assert_eq!(input.samples[0], 3.0, "the three oldest went");
+        assert_eq!(input.samples[BACKLOG - 1], -2.0, "the newest is still last");
+    }
+
+    #[test]
+    fn an_empty_push_changes_nothing() {
+        let mut input = Input::default();
+        input.push(std::iter::empty());
+        assert!(input.samples.is_empty());
+        input.push(counted(PRIMED));
+        input.push(std::iter::empty());
+        assert_eq!(
+            input.samples.len(),
+            PRIMED,
+            "waiting sound is not disturbed"
+        );
+        assert_eq!(input.samples[0], 0.0);
+        assert_eq!(input.samples[PRIMED - 1], (PRIMED - 1) as f32);
+    }
+
+    #[test]
+    fn an_exact_bound_push_keeps_all_of_it() {
+        let mut input = Input::default();
+        input.push(counted(BACKLOG));
+        assert_eq!(input.samples.len(), BACKLOG);
+        assert_eq!(input.samples[0], 0.0);
+        assert_eq!(input.samples[BACKLOG - 1], (BACKLOG - 1) as f32);
     }
 }

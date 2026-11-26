@@ -648,25 +648,36 @@ fn log_encoder(encoder: &Encoder) {
 impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, and Discord gets it once the stream has a server.
+    ///
+    /// The preview skips a frame while the window hasn't taken the last one,
+    /// which it takes only while the preview is on screen. Scaling and
+    /// converting every frame for it took about a third of the worker's time
+    /// in a 1080p60 share, also while a game hid the window.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
-        let mut smaller =
-            (preview != (width, height)).then(|| picture.scale(preview.0 as i32, preview.1 as i32));
-        let shown = match smaller.as_mut() {
-            Some(smaller) => smaller,
-            None => &mut *picture,
-        };
-        self.writer
-            .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
-        if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(shown) {
-            match thumbnail(shown) {
-                Ok(thumbnail) => self.thumbnail = Some(thumbnail),
-                Err(error) => {
-                    tracing::warn!(error = format!("{error:#}"), "could not make a preview");
-                }
+        let show = self.writer.taken();
+        let thumbnail_due = self.preview_due.is_some_and(|due| due <= Instant::now());
+        if show || thumbnail_due {
+            let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            let mut smaller = (preview != (width, height))
+                .then(|| picture.scale(preview.0 as i32, preview.1 as i32));
+            let shown = match smaller.as_mut() {
+                Some(smaller) => smaller,
+                None => &mut *picture,
+            };
+            if show {
+                self.writer
+                    .write(preview.0, preview.1, |pixels| to_rgba(shown, pixels));
             }
-            self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
+            if thumbnail_due && !is_black(shown) {
+                match thumbnail(shown) {
+                    Ok(thumbnail) => self.thumbnail = Some(thumbnail),
+                    Err(error) => {
+                        tracing::warn!(error = format!("{error:#}"), "could not make a preview");
+                    }
+                }
+                self.preview_due = Some(Instant::now() + THUMBNAIL_EVERY);
+            }
         }
         if let Some(server) = self.server.take() {
             let (offers, encoder) = self.offers(width, height)?;
@@ -738,7 +749,7 @@ impl Sink {
         let codec = video.encoder.codec();
         match video.encoder.encode_i420(picture, pts, keyframe) {
             Ok(Some(frame)) => video.sender.send(stream_connection::Frame {
-                data: frame.data.to_vec(),
+                data: frame.data,
                 codec,
                 timestamp: pts as u32,
                 keyframe: frame.keyframe,
@@ -2128,6 +2139,46 @@ mod tests {
             "{first:?}"
         );
         assert_eq!(first[3], 255);
+    }
+
+    /// A preview the window hasn't taken, because it isn't on screen, isn't
+    /// replaced: the frames after it skip the preview until the window takes it.
+    #[test]
+    fn previews_only_what_the_window_takes() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (_controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: StreamAudio::Off,
+            audio_error: None,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+        };
+        let mut grey = |level: u8| {
+            let mut picture = I420Buffer::new(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            let (y, u, v) = picture.data_mut();
+            y.fill(level);
+            u.fill(128);
+            v.fill(128);
+            sink.frame(&mut picture).unwrap();
+        };
+        let level = || frames.take(|_, _, pixels| pixels[0]);
+        grey(16);
+        grey(235);
+        let dark = level().unwrap();
+        assert!(dark < 8, "the first, not the one after it: {dark}");
+        grey(235);
+        let light = level().unwrap();
+        assert!(light > 248, "a new one once the window took it: {light}");
     }
 
     #[test]
