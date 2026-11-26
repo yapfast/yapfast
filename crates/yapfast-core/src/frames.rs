@@ -292,6 +292,13 @@ impl Writer {
         capacity(width, height) <= self.mapping.capacity
     }
 
+    /// Whether the UI took the last frame shown, or none was shown yet. The
+    /// UI takes frames only while they're on screen, so one it hasn't taken
+    /// is one nothing shows yet.
+    pub fn taken(&self) -> bool {
+        self.mapping.header().middle.load(Ordering::Acquire) & FRESH == 0
+    }
+
     /// Writes a frame with `fill`, which gets its RGBA pixels, then shows it.
     pub fn write(&mut self, width: u32, height: u32, fill: impl FnOnce(&mut [u8])) {
         self.write_timed(width, height, 0, fill);
@@ -339,11 +346,14 @@ mod tests {
         }
         assert!(frames.take(|_, _, _| ()).is_none(), "nothing yet");
         assert!(writer.fits(2, 4) && !writer.fits(5, 2));
+        assert!(writer.taken(), "nothing shown yet to wait for");
 
         writer.write(2, 1, |pixels| pixels.fill(1));
+        assert!(!writer.taken());
         writer.write(4, 2, |pixels| pixels.fill(2));
         let newest = frames.take(|width, height, pixels| (width, height, pixels.to_vec()));
         assert_eq!(newest, Some((4, 2, vec![2; 32])), "only the newest");
+        assert!(writer.taken());
         assert!(frames.take(|_, _, _| ()).is_none(), "taken once");
 
         // Many frames while the UI holds one: it never sees a partial frame.
