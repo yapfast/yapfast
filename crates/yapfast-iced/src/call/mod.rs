@@ -20,12 +20,18 @@ pub mod corner;
 pub mod details;
 pub mod dm;
 pub mod dock;
+pub mod popout;
 pub(crate) mod popups;
 pub mod stage;
 
-use std::{cell::Cell, collections::HashSet, sync::Arc};
+use std::{
+    cell::Cell,
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use iced::{Point, Rectangle, Task, Vector};
+use iced::{Point, Rectangle, Size, Task, Vector, window};
 use yapfast_core::{
     application::Action,
     chat::VoicePerson,
@@ -102,6 +108,23 @@ pub struct Call {
     pub noise_last: yapfast_core::noise::Suppressor,
     /// The connection's details, while they or the signal's tooltip show.
     pub details: details::Details,
+    /// The picture in a window of its own, over the others.
+    pub popout: Option<popout::Popout>,
+    /// The picture shown on its own brought closer, by the wheel over it.
+    pub zoom: Zoom,
+    /// Where that picture stands in its room, as it was last drawn: the
+    /// room's size and the picture's own fitted in it, which the wheel turns
+    /// it about.
+    pub zoom_seen: Cell<Option<(Size, Size)>>,
+    /// The members' block of that window sliding in or out since then, and
+    /// which way, while its frames are drawn.
+    pub popout_reveal: Option<Reveal>,
+    /// The picture's room in that window, as it was last laid out: frames it
+    /// shows are made at that size.
+    pub popout_seen: Cell<Option<Size>>,
+    /// That window's own room, as it was last drawn: a menu it opens is kept
+    /// inside it.
+    pub popout_room: Cell<Option<Size>>,
     /// The window the large tile's full screen put full screen, and
     /// whether the desktop had it so already, in which case leaving keeps
     /// it so.
@@ -114,6 +137,23 @@ pub struct Call {
 pub struct Resize {
     pub from: Point,
     pub width: f32,
+}
+
+/// How far the picture shown on its own is brought closer: `by` times its
+/// room, its middle `pan` from the room's, which the tile cuts to.
+#[derive(Clone, Copy, Debug)]
+pub struct Zoom {
+    pub by: f32,
+    pub pan: Vector,
+}
+
+impl Default for Zoom {
+    fn default() -> Self {
+        Self {
+            by: 1.0,
+            pan: Vector::ZERO,
+        }
+    }
 }
 
 /// What opens from a control, above it.
@@ -195,6 +235,83 @@ pub enum Event {
     Grab,
     DragTo(Point),
     Drop,
+    /// A picture's window of its own, by its key: the window is Yapfast's
+    /// own, named and marked so.
+    PopOut(String),
+    /// A picture's tile pressed for a window of its own: out it goes, or the
+    /// window it has shows it. A tile in that window pressed fills it.
+    PopoutSlot(crate::call::stage::Slot),
+    /// Someone's menu, opened from a window's own tile: the window it shows
+    /// in, whose room and whose, and where the pointer pressed.
+    PersonIn(window::Id, String, String, Point),
+    /// A frame of the members' block sliding in or out.
+    RevealTick,
+    /// The picture's window kept over every other, or let under them.
+    PopoutOnTop,
+    /// The picture's window over the whole screen, or a window again.
+    PopoutFull,
+    /// The wheel over the picture shown on its own: the notches turned (up
+    /// closer, down back) and where the pointer was on it.
+    Zoom(f32, Point),
+    /// The zoom bar's own: the picture comes this many times its room.
+    ZoomTo(f32),
+}
+
+/// The members' block of a picture's own window sliding in or out: since
+/// when, and which way.
+#[derive(Clone, Copy, Debug)]
+pub struct Reveal {
+    pub start: Instant,
+    pub opening: bool,
+}
+
+/// How long the members' block takes to slide in or out, as a window's
+/// popups open.
+const REVEAL: Duration = Duration::from_millis(160);
+
+/// How far the picture's own window shows its members' block: 0 with the
+/// picture over the whole window, 1 with the block whole, and eased between
+/// while it slides.
+pub fn popout_revealed(app: &App) -> f32 {
+    let whole = f32::from(!members_hidden(app));
+    let Some(reveal) = &app.call.popout_reveal else {
+        return whole;
+    };
+    let t = (reveal.start.elapsed().as_secs_f32() / REVEAL.as_secs_f32()).min(1.0);
+    // Eased out on a quadratic curve, as a popup opens.
+    let eased = 1.0 - (1.0 - t) * (1.0 - t);
+    if reveal.opening { eased } else { 1.0 - eased }
+}
+
+/// The picture a tile of a picture's own window shows there: its key, and the
+/// stream to watch first while its frames come only from watching it.
+fn popout_picture(app: &App, slot: crate::call::stage::Slot) -> Option<(String, Option<String>)> {
+    use crate::call::stage::Slot;
+    let voice = &app.client.state().voice;
+    match slot {
+        Slot::OwnScreen => Some((crate::call::stage::OWN_SCREEN.to_owned(), None)),
+        Slot::Stream(index) => {
+            let person = voice.participants.get(index)?;
+            Some((format!("stream:{}", person.id), Some(person.id.clone())))
+        }
+        Slot::Person(index) => {
+            let person = voice.participants.get(index)?;
+            if person.video.is_some() {
+                Some((person.id.clone(), None))
+            } else if person.streaming && !person.local {
+                Some((format!("stream:{}", person.id), Some(person.id.clone())))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// Whether a picture has a window of its own: Yapfast's own window then shows
+/// none of the call, neither its picture, its tiles nor its controls, which
+/// are that window's.
+pub fn in_window(app: &App) -> bool {
+    app.call.popout.is_some()
 }
 
 /// Whether the call's strip of members under a large tile is hidden.
@@ -223,6 +340,45 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::StopSharing => Action::Voice(Command::StopLive),
+        Event::PopOut(key) => {
+            // No call in Yapfast's own window: none of it full screen either.
+            app.call.full = false;
+            app.call.zoom = Zoom::default();
+            let task = popout::open(app, key);
+            // What that window shows is its own: the stage asks for no
+            // frames of it.
+            crate::call::stage::place_videos(app);
+            return task;
+        }
+        Event::PopoutSlot(slot) => {
+            let Some((key, watch)) = popout_picture(app, slot) else {
+                return Task::none();
+            };
+            app.call.full = false;
+            // Another picture, shown as it comes.
+            app.call.zoom = Zoom::default();
+            let task = popout::open(app, key);
+            crate::call::stage::place_videos(app);
+            return match watch {
+                Some(user) => Task::batch([task, Task::done(Message::Call(Event::Watch(user)))]),
+                None => task,
+            };
+        }
+        Event::Zoom(turn, at) => {
+            crate::call::stage::turn_zoom(app, turn, at);
+            return Task::none();
+        }
+        Event::ZoomTo(by) => {
+            crate::call::stage::zoom_to(app, by);
+            return Task::none();
+        }
+        Event::PersonIn(window, room, user, at) => {
+            // Its own room keeps it inside that window, not Yapfast's.
+            let place = app.call.popout_room.get().map(|room| (window, room));
+            return crate::call::popups::person::open_voice_menu(app, place, room, user, at);
+        }
+        Event::PopoutOnTop => return popout::on_top(app),
+        Event::PopoutFull => return popout::full_screen(app),
         Event::Watch(user) => Action::Voice(Command::Watch(user)),
         Event::StopWatching => Action::Voice(Command::StopWatching),
         Event::Focus(place) => {
@@ -232,10 +388,13 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::Full(full) => {
             app.call.full = full && app.call.focus.is_some();
             app.call.pointed = None;
+            // Shown whole, the picture starts fitted.
+            app.call.zoom = Zoom::default();
             crate::call::stage::place_videos(app);
             return Task::none();
         }
         Event::ToggleMembers => {
+            let hidden = !members_hidden(app);
             if let Some(room) = app.client.state().voice.room.clone()
                 && !app.call.members_hidden.remove(&room)
             {
@@ -243,7 +402,24 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             }
             app.call.scrolled = 0.0;
             app.call.pointed = None;
+            // The picture's own window slides its block in, or out, unless
+            // the desktop's motion is off.
+            app.call.popout_reveal = (app.call.popout.is_some() && app.ctx().pace.runs())
+                .then_some(Reveal {
+                    start: Instant::now(),
+                    opening: hidden,
+                });
             crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::RevealTick => {
+            if app
+                .call
+                .popout_reveal
+                .is_some_and(|reveal| reveal.start.elapsed() >= REVEAL)
+            {
+                app.call.popout_reveal = None;
+            }
             return Task::none();
         }
         Event::Scrolled(scrolled) => {
@@ -306,7 +482,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::Person(room, user, at) => {
-            return crate::call::popups::person::open_voice_menu(app, room, user, at);
+            return crate::call::popups::person::open_voice_menu(app, None, room, user, at);
         }
         Event::ShowPerson(room, user) => Action::ShowVoicePerson { room, user },
         Event::Profile(user) => {
@@ -435,6 +611,7 @@ pub fn call_sync(app: &mut App) {
     let voice = &app.client.state().voice;
     if !voice.active() {
         app.call.full = false;
+        app.call.zoom = Zoom::default();
         if matches!(app.call.popup, Some(Popup::Share | Popup::Soundboard))
             || app.call.share_listing.is_some()
         {

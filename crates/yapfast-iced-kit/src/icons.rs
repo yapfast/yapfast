@@ -339,6 +339,10 @@ pub enum Icon {
     ArrowLeft,
     ArrowRight,
     Minus,
+    /// The magnifiers over a picture shown on its own, letting it back and
+    /// bringing it closer.
+    ZoomIn,
+    ZoomOut,
     Restore,
     Refresh,
     LogOut,
@@ -551,6 +555,8 @@ impl Icon {
             Icon::ArrowLeft => icon!("arrow-left.svg"),
             Icon::ArrowRight => icon!("arrow-right.svg"),
             Icon::Minus => icon!("minus.svg"),
+            Icon::ZoomIn => icon!("zoom-in.svg"),
+            Icon::ZoomOut => icon!("zoom-out.svg"),
             Icon::Restore => icon!("restore.svg"),
             Icon::Refresh => icon!("refresh-cw.svg"),
             Icon::LogOut => icon!("log-out.svg"),

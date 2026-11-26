@@ -35,7 +35,7 @@ use std::{
 
 use iced::futures::{Stream, future, stream};
 use iced::{
-    Color, Element, Length, Rectangle, Size, Theme,
+    Color, Element, Length, Rectangle, Size, Theme, Vector,
     advanced::{
         Layout, Widget,
         image::{self as raster, Handle},
@@ -433,6 +433,16 @@ impl Shared {
         self.newest.lock().expect("video frames").contains_key(key)
     }
 
+    /// The size a source's newest frame is, which it's drawn fitted to its
+    /// room: the shape of the picture a window of its own shows.
+    pub fn size(&self, key: &str) -> Option<(u32, u32)> {
+        self.newest
+            .lock()
+            .expect("video frames")
+            .get(key)
+            .map(|(_, size)| *size)
+    }
+
     /// Takes the frames found in as their sources' newest, and says what
     /// the window must do for them.
     fn found(&self, found: Vec<Fresh>) -> Found {
@@ -450,6 +460,43 @@ impl Shared {
             }
         }
         asked
+    }
+
+    /// A frame of `key`'s source as a worker's would arrive, `size` across
+    /// and white throughout: a picture for a test to draw, a 2×2 one enough.
+    #[cfg(test)]
+    pub(crate) fn showed(&self, key: &str, size: (u32, u32)) {
+        self.found(vec![Fresh {
+            key: key.into(),
+            handle: Handle::from_rgba(2, 2, vec![255; 16]),
+            size,
+            time: None,
+        }]);
+    }
+
+    /// A frame of `key`'s source, `size` across, its middle half white and the
+    /// rest black: a picture a test sees brought closer. Wide enough that the
+    /// filter leaves its edges sharp.
+    #[cfg(test)]
+    pub(crate) fn showed_striped(&self, key: &str, size: (u32, u32)) {
+        let (width, height) = (64u32, 8u32);
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for _ in 0..height {
+            for x in 0..width {
+                let ink = if x >= width / 4 && x < width * 3 / 4 {
+                    255
+                } else {
+                    0
+                };
+                pixels.extend([ink, ink, ink, 255]);
+            }
+        }
+        self.found(vec![Fresh {
+            key: key.into(),
+            handle: Handle::from_rgba(width, height, pixels),
+            size,
+            time: None,
+        }]);
     }
 
     /// The window took a worker's frame in, by its key.
@@ -563,6 +610,10 @@ pub struct Video {
     /// The window's pixels to the app's units (the display's scale times
     /// the zoom), which frames are made in.
     scale: f32,
+    /// How many times larger than the tile holds the picture is drawn, and
+    /// how far its middle is from the tile's: seen closer, cut by the tile.
+    zoom: f32,
+    pan: Vector,
 }
 
 impl Video {
@@ -574,6 +625,8 @@ impl Video {
             ground,
             corners: None,
             scale: 1.0,
+            zoom: 1.0,
+            pan: Vector::ZERO,
         }
     }
 
@@ -586,6 +639,17 @@ impl Video {
 
     pub fn corners(mut self, radius: u32, behind: u32) -> Self {
         self.corners = Some((radius, behind));
+        self
+    }
+
+    /// Drawn `by` times larger than the tile holds, its middle `pan` from
+    /// the tile's: its frame upscaled, cut at the tile.
+    ///
+    /// shortcut: the frame was made at the tile's size, so brought closer it
+    /// reads soft; ask for it at that size if that matters.
+    pub fn zoom(mut self, by: f32, pan: Vector) -> Self {
+        self.zoom = by.max(1.0);
+        self.pan = pan;
         self
     }
 }
@@ -682,17 +746,43 @@ impl<M> Widget<M, Theme, Renderer> for Video {
         // The core makes a camera's frame at the tile's size, rounded down
         // to even sides: up to two pixels short, it's drawn one to one, in
         // the middle, not stretched by a fraction.
-        if scale > 1.0 && tile_width - width <= 2.0 && tile_height - height <= 2.0 {
+        if self.zoom == 1.0
+            && scale > 1.0
+            && tile_width - width <= 2.0
+            && tile_height - height <= 2.0
+        {
             scale = 1.0;
         }
         // Whole pixels: the frame was made at a whole size, so one to one
         // stays one to one.
-        let (drawn_width, drawn_height) = ((width * scale).round(), (height * scale).round());
-        let x = (tile.x * pixels + (tile_width - drawn_width) / 2.0).round() / pixels;
-        let y = (tile.y * pixels + (tile_height - drawn_height) / 2.0).round() / pixels;
-        let picture = Rectangle::new(
+        let (box_width, box_height) = ((width * scale).round(), (height * scale).round());
+        // Its own box, in the middle of the tile: brought closer the frame is
+        // drawn larger than that and cut by it, its middle where the wheel
+        // left it, so the ground about its box stays as it was.
+        let (drawn_width, drawn_height) = (
+            (box_width * self.zoom).round(),
+            (box_height * self.zoom).round(),
+        );
+        let (gap_x, gap_y) = (
+            ((drawn_width - box_width) / 2.0).max(0.0),
+            ((drawn_height - box_height) / 2.0).max(0.0),
+        );
+        let (pan_x, pan_y) = (
+            (self.pan.x * pixels).clamp(-gap_x, gap_x),
+            (self.pan.y * pixels).clamp(-gap_y, gap_y),
+        );
+        let x = (tile.x * pixels + (tile_width - drawn_width) / 2.0 + pan_x).round() / pixels;
+        let y = (tile.y * pixels + (tile_height - drawn_height) / 2.0 + pan_y).round() / pixels;
+        let drawn = Rectangle::new(
             iced::Point::new(x, y),
             Size::new(drawn_width / pixels, drawn_height / pixels),
+        );
+        let picture = Rectangle::new(
+            iced::Point::new(
+                (tile.x * pixels + (tile_width - box_width) / 2.0).round() / pixels,
+                (tile.y * pixels + (tile_height - box_height) / 2.0).round() / pixels,
+            ),
+            Size::new(box_width / pixels, box_height / pixels),
         );
         // The bars only, so the frame's pixels are written once: the
         // software renderer fills every pixel it's given, each frame. A
@@ -741,7 +831,8 @@ impl<M> Widget<M, Theme, Renderer> for Video {
                 opacity: 1.0,
                 snap: true,
             },
-            picture,
+            drawn,
+            // Cut at its own box, which it fills when it's brought closer.
             picture,
         );
         if let Some((radius, behind)) = self.corners {

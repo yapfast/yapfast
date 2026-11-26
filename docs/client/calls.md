@@ -35,7 +35,22 @@ The call's views and what they do are in `call/`.
   the tile or the call going (`call::fit_screen`, after every update). A
   window the desktop had full screen already stays so after. Closed to
   the tray meanwhile, the tile is back in the call and the next window
-  opens as a window; brought forward while full screen, it stays so. A
+  opens as a window; brought forward while full screen, it stays so. A tile
+  of the stage takes no wheel; full screen the picture is the wheel's, a
+  notch up bringing it closer about the pointer, up to 4×, and down letting
+  it back to its room (`Event::Zoom`, `stage::turn_zoom`): its frame drawn
+  larger within the picture's own box, cut by that box, its middle kept over
+  the box's, so the ground about a share of another shape stays as it was,
+  and fitted again as it comes, as the tile changes, or as full screen goes. Full screen the
+  tile is the window, so the full-screen and link buttons and the zoom bar
+  stand over it whether the pointer is on it or not (a pointer let go of
+  when the stage filled the window would otherwise leave them away for
+  good): while the picture has come closer, the bar says how far, at the
+  window's bottom left corner (`stage::zoom_bar`), a magnifier letting it
+  back and one bringing it closer, a notch either way (`Event::ZoomTo`), and
+  the track between them, which takes the picture anywhere from its room's
+  size to 4×, where the bar goes again. Fitted, there's none to see: the
+  wheel is what brings it closer. A
   right click opens the person's voice menu.
 - Participants whose speaking permission Discord denies show a red blocked
   microphone. The local microphone control shows the restriction in both
@@ -115,11 +130,85 @@ The call's views and what they do are in `call/`.
   it away from the window's, where the pointer takes the shape that
   resizes, makes it larger or smaller, its 16:9 shape kept, as Discord's
   picture in picture: the width follows the pointer across only, 320 px
-  at first, between 200 and 960 px (20 past while dragged) and within the
-  window's room, and settles on the nearest 40 px when let go. The grip
+  at first, from 200 px up to the window's room, and settles on the
+  nearest 40 px when let go. The grip
   takes its press before the stop button under it (the picture sat top
   left). The width is kept in `layout.json` (`corner_width`), narrowed
   while the window has less room, and its frames are made at it.
+- The corner's link opens the picture in a window of its own, over the
+  others (`call/popout.rs`), and so does a tile of the call's stage: beside
+  its full screen button, while it shows large, a link sends it out
+  (`Event::PopoutSlot`). With the members hidden, the picture takes the
+  whole window and the Show Members chevron and the call's controls come over
+  its foot under the pointer, over a shade (black, clear over half the
+  picture and down to 60 % at the foot); shown, the picture stands in 16 px
+  from the window's edge on the call's ground it is drawn on
+  (`stage::frame_in`, never a black box of its own), and the members' block
+  follows it (`stage::members_block`): the Hide Members chevron centred over
+  the strip, the call's members in it (`stage::members_strip`, tiles of the
+  stage strip's widest, scrolled sideways, centred, the picture's own left
+  out), and the controls under them, the call's own a size down as the
+  window's buttons are (`ControlsSize::WINDOW`: 44 px, a 19 px glyph and a
+  64 px leave pill, where the stage's are 52 and 76) and standing as far above
+  the window's foot as they stand from its edge, 12 px. The block's foot is
+  flush with the window's in either layout, that inset its own. Either chevron is the stage's
+  (`call::members_hidden`), so either window hides them for both. Pressed, the
+  block slides in from the window's foot, or back out, over 160 ms eased
+  (`Call::popout_reveal`, a frame every sixteenth of a second while it moves,
+  and nothing while the desktop's motion is off), the picture giving up the
+  room as it comes and the ground coming up from black to the call's own.
+  That strip is the window's own switcher (`Press::Window`,
+  `Event::PopoutSlot`): a tile pressed shows that picture in the window
+  itself, be it their camera, their stream (watched as it's pressed, for its
+  frames come only from watching: `popout_picture`) or this account's share,
+  the window kept where it stands, over the others and as large as it was
+  (`popout::open`); the call's stage behind it is left alone. That window is
+  Yapfast's own, titled `Yapfast` and marked with the app's icon, its title
+  bar's and taskbar's alike on Windows (`App::title`, `window_settings`' icon,
+  `set_native_window_icon` with no unread mark, both as it's made: `opened`,
+  which its own window came through too).
+  A tile right-pressed opens that person's menu in this window, over the
+  picture, kept inside its room (`Event::PersonIn`, `Menu::window`), and
+  Yapfast's own window shows nothing of it; the menu goes with the window
+  (`popout::closed`). While that window is open a voice channel's call leaves
+  Yapfast's own window whole: no panel, no stage, no controls and no corner
+  picture (`call::in_window` keeps them out of `voice_panel`, `corner` and the
+  corner's frames), and the large tile's full screen comes off; a DM's call
+  stays above its messages, its own stage without the picture the window has.
+  The strip under that window is a stage of its own, its pictures asked for and
+  drawn there while Yapfast's asks for none (`place_videos` asks while either
+  shows them). Closing the window brings the call, and the frames it asks for,
+  back (`popout::closed`).
+  Two window buttons sit over it, the call's own round buttons a size down
+  from the controls and on the same raised ground (`controls::round_button_of`,
+  44 px and a 19 px glyph), 12 px in from the edges they stand by (`CORNER`):
+  the pin keeps the window over every other, or lets them cover it
+  (`Popout::on_top`, `window::set_level`), and the full screen button puts it
+  over the whole screen and back (`Popout::full_screen`, `window::set_mode`).
+  Over the whole window both stand side by side in its corner, the pin first,
+  under the pointer with the controls (`with_corner`: the picture alone while
+  it's away); with the members shown the pin stays at the window's corner and
+  the picture's own full screen button goes with the picture, at the picture's
+  own bottom right corner, clear of the bars about it while its shape leaves
+  them (`demo`, `stage::fitted_in`), two pixels under the window's buttons and
+  a pixel under theirs (`ON_PICTURE`: 42 px and an 18 px glyph). The wheel
+  over that picture brings it closer as it does the stage's full screen
+  (`stage::wheeled`, `Event::Zoom`), about the pointer where it stands in the
+  window's room (`Call::zoom_seen`, kept as the picture is drawn), never off
+  the room it's cut at, and fitted again as its window opens, as another
+  picture takes the window's place, and as it goes: the frame drawn larger
+  within the picture's box and cut by it, as over the stage's large tile
+  (`video::Video::zoom`). While it's come closer the zoom bar stands at the
+  picture's bottom left corner (`stage::zoom_bar`), its own full screen
+  button at the other while the members show, and both under the pointer
+  with the controls while the picture is the whole window, the bar at the
+  window's own corner.
+  What that window shows it shows alone: its tile leaves
+  the call's stage (`stage::popped_out` keeps it out of `Stage`, a camera's
+  tile keeps the picture instead of its frames, and another's stream leaves
+  their tile, which stays on their picture: `Stage::stream_in_tile`), and the
+  frames are made for the window's own size (`Call::popout_seen`), so nothing
+  of it is drawn or decoded twice.
 - Sounds play as the core says (joining, leaving, muting, someone
   streaming), and a DM's call rings while it's incoming.
 - Push to talk and the other keybinds (the root `src/keybinds.rs`,
@@ -135,4 +224,6 @@ in view or in the corner, at the size it shows in the window's pixels
 (the display's scale, as the window says it as it opens and moves, times
 the zoom), as a message's video and the camera's preview in Settings
 are; `Video` lays a frame out in those pixels, so one made at its tile's
-size is copied one to one.
+size is copied one to one. A picture brought closer is drawn larger than
+the room it's cut at from the frame it has, upscaled by the renderer, and
+no frame of it is asked for at that size.

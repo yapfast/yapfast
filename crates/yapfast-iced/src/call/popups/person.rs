@@ -69,6 +69,7 @@ pub(in crate::call) fn person_volume(app: &mut App, stream: bool, value: u32, do
 /// over what one may do with them there.
 pub(in crate::call) fn open_voice_menu(
     app: &mut App,
+    window: Option<(iced::window::Id, iced::Size)>,
     room: String,
     user: String,
     at: Point,
@@ -151,6 +152,7 @@ pub(in crate::call) fn open_voice_menu(
         place: Some(person.clone()),
         voice: Some((room, person)),
         volumes,
+        window,
         ..Menu::new(at, rows).width(crate::menus::FIELD_WIDTH)
     });
     operation::focus(NOBODY)

@@ -834,7 +834,8 @@ fn a_camera_without_a_frame_yet_shows_their_picture_and_name() {
 }
 
 /// Discord's picture in picture: its grip resizes it horizontally only,
-/// between 200 and 960 px, and settles on the nearest 40 px when let go.
+/// from 200 px up to the window's room, and settles on the nearest 40 px
+/// when let go.
 #[test]
 fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
     use crate::app::Message;
@@ -900,20 +901,26 @@ fn the_corner_pictures_grip_resizes_it_and_the_width_is_kept() {
     assert_eq!(width(&app), 200.0, "no narrower");
     let _ = app.update(Message::Call(Event::Drop));
     assert_eq!(width(&app), 200.0);
-    // And to 960 px at most, 20 past it while dragged, in a window with
-    // the room.
+    // And as wide as the window has room for, no cap under it, in a window
+    // with plenty of room.
     app.shell.frame = Size::new(3000.0, 2000.0);
     crate::window_bar::fit_window(&mut app);
+    let room = crate::call::corner::room(&app);
     let grip = crate::call::corner::grip(&app).center();
     app.pressed.set(grip);
     let _ = app.update(Message::Call(Event::Grab));
     let _ = app.update(Message::Call(Event::DragTo(Point::new(
-        grip.x - 2000.0,
+        grip.x - 5000.0,
         grip.y,
     ))));
-    assert_eq!(width(&app), 980.0, "20 px past while dragged");
+    assert!(width(&app) > 960.0, "no 960 px cap: {}", width(&app));
+    assert!(
+        (width(&app) - room).abs() < 1.0,
+        "the window's room, {room}: {}",
+        width(&app)
+    );
     let _ = app.update(Message::Call(Event::Drop));
-    assert_eq!(width(&app), 960.0, "no wider");
+    assert!(width(&app) > 960.0 && width(&app) % 40.0 == 0.0);
     // A smaller window narrows it to the room it settles on.
     app.shell.frame = Size::new(1000.0, 700.0);
     crate::window_bar::fit_window(&mut app);
@@ -1304,6 +1311,209 @@ fn hiding_members_collapses_the_strip_stops_hidden_cameras_and_toggles_back() {
     assert!(app.call.members_hidden.contains(&room));
 }
 
+/// The picture's own window: with the members hidden, the picture takes the
+/// whole window; shown, it stands in on the call's ground with the call's
+/// members in a strip under it, the controls under them, and the chevron over
+/// its top. What the window shows large is left out of the strip.
+#[test]
+fn the_pictures_window_puts_the_members_strip_between_the_picture_and_the_controls() {
+    use crate::call::stage::MEMBERS_TOGGLE;
+    use iced::widget::Id;
+    use iced_test::selector::Candidate;
+
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = None;
+        bob.streaming = false;
+        state.voice.participants.push(bob);
+        let mut cy = state.voice.participants[0].clone();
+        cy.id = "preview-cy".into();
+        cy.person = "cy".into();
+        cy.user = "Cy".into();
+        cy.local = false;
+        state.voice.participants.push(cy);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    // The window of its own, on the local camera.
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    let window = Size::new(960.0, 540.0);
+    // Where something of the window's own shows, or `None` while it isn't in
+    // it: the chevron, or a member's name in the strip.
+    let shown = |app: &App, looking: Looking<'_>| {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(app),
+        );
+        match looking {
+            Looking::Toggle => ui
+                .find(Id::new(MEMBERS_TOGGLE))
+                .ok()
+                .and_then(|target| target.visible_bounds()),
+            Looking::Name(name) => {
+                let mut found = None;
+                let _ = ui.find(|candidate: Candidate<'_>| {
+                    if let Candidate::Text {
+                        content,
+                        visible_bounds: Some(bounds),
+                        ..
+                    } = candidate
+                        && content == name
+                    {
+                        found = Some(bounds);
+                    }
+                    None::<()>
+                });
+                found
+            }
+        }
+    };
+    enum Looking<'a> {
+        Toggle,
+        Name(&'a str),
+    }
+
+    let toggle = shown(&app, Looking::Toggle).expect("the chevron");
+    assert_eq!(toggle.size(), Size::new(60.0, 32.0));
+    assert_eq!(
+        toggle.x + toggle.width / 2.0,
+        window.width / 2.0,
+        "it is centred"
+    );
+    // The strip lies between the picture and the controls under it, holding
+    // the others: what the window shows large is no tile of its own.
+    let controls = window.height - crate::call::stage::CONTROLS_HEIGHT;
+    let bob = shown(&app, Looking::Name("Bob")).expect("Bob in the strip");
+    assert!(
+        bob.y > toggle.y + toggle.height,
+        "the chevron is over the strip, not over the picture: {toggle:?} {bob:?}"
+    );
+    assert!(
+        bob.y > window.height / 2.0 && bob.y < controls,
+        "Bob sits in the strip under the picture and over the controls: {bob:?}"
+    );
+    assert!(
+        bob.x > 200.0,
+        "the strip is centred, not glued to the window's edge: {bob:?}"
+    );
+    assert!(
+        shown(&app, Looking::Name("You")).is_none(),
+        "the picture isn't in its own strip"
+    );
+
+    // The picture stands in on the call's ground, not on a black box of its
+    // own: what it hasn't covered yet is the theme's stage, never black.
+    let (width, _, pixels) = {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        super::drawn(&mut ui)
+    };
+    let stage = crate::theme::rgb(app.theme.stage);
+    let expected = [
+        ((stage >> 16) & 0xff) as u8,
+        ((stage >> 8) & 0xff) as u8,
+        (stage & 0xff) as u8,
+    ];
+    // The middle of the picture's room, over the strip and its chevron.
+    let index = ((100 * 2 * width as usize) + (window.width as usize / 2) * 2) * 4;
+    let pixel = &pixels[index..index + 3];
+    assert!(
+        pixel
+            .iter()
+            .zip(expected)
+            .all(|(drawn, want)| drawn.abs_diff(want) <= 2),
+        "the picture's room is the stage's ground {expected:?}, drawn {pixel:?}"
+    );
+
+    let messages: Vec<crate::app::Message> = {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        ui.click(Id::new(MEMBERS_TOGGLE))
+            .expect("click the chevron");
+        ui.into_messages().collect()
+    };
+    for message in messages {
+        let _ = app.update(message);
+    }
+    assert!(crate::call::members_hidden(&app), "the chevron hides them");
+
+    // The block slides: it starts where it was, nothing of it showing, and a
+    // fifth of a second brings it whole — opening, or closing.
+    let half = |opening| crate::call::Reveal {
+        start: std::time::Instant::now() - std::time::Duration::from_millis(80),
+        opening,
+    };
+    let done = |opening| crate::call::Reveal {
+        start: std::time::Instant::now(),
+        opening,
+    };
+    app.call.popout_reveal = Some(half(true));
+    let sliding = crate::call::popout_revealed(&app);
+    assert!(
+        sliding > 0.0 && sliding < 1.0,
+        "the block is on its way in: {sliding}"
+    );
+    app.call.popout_reveal = Some(half(false));
+    let closing = crate::call::popout_revealed(&app);
+    assert!(
+        (sliding + closing - 1.0).abs() < 0.02,
+        "out the way it came in: in {sliding}, out {closing}"
+    );
+    app.call.popout_reveal = Some(done(true));
+    assert!(
+        crate::call::popout_revealed(&app) < 0.01,
+        "a fresh slide is shut"
+    );
+    app.call.popout_reveal = Some(done(false));
+    assert!(
+        crate::call::popout_revealed(&app) > 0.99,
+        "a fresh slide out leaves the picture whole"
+    );
+
+    // Settled, the picture has the whole window again, and the chevron comes
+    // over the controls under the pointer.
+    app.call.popout_reveal = None;
+    assert!(
+        shown(&app, Looking::Name("Bob")).is_none(),
+        "no strip without the members"
+    );
+    {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        let at = Point::new(window.width / 2.0, window.height / 2.0);
+        ui.point_at(at);
+        ui.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+            position: at,
+        })]);
+        let foot = ui
+            .find(Id::new(MEMBERS_TOGGLE))
+            .expect("the chevron over the controls")
+            .visible_bounds()
+            .expect("in view");
+        assert_eq!(foot.size(), Size::new(60.0, 32.0));
+        assert!(
+            foot.y + foot.height < window.height - 40.0 && foot.y > window.height / 2.0,
+            "the chevron sits over the controls at the picture's foot: {foot:?}"
+        );
+    }
+}
+
 /// A call tile's name takes its person's display name style's font, as
 /// the call's voice channel lists them by user id; anyone else's is bold.
 #[test]
@@ -1361,4 +1571,763 @@ fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
             assert!(shows(&app, name), "{name} in {width}x{height}");
         }
     }
+}
+
+/// The picture's window keeps itself over the others from the pin at its
+/// corner, and goes over the whole screen from its own button beside it,
+/// which changes its icon with what it does.
+#[test]
+fn the_pictures_window_keeps_on_top_and_goes_full_screen() {
+    let (mut app, _folder, _) = in_call();
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    // The whole window, so the picture's button sits beside the pin.
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    app.call.popout_reveal = None;
+    assert!(crate::call::members_hidden(&app));
+    assert!(app.call.popout.as_ref().expect("a window").on_top);
+
+    let window = Size::new(960.0, 540.0);
+    let press = |app: &mut App, at: Point| {
+        let messages: Vec<crate::app::Message> = {
+            let mut ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                window,
+                crate::call::popout::view(app),
+            );
+            ui.point_at(at);
+            let _ = ui.simulate([
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                    iced::mouse::Button::Left,
+                )),
+            ]);
+            ui.into_messages().collect()
+        };
+        for message in messages {
+            let _ = app.update(message);
+        }
+    };
+    // Over the whole window the two round buttons sit in its corner, the pin
+    // first and the picture's own at the corner itself.
+    let round = crate::call::popout::BUTTON;
+    let corner = crate::call::popout::CORNER;
+    let foot = window.height - corner - round / 2.0;
+    let pin = Point::new(window.width - corner - round - corner - round / 2.0, foot);
+    let over = Point::new(window.width - corner - round / 2.0, foot);
+    press(&mut app, pin);
+    assert!(!app.call.popout.as_ref().expect("a window").on_top);
+    press(&mut app, pin);
+    assert!(app.call.popout.as_ref().expect("a window").on_top);
+    assert!(
+        !app.call.popout.as_ref().expect("a window").full_screen,
+        "the pin is the first of the two"
+    );
+
+    press(&mut app, over);
+    assert!(app.call.popout.as_ref().expect("a window").full_screen);
+    press(&mut app, over);
+    assert!(!app.call.popout.as_ref().expect("a window").full_screen);
+
+    // With the members shown the picture stands in from the window's edge and
+    // its own button goes with it, at its bottom right corner: the pin stays
+    // at the window's own.
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    app.call.popout_reveal = None;
+    assert!(!crate::call::members_hidden(&app), "the members in");
+    let margin = crate::call::popout::MARGIN;
+    let block = crate::call::stage::members_block_height(&app, true);
+    let room = Size::new(
+        window.width - 2.0 * margin,
+        window.height - block - 2.0 * margin,
+    );
+    let own = Point::new(
+        margin + room.width - corner - round / 2.0,
+        margin + room.height - corner - round / 2.0,
+    );
+    press(&mut app, own);
+    assert!(
+        app.call.popout.as_ref().expect("a window").full_screen,
+        "the picture's own button, at its corner"
+    );
+    press(&mut app, own);
+    assert!(!app.call.popout.as_ref().expect("a window").full_screen);
+}
+
+/// The picture's own window takes what it shows with it: its frames are made
+/// for that window, and its tile leaves the call for as long as it shows it
+/// there.
+#[test]
+fn a_picture_in_its_own_window_takes_its_frames_with_it() {
+    let (mut app, _folder, _) = in_call();
+    let feed = yapfast_core::picture::Feed::new();
+    let camera = feed.clone();
+    super::change(&mut app, move |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.streaming = false;
+        bob.video = Some(camera);
+        state.voice.participants.push(bob);
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    assert!(
+        feed.shown_at().is_some(),
+        "his camera decodes on the stage while it shows there"
+    );
+    let shares_tile = |app: &App| {
+        crate::call::stage::stage(app)
+            .0
+            .contains(&crate::call::stage::Slot::OwnScreen)
+    };
+    assert!(shares_tile(&app), "the share has its tile");
+
+    // His camera goes to the window of its own, at that window's size, and
+    // no frame of it is asked for by the stage.
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-bob".into()));
+    assert_eq!(
+        feed.shown_at(),
+        Some((
+            (crate::call::popout::WIDE * app.device_scale()).round() as u32,
+            (crate::call::popout::WIDE * 9.0 / 16.0 * app.device_scale()).round() as u32
+        )),
+        "made for the window it shows in"
+    );
+
+    // The share leaves the call whole: its tile is gone while it shows there.
+    let _ = crate::call::update(
+        &mut app,
+        Event::PopOut(crate::call::stage::OWN_SCREEN.into()),
+    );
+    assert!(!shares_tile(&app), "nothing of the share stays in the call");
+    app.call.popout = None;
+    crate::call::stage::place_videos(&mut app);
+    assert!(shares_tile(&app), "back in the call");
+    assert!(feed.shown_at().is_some(), "his camera back on the stage");
+}
+
+/// Another person's share in a window of its own shows there: their tile
+/// stays in the call without it, and no tile draws their stream, which the
+/// window has alone.
+#[test]
+fn another_persons_share_in_its_own_window_leaves_the_call() {
+    let (mut app, _folder, _) = in_call();
+    let watched = std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap());
+    super::change(&mut app, move |state| {
+        let mut ana = state.voice.participants[0].clone();
+        ana.id = "streaming-ana".into();
+        ana.person = "ana".into();
+        ana.user = "Ana".into();
+        ana.local = false;
+        ana.streaming = true;
+        ana.video = None;
+        state.voice.participants.push(ana);
+        state.voice.watching = Some(Box::new(voice::Watching {
+            user: "streaming-ana".into(),
+            name: "Ana".into(),
+            opening: false,
+            frames: Some(watched),
+            viewers: Vec::new(),
+        }));
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    let slots = |app: &App| crate::call::stage::stage(app).0;
+    assert!(!slots(&app).contains(&crate::call::stage::Slot::Stream(1)));
+    assert!(!crate::call::stage::popped_out(
+        &app,
+        "stream:streaming-ana"
+    ));
+
+    // Out into a window of its own, and there and only there: her tile keeps
+    // her picture, and no window of the call has the stream.
+    let _ = crate::call::update(&mut app, Event::PopOut("stream:streaming-ana".into()));
+    assert!(crate::call::stage::popped_out(&app, "stream:streaming-ana"));
+    assert_eq!(
+        slots(&app),
+        [
+            crate::call::stage::Slot::Person(0),
+            crate::call::stage::Slot::Person(1)
+        ],
+        "her tile stays, her stream has none"
+    );
+    let voice = &app.client.state().voice;
+    let stage = crate::call::stage::Stage::of(voice, Some("stream:streaming-ana"));
+    assert!(
+        !stage.stream_in_tile(&voice.participants[1]),
+        "nothing of her stream is drawn in the call"
+    );
+}
+
+/// The picture's own window: its strip is the window's own switcher. A tile
+/// pressed shows that picture in the window itself, which stays where it
+/// stands and as it is, and the call's stage behind it is left alone.
+#[test]
+fn a_press_in_the_pictures_window_shows_that_picture_there() {
+    use iced::mouse;
+
+    let (mut app, _folder, _) = in_call();
+    let camera = yapfast_core::picture::Feed::new();
+    super::change(&mut app, move |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = Some(camera);
+        state.voice.participants.push(bob);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    let window = Size::new(960.0, 540.0);
+    let id = app.call.popout.as_ref().expect("a window").id;
+    let bob = {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        super::last(&mut ui, "Bob")
+    };
+    let messages: Vec<crate::app::Message> = {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        ui.point_at(bob);
+        let _ = ui.simulate([
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+        ]);
+        ui.into_messages().collect()
+    };
+    for message in messages {
+        let _ = app.update(message);
+    }
+    let popout = app.call.popout.as_ref().expect("a window");
+    assert_eq!(popout.id, id, "the same window, not another");
+    assert_eq!(popout.key, "preview-bob", "Bob's picture in it");
+    assert_eq!(
+        app.title(id),
+        "Yapfast",
+        "the window is Yapfast's own, named so"
+    );
+    assert!(app.call.focus.is_none(), "the call's stage left alone");
+}
+
+/// A tile of the picture's own window pressed with the right button opens
+/// that person's menu there, in that window, over the picture; Yapfast's own
+/// window shows none of it.
+#[test]
+fn the_pictures_window_opens_a_members_menu_over_its_picture() {
+    use iced::mouse;
+
+    let (mut app, _folder, _) = in_call();
+    let camera = yapfast_core::picture::Feed::new();
+    super::change(&mut app, move |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = Some(camera);
+        state.voice.participants.push(bob);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    let window = Size::new(960.0, 540.0);
+    let id = app.call.popout.as_ref().expect("a window").id;
+    let bob = {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        super::last(&mut ui, "Bob")
+    };
+    let messages: Vec<crate::app::Message> = {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(&app),
+        );
+        ui.point_at(bob);
+        let _ = ui.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Right,
+        ))]);
+        ui.into_messages().collect()
+    };
+    assert!(!messages.is_empty(), "the press says something");
+    for message in messages {
+        let _ = app.update(message);
+    }
+    let menu = app.win.menu.as_ref().expect("a menu");
+    assert_eq!(
+        menu.window.map(|(window, _)| window),
+        Some(id),
+        "opened in the window's own"
+    );
+    // Its volumes over its rows: what a call in a server lets them do may
+    // leave it none, as the fake has no server to ask.
+    let label = menu
+        .rows
+        .first()
+        .map_or_else(|| "User volume".to_owned(), |row| row.label.to_string());
+    let mut ui = iced_test::Simulator::with_size(
+        iced::Settings::default(),
+        window,
+        crate::call::popout::view(&app),
+    );
+    assert!(ui.find(label.as_str()).is_ok(), "{label:?} in the window");
+    assert!(
+        !super::present(&app, &label),
+        "{label:?} nowhere in Yapfast's own window"
+    );
+}
+
+/// A picture in a window of its own takes the call out of Yapfast's window:
+/// no panel, no stage, no controls and no corner picture, and closing that
+/// window brings them all back.
+#[test]
+fn the_call_leaves_yapfasts_window_while_a_picture_has_one() {
+    let (mut app, _folder, _) = in_call();
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    assert!(
+        crate::call::stage::voice_panel(&app),
+        "the call is the view"
+    );
+    assert!(crate::call::stage::stage_shown(&app));
+
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    assert!(crate::call::in_window(&app), "a window of its own");
+    assert!(
+        !crate::call::stage::voice_panel(&app),
+        "nothing of the call in Yapfast's window"
+    );
+    assert!(!crate::call::stage::stage_shown(&app));
+    assert_eq!(
+        crate::call::stage::corner(&app),
+        crate::call::stage::Pip::None,
+        "no corner picture either"
+    );
+    assert!(!crate::call::stage::full_shown(&app), "and no full screen");
+
+    // Closed, the call is Yapfast's own again.
+    crate::call::popout::closed(&mut app);
+    assert!(!crate::call::in_window(&app));
+    assert!(crate::call::stage::voice_panel(&app));
+    assert!(crate::call::stage::stage_shown(&app));
+}
+
+/// A tile of the call's own stage sends its picture out too, from the button
+/// beside its full screen one: their share, their stream or their camera.
+#[test]
+fn a_tile_of_the_call_sends_its_picture_into_a_window() {
+    use crate::call::stage::Slot;
+
+    let (mut app, _folder, _) = in_call();
+    let frames = std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap());
+    let camera = yapfast_core::picture::Feed::new();
+    super::change(&mut app, move |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames,
+            viewers: Vec::new(),
+        });
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.streaming = false;
+        bob.video = Some(camera);
+        state.voice.participants.push(bob);
+    });
+    crate::call::stage::place_videos(&mut app);
+    let _ = crate::call::update(&mut app, Event::PopoutSlot(Slot::OwnScreen));
+    let popout = app.call.popout.as_ref().expect("a window");
+    assert_eq!(popout.key, crate::call::stage::OWN_SCREEN, "this share");
+    // Another tile takes the window's place, the window as it is.
+    let id = popout.id;
+    let _ = crate::call::update(&mut app, Event::PopoutSlot(Slot::Person(1)));
+    let popout = app.call.popout.as_ref().expect("a window");
+    assert_eq!(popout.id, id, "the same window");
+    assert_eq!(popout.key, "preview-bob", "Bob's camera");
+}
+
+/// The window's own buttons over the whole window are under the pointer, as
+/// the controls are: none while it is away, both while it is on the window.
+#[test]
+fn the_whole_windows_buttons_show_under_the_pointer() {
+    use crate::call::popout::{BUTTON, CORNER};
+
+    let (mut app, _folder, _) = in_call();
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    app.call.popout_reveal = None;
+    let window = Size::new(960.0, 540.0);
+    let pin = Point::new(
+        window.width - CORNER - BUTTON - CORNER - BUTTON / 2.0,
+        window.height - CORNER - BUTTON / 2.0,
+    );
+    // The pin's middle, as drawn with the pointer at `cursor`.
+    let at = |app: &App, cursor: Point| {
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            window,
+            crate::call::popout::view(app),
+        );
+        ui.point_at(cursor);
+        let _ = ui.simulate([iced::Event::Mouse(iced::mouse::Event::CursorMoved {
+            position: cursor,
+        })]);
+        let (width, _, pixels) = super::drawn(&mut ui);
+        let index =
+            ((pin.y.round() as usize * 2) * width as usize + pin.x.round() as usize * 2) * 4;
+        pixels[index..index + 3].to_vec()
+    };
+    let away = at(&app, Point::new(-40.0, -40.0));
+    let on = at(&app, Point::new(480.0, 400.0));
+    assert!(
+        away.iter().all(|channel| *channel < 12),
+        "nothing over the picture with the pointer away: {away:?}"
+    );
+    assert_ne!(away, on, "the button comes with the pointer");
+}
+
+/// The strip under a picture's window is a stage of its own: the pictures in
+/// it are asked for and drawn there, at a tile's size, while the call's stage
+/// behind Yapfast's window asks for none.
+#[test]
+fn the_pictures_window_asks_for_the_pictures_in_its_strip() {
+    let (mut app, _folder, _) = in_call();
+    let feed = yapfast_core::picture::Feed::new();
+    let camera = feed.clone();
+    super::change(&mut app, move |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        bob.video = Some(camera);
+        state.voice.participants.push(bob);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    assert!(feed.shown_at().is_some(), "his camera on the stage");
+
+    // The picture out, and his camera is a tile of the strip under it.
+    let _ = crate::call::update(&mut app, Event::PopOut("preview-you".into()));
+    assert!(crate::call::in_window(&app));
+    assert!(
+        !crate::call::stage::stage_shown(&app),
+        "no call in Yapfast's window"
+    );
+    assert!(
+        feed.shown_at().is_some(),
+        "his camera is still drawn, in the window's strip"
+    );
+
+    // The window gone, and it is the stage's again.
+    crate::call::popout::closed(&mut app);
+    assert!(feed.shown_at().is_some());
+}
+
+/// The wheel over the picture brings it closer about the pointer, and down
+/// lets it back to its room: never off it.
+#[test]
+fn the_wheel_brings_the_pictures_window_closer_about_the_pointer() {
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, move |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: Vec::new(),
+        });
+    });
+    crate::call::stage::place_videos(&mut app);
+    let _ = crate::call::update(
+        &mut app,
+        Event::PopOut(crate::call::stage::OWN_SCREEN.into()),
+    );
+    // Its frames come at the share's shape, so it fills the window's room.
+    app.video
+        .showed(crate::call::stage::OWN_SCREEN, (1600, 900));
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    app.call.popout_reveal = None;
+    assert!(crate::call::members_hidden(&app), "the picture whole");
+
+    let window = Size::new(960.0, 540.0);
+    let turn = |app: &mut App, notches: f32, at: Point| {
+        let messages: Vec<crate::app::Message> = {
+            let mut ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                window,
+                crate::call::popout::view(app),
+            );
+            ui.point_at(at);
+            let _ = ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
+                delta: iced::mouse::ScrollDelta::Lines { x: 0.0, y: notches },
+            })]);
+            ui.into_messages().collect()
+        };
+        assert!(!messages.is_empty(), "the wheel over the picture is heard");
+        for message in messages {
+            let _ = app.update(message);
+        }
+    };
+    // A notch up with the pointer in the picture's top left quarter: it comes
+    // closer, keeping that quarter's place under the pointer, and its middle
+    // moves up and left with it.
+    let at = Point::new(240.0, 135.0);
+    turn(&mut app, 1.0, at);
+    let zoom = app.call.zoom;
+    assert!(zoom.by > 1.0, "closer: {}", zoom.by);
+    assert!(
+        (zoom.pan.x - 36.0).abs() < 0.1 && (zoom.pan.y - 20.25).abs() < 0.1,
+        "the pointer's place on the picture stays there: {:?}",
+        zoom.pan
+    );
+
+    // Every notch adds, and none takes it further than the room shows it
+    // whole: its middle stays where the picture still covers the room.
+    for _ in 0..20 {
+        turn(&mut app, 1.0, at);
+    }
+    let zoom = app.call.zoom;
+    assert!((zoom.by - 4.0).abs() < 0.01, "as close as it comes");
+    assert!(
+        zoom.pan.x.abs() <= (960.0 * zoom.by - 960.0) / 2.0 + 0.1
+            && zoom.pan.y.abs() <= (540.0 * zoom.by - 540.0) / 2.0 + 0.1,
+        "never off its room: {:?}",
+        zoom.pan
+    );
+
+    // Down lets it back, and at its room's size it stops.
+    for _ in 0..40 {
+        turn(&mut app, -1.0, at);
+    }
+    let zoom = app.call.zoom;
+    assert_eq!((zoom.by, zoom.pan), (1.0, iced::Vector::ZERO), "as it came");
+
+    // The window gone, and the next picture starts as it comes too.
+    turn(&mut app, 1.0, at);
+    assert!(app.call.zoom.by > 1.0);
+    crate::call::popout::closed(&mut app);
+    assert_eq!(app.call.zoom.by, 1.0, "fitted again");
+}
+
+/// Only a picture shown large is the wheel's: a tile of the call's grid comes
+/// as it is and the stage scrolls, a large tile comes closer, over the whole
+/// window too, and comes as it was again as the tile changes.
+#[test]
+fn only_a_picture_shown_large_takes_the_wheel() {
+    use crate::call::stage::Slot;
+
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, move |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: Vec::new(),
+        });
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bob".into();
+        bob.local = false;
+        state.voice.participants.push(bob);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+    crate::call::stage::place_videos(&mut app);
+    app.video
+        .showed(crate::call::stage::OWN_SCREEN, (1600, 900));
+    assert!(crate::call::stage::stage_shown(&app), "the call shows");
+    let place = crate::call::stage::stage(&app)
+        .0
+        .iter()
+        .position(|slot| *slot == Slot::OwnScreen)
+        .expect("the share's tile");
+    let centre = |app: &App| {
+        let (_, focused, tiles, _) = crate::call::stage::stage(app);
+        let place = focused.unwrap_or(place);
+        tiles[place].center()
+    };
+    let turn = |app: &mut App| {
+        let at = centre(app);
+        let mut ui = iced_test::Simulator::with_size(
+            iced::Settings::default(),
+            app.window,
+            crate::call::stage::stage_view(app),
+        );
+        ui.point_at(at);
+        let _ = ui.simulate([iced::Event::Mouse(iced::mouse::Event::WheelScrolled {
+            delta: iced::mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 },
+        })]);
+        for message in ui.into_messages() {
+            let _ = app.update(message);
+        }
+    };
+    // The grid: a tile comes as it is, and the wheel scrolls it.
+    super::interact(&mut app, |_| {});
+    turn(&mut app);
+    assert_eq!(
+        app.call.zoom.by, 1.0,
+        "a tile of the grid comes as it is: the stage scrolls"
+    );
+
+    // Large, and it is the wheel's.
+    let _ = crate::call::update(&mut app, Event::Focus(Some(place)));
+    super::interact(&mut app, |_| {});
+    turn(&mut app);
+    assert!(app.call.zoom.by > 1.0, "shown large it comes closer");
+    // Over the whole window too, fitted again as the tile goes.
+    let _ = crate::call::update(&mut app, Event::Full(true));
+    assert_eq!(app.call.zoom.by, 1.0, "as it comes again");
+    super::interact(&mut app, |_| {});
+    turn(&mut app);
+    assert!(app.call.zoom.by > 1.0, "shown whole it comes closer");
+    let _ = crate::call::update(&mut app, Event::Full(false));
+    assert_eq!(app.call.zoom.by, 1.0, "as it comes again");
+    let _ = crate::call::update(&mut app, Event::Focus(None));
+    assert_eq!(app.call.zoom.by, 1.0, "and another tile comes as it is");
+}
+
+/// A picture brought closer is the same box on its ground with its frame
+/// larger within it: the bars beside a share of another shape stay, and what
+/// stood at the picture's edge has moved out of the box.
+#[test]
+fn a_picture_brought_closer_stays_in_its_box() {
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, move |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: Vec::new(),
+        });
+    });
+    crate::call::stage::place_videos(&mut app);
+    let _ = crate::call::update(
+        &mut app,
+        Event::PopOut(crate::call::stage::OWN_SCREEN.into()),
+    );
+    // A 4:3 share, its middle half white and the rest black, in a 16:9
+    // window: 720 of its 960 px across, bars beside it.
+    app.video
+        .showed_striped(crate::call::stage::OWN_SCREEN, (1600, 1200));
+    let _ = crate::call::update(&mut app, Event::ToggleMembers);
+    app.call.popout_reveal = None;
+    assert!(crate::call::members_hidden(&app), "the picture whole");
+
+    let window = Size::new(960.0, 540.0);
+    let drawn = |app: &App| {
+        let (width, _height, pixels) = {
+            let mut ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                window,
+                crate::call::popout::view(app),
+            );
+            super::drawn(&mut ui)
+        };
+        // Twice the window's size, and one colour in RGB.
+        let at = |x: f32, y: f32| {
+            let index = ((y as u32 * 2) * width + x as u32 * 2) as usize * 4;
+            u16::from(pixels[index]) + u16::from(pixels[index + 1]) + u16::from(pixels[index + 2])
+        };
+        // The bar at the left, the picture a quarter in from its box, and its
+        // middle, all on the window's middle row.
+        (at(2.0, 270.0), at(250.0, 270.0), at(400.0, 270.0))
+    };
+    // Fitted, the white middle half stands 300 px in, and the bar is the
+    // ground's.
+    let (bar, left, middle) = drawn(&app);
+    assert!(bar < 120, "a bar beside the picture: {bar}");
+    assert!(left < 120, "the picture's black quarter: {left}");
+    assert!(middle > 700, "its white half: {middle}");
+
+    // Closer, and the white half reaches where its black quarter stood: the
+    // frame within its box is larger, and the box and its bar are as they
+    // were.
+    let _ = drawn(&app);
+    let _ = crate::call::update(&mut app, Event::ZoomTo(2.0));
+    let (bar, left, middle) = drawn(&app);
+    assert!(bar < 120, "the bar stays beside it: {bar}");
+    assert!(left > 700, "its white half is larger: {left}");
+    assert!(middle > 700, "the picture in its box: {middle}");
+}
+
+/// A picture brought closer stays in its room: it's cut at its edge, and the
+/// ground about it, where the window stands it in with the members shown,
+/// shows as it did.
+#[test]
+fn a_picture_brought_closer_stays_in_its_room() {
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, move |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: std::sync::Arc::new(yapfast_core::frames::Frames::create(16, 16).unwrap()),
+            viewers: Vec::new(),
+        });
+    });
+    crate::call::stage::place_videos(&mut app);
+    let _ = crate::call::update(
+        &mut app,
+        Event::PopOut(crate::call::stage::OWN_SCREEN.into()),
+    );
+    app.video
+        .showed(crate::call::stage::OWN_SCREEN, (1600, 900));
+    app.call.popout_reveal = None;
+    assert!(!crate::call::members_hidden(&app), "the members shown");
+
+    let window = Size::new(960.0, 540.0);
+    let drawn = |app: &App| {
+        let (width, _height, pixels) = {
+            let mut ui = iced_test::Simulator::with_size(
+                iced::Settings::default(),
+                window,
+                crate::call::popout::view(app),
+            );
+            super::drawn(&mut ui)
+        };
+        // Twice the window's size, and one colour in RGB.
+        let at = |x: f32, y: f32| {
+            let index = ((y as u32 * 2) * width + x as u32 * 2) as usize * 4;
+            u16::from(pixels[index]) + u16::from(pixels[index + 1]) + u16::from(pixels[index + 2])
+        };
+        let middle = {
+            let room = app.call.popout_seen.get().expect("its room");
+            crate::call::popout::MARGIN + room.height / 2.0
+        };
+        (at(4.0, middle), at(window.width / 2.0, middle))
+    };
+    // As it comes: the picture fills its room and its margins are the
+    // ground's.
+    let (margin, middle) = drawn(&app);
+    assert!(margin < 120, "the margin is the ground's: {margin}");
+    assert!(middle > 700, "the picture in its room: {middle}");
+
+    // Brought closer it covers its room whole, and no more.
+    let _ = drawn(&app);
+    let _ = crate::call::update(&mut app, Event::ZoomTo(3.0));
+    let (margin, middle) = drawn(&app);
+    assert!(margin < 120, "still the ground's: {margin}");
+    assert!(middle > 700, "its room covered: {middle}");
 }

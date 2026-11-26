@@ -197,6 +197,16 @@ impl App {
             Event::Heard(heard) => self.heard(heard),
             Event::Opened(id) => self.opened(id),
             Event::CloseRequested(id) if self.shell.window == Some(id) => self.close_requested(),
+            Event::CloseRequested(id)
+                if self
+                    .call
+                    .popout
+                    .as_ref()
+                    .is_some_and(|popout| popout.id == id) =>
+            {
+                crate::call::popout::closed(self);
+                window::close(id)
+            }
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
@@ -214,6 +224,15 @@ impl App {
             Event::Focused(..) => Task::none(),
             Event::Closed(id) => {
                 // Closed by the desktop rather than by Yapfast.
+                if self
+                    .call
+                    .popout
+                    .as_ref()
+                    .is_some_and(|popout| popout.id == id)
+                {
+                    crate::call::popout::closed(self);
+                    return Task::none();
+                }
                 if self.shell.window == Some(id) {
                     self.shell.window = None;
                     return self.forget_window(crate::app::Keep::default());
@@ -522,7 +541,9 @@ impl App {
         settings
     }
 
-    fn window_icon(&self) -> Option<window::Icon> {
+    /// The app's own icon, as its windows are marked with; a picture's
+    /// window of its own is too.
+    pub(crate) fn window_icon(&self) -> Option<window::Icon> {
         let (pixels, width, height) = desktop::desktop()
             .window_icon(self.client.root(), &self.layout.prefs.application_icon)?;
         window::icon::from_rgba(pixels, width, height).ok()
@@ -540,7 +561,7 @@ impl App {
             && let Some(id) = self.shell.window
         {
             #[cfg(windows)]
-            return self.set_native_window_icon(id);
+            return self.set_native_window_icon(id, self.desktop_unread());
             #[cfg(not(windows))]
             if let Some(icon) = self.window_icon() {
                 return window::set_icon(id, icon);
@@ -549,11 +570,24 @@ impl App {
         Task::none()
     }
 
+    /// The window carrying the app's icon, `unread` counted on it where the
+    /// desktop draws the count: Yapfast's own window, and a picture's.
+    fn mark_window(&self, id: window::Id, unread: u8) -> Task<Message> {
+        #[cfg(windows)]
+        let task = self.set_native_window_icon(id, unread);
+        #[cfg(not(windows))]
+        let task = {
+            let _ = unread;
+            self.window_icon()
+                .map_or_else(Task::none, |icon| window::set_icon(id, icon))
+        };
+        task
+    }
+
     #[cfg(windows)]
-    fn set_native_window_icon(&self, id: window::Id) -> Task<Message> {
+    fn set_native_window_icon(&self, id: window::Id, unread: u8) -> Task<Message> {
         let root = self.client.root().to_owned();
         let choice = self.layout.prefs.application_icon.clone();
-        let unread = self.desktop_unread();
         window::run(id, move |window| {
             desktop::desktop().set_window_icon(window, &root, &choice, unread);
         })
@@ -563,6 +597,16 @@ impl App {
     /// The window opened: what iced doesn't give it, then the focus with a
     /// later start's token, and what was waiting for it.
     fn opened(&mut self, id: window::Id) -> Task<Message> {
+        // A picture's window of its own carries the app's icon too, its title
+        // bar's and taskbar's, and no unread mark.
+        if self
+            .call
+            .popout
+            .as_ref()
+            .is_some_and(|popout| popout.id == id)
+        {
+            return self.mark_window(id, 0);
+        }
         if self.shell.window != Some(id) {
             return Task::none();
         }
@@ -588,8 +632,7 @@ impl App {
             window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
             Self::read_monitor_scale(id),
         ];
-        #[cfg(windows)]
-        tasks.push(self.set_native_window_icon(id));
+        tasks.push(self.mark_window(id, self.desktop_unread()));
         let maximize = self.shell.maximized.then(|| window::maximize(id, true));
         tasks.push(match self.shell.position {
             // Made hidden: put where the last one was, maximized on the
@@ -884,6 +927,14 @@ impl App {
 
     /// Each window's view: Yapfast has one.
     pub fn view_of(&self, id: window::Id) -> iced::Element<'_, Message> {
+        if self
+            .call
+            .popout
+            .as_ref()
+            .is_some_and(|popout| popout.id == id)
+        {
+            return crate::call::popout::view(self);
+        }
         if self.shell.window == Some(id) {
             self.view()
         } else {
@@ -893,7 +944,17 @@ impl App {
 
     /// The window's title, counting the mentions waiting, as a browser
     /// tab's does; every message in a DM counts as one.
-    pub fn title(&self, _: window::Id) -> String {
+    pub fn title(&self, id: window::Id) -> String {
+        // A picture's window of its own is Yapfast's too, named and marked so.
+        if self
+            .call
+            .popout
+            .as_ref()
+            .is_some_and(|popout| popout.id == id)
+        {
+            // Its own name, without what waits in Yapfast's window.
+            return "Yapfast".to_owned();
+        }
         let waiting: u64 = self
             .client
             .state()

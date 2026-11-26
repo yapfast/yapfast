@@ -51,18 +51,39 @@ pub enum Slot {
 pub struct Stage<'a> {
     pub participants: &'a [Participant],
     pub sharing: bool,
+    /// The picture a window of its own shows, by its key: the stage leaves
+    /// that tile out, and the window has it alone.
+    pub popped: Option<&'a str>,
 }
 
 impl<'a> Stage<'a> {
-    pub fn of(voice: &'a voice::State) -> Self {
+    pub fn of(voice: &'a voice::State, popped: Option<&'a str>) -> Self {
         Self {
             participants: if voice.active() {
                 &voice.participants
             } else {
                 &[]
             },
-            sharing: voice.sharing.is_some(),
+            sharing: voice.sharing.is_some() && popped != Some(super::OWN_SCREEN),
+            popped,
         }
+    }
+
+    /// Whether a window of its own shows this person's stream.
+    fn stream_popped(&self, person: &Participant) -> bool {
+        self.popped
+            .is_some_and(|key| key.strip_prefix("stream:") == Some(person.id.as_str()))
+    }
+
+    /// Whether a window of its own shows this person's camera.
+    fn camera_popped(&self, person: &Participant) -> bool {
+        self.popped == Some(person.id.as_str())
+    }
+
+    /// Whether this person's tile shows their stream: they share without a
+    /// camera, and no window of its own shows it instead.
+    pub fn stream_in_tile(&self, person: &Participant) -> bool {
+        person.streaming && !person.local && person.video.is_none() && !self.stream_popped(person)
     }
 
     /// Those whose streams take tiles of their own: others who share and
@@ -72,6 +93,7 @@ impl<'a> Stage<'a> {
             .iter()
             .enumerate()
             .filter(|(_, person)| person.streaming && person.video.is_some() && !person.local)
+            .filter(|(_, person)| !self.stream_popped(person))
             .map(|(index, _)| index)
     }
 
@@ -101,6 +123,9 @@ impl<'a> Stage<'a> {
             Focus::Person(id) => Some(self.before() + self.index(id)?),
             Focus::Stream(id) => {
                 let person = self.index(id)?;
+                if self.stream_popped(&self.participants[person]) {
+                    return None;
+                }
                 match self.streams().position(|stream| stream == person) {
                     Some(stream) => Some(usize::from(self.sharing) + stream),
                     None => (self.participants[person].streaming
@@ -146,20 +171,28 @@ impl<'a> Stage<'a> {
             Some(Focus::Person(id)) => {
                 if let Some(person) = self.index(id)
                     && self.participants[person].video.is_some()
+                    && !self.camera_popped(&self.participants[person])
                 {
                     return Pip::Camera(person);
                 }
             }
             _ => {}
         }
-        if watching.is_some() {
+        let watched_here = watching.is_some_and(|user| {
+            !self
+                .popped
+                .is_some_and(|key| key.strip_prefix("stream:") == Some(user))
+        });
+        if watched_here {
             Pip::Watched
         } else if self.sharing {
             Pip::Shared
         } else {
             self.participants
                 .iter()
-                .position(|person| !person.local && person.video.is_some())
+                .position(|person| {
+                    !person.local && person.video.is_some() && !self.camera_popped(person)
+                })
                 .map_or(Pip::None, Pip::Camera)
         }
     }
@@ -457,6 +490,42 @@ mod tests {
         assert_eq!(shown_at(half, 0.0, 598.0, 2.0), Some((601, 337)));
     }
 
+    #[test]
+    fn a_stream_in_a_window_of_its_own_leaves_the_call() {
+        let people = [
+            person("ana", false, true, false),
+            person("bo", false, true, true),
+            person("cy", false, false, false),
+        ];
+        let here = Stage {
+            participants: &people,
+            sharing: false,
+            popped: None,
+        };
+        assert!(here.stream_in_tile(&people[0]), "in her tile");
+        assert!(!here.stream_in_tile(&people[1]), "her camera has the tile");
+        assert!(!here.stream_in_tile(&people[2]), "she shares nothing");
+        // In a window of its own, her stream is drawn there and nowhere in
+        // the call: her tile stays, her stream's picture doesn't.
+        let there = Stage {
+            participants: &people,
+            sharing: false,
+            popped: Some("stream:ana"),
+        };
+        assert!(!there.stream_in_tile(&people[0]));
+        assert!(!there.stream_in_tile(&people[2]), "she shares nothing");
+        assert!(
+            !there.slots().contains(&Slot::Stream(0)),
+            "no tile takes her stream"
+        );
+        assert_eq!(there.slot(&Focus::Stream("ana".into())), None);
+        assert_eq!(
+            there.pip(None, Some("ana")),
+            Pip::Camera(1),
+            "her camera instead"
+        );
+    }
+
     fn person(id: &str, local: bool, streaming: bool, filming: bool) -> Participant {
         Participant {
             id: id.into(),
@@ -488,6 +557,7 @@ mod tests {
         let stage = Stage {
             participants: &people,
             sharing: true,
+            popped: None,
         };
         assert_eq!(stage.streams().collect::<Vec<_>>(), [2]);
         assert_eq!(stage.before(), 2);
@@ -528,6 +598,7 @@ mod tests {
         let stage = Stage {
             participants: &people,
             sharing: false,
+            popped: None,
         };
         let cy = Focus::Person("cy".into());
         assert_eq!(stage.pip(Some(&cy), Some("ana")), Pip::Camera(2));
