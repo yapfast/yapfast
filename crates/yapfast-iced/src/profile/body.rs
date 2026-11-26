@@ -212,11 +212,14 @@ pub(super) fn profile_body<'a>(
     // Discord's card has the badges beside the username, up to six of
     // them (any number in the DM's panel); more go under the name, 2 px
     // below it, and the panel's own keep to their row below.
-    let beside = !mode.large()
+    let badges = ctx.state.cosmetics.badges;
+    let beside = badges
+        && !mode.large()
         && !profile.handle.is_empty()
         && !profile.badges.is_empty()
         && (mode == Mode::Docked || profile.badges.len() <= 6);
-    let under = mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
+    let under =
+        badges && mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
     let mut names = column![name].spacing(2);
     if let Some(line) = handle_line(ctx, shown, &inks, mode, beside) {
         names = names.push(line);
@@ -230,7 +233,7 @@ pub(super) fn profile_body<'a>(
     {
         body = body.push(actions);
     }
-    if !profile.badges.is_empty() && !beside && !under {
+    if badges && !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
     // Discord's card shows the first activity on its own tile, with the
@@ -414,15 +417,30 @@ fn profile_top<'a>(
     // The card's own corners: a theme's `card` shape (Zine's square cut).
     let corner = ctx.look.theme.surface_radius("card", 12.0);
     let top_corners = [corner, corner, 0.0, 0.0];
+    let background = ctx.state.cosmetics.background;
     let moving = profile
         .banner
         .as_deref()
+        .filter(|_| background)
         .and_then(chat::moving_banner)
         .and_then(|url| ctx.moving(&url, banner_size, Rectangle::with_size(banner_size), true));
-    let still = profile.banner.as_deref().and_then(|url| {
-        crate::profile::profile_picture(ctx, shown, url, width as u32, banner_height as u32, true)
-    });
-    let banner_ground = crate::profile::banner_ground(ctx, shown)
+    let still = profile
+        .banner
+        .as_deref()
+        .filter(|_| background)
+        .and_then(|url| {
+            crate::profile::profile_picture(
+                ctx,
+                shown,
+                url,
+                width as u32,
+                banner_height as u32,
+                true,
+            )
+        });
+    let banner_ground = background
+        .then(|| crate::profile::banner_ground(ctx, shown))
+        .flatten()
         .map(hex)
         .or(inks.themed.then_some(inks.primary))
         .unwrap_or(ctx.look.theme.raised);
