@@ -47,6 +47,7 @@ pub enum Pref {
     BoostGems(bool),
     ShareTyping(bool),
     ReplyPing(bool),
+    ReplyTitles(bool),
     StripTracking(bool),
     Notifications(bool),
     NotificationText(bool),
@@ -186,6 +187,11 @@ impl Settings {
                 prefs.reply_ping = Some(on);
                 cx.keep("reply_ping", on);
                 cx.dispatch(Action::ReplyPing(on));
+            }
+            Pref::ReplyTitles(on) => {
+                prefs.reply_titles = on;
+                cx.keep("reply_titles", on);
+                cx.dispatch(Action::ReplyTitles(on));
             }
             Pref::StripTracking(on) => {
                 prefs.strip_tracking = Some(on);

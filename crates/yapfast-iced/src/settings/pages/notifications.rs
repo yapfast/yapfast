@@ -23,6 +23,7 @@ impl<'a> Page<'a> {
             "Each Discord server's notification settings decide"
         };
         let words = prefs.notification_text.unwrap_or(true);
+        let replies = prefs.reply_titles;
         form::page([
             form::title(theme, "Notifications"),
             switch(
@@ -40,6 +41,13 @@ impl<'a> Page<'a> {
                 on.then(|| pref(Pref::NotificationText(!words))),
             )
             .description("Off shows only who wrote and where, for a screen others can see.")
+            .view(self.cx.look),
+            switch(
+                "Say whom a reply answers",
+                replies,
+                on.then(|| pref(Pref::ReplyTitles(!replies))),
+            )
+            .description("A reply's title says \"Sam replied to you\", or names whom it answers. Discord's own notifications don't.")
             .view(self.cx.look),
             self.flip(
                 "Flash the taskbar",

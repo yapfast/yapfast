@@ -527,7 +527,13 @@ Yapfast is back, rather than showing an error.
   joins, pins and call notices don't. Nothing notifies while the account's
   status is Do Not Disturb. They show while Yapfast
   isn't in front, titled with who wrote where, and clicking one opens the
-  conversation. On Linux they go to the freedesktop notification service; on
+  conversation. With Settings › Notifications' "Say whom a reply answers"
+  on (off by default; Discord's own notifications don't), a reply's title
+  says "Sam replied to you" when the original is the account's own, by the
+  id of the account the message came to, and "Sam replied to Lena" when
+  it's someone else's, by their name in the server; a reply whose original
+  is gone or wasn't looked up is titled as any message. It's worked out
+  from the reply's original in the message Discord already sent. On Linux they go to the freedesktop notification service; on
   Windows they're toasts ([Windows](../windows-beta.md#notifications-on-windows)).
   Each also plays Yapfast's message sound, or its mention sound, unless it's in
   the conversation in front; see [voice](../voice.md#sounds).
