@@ -179,6 +179,8 @@ pub enum Event {
     /// dock's line to it under the pointer.
     OpenCall,
     DetailLit(bool),
+    /// The line over the call saying it stays connected, closed for good.
+    HideHint,
     /// A second of the call's clock.
     Second,
     /// In the connection's details, or on the signal.
@@ -319,6 +321,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 crate::call::stage::focus_tile(app, Some(place));
             }
             Action::GoToCall
+        }
+        Event::HideHint => {
+            app.layout.hide_voice_hint = true;
+            crate::layout::store(app.client.root(), "hide_voice_hint", true);
+            return Task::none();
         }
         Event::DetailLit(lit) => {
             app.call.detail_lit = lit;

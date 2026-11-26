@@ -185,16 +185,29 @@ the loss are measured.
 
 While this account's screen is live, a Stream tab says how it goes out:
 the encoder and where it runs ("NVENC on the GPU", "x264 on the CPU"), the
-codec Discord chose, the size and frame rate sent, the bitrate sent over
-the last second beside the one aimed for, which follows what the uplink
-carries ([Go Live](go-live.md)), and the keyframes viewers asked for and the packets resent to
-them. Discord's client shows its stream's numbers only in developer mode.
-The stream worker reports them once a second while live
-(`Report::Sending`), counting what `StreamSender` sends; the call keeps
-the last report beside its own numbers, without refreshing the UI's state,
-and the popout reads it as it reads the pings. A report more than 3 s old
-means the stream stopped, and the tab goes. `talks_to_the_fake_server`
-checks the bytes counted and a resend.
+codec Discord chose, what's captured and its size before it's fitted to the
+stream ("2560×1440 screen"), the size and frame rate sent, the bitrate sent
+over the last second beside the one aimed for, which follows what the uplink
+carries ([Go Live](go-live.md)), the keyframes viewers asked for, and the
+packets sent and how many of them were resent. While this account watches a
+stream, the tab says how it comes in: the decoder ("dav1d on the CPU"), the
+codec, the size and pictures decoded a second, the bitrate received, and
+since watching began the packets received, those lost even after asking
+again, those a resend brought back, the keyframes asked for, and the frames
+dropped because they wouldn't decrypt or decode or the decoder was behind.
+With both, each comes under its name. Discord's client shows its stream's
+numbers only in developer mode. "Copy diagnostics" copies the build, the
+system, the connection's numbers and each stream's rows as text for a bug
+report, never the privacy code.
+
+The stream worker reports them once a second (`Report::Sending` while it
+shares, counting what `StreamSender` sends; `Report::Receiving` while it
+watches, from what `StreamReceiver` tallies and copies out each second); the
+call keeps the last of each beside its own numbers, without refreshing the
+UI's state, and the popout reads them as it reads the pings. A report more
+than 3 s old means the stream stopped, and its rows go. `talks_to_the_fake_server`
+checks the bytes and packets counted and a resend, and the watching tests
+the receiving tally.
 
 Matrix calls don't have these yet. LiveKit's SDK measures its signal
 connection's round trip but doesn't expose it, and `Room::get_stats`

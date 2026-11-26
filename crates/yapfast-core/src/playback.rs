@@ -175,6 +175,7 @@ impl Playback {
                 Report::AudioError(_)
                 | Report::Sharing { .. }
                 | Report::Sending(_)
+                | Report::Receiving(_)
                 | Report::Streaming
                 | Report::Preview { .. }
                 | Report::Screen { .. },
