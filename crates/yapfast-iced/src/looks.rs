@@ -278,7 +278,7 @@ pub fn member_lines(
                 dark,
             ),
             color: member.color,
-            color_end: member.color_end,
+            color_end: cosmetics.colours(member.color_end),
             role_icon: member.role_icon.clone(),
             tag: cosmetics
                 .tag(member.tag.as_ref())
@@ -738,6 +738,28 @@ mod tests {
             assert_eq!(look.family, Some("Tempo"));
             assert!(look.colors.is_empty());
         }
+    }
+
+    /// A role colour's gradient reaches the member list only while its
+    /// switch is on; off, the name keeps one colour and one span.
+    #[test]
+    fn a_role_gradient_shows_only_with_its_switch_on() {
+        let mut state = AppState::default();
+        let mut ann = member("ann", Role::Member, None);
+        ann.color = Some(0xff0000);
+        ann.color_end = Some((0x00ff00, None));
+        let end = |state: &AppState| {
+            member_lines(state, std::slice::from_ref(&ann), None, true, None)
+                .into_iter()
+                .find_map(|line| match line {
+                    MemberLine::Member(look) => Some(look.color_end),
+                    MemberLine::Heading { .. } => None,
+                })
+                .expect("their row")
+        };
+        assert_eq!(end(&state), Some((0x00ff00, None)));
+        state.cosmetics.name_colours = false;
+        assert_eq!(end(&state), None, "one colour, no gradient");
     }
 
     fn member(id: &str, role: Role, group: Option<&str>) -> ChatMember {

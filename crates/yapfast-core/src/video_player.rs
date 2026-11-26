@@ -146,10 +146,13 @@ impl Progress {
         self.arrived.notify_all();
     }
 
-    /// The byte a read waits for, once for each wait.
+    /// The byte a read waits for, once for each wait. Not one that has
+    /// arrived since: the read just hasn't woken yet to take it.
     fn needed(&self) -> Option<u64> {
         let mut state = self.lock();
-        let needed = state.needed.filter(|at| state.reported != Some(*at))?;
+        let needed = state
+            .needed
+            .filter(|&at| state.reported != Some(at) && state.ranges.run(at) == 0)?;
         state.reported = Some(needed);
         Some(needed)
     }
@@ -1162,6 +1165,20 @@ mod tests {
         assert_eq!(ranges, Ranges(vec![(0, 50)]));
         ranges.add(7, 7);
         assert_eq!(ranges, Ranges(vec![(0, 50)]), "nothing added");
+    }
+
+    /// A read waits at a byte, which arrives before the read wakes to take
+    /// it: the wait is over, so it isn't reported. One past what arrived
+    /// still is, once.
+    #[test]
+    fn a_wait_whose_bytes_arrived_before_the_read_woke_is_not_reported() {
+        let progress = Progress::new(Some(100));
+        progress.lock().needed = Some(0);
+        progress.arrived(0, 50, Some(100));
+        assert_eq!(progress.needed(), None, "it's there");
+        progress.lock().needed = Some(50);
+        assert_eq!(progress.needed(), Some(50));
+        assert_eq!(progress.needed(), None, "once for each wait");
     }
 
     #[test]

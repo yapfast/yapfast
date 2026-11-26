@@ -226,20 +226,30 @@ impl SignIn {
         }
     }
 
+    /// Lets go of the token pasted, and its field with it.
+    pub fn drop_token(&mut self) {
+        forget(&mut self.token);
+        self.token_open = false;
+    }
+
     fn take_in(&mut self, state: &AppState, root: &std::path::Path) {
         if !state.busy {
             self.starting = false;
         }
+        // Add Account, in Manage Accounts, links another beside the one in
+        // use: its code and token stay while it's open.
+        let adding = state.manage_accounts.is_some();
         if state.preview || state.account.is_some() {
-            self.code = None;
             self.starting = false;
-            // Linked: the token pasted, kept until now to fix a refused
-            // one, goes with its field.
-            if state.account.is_some() && !self.token.is_empty() {
-                forget(&mut self.token);
-                self.token_open = false;
+            if !adding {
+                self.code = None;
+                // Linked: the token pasted, kept until now to fix a refused
+                // one, goes with its field.
+                if state.account.is_some() && !self.token.is_empty() {
+                    self.drop_token();
+                }
+                return;
             }
-            return;
         }
         match &state.discord_link {
             Some(DiscordLink::Code(address)) => {
@@ -253,7 +263,7 @@ impl SignIn {
             }
             _ => self.code = None,
         }
-        if MATRIX {
+        if MATRIX && !adding {
             self.restore_available = yapfast_core::chat::can_restore(root);
         }
     }

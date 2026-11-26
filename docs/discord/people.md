@@ -903,8 +903,11 @@ window draws carry no address for it, so the window asks for nothing either.
 | Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
+| Draw role colour gradients (`name_colours`) | One span a name in the role's first colour, instead of a span a letter redrawn with the name | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show badges (`badges`) | No badge picture on a profile card, and no levels request for one | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
+| Show profile backgrounds (`profile_backgrounds`) | No banner picture asked for, shown or kept going, and the top in the card's own colour rather than the accent or the avatar's | On |
 
 Every switch starts on, so profiles look as in Discord's client. The
 switches are there for the cheaper side: an effect's layers are APNGs up
@@ -915,6 +918,12 @@ Decorations, nameplates and tags are a still each, decoded once, and name
 styles use bundled fonts. Turning a switch off takes what it covers off
 what's shown at once; turning effects on shows a profile's effect the
 next time the profile is fetched.
+
+Role colour gradients, like name styles, fetch nothing; their switch is
+over drawing: a gradient name is a text span for every letter, rebuilt
+each time the row is drawn, member list and timeline alike, where one
+colour is a single span. A client with every switch off asks Discord for
+none of these pictures and draws none of them.
 
 ## Editing one's main profile
 
@@ -1245,6 +1254,34 @@ A custom game is an executable and the name to show after Playing: a file
 name matches the executable in any folder, a full path only there, and
 Windows and Wine paths ignore case. Custom games are this device's, kept in
 `layout.json`, and a change rescans at once.
+
+Settings → Game activity → Never show as a game lists the programs this
+device never shows as the game played, for a program that Discord's list or
+Steam takes for a game and isn't one (`blocked_games` in `layout.json`, handed
+over with `discord::set_blocked_games`, and like the custom games a change
+rescans at once). An entry is an executable, a file name or a full path
+matched as a custom game's is, or the name that would show after Playing,
+whatever its case. It applies to what was matched, custom games included,
+whichever list matched it. It doesn't reach Rich Presence, which a program
+sends for itself.
+
+Each entry has a switch: on, it's hidden; off, it's allowed to show as a game
+again, and stays listed to be hidden with one press. `layout.json` keeps each
+as `{"name": "...", "on": true}` (`BlockedGame`). Detection is handed only the
+names that are on (`Prefs::apply_blocked_games`), so turning one off or on
+rescans at once, as adding or removing one does, and one that's off isn't left
+out of the detected games below. Adding a name that's listed and off, from
+that menu or the field, turns it on.
+
+"Choose from detected games" there opens a menu of the games the last scan
+took the running programs for, each by the name that would show after
+Playing, once each and in alphabetical order, at most 50
+(`Detector::detected`, kept after each scan in `custom_games::set_detected`
+and read with `discord::detected_games`). Choosing one adds that name to the
+list, so nothing is typed or copied. A program the list already leaves out
+isn't taken for a game, so it isn't in the menu. The menu is empty, and the
+button off, while nothing scans: when sharing the game is off or no account
+is linked.
 
 Discord's list comes from
 `https://cdn.discordapp.com/detectables/games-v1.json`, about 4 MB, as

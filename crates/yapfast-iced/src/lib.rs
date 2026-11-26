@@ -28,6 +28,7 @@
 #![cfg_attr(not(test), warn(clippy::let_underscore_must_use))]
 
 mod account;
+mod accounts;
 mod active_now;
 mod animated;
 mod app;
