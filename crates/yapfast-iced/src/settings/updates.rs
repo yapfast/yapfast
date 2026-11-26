@@ -241,7 +241,7 @@ mod tests {
         let shown = super::notice(iced::Color::WHITE, "v0.5.0-nightly.20261124.21");
         let mut ui = Simulator::with_size(
             iced::Settings::default(),
-            iced::Size::new(232.0, 400.0),
+            iced::Size::new(super::super::NAV, 400.0),
             shown,
         );
         let mut words = None;
@@ -256,7 +256,10 @@ mod tests {
             None::<()>
         });
         let words = words.expect("the notice's words");
-        assert!(words.x + words.width <= 232.0, "inside the sidebar");
+        assert!(
+            words.x + words.width <= super::super::NAV,
+            "inside the sidebar"
+        );
         assert!(words.height > 13.0 * 1.5, "on more than one line");
     }
 }
