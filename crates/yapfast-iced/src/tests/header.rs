@@ -291,7 +291,11 @@ fn the_search_popout_suggests_places_and_a_pick_jumps_to_one() {
     assert_eq!(app.searching.lit, None, "Enter still searches");
     let _ = app.update(Message::Search(Event::Popout(PopoutEvent::Pick(0))));
     let state = app.client.state();
-    assert_eq!(state.selected.as_deref(), Some("discord:10:14"), "it went there");
+    assert_eq!(
+        state.selected.as_deref(),
+        Some("discord:10:14"),
+        "it went there"
+    );
     assert_eq!(app.searching.text, "", "the search ended");
     assert!(state.search_shown().is_none(), "no message search ran");
 }

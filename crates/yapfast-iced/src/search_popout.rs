@@ -189,7 +189,11 @@ pub fn shown(searching: &Searching, state: &AppState, history: &[String]) -> Opt
                         } else {
                             "Channel".to_owned()
                         },
-                        avatar: if room.direct { room.avatar.clone() } else { None },
+                        avatar: if room.direct {
+                            room.avatar.clone()
+                        } else {
+                            None
+                        },
                         icon: if room.direct {
                             None
                         } else {
