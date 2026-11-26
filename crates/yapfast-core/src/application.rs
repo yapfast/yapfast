@@ -2858,7 +2858,7 @@ fn pictures_on_screen<'a>(
             state
                 .account_profile
                 .iter()
-                .filter_map(|profile| profile.banner.as_deref()),
+                .filter_map(move |profile| cosmetics.background(profile.banner.as_deref())),
         )
         .chain(
             state
@@ -3028,18 +3028,15 @@ fn pictures_on_screen<'a>(
                 .chain(inviters)
                 .chain(moderators)
         }))
-        .chain(state.profile_editor.iter().flat_map(|editor| {
+        .chain(state.profile_editor.iter().flat_map(move |editor| {
             // The profile's pictures and its fallback's, which show where
             // the profile's are reset.
-            editor.profile.iter().flat_map(|profile| {
-                [
-                    &profile.avatar,
-                    &profile.banner,
-                    &profile.fallback.avatar,
-                    &profile.fallback.banner,
-                ]
-                .into_iter()
-                .filter_map(Option::as_deref)
+            editor.profile.iter().flat_map(move |profile| {
+                [&profile.avatar, &profile.fallback.avatar]
+                    .into_iter()
+                    .chain(cosmetics.background(Some(&profile.banner)))
+                    .chain(cosmetics.background(Some(&profile.fallback.banner)))
+                    .filter_map(Option::as_deref)
             })
         }))
         .chain(
@@ -3055,8 +3052,9 @@ fn pictures_on_screen<'a>(
                             .iter()
                             .find(|effect| effect.sku == sku)
                     });
-                    [&profile.avatar, &profile.banner]
+                    [&profile.avatar]
                         .into_iter()
+                        .chain(cosmetics.background(Some(&profile.banner)))
                         .chain(
                             profile
                                 .servers
@@ -3084,10 +3082,17 @@ fn pictures_on_screen<'a>(
                                     .map(|layer| layer.src.as_str()),
                             )
                         }))
-                        .chain(profile.badges.iter().flat_map(|badge| {
-                            std::iter::once(badge.icon.as_str())
-                                .chain(badge.level.iter().map(|level| level.picture.as_str()))
-                        }))
+                        .chain(
+                            cosmetics
+                                .badges(&profile.badges)
+                                .into_iter()
+                                .flatten()
+                                .flat_map(|badge| {
+                                    std::iter::once(badge.icon.as_str()).chain(
+                                        badge.level.iter().map(|level| level.picture.as_str()),
+                                    )
+                                }),
+                        )
                 }),
         )
         .chain(

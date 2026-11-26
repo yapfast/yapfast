@@ -42,7 +42,10 @@ pub fn text_light(ctx: crate::ctx::Ctx<'_>, role: TextRole) -> TextLight {
             Vector::new(shadow.x, shadow.y),
         )
     });
-    let glow = look.glow.map(|(colour, reach)| {
+    // A theme's glow is sixteen extra draws a piece; the switch turns it
+    // off without touching the shadow, the outline or the ink.
+    let glowing = ctx.layout.prefs.text_glow.unwrap_or(true);
+    let glow = look.glow.filter(|_| glowing).map(|(colour, reach)| {
         let mut colour = crate::themes::argb(colour);
         // The Slint renderer draws two glow copies; one third alpha makes
         // their overlap build near the glyphs without flattening the face.

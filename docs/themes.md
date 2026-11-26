@@ -208,7 +208,9 @@ art is rebaked after the window resizes so panes stay aligned to the current
 window pixels.
 Text-role shadow, glow, outline and emboss are extra glyph passes behind
 message bodies, author/time text, headings, header text and member labels, so
-links and cross-message selection keep the stock look. Channel rows and cards draw
+links and cross-message selection keep the stock look. Appearance's Draw text
+glow switch drops the glow's copies alone, sixteen a piece and the most of the
+four; the shadow, the outline and the ink stay. Channel rows and cards draw
 declared click ripples, hover gloss and selected highlighters. Foil bands
 cross profile cards and member-grid tiles; they follow the pointer or sweep
 on the art clock, and rest halfway across in Light or Reduce motion. Tiny highlighter and foil

@@ -180,10 +180,14 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.sync()
         }
         // The channel's composer and a new forum post's message both stage
-        // with the selected room, the forum's for its post.
-        Event::Clipboard(Writing::Draft | Writing::NewPost, Some(files)) => {
+        // with the selected room, the forum's for its post. The field
+        // keeps the keys, so Enter sends what was pasted.
+        Event::Clipboard(which @ (Writing::Draft | Writing::NewPost), Some(files)) => {
             app.client.dispatch(Action::Stage(files));
-            app.sync()
+            Task::batch([
+                app.sync(),
+                iced::widget::operation::focus(crate::thread::field_id(which)),
+            ])
         }
         Event::Clipboard(Writing::NewThread, Some(files)) | Event::ChosenFirst(files) => {
             if !files.is_empty() {

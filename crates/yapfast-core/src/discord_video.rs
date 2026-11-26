@@ -126,7 +126,7 @@ impl Filming {
             let pts = started.elapsed().as_micros() as u64 * CLOCK / 1_000_000;
             match encoder.encode_picture(picture, pts, keyframe) {
                 Ok(Some(frame)) => sender.send(Frame {
-                    data: frame.data.to_vec(),
+                    data: frame.data,
                     codec: SEND_CODEC,
                     timestamp: pts as u32,
                     keyframe: frame.keyframe,
