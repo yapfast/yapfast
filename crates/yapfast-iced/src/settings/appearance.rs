@@ -1032,7 +1032,7 @@ impl<'a> Page<'a> {
                 form::heading(theme, "MEMBER LIST"),
                 profile(
                     "Show activity cards",
-                    "What people in the server are playing, above its member list. Off, the list starts at its members.",
+                    "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again.",
                     !self.cx.state.activity_cards_hidden,
                     Cosmetic::MemberActivity,
                 ),

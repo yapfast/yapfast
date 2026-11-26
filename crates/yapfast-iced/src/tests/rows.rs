@@ -185,10 +185,10 @@ fn a_right_click_on_an_activity_card_opens_its_menu_at_the_pointer() {
     );
 }
 
-/// Hidden, the Activity panel goes whole: no heading, no eye, no card, and
-/// no height for the list to start below.
+/// Hidden, the Activity panel drops its cards but keeps "Activity — N" and
+/// its eye, as Discord's does, so a click there brings them back.
 #[test]
-fn hidden_activity_cards_take_the_panel_whole() {
+fn hidden_activity_cards_keep_the_panels_heading() {
     let (mut app, _folder) = preview();
     app.show_roster(false);
     app.roster.activity_cards = vec![crate::members::ActivityCard {
@@ -206,13 +206,14 @@ fn hidden_activity_cards_take_the_panel_whole() {
         ui.find("Stardew Valley").expect("the card");
         ui.find(heading).expect("the panel's heading");
     });
-    assert!(app.roster.activity_height(app.client.state(), true) > 0.0);
+    let open = app.roster.activity_height(app.client.state(), true);
     change(&mut app, |state| state.activity_cards_hidden = true);
     sent(&app, |ui| {
         assert!(ui.find("Stardew Valley").is_err(), "no card");
-        assert!(ui.find(heading).is_err(), "no heading");
+        ui.find(heading).expect("the heading stays");
     });
-    assert_eq!(app.roster.activity_height(app.client.state(), true), 0.0);
+    let hidden = app.roster.activity_height(app.client.state(), true);
+    assert!(hidden > 0.0 && hidden < open, "the heading's height alone");
 }
 
 #[test]

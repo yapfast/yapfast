@@ -97,7 +97,7 @@ pub struct Layout {
     pub pinned: Vec<String>,
     /// A one-to-one DM's profile beside it is hidden; messages from people
     /// blocked don't show at all; a call from someone's menu starts without
-    /// asking; the member list's Activity is gone whole.
+    /// asking; the member list's Activity shows its header alone.
     pub profile_panel_hidden: bool,
     pub hide_blocked: bool,
     pub skip_call_prompt: bool,
