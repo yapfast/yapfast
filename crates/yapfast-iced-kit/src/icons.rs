@@ -278,6 +278,8 @@ pub enum Icon {
     Search,
     /// Up and down arrows: a Sort menu.
     ArrowsUpDown,
+    /// Two sliders: a Filter menu, as the inbox's Mentions tab has.
+    FiltersHorizontal,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -359,6 +361,8 @@ pub enum Icon {
     AtSign,
     UserMinus,
     UserX,
+    /// A disc with a person cut out: Switch Accounts'.
+    UserCircle,
     FolderPlus,
     CopyPlus,
 }
@@ -443,6 +447,7 @@ impl Icon {
             Icon::ChartBar => icon!("chart-bar.svg"),
             Icon::Search => icon!("search.svg"),
             Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
+            Icon::FiltersHorizontal => icon!("filters-horizontal.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),
@@ -570,6 +575,7 @@ impl Icon {
             Icon::AtSign => icon!("at-sign.svg"),
             Icon::UserMinus => icon!("user-minus.svg"),
             Icon::UserX => icon!("user-x.svg"),
+            Icon::UserCircle => icon!("user-circle.svg"),
             Icon::FolderPlus => icon!("folder-plus.svg"),
             Icon::CopyPlus => icon!("copy-plus.svg"),
             Icon::VideoOff => icon!("video-off.svg"),

@@ -18,6 +18,55 @@ fn a_failed_join_shows_the_step_that_failed() {
     );
 }
 
+/// This account's own stream shows as LIVE in the call once its worker
+/// reports it, whether or not Discord's voice state says so yet.
+#[test]
+fn the_own_stream_is_live_in_the_call_once_it_is() {
+    let member = |user: &str| yapfast_discord::service::VoiceMember {
+        user_id: user.into(),
+        name: user.into(),
+        avatar: String::new(),
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        speaking_blocked: false,
+        server_deafened: false,
+        streaming: false,
+        video: false,
+        elsewhere: false,
+        style: None,
+        tag: None,
+    };
+    let mut snapshot = yapfast_discord::service::Snapshot::default();
+    snapshot
+        .voice
+        .insert("5".into(), vec![member("me"), member("you")]);
+    let mut state = State::default();
+    let cameras = Cameras::start(None);
+    let streaming = |state: &State| -> Vec<bool> {
+        discord_participants(&snapshot, "5", "me", state, &[], false, None, &cameras)
+            .iter()
+            .map(|person| person.streaming)
+            .collect()
+    };
+    assert_eq!(streaming(&state), [false, false]);
+    let frames = Arc::new(crate::frames::Frames::create(2, 2).unwrap());
+    state.sharing = Some(Sharing {
+        phase: SharePhase::Starting,
+        frames,
+        viewers: vec![],
+    });
+    assert_eq!(streaming(&state), [false, false], "not until it's live");
+    if let Some(sharing) = state.sharing.as_mut() {
+        sharing.phase = SharePhase::Live;
+    }
+    assert_eq!(
+        streaming(&state),
+        [true, false],
+        "this account, and no other"
+    );
+}
+
 /// Held by each test that joins a call in the fake Discord, so one runs at
 /// a time: they join as the same account, which sees another's join as
 /// joining elsewhere and ends its call, and the fake's voice controls are
@@ -250,28 +299,53 @@ async fn switching_calls_joins_each_next_one() {
     join_then_leave(&discord, GUILD, LOUNGE, "back to the Lounge").await;
     // Discord asks the gateway to reconnect (op 7): it resumes its session
     // (op 6), and the next joins go through the resumed connection.
-    let resumes = || async {
+    // How often the fake saw clients identify and resume.
+    let sessions = || async {
         let answer = control("/_control/sessions").await;
         let body = answer.split("\r\n\r\n").nth(1).unwrap_or_default();
-        serde_json::from_str::<serde_json::Value>(body).unwrap()["resumes"]
-            .as_u64()
-            .unwrap()
+        let counts = serde_json::from_str::<serde_json::Value>(body).unwrap();
+        (
+            counts["identifies"].as_u64().unwrap(),
+            counts["resumes"].as_u64().unwrap(),
+        )
     };
-    let before = resumes().await;
+    let (identifies_before, resumes_before) = sessions().await;
     assert!(
         control("/_control/gateway-reconnect")
             .await
             .contains("reconnect")
     );
-    let mut resumed = false;
-    for _ in 0..100 {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        if resumes().await > before {
-            resumed = true;
-            break;
+    // The client resumes at once; a try that fails waits 2–3 s, then 4–5 s,
+    // before the next, so a resume that needs retries goes past a few
+    // seconds. The test waits for the resume itself, up to a deadline that
+    // holds the client's whole schedule, and stops as soon as this client's
+    // session ends instead of resuming.
+    let resumed = async {
+        while sessions().await.1 == resumes_before {
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
-    }
-    assert!(resumed, "the gateway resumed");
+    };
+    let ended = online.wait_for(|snapshot| snapshot.status != Status::Online);
+    let outcome = tokio::time::timeout(Duration::from_secs(120), async {
+        tokio::select! {
+            () = resumed => None,
+            ended = ended => Some(ended.map(|snapshot| snapshot.status.clone())),
+        }
+    })
+    .await;
+    let failure = match outcome {
+        Ok(None) => None,
+        Ok(Some(Ok(status))) => Some(format!("the session ended instead: {status:?}")),
+        Ok(Some(Err(_))) => Some("the client stopped".to_owned()),
+        Err(_) => Some("no resume within 120 s".to_owned()),
+    };
+    let (identifies, resumes) = sessions().await;
+    assert!(
+        failure.is_none(),
+        "the gateway resumed: {}; the fake's resumes went {resumes_before} -> {resumes}, \
+         identifies {identifies_before} -> {identifies}",
+        failure.unwrap_or_default()
+    );
     join_then_leave(&discord, GUILD, LOUNGE, "the Lounge after a resume").await;
     join_then_leave(&discord, PRIVATE, DM_BOB, "Bob's DM call after a resume").await;
 }

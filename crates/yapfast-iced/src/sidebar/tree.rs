@@ -828,7 +828,7 @@ impl<'a> super::View<'a> {
         }
         let list = scroll_view(list)
             .id(LIST)
-            .on_scroll(|viewport| Message::Side(Event::Scrolled(viewport)))
+            .on_vertical_viewport(super::scrolled)
             .height(Length::Fill)
             .style(scrollbar(theme));
         let mut top = column![];

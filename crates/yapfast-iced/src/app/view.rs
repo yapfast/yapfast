@@ -552,10 +552,12 @@ impl App {
         if let Some(viewer) = crate::image_viewer::view(&self.viewer, self.ctx()) {
             layers = layers.push(viewer);
         }
+        // A menu opened from the inbox shows over it (`frame_layers`).
         if let Some(menu) = self
             .win
             .menu
             .as_ref()
+            .filter(|_| !crate::window_bar::inbox_shown(self))
             .and_then(|menu| crate::menus::view(menu, self.ctx()))
         {
             layers = layers
@@ -582,6 +584,9 @@ impl App {
         }
         if let Some(drop) = crate::uploads::drop_view(self.ctx()) {
             layers = layers.push(drop);
+        }
+        if let Some(dialog) = crate::accounts::view(&self.accounts, self.ctx()) {
+            layers = layers.push(self.popup(L(Layer::ManageAccounts), dialog));
         }
         if let Some(prompt) = crate::mfa::view(&self.mfa, self.ctx()) {
             layers = layers.push(self.popup(L(Layer::Mfa), prompt));
@@ -638,6 +643,20 @@ impl App {
         }
         if let Some(inbox) = crate::window_bar::inbox_view(self) {
             layers = layers.push(inbox);
+            // Its filter menu, over it.
+            if let Some(menu) = self
+                .win
+                .menu
+                .as_ref()
+                .and_then(|menu| crate::menus::view(menu, self.ctx()))
+            {
+                layers = layers
+                    .push(crate::controls::outside(
+                        Message::Menu(crate::menus::Event::Close),
+                        false,
+                    ))
+                    .push(menu);
+            }
         }
         if let Some(bar) = crate::window_bar::window_bar(self) {
             layers = layers.push(column![bar, Space::new().height(Length::Fill)]);
@@ -645,7 +664,13 @@ impl App {
         if let Some(edges) = crate::window_bar::resize_edges(self) {
             layers = layers.push(edges);
         }
-        crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset).into()
+        let frame =
+            crate::widgets::CtrlWheel::new(layers, zoom_turn, yapfast_core::zoom::Wheel::reset);
+        // A display change can alter the logical layout independently of
+        // a window resize event. Fit the overlays to the room iced lays out.
+        iced::widget::sensor(frame)
+            .on_resize(|size| Message::Shell(crate::shell::Event::Resized(size)))
+            .into()
     }
 
     /// The zoom level, a moment after it changes.

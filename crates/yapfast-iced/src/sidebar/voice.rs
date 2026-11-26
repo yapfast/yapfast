@@ -102,7 +102,8 @@ impl<'a> super::View<'a> {
         let theme = self.cx.look.theme;
         let id = format!("person:{room}:{}", person.id);
         let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
-        let opacity = if person.elsewhere && !pointed {
+        let marks = Marks::of(person, live);
+        let opacity = if marks.elsewhere && !pointed {
             0.5
         } else {
             1.0
@@ -141,26 +142,36 @@ impl<'a> super::View<'a> {
             } else {
                 avatar
             };
-        // The name takes the room, its marks at the row's end.
-        let mut face = row![
-            avatar,
-            column![
-                // As Slint's: 15 px in the window's face (a theme's body),
-                // not the theme's names.
-                elide(person.name.as_str())
-                    .size(15.0)
-                    .font(if speaking { BOLD } else { MEDIUM })
-                    .color(faded(ink, opacity))
-            ]
-            .width(Length::Fill),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        if !person.elsewhere {
-            if person.video {
+        // The name takes the room, its marks at the row's end: in its
+        // display name style's font alone, in the row's own colour, as
+        // names in a server show, then the server tag's chip.
+        let mut name = row![person_name(self.cx, person, speaking, faded(ink, opacity))]
+            .spacing(4)
+            .align_y(Alignment::Center);
+        if let Some(tag) = self.cx.state.cosmetics.tag(person.tag.as_ref()) {
+            name = name.push(self.cx.tag_chip(
+                &tag.text,
+                tag.badge.as_deref(),
+                crate::looks::Chip {
+                    size: 12.0,
+                    font: crate::fonts::SEMIBOLD,
+                    height: 16.0,
+                    pad: 4.0,
+                    radius: 4.0,
+                    fill: crate::style::CHIP,
+                    ink: theme.text,
+                },
+                opacity,
+            ));
+        }
+        let mut face = row![avatar, container(name).width(Length::Fill)]
+            .spacing(8)
+            .align_y(Alignment::Center);
+        if !marks.elsewhere {
+            if marks.video {
                 face = face.push(self.cx.look.glyph(Icon::Video, 16, theme.muted));
             }
-            if person.streaming {
+            if marks.streaming {
                 let activity_themed = self
                     .cx
                     .themes
@@ -175,16 +186,25 @@ impl<'a> super::View<'a> {
                 });
                 face = face.push(controls::live_pill_in(theme, activity_themed, watch));
             }
-            if person.muted || person.deafened {
-                let ink = if person.server_muted {
+            if marks.speaking_blocked {
+                face = face.push(
+                    tooltip(
+                        self.cx.look.glyph(Icon::MicOff, 16, theme.danger),
+                        controls::tip(theme, "Speaking is restricted in this channel"),
+                        tooltip::Position::Top,
+                    )
+                    .gap(4),
+                );
+            } else if marks.muted || marks.deafened {
+                let ink = if marks.server_muted {
                     theme.danger
                 } else {
                     theme.muted
                 };
                 face = face.push(self.cx.look.glyph(Icon::MicOff, 16, ink));
             }
-            if person.deafened {
-                let ink = if person.server_deafened {
+            if marks.deafened {
+                let ink = if marks.server_deafened {
                     theme.danger
                 } else {
                     theme.muted
@@ -231,7 +251,7 @@ impl<'a> super::View<'a> {
             .drag(move |_| {
                 Message::Arrange(crate::arrange::Event::Take(room.clone(), user.clone()))
             });
-        if !person.elsewhere {
+        if !marks.elsewhere {
             return drags.into();
         }
         // This account, in the call from another client.
@@ -243,4 +263,80 @@ impl<'a> super::View<'a> {
         .gap(4)
         .into()
     }
+}
+
+/// What a person's row in a voice channel marks them with. This account's
+/// own row, in the call it is in, takes its marks from the call itself: its
+/// mute, deafening, camera and stream are known here before Discord's
+/// listing says so, if it does, and it is in the call on this client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Marks {
+    pub video: bool,
+    pub streaming: bool,
+    pub muted: bool,
+    pub deafened: bool,
+    pub server_muted: bool,
+    pub server_deafened: bool,
+    pub speaking_blocked: bool,
+    pub elsewhere: bool,
+}
+
+impl Marks {
+    pub(crate) fn of(
+        person: &VoicePerson,
+        live: Option<&yapfast_core::voice::Participant>,
+    ) -> Self {
+        let listed = Self {
+            video: person.video,
+            streaming: person.streaming,
+            muted: person.muted,
+            deafened: person.deafened,
+            server_muted: person.server_muted,
+            server_deafened: person.server_deafened,
+            speaking_blocked: person.speaking_blocked,
+            elsewhere: person.elsewhere,
+        };
+        match live.filter(|live| live.local) {
+            Some(own) => Self {
+                video: listed.video || own.video.is_some(),
+                streaming: listed.streaming || own.streaming,
+                // Its own choice, which Discord's listing may not have caught up with.
+                muted: own.muted,
+                deafened: own.deafened,
+                server_muted: listed.server_muted || own.server_muted,
+                server_deafened: listed.server_deafened || own.server_deafened,
+                speaking_blocked: listed.speaking_blocked || own.speaking_blocked,
+                elsewhere: false,
+            },
+            None => listed,
+        }
+    }
+}
+
+/// A person's name in voice: in their display name style's font alone,
+/// shortened to fit, bold while they speak; the usual font with name
+/// styles off or none.
+pub(crate) fn person_name<'a>(
+    cx: crate::ctx::Ctx<'a>,
+    person: &'a VoicePerson,
+    speaking: bool,
+    ink: Color,
+) -> Element<'a, Message> {
+    let own = cx
+        .state
+        .cosmetics
+        .style(person.style.as_deref())
+        .and_then(|style| crate::looks::name_look(Some(style), &person.name, true, true))
+        .and_then(|look| look.font());
+    let weight = if speaking { 700 } else { 500 };
+    let font = match own {
+        Some(own) => crate::fonts::style_font(Some(own), weight),
+        None if speaking => BOLD,
+        None => MEDIUM,
+    };
+    elide(crate::fonts::shown_name(&person.name, own))
+        .size(15)
+        .font(font)
+        .color(ink)
+        .into()
 }

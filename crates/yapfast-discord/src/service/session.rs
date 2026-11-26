@@ -100,8 +100,11 @@ pub(super) async fn run(
         let (error, up) = match connected {
             Ok((gateway, ready)) => {
                 if let Some(refreshed) = ready::auth_token(&ready) {
-                    token = refreshed.to_owned();
-                    relogin(&shared.api, &token).await;
+                    let earlier = std::mem::replace(&mut token, refreshed.to_owned());
+                    relogin(&shared.api, &earlier, &token).await;
+                }
+                if let Some(own) = ready::own_account(&ready) {
+                    tokio::spawn(remember_account(token.clone(), own));
                 }
                 let started = tokio::time::Instant::now();
                 let ended = connected_session(gateway, ready, &mut requests, &mut shared).await;
@@ -157,17 +160,30 @@ pub(super) async fn run(
 /// Discord refreshed the login in READY, and the one Yapfast identified with
 /// is to go: requests, identifying again, the credential store and the
 /// files kept all take the new one. The gateway takes it from READY itself.
-async fn relogin(api: &Api, token: &str) {
+async fn relogin(api: &Api, earlier: &str, token: &str) {
     tracing::info!("Discord refreshed the login");
     api.relogin(token);
-    let token = token.to_owned();
+    let (earlier, token) = (earlier.to_owned(), token.to_owned());
     let stored = tokio::task::spawn_blocking(move || {
-        cache::relogin(&token);
-        token::store(&token)
+        cache::relogin(&earlier, &token);
+        // The account this login belonged to takes it, whichever is active now.
+        token::refresh(&earlier, &token)
     })
     .await;
     if let Ok(Err(error)) = stored {
         tracing::warn!(%error, "could not save Discord's refreshed login");
+    }
+}
+
+/// Keeps the account's username, name and avatar with its login, for the
+/// account switcher to show before it connects.
+async fn remember_account(token: String, own: ready::OwnAccount) {
+    let kept = tokio::task::spawn_blocking(move || {
+        token::describe(&token, &own.username, &own.name, &own.avatar)
+    })
+    .await;
+    if let Ok(Err(error)) = kept {
+        tracing::warn!(%error, "could not keep the account's name for the switcher");
     }
 }
 
@@ -617,6 +633,30 @@ impl Session<'_> {
             }
             Request::Presence { guild, user, reply } => {
                 self.searches.presence(gateway, &guild, &user, reply).await
+            }
+            Request::MemberRole {
+                guild,
+                mut users,
+                role,
+                add,
+            } => {
+                {
+                    let mut names = self
+                        .shared
+                        .names
+                        .write()
+                        .unwrap_or_else(|error| error.into_inner());
+                    users.retain(|user| names.change_member_role(&guild, user, &role, add));
+                }
+                if !users.is_empty() {
+                    self.shared.lists.members_changed(
+                        &self.tracker,
+                        &guild,
+                        users.iter().map(String::as_str),
+                    );
+                    let _ = self.shared.live.send(Live::Names);
+                }
+                Ok(())
             }
         }
     }

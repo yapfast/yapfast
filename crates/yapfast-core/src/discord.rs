@@ -59,6 +59,30 @@ pub fn set_custom_games(games: &[(String, String)]) {
     let _ = games;
 }
 
+/// The programs and games this device never shows as the game being played,
+/// each an executable (a file name or a full path) or the name shown after
+/// Playing. Detection running takes them at once.
+pub fn set_blocked_games(blocked: &[String]) {
+    #[cfg(feature = "discord")]
+    yapfast_discord::game_detection::custom_games::set_blocked(blocked.to_vec());
+    #[cfg(not(feature = "discord"))]
+    let _ = blocked;
+}
+
+/// The games the running programs are taken for now, each by the name that
+/// would show after Playing; none while detection isn't scanning, as when
+/// sharing the game is off.
+pub fn detected_games() -> Vec<String> {
+    #[cfg(feature = "discord")]
+    {
+        yapfast_discord::game_detection::custom_games::detected()
+    }
+    #[cfg(not(feature = "discord"))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg(feature = "discord")]
 use crate::chat::is_frame_layer;
 
@@ -269,10 +293,13 @@ fn voice_person(member: &yapfast_discord::service::VoiceMember) -> VoicePerson {
         muted: member.muted,
         deafened: member.deafened,
         server_muted: member.server_muted,
+        speaking_blocked: member.speaking_blocked,
         server_deafened: member.server_deafened,
         streaming: member.streaming,
         video: member.video,
         elsewhere: member.elsewhere,
+        style: member.style.map(|style| Arc::new(style.into())),
+        tag: server_tag(member.tag.clone()),
     }
 }
 
@@ -761,6 +788,13 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
             .collect(),
         incoming: dm.ringing.iter().any(|person| person.user_id == me),
         avatar: dm.avatar.clone(),
+        group_avatars: dm.group_avatars.as_ref().map(|pair| {
+            pair.clone().map(|member| chat::GroupAvatar {
+                id: member.id,
+                name: member.name,
+                avatar: member.avatar,
+            })
+        }),
         decoration: dm.decoration.clone(),
         nameplate: dm.nameplate.clone().map(|plate| Arc::new(plate.into())),
         style: dm.style.map(|style| Arc::new(style.into())),
@@ -905,7 +939,7 @@ fn server_rooms(
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
-                category_id: category_id.clone(),
+                category_id,
                 request: false,
                 person: None,
                 people: in_voice(snapshot, &channel.id),
@@ -913,6 +947,7 @@ fn server_rooms(
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                group_avatars: None,
                 decoration: None,
                 nameplate: None,
                 style: None,
@@ -961,13 +996,14 @@ fn server_rooms(
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
                 category,
-                category_id: category_id.clone(),
+                category_id,
                 request: false,
                 person: None,
                 people: vec![],
                 ringing: vec![],
                 incoming: false,
                 avatar: None,
+                group_avatars: None,
                 decoration: None,
                 nameplate: None,
                 style: None,
@@ -1128,6 +1164,7 @@ fn thread_room(
         ringing: vec![],
         incoming: false,
         avatar: None,
+        group_avatars: None,
         decoration: None,
         nameplate: None,
         style: None,
@@ -2555,7 +2592,10 @@ mod tests {
             video: false,
             elsewhere: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
+            style: None,
+            tag: None,
         };
         let first = Snapshot {
             servers: vec![server("10", "11", "12"), server("20", "21", "22")],
@@ -2720,10 +2760,13 @@ mod tests {
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: None,
+                tag: None,
             }],
         );
         assert!(kept.update_into(&call, false, &mut rooms, &mut servers));
@@ -2814,10 +2857,13 @@ mod tests {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             streaming: false,
             video: false,
             elsewhere: false,
+            style: None,
+            tag: None,
         };
         let snapshot = Snapshot {
             servers: vec![MarkedServer::marked(
@@ -2902,7 +2948,10 @@ mod tests {
                         video: false,
                         elsewhere: false,
                         server_muted: false,
+                        speaking_blocked: false,
                         server_deafened: false,
+                        style: None,
+                        tag: None,
                     }],
                 ),
                 // Discord sends who is in a hidden voice channel too.
@@ -2918,7 +2967,10 @@ mod tests {
                         video: false,
                         elsewhere: false,
                         server_muted: false,
+                        speaking_blocked: false,
                         server_deafened: false,
+                        style: None,
+                        tag: None,
                     }],
                 ),
             ]

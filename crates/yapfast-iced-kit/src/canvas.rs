@@ -72,6 +72,27 @@ impl Canvas {
     pub fn circle(&mut self, x: f32, y: f32, size: f32, ink: Ink) {
         self.rounded(x, y, size, size, size / 2.0, ink);
     }
+
+    /// Clears pixels inside a circle of `radius` centred at `(cx, cy)`,
+    /// smoothing the edge.
+    pub fn erase_circle(&mut self, cx: f32, cy: f32, radius: f32) {
+        let x0 = (cx - radius - 1.0).floor().max(0.0) as u32;
+        let y0 = (cy - radius - 1.0).floor().max(0.0) as u32;
+        let x1 = ((cx + radius + 1.0).ceil() as u32).min(self.width);
+        let y1 = ((cy + radius + 1.0).ceil() as u32).min(self.height);
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let d = (px as f32 + 0.5 - cx).hypot(py as f32 + 0.5 - cy) - radius;
+                let keep = (d + 0.5).clamp(0.0, 1.0);
+                if keep < 1.0 {
+                    let at = ((py * self.width + px) * 4) as usize;
+                    for channel in &mut self.pixels[at..at + 4] {
+                        *channel = (f32::from(*channel) * keep).round().min(255.0) as u8;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// A canvas's premultiplied BGRA to the renderer's format, in place: on the
@@ -80,7 +101,7 @@ pub fn finish(pixels: &mut [u8]) {
     if !crate::renderer::gpu() {
         return;
     }
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         let straight = |c: u8| match a {
             0 => 0,
@@ -97,7 +118,7 @@ pub fn to_native(pixels: &mut [u8]) {
     if crate::renderer::gpu() {
         return;
     }
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         if a == 255 {
             pixel.copy_from_slice(&[b, g, r, a]);
@@ -124,7 +145,7 @@ pub fn svg_drawn(svg: &str, size: u32) -> Canvas {
         &mut pixmap.as_mut(),
     );
     canvas.pixels = pixmap.take();
-    for pixel in canvas.pixels.chunks_exact_mut(4) {
+    for pixel in canvas.pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     canvas
@@ -155,7 +176,7 @@ pub fn svg_icon(svg: &str, size: u32, rgb: u32) -> Canvas {
     // white (the logo's mask) comes out the same as one in `currentColor`.
     let [r, g, b] = [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8];
     let scale = |c: u8, a: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
-    for pixel in canvas.pixels.chunks_exact_mut(4) {
+    for pixel in canvas.pixels.as_chunks_mut::<4>().0 {
         let a = pixel[3];
         pixel.copy_from_slice(&[scale(b, a), scale(g, a), scale(r, a), a]);
     }

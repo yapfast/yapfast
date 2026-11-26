@@ -19,7 +19,12 @@ not for every member (`Tracker::in_private`). Someone with none shows the
 grey offline ring. These follow PRESENCE_UPDATE live. The header of an open
 one-to-one DM shows the same dot on their avatar, and their custom status or
 what they're doing in a bubble beside the name. A group DM
-shows how many are in it. A group DM lists its members by name, with their
+shows how many are in it, its custom icon if it has one, else Discord's
+group-people placeholder for two members (one of eight colours, picked by
+the channel id's timestamp modulo eight) or the first two other members'
+overlapping avatars (sorted by user id) for more than two. Its row in the DM
+list has a green online dot while any other member is online; the header
+shows none. A group DM lists its members by name, with their
 presence, and a crown on whoever made it (the channel's `owner_id`), named
 "Group Owner", as a server's member list crowns its owner. Yapfast downloads the pictures of the first
 150 DMs listed; the rest keep their initials.
@@ -246,7 +251,11 @@ threads](servers.md#a-channels-list-of-threads).
   word marked when its Porter stem is one of theirs (`search_words`), but
   not in code blocks. Results from people blocked or ignored are hidden
   behind Discord's "We've hidden 1 result from users you've blocked."
-  row, which shows them. On the first page, ten results or more of which
+  row, which shows them. A result's right-click menu is Discord's: Copy
+  Message Link (`https://discord.com/channels/{server or @me}/{channel}/{message}`,
+  from the result's channel, `AppState::found_link`), and with Developer
+  Mode on Copy Message ID and Copy Author ID; a click on the result, or
+  its Jump, already shows it. On the first page, ten results or more of which
   three in four are bots' or webhooks', with no `authorType:` yet, Discord's
   hint adds `authorType: user` and searches. Nothing found says "We
   searched far and wide. Unfortunately, no results were found."; a failed
@@ -368,7 +377,12 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. The full profile,
+and the servers and friends the account shares with them. It also carries the
+accounts they linked (`connected_accounts`), which the full profile lists under
+Connections. The small card leaves them to the full profile, unless Settings ›
+Appearance's "Show connections on profile cards" is on (off by default): then
+it lists them too, from the same answer, asking for nothing more. The full
+profile,
 the DM's panel and the profile editor's preview show the dates under "Member
 Since" in one row, as the client does: the Discord logo and the account's
 date, then a bullet, the server's icon (its initial without one) and the date
@@ -443,7 +457,31 @@ long it is on its right. A Spotify song is titled by the
 song, then "by" the artist and "on" the album; a podcast's episode, which
 has no artist, by the episode, then "on" the show. Its title opens the song's
 page, `https://open.spotify.com/track/{sync_id}` (or `/episode/` when the
-activity's metadata says so); a stream has "Watch stream". The line under the
+activity's metadata says so); a stream has "Watch stream". Someone else's
+Rich Presence buttons, two at most, follow as small buttons, as Discord's do;
+one's own card and the account's menu show none, as Discord's don't.
+Presences, others' and one's own, carry the labels as strings in `buttons`,
+and the addresses only sometimes, in `metadata.button_urls` in the same order;
+only `https://` and `http://` addresses are kept, and a button without one
+still shows. A click finds the address as Discord's client does, in this
+order: in the presence's own `metadata`, when it came with any field; else in
+what Discord gave for that person's activity; else asked of Discord then, and
+only then, with
+`GET /users/{id}/sessions/{session_id}/activities/{application_id}/metadata`
+(`0` for an activity without an application), by the activity's
+`session_id`. Discord answers the activity's metadata, `button_urls` among
+it, or 204 with nothing. The answer is kept per person and activity
+(`application/profiles.rs`): Discord's client keeps it by person
+(`getActivityMetadata(userId)`) and forgets it on every change of that
+person's presence, so here it's kept with the activity's session and
+application, and another activity of the same person's is asked about
+afresh, while an answer that comes late for the one before opens nothing.
+Another click on the same activity asks nothing. The last 16 people's are
+kept, a bound of Yapfast's own (Discord's has none), until the account signs
+out or another is linked. Without an address for the button, a click does
+nothing, as in Discord's client; when Discord can't be asked, the notice
+says why. Found, the address asks "Leaving Yapfast" before it opens, as
+Discord's client opens them untrusted. The line under the
 name goes when it only names one of these. The activities come with the
 presence, from READY_SUPPLEMENTAL's `merged_presences`, PRESENCE_UPDATE and the
 member list, and the DM panel follows them live. Their pictures resolve as
@@ -870,8 +908,11 @@ window draws carry no address for it, so the window asks for nothing either.
 | Show nameplates (`nameplates`) | No nameplate in member lists or on the account's card (`AppState::hide_nameplates`) | On |
 | Animate decorations and nameplates (`moving_cosmetics`) | Their `/animated` APNG is never asked for (`animated_url` gives none), so only the still is fetched and decoded | On |
 | Show name styles (`name_styles`) | Names in the UI's typeface and the theme's colour | On |
+| Draw role colour gradients (`name_colours`) | One span a name in the role's first colour, instead of a span a letter redrawn with the name | On |
 | Show server tags (`server_tags`) | No tag chip, and no badge picture | On |
+| Show badges (`badges`) | No badge picture on a profile card, and no levels request for one | On |
 | Show profile frames (`profile_frames`) | No `/collectibles-products/` request for a profile's frame (`DiscordCommand::Profile`'s `frame`), and none of its layers | On |
+| Show profile backgrounds (`profile_backgrounds`) | No banner picture asked for, shown or kept going, and the top in the card's own colour rather than the accent or the avatar's | On |
 
 Every switch starts on, so profiles look as in Discord's client. The
 switches are there for the cheaper side: an effect's layers are APNGs up
@@ -882,6 +923,12 @@ Decorations, nameplates and tags are a still each, decoded once, and name
 styles use bundled fonts. Turning a switch off takes what it covers off
 what's shown at once; turning effects on shows a profile's effect the
 next time the profile is fetched.
+
+Role colour gradients, like name styles, fetch nothing; their switch is
+over drawing: a gradient name is a text span for every letter, rebuilt
+each time the row is drawn, member list and timeline alike, where one
+colour is a single span. A client with every switch off asks Discord for
+none of these pictures and draws none of them.
 
 ## Editing one's main profile
 
@@ -1123,9 +1170,11 @@ Disconnects and CLOSE are read while an image lookup is in flight, so closing
 an application restores the previous RPC activity without waiting for HTTP
 or the game detector's next scan. Completed clients are removed before queued
 updates are applied. If no RPC activity remains, the process detector verifies
-its fallback immediately; a closed application needs no second periodic scan
-before another running application takes its place. Local cards follow this,
-subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+its fallback immediately, and what shows stays until that scan replaces
+it. A closed application needs no second periodic scan before another running
+application takes its place. The local Playing label is reserved for
+activities of type Playing. Local cards follow these changes with the snapshot publisher's
+100 ms batching. Sending the update to other users still
 obeys the Gateway limit of five presence updates per 20 seconds. At most four
 commands and 64 KiB of payload wait behind an in-flight lookup per client;
 exceeding that bound closes the connection.
@@ -1203,7 +1252,9 @@ rules that need arguments. It never reads CPU, memory, environments or
 threads, and drops the process list after each scan. A process seen before and unchanged
 isn't matched again. Wine and Proton processes match by the Windows program
 in their command line, and runtime helpers, crash reporters and anti-cheat
-services don't count. The game started last shows and stays while it runs.
+services don't count. Automatic detection also skips Wallpaper Engine's
+executables and processes running from its `wallpaper_engine` folder.
+The game started last shows and stays while it runs.
 One that ended clears after two scans without it, up to 30 s. Only the
 game's name, its application id and when it started go to Discord.
 
@@ -1212,6 +1263,34 @@ A custom game is an executable and the name to show after Playing: a file
 name matches the executable in any folder, a full path only there, and
 Windows and Wine paths ignore case. Custom games are this device's, kept in
 `layout.json`, and a change rescans at once.
+
+Settings → Game activity → Never show as a game lists the programs this
+device never shows as the game played, for a program that Discord's list or
+Steam takes for a game and isn't one (`blocked_games` in `layout.json`, handed
+over with `discord::set_blocked_games`, and like the custom games a change
+rescans at once). An entry is an executable, a file name or a full path
+matched as a custom game's is, or the name that would show after Playing,
+whatever its case. It applies to what was matched, custom games included,
+whichever list matched it. It doesn't reach Rich Presence, which a program
+sends for itself.
+
+Each entry has a switch: on, it's hidden; off, it's allowed to show as a game
+again, and stays listed to be hidden with one press. `layout.json` keeps each
+as `{"name": "...", "on": true}` (`BlockedGame`). Detection is handed only the
+names that are on (`Prefs::apply_blocked_games`), so turning one off or on
+rescans at once, as adding or removing one does, and one that's off isn't left
+out of the detected games below. Adding a name that's listed and off, from
+that menu or the field, turns it on.
+
+"Choose from detected games" there opens a menu of the games the last scan
+took the running programs for, each by the name that would show after
+Playing, once each and in alphabetical order, at most 50
+(`Detector::detected`, kept after each scan in `custom_games::set_detected`
+and read with `discord::detected_games`). Choosing one adds that name to the
+list, so nothing is typed or copied. A program the list already leaves out
+isn't taken for a game, so it isn't in the menu. The menu is empty, and the
+button off, while nothing scans: when sharing the game is off or no account
+is linked.
 
 Discord's list comes from
 `https://cdn.discordapp.com/detectables/games-v1.json`, about 4 MB, as

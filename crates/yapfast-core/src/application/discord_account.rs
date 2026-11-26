@@ -122,6 +122,7 @@ impl Application {
                 effect: self.state.cosmetics.effects,
                 // The DM's panel draws no frame, so nothing of one is fetched.
                 frame: false,
+                badges: self.state.cosmetics.badges,
             }))]
         } else {
             vec![]
@@ -437,6 +438,91 @@ impl Application {
         vec![Effect::Backend(Command::Discord(command))]
     }
 
+    /// Takes what the connected account says of itself into its row of the
+    /// switcher. The list is read when Yapfast starts, before the account
+    /// has connected, so a login linked before there could be several has
+    /// no name or picture in it until now; the connection's own data fills
+    /// them in, and keeps them current when they change.
+    #[cfg(feature = "discord")]
+    pub(super) fn describe_active_account(&mut self, username: &str, name: &str, avatar: &str) {
+        let active = self.state.discord_active.as_str();
+        let Some(row) = self
+            .state
+            .discord_accounts
+            .iter_mut()
+            .find(|account| account.id == active)
+        else {
+            return;
+        };
+        if !username.is_empty() && row.username != username {
+            username.clone_into(&mut row.username);
+        }
+        if !name.is_empty() && row.name != name {
+            name.clone_into(&mut row.name);
+        }
+        if !avatar.is_empty() && row.avatar.as_deref() != Some(avatar) {
+            row.avatar = Some(avatar.to_owned());
+        }
+    }
+
+    /// Asks for this account's recent mentions under the Mentions inbox's
+    /// filter. A filter that may list what the kept ones lack (a kind turned
+    /// back on, another server or all of them) lets them go until the answer
+    /// comes, as Discord's client clears its list; a narrower one keeps
+    /// them, the view hiding what it leaves out.
+    pub(super) fn load_recent_mentions(
+        &mut self,
+        query: crate::chat::MentionsQuery,
+    ) -> Vec<Effect> {
+        if self
+            .state
+            .recent_mentions_query
+            .as_ref()
+            .is_some_and(|before| query.widens(before))
+        {
+            self.state.recent_mentions = Arc::default();
+        }
+        self.state.recent_mentions_query = Some(query.clone());
+        if self.state.preview {
+            return vec![];
+        }
+        tracing::info!(?query, "asking for recent mentions");
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::RecentMentions(query),
+        ))]
+    }
+
+    /// The account's recent mentions came for `query`, each with its room:
+    /// the newest first, as Discord lists them, up to [`RECENT_MENTIONS`].
+    /// They take the place of those kept, as Discord's client's first page
+    /// does; an answer to a query since changed is dropped.
+    pub(super) fn recent_mentions_came(
+        &mut self,
+        query: crate::chat::MentionsQuery,
+        result: Result<Vec<(String, ChatMessage)>, String>,
+    ) {
+        match result {
+            // One that came after the account was unlinked isn't kept.
+            Ok(_) if self.state.discord_user.is_none() => {}
+            Ok(_) if self.state.recent_mentions_query.as_ref() != Some(&query) => {
+                tracing::info!(?query, "dropped recent mentions for an old filter");
+            }
+            Ok(mentions) => {
+                let mut kept: Vec<_> = mentions
+                    .into_iter()
+                    .map(|(room, message)| (room, Arc::new(message)))
+                    .collect();
+                kept.sort_by_key(|(_, message)| std::cmp::Reverse(message.timestamp));
+                kept.truncate(RECENT_MENTIONS);
+                tracing::info!(kept = kept.len(), "listed recent mentions");
+                self.state.recent_mentions = Arc::new(kept);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not list recent mentions");
+            }
+        }
+    }
+
     /// Shows what a Discord snapshot says about the account and its lists.
     #[cfg(feature = "discord")]
     pub(super) fn show_snapshot(
@@ -447,6 +533,7 @@ impl Application {
         if let Some(account) = &snapshot.account {
             self.state.account_username =
                 Some(account.username.clone()).filter(|name| !name.is_empty());
+            self.describe_active_account(&account.username, &account.name, &account.avatar);
         }
         // Without Matrix, the account is Discord's.
         #[cfg(not(feature = "matrix"))]
@@ -468,6 +555,9 @@ impl Application {
             });
         }
         self.state.discord_linked = true;
+        if self.state.discord_user != snapshot.user_id {
+            self.forget_activity_links();
+        }
         self.state.discord_user.clone_from(&snapshot.user_id);
         self.state.discord_presence =
             Some(snapshot.presence.clone()).filter(|presence| !presence.is_empty());
@@ -530,6 +620,7 @@ impl Application {
                     activity: friend.activity.clone(),
                     activities: friend.activities.clone(),
                     since: friend.since,
+                    style: friend.style.map(|style| Arc::new(style.into())),
                 })
                 .collect();
             self.state.people_changed();
@@ -686,6 +777,82 @@ impl Application {
         self.cache_emoji_pictures()
     }
 
+    /// Whether linking a Discord account can start: with none linked, or from
+    /// Manage Accounts, which adds one to those linked.
+    pub(super) fn can_link_discord(&self) -> bool {
+        let state = &self.state;
+        cfg!(feature = "discord")
+            && !state.preview
+            && (!state.discord_linked || state.manage_accounts.is_some())
+    }
+
+    /// Whether a Discord account with this id is linked on this device.
+    pub(super) fn linked_account(&self, id: &str) -> bool {
+        self.state
+            .discord_accounts
+            .iter()
+            .any(|account| account.id == id)
+    }
+
+    /// Leaves what belonged to the Discord account before after another
+    /// became the active one: everything it showed goes, and the new
+    /// account's snapshots fill it in again as they come.
+    pub(super) fn switched_discord(&mut self) -> Vec<Effect> {
+        let state = &mut self.state;
+        state.manage_accounts = None;
+        state.add_friend = None;
+        state.status_editor = None;
+        state.new_dm = None;
+        state.invite = None;
+        state.join = None;
+        state.oauth = None;
+        state.scheduled_event = None;
+        state.gift = None;
+        state.channel_dialog = None;
+        state.leave = None;
+        state.move_sync = None;
+        state.profile_editor = None;
+        state.forwarding = None;
+        state.add_people = None;
+        state.switch_voice = None;
+        state.reactions = None;
+        state.interaction_modal = None;
+        state.select_menu = None;
+        state.profile = None;
+        state.panel_profile = None;
+        state.account_name = None;
+        state.account_username = None;
+        state.account_avatar = None;
+        state.account_decoration = None;
+        state.account_nameplate = None;
+        state.account_profile = None;
+        state.discord_presence = None;
+        state.pending_watch = None;
+        state.pending_camera = None;
+        // As in Discord's client, the switch goes Home, to the friends list,
+        // with no way back to the account before's places. What was being
+        // written in its rooms goes too, so none of it is sent as this one.
+        let discord_room = |room: &str| Network::of(room) == Network::Discord;
+        state.drafts.retain(|room, _| !discord_room(room));
+        state.compose.retain(|room, _| !discord_room(room));
+        state.staged.retain(|room, _| !discord_room(room));
+        if state
+            .edit
+            .as_ref()
+            .is_some_and(|edit| discord_room(&edit.room))
+        {
+            state.edit = None;
+        }
+        state.nav_back.clear();
+        state.nav_forward.clear();
+        state.navigation = Navigation::DirectMessages;
+        state.dm_screen = Some(DmScreen::Friends);
+        let mut effects = self.deselect();
+        effects.extend(self.forget_discord());
+        self.state.discord_linked = true;
+        effects
+    }
+
     /// Forgets the Discord account after it was unlinked.
     pub(super) fn forget_discord(&mut self) -> Vec<Effect> {
         #[cfg(feature = "discord")]
@@ -701,7 +868,10 @@ impl Application {
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
+        self.state.recent_mentions = Arc::default();
+        self.state.recent_mentions_query = None;
         self.forget_activity_feed();
+        self.forget_activity_links();
         #[cfg(feature = "discord")]
         {
             self.state.discord_names = None;

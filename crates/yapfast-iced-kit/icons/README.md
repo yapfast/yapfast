@@ -26,7 +26,8 @@ glyphs such as check, x and chevrons.
   Solar's monitor with an arrow cut out of its screen, and screen-share-off
   that monitor with the slash; search is the
   Linear magnifier with a 2-unit stroke.
-- Drawn for Yapfast in Solar's manner: gif, hash, mic and mic-off, the
+- Drawn for Yapfast in Solar's manner: user-circle (a filled disc with a
+  person cut out, for Switch Accounts), gif, hash, mic and mic-off, the
   signal-high, signal-medium and signal-low bars, soundboard (the speaker of
   volume-2 with two sparkles), thread (a spool of thread,
   as Discord marks threads), user-minus, user-pen, user-plus and user-x, and
@@ -75,3 +76,6 @@ sketches: a comic shout balloon with typing dots cut out of it.
 - Drawn for Yapfast: pen, for the profile editor name field.
 - Drawn for Yapfast: brush and chevrons-right, for the profile editor's Show
   Styles and Hide Styles.
+- Drawn for Yapfast: filters-horizontal (two sliders, each a line with a
+  solid knob), for the Filter button of the inbox's Mentions tab, after
+  Discord's FiltersHorizontalIcon there.

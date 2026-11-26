@@ -208,7 +208,9 @@ art is rebaked after the window resizes so panes stay aligned to the current
 window pixels.
 Text-role shadow, glow, outline and emboss are extra glyph passes behind
 message bodies, author/time text, headings, header text and member labels, so
-links and cross-message selection keep the stock look. Channel rows and cards draw
+links and cross-message selection keep the stock look. Appearance's Draw text
+glow switch drops the glow's copies alone, sixteen a piece and the most of the
+four; the shadow, the outline and the ink stay. Channel rows and cards draw
 declared click ripples, hover gloss and selected highlighters. Foil bands
 cross profile cards and member-grid tiles; they follow the pointer or sweep
 on the art clock, and rest halfway across in Light or Reduce motion. Tiny highlighter and foil
@@ -436,3 +438,112 @@ Bonfire's; every other theme draws those from its own colours.
 
 Discord role colours stay as servers set them, and some read faintly on a
 light theme; Yapfast doesn't adjust them yet.
+
+## Sharing themes
+
+Import, beside New theme, opens a file picker and keeps the theme in the file
+among the person's own, then chooses it, as Save does. Export, in the editor
+beside Save and Cancel, saves the theme as the editor shows it to a file, so
+a new theme can be shared before it is saved, and a built-in theme through a
+copy of it. Copy, beside Export, puts the same text on the clipboard, and
+Paste, beside Import, takes it from there as Import takes a file, so a theme
+can be shared in a chat message. A line under the title says how each went,
+or why a file wasn't taken.
+
+This is the colours alone. A theme from the creator, with its pictures, fonts
+and shapes, is shared as a package instead (its Export, or `yapfast theme
+export`). The editor owns the window's colours while it is open, so a file
+picked meanwhile (the picker can outlast opening the editor) is turned away
+with a note.
+
+A theme file is JSON, the format `layout.json` already uses for a custom
+theme, so there is nothing new to learn or parse, and people can edit one in
+any text editor. It is named after the theme, `Plum.yapfast-theme.json`; the
+picker lists every `.json` file, so a renamed file loads as well.
+
+```json
+{
+  "format": "yapfast-theme",
+  "version": 1,
+  "name": "Plum",
+  "base": "yap",
+  "dark": true,
+  "colours": { "rail": "#111215", "chat": "#2a1a3a", "row-hover": "#1a1b20" }
+}
+```
+
+It differs from a custom theme in `layout.json` in two ways. `format` and
+`version` come first: a file without `"format": "yapfast-theme"` is turned
+away, so that no other JSON, `layout.json`'s own entries included, loads as
+a theme by accident, and one with a higher `version` than the app knows is
+turned away with a note to update. `version` grows only for a change an older
+Yapfast would read wrongly; a colour added later doesn't need it, as a missing
+colour takes the base's. And there is no `id`: Yapfast gives the imported
+theme the next free `custom:` id, so importing a file twice makes two themes
+and a shared file never collides with the reader's.
+
+Reading follows the same rules as `layout.json`. A colour that is missing or
+isn't a colour takes the base's value, and a name Yapfast doesn't know is
+ignored, so a file from a newer or older version loads; the note after the
+import counts the colours that weren't colours. A `pill` or `header` the
+file names is the theme's own part, as in `layout.json`; one it doesn't name
+follows the theme's colour. A file with no colour name
+Yapfast knows isn't a theme, and is turned away. The name loses control
+characters and stops at 48 characters; a file without one imports as
+"Imported theme". A file over 64 KiB (a theme is about 2 KiB) isn't read. A
+theme's colours are the only data in it, and nothing in a file is run or
+fetched.
+
+## Fonts
+
+Settings → Appearance has a FONT section for drawing all of Yapfast in the
+person's own font. Choose font files opens the system's file dialog, which
+takes several files at once; the list shows each file by name with the faces
+it gave ("Regular, Bold Italic") and a Remove button. Choosing again adds to
+the files already loaded, and Reset to default removes them all and goes back
+to DM Sans. The monospace code font and the emoji font are not changed.
+
+The window draws every text in the family named DM Sans, so the files' faces
+are put in the font database under that name, not the names the files carry
+(the weights of one typeface often have a family name each), and DM Sans's own
+faces leave it while they're in. cosmic-text then picks the face for a bold or
+italic request through fontdb's query, from the weight and style each file
+declares in its own tables, so a family given as one file per weight and a
+variable font both work; a variable font is one face, drawn at each weight
+the text asks for, as DM Sans is. A weight the files don't have takes the
+nearest one they do, and without an italic file emphasis draws upright; neither
+is synthesised.
+
+While the files are loaded they also stand in for the body face an installed
+theme brings: its colours and other faces stay, and Reset to default
+gives its body face back.
+
+The formats are TrueType and OpenType (TTF, OTF), collections (TTC, which
+register all of their faces) and WOFF. WOFF2 isn't supported, and says so in
+the list. A file is told by its first four bytes, not its extension. A file
+that isn't a font, or gives no face, is refused with a short reason and isn't
+kept. TTF, OTF and TTC files are memory-mapped by fontdb, not read, so loading
+costs no heap and the operating system pages in the glyphs that draw. A WOFF
+file's tables are compressed, so it is unwrapped into a TrueType or OpenType
+font in memory (`crates/yapfast-iced-kit/src/woff.rs`) and the compressed file
+is released; that is the only copy a font makes. At most 64 files load.
+
+`layout.json` keeps the files in `ui_font_files`, as absolute paths in the
+order they were added. They are loaded at startup, before the window opens. A
+path that is missing or isn't a usable font is skipped with a note under the
+list, the rest are used, and when none loads DM Sans stays. A missing file
+stays saved, in case its drive comes back; a file refused when chosen is not
+saved.
+
+Changing the files takes the earlier set's faces out of the font database and
+puts the new set in, then moves the font system's version so iced shapes all
+its text again (`fonts::shape_again`); the timeline's rows are measured again,
+as when the message text size changes. The text engine's cached fonts of the
+faces taken out are let go then too (`forget_removed_fonts`, patch 4 in
+`vendor/cosmic-text/README.yapfast.md`), with the files' mappings and an
+unwrapped WOFF's memory.
+
+Known limitation: the text keeps the sizes the window's design gives it, so a
+font with large or small proportions reads larger or smaller than DM Sans
+does, and the emoji font's vertical metrics are tuned to DM Sans, so emoji can
+sit a little high or low against the text of a font with other proportions.

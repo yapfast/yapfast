@@ -1288,7 +1288,7 @@ pub fn unreadable_layout(variant: &Resolved) -> Vec<String> {
                 "shape.card_section.bar_text",
                 shape.bar_text.map(|colour| vec![colour]).or(text),
                 "shape.card_section.bar",
-                ground.clone().map(|grounds| {
+                ground.map(|grounds| {
                     bar.colours()
                         .iter()
                         .flat_map(|bar| grounds.iter().map(move |ground| laid_over(*bar, *ground)))
@@ -2004,8 +2004,14 @@ mod tests {
             r##""art": { "surfaces": { "window": { "image": "art/sky.jpg" } } }"##,
         );
         let report = check(&files(&manifest), Strictness::Install);
-        let image = "art/sky.jpg";
-        assert!(report.errors.iter().any(|error| error.contains(image)));
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("art/sky.jpg, which isn't in the theme")),
+            "{:?}",
+            report.errors
+        );
     }
 
     #[test]

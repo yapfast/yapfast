@@ -12,6 +12,14 @@ struct yapfast_h264 {
   x264_t *encoder;
   /* What it was opened with, changed for each new bitrate. */
   x264_param_t param;
+  /* The access unit the last call produced, where x264 wrote it: its NAL
+   * units are one run of bytes that lives until the next encode, and Rust
+   * drains it before then, into a buffer it has grown to the size the encode
+   * reported. So the unit is copied once, into what is sent, and nothing here
+   * keeps a copy of it; encoding the picture again to fit a larger buffer
+   * would send a frame referencing one the receiver never got. */
+  const unsigned char *unit;
+  size_t unit_size;
 };
 
 /* Aims for `kbps`, never above it over half a second's buffer. */
@@ -70,14 +78,16 @@ struct yapfast_h264 *yapfast_h264_new(unsigned width, unsigned height, unsigned 
   return h264;
 }
 
-/* Encodes one I420 frame into `out`, with `pts` in 90 kHz units. Returns the
- * encoded size, 0 when the encoder gave no frame, or a negative number on
- * failure. `duration` is unused: x264 times frames by the frame rate. */
+/* Encodes one I420 frame, with `pts` in 90 kHz units, and keeps what came out
+ * for `yapfast_h264_drain` to copy into the caller's buffer: the size it
+ * reports may be larger than that buffer, which grows to hold it without the
+ * frame being encoded a second time. Returns the size produced, 0 when the
+ * encoder gave no frame, or a negative number on failure. `duration` is
+ * unused: x264 times frames by the frame rate. */
 long yapfast_h264_encode(struct yapfast_h264 *h264, const unsigned char *y,
                          int y_stride, const unsigned char *u, int u_stride,
                          const unsigned char *v, int v_stride, long long pts,
-                         unsigned long duration, int keyframe, unsigned char *out,
-                         size_t capacity, int *is_key) {
+                         unsigned long duration, int keyframe, int *is_key) {
   (void)duration;
   x264_picture_t picture, encoded;
   x264_picture_init(&picture);
@@ -95,12 +105,30 @@ long yapfast_h264_encode(struct yapfast_h264 *h264, const unsigned char *y,
   int count = 0;
   int size = x264_encoder_encode(h264->encoder, &nals, &count, &picture, &encoded);
   if (size < 0) return -1;
+  /* Whatever the last call left is this frame's to replace, copied out or
+   * not: x264 has already reused its memory. */
+  h264->unit = NULL;
+  h264->unit_size = 0;
   if (size == 0 || count == 0) return 0;
-  if ((size_t)size > capacity) return -2;
   /* x264 lays a frame's NAL units out one after another. */
-  memcpy(out, nals[0].p_payload, (size_t)size);
+  h264->unit = nals[0].p_payload;
+  h264->unit_size = (size_t)size;
   *is_key = encoded.b_keyframe;
   return size;
+}
+
+/* Copies the access unit the last encode produced into `out`, which holds it,
+ * straight out of x264's memory. Rust grows its
+ * buffer to the size the encode reported before calling this once, so a frame
+ * is never encoded twice to fit one. Returns the size copied, or -1 when
+ * there is nothing to copy or `out` is too small. */
+long yapfast_h264_drain(struct yapfast_h264 *h264, unsigned char *out, size_t capacity) {
+  size_t size = h264->unit_size;
+  if (!size || size > capacity) return -1;
+  memcpy(out, h264->unit, size);
+  h264->unit = NULL;
+  h264->unit_size = 0;
+  return (long)size;
 }
 
 /* Changes the bitrate the encoder aims for, as the network allows. Returns

@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-use tokio::sync::{Notify, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 mod catalog;
 pub mod custom_games;
@@ -21,6 +21,9 @@ mod steam;
 use catalog::{Catalog, GameInfo};
 
 const STEAM_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How many games [`Detector::detected`] gives, for a menu to list.
+const DETECTED_MOST: usize = 50;
 
 /// How often the running processes are looked at: every 15 seconds, or
 /// every half second against the test server, where detection runs only
@@ -33,18 +36,22 @@ fn interval() -> Duration {
     }
 }
 
-pub(crate) fn start(api: Arc<Api>, rescan: Arc<Notify>) -> watch::Receiver<Option<Arc<Value>>> {
+pub(crate) fn start(
+    api: Arc<Api>,
+    rescan: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+) -> watch::Receiver<Option<Arc<Value>>> {
     let (shown, receiver) = watch::channel(None);
+    let custom = std::env::var_os("YAPFAST_DISCORD_GAMES_FILE").map(PathBuf::from);
+    let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
+    let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
+        || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
+    if disabled || !sysinfo::IS_SUPPORTED_SYSTEM {
+        return receiver;
+    }
+    let detected = custom_games::Detection::start();
     tokio::spawn(async move {
-        let custom = std::env::var_os("YAPFAST_DISCORD_GAMES_FILE").map(PathBuf::from);
-        let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
-        let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
-            || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
-        if disabled || !sysinfo::IS_SUPPORTED_SYSTEM {
-            shown.closed().await;
-            return;
-        }
-        if let Err(error) = run(api, custom, &shown, custom_games::subscribe(), rescan).await {
+        let (games, blocked) = (custom_games::subscribe(), custom_games::subscribe_blocked());
+        if let Err(error) = run(api, custom, &shown, games, blocked, rescan, &detected).await {
             tracing::warn!(%error, "automatic game detection stopped");
         }
         shown.send_replace(None);
@@ -57,7 +64,9 @@ async fn run(
     custom: Option<PathBuf>,
     shown: &watch::Sender<Option<Arc<Value>>>,
     mut custom_games: watch::Receiver<Vec<custom_games::CustomGame>>,
-    rescan: Arc<Notify>,
+    mut blocked_games: watch::Receiver<Vec<String>>,
+    mut rescan: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+    detected: &custom_games::Detection,
 ) -> Result<()> {
     let cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE")
         .map(PathBuf::from)
@@ -78,6 +87,7 @@ async fn run(
     .await?;
     let mut detector = Detector::new(initial, steam::roots());
     detector.set_executables(&custom_games.borrow_and_update());
+    detector.set_blocked(&blocked_games.borrow_and_update());
     let mut ticks = tokio::time::interval(interval());
     ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // A list from the cache is asked for again once it's a day old, and
@@ -87,17 +97,25 @@ async fn run(
     let mut refresh = Box::pin(catalog::refresh(&api, cache.clone(), cached));
     let mut next_refresh =
         Instant::now() + age.map_or(catalog::MAX_AGE, |age| catalog::MAX_AGE.saturating_sub(age));
+    let mut scanned_for_rpc = None;
     loop {
         tokio::select! {
             biased;
             () = shown.closed() => return Ok(()),
-            () = rescan.notified() => {
+            request = rescan.recv() => {
+                let Some(reply) = request else { return Ok(()); };
+                scanned_for_rpc = Some(reply);
                 detector.selection.verify_exit();
                 ticks.reset_immediately();
             }
             result = custom_games.changed() => {
                 if result.is_err() { return Ok(()); }
                 detector.set_executables(&custom_games.borrow_and_update());
+                ticks.reset_immediately();
+            }
+            result = blocked_games.changed() => {
+                if result.is_err() { return Ok(()); }
+                detector.set_blocked(&blocked_games.borrow_and_update());
                 ticks.reset_immediately();
             }
             result = &mut refresh, if due => {
@@ -123,9 +141,13 @@ async fn run(
                     (detector, activity)
                 }).await?;
                 detector = scanned.0;
+                detected.publish(detector.detected());
                 shown.send_if_modified(|previous| {
                     if *previous == scanned.1 { false } else { *previous = scanned.1; true }
                 });
+                if let Some(reply) = scanned_for_rpc.take() {
+                    let _ = reply.send(());
+                }
             }
         }
     }
@@ -225,6 +247,41 @@ struct Detector {
     selection: Selection,
     generation: u64,
     executables: Vec<(String, Arc<GameInfo>)>,
+    /// What this device never shows as the game played: executables and names.
+    blocked: Vec<String>,
+}
+
+/// A path as Windows compares it: lower case, with forward slashes and
+/// without the `\\?\` prefix.
+fn normalize_path(path: &str) -> String {
+    let mut path = path.replace('\\', "/").to_lowercase();
+    if path.starts_with("//?/unc/") {
+        path.replace_range(..8, "//");
+    } else if path.starts_with("//?/") {
+        path.drain(..4);
+    }
+    path
+}
+
+/// Whether `path` is the executable `entry` names: by file name, or by the
+/// whole path when `entry` has a separator.
+fn names_executable(entry: &str, path: &str, windows: bool) -> bool {
+    let (expected, actual) = if windows {
+        (
+            std::borrow::Cow::Owned(normalize_path(entry)),
+            std::borrow::Cow::Owned(normalize_path(path)),
+        )
+    } else {
+        (
+            std::borrow::Cow::Borrowed(entry),
+            std::borrow::Cow::Borrowed(path),
+        )
+    };
+    if expected.contains('/') {
+        expected == actual
+    } else {
+        actual.rsplit('/').next() == Some(expected.as_ref())
+    }
 }
 
 fn custom_match(
@@ -232,36 +289,17 @@ fn custom_match(
     path: &str,
     windows: bool,
 ) -> Option<Arc<GameInfo>> {
-    if entries.is_empty() {
-        return None;
-    }
-    let normalize = |s: &str| {
-        let mut path = s.replace('\\', "/").to_lowercase();
-        if path.starts_with("//?/unc/") {
-            path.replace_range(..8, "//");
-        } else if path.starts_with("//?/") {
-            path.drain(..4);
-        }
-        path
-    };
-    let actual = if windows {
-        std::borrow::Cow::Owned(normalize(path))
-    } else {
-        std::borrow::Cow::Borrowed(path)
-    };
     entries.iter().find_map(|(executable, game)| {
-        let expected = if windows {
-            std::borrow::Cow::Owned(normalize(executable))
-        } else {
-            std::borrow::Cow::Borrowed(executable.as_str())
-        };
-        let matches = if expected.contains('/') {
-            expected == actual
-        } else {
-            actual.rsplit('/').next() == Some(expected.as_ref())
-        };
-        matches.then(|| game.clone())
+        names_executable(executable, path, windows).then(|| game.clone())
     })
+}
+
+/// Whether the blocked list names the program at `path`, by its executable,
+/// or the game `name` shown for it, which ignores case.
+fn blocked_match(blocked: &[String], path: &str, name: &str, windows: bool) -> bool {
+    blocked
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(name) || names_executable(entry, path, windows))
 }
 
 fn fingerprint(process: &sysinfo::Process) -> u64 {
@@ -300,6 +338,10 @@ fn ignored(path: &str) -> bool {
             | "steam.exe"
             | "steamwebhelper"
             | "steamwebhelper.exe"
+            | "wallpaper32.exe"
+            | "wallpaper64.exe"
+            | "wallpaperui.exe"
+            | "webwallpaper32.exe"
             | "wine"
             | "wine64"
             | "wine-preloader"
@@ -315,7 +357,11 @@ fn ignored(path: &str) -> bool {
             | "rundll32.exe"
             | "conhost.exe"
             | "start.exe"
-    ) || file.starts_with("easyanticheat")
+    ) || path
+        .rsplit(['/', '\\'])
+        .skip(1)
+        .any(|directory| directory.eq_ignore_ascii_case("wallpaper_engine"))
+        || file.starts_with("easyanticheat")
         || file.starts_with("eac_launcher")
         || file.starts_with("battleye")
         || file.starts_with("beservice")
@@ -347,6 +393,7 @@ impl Detector {
             selection: Selection::default(),
             generation: 0,
             executables: Vec::new(),
+            blocked: Vec::new(),
         }
     }
 
@@ -371,6 +418,35 @@ impl Detector {
                     }),
                 )
             })
+            .collect();
+        self.generation = self.generation.wrapping_add(1);
+        self.selection = Selection::default();
+    }
+
+    /// The games the running programs are taken for, each by the name that
+    /// would show after Playing: once each, in alphabetical order, as many as
+    /// a menu lists. What the blocked list leaves out isn't one.
+    fn detected(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .known
+            .values()
+            .filter_map(|known| known.game.as_ref())
+            .map(|game| game.name.to_string())
+            .collect();
+        names.sort_by_cached_key(|name| name.to_lowercase());
+        names.dedup();
+        names.truncate(DETECTED_MOST);
+        names
+    }
+
+    /// Takes the list of what is never shown as the game played. Every
+    /// process is looked at again, as for a changed list of custom games.
+    fn set_blocked(&mut self, entries: &[String]) {
+        self.blocked = entries
+            .iter()
+            .map(|entry| entry.trim())
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_owned)
             .collect();
         self.generation = self.generation.wrapping_add(1);
         self.selection = Selection::default();
@@ -495,7 +571,7 @@ impl Detector {
                 continue;
             };
             let game = path.and_then(|path| {
-                custom_match(&self.executables, &path, wine || windows).or_else(|| {
+                let game = custom_match(&self.executables, &path, wine || windows).or_else(|| {
                     if ignored(&path) {
                         return None;
                     }
@@ -506,6 +582,10 @@ impl Detector {
                             let cwd = process.cwd().filter(|_| wine)?;
                             self.steam.matches(&cwd.to_string_lossy())
                         })
+                });
+                // What the device never shows isn't a game, whatever matched.
+                game.filter(|game| {
+                    !blocked_match(&self.blocked, &path, &game.name, wine || windows)
                 })
             });
             self.known.insert(
@@ -617,6 +697,78 @@ mod tests {
         assert!(custom_match(&unix, "/other/games/game", false).is_none());
     }
 
+    #[test]
+    fn blocked_programs_match_by_executable_or_by_the_name_shown() {
+        let blocked: Vec<String> = ["Spotify.exe", "/usr/bin/browser", "Visual Studio Code"]
+            .map(String::from)
+            .to_vec();
+        // By file name, in any case and folder on Windows.
+        assert!(blocked_match(
+            &blocked,
+            "C:\\Music\\SPOTIFY.EXE",
+            "Anything",
+            true
+        ));
+        // By full path, which is exact elsewhere.
+        assert!(blocked_match(
+            &blocked,
+            "/usr/bin/browser",
+            "Browser",
+            false
+        ));
+        assert!(!blocked_match(&blocked, "/opt/browser", "Browser", false));
+        // By the name shown after Playing, whatever its case.
+        assert!(blocked_match(
+            &blocked,
+            "/opt/code/code",
+            "visual studio code",
+            false
+        ));
+        // What isn't named stays, and nothing is blocked from an empty list.
+        assert!(!blocked_match(
+            &blocked,
+            "/games/factorio",
+            "Factorio",
+            false
+        ));
+        assert!(!blocked_match(&[], "/games/factorio", "Factorio", false));
+    }
+
+    #[test]
+    fn the_blocked_list_is_trimmed_and_drops_empty_entries() {
+        let mut detector = Detector::new(Catalog::default(), Vec::new());
+        detector.set_blocked(&["  Spotify ".into(), String::new(), "  ".into()]);
+        assert_eq!(detector.blocked, ["Spotify"]);
+    }
+
+    #[test]
+    fn detected_games_are_named_once_in_order_and_programs_not_taken_for_games_are_left_out() {
+        let mut detector = Detector::new(Catalog::default(), Vec::new());
+        let game = |name: &str| {
+            Some(Arc::new(GameInfo {
+                id: None,
+                name: name.into(),
+            }))
+        };
+        for (pid, game) in [
+            (1, game("Zelda")),
+            (2, game("apex")),
+            (3, game("Zelda")),
+            (4, None),
+        ] {
+            detector.known.insert(
+                pid,
+                Known {
+                    started: 0,
+                    fingerprint: 0,
+                    game,
+                    generation: 0,
+                },
+            );
+        }
+        assert_eq!(detector.detected(), ["apex", "Zelda"]);
+    }
+
     fn found(pid: u32, started: u64, name: &str) -> Found {
         Found {
             identity: Identity { pid, started },
@@ -684,6 +836,8 @@ mod tests {
             "C:\\Windows\\explorer.exe",
             "/games/game/EasyAntiCheat_EOS.exe",
             "/games/game/UnityCrashHandler64.exe",
+            "C:\\Steam\\steamapps\\common\\wallpaper_engine\\launcher.exe",
+            "/steam/steamapps/common/Wallpaper_Engine/bin/ui32.exe",
         ] {
             assert!(ignored(path), "{path}");
         }
@@ -708,10 +862,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "child process of the game detection tests"]
     fn fixture_process() {
-        if std::env::var_os("YAPFAST_TEST_GAME_FIXTURE").is_none() {
-            return;
-        }
+        std::env::var_os("YAPFAST_TEST_GAME_FIXTURE").expect("test harness only");
         use std::io::Read;
         let _ = std::io::stdin().read_exact(&mut [0_u8]);
     }
@@ -746,7 +899,11 @@ mod tests {
         std::fs::hard_link(&executable, &game).unwrap();
         let mut child = Child(
             std::process::Command::new(&game)
-                .args(["--exact", "game_detection::tests::fixture_process"])
+                .args([
+                    "--exact",
+                    "game_detection::tests::fixture_process",
+                    "--ignored",
+                ])
                 .env("YAPFAST_TEST_GAME_FIXTURE", "1")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::null())
@@ -803,7 +960,7 @@ mod tests {
             std::process::Command::new("sh")
                 .args([
                     "-c",
-                    "read -r ready; exec \"$1\" --exact game_detection::tests::fixture_process",
+                    "read -r ready; exec \"$1\" --exact game_detection::tests::fixture_process --ignored",
                     "yapfast-test-launcher",
                 ])
                 .arg(&game)

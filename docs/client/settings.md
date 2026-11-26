@@ -99,10 +99,39 @@ recording. Each change is kept at once in
   from takes another, and its name unless it was renamed); each custom
   theme's pencil edits it. A colour's swatch opens its `ColourPad` card and
   its field shows its change at once, or says "Not a colour"; Save keeps the
-  theme among the person's own and chooses it, Cancel (or leaving Appearance or Settings) shows the theme
-  from before, and a saved one's Delete asks once more. Then the system
-  title bar's switch, where Yapfast can draw its own, and the profile
-  switches, which the core is told of.
+  theme among the person's own and chooses it, Cancel (or leaving Appearance
+  or Settings) shows the theme from before, and a saved one's Delete asks
+  once more. Import, beside New theme, and Export, in the editor beside Save
+  and Cancel, open the system's file dialog and share a theme as a file (see
+  [themes](../themes.md#sharing-themes)); Paste and Copy beside them do the
+  same through the clipboard. A line under the title says how it went. Then
+  Font (`font.rs`): Choose font files opens the system's file dialog for TTF,
+  OTF, TTC and WOFF files, which draw the whole window in
+  their font; each file is listed with the faces it gave and a Remove, a file
+  that isn't a font is left out with the reason under the list, and Reset to
+  default goes back to DM Sans. The paths are kept as `ui_font_files` in
+  `layout.json` and loaded at startup; the rows are measured again as the
+  text size's change does. Application icon shows the colours of the
+  built-in themes as preview tiles, with Yap selected by default. The tray
+  uses the application icon's selection by default. Turning off “Use the
+  application icon in the tray” reveals the tray's own choices. A previously
+  saved different preset or separate custom image starts with the switch
+  off. The tray keeps its separate choice while the switch is on.
+  The tile below the presets imports an image or selects the saved one.
+  Point at a saved custom tile to show Replace. Imports accept PNG, ICO,
+  JPEG or WebP files up to 8 MiB and 4096 × 4096 pixels.
+  Yapfast keeps a 256 × 256 PNG copy in its data folder, preserving aspect
+  ratio and adding transparent padding where needed.
+  The running window and tray update as soon as a choice is made. On Linux,
+  the window icon applies where the desktop uses X11 window icons. Desktops
+  that use the application's desktop entry show the launcher icon there.
+  The theme's Draw text glow switch turns off the soft edge a theme puts
+  round text, which is drawing rather than data: the shadow, the outline
+  and the ink stay. Then the system title bar's switch, where Yapfast can
+  draw its own, and the profile switches, which the core is told of. The
+  last, "Show connections on profile cards" (off by default), is the
+  window's alone: the floating card lists the connections the profile
+  already carries.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those
@@ -112,8 +141,12 @@ recording. Each change is kept at once in
   idle while away, and goes AFK and idle on its own clock, and moving
   pictures hold still until someone is back. Input while someone is using
   it costs no message, only a time noted; one timer checks it.
-- Game Activity: sharing the game played (Discord keeps it), and the games
-  named by hand, added, edited and removed, which detection takes at once.
+- Game Activity: sharing the game played (Discord keeps it), the games
+  named by hand, added, edited and removed, and the programs never shown as
+  a game, added, removed and switched off to allow one again
+  (`blocked_games`), which detection takes at once,
+  and a menu of the games detected now to choose one from
+  (`Request::DetectedGamesMenu`, `MenuAct::BlockGame`).
 - About: the build with Copy version, the update switches, the releases
   (Updates in [the window](window.md#the-window-and-the-desktop)), and
   the links.

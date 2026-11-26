@@ -20,7 +20,7 @@ use crate::{
     stream_worker::{self, Report, Worker},
     voice::{
         CameraPhase, Chosen, Command, Link, LinkStats, Participant, Phase, Quality, SharePhase,
-        Sharing, State, StreamQuality, StreamStats, Watching, devices,
+        Sharing, State, StreamQuality, StreamStats, WatchStats, Watching, devices,
     },
 };
 
@@ -418,8 +418,10 @@ pub(crate) async fn call(
     let mut ringback: Option<Ringer> = None;
     // Discord wouldn't ring them, which the call says until someone comes.
     let mut unrung = false;
-    // How the shared screen last said it goes out, and when.
+    // How the shared screen last said it goes out, and the watched stream
+    // how it comes in, and when.
     let sending: Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>> = Arc::default();
+    let receiving: Arc<std::sync::Mutex<Option<(std::time::Instant, WatchStats)>>> = Arc::default();
     let mut soundboard = Soundboard::start(discord, guild);
     let (sound_events, mut sounds) = mpsc::unbounded_channel();
     {
@@ -451,16 +453,22 @@ pub(crate) async fn call(
         state.phase = Phase::Connected;
         let link = call.stats();
         state.link = Some(Link::new({
-            let (link, sending) = (link.clone(), sending.clone());
+            let (link, sending, receiving) = (link.clone(), sending.clone(), receiving.clone());
             move || {
                 let read = link.read();
                 let sending = sending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let receiving = receiving.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 LinkStats {
                     pings: read.pings.into(),
                     loss: read.loss,
                     privacy_code: read.privacy_code,
                     // The worker says each second while the stream is live.
                     stream: sending
+                        .as_ref()
+                        .filter(|(said, _)| said.elapsed() < SENDING_STALE)
+                        .map(|(_, stats)| stats.clone()),
+                    // And while a stream is watched.
+                    watching: receiving
                         .as_ref()
                         .filter(|(said, _)| said.elapsed() < SENDING_STALE)
                         .map(|(_, stats)| stats.clone()),
@@ -513,7 +521,8 @@ pub(crate) async fn call(
             }
             if let Some(until) = join_sound {
                 let snapshot = discord_states.borrow().clone();
-                let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                // Discord's client also keeps the soundboard from one it suppresses.
+                let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                 let found = crate::soundboard::join_sound(&snapshot, guild).map(|join| {
                     soundboard
                         .find(&snapshot, &me, guild, &channel, &join.sound)
@@ -709,7 +718,7 @@ pub(crate) async fn call(
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
                         Some(Command::Soundboard(id)) => {
-                            let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                            let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                             let found = soundboard.find(&discord_states.borrow(), &me, guild, &channel, &id);
                             if let Some(sound) = found.filter(|_| !state.deafened && !server_muted) {
                                 let gain = crate::soundboard::gain(&discord_states.borrow());
@@ -805,9 +814,10 @@ pub(crate) async fn call(
                                 Some((std::time::Instant::now(), stats));
                             continue;
                         }
-                        // Only a video's worker reports these.
+                        // Only a video's worker, or a watching one, reports these.
                         Some(
-                            Report::Opened { .. }
+                            Report::Receiving(_)
+                            | Report::Opened { .. }
                             | Report::Needs { .. }
                             | Report::Finished
                             | Report::Screen { .. },
@@ -912,6 +922,10 @@ pub(crate) async fn call(
                             if let Some(watching) = state.watching.as_mut() {
                                 watching.opening = false;
                             }
+                        }
+                        WatchEvent::Report(Some(Report::Receiving(stats))) => {
+                            *receiving.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                Some((std::time::Instant::now(), stats));
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
@@ -1194,19 +1208,28 @@ fn discord_participants(
                     member.deafened
                 },
                 server_muted: member.server_muted,
+                speaking_blocked: member.speaking_blocked,
                 server_deafened: member.server_deafened,
-                speaking: if local {
-                    talking && !state.muted
-                } else {
-                    member
-                        .user_id
-                        .parse()
-                        .is_ok_and(|user: u64| speaking.contains(&user))
-                },
+                speaking: !member.speaking_blocked
+                    && if local {
+                        talking && !state.muted
+                    } else {
+                        member
+                            .user_id
+                            .parse()
+                            .is_ok_and(|user: u64| speaking.contains(&user))
+                    },
                 connected: true,
                 problem: None,
                 avatar: Some(member.avatar.clone()),
-                streaming: member.streaming,
+                // This account's own stream is live once its worker reports
+                // it, before Discord's voice state says so, if it does.
+                streaming: member.streaming
+                    || (local
+                        && state
+                            .sharing
+                            .as_ref()
+                            .is_some_and(|sharing| sharing.phase == SharePhase::Live)),
                 video,
             }
         })
@@ -1231,6 +1254,7 @@ fn discord_participants(
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 speaking: false,
                 connected: false,

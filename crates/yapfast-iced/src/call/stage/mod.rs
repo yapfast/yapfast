@@ -366,20 +366,31 @@ pub fn call_view(app: &App) -> Element<'_, Message> {
 /// (unless it's full screen), and the controls.
 pub fn call_panel(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
-    let line = container(
-        text(voice_description(app))
-            .size(14)
-            .color(theme.muted)
-            .align_x(Alignment::Center)
-            .width(Length::Fill),
-    )
-    .padding(Padding {
-        top: 16.0,
-        left: 16.0,
-        right: 16.0,
-        bottom: 0.0,
-    })
-    .height(CONTROLS - CONTROLS_HEIGHT);
+    let description = voice_description(app);
+    let hint = [CALL_HINT, VOICE_HINT].contains(&description.as_str());
+    let words: Element<'_, Message> = if hint && app.layout.hide_voice_hint {
+        Space::new().width(Length::Fill).into()
+    } else {
+        let words = text(description).size(14).color(theme.muted);
+        if hint {
+            row![words, hint_close(app)]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            words.align_x(Alignment::Center).width(Length::Fill).into()
+        }
+    };
+    let line = container(words)
+        .align_x(Alignment::Center)
+        .width(Length::Fill)
+        .padding(Padding {
+            top: 16.0,
+            left: 16.0,
+            right: 16.0,
+            bottom: 0.0,
+        })
+        .height(CONTROLS - CONTROLS_HEIGHT);
     // The stage takes the height left between the line and the controls,
     // so the controls always sit under the tiles, whatever shows above.
     let stage: Element<'_, Message> = if full_shown(app) {
@@ -414,6 +425,36 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
         .into()
 }
 
+/// The line over a DM's call, and a voice channel's, once others are in
+/// it; its close button hides it for good.
+const CALL_HINT: &str = "The call stays connected while you browse other conversations.";
+const VOICE_HINT: &str = "Voice stays connected while you browse other conversations.";
+
+/// The hint's close button, which hides it for good.
+fn hint_close(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let hover = theme.hover;
+    let face = crate::widgets::Hover::new(
+        app.look().glyph(Icon::X, 14, theme.muted).boxed(20),
+        app.look().glyph(Icon::X, 14, theme.text).boxed(20),
+    );
+    let close = button(face)
+        .padding(0)
+        .on_press(Message::Call(Event::HideHint))
+        .style(move |_, status| iced::widget::button::Style {
+            background: controls::lights(status).then(|| hover.into()),
+            border: crate::style::round(4),
+            ..Default::default()
+        });
+    iced::widget::tooltip(
+        close,
+        controls::tip(theme, "Don't show again"),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
 /// What the line over the stage, or a channel's Join, says of the call.
 pub fn voice_description(app: &App) -> String {
     let state = app.client.state();
@@ -434,14 +475,14 @@ pub fn voice_description(app: &App) -> String {
         } else if voice.participants.len() == 1 {
             "Nobody else is in the call yet.".into()
         } else {
-            "The call stays connected while you browse other conversations.".into()
+            CALL_HINT.into()
         };
     }
     if voice_here(app) {
         return if voice.participants.len() == 1 {
             "You're here alone. Stay as long as you like; others can join later.".into()
         } else {
-            "Voice stays connected while you browse other conversations.".into()
+            VOICE_HINT.into()
         };
     }
     let join = if joins_muted(app) {
@@ -756,7 +797,7 @@ fn stage_tile(
                 on_press = Message::Call(Event::Watch(person.id.clone()));
             }
             let mut marks = Vec::new();
-            if person.muted && !person.deafened {
+            if person.speaking_blocked || (person.muted && !person.deafened) {
                 marks.push((Icon::MicOff, theme.danger));
             }
             if person.deafened {
@@ -770,7 +811,14 @@ fn stage_tile(
             let live = person.streaming && (person.local || person.video.is_none());
             let mut tile = Tile::new(size, content, Some(ground))
                 .ring(speaking(person).then_some(theme.live))
-                .chip(tile::chip(app.look(), marks, &person.user, live, note));
+                .chip(tile::chip_in(
+                    app.look(),
+                    marks,
+                    &person.user,
+                    call_name_font(app, &person.person),
+                    live,
+                    note,
+                ));
             if person.local && voice.camera_phase == voice::CameraPhase::Starting {
                 tile = tile.top_left(tile::pill("Starting camera...", GLASS, Color::WHITE));
             }
@@ -883,6 +931,16 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
+    let speaking_blocked = voice.speaking_blocked();
+    let mic_off = voice.muted || speaking_blocked;
+    let mic_label = if speaking_blocked {
+        "Speaking is restricted in this channel"
+    } else if voice.muted {
+        "Unmute"
+    } else {
+        "Mute"
+    };
+    let mic_action = (ready && !speaking_blocked).then_some(Message::Call(Event::Mute));
     let when = |message: Message| ready.then_some(message);
     // A gel theme's call buttons are glossy gel buttons (as asked):
     // plain at rest, lit while on, the danger gel while muted and to leave.
@@ -895,14 +953,14 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         };
         let mut row_of = row![].spacing(12).align_y(Alignment::Center);
         row_of = row_of.extend(gel(
-            if voice.muted { Icon::MicOff } else { Icon::Mic },
-            if voice.muted { "Unmute" } else { "Mute" },
-            if voice.muted {
+            if mic_off { Icon::MicOff } else { Icon::Mic },
+            mic_label,
+            if mic_off {
                 GelTone::Danger
             } else {
                 GelTone::Plain
             },
-            when(Message::Call(Event::Mute)),
+            mic_action,
         ));
         row_of = row_of.extend(gel(
             if voice.deafened {
@@ -996,11 +1054,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let face = |icon| app.look().glyph(icon, ROUND_GLYPH, theme.text);
     let mut controls = row![
         controls::round_button(
-            face(if voice.muted { Icon::MicOff } else { Icon::Mic }),
-            if voice.muted { "Unmute" } else { "Mute" },
-            if voice.muted { alert } else { theme.raised },
+            face(if mic_off { Icon::MicOff } else { Icon::Mic }),
+            mic_label,
+            if mic_off { alert } else { theme.raised },
             theme,
-            when(Message::Call(Event::Mute)),
+            mic_action,
         ),
         controls::round_button(
             face(if voice.deafened {
@@ -1188,4 +1246,23 @@ pub fn can_share(ctx: crate::ctx::Ctx<'_>) -> bool {
         && voice.room.as_deref().is_some_and(|room| {
             yapfast_core::network::Network::of(room) == yapfast_core::network::Network::Discord
         })
+}
+
+/// The font of someone's name on their call tile: their display name
+/// style's, as the call's voice channel lists them by their user id, else
+/// the usual bold.
+pub(crate) fn call_name_font(app: &App, person: &str) -> iced::Font {
+    let state = app.client.state();
+    let own = state
+        .voice
+        .room
+        .as_deref()
+        .and_then(|room| state.rooms.iter().find(|listed| listed.id == room))
+        .and_then(|room| room.people.iter().find(|listed| listed.id == person))
+        .and_then(|listed| {
+            let style = state.cosmetics.style(listed.style.as_deref())?;
+            crate::looks::name_look(Some(style), &listed.name, true, true)
+        })
+        .and_then(|look| look.font());
+    crate::fonts::style_font(own, 700)
 }

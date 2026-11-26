@@ -989,7 +989,10 @@ fn gutter<'a>(
                     .size(theme.type_size("time", 12.0))
                     .font(theme.font("time", MEDIUM))
                     .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
+                    .wrapping(text::Wrapping::None)
+                    // A clock too wide for the gutter, with seconds say,
+                    // grows to the left, never into the message.
+                    .align_x(Alignment::End),
             )
             .width(avatar)
             .align_x(Alignment::End),
@@ -1257,33 +1260,38 @@ fn author_line<'a>(
         }
         container(words).max_width(room).into()
     });
-    let mut name = Piece::new(
-        vec![span(shown_author).font({
-            let stock = style_font(style.as_ref().and_then(crate::looks::NameLook::font), 500);
-            if style.is_some() {
-                stock
-            } else {
-                theme.font("names", stock)
-            }
-        })],
-        index,
-        0,
-        Message::Link,
-        Message::Select,
-    )
-    .item(Some(ctx.row_item(index)))
-    .size(theme.type_size("names", text_size(ctx)), AUTHOR_LINE)
-    .color(color)
-    .light(crate::theme_effects::text_light(
-        ctx,
-        yapfast_core::themes::package::art::TextRole::Names,
-    ))
-    .starts(false)
-    .selection(
-        ctx.selected(index, 0),
-        ctx.lanes.timeline.selecting,
-        theme.token_colour("selection", theme.selection),
-    );
+    // A gradient role colour runs across the name, letter by letter, as
+    // Discord draws it, unless the theme inks names itself; otherwise the
+    // one colour.
+    let spans = match cosmetics
+        .colours(message.color_end)
+        .filter(|_| message.color.is_some() && content.is_none())
+    {
+        Some(end) => crate::looks::gradient_letters(
+            &shown_author,
+            [color, hex(end.0)],
+            end.1.map(hex),
+            name_size * 0.6,
+        )
+        .into_iter()
+        .map(|(letter, ink)| span(letter).font(name_font).color(ink))
+        .collect(),
+        None => vec![span(shown_author).font(name_font)],
+    };
+    let mut name = Piece::new(spans, index, 0, Message::Link, Message::Select)
+        .item(Some(ctx.row_item(index)))
+        .size(theme.type_size("names", text_size(ctx)), AUTHOR_LINE)
+        .color(color)
+        .light(crate::theme_effects::text_light(
+            ctx,
+            yapfast_core::themes::package::art::TextRole::Names,
+        ))
+        .starts(false)
+        .selection(
+            ctx.selected(index, 0),
+            ctx.lanes.timeline.selecting,
+            theme.token_colour("selection", theme.selection),
+        );
     if let Some(effect) = hover {
         name = name.hover_effect(effect);
     }

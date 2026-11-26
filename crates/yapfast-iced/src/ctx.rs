@@ -162,6 +162,9 @@ pub enum Request {
         user: String,
         location: &'static str,
     },
+    /// The menu of the games detection has found, where the pointer was
+    /// pressed, to choose one never to show.
+    DetectedGamesMenu,
 }
 
 /// Where the keys go.
@@ -201,6 +204,7 @@ pub enum Pref {
     /// The theme chosen, or the one a screen previews: the window shows
     /// it again.
     Theme,
+    DesktopIcon(crate::desktop::IconTarget),
     /// Noise suppression chosen: the call's switch puts back the last one
     /// that wasn't off.
     Noise,

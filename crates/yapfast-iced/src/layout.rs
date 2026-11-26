@@ -80,6 +80,9 @@ pub struct Layout {
     /// How calls are joined: unmuted unless turned off, and deafened.
     pub unmute_on_join: Option<bool>,
     pub deafen_on_join: bool,
+    /// The line over a call saying it stays connected while browsing,
+    /// closed for good.
+    pub hide_voice_hint: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
     /// Holding Alt over a channel or DM in the sidebar peeks at its newest
@@ -133,6 +136,12 @@ pub struct Layout {
     /// Each place's searches, newest first, by server or DM id, as
     /// Discord's box keeps them (`search_popout::HISTORY`).
     pub search_history: HashMap<String, Vec<String>>,
+    /// The inbox's last tab ("unreads" or "mentions").
+    pub inbox_tab: Option<String>,
+    /// The Mentions tab's filter, kept as `recent_mention_filter`
+    /// ([`crate::window_bar::MENTION_FILTER_KEY`]).
+    #[serde(rename = "recent_mention_filter")]
+    pub mention_filter: crate::window_bar::MentionFilter,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,
@@ -230,8 +239,27 @@ pub struct Prefs {
     pub decorations: Option<bool>,
     pub moving_cosmetics: Option<bool>,
     pub name_styles: Option<bool>,
+    /// Role colour gradients: a gradient or holographic role colour runs
+    /// across the name, a span a letter; off, the role's first colour.
+    pub name_colours: Option<bool>,
     pub server_tags: Option<bool>,
+    /// Profile badges and the levels their tooltips name.
+    pub badges: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// Profile backgrounds: the banner picture and its colour.
+    pub profile_backgrounds: Option<bool>,
+    /// Connections on the floating profile card, as the full profile
+    /// shows them: the window's alone, and off until it's chosen.
+    pub card_connections: bool,
+    /// A theme's text glow: the soft edge it puts round text, which is
+    /// drawing rather than a profile's cosmetic.
+    pub text_glow: Option<bool>,
+    pub application_icon: crate::desktop::IconChoice,
+    pub tray_icon: Option<crate::desktop::IconChoice>,
+    pub tray_uses_application_icon: Option<bool>,
+    /// The font files Appearance's Font chose to draw the window in, in the
+    /// order they were added; none keeps DM Sans.
+    pub ui_font_files: Vec<String>,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,
@@ -249,12 +277,35 @@ pub struct Prefs {
     pub show_idle: Option<bool>,
     /// Game Activity's own games: an executable and what to show for it.
     pub game_executables: Vec<(String, String)>,
+    /// Programs and games never shown as the game played, while each is
+    /// on: an executable or the name shown after Playing.
+    pub blocked_games: Vec<BlockedGame>,
     /// About: looking for releases, nightlies among them, the release
     /// skipped, and the last told of in a notification.
     pub check_for_updates: bool,
     pub update_nightlies: bool,
     pub skipped_update: Option<String>,
     pub announced_update: Option<String>,
+}
+
+/// A program or game on Game activity's list of those never shown as the game
+/// played: an executable (a file name or a full path) or the name shown after
+/// Playing, and whether it's hidden now. One turned off stays on the list and
+/// is shown as a game again, until it's turned back on. `layout.json` keeps
+/// each as `{"name": "...", "on": true}`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlockedGame {
+    pub name: String,
+    pub on: bool,
+}
+
+/// The names on `blocked` that are on, which is what detection leaves out.
+pub fn active_blocked(blocked: &[BlockedGame]) -> Vec<String> {
+    blocked
+        .iter()
+        .filter(|game| game.on)
+        .map(|game| game.name.clone())
+        .collect()
 }
 
 /// When GIFs, animated emoji and stickers play, as Messages' choice.
@@ -269,6 +320,29 @@ pub enum Animate {
 }
 
 impl Prefs {
+    pub fn tray_uses_application_icon(&self) -> bool {
+        use crate::desktop::IconChoice;
+        self.tray_uses_application_icon.unwrap_or_else(|| {
+            // Matching presets can share. Custom images are stored in
+            // separate files, so two Custom choices may look different.
+            self.tray_icon
+                .as_ref()
+                .is_none_or(|tray| *tray != IconChoice::Custom && *tray == self.application_icon)
+        })
+    }
+
+    pub fn tray_artwork(&self) -> (crate::desktop::IconTarget, &crate::desktop::IconChoice) {
+        use crate::desktop::{IconChoice, IconTarget};
+        if self.tray_uses_application_icon() {
+            (IconTarget::Application, &self.application_icon)
+        } else {
+            (
+                IconTarget::Tray,
+                self.tray_icon.as_ref().unwrap_or(&IconChoice::Default),
+            )
+        }
+    }
+
     /// The profile switches, each on unless turned off.
     pub fn cosmetics(&self) -> yapfast_core::application::Cosmetics {
         let default = yapfast_core::application::Cosmetics::default();
@@ -277,9 +351,17 @@ impl Prefs {
             decorations: self.decorations.unwrap_or(default.decorations),
             moving: self.moving_cosmetics.unwrap_or(default.moving),
             name_styles: self.name_styles.unwrap_or(default.name_styles),
+            name_colours: self.name_colours.unwrap_or(default.name_colours),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
+            badges: self.badges.unwrap_or(default.badges),
             frames: self.profile_frames.unwrap_or(default.frames),
+            background: self.profile_backgrounds.unwrap_or(default.background),
         }
+    }
+
+    /// Tells detection which games on the list are never shown: those on.
+    pub fn apply_blocked_games(&self) {
+        yapfast_core::discord::set_blocked_games(&active_blocked(&self.blocked_games));
     }
 
     /// Hands the date's order and the clock to what formats times.
@@ -293,6 +375,45 @@ impl Prefs {
         // After the date's order, which Discord's timestamps follow.
         clock::set_twelve_hour_clock(self.twelve_hour_clock);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn tray_icon_follows_matching_presets_and_preserves_separate_choices() {
+    use crate::desktop::{IconChoice, IconTarget};
+    use serde_json::json;
+
+    assert_eq!(
+        Prefs::default().tray_artwork(),
+        (IconTarget::Application, &IconChoice::Default)
+    );
+    let mut prefs: Prefs = serde_json::from_value(json!({
+        "application_icon": {"theme": "dracula"},
+        "tray_icon": {"theme": "dracula"}
+    }))
+    .unwrap();
+    assert_eq!(prefs.tray_artwork().0, IconTarget::Application);
+
+    let separate = IconChoice::Theme("nord".into());
+    prefs.tray_icon = Some(separate.clone());
+    assert_eq!(prefs.tray_artwork(), (IconTarget::Tray, &separate));
+
+    prefs.application_icon = IconChoice::Custom;
+    prefs.tray_icon = Some(IconChoice::Custom);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Tray, &IconChoice::Custom)
+    );
+    prefs.tray_uses_application_icon = Some(true);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Application, &IconChoice::Custom)
+    );
+    prefs.tray_uses_application_icon = Some(false);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Tray, &IconChoice::Custom)
+    );
 }
 
 /// Voice's settings in `layout.json`, which the core is told of as the

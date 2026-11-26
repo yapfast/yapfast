@@ -208,6 +208,25 @@ impl App {
     /// Takes in what changed in the client's state; returns the work that
     /// follows (a scroll, pictures to ask for, rows to report).
     pub fn sync(&mut self) -> Task<Message> {
+        // Discord's Mentions inbox fills the inbox's tab as it first shows
+        // (`window_bar.rs`), again after Discord went away and came back,
+        // and while only one server's list, once another room opened, as
+        // Discord's client asks again after a channel is selected.
+        if !self.client.state().discord_online {
+            self.mentions_fetched = false;
+        }
+        if self.mentions_room != self.client.state().selected {
+            self.mentions_room.clone_from(&self.client.state().selected);
+            if !self.layout.mention_filter.all_servers {
+                self.mentions_fetched = false;
+            }
+        }
+        crate::window_bar::fetch_mentions(self);
+        // A ping in an open room joins the inbox's Mentions tab, open or
+        // not; the open inbox shows it at once.
+        if crate::window_bar::mentions_sync(self) && self.inbox.is_some() {
+            crate::window_bar::inbox_sync(self);
+        }
         let state = self.client.state();
         // The DM search's filter is the DM home's: it goes as the rail
         // goes to a server, or back home.
@@ -401,6 +420,7 @@ impl App {
         tasks.push(self.sign_in.sync(self.client.state(), self.client.root()));
         tasks.push(self.shell_sync());
         tasks.push(self.mfa.sync(&self.client.app));
+        tasks.push(crate::accounts::sync(self));
         tasks.push(self.follow_backend());
         tasks.push(crate::timeline::clocks::arm_clocks(self));
         Task::batch(tasks)
@@ -765,6 +785,11 @@ impl App {
         };
         for item in &self.rail.items {
             want(item.icon.as_deref());
+            if let Some(crate::pictures::GroupIcon::Pair(pair)) = &item.group_icon {
+                for member in pair {
+                    want(Some(&member.avatar));
+                }
+            }
             if let crate::rail::Kind::Folder {
                 open: false,
                 preview,
@@ -804,6 +829,11 @@ impl App {
         for row in side_rows {
             if let crate::sidebar::SideRow::Room(room) = row {
                 want(room.avatar.as_deref());
+                if let Some(crate::pictures::GroupIcon::Pair(pair)) = &room.group_icon {
+                    for member in pair {
+                        want(Some(&member.avatar));
+                    }
+                }
                 want(room.status.emoji.as_deref());
                 want(room.decoration.as_deref());
                 want(room.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
@@ -886,7 +916,24 @@ impl App {
             want(self.sidebar.header.banner.as_deref());
         }
         want(self.header.avatar.as_deref());
+        if let Some(crate::pictures::GroupIcon::Pair(pair)) = &self.header.group_icon {
+            for member in pair {
+                want(Some(&member.avatar));
+            }
+        }
         want(self.account.status.emoji.as_deref());
+        // The linked accounts' pictures, in Switch Accounts' list or Manage
+        // Accounts.
+        let switching = self
+            .status
+            .popover
+            .as_ref()
+            .is_some_and(|popover| popover.switching);
+        if state.manage_accounts.is_some() || switching {
+            for account in &state.discord_accounts {
+                want(account.avatar.as_deref());
+            }
+        }
         for compose in [state.compose(), state.aside_compose()]
             .into_iter()
             .flatten()

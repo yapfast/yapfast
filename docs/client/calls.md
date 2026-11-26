@@ -37,6 +37,9 @@ The call's views and what they do are in `call/`.
   the tray meanwhile, the tile is back in the call and the next window
   opens as a window; brought forward while full screen, it stays so. A
   right click opens the person's voice menu.
+- Participants whose speaking permission Discord denies show a red blocked
+  microphone. The local microphone control shows the restriction in both
+  the account panel and the call stage.
 - The controls under the stage, in this order: mute and
   deafen (each with its device menu), the camera, Go Live, the soundboard,
   and leave.
@@ -92,8 +95,11 @@ The call's views and what they do are in `call/`.
   ping and the packets lost; Privacy, while the call is end-to-end
   encrypted with someone else in it, the voice privacy code in groups of
   five with Copy; Stream, while this account's screen is live, its
-  encoder, codec, size, bitrate sent and aimed for, keyframes asked for and
-  packets resent; and how the call is secured. What they show is copied
+  encoder, codec, what's captured, size, bitrate sent and aimed for,
+  keyframes asked for and packets sent and resent, and while it watches a
+  stream, its decoder, codec, size, bitrate received, packets lost and
+  resent and frames dropped, with "Copy diagnostics" for all of it as text;
+  and how the call is secured. What they show is copied
   out of the call only while they or the tooltip show, again each second.
   Their words and graph are the core's `call_details`.
 - A DM's call (`call/dm.rs`) shows above its messages, taking more room

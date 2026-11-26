@@ -129,7 +129,10 @@ pub fn fitted(source: &[u8], from: (u32, u32), to: (u32, u32), cover: bool) -> V
             let mut sum = [0u32; 4];
             for row in y0..y1 {
                 let start = ((row * source_width + x0) * 4) as usize;
-                for pixel in source[start..start + ((x1 - x0) * 4) as usize].chunks_exact(4) {
+                for pixel in source[start..start + ((x1 - x0) * 4) as usize]
+                    .as_chunks::<4>()
+                    .0
+                {
                     let weight = if straight { u32::from(pixel[3]) } else { 1 };
                     for channel in 0..3 {
                         sum[channel] += u32::from(pixel[channel]) * weight;
@@ -173,7 +176,9 @@ pub fn styled_name(
     use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping, SwashCache, SwashContent, Weight};
     let em = size;
     let line_height = (size * 1.3).ceil();
-    let family = look.family.map_or(Family::Name("DM Sans"), Family::Name);
+    let family = look
+        .family
+        .map_or(Family::Name(crate::fonts::FAMILY), Family::Name);
     let weight = if look.family.is_some() {
         look.weight
     } else {
@@ -425,7 +430,7 @@ pub fn emoji(system: &mut cosmic_text::FontSystem, emoji: &str, size: u32) -> Op
     }
     // Premultiplied BGRA, as a canvas is.
     let mut source = image.data;
-    for pixel in source.chunks_exact_mut(4) {
+    for pixel in source.as_chunks_mut::<4>().0 {
         let [r, g, b, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
         let scale = |c: u8| ((u16::from(c) * u16::from(a) + 127) / 255) as u8;
         pixel.copy_from_slice(&[scale(b), scale(g), scale(r), a]);
@@ -555,8 +560,8 @@ mod tests {
         }
         let out = fitted(&source, (4, 1), (2, 2), true);
         assert_eq!(out.len(), 2 * 2 * 4);
-        for pixel in out.chunks_exact(4) {
-            assert_eq!(pixel, [0, 255, 0, 255]);
+        for pixel in out.as_chunks::<4>().0 {
+            assert_eq!(*pixel, [0, 255, 0, 255]);
         }
     }
 
@@ -577,7 +582,12 @@ mod tests {
         assert_eq!(pixel(1, 3), [0, 0, 255, 255]);
         // One of its own shape is scaled to it whole.
         let same = fitted(&[9, 9, 9, 255].repeat(4), (2, 2), (4, 4), false);
-        assert!(same.chunks_exact(4).all(|pixel| pixel == [9, 9, 9, 255]));
+        assert!(
+            same.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| *pixel == [9, 9, 9, 255])
+        );
     }
 
     #[test]
@@ -611,6 +621,49 @@ mod tests {
     }
 
     const LIVE_TEST: u32 = 0x3ecf7e;
+}
+
+/// Scales `source` to a `mini` square (cut to cover), clips it to a circle,
+/// and punches out a transparent notch centred at `(cut_cx, cut_cy)` of
+/// radius `cut_radius` for the front avatar of a group DM icon.
+pub fn group_back_avatar(
+    source: &[u8],
+    from: (u32, u32),
+    mini: u32,
+    cut_cx: f32,
+    cut_cy: f32,
+    cut_radius: f32,
+    premultiplied: bool,
+) -> Vec<u8> {
+    let mut out = fitted(source, from, (mini, mini), true);
+    let side = mini as f32;
+    let center = side / 2.0;
+    let radius = side / 2.0;
+    for py in 0..mini {
+        for px in 0..mini {
+            let (x, y) = (px as f32 + 0.5, py as f32 + 0.5);
+            let d_circle = (x - center).hypot(y - center) - radius;
+            let circle_cov = (0.5 - d_circle).clamp(0.0, 1.0);
+            let d_cut = (x - cut_cx).hypot(y - cut_cy) - cut_radius;
+            let cut_keep = (d_cut + 0.5).clamp(0.0, 1.0);
+            let mask = circle_cov * cut_keep;
+            if mask < 1.0 {
+                let at = ((py * mini + px) * 4) as usize;
+                if premultiplied {
+                    for channel in &mut out[at..at + 4] {
+                        *channel = (f32::from(*channel) * mask).round().min(255.0) as u8;
+                    }
+                } else {
+                    let a = (f32::from(out[at + 3]) * mask).round().min(255.0) as u8;
+                    out[at + 3] = a;
+                    if a == 0 {
+                        out[at..at + 3].fill(0);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The vendored tiny-skia renderer (vendor/iced_tiny_skia) keeps a round
@@ -673,5 +726,19 @@ mod renderer_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn group_back_avatar_clips_to_circle_and_cuts_out_front_notch() {
+        let source = [220u8, 220, 220, 255].repeat(32 * 32);
+        let out = super::group_back_avatar(&source, (32, 32), 21, 21.5, 21.5, 13.06, false);
+        // Outside circle corner (0, 0) is transparent.
+        assert_eq!(pixel(&out, 21, 0, 0)[3], 0);
+        // Top-left visible area (7, 7) is opaque.
+        assert_eq!(pixel(&out, 21, 7, 7), [220, 220, 220, 255]);
+        // Inside front avatar cutout at (13, 13) is punched transparent.
+        assert_eq!(pixel(&out, 21, 13, 13)[3], 0);
+        // Bottom-right corner of the 21x21 tile (20, 20) is punched transparent.
+        assert_eq!(pixel(&out, 21, 20, 20)[3], 0);
     }
 }

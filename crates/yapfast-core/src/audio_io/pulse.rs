@@ -555,8 +555,11 @@ mod others {
         });
         let weak = Rc::downgrade(&stream);
         let into = heard.clone();
-        // For fragments that don't start on a float's alignment.
-        let mut unaligned: Vec<f32> = Vec::new();
+        // One callback's fragments, kept from callback to callback so hearing
+        // them costs no allocation, and handed over once they're discarded:
+        // what hears them mixes, which waits, and the server can't reuse a
+        // fragment still peeked.
+        let mut sound: Vec<f32> = Vec::new();
         stream
             .borrow_mut()
             .set_read_callback(Some(Box::new(move |_| {
@@ -566,22 +569,18 @@ mod others {
                     match peeked {
                         PeekResult::Data(bytes) => {
                             // SAFETY: every bit pattern is a valid f32.
-                            let samples = match unsafe { bytes.align_to::<f32>() } {
-                                ([], samples, []) => samples,
-                                _ => {
-                                    unaligned.clear();
-                                    unaligned.extend(bytes.chunks_exact(4).map(|sample| {
-                                        f32::from_ne_bytes([
-                                            sample[0], sample[1], sample[2], sample[3],
-                                        ])
-                                    }));
-                                    &unaligned
-                                }
-                            };
-                            (into.borrow_mut())(Heard::Samples {
-                                source: input,
-                                samples,
-                            });
+                            match unsafe { bytes.align_to::<f32>() } {
+                                ([], samples, []) => sound.extend_from_slice(samples),
+                                // A fragment that doesn't start on a float's
+                                // alignment is read a sample at a time.
+                                _ => sound.extend(
+                                    bytes
+                                        .as_chunks::<4>()
+                                        .0
+                                        .iter()
+                                        .map(|&sample| f32::from_ne_bytes(sample)),
+                                ),
+                            }
                         }
                         PeekResult::Hole(_) => {}
                         PeekResult::Empty => break,
@@ -589,6 +588,13 @@ mod others {
                     if stream.discard().is_err() {
                         break;
                     }
+                }
+                if !sound.is_empty() {
+                    (into.borrow_mut())(Heard::Samples {
+                        source: input,
+                        samples: &sound,
+                    });
+                    sound.clear();
                 }
             })));
         // About 10 ms at a time.

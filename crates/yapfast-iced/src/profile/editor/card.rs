@@ -158,7 +158,10 @@ pub(super) fn editor_top<'a>(
     let banner_locked = (!main || core.nitro()) && !core.may_picture(ProfilePicture::Banner);
     // The banner: the picture (moving ones play), else its colour, else
     // with no theme the avatar's, as the card's, else the card's own.
-    let ground = crate::profile::banner_ground(ctx, shown)
+    let background = ctx.state.cosmetics.background;
+    let ground = background
+        .then(|| crate::profile::banner_ground(ctx, shown))
+        .flatten()
         .map(hex)
         .unwrap_or(if main {
             Color::TRANSPARENT
@@ -175,12 +178,24 @@ pub(super) fn editor_top<'a>(
     // As wide as the middle, cover-fitted.
     let width = crate::profile::editor::editor_middle_width(ctx, editor, main).round();
     let banner_size = Size::new(width, banner_height);
-    let still = profile.banner.as_deref().and_then(|url| {
-        crate::profile::profile_picture(ctx, shown, url, width as u32, banner_height as u32, true)
-    });
+    let still = profile
+        .banner
+        .as_deref()
+        .filter(|_| background)
+        .and_then(|url| {
+            crate::profile::profile_picture(
+                ctx,
+                shown,
+                url,
+                width as u32,
+                banner_height as u32,
+                true,
+            )
+        });
     let moving = profile
         .banner
         .as_deref()
+        .filter(|_| background)
         .and_then(chat::moving_banner)
         .and_then(|url| ctx.moving(&url, banner_size, Rectangle::with_size(banner_size), true));
     if let Some(moving) = moving {
@@ -495,7 +510,11 @@ pub(super) fn editor_names<'a>(
         }
     }
     names = names.push(line);
-    if main && editor.editing != Some(Text::Pronouns) && !profile.badges.is_empty() {
+    if main
+        && ctx.state.cosmetics.badges
+        && editor.editing != Some(Text::Pronouns)
+        && !profile.badges.is_empty()
+    {
         names = names.push(
             container(crate::profile::body::badge_rows(ctx, shown)).padding(Padding {
                 top: 10.0,
