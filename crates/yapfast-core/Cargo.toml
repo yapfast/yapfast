@@ -114,9 +114,8 @@ libpulse-binding = { version = "2", default-features = false }
 libpulse-simple-binding = { version = "2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-# Yapfast's own sound goes through WASAPI. sysinfo already builds this
-# version of the crate for Windows.
-windows = { version = "0.62", features = [
+# Yapfast's own sound goes through WASAPI.
+windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Media_Audio",
     "Win32_Media_KernelStreaming",
@@ -133,7 +132,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 # `#[implement]` names this crate directly and must use the same version as windows.
-windows-core = "0.62"
+windows-core = "0.62.2"
 
 [dev-dependencies]
 # Animated PNGs to read frame timings from, the version the image crate uses.

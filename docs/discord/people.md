@@ -1230,8 +1230,8 @@ off, nothing scans processes, downloads the game list or serves the RPC
 socket.
 
 Every 15 seconds (half a second against the test server, for tests) a
-blocking task lists this user's processes with
-`sysinfo`, built with only its `system` feature: each one's executable, start
+blocking task lists this user's processes through procfs on Linux, the
+Windows process APIs or libproc on macOS. It reads the executable, start
 time and user, and the command line only for Wine processes and the few
 rules that need arguments. It never reads CPU, memory, environments or
 threads, and drops the process list after each scan. A process seen before and unchanged

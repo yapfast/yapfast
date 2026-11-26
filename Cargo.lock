@@ -5500,15 +5500,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ntapi"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
-dependencies = [
- "winapi",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5899,16 +5890,6 @@ dependencies = [
  "block2 0.6.2",
  "libc",
  "objc2 0.6.5",
- "objc2-core-foundation",
-]
-
-[[package]]
-name = "objc2-io-kit"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
-dependencies = [
- "libc",
  "objc2-core-foundation",
 ]
 
@@ -8650,20 +8631,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sysinfo"
-version = "0.40.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e80749408e2d8bec0ffa303012cf4e1b3b355f4a09087b4fdf7473680f6a2de"
-dependencies = [
- "libc",
- "memchr",
- "ntapi",
- "objc2-core-foundation",
- "objc2-io-kit",
- "windows 0.62.2",
-]
-
-[[package]]
 name = "tar"
 version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10980,7 +10947,6 @@ dependencies = [
  "serde_json",
  "serenity-voice-model",
  "sha2 0.11.2",
- "sysinfo",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -10988,6 +10954,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webrtc-sys",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
