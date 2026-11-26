@@ -989,7 +989,10 @@ fn gutter<'a>(
                     .size(theme.type_size("time", 12.0))
                     .font(theme.font("time", MEDIUM))
                     .color(theme.muted)
-                    .wrapping(text::Wrapping::None),
+                    .wrapping(text::Wrapping::None)
+                    // A clock too wide for the gutter, with seconds say,
+                    // grows to the left, never into the message.
+                    .align_x(Alignment::End),
             )
             .width(avatar)
             .align_x(Alignment::End),

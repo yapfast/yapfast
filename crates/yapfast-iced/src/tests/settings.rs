@@ -255,6 +255,23 @@ fn themes_is_its_own_settings_section_while_appearance_keeps_shortcuts() {
     assert!(shows(&app, "No themes yet"), "what to do with none");
 }
 
+/// Showing connections on profile cards is off until it's turned on in
+/// Appearance's PROFILES, and stays on after a restart.
+#[test]
+fn showing_connections_on_cards_is_kept() {
+    let (mut app, folder) = preview();
+    assert!(!app.layout.prefs.card_connections, "off by default");
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("Show connections on profile cards")
+            .expect("the switch");
+    });
+    assert!(app.layout.prefs.card_connections);
+    assert_eq!(stored(&folder)["card_connections"], true);
+    let again = start(&folder, true);
+    assert!(again.layout.prefs.card_connections);
+}
+
 #[test]
 fn an_installed_theme_applies_and_turns_off_from_themes() {
     let folder = tempfile::tempdir_in(local()).expect("test folder");
