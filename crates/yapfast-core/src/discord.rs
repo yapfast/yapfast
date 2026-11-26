@@ -1058,12 +1058,15 @@ fn server_rooms(
         banner: server.banner.clone(),
         verified: server.verified,
         // Only those who may Manage Server hear of it, as in Discord's
-        // client (its module 347951).
-        invites_paused_until: (server.server_permissions(me, &server.marks.roles)
-            & yapfast_discord::ready::permission::MANAGE_GUILD
-            != 0)
-            .then(|| server.invites_paused(crate::clock::now_ms() / 1000))
-            .flatten(),
+        // client (its module 347951). The permissions are worked out only
+        // for a server whose invites are paused.
+        invites_paused_until: server
+            .invites_paused(crate::clock::now_ms() / 1000)
+            .filter(|_| {
+                server.server_permissions(me, &server.marks.roles)
+                    & yapfast_discord::ready::permission::MANAGE_GUILD
+                    != 0
+            }),
         boosts: server.boost_bar.then_some(server.boosts),
         premium_tier: (server.premium_tier > 0).then_some(server.premium_tier),
         events: server
