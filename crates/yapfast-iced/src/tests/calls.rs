@@ -721,13 +721,28 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
         stream: Some(voice::StreamStats {
             engine: "h264_nvenc".into(),
             codec: "H264".into(),
+            captured: "2560×1440 screen".into(),
             width: 1920,
             height: 1080,
             fps: 60,
             target_kbps: 4000,
             sent_kbps: 3812,
             keyframe_requests: 2,
+            packets: 1000,
             resent: 5,
+        }),
+        watching: Some(voice::WatchStats {
+            decoder: "dav1d".into(),
+            codec: "AV1".into(),
+            width: 1280,
+            height: 720,
+            fps: 30,
+            received_kbps: 2500,
+            packets: 4000,
+            lost: 8,
+            repaired: 31,
+            keyframe_requests: 1,
+            dropped: 0,
         }),
     };
     app.client.app.state.voice.link = Some(voice::Link::new(move || stats.clone()));
@@ -769,14 +784,26 @@ fn the_signal_opens_the_connections_details_with_their_tabs() {
     assert!(shows(&app, "Copy"));
     let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Tab(LinkTab::Stream)));
     for words in [
+        "Sharing",
         "NVENC on the GPU",
         "H264",
+        "2560×1440 screen",
         "1920×1080 at 60 fps",
         "3.8 Mbit/s",
         "4.0 Mbit/s",
+        "5 (0.5%)",
+        "Watching",
+        "dav1d on the CPU",
+        "1280×720 at 30 fps",
+        "2.5 Mbit/s",
+        "8 (0.2%)",
+        "Copy diagnostics",
     ] {
         assert!(shows(&app, words), "{words}");
     }
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Diagnostics));
+    assert!(shows(&app, "Copied"));
+    let _ = crate::call::update(&mut app, Event::Link(LinkEvent::CopiedDone));
     // Closed with the pointer gone, nothing is copied out of the call.
     let _ = crate::call::update(&mut app, Event::Link(LinkEvent::Pointed(false)));
     let _ = crate::call::update(&mut app, Event::Close);

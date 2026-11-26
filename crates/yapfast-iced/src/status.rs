@@ -537,8 +537,10 @@ impl<'a> View<'a> {
         let state = self.cx.state;
         let account = self.cx.account;
         let profile = card.map(|shown| shown.look.profile());
-        let ground = card
-            .and_then(|shown| crate::profile::banner_ground(self.cx, shown))
+        let background = state.cosmetics.background;
+        let ground = background
+            .then(|| card.and_then(|shown| crate::profile::banner_ground(self.cx, shown)))
+            .flatten()
             .map(hex)
             .or(inks.themed.then_some(inks.primary))
             .unwrap_or(theme.sunken);
@@ -550,6 +552,7 @@ impl<'a> View<'a> {
                 .style(move |_| rounded(ground, top))
         ];
         if let Some(picture) = card
+            .filter(|_| background)
             .zip(profile.and_then(|profile| profile.banner.as_deref()))
             .and_then(|(shown, url)| {
                 crate::profile::profile_picture(
