@@ -1117,7 +1117,7 @@ fn this_accounts_own_row_marks_its_mute_deafening_camera_and_stream() {
     // Joined on this client, so not dimmed as another client's.
     let elsewhere = yapfast_core::chat::VoicePerson {
         elsewhere: true,
-        ..listed.clone()
+        ..listed
     };
     assert!(!Marks::of(&elsewhere, Some(&me)).elsewhere);
     // Someone else's row keeps what Discord lists.
