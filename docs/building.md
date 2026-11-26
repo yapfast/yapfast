@@ -437,8 +437,9 @@ $env:Path = "C:\Program Files\LLVM\bin;$env:Path"
 $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
 ```
 
-Adjust both paths if LLVM is installed elsewhere. A network connection is
-needed once for the libwebrtc archive.
+Adjust both paths if LLVM is installed elsewhere. When the libwebrtc archive
+is missing from the build cache, Cargo downloads it before compiling the
+native code that uses its headers.
 `vendor/ffmpeg-src/build.rs` and `crates/yapfast-core/build.rs` select
 `clang-cl` for MSVC targets only when `CC`/`CXX` are unset, because FFmpeg's x86
 assembly and the camera shim's Clang warning flags need it; an explicitly
