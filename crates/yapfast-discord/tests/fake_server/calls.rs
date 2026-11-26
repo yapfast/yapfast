@@ -315,9 +315,20 @@ fn watch_frames(
         }
     }
     assert_eq!(receiver.link(), Link::Connected);
-    let heard: Vec<Vec<u8>> = sounds.try_iter().collect();
+    let heard: Vec<_> = sounds.try_iter().collect();
     assert!(heard.len() >= 5, "only {} sounds arrived", heard.len());
-    assert!(heard.iter().all(|sound| sound == &[0xf8, 0xff, 0xfe]));
+    assert!(heard.iter().all(|sound| sound.opus == [0xf8, 0xff, 0xfe]));
+    // Each in its place in the streamer's numbering; a full queue drops
+    // some, so later is all that holds.
+    assert!(
+        heard.windows(2).all(|pair| pair[1]
+            .sequence
+            .wrapping_sub(pair[0].sequence)
+            .wrapping_sub(1)
+            < 0x8000),
+        "{:?}",
+        heard.iter().map(|sound| sound.sequence).collect::<Vec<_>>()
+    );
     frames
 }
 

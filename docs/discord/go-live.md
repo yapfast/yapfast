@@ -239,9 +239,11 @@ PulseAudio server monitors each application's playback stream on its own
 streams from Yapfast's processes are skipped by process id. So are other Discord
 clients' (Discord, Vesktop, Equibop, WebCord, Legcord, ArmCord, by application
 name or program): with one of them in the call too, its sound echoed the call
-back to the people in it. The worker mixes them every 20 ms, waiting until an
-application has 40 ms queued and keeping at most 200 ms of each, and encodes
-Opus at 64 kbit/s, what Discord's client gives a stream's sound. Frames go out
+back to the people in it. A sample a driver hands over that isn't a number
+becomes silence, and a sum over 0.9 of full scale bends towards full scale
+rather than clipping. The worker mixes them every 20 ms, waiting until an
+application has 40 ms queued and keeping the newest 200 ms of each, and
+encodes Opus at 64 kbit/s, what Discord's client gives a stream's sound. Frames go out
 as plain Opus RTP on the stream's audio SSRC, DAVE-encrypted, with sender
 reports, and op 5 marks them as shared sound (speaking flag 2). Nothing is
 sent while no application plays. On Windows, WASAPI's process loopback hears
@@ -331,7 +333,15 @@ sharing in another channel joins it first, once asked, and watches once the
 call is connected; Discord drops a watch sent before. The stream's sound, Opus
 on the streamer's audio SSRC, is DAVE-decrypted as audio and played by the
 worker through `audio_io.rs` on the call's speakers (`stream_audio::Player`),
-about 100 ms queued; being deafened silences it, which Yapfast tells the worker
+about 100 ms queued there. Before that a playout (`stream_audio/player.rs`)
+puts the frames in sequence order, starting once 60 ms waits (or 100 ms after a
+lone frame), and plays 20 ms a turn: a missing packet is waited for 60 ms, then
+made up from the next packet's forward error correction or Opus's concealment,
+and after 100 ms missing in a row silence plays until sound comes again. It
+holds at most 200 ms of sound, so a stall or a sender running fast never turns
+into lasting delay: what waited through a stall is dropped, and with frames to
+spare for a second, one quiet frame goes unheard. A packet longer than 20 ms
+plays over as many turns as it takes. Being deafened silences it, which Yapfast tells the worker
 with a `hear` control. Yapfast's workers play as "Yapfast", which sharing
 leaves out, so a stream you watch never reaches one you share. Watching a
 stream from Discord's own client works: H264 with DAVE. Discord's client shows
