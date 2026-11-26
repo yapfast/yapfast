@@ -4,6 +4,7 @@
 //! them.
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     num::NonZeroU16,
 };
@@ -91,53 +92,66 @@ impl Dave {
     }
 
     /// End-to-end encrypts an Opus frame once the group is ready, as
-    /// [`Self::encrypt`] does video.
-    pub fn encrypt_opus(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
+    /// [`Self::encrypt`] does video. A frame that crosses in the clear is the
+    /// caller's own bytes rather than a copy of them: a call and a stream send
+    /// a frame every 20 ms, and most of the frames this is asked about have
+    /// nothing to encrypt.
+    pub fn encrypt_opus<'a>(&mut self, frame: &'a [u8]) -> Option<Cow<'a, [u8]>> {
         if self.version != 0
             && let Some(session) = self.session.as_mut()
             && session.is_ready()
         {
             return match session.encrypt_opus(frame) {
-                Ok(encrypted) => Some(encrypted.into_owned()),
+                Ok(encrypted) => Some(encrypted),
                 Err(error) => {
                     tracing::warn!(?error, "could not end-to-end encrypt sound");
                     None
                 }
             };
         }
-        Some(frame.to_vec())
+        Some(Cow::Borrowed(frame))
     }
 
     /// Decrypts a received frame from `sender`. Before the group is ready,
     /// frames without DAVE's marker pass through, as Discord's clients allow;
     /// once it is, only during a transition, which the session times, so the
     /// voice server can't slip unencrypted frames into an encrypted call.
-    /// Frames that can't be decrypted are dropped.
+    /// Frames that can't be decrypted are dropped. A frame that needed no
+    /// decrypting comes back as it came, in the caller's own buffer.
     pub fn decrypt(&mut self, sender: u64, frame: Vec<u8>) -> Option<Vec<u8>> {
-        self.decrypt_media(sender, MediaType::VIDEO, frame)
+        match self.decrypt_media(sender, MediaType::VIDEO, &frame)? {
+            Cow::Owned(decrypted) => Some(decrypted),
+            Cow::Borrowed(_) => Some(frame),
+        }
     }
 
     /// Decrypts a received Opus frame from `sender`, as [`Self::decrypt`]
-    /// does video.
-    pub fn decrypt_opus(&mut self, sender: u64, frame: Vec<u8>) -> Option<Vec<u8>> {
+    /// does video, and hands back the caller's own bytes when there's nothing
+    /// to decrypt: a call's packets come hundreds a second, and one that
+    /// crosses in the clear needs no buffer of its own.
+    pub fn decrypt_opus<'a>(&mut self, sender: u64, frame: &'a [u8]) -> Option<Cow<'a, [u8]>> {
         self.decrypt_media(sender, MediaType::AUDIO, frame)
     }
-
-    fn decrypt_media(&mut self, sender: u64, media: MediaType, frame: Vec<u8>) -> Option<Vec<u8>> {
+    fn decrypt_media<'a>(
+        &mut self,
+        sender: u64,
+        media: MediaType,
+        frame: &'a [u8],
+    ) -> Option<Cow<'a, [u8]>> {
         // https://daveprotocol.com/#protocol-frame-check: a tag, a size
         // byte and the magic marker at least.
         if self.version == 0 {
-            return Some(frame);
+            return Some(Cow::Borrowed(frame));
         }
         let Some(session) = self.session.as_mut().filter(|session| session.is_ready()) else {
             if frame.len() < 11 || !frame.ends_with(&[0xfa, 0xfa]) {
-                return Some(frame);
+                return Some(Cow::Borrowed(frame));
             }
             self.unreadable = Some("not in the group yet".to_owned());
             return None;
         };
-        match session.decrypt(sender, media, &frame) {
-            Ok(decrypted) => Some(decrypted),
+        match session.decrypt(sender, media, frame) {
+            Ok(decrypted) => Some(Cow::Owned(decrypted)),
             Err(error) => {
                 self.unreadable = Some(format!("{error:?}"));
                 None
@@ -471,6 +485,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_frame_in_the_clear_keeps_the_buffer_it_came_in() {
+        // A call hears hundreds of packets a second, and a stream sends 50
+        // frames of its own: the one that needs no end-to-end encryption is
+        // the caller's own bytes, not a copy of them.
+        let mut dave = Dave::new(1, 2);
+        let frame = [0xf8, 0xff, 0xfe];
+        assert!(matches!(dave.encrypt_opus(&frame), Some(Cow::Borrowed(_))));
+        assert!(matches!(
+            dave.decrypt_opus(2, &frame),
+            Some(Cow::Borrowed(_))
+        ));
+        // And once the group is being made, a frame in the clear passes too.
+        dave.start(1);
+        assert!(matches!(
+            dave.decrypt_opus(2, &frame),
+            Some(Cow::Borrowed(_))
+        ));
+    }
+
+    #[test]
     fn starts_with_a_key_package_and_passes_through_without_dave() {
         let mut dave = Dave::new(1, 2);
         assert!(dave.start(0).is_empty());
@@ -735,11 +769,11 @@ mod tests {
 
         let sealed = other.encrypt_opus(b"friend's voice").unwrap().into_owned();
         assert_eq!(
-            dave.decrypt_opus(friend, sealed),
+            dave.decrypt_opus(friend, &sealed).map(Cow::into_owned),
             Some(b"friend's voice".to_vec())
         );
         assert_eq!(
-            dave.decrypt_opus(friend, b"the server's voice".to_vec()),
+            dave.decrypt_opus(friend, b"the server's voice"),
             None,
             "an unencrypted frame in an encrypted call"
         );

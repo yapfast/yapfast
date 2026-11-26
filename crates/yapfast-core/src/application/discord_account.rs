@@ -122,6 +122,7 @@ impl Application {
                 effect: self.state.cosmetics.effects,
                 // The DM's panel draws no frame, so nothing of one is fetched.
                 frame: false,
+                badges: self.state.cosmetics.badges,
             }))]
         } else {
             vec![]
