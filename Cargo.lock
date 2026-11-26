@@ -177,12 +177,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cb931c189b85683d69a5cfad41d4d418671e1ac413dd209f3f2fc31e3cfd902"
 
 [[package]]
-name = "anymap2"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d301b3b94cb4b2f23d7917810addbbaff90738e0ca2be692bd027e70d7e0330c"
-
-[[package]]
 name = "anymap3"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1163,8 +1157,9 @@ dependencies = [
 
 [[package]]
 name = "const_panic"
-version = "0.2.15"
-source = "git+https://github.com/jplatte/const_panic?rev=e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f#e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9603f79528ece8163c496f8932121cb36cfe46259e9c907bb3d8205139d7caa3"
 dependencies = [
  "typewit",
 ]
@@ -4390,9 +4385,9 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.4.2"
+version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b6e26fa08edbea52912e9cdf49703a0f6a1ca220bd2e355212d8d76103fe2c8"
+checksum = "c0399e372f69d3bb3ad8d51f6354f3090c57317de4f61521aa2f5a542c06fe1f"
 dependencies = [
  "cxx",
  "jni 0.21.1",
@@ -4462,9 +4457,9 @@ checksum = "02b614978e47ce529faee66579f2b2fe19c94aa96d910a6a9a8043b2b02d8175"
 
 [[package]]
 name = "livekit"
-version = "0.12.1"
+version = "0.9.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebbe492c6e3f1483305b42e0b0d38daa4a09d01b627cd7072ad1cdad3af723bc"
+checksum = "597d8bae50d9de78c82d93b367b17bf08d62b0cd53727d493d7e56e8d3e58665"
 dependencies = [
  "bmrng",
  "bytes",
@@ -4491,18 +4486,18 @@ dependencies = [
 
 [[package]]
 name = "livekit-common"
-version = "0.2.0"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3f650d2deb3112c15372115a3fc814d3462844457572354fdc6fe0c18794760"
+checksum = "8dc9988885cf3c1ccb622a565f347a4b9e0681c5a0139a5ac58c8c392803469a"
 dependencies = [
  "livekit-protocol",
 ]
 
 [[package]]
 name = "livekit-data-stream"
-version = "0.3.0"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "708c3ab5cb2b697d0cedeebb7cd1be7593b7a8a1e26aeed57433f9235897d576"
+checksum = "e47c0849044eb3efa012d5263ff32d6d64300667fa2d5c7d6c5cda4bb2cfb966"
 dependencies = [
  "async-compression",
  "bmrng",
@@ -4518,15 +4513,14 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
- "tokio-util",
  "uuid",
 ]
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.3.0"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "228b8af8f87a8b8c16dd7354e51c1417b777a52a924eeb184f4e051a7bc3f4be"
+checksum = "3f5252d30c12ebcf3c75700fd1dbee937b2766c11c2c20dd80c68f9119a94915"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4543,14 +4537,13 @@ dependencies = [
 
 [[package]]
 name = "livekit-net"
-version = "0.2.0"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0fb7676f2ea3384495fa6d1c56b77305874da9aaacca27e46be78c9410ac35a"
+checksum = "92ee1131d54701875cf3d0a1ef5ea09f8e328c93afc8845ac65b36cdadf80422"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
  "bytes",
- "flate2",
  "futures-util",
  "http",
  "log",
@@ -4564,9 +4557,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.9.0"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fb2dcd698010d85521b104daed2696c0247f6f2bd4f762af4004aaab78b56f6"
+checksum = "c328ca101660ed5cfea2185de9225275f9b513e025d7c42a324a091be1af76d1"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -4585,9 +4578,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-rpc"
-version = "0.4.0"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20124153d7e0bc3d37a6c42ffcbdaa9dc80284be559a06514a041ffb60c29d3f"
+checksum = "71d9d843d1354aafb39c4f9fd3481adcebbcde730f9b8ce247fde4b5330a7a5c"
 dependencies = [
  "livekit-common",
  "livekit-data-stream",
@@ -4602,9 +4595,9 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.3.0"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bf786e3ed135a8139df4b8c6083fb25b5c8d43386e2547907d1c239ca4299cc"
+checksum = "52fb8712633820ca0d186fadd7ca76c373d1cb3b555d143d7fee232b2493794b"
 dependencies = [
  "base64 0.21.7",
  "device-info",
@@ -4621,7 +4614,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
- "tokio-util",
  "url",
 ]
 
@@ -4828,33 +4820,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix-rtc-bridge"
-version = "0.4.0-rc.1"
-source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=5831af899f1e1744c21332613cdc9578a98c604f#5831af899f1e1744c21332613cdc9578a98c604f"
+name = "matrix-rtc-call"
+version = "0.5.0"
+source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=cbfab0b55b7ec40723d331076b1be1014c9bdabe#cbfab0b55b7ec40723d331076b1be1014c9bdabe"
 dependencies = [
  "async-trait",
  "log",
  "matrix-rtc-core",
- "matrix-sdk",
- "matrix-sdk-base",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "web-time",
-]
-
-[[package]]
-name = "matrix-rtc-core"
-version = "0.4.0-rc.1"
-source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=5831af899f1e1744c21332613cdc9578a98c604f#5831af899f1e1744c21332613cdc9578a98c604f"
-dependencies = [
- "async-trait",
- "base64 0.21.7",
- "getrandom 0.2.17",
- "log",
- "rand 0.8.8",
- "rand_core 0.6.4",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -4864,19 +4836,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrix-rtc-call-sdk"
+version = "0.5.0"
+source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=cbfab0b55b7ec40723d331076b1be1014c9bdabe#cbfab0b55b7ec40723d331076b1be1014c9bdabe"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "livekit",
+ "log",
+ "matrix-rtc-call",
+ "matrix-rtc-core",
+ "matrix-rtc-livekit",
+ "matrix-rtc-matrix-sdk",
+ "matrix-rtc-transport",
+ "matrix-sdk",
+ "matrix-sdk-ui",
+ "reqwest 0.12.28",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
+name = "matrix-rtc-core"
+version = "0.5.0"
+source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=cbfab0b55b7ec40723d331076b1be1014c9bdabe#cbfab0b55b7ec40723d331076b1be1014c9bdabe"
+dependencies = [
+ "async-trait",
+ "base64 0.21.7",
+ "futures-util",
+ "getrandom 0.2.17",
+ "gloo-timers 0.3.0",
+ "log",
+ "rand 0.8.8",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "wasm-bindgen-futures",
+ "web-time",
+]
+
+[[package]]
 name = "matrix-rtc-livekit"
-version = "0.4.0-rc.1"
+version = "0.5.0"
+source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=cbfab0b55b7ec40723d331076b1be1014c9bdabe#cbfab0b55b7ec40723d331076b1be1014c9bdabe"
 dependencies = [
  "async-trait",
  "futures-util",
  "jni 0.21.1",
  "livekit",
+ "livekit-signaling",
  "log",
- "matrix-rtc-bridge",
  "matrix-rtc-core",
- "matrix-rtc-livekit-proto",
- "matrix-rtc-media",
- "matrix-sdk",
+ "matrix-rtc-transport",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -4885,48 +4898,50 @@ dependencies = [
 ]
 
 [[package]]
-name = "matrix-rtc-livekit-proto"
-version = "0.4.0-rc.1"
-source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=5831af899f1e1744c21332613cdc9578a98c604f#5831af899f1e1744c21332613cdc9578a98c604f"
+name = "matrix-rtc-matrix-sdk"
+version = "0.5.0"
+source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=cbfab0b55b7ec40723d331076b1be1014c9bdabe#cbfab0b55b7ec40723d331076b1be1014c9bdabe"
 dependencies = [
+ "async-trait",
+ "log",
+ "matrix-rtc-core",
+ "matrix-sdk",
+ "matrix-sdk-base",
+ "ruma",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "matrix-rtc-transport"
+version = "0.5.0"
+source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=cbfab0b55b7ec40723d331076b1be1014c9bdabe#cbfab0b55b7ec40723d331076b1be1014c9bdabe"
+dependencies = [
+ "async-trait",
  "base64 0.22.1",
- "matrix-rtc-bridge",
+ "futures-core",
+ "log",
  "matrix-rtc-core",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "matrix-rtc-media"
-version = "0.4.0-rc.1"
-source = "git+https://github.com/element-hq/matrix-rust-rtc?rev=5831af899f1e1744c21332613cdc9578a98c604f#5831af899f1e1744c21332613cdc9578a98c604f"
-dependencies = [
- "async-trait",
- "futures-core",
- "futures-util",
- "gloo-timers 0.3.0",
- "log",
- "matrix-rtc-core",
- "thiserror 2.0.21",
  "tokio",
- "wasm-bindgen-futures",
 ]
 
 [[package]]
 name = "matrix-sdk"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
- "anymap2",
+ "anymap3",
  "as_variant",
  "async-stream",
  "async-trait",
  "backon",
  "bytes",
  "bytesize",
- "cfg-if",
  "event-listener",
  "eyeball",
  "eyeball-im",
@@ -4970,7 +4985,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-base"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "as_variant",
  "async-trait",
@@ -4990,6 +5005,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
  "unicode-normalization",
 ]
@@ -4997,7 +5013,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-common"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "eyeball-im",
  "futures-core",
@@ -5020,14 +5036,13 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-crypto"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "aes 0.9.4",
  "as_variant",
  "async-trait",
  "bs58",
  "byteorder",
- "cfg-if",
  "ctr 0.10.1",
  "eyeball",
  "futures-core",
@@ -5059,7 +5074,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-indexeddb"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -5091,7 +5106,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-sqlite"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "as_variant",
  "async-trait",
@@ -5119,7 +5134,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-store-encryption"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "base64 0.23.1",
  "blake3",
@@ -5141,7 +5156,7 @@ dependencies = [
 [[package]]
 name = "matrix-sdk-ui"
 version = "0.19.1"
-source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=c6ad52ecc09eaa36601f55effb0a48a533eb87dd#c6ad52ecc09eaa36601f55effb0a48a533eb87dd"
+source = "git+https://github.com/matrix-org/matrix-rust-sdk?rev=56bc59112822e7eb25943a95e02502855cdeef2d#56bc59112822e7eb25943a95e02502855cdeef2d"
 dependencies = [
  "as_variant",
  "async-rx",
@@ -7493,9 +7508,8 @@ dependencies = [
 
 [[package]]
 name = "ruma"
-version = "0.17.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5883cf806b796aba27c7157a438a10df8904bb70511c2fac872c59a7823915f9"
+version = "0.17.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "assign",
  "js_int",
@@ -7510,9 +7524,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-client-api"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "506e521d721c5cbd2c590d50d46c60cd3d32e38c00fbb0173da9a27d9a532172"
+version = "0.25.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "as_variant",
  "assign",
@@ -7533,9 +7546,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-common"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b496f80bc1cca375294fba5170bfb5d00f0de0ed655675dc72fa782643f54ea"
+version = "0.20.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "as_variant",
  "base64 0.23.1",
@@ -7567,9 +7579,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-events"
-version = "0.35.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28eb4aebc89f505550aad7dacaf86276d8041992836ff53e4cebfcb0165beec5"
+version = "0.35.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -7590,9 +7601,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-federation-api"
-version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc4279fed55a246c3382ca3289bc9081eec97ff6c047365f0a627e02655419bf"
+version = "0.16.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "http",
  "http-auth",
@@ -7610,8 +7620,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e27e35e6c36fa1abc4def766e474a0f2f709e87f1602d57ec34d41b09253da4"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -7621,9 +7630,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-identifiers-validation"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "298498dd2676dc94ffb81649531a37984ec21788cb1735c2ea9c85cbfa462247"
+version = "0.12.1"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "js_int",
  "thiserror 2.0.21",
@@ -7631,9 +7639,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-macros"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0f3214335d3957e7e677d0425949ec6900b74d5b7b5b3736a8a7a9ab0fd11ef"
+version = "0.20.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -7648,9 +7655,8 @@ dependencies = [
 
 [[package]]
 name = "ruma-signatures"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "800646996bcb7e57cd81602efcb6d46918bc6770d8fca15c7820c760f514c1b0"
+version = "0.22.0"
+source = "git+https://github.com/ruma/ruma?rev=caf1ac05a9fd347158b60505ef8546a2ff18ae7c#caf1ac05a9fd347158b60505ef8546a2ff18ae7c"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek 3.0.0",
@@ -10883,9 +10889,11 @@ dependencies = [
  "libpulse-binding",
  "libpulse-simple-binding",
  "livekit",
+ "livekit-signaling",
+ "matrix-rtc-call",
+ "matrix-rtc-call-sdk",
  "matrix-rtc-core",
- "matrix-rtc-livekit",
- "matrix-rtc-media",
+ "matrix-rtc-transport",
  "matrix-sdk",
  "matrix-sdk-crypto",
  "matrix-sdk-ui",

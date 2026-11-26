@@ -36,6 +36,9 @@ toolkit](client/toolkit.md).
 
 The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
+MatrixRTC is pinned to Element's `v0.5.0` commit `cbfab0b`. Yapfast uses its
+LiveKit `0.9.7`. Its manifest pins `livekit-signaling` to `0.1.7` for the
+`SignalOptions` field that LiveKit needs.
 
 Every emoji Yapfast draws, in the picker, reactions, suggestions, names and
 message text, is drawn from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
@@ -104,8 +107,6 @@ test` compiles those crates once more, apart from these.
 Yapfast patches these crates in `vendor/`, through `[patch.crates-io]` or a path
 dependency in Cargo.toml:
 
-- `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
-  audio tracks and cancellable joins.
 - `webrtc-sys`: webrtc-sys 0.3.55 with capture leveling, remote track volume,
   camera capture from pooled buffers and the pointer in Windows monitor shares.
 - `rusqlite`: forwards the pinned Matrix SDK's SQLite API and features to

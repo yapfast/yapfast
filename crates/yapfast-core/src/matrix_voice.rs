@@ -9,12 +9,16 @@ use anyhow::{Context, Result, bail, ensure};
 use livekit::{
     PlatformAudio, RoomEvent,
     options::TrackPublishOptions,
-    prelude::{LocalAudioTrack, RemoteTrack, TrackSource},
+    prelude::{LocalAudioTrack, LocalTrack, RemoteTrack, TrackSource},
     rtc_engine::lk_runtime::LkRuntime,
     webrtc::peer_connection_factory::native::PeerConnectionFactoryExt,
 };
-use matrix_rtc_livekit::{Call, CallOptions, compat::ElementCallCompat};
-use matrix_rtc_media::{CallEvent, MediaStreamKind};
+use matrix_rtc_call::CallStatus;
+use matrix_rtc_call_sdk::{CallEvent, LiveKitCall as Call, LiveKitCallOptions as CallOptions};
+use matrix_rtc_transport::{
+    MediaStreamKind,
+    livekit::identity::{legacy_identity, msc4195_identity},
+};
 use matrix_sdk::{
     Client, Room,
     ruma::{OwnedRoomId, api::client::state::get_state_event_for_key},
@@ -36,7 +40,7 @@ use crate::{
 };
 
 /// The MatrixRTC slot every Yapfast voice channel uses.
-const SLOT: &str = "m.call#ROOM";
+const SLOT: &str = "m.call#room";
 /// How long a membership survives without refreshes, for example after a
 /// crash. MSC4354 does not allow less than five minutes.
 const STICKY_DURATION_MS: u64 = 300_000;
@@ -108,15 +112,17 @@ async fn joining(
             result = require_voice_channel(&room) => result?,
         }
         let audio = audio()?;
-        let options = call_options(&room)?;
+        let options = tokio::select! {
+            biased;
+            _ = cancellation.changed() => return Ok(None),
+            options = call_options(&room) => options?,
+        };
         // A membership left by a crash would otherwise appear beside the new one.
         leave_stale_memberships(&session.client, &room).await;
-        let call = Call::join_cancellable(&room, options, cancellation)
-            .await
-            .map_err(join_error)?;
-        let Some(call) = call else {
+        if *cancellation.borrow() {
             return Ok(None);
-        };
+        }
+        let call = Call::join(&room, options).await.map_err(join_error)?;
         if !call.session().room().e2ee_manager().enabled() {
             let _ = tokio::time::timeout(Duration::from_secs(10), call.leave()).await;
             bail!("Voice encryption is unavailable. This connection was refused.");
@@ -174,23 +180,30 @@ async fn joining(
 }
 
 /// The library reports join failures as text; keep the cause users can act on.
-fn join_error(error: matrix_rtc_livekit::CallError) -> anyhow::Error {
+fn join_error(error: matrix_rtc_call_sdk::LiveKitCallError) -> anyhow::Error {
     let text = error.to_string();
-    let message = if text.contains("no livekit transport") {
+    let kind = call_error_kind(&error);
+    let message = if text.contains("no usable m.livekit transport")
+        || text.contains("no usable livekit transport")
+    {
         "This homeserver doesn't advertise a MatrixRTC calling service (MSC4143). Ask its administrator to add one, or set YAPFAST_RTC_AUTHORIZATION_URL."
-    } else if matches!(error, matrix_rtc_livekit::CallError::Media(_)) {
+    } else if kind == "media" {
         "The calling service refused the voice connection. Check that it allows this homeserver, then retry."
     } else {
         "Could not join or finish leaving voice. Check the calling service and connection, then retry."
     };
-    tracing::warn!(kind = call_error_kind(&error), "voice join failed");
+    tracing::warn!(kind, "voice join failed");
     anyhow::anyhow!(message)
 }
 
-fn call_error_kind(error: &matrix_rtc_livekit::CallError) -> &'static str {
+fn call_error_kind(error: &matrix_rtc_call_sdk::LiveKitCallError) -> &'static str {
     match error {
-        matrix_rtc_livekit::CallError::Signalling(_) => "signalling",
-        matrix_rtc_livekit::CallError::Media(_) => "media",
+        matrix_rtc_call_sdk::LiveKitCallError::Signalling(_) => "signalling",
+        matrix_rtc_call_sdk::LiveKitCallError::Media(_)
+        | matrix_rtc_call_sdk::LiveKitCallError::Transport(_)
+        | matrix_rtc_call_sdk::LiveKitCallError::Attach(
+            matrix_rtc_call_sdk::AttachError::Transport(_),
+        ) => "media",
         _ => "other",
     }
 }
@@ -213,7 +226,7 @@ pub(crate) async fn require_voice_channel(room: &Room) -> Result<()> {
         ))
         .await
         .map_err(|_| {
-            anyhow::anyhow!("This voice channel has no available call. Ask its owner to set it up.")
+            anyhow::anyhow!("This voice channel has no available call. Ask its owner to open the m.call#room slot.")
         })?;
     let content: serde_json::Value = serde_json::from_str(slot.event_or_content.get())?;
     ensure!(
@@ -227,7 +240,9 @@ pub(crate) async fn require_voice_channel(room: &Room) -> Result<()> {
     Ok(())
 }
 
-fn call_options(room: &Room) -> Result<CallOptions> {
+async fn call_options(room: &Room) -> Result<CallOptions> {
+    use matrix_rtc_core::{MatrixBackend, RawRtcTransport, RtcTransport, compat::MembershipFormat};
+
     let configured = std::env::var("YAPFAST_RTC_AUTHORIZATION_URL").ok();
     let fallback = configured.or_else(|| {
         (room.client().homeserver().as_str() == "http://localhost:18008/")
@@ -246,11 +261,34 @@ fn call_options(room: &Room) -> Result<CallOptions> {
             "The calling-service URL must not contain credentials."
         );
     }
-    Ok(CallOptions {
-        livekit_service_url_fallback: fallback,
+    let mut options = CallOptions {
         sticky_duration_ms: Some(STICKY_DURATION_MS),
         ..Default::default()
-    })
+    };
+    let backend = matrix_rtc_call_sdk::SdkMatrixBackend::new(room.client());
+    if let Ok(Ok(transports)) =
+        tokio::time::timeout(Duration::from_secs(3), backend.rtc_transports()).await
+    {
+        let transports: Vec<RawRtcTransport> =
+            serde_json::from_value(transports).unwrap_or_default();
+        for format in [MembershipFormat::Msc, MembershipFormat::RoomState] {
+            if let Some(transport) = transports.iter().find_map(|transport| {
+                match transport.clone().into_typed_in(format) {
+                    RtcTransport::LiveKit(focus) => Some(focus),
+                    _ => None,
+                }
+            }) {
+                options.format = format;
+                options.livekit_transport = Some(transport);
+                return Ok(options);
+            }
+        }
+    }
+    if let Some(url) = fallback {
+        options.format = MembershipFormat::RoomState;
+        options.livekit_transport = matrix_rtc_core::LiveKitTransport::new(None, Some(url), None);
+    }
+    Ok(options)
 }
 
 /// Chooses a microphone by Yapfast's device id, reopening capture if it was running.
@@ -315,12 +353,18 @@ async fn connected(
         Chosen::write(remembered, state);
         let mut microphone: Option<LocalAudioTrack> = None;
         let mut roster = call.subscribe_participants();
+        let mut call_status = call.subscribe_status();
         let mut events = call.subscribe_call_events();
         let mut speaking = HashSet::new();
         let mut encryption_fault = false;
         let mut reconnect_deadline = None;
         let own_member = call.membership_id().to_owned();
-        let identity = matrix_rtc_livekit::identity_mapper(ElementCallCompat::default());
+        let legacy = legacy_identity(
+            client.user_id().context("No Matrix user")?.as_str(),
+            client.device_id().context("No Matrix device")?.as_str(),
+        ) == call.local_identity();
+        let mut identities = HashMap::new();
+        let mut roster_changed = true;
         // Key problems wait out the normal exchange after someone appears.
         let mut seen: HashMap<String, Instant> = HashMap::new();
         // LiveKit lists a participant only while they publish, and Yapfast joins
@@ -356,6 +400,7 @@ async fn connected(
                     track.rtc_track().set_enabled(sending);
                 }
             }
+            roster_changed |= roster.has_changed().unwrap_or(false);
             let people = roster.borrow_and_update().clone();
             let now = Instant::now();
             seen.retain(|member, _| people.iter().any(|person| &person.member_id == member));
@@ -369,22 +414,28 @@ async fn connected(
                 }
             }
             let present: HashSet<String> = call.session().room().remote_participants().keys().map(ToString::to_string).collect();
-            let known = members.len();
-            members = people.iter()
-                .filter_map(|person| Some((identity(&person.user_id, person.device_id.as_deref()?, &person.member_id), person.member_id.clone())))
-                .collect();
-            if members.len() != known {
+            if roster_changed {
+                roster_changed = false;
+                identities = people.iter().filter_map(|member| {
+                    let identity = if legacy {
+                        legacy_identity(&member.user_id, member.device_id.as_deref()?)
+                    } else {
+                        msc4195_identity(&member.user_id, &member.member_id)
+                    };
+                    Some((member.member_id.clone(), identity))
+                }).collect();
+                members = identities.iter().map(|(member, identity)| (identity.clone(), member.clone())).collect();
                 watching.constrain_all(&call, &members);
             }
             state.participants = people.iter().map(|person| {
-                let sfu_identity = person.device_id.as_deref().map(|device| identity(&person.user_id, device, &person.member_id));
-                let present = sfu_identity.as_ref().is_some_and(|id| present.contains(id));
+                let sfu_identity = identities.get(&person.member_id);
+                let present = sfu_identity.is_some_and(|id| present.contains(id));
                 // Element mutes its camera track rather than unpublishing it.
                 let filmed = person.streams.iter().any(|stream| stream.kind == MediaStreamKind::Camera && !stream.muted);
                 let video = if person.is_local {
                     filming.as_ref().filter(|_| state.camera_phase != CameraPhase::Off).map(|filming| filming.feed.clone())
                 } else {
-                    let feed = sfu_identity.as_deref().and_then(|id| watching.feed(id));
+                    let feed = sfu_identity.and_then(|id| watching.feed(id));
                     // A muted camera's tile shows the avatar: its buffers go,
                     // and the server stops sending it.
                     if !filmed && let Some(feed) = feed {
@@ -404,7 +455,7 @@ async fn connected(
                 } else if undecryptable.contains(&person.member_id) {
                     Some("Their audio can't be decrypted. They may need to rejoin.")
                 } else if missing_since.get(&person.member_id).is_some_and(|since| now.duration_since(*since) >= KEY_GRACE)
-                    || (settled && connected && sfu_identity.is_some_and(|id| !call.imported_key_for(&id))) {
+                    || (settled && connected && sfu_identity.is_some_and(|id| !call.imported_key_for(id))) {
                     Some("Their audio key hasn't arrived, so you can't hear them yet.")
                 } else {
                     None
@@ -426,7 +477,7 @@ async fn connected(
             }).collect();
             state.participants.sort_by(|a,b| b.local.cmp(&a.local).then_with(|| a.user.cmp(&b.user)).then_with(|| a.id.cmp(&b.id)));
             let users: HashMap<String, String> = people.iter()
-                .filter_map(|person| Some((identity(&person.user_id, person.device_id.as_deref()?, &person.member_id), person.user_id.clone())))
+                .filter_map(|person| Some((identities.get(&person.member_id)?.clone(), person.user_id.clone())))
                 .collect();
             set_volumes(&call, &users, &mut volumes_set);
             state.warning = state.participants.iter().find_map(|person| person.problem.as_ref().map(|problem| format!("{}: {problem}", person.user)));
@@ -527,18 +578,30 @@ async fn connected(
                         }
                     }
                 }
-                changed = roster.changed() => if changed.is_err() { bail!("Voice ended. Join again to reconnect."); },
+                changed = roster.changed() => {
+                    if changed.is_err() { bail!("Voice ended. Join again to reconnect."); }
+                    roster_changed = true;
+                },
                 () = crate::push_to_talk::changed(&mut talk) => {}
                 // Device trust can change while connected, for example after
                 // verifying someone in another client.
                 _ = checks.tick() => device_problems.clear(),
-                event = events.recv() => match event {
-                    Ok(CallEvent::ActiveSpeakers { speakers }) => speaking = speakers.into_iter().map(|speaker| speaker.member_id).collect(),
-                    Ok(CallEvent::MediaConnectionState { degraded }) => {
+                result = call_status.changed() => {
+                    let status = call_status.borrow_and_update().clone();
+                    if result.is_err() || matches!(status, CallStatus::Ended { .. }) {
+                        bail!("Voice disconnected. Check your connection and join again.");
+                    }
+                    if let Some(degraded) = match status {
+                        CallStatus::Connected { degraded, .. } => Some(degraded),
+                        CallStatus::Connecting => Some(true),
+                        _ => None,
+                    } {
                         state.phase = if degraded { Phase::Reconnecting } else { Phase::Connected };
                         if degraded { reconnect_deadline.get_or_insert(Instant::now() + Duration::from_secs(60)); } else { reconnect_deadline = None; }
                     }
-                    Ok(CallEvent::Ended { .. }) => bail!("Voice disconnected. Check your connection and join again."),
+                }
+                event = events.recv() => match event {
+                    Ok(CallEvent::ActiveSpeakers { speakers }) => speaking = speakers.into_iter().map(|speaker| speaker.member_id).collect(),
                     // Only our own sender failing means our audio is unprotected.
                     Ok(CallEvent::FrameEncryptionState { member_id, state: encryption, .. }) if member_id == own_member => {
                         if encryption.is_failure() {
@@ -555,13 +618,13 @@ async fn connected(
                     }
                     Ok(CallEvent::FrameEncryptionState { member_id, state: encryption, .. }) => {
                         match encryption {
-                            matrix_rtc_media::FrameEncryptionState::Ok => {
+                            matrix_rtc_transport::FrameEncryptionState::Ok => {
                                 missing_since.remove(&member_id);
                                 if undecryptable.remove(&member_id) {
                                     tracing::info!(member = %member_id, "participant audio decrypts again");
                                 }
                             }
-                            matrix_rtc_media::FrameEncryptionState::MissingKey => {
+                            matrix_rtc_transport::FrameEncryptionState::MissingKey => {
                                 missing_since.entry(member_id).or_insert_with(Instant::now);
                             }
                             _ => {
@@ -589,12 +652,6 @@ async fn connected(
                     }
                     Some(RoomEvent::TrackUnsubscribed { publication, participant, .. }) if publication.source() == TrackSource::Camera => {
                         watching.unsubscribed(participant.identity().as_str());
-                    }
-                    // A full reconnect republishes our microphone with a new
-                    // frame cryptor at key index 0, which late joiners cannot use.
-                    Some(RoomEvent::LocalTrackRepublished { .. }) => {
-                        tracing::info!("microphone republished after reconnecting; restoring its key index");
-                        call.reassert_local_key_index();
                     }
                     Some(RoomEvent::Disconnected { .. }) | None => bail!("Voice disconnected. Check your connection and join again."),
                     _ => {}
@@ -635,7 +692,7 @@ const KEY_GRACE: Duration = Duration::from_secs(10);
 /// user learns why someone cannot hear them, instead of hearing silence.
 async fn device_problem(
     client: &Client,
-    person: &matrix_rtc_media::Participant,
+    person: &matrix_rtc_call_sdk::Participant,
 ) -> Option<&'static str> {
     let Ok(user) = matrix_sdk::ruma::OwnedUserId::try_from(person.user_id.as_str()) else {
         return Some("Unrecognized account; audio keys can't be exchanged.");
@@ -700,11 +757,11 @@ async fn leave_stale_memberships(client: &Client, room: &Room) -> usize {
     let mut left = 0;
     for member in stale {
         let membership = matrix_rtc_core::OwnMembershipMachine::new(
-            std::sync::Arc::new(matrix_rtc_livekit::SdkCommandSender::new(client.clone())),
+            std::sync::Arc::new(matrix_rtc_call_sdk::SdkMatrixBackend::new(client.clone())),
             room.room_id().to_string(),
             SLOT.into(),
             member,
-            "m.call".into(),
+            "m.call",
             matrix_rtc_core::MembershipTimings {
                 sticky_duration_ms: STICKY_DURATION_MS,
                 ..Default::default()
@@ -797,10 +854,11 @@ async fn set_muted(
         } else {
             let track =
                 LocalAudioTrack::create_audio_track("Yapfast microphone", audio.rtc_source());
+            let session = call.session();
             let result = tokio::time::timeout(
                 Duration::from_secs(10),
-                call.publish_audio_track(
-                    track.clone(),
+                session.room().local_participant().publish_track(
+                    LocalTrack::Audio(track.clone()),
                     TrackPublishOptions {
                         source: TrackSource::Microphone,
                         ..Default::default()
@@ -832,6 +890,30 @@ async fn set_muted(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+
+    #[test]
+    fn room_slot_is_valid_for_matrix_rtc() {
+        matrix_rtc_core::validate_slot_id(SLOT, "m.call").unwrap();
+        assert_eq!(CallOptions::default().slot_id, SLOT);
+    }
+
+    #[test]
+    fn join_errors_keep_the_cause_users_can_act_on() {
+        let missing = join_error(matrix_rtc_call_sdk::LiveKitCallError::Signalling(
+            "the homeserver advertises no usable m.livekit transport".into(),
+        ));
+        assert!(missing.to_string().contains("MSC4143"));
+        let refused = join_error(matrix_rtc_call_sdk::LiveKitCallError::Media(
+            matrix_rtc_transport::TransportError::Connect("401 from the token service".into()),
+        ));
+        assert!(refused.to_string().contains("refused"));
+        assert!(!refused.to_string().contains("401"));
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -1088,20 +1170,6 @@ mod tests {
         });
     }
 
-    #[test]
-    fn join_errors_keep_the_cause_users_can_act_on() {
-        let missing = join_error(matrix_rtc_livekit::CallError::Signalling(
-            "the homeserver advertises no livekit transport and no fallback URL is configured"
-                .into(),
-        ));
-        assert!(missing.to_string().contains("MSC4143"));
-        let refused = join_error(matrix_rtc_livekit::CallError::Media(
-            matrix_rtc_media::TransportError::Connect("401 from the token service".into()),
-        ));
-        assert!(refused.to_string().contains("refused"));
-        assert!(!refused.to_string().contains("401"));
-    }
-
     /// One participant process for `testing/test_voice_reliability.py`. Reads
     /// commands appended to `<name>.commands` and rewrites `<name>.state.json`
     /// after every voice change, so the harness can kill, pause or isolate it.
@@ -1244,9 +1312,8 @@ mod tests {
             let call = Call::join(
                 &room,
                 CallOptions {
-                    livekit_service_url_fallback: Some("http://localhost:16080".into()),
                     sticky_duration_ms: Some(STICKY_DURATION_MS),
-                    ..Default::default()
+                    ..crate::calls::local_options()
                 },
             )
             .await
@@ -1372,10 +1439,9 @@ mod tests {
                                     for (index, session) in sessions.iter().enumerate().skip(calls.len()).take(count.saturating_sub(calls.len())) {
                                         let room = session.client.get_room(&voice_id).unwrap();
                                         let call = Call::join(&room, CallOptions {
-                                            livekit_service_url_fallback: Some("http://localhost:16080".into()),
-                                            sticky_duration_ms: Some(STICKY_DURATION_MS),
+                    sticky_duration_ms: Some(STICKY_DURATION_MS),
                                             auto_subscribe: !publish_only,
-                                            ..Default::default()
+                                            ..crate::calls::local_options()
                                         }).await.unwrap();
                                         let (pattern, count) = (conversation.clone(), speakers.clone());
                                         let speaking = move || {
@@ -1547,11 +1613,8 @@ mod tests {
                             let joined = Call::join(
                                 &room,
                                 CallOptions {
-                                    livekit_service_url_fallback: Some(
-                                        "http://localhost:16080".into(),
-                                    ),
-                                    sticky_duration_ms: Some(STICKY_DURATION_MS),
-                                    ..Default::default()
+                    sticky_duration_ms: Some(STICKY_DURATION_MS),
+                                    ..crate::calls::local_options()
                                 },
                             )
                             .await
@@ -1572,8 +1635,8 @@ mod tests {
                                     } = event
                                     {
                                         match state {
-                                            matrix_rtc_media::FrameEncryptionState::Ok => {}
-                                            matrix_rtc_media::FrameEncryptionState::MissingKey => {
+                                            matrix_rtc_transport::FrameEncryptionState::Ok => {}
+                                            matrix_rtc_transport::FrameEncryptionState::MissingKey => {
                                                 missing.fetch_add(1, Ordering::Relaxed);
                                             }
                                             _ => {
@@ -1582,7 +1645,7 @@ mod tests {
                                         }
                                         if matches!(
                                             state,
-                                            matrix_rtc_media::FrameEncryptionState::Ok
+                                            matrix_rtc_transport::FrameEncryptionState::Ok
                                         ) {
                                             decrypting.borrow_mut().insert(member_id);
                                         } else {
@@ -1677,14 +1740,14 @@ mod tests {
                 .client
                 .get_room(&OwnedRoomId::try_from(voice_id.clone()).unwrap())
                 .unwrap();
-            matrix_rtc_livekit::open_slot(&alice.client, &voice_id, "m.call#ROOM", "m.call", None)
+            matrix_rtc_call_sdk::open_slot(&alice.client, &voice_id, "m.call#room", "m.call", None)
                 .await
                 .unwrap();
             assert!(require_voice_channel(&voice_room).await.is_err());
-            matrix_rtc_livekit::open_slot(
+            matrix_rtc_call_sdk::open_slot(
                 &alice.client,
                 &voice_id,
-                "m.call#ROOM",
+                "m.call#room",
                 "m.call",
                 Some(matrix_rtc_core::SlotEncryption {
                     encryption_type: "m.per_member".into(),

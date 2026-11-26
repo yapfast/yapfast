@@ -59,13 +59,18 @@ pub async fn provision() -> Result<PathBuf> {
             request.creation_content = Some(Raw::from_json_string(
                 json!({"type":"org.matrix.msc3417.call"}).to_string(),
             )?);
+            // The local JWT service uses Element Call's room-state membership events.
+            request.power_level_content_override = Some(Raw::from_json_string(
+                json!({"events": {matrix_rtc_core::compat::STATE_MEMBER_EVENT_TYPE: 0}})
+                    .to_string(),
+            )?);
         }
         let room = accounts[0].client.create_room(request).await?;
         if voice {
-            matrix_rtc_livekit::open_slot(
+            matrix_rtc_call_sdk::open_slot(
                 &accounts[0].client,
                 room.room_id().as_str(),
-                "m.call#ROOM",
+                "m.call#room",
                 "m.call",
                 Some(matrix_rtc_core::SlotEncryption {
                     encryption_type: "m.per_member".into(),

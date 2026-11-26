@@ -13,7 +13,7 @@ use livekit::{
         prelude::AudioFrame,
     },
 };
-use matrix_rtc_livekit::{Call, CallOptions};
+use matrix_rtc_call_sdk::{LiveKitCall as Call, LiveKitCallOptions as CallOptions};
 use matrix_sdk::Room;
 use serde::Serialize;
 use std::{borrow::Cow, collections::BTreeMap, time::Duration};
@@ -76,10 +76,10 @@ async fn experiment(
     for room in &rooms {
         require_trusted_encrypted_room(room).await?;
     }
-    matrix_rtc_livekit::open_slot(
+    matrix_rtc_call_sdk::open_slot(
         &rooms[0].client(),
         rooms[0].room_id().as_str(),
-        "m.call#ROOM",
+        "m.call#room",
         "m.call",
         Some(matrix_rtc_core::SlotEncryption {
             encryption_type: "m.per_member".into(),
@@ -125,9 +125,14 @@ pub(crate) async fn require_trusted_encrypted_room(room: &Room) -> Result<()> {
     Ok(())
 }
 
-fn local_options() -> CallOptions {
+pub(crate) fn local_options() -> CallOptions {
     CallOptions {
-        livekit_service_url_fallback: Some("http://localhost:16080".into()),
+        format: matrix_rtc_core::compat::MembershipFormat::RoomState,
+        livekit_transport: matrix_rtc_core::LiveKitTransport::new(
+            None,
+            Some("http://localhost:16080".into()),
+            None,
+        ),
         ..Default::default()
     }
 }
@@ -166,7 +171,8 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
 
     // Negative control: replace Bob's Alice key, leaving the media path running.
     let alice_identity = calls[0].local_identity().to_owned().into();
-    let manager = calls[1].session().room().e2ee_manager();
+    let session = calls[1].session();
+    let manager = session.room().e2ee_manager();
     let provider = manager
         .key_provider()
         .context("no frame encryption key provider")?;
@@ -213,16 +219,25 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
     wait_for_members(calls, 3).await?;
     let third = calls.pop().unwrap();
     let sender_cryptor = sender_cryptor(&calls[0])?;
-    let old_index = sender_cryptor.key_index();
     let departed_provider = third
         .session()
         .room()
         .e2ee_manager()
         .key_provider()
         .context("third participant has no key provider")?;
-    let old_key = departed_provider
-        .get_key(&alice_identity, old_index)
-        .context("third participant did not receive the current key")?;
+    // The third participant may get the incoming key before the sender switches
+    // away from the outgoing one. Observe the index and its key together.
+    let (old_index, old_key) = tokio::time::timeout(Duration::from_secs(25), async {
+        loop {
+            let index = sender_cryptor.key_index();
+            if let Some(key) = departed_provider.get_key(&alice_identity, index) {
+                break (index, key);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .context("third participant did not receive the current key")?;
     third
         .leave()
         .await
@@ -241,7 +256,14 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
         }
     })
     .await
-    .context("the sender did not rotate its key after a participant left")?;
+    .with_context(|| {
+        let current = sender_cryptor.key_index();
+        let remaining_has_key = provider.get_key(&alice_identity, current).is_some();
+        let departed_has_key = departed_provider.get_key(&alice_identity, current).is_some();
+        format!(
+            "no key exclusive to the remaining participants after departure (sender index {old_index} -> {current}, remaining has key: {remaining_has_key}, departed has key: {departed_has_key})"
+        )
+    })?;
     let new_index = sender_cryptor.key_index();
     ensure!(
         departed_provider
@@ -277,7 +299,7 @@ async fn experiment_audio(rooms: &[Room], calls: &mut Vec<Call>) -> Result<Exper
     drop(alice_tone);
     drop(bob_tone);
     Ok(ExperimentReport {
-        protocol: "MSC4354 sticky membership, MSC4195 get_token, m.per_member GCM",
+        protocol: "MatrixRTC 0.5.0 with per-member LiveKit GCM",
         synthetic_audio_both_directions: true,
         receiver_without_correct_key_cannot_decode: true,
         receiver_recovers_after_key_restore: true,
@@ -451,7 +473,7 @@ async fn tone_energy(stream: &mut NativeAudioStream, frequency: f64) -> Result<f
 
 pub fn check_native_build() {
     // Exercise both crates' public APIs so the native stack is linked in the smoke test.
-    let _ = matrix_rtc_livekit::CallOptions::default();
+    let _ = matrix_rtc_call_sdk::LiveKitCallOptions::default();
     let _ = livekit::RoomOptions::default();
     // Allocate a synthetic source to verify the C++ bindings without microphone access.
     let _ = livekit::webrtc::audio_source::native::NativeAudioSource::new(

@@ -17,7 +17,7 @@ doctest = false
 [features]
 default = ["discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
-matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
+matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-call", "dep:matrix-rtc-call-sdk", "dep:matrix-rtc-core", "dep:matrix-rtc-transport", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
 discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:df", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
@@ -49,6 +49,8 @@ resvg = { version = "0.50", default-features = false }
 gif = "0.14"
 keyring = { workspace = true, optional = true }
 livekit.workspace = true
+# LiveKit 0.9.7 uses SignalOptions::use_legacy_data_streams, removed in 0.1.9.
+livekit-signaling = "=0.1.7"
 # libDF's frames, at the version it uses.
 ndarray = { version = "0.17", optional = true }
 # The FFT for taking room reverb out of the Discord microphone, and for the
@@ -62,9 +64,10 @@ memmap2 = "0.9"
 matrix-sdk = { workspace = true, optional = true }
 matrix-sdk-ui = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
-matrix-rtc-livekit = { workspace = true, optional = true }
+matrix-rtc-call-sdk = { workspace = true, optional = true }
+matrix-rtc-call = { workspace = true, optional = true }
 matrix-rtc-core = { workspace = true, optional = true }
-matrix-rtc-media = { workspace = true, optional = true }
+matrix-rtc-transport = { workspace = true, optional = true }
 mime = { version = "0.3", optional = true }
 # Plain-text reply snippets from Markdown; the SDK already uses it to format messages.
 pulldown-cmark = { version = "0.13", default-features = false }

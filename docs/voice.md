@@ -315,14 +315,20 @@ cargo run --locked -- --audio-devices
 ```
 
 Normal accounts require password sign-in, a verified device, an encrypted joined
-room of type `org.matrix.msc3417.call`, an `m.rtc.slot` at `m.call#ROOM` with
+room of type `org.matrix.msc3417.call`, an `m.rtc.slot` at `m.call#room` with
 `m.per_member` encryption, a homeserver supporting the pinned SDK's sticky events,
 and a reachable MatrixRTC LiveKit service. Yapfast refuses missing or unencrypted
 slots. Room creation is currently provided by the demo or another client.
 There is no fallback to unencrypted media.
+Owners of rooms created with the old `m.call#ROOM` slot need to open the
+encrypted `m.call#room` slot for MatrixRTC 0.5.0 clients.
 
-The local stack has an automatic authorization fallback at localhost:16080.
-Other homeservers use SDK discovery. To configure a fallback in fish:
+The SDK discovers MSC4195 transports advertised by the homeserver. A legacy
+LiveKit authorization service using `/sfu/get` joins with Element Call's
+room-state membership format. That includes the local stack's automatic
+fallback at localhost:16080. Rooms using this fallback must let ordinary
+members send `org.matrix.msc3401.call.member` state events. The demo sets that
+event's power level to zero. To configure a fallback in fish:
 
 ```fish
 set -x YAPFAST_RTC_AUTHORIZATION_URL https://your-calling-service.example
@@ -343,10 +349,7 @@ the physical microphone or change the system's default devices. It covers a
 directions, mute, deafen, undeafen staying muted and clean leave. It also
 stalls authorization after membership publication, cancels with Leave, checks
 membership removal and then joins again. The two clients run in separate
-processes because LiveKit shares its audio engine within a process. The [pinned
-dependency patch](../vendor/matrix-rtc-livekit/README.yapfast.md) reuses the
-SDK's active-index handling, so native tracks first published after a key
-rotation don't carry stale key indices. The call experiment
+processes because LiveKit shares its audio engine within a process. The call experiment
 (`--call-experiment`) separately covers recovery, invalid keys and departure
 key rotation. Release performance remains unverified.
 
@@ -367,9 +370,10 @@ accounts in the same encrypted channel:
 
 The controller shows reconnecting and allows up to 60 seconds before ending a
 degraded connection. A joining request has a 35-second deadline. Leave cancels
-a pending join immediately and waits up to ten seconds for membership cleanup;
-normal leaving has the same cleanup deadline. Crash membership expiry uses a
-five-minute sticky lifetime. Ringing DM/group calls and screen sharing are
+discovery. Once the SDK has started joining, Yapfast waits for it to finish and
+leaves any call that connected after cancellation. Normal
+leaving has a ten-second deadline. MSC4143 memberships use a five-minute sticky
+lifetime. Ringing DM/group calls and screen sharing are
 later slices. Push-to-talk and the other [keybinds](keybinds.md) work as in
 Discord calls; see [Discord's microphone](discord/voice.md#push-to-talk). A call goes
 on with the window closed to the [tray](tray.md), whose menu can disconnect it.
@@ -388,8 +392,6 @@ Yapfast reports call problems instead of leaving them in the log:
   "Connection lost" until their membership ends.
 - If Yapfast was killed during a call, the next start removes the sticky membership
   this device left, instead of others seeing it for up to five minutes.
-- After a full LiveKit reconnect, Yapfast restores the microphone's key index, so
-  others keep hearing it after a key rotation.
 - Join failures name the cause users can act on: a homeserver without sticky
   events (MSC4354), a missing MatrixRTC transport, or a calling service that
   refused the connection.

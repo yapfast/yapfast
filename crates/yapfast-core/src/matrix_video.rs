@@ -16,8 +16,8 @@ use livekit::{
         video_stream::native::NativeVideoStream,
     },
 };
-use matrix_rtc_livekit::Call;
-use matrix_rtc_media::{Dimensions, MediaConstraints, MediaStreamKind, VideoDetail};
+use matrix_rtc_call_sdk::LiveKitCall as Call;
+use matrix_rtc_transport::{Dimensions, MediaConstraints, MediaStreamKind, VideoDetail};
 use tokio::{sync::Notify, task::JoinHandle};
 
 use crate::{
@@ -113,7 +113,6 @@ impl Filming {
         self.published = true;
         // Each published track starts at key index 0; move it onto the
         // current one, as the microphone does.
-        call.reassert_local_key_index();
         Ok(())
     }
 

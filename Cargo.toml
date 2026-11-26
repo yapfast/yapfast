@@ -16,7 +16,6 @@ members = [
 ]
 default-members = ["."]
 exclude = [
-    "vendor/matrix-rtc-livekit",
     "vendor/rusqlite",
     "vendor/webrtc-sys",
     "vendor/deep_filter",
@@ -214,24 +213,25 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 directories = "6"
 futures-util = "0.3"
 keyring = "=4.2.0"
-livekit = { version = "=0.12.1", features = [
+livekit = { version = "0.9.7", features = [
     "rustls-tls-native-roots",
     "rustls-tls-webpki-roots",
 ] }
 # Keep this SDK source and revision identical to matrix-rust-rtc's workspace pin.
-matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = [
+matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d", features = [
     "bundled-sqlite",
     "markdown",
 ] }
-matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", features = [
+matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d", features = [
     "unstable-msc4354",
 ] }
-matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd" }
-matrix-rtc-livekit = { path = "vendor/matrix-rtc-livekit", features = [
+matrix-sdk-crypto = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "56bc59112822e7eb25943a95e02502855cdeef2d" }
+matrix-rtc-call-sdk = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "cbfab0b55b7ec40723d331076b1be1014c9bdabe", features = [
     "matrix-sdk",
 ] }
-matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
-matrix-rtc-media = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "5831af899f1e1744c21332613cdc9578a98c604f" }
+matrix-rtc-call = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "cbfab0b55b7ec40723d331076b1be1014c9bdabe" }
+matrix-rtc-core = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "cbfab0b55b7ec40723d331076b1be1014c9bdabe" }
+matrix-rtc-transport = { git = "https://github.com/element-hq/matrix-rust-rtc", rev = "cbfab0b55b7ec40723d331076b1be1014c9bdabe" }
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
@@ -242,12 +242,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 url = "2"
 
-# Cargo does not inherit the SDK's patches through a git dependency.
 [patch.crates-io]
 webrtc-sys = { path = "vendor/webrtc-sys" }
 # Remove once the Matrix SDK revision shared with MatrixRTC accepts rusqlite 0.41.
 rusqlite = { path = "vendor/rusqlite" }
-const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
 # iced 0.14's renderers with Yapfast's patches; see docs/building.md.
 iced_tiny_skia = { path = "vendor/iced_tiny_skia" }
 iced_wgpu = { path = "vendor/iced_wgpu" }
