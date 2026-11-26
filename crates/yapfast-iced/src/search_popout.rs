@@ -612,10 +612,10 @@ pub fn event(app: &mut App, event: PopoutEvent) -> Task<Message> {
                     // There to go, as the quick switcher's Enter: the
                     // search ends, the place opens.
                     let mut cx = crate::ctx::cx!(app);
-                    let _ = app.searching.update(Event::Clear, &mut cx);
+                    let cleared = app.searching.update(Event::Clear, &mut cx);
                     cx.dispatch(yapfast_core::application::Action::SwitchTo(id));
                     cx.request(crate::ctx::Request::Focus(crate::ctx::Focus::Default));
-                    return Task::none();
+                    return cleared;
                 }
                 Row::MoreFilters | Row::AddFilters => {
                     return crate::search_filters::update(
