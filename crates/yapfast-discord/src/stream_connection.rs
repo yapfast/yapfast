@@ -534,6 +534,8 @@ async fn send(
     let mut withdrawn: Vec<Codec> = vec![];
     let mut packetizer = Packetizer::new(video, chosen);
     let mut history = rtp::History::default();
+    // The packets viewers asked for again, waiting their turn on the wire.
+    let mut again = rtp::Resends::default();
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut datagram = vec![0u8; 1500];
@@ -601,10 +603,13 @@ async fn send(
             }
             _ = tokio::time::sleep_until(pending.front().map_or_else(Instant::now, |&(due, _)| due)), if !pending.is_empty() => {
                 let now = Instant::now();
+                // One clock read for the batch: a packet's age is a coarse
+                // thing beside the window the history keeps it for.
+                let sent_at = std::time::Instant::now();
                 while pending.front().is_some_and(|&(due, _)| due <= now)
                     && let Some((_, mut packet)) = pending.pop_front()
                 {
-                    history.remember(&packet);
+                    history.remember(&packet, sent_at);
                     let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
                     packets = packets.wrapping_add(1);
                     octets = octets.wrapping_add((packet.len() - clear) as u32);
@@ -726,19 +731,47 @@ async fn send(
                         retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
                     }
                 }
+                // Answered when their turn comes, a batch a turn: a NACK names
+                // up to 128 packets because a burst left the path's queue
+                // full, and one burst back would fill it again. A request
+                // repeated while its answer is still on its way is the same
+                // lost packet, not another.
+                let now = std::time::Instant::now();
+                let in_flight = pacing.in_flight();
                 for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
-                    let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
+                    if again.ask(lost, now, in_flight) {
+                        sent.asked += 1;
+                    } else {
+                        sent.repeats += 1;
+                    }
+                }
+            }
+            // The packets viewers asked for again, a batch a turn, between the
+            // loop's other arms like one of its own.
+            _ = tokio::time::sleep_until(again.due(std::time::Instant::now()).into()), if again.waiting() => {
+                let now = std::time::Instant::now();
+                for _ in 0..again.batch(pacing.target(), congestion::PACE, now) {
+                    let Some(lost) = again.next(now) else {
+                        break;
+                    };
+                    let Some(mut packet) = history
+                        .get(lost, now)
+                        .and_then(|original| packetizer.retransmit(original, rtx))
+                    else {
                         sent.too_late += 1;
                         continue;
                     };
-                    let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
-                    connection.transport.seal(&mut again, clear)?;
-                    connection.udp.send(&again).await?;
-                    shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
-                    pacing.sent(std::time::Instant::now(), again.len());
+                    let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
+                    connection.transport.seal(&mut packet, clear)?;
+                    connection.udp.send(&packet).await?;
+                    shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                    // A resend is the stream's traffic as much as a first
+                    // send, so the rate the controller reads includes it.
+                    pacing.sent(now, packet.len());
                     shared.resent.fetch_add(1, Ordering::Relaxed);
                     sent.resent += 1;
                 }
+                again.wrote(std::time::Instant::now());
             }
             _ = log.tick() => {
                 let target_kbps = pacing.target() / 1000;
@@ -784,8 +817,12 @@ struct Sent {
     said: std::collections::BTreeMap<String, String>,
     /// Keyframe requests among them.
     requests: u32,
+    /// Packets viewers asked for again, and the requests among them that
+    /// named a packet whose copy was still on its way.
+    asked: u32,
+    repeats: u32,
     /// Packets resent when a viewer reported them lost, and those already
-    /// gone from the history.
+    /// gone from the history or too old to be worth sending.
     resent: u32,
     too_late: u32,
     /// RTCP that wouldn't decrypt.

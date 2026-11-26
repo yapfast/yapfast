@@ -114,12 +114,20 @@ frame's packets wait in a queue with when each is due, and go out from a
 branch of their own, so the stream's sound, NACKs and receiver reports are
 handled while a frame goes out, and a report is timed when it comes; the
 next frame is taken once the queue is empty.
-Yapfast keeps the last 2048 video packets, and when a viewer reports
-some lost with a generic NACK (RTCP 205), resends up to 128 of them as
-Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
-the original sequence number before the payload (RFC 4588), and the repaired
-stream id (extension 12) in place of the stream id. An RTCP sender report goes
-out every second.
+Yapfast keeps the last 2048 video packets, none older than two seconds, and
+when a viewer reports some lost with a generic NACK (RTCP 205), resends up to
+128 of them as Discord's client does: on the RTX SSRC with RTX's payload type
+and numbering, the original sequence number before the payload (RFC 4588), and
+the repaired stream id (extension 12) in place of the stream id. A packet two
+viewers lost is named in two blocks of the same report, and resent once. The
+resends wait their turn (`rtp::Resends`) and go out eight at once, then a batch
+a turn of the loop at 2.5 times the target: a NACK names up to 128 packets
+because a burst just left a queue full, and answering it as one burst fills it
+again. A request repeated while its answer is still on its way, half the
+lowest round trip and no more than 100 ms (short of the 300 ms a viewer holds a
+gap for), is the same lost packet, not another, and isn't answered twice. The
+camera in a call still resends at once. An RTCP sender report goes out every
+second.
 
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
