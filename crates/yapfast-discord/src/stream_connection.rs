@@ -566,7 +566,7 @@ async fn send(
                 if wanted != size {
                     size = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
-                    if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into()) {
+                    if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into(), std::time::Instant::now()) {
                         retarget(shared, &pacing, reason, None);
                     }
                 }
@@ -714,7 +714,7 @@ async fn send(
                     shared.keyframe.store(true, Ordering::Relaxed);
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
-                    && let Some(reason) = pacing.set_estimate(estimate)
+                    && let Some(reason) = pacing.set_estimate(estimate, std::time::Instant::now())
                 {
                     retarget(shared, &pacing, reason, None);
                 }
