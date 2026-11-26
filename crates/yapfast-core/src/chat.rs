@@ -2967,6 +2967,9 @@ pub enum DiscordCommand {
         height: u32,
         favorite: bool,
     },
+    /// The GIF picker closed; any pending [`DiscordCommand::GifPicture`] work
+    /// can be called off.
+    CloseGifs,
     /// Discord's default sticker packs, as its own client offers them;
     /// [`Event::StickerPacks`] follows, and [`Event::KeptStickerPacks`] first
     /// when Yapfast kept them.

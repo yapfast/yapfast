@@ -1,22 +1,210 @@
 //! The GIF picker's commands: trending terms, searches, suggestions, the
 //! account's favourites, and the pictures the picker shows.
 
+use std::sync::{
+    Mutex,
+    atomic::{AtomicU64, Ordering},
+};
+
+use futures_util::future::{AbortHandle, Abortable};
+
 use super::*;
-use crate::chat::{FavoriteGif, Gif, GifCategory};
+use crate::{
+    chat::{FavoriteGif, Gif, GifCategory},
+    discord::Turns,
+};
 
 /// The largest GIF picture the picker downloads. A favourite from another
 /// client may be a full-size `.gif`.
 const MAX_GIF_BYTES: usize = 8 * 1024 * 1024;
+/// How many GIF picker tiles download, decode, or VP9-encode at once.
+const GIF_DOWNLOADS: usize = 4;
+const GIF_DECODES: usize = 2;
+const GIF_THUMBNAIL_ENCODES: usize = 1;
+/// More than a screenful and its margins show at once; older scrolled-past
+/// requests are dropped so fast scrolling doesn't queue dozens of encodes.
+const MAX_PENDING_GIF_PICTURES: usize = 32;
+
+/// Bounded, newest-first loader for the GIF picker's tiles.
+pub(super) struct GifLoader {
+    next_batch: u64,
+    loads: Arc<GifLoads>,
+    tasks: JoinSet<()>,
+}
+
+impl Default for GifLoader {
+    fn default() -> Self {
+        Self {
+            next_batch: 0,
+            loads: Arc::new(GifLoads {
+                downloads: Turns::new(GIF_DOWNLOADS),
+                decodes: Turns::new(GIF_DECODES),
+                encodes: Turns::new(GIF_THUMBNAIL_ENCODES),
+                pending: Mutex::default(),
+            }),
+            tasks: JoinSet::new(),
+        }
+    }
+}
+
+struct GifLoads {
+    downloads: Arc<Turns>,
+    decodes: Arc<Turns>,
+    encodes: Arc<Turns>,
+    pending: Mutex<HashMap<String, PendingGif>>,
+}
+
+struct PendingGif {
+    batch: Arc<AtomicU64>,
+    size: (u32, u32),
+    favorite: bool,
+    cancel: AbortHandle,
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+struct PendingGuard {
+    loads: Arc<GifLoads>,
+    url: String,
+    batch: Arc<AtomicU64>,
+}
+
+impl Drop for PendingGuard {
+    fn drop(&mut self) {
+        let mut pending = locked(&self.loads.pending);
+        if pending
+            .get(&self.url)
+            .is_some_and(|waiting| Arc::ptr_eq(&waiting.batch, &self.batch))
+        {
+            pending.remove(&self.url);
+        }
+    }
+}
+
+struct TempFile(Option<PathBuf>);
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+impl GifLoader {
+    fn fetch(
+        &mut self,
+        discord: &Discord,
+        url: String,
+        width: u32,
+        height: u32,
+        favorite: bool,
+        events: &UnboundedSender<Event>,
+    ) {
+        let (discord, loads, events) = (discord.clone(), self.loads.clone(), events.clone());
+        self.enqueue(url, width, height, favorite, move |url, batch| async move {
+            let picture = if favorite {
+                favorite_picture(&discord, &loads, &batch, &url, width, height).await
+            } else {
+                picture(&discord, &loads, &batch, &url, width, height).await
+            };
+            let _ = events.send(Event::GifPicture {
+                url,
+                picture: picture.map(Arc::new),
+            });
+        });
+    }
+
+    fn enqueue<Fut>(
+        &mut self,
+        url: String,
+        width: u32,
+        height: u32,
+        favorite: bool,
+        run: impl FnOnce(String, Arc<AtomicU64>) -> Fut,
+    ) where
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        while self.tasks.try_join_next().is_some() {}
+        self.next_batch += 1;
+        let batch_number = self.next_batch;
+        let (batch, registration) = {
+            let mut pending = locked(&self.loads.pending);
+            if let Some(existing) = pending.get(&url) {
+                if existing.size == (width, height) && existing.favorite == favorite {
+                    existing.batch.store(batch_number, Ordering::Relaxed);
+                    return;
+                }
+                if let Some(replaced) = pending.remove(&url) {
+                    replaced.cancel.abort();
+                }
+            }
+            while pending.len() >= MAX_PENDING_GIF_PICTURES {
+                let oldest = pending
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.batch.load(Ordering::Relaxed))
+                    .map(|(oldest_url, _)| oldest_url.clone());
+                let Some(oldest) = oldest else { break };
+                if let Some(evicted) = pending.remove(&oldest) {
+                    evicted.cancel.abort();
+                }
+            }
+            let (cancel, registration) = AbortHandle::new_pair();
+            let batch = Arc::new(AtomicU64::new(batch_number));
+            pending.insert(
+                url.clone(),
+                PendingGif {
+                    batch: batch.clone(),
+                    size: (width, height),
+                    favorite,
+                    cancel,
+                },
+            );
+            (batch, registration)
+        };
+        let guard = PendingGuard {
+            loads: self.loads.clone(),
+            url: url.clone(),
+            batch: batch.clone(),
+        };
+        let fut = run(url, batch);
+        self.tasks.spawn(async move {
+            let _ = Abortable::new(
+                async move {
+                    let _guard = guard;
+                    fut.await;
+                },
+                registration,
+            )
+            .await;
+        });
+    }
+
+    fn close(&mut self) {
+        locked(&self.loads.pending).clear();
+        self.tasks.abort_all();
+        while self.tasks.try_join_next().is_some() {}
+    }
+}
 
 /// Carries out a GIF picker command, or gives back any other.
 pub(super) fn command(
     command: Command,
     discord: Result<&Discord, &str>,
+    loader: &mut GifLoader,
     events: &UnboundedSender<Event>,
 ) -> Option<Command> {
     let Command::Discord(command) = command else {
         return Some(command);
     };
+    if matches!(command, DiscordCommand::CloseGifs) {
+        loader.close();
+        return None;
+    }
     let discord = match (&command, discord) {
         (
             DiscordCommand::GifCategories
@@ -269,17 +457,7 @@ pub(super) fn command(
             height,
             favorite,
         } => {
-            tokio::spawn(async move {
-                let picture = if favorite {
-                    favorite_picture(&discord, &url, width, height).await
-                } else {
-                    picture(&discord, &url, width, height).await
-                };
-                let _ = events.send(Event::GifPicture {
-                    url,
-                    picture: picture.map(Arc::new),
-                });
-            });
+            loader.fetch(&discord, url, width, height, favorite, &events);
         }
         _ => {}
     }
@@ -287,24 +465,35 @@ pub(super) fn command(
 }
 
 /// The GIF picture at `url`, fit to `width` by `height`.
-async fn picture(discord: &Discord, url: &str, width: u32, height: u32) -> Option<Picture> {
+async fn picture(
+    discord: &Discord,
+    loads: &Arc<GifLoads>,
+    batch: &Arc<AtomicU64>,
+    url: &str,
+    width: u32,
+    height: u32,
+) -> Option<Picture> {
     // The home's pictures are fetched ahead into the home's cache, and its tiles
     // read them from there.
+    let decode = loads.decodes.take(batch).await?;
     let lookup = url.to_owned();
-    let kept = tokio::task::spawn_blocking(move || yapfast_discord::cache::kept_gif_home(&lookup))
-        .await
-        .ok()
-        .flatten();
-    if let Some(kept) = kept {
-        return tokio::task::spawn_blocking(move || {
-            crate::chat::decode_picture_at(&kept, width, height)
-        })
-        .await
-        .ok()
-        .flatten();
+    let kept = tokio::task::spawn_blocking(move || {
+        yapfast_discord::cache::kept_gif_home(&lookup)
+            .and_then(|kept| crate::chat::decode_picture_at(&kept, width, height))
+    })
+    .await
+    .ok()
+    .flatten();
+    drop(decode);
+    if kept.is_some() {
+        return kept;
     }
-    match discord.download(url, MAX_GIF_BYTES).await {
+    let download = loads.downloads.take(batch).await?;
+    let downloaded = discord.download(url, MAX_GIF_BYTES).await;
+    drop(download);
+    match downloaded {
         Ok(data) => {
+            let _decode = loads.decodes.take(batch).await?;
             tokio::task::spawn_blocking(move || crate::chat::decode_picture(&data, width, height))
                 .await
                 .ok()
@@ -321,10 +510,13 @@ async fn picture(discord: &Discord, url: &str, width: u32, height: u32) -> Optio
 /// makes the first time; its frames read from the file as they show.
 async fn favorite_picture(
     discord: &Discord,
+    loads: &Arc<GifLoads>,
+    batch: &Arc<AtomicU64>,
     url: &str,
     width: u32,
     height: u32,
 ) -> Option<Picture> {
+    let decode = loads.decodes.take(batch).await?;
     let lookup = url.to_owned();
     let kept = tokio::task::spawn_blocking(move || {
         yapfast_discord::cache::kept_gif(&lookup)
@@ -332,10 +524,12 @@ async fn favorite_picture(
     })
     .await
     .ok()?;
+    drop(decode);
     if let Some(picture) = kept {
         return picture;
     }
-    let made = make_thumbnail(discord, url, width).await?;
+    let made = make_thumbnail(discord, loads, batch, url, width).await?;
+    let _decode = loads.decodes.take(batch).await?;
     tokio::task::spawn_blocking(move || crate::chat::decode_picture_at(&made, width, height))
         .await
         .ok()?
@@ -417,13 +611,27 @@ async fn download_gif(
 
 /// Makes the thumbnail of the favourite whose picture is at `url`, for tiles
 /// `width` wide, from what [`download_gif`] downloads.
-async fn make_thumbnail(discord: &Discord, url: &str, width: u32) -> Option<PathBuf> {
+async fn make_thumbnail(
+    discord: &Discord,
+    loads: &Arc<GifLoads>,
+    batch: &Arc<AtomicU64>,
+    url: &str,
+    width: u32,
+) -> Option<PathBuf> {
+    let download_turn = loads.downloads.take(batch).await?;
     let download = download_gif(discord, url, MAX_FAVORITE_BYTES, MAX_FAVORITE_BYTES)
         .await
         .ok()?;
+    drop(download_turn);
+    let mut temp = TempFile(Some(download.clone()));
+    let _encode = loads.encodes.take(batch).await?;
+    // The blocking task owns removing `download` once it starts.
+    temp.0 = None;
     let url = url.to_owned();
     tokio::task::spawn_blocking(move || {
-        let made = thumbnail(&url, &download, width);
+        // Re-check disk in case an earlier encode or prefetch kept it meanwhile.
+        let made =
+            yapfast_discord::cache::kept_gif(&url).or_else(|| thumbnail(&url, &download, width));
         let _ = std::fs::remove_file(&download);
         made
     })
@@ -949,5 +1157,56 @@ mod tests {
             ),
             (1, 1, 1, 1)
         );
+    }
+
+    #[tokio::test]
+    async fn gif_loader_caps_pending_requests_and_cancels_on_close() {
+        let mut loader = GifLoader::default();
+        let (gate_tx, gate_rx) = tokio::sync::watch::channel(false);
+
+        for index in 0..(MAX_PENDING_GIF_PICTURES + 10) {
+            let mut rx = gate_rx.clone();
+            loader.enqueue(
+                format!("https://media.tenor.com/{index}.gif"),
+                220,
+                165,
+                true,
+                move |_, _| async move {
+                    let _ = rx.wait_for(|open| *open).await;
+                },
+            );
+        }
+        {
+            let pending = locked(&loader.loads.pending);
+            assert_eq!(pending.len(), MAX_PENDING_GIF_PICTURES);
+            assert!(!pending.contains_key("https://media.tenor.com/0.gif"));
+            assert!(pending.contains_key(&format!(
+                "https://media.tenor.com/{}.gif",
+                MAX_PENDING_GIF_PICTURES + 9
+            )));
+        }
+
+        let newest = format!(
+            "https://media.tenor.com/{}.gif",
+            MAX_PENDING_GIF_PICTURES + 9
+        );
+        let mut rx = gate_rx.clone();
+        loader.enqueue(newest.clone(), 220, 165, true, move |_, _| async move {
+            let _ = rx.wait_for(|open| *open).await;
+        });
+        assert_eq!(
+            locked(&loader.loads.pending).len(),
+            MAX_PENDING_GIF_PICTURES
+        );
+        assert!(
+            locked(&loader.loads.pending)[&newest]
+                .batch
+                .load(Ordering::Relaxed)
+                > MAX_PENDING_GIF_PICTURES as u64
+        );
+
+        loader.close();
+        assert!(locked(&loader.loads.pending).is_empty());
+        drop(gate_tx);
     }
 }

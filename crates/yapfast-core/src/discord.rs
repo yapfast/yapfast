@@ -1249,7 +1249,7 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// order: rows scrolled past wait behind those on screen now, which go top
 /// to bottom.
 #[cfg(feature = "discord")]
-struct Turns {
+pub(crate) struct Turns {
     state: Mutex<TurnState>,
 }
 
@@ -1291,11 +1291,11 @@ impl Drop for QueuedTurn {
 /// An undelivered handoff can be disarmed without forgetting its Arc or
 /// recursively returning the turn while its scheduler is locked.
 #[cfg(feature = "discord")]
-struct Turn(Option<Arc<Turns>>);
+pub(crate) struct Turn(Option<Arc<Turns>>);
 
 #[cfg(feature = "discord")]
 impl Turns {
-    fn new(turns: usize) -> Arc<Self> {
+    pub(crate) fn new(turns: usize) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(TurnState {
                 free: turns,
@@ -1310,7 +1310,7 @@ impl Turns {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    async fn take(self: &Arc<Self>, batch: &Arc<AtomicU64>) -> Option<Turn> {
+    pub(crate) async fn take(self: &Arc<Self>, batch: &Arc<AtomicU64>) -> Option<Turn> {
         let (queued, waiting) = {
             let mut state = self.state();
             if state.free > 0 {

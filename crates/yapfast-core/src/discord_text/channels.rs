@@ -56,6 +56,8 @@ pub struct Channels {
     pub(super) typed: Option<(String, Instant)>,
     /// Counts member searches, so one typed over before it went is dropped.
     pub(super) searches: Arc<std::sync::atomic::AtomicU64>,
+    /// Bounded, newest-first loader for the GIF picker's tiles.
+    pub(super) gifs: gifs::GifLoader,
 }
 
 /// How long a member search waits for more typing before it goes to Discord.

@@ -304,7 +304,10 @@ fn the_gif_picker_searches_sends_and_keeps_favorites() {
         Some(gif("trend")),
     ))));
     app.apply(Event::FavoriteGifs(Ok(vec![])));
-    app.dispatch(Action::CloseGifs);
+    assert!(matches!(
+        backend(app.dispatch(Action::CloseGifs)).as_slice(),
+        [Command::Discord(DiscordCommand::CloseGifs)]
+    ));
     assert!(backend(app.dispatch(Action::OpenGifs)).is_empty());
 
     // A term's tile searches for it; the results show, their pictures load

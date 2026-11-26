@@ -97,7 +97,7 @@ pub fn command(
     let Some(command) = own_profile::command(command, discord, events) else {
         return;
     };
-    let Some(command) = gifs::command(command, discord, events) else {
+    let Some(command) = gifs::command(command, discord, &mut channels.gifs, events) else {
         return;
     };
     let Some(command) = super::server_settings::command(command, discord, events) else {

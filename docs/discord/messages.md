@@ -997,7 +997,9 @@ its desktop client does:
   - The picture itself, when it's a video or no larger than 64 KB, which
     keeps a small GIF's transparency.
   - Otherwise a VP9 WebM of it at the tiles' width, made once, off the UI
-    thread, with the VP9 encoder already in Yapfast's libwebrtc. It's about
+    thread and one at a time, newest visible tiles first, with the VP9 encoder
+    already in Yapfast's libwebrtc (older queued tiles scrolled past or left
+    behind when the picker closes are dropped before encoding). It's about
     a fifth of an animated WebP at the same quality, and a fifth of its
     decoding work. A transparent GIF goes over the panel's tone, as VP9
     keeps no transparency.
