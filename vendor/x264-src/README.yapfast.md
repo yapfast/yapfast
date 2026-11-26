@@ -1,7 +1,7 @@
 # x264 for Yapfast
 
-`x264/` is x264 at commit 373697b467f7cd0af88f1e9e32d4f10540df4687
-(2025-01-03, core 164) from https://code.videolan.org/videolan/x264, under its
+`x264/` is x264 at commit 0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee
+(2025-09-10, core 165) from https://code.videolan.org/videolan/x264, under its
 original GPL-2.0-or-later license (`x264/COPYING`). Its files are unchanged;
 only those a library build for 8-bit 4:2:0 video uses are kept: `x264.h`,
 `common/` with `common/x86/`, and `encoder/`, without OpenCL. The

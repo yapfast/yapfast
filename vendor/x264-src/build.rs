@@ -72,8 +72,8 @@ const X264_CONFIG: &str = "#define X264_GPL           1
 #define X264_INTERLACED    1
 #define X264_BIT_DEPTH     8
 #define X264_CHROMA_FORMAT X264_CSP_I420
-#define X264_VERSION \" 373697b\"
-#define X264_POINTVER \"0.164.x 373697b\"
+#define X264_VERSION \" 0480cb0\"
+#define X264_POINTVER \"0.165.x 0480cb0\"
 ";
 
 fn main() {
@@ -241,6 +241,10 @@ impl Target {
             "HAVE_ARMV6T2",
             "HAVE_NEON",
             "HAVE_AARCH64",
+            "HAVE_DOTPROD",
+            "HAVE_I8MM",
+            "HAVE_RISCV64",
+            "HAVE_RVV",
             "HAVE_BEOSTHREAD",
             "HAVE_SWSCALE",
             "HAVE_LAVF",

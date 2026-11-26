@@ -1,6 +1,6 @@
 [package]
 name = "x264-src"
-version = "0.164.0"
+version = "0.165.0"
 edition = "2024"
 publish = false
 license = "GPL-2.0-or-later"
