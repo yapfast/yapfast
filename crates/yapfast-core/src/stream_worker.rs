@@ -649,16 +649,24 @@ impl Sink {
     /// Takes a frame at the size it's sent: the preview shows it, scaled
     /// down to fit, and Discord gets it once the stream has a server.
     ///
-    /// The preview skips a frame while the window hasn't taken the last one,
-    /// which it takes only while the preview is on screen. Scaling and
-    /// converting every frame for it took about a third of the worker's time
-    /// in a 1080p60 share, also while a game hid the window.
+    /// The preview comes at the size the window draws it, and not at all
+    /// while the window isn't showing it ([`Writer::unseen`]). Scaling and
+    /// converting every frame to 720p for it took about a third of the
+    /// worker's time in a 1080p60 share, also while a game hid the window.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
-        let show = self.writer.taken();
+        let show = !self.writer.unseen();
         let thumbnail_due = self.preview_due.is_some_and(|due| due <= Instant::now());
         if show || thumbnail_due {
-            let preview = fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            // A thumbnail is made from the 720p picture whatever the window shows.
+            let (most_width, most_height) = match self.writer.wanted() {
+                Some((wanted_width, wanted_height)) if !thumbnail_due => (
+                    wanted_width.min(PREVIEW_WIDTH),
+                    wanted_height.min(PREVIEW_HEIGHT),
+                ),
+                _ => (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+            };
+            let preview = fit(width, height, most_width, most_height);
             let mut smaller = (preview != (width, height))
                 .then(|| picture.scale(preview.0 as i32, preview.1 as i32));
             let shown = match smaller.as_mut() {
@@ -1013,6 +1021,18 @@ fn watch(
                 continue;
             }
         };
+        // Decoded all the same, since the frames after it build on it, but
+        // not made into a picture nothing shows.
+        if shown && writer.unseen() {
+            continue;
+        }
+        // At the size the window draws it, which is mostly smaller than the
+        // stream's: scaling the picture before it's made RGBA costs less than
+        // the window scaling the RGBA.
+        let most = match writer.wanted() {
+            Some((width, height)) => (width.min(max_width), height.min(max_height)),
+            None => (max_width, max_height),
+        };
         let (width, height) = show_stream_picture(
             &mut writer,
             picture.i420(),
@@ -1020,7 +1040,7 @@ fn watch(
                 turns: frame.orientation.turns,
                 flip: frame.orientation.flip,
             },
-            (max_width, max_height),
+            most,
             &mut scratch,
             &mut turned,
         );
@@ -2141,8 +2161,9 @@ mod tests {
         assert_eq!(first[3], 255);
     }
 
-    /// A preview the window hasn't taken, because it isn't on screen, isn't
-    /// replaced: the frames after it skip the preview until the window takes it.
+    /// A preview the window has left untaken for a while, because it isn't
+    /// on screen, isn't replaced: the frames after it skip the preview until
+    /// the window takes it. One it's only slow to take is.
     #[test]
     fn previews_only_what_the_window_takes() {
         let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
@@ -2174,8 +2195,13 @@ mod tests {
         let level = || frames.take(|_, _, pixels| pixels[0]);
         grey(16);
         grey(235);
+        let light = level().unwrap();
+        assert!(light > 248, "the newest while the window keeps up: {light}");
+        grey(16);
+        std::thread::sleep(Duration::from_millis(300));
+        grey(235);
         let dark = level().unwrap();
-        assert!(dark < 8, "the first, not the one after it: {dark}");
+        assert!(dark < 8, "the one it left, not the one after it: {dark}");
         grey(235);
         let light = level().unwrap();
         assert!(light > 248, "a new one once the window took it: {light}");
