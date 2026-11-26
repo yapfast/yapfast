@@ -366,20 +366,31 @@ pub fn call_view(app: &App) -> Element<'_, Message> {
 /// (unless it's full screen), and the controls.
 pub fn call_panel(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
-    let line = container(
-        text(voice_description(app))
-            .size(14)
-            .color(theme.muted)
-            .align_x(Alignment::Center)
-            .width(Length::Fill),
-    )
-    .padding(Padding {
-        top: 16.0,
-        left: 16.0,
-        right: 16.0,
-        bottom: 0.0,
-    })
-    .height(CONTROLS - CONTROLS_HEIGHT);
+    let description = voice_description(app);
+    let hint = [CALL_HINT, VOICE_HINT].contains(&description.as_str());
+    let words: Element<'_, Message> = if hint && app.layout.hide_voice_hint {
+        Space::new().width(Length::Fill).into()
+    } else {
+        let words = text(description).size(14).color(theme.muted);
+        if hint {
+            row![words, hint_close(app)]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            words.align_x(Alignment::Center).width(Length::Fill).into()
+        }
+    };
+    let line = container(words)
+        .align_x(Alignment::Center)
+        .width(Length::Fill)
+        .padding(Padding {
+            top: 16.0,
+            left: 16.0,
+            right: 16.0,
+            bottom: 0.0,
+        })
+        .height(CONTROLS - CONTROLS_HEIGHT);
     // The stage takes the height left between the line and the controls,
     // so the controls always sit under the tiles, whatever shows above.
     let stage: Element<'_, Message> = if full_shown(app) {
@@ -414,6 +425,36 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
         .into()
 }
 
+/// The line over a DM's call, and a voice channel's, once others are in
+/// it; its close button hides it for good.
+const CALL_HINT: &str = "The call stays connected while you browse other conversations.";
+const VOICE_HINT: &str = "Voice stays connected while you browse other conversations.";
+
+/// The hint's close button, which hides it for good.
+fn hint_close(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let hover = theme.hover;
+    let face = crate::widgets::Hover::new(
+        app.look().glyph(Icon::X, 14, theme.muted).boxed(20),
+        app.look().glyph(Icon::X, 14, theme.text).boxed(20),
+    );
+    let close = button(face)
+        .padding(0)
+        .on_press(Message::Call(Event::HideHint))
+        .style(move |_, status| iced::widget::button::Style {
+            background: controls::lights(status).then(|| hover.into()),
+            border: crate::style::round(4),
+            ..Default::default()
+        });
+    iced::widget::tooltip(
+        close,
+        controls::tip(theme, "Don't show again"),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
 /// What the line over the stage, or a channel's Join, says of the call.
 pub fn voice_description(app: &App) -> String {
     let state = app.client.state();
@@ -434,14 +475,14 @@ pub fn voice_description(app: &App) -> String {
         } else if voice.participants.len() == 1 {
             "Nobody else is in the call yet.".into()
         } else {
-            "The call stays connected while you browse other conversations.".into()
+            CALL_HINT.into()
         };
     }
     if voice_here(app) {
         return if voice.participants.len() == 1 {
             "You're here alone. Stay as long as you like; others can join later.".into()
         } else {
-            "Voice stays connected while you browse other conversations.".into()
+            VOICE_HINT.into()
         };
     }
     let join = if joins_muted(app) {

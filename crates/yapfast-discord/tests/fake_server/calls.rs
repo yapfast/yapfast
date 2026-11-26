@@ -315,6 +315,18 @@ fn watch_frames(
         }
     }
     assert_eq!(receiver.link(), Link::Connected);
+    // What the call's details show, which the connection copies out once a
+    // second.
+    while receiver.received().video_packets == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no tally of what came"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let received = receiver.received();
+    assert!(received.video_bytes > 0, "{received:?}");
+    assert!(received.lost <= received.video_packets, "{received:?}");
     let heard: Vec<_> = sounds.try_iter().collect();
     assert!(heard.len() >= 5, "only {} sounds arrived", heard.len());
     assert!(heard.iter().all(|sound| sound.opus == [0xf8, 0xff, 0xfe]));
@@ -1027,10 +1039,11 @@ async fn calls_and_goes_live() {
         video["announced"],
         serde_json::json!({"type": "fixed", "width": 320, "height": 180})
     );
-    // What the call's details show: the video's bytes, and the one packet
-    // the fake reported lost, resent.
+    // What the call's details show: the video's bytes and packets, and the
+    // one packet the fake reported lost, resent.
     let sent = sender.sent();
     assert!(sent.video_bytes > 1000, "{sent:?}");
+    assert!(sent.video_packets > 1, "{sent:?}");
     assert_eq!(sent.resent, 1);
     drop(sender);
     for codec in [Codec::Av1, Codec::H265] {

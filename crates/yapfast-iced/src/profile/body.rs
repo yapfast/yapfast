@@ -286,7 +286,10 @@ pub(super) fn profile_body<'a>(
             mode.full(),
         ));
     }
-    if mode.large() && !profile.connections.is_empty() {
+    // The floating card shows them too, once Appearance says so.
+    if (mode.large() || (mode == Mode::Card && ctx.layout.prefs.card_connections))
+        && !profile.connections.is_empty()
+    {
         body = body.push(connections(ctx, shown, &inks));
     }
     if mode.large() && look.note_editable {

@@ -160,10 +160,11 @@ and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
-encodes those; the preview is the same picture scaled down to 720p. The
-window takes preview frames only while the preview is on screen, and the
-worker skips the scaling while the last one is still waiting there, so a
-share hidden behind a game costs no preview.
+encodes those; the preview is the same picture scaled down to the size the
+window draws it, at most 720p. The window takes preview frames only while
+the preview is on screen, and once one has waited untaken for a quarter of a
+second the worker makes no more until it's taken, so a share hidden behind a
+game costs no preview.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its
@@ -250,7 +251,9 @@ audio changes only when it's chosen.
 By default a shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the
-applications). On Linux, PulseAudio or PipeWire's
+applications). On Windows that means Yapfast's own process tree: another
+Discord client's call is shared, since only its own processes can be left out
+there. On Linux, PulseAudio or PipeWire's
 PulseAudio server monitors each application's playback stream on its own
 (`pa_stream_set_monitor_stream`, as pavucontrol's level meters do), and
 streams from Yapfast's processes are skipped by process id. So are other Discord
@@ -340,7 +343,12 @@ asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
 libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
 archive (`native/av1.c`), a picture out for each frame in, or H265 with the
 HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
-libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames.
+libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames,
+scaled first to the size the window draws the stream at, which the window
+writes into the frames file's header (`Frames::want`): the picture is scaled
+before it's made RGBA, which costs less than the window scaling RGBA each
+time it draws. While the stream isn't on screen the worker still decodes each
+frame, which the ones after it need, but doesn't make it a picture.
 When a mobile sender signals its orientation in RTP, the viewer keeps the
 last signaled orientation for that video source and applies it before display.
 The upright dimensions determine how the picture fits in the shared frame.

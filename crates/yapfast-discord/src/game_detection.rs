@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-use tokio::sync::{Notify, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 mod catalog;
 pub mod custom_games;
@@ -36,22 +36,24 @@ fn interval() -> Duration {
     }
 }
 
-pub(crate) fn start(api: Arc<Api>, rescan: Arc<Notify>) -> watch::Receiver<Option<Arc<Value>>> {
+pub(crate) fn start(
+    api: Arc<Api>,
+    rescan: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+) -> watch::Receiver<Option<Arc<Value>>> {
     let (shown, receiver) = watch::channel(None);
+    let custom = std::env::var_os("YAPFAST_DISCORD_GAMES_FILE").map(PathBuf::from);
+    let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
+    let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
+        || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
+    if disabled {
+        return receiver;
+    }
+    let detected = custom_games::Detection::start();
     tokio::spawn(async move {
-        let custom = std::env::var_os("YAPFAST_DISCORD_GAMES_FILE").map(PathBuf::from);
-        let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
-        let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
-            || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
-        if disabled {
-            shown.closed().await;
-            return;
-        }
         let (games, blocked) = (custom_games::subscribe(), custom_games::subscribe_blocked());
-        if let Err(error) = run(api, custom, &shown, games, blocked, rescan).await {
+        if let Err(error) = run(api, custom, &shown, games, blocked, rescan, &detected).await {
             tracing::warn!(%error, "automatic game detection stopped");
         }
-        custom_games::set_detected(Vec::new());
         shown.send_replace(None);
     });
     receiver
@@ -63,7 +65,8 @@ async fn run(
     shown: &watch::Sender<Option<Arc<Value>>>,
     mut custom_games: watch::Receiver<Vec<custom_games::CustomGame>>,
     mut blocked_games: watch::Receiver<Vec<String>>,
-    rescan: Arc<Notify>,
+    mut rescan: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+    detected: &custom_games::Detection,
 ) -> Result<()> {
     let cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE")
         .map(PathBuf::from)
@@ -94,11 +97,14 @@ async fn run(
     let mut refresh = Box::pin(catalog::refresh(&api, cache.clone(), cached));
     let mut next_refresh =
         Instant::now() + age.map_or(catalog::MAX_AGE, |age| catalog::MAX_AGE.saturating_sub(age));
+    let mut scanned_for_rpc = None;
     loop {
         tokio::select! {
             biased;
             () = shown.closed() => return Ok(()),
-            () = rescan.notified() => {
+            request = rescan.recv() => {
+                let Some(reply) = request else { return Ok(()); };
+                scanned_for_rpc = Some(reply);
                 detector.selection.verify_exit();
                 ticks.reset_immediately();
             }
@@ -135,10 +141,13 @@ async fn run(
                     (detector, activity)
                 }).await?;
                 detector = scanned.0;
-                custom_games::set_detected(detector.detected());
+                detected.publish(detector.detected());
                 shown.send_if_modified(|previous| {
                     if *previous == scanned.1 { false } else { *previous = scanned.1; true }
                 });
+                if let Some(reply) = scanned_for_rpc.take() {
+                    let _ = reply.send(());
+                }
             }
         }
     }
@@ -329,6 +338,10 @@ fn ignored(path: &str) -> bool {
             | "steam.exe"
             | "steamwebhelper"
             | "steamwebhelper.exe"
+            | "wallpaper32.exe"
+            | "wallpaper64.exe"
+            | "wallpaperui.exe"
+            | "webwallpaper32.exe"
             | "wine"
             | "wine64"
             | "wine-preloader"
@@ -344,7 +357,11 @@ fn ignored(path: &str) -> bool {
             | "rundll32.exe"
             | "conhost.exe"
             | "start.exe"
-    ) || file.starts_with("easyanticheat")
+    ) || path
+        .rsplit(['/', '\\'])
+        .skip(1)
+        .any(|directory| directory.eq_ignore_ascii_case("wallpaper_engine"))
+        || file.starts_with("easyanticheat")
         || file.starts_with("eac_launcher")
         || file.starts_with("battleye")
         || file.starts_with("beservice")
@@ -822,6 +839,8 @@ mod tests {
             "C:\\Windows\\explorer.exe",
             "/games/game/EasyAntiCheat_EOS.exe",
             "/games/game/UnityCrashHandler64.exe",
+            "C:\\Steam\\steamapps\\common\\wallpaper_engine\\launcher.exe",
+            "/steam/steamapps/common/Wallpaper_Engine/bin/ui32.exe",
         ] {
             assert!(ignored(path), "{path}");
         }
