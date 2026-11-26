@@ -18,6 +18,7 @@ fn reads_what_a_report_says_about_one_ssrc() {
     assert_eq!(
         reception(&both, 77),
         Some(Reception {
+            reporter: 1,
             ssrc: 77,
             fraction_lost: 30,
             lost: 12,
@@ -252,8 +253,70 @@ fn puts_packets_back_in_order_and_asks_for_lost_ones() {
     assert_eq!(reorder.ready(at(399)), (vec![], 0));
     let (ready, skipped) = reorder.ready(at(400));
     assert_eq!((sequences(ready), skipped), (vec![4], 2));
-    assert_eq!(reorder.insert(held(3), at(410)), Arrival::Late);
-    assert_eq!(reorder.counts(), Some((65536 + 4, 2)), "one wrap, two lost");
+    // 3 was given up on, and comes anyway: it arrived, so the report says
+    // the path lost one rather than two.
+    assert_eq!(reorder.insert(held(3), at(410)), Arrival::Recovered);
+    assert_eq!(reorder.counts(), Some((65536 + 4, 1)), "one wrap, one lost");
+    // And once it has come, another copy of it isn't a second packet.
+    assert_eq!(reorder.insert(held(3), at(420)), Arrival::Late);
+    assert_eq!(reorder.counts(), Some((65536 + 4, 1)));
+}
+
+#[test]
+fn counts_a_packet_that_came_late_as_arrived() {
+    // A report says what the path lost, not what arrived out of order: the
+    // delivery point went on without 12, so a count read from it called 12
+    // lost, and a streamer reads that as its own uplink losing it.
+    let now = std::time::Instant::now();
+    let later = now + std::time::Duration::from_millis(400);
+    let held = |sequence: u16| Held {
+        payload_type: VP8,
+        marker: false,
+        sequence,
+        timestamp: 0,
+        ssrc: 5,
+        payload: vec![0],
+        orientation: None,
+    };
+    let mut reorder = Reorder::default();
+    for sequence in [10, 11, 13, 14] {
+        reorder.insert(held(sequence), now);
+    }
+    assert_eq!(reorder.ready(now).0.len(), 2, "10 and 11, without 12");
+    assert_eq!(reorder.counts(), Some((14, 1)));
+    assert_eq!(reorder.ready(later).0.len(), 2, "13 and 14, given up on 12");
+    assert_eq!(reorder.counts(), Some((14, 1)), "12 never came");
+    assert_eq!(reorder.insert(held(12), later), Arrival::Recovered);
+    assert_eq!(reorder.counts(), Some((14, 0)), "and then it did");
+    // A second copy of it is not a second packet.
+    assert_eq!(reorder.insert(held(12), later), Arrival::Late);
+    assert_eq!(reorder.counts(), Some((14, 0)));
+}
+
+#[test]
+fn remembers_the_arrivals_near_the_highest() {
+    let mut arrived = Arrived::default();
+    assert!(arrived.note(1000));
+    assert!(!arrived.note(1000), "a duplicate");
+    assert!(arrived.note(999), "out of order, and new");
+    assert_eq!(arrived.count, 2);
+    // Older than what's remembered: it can't be told from a packet counted
+    // when it first came, so it isn't counted again.
+    assert!(!arrived.note(1000 - ARRIVED));
+    assert_eq!(arrived.count, 2);
+    // A window that moves keeps what it holds, across a word's worth of it.
+    let mut arrived = Arrived::default();
+    arrived.note(100);
+    arrived.note(99);
+    arrived.note(170);
+    assert!(!arrived.note(100));
+    assert!(!arrived.note(99));
+    assert!(arrived.note(98));
+    assert_eq!(arrived.count, 4);
+    // Far ahead, everything before it is out of reach and it counts.
+    assert!(arrived.note(170 + ARRIVED * 4));
+    assert!(!arrived.note(169));
+    assert_eq!(arrived.count, 5);
 }
 
 #[test]
