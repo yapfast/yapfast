@@ -483,6 +483,8 @@ fn a_discord_dm_offers_add_friend_or_accept_in_its_opening() {
 #[test]
 fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
     use yapfast_core::chat::{EffectLayer, ProfileEffect, ProfileFrameLayer};
+    const BANNER: &str = "https://cdn.discordapp.com/banners/1/a_b.png?size=600";
+    const MOVING_BANNER: &str = "https://cdn.discordapp.com/banners/1/a_b.gif?size=600";
     let (mut app, _folder) = preview();
     let user = app
         .client
@@ -522,6 +524,7 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
             anchor: "top".into(),
             front: true,
         }]);
+        profile.banner = Some(BANNER.into());
     });
     let wanted = |app: &App, url: &str| {
         crate::profile::profile_pictures(app.ctx())
@@ -531,6 +534,8 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
     assert!(wanted(&app, "effect-still"), "its still at rest");
     assert!(!wanted(&app, "effect-layer"), "no layers at rest");
     assert!(wanted(&app, "frame-staple"));
+    assert!(wanted(&app, BANNER), "the banner's still");
+    assert!(wanted(&app, MOVING_BANNER), "and its moving one");
     let _ = app.update(Message::Profile(profile::Event::Pointed(true)));
     assert!(wanted(&app, "effect-layer"), "it plays under the pointer");
     let _ = app.update(Message::Profile(profile::Event::Pointed(false)));
@@ -538,13 +543,66 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
         !wanted(&app, "effect-layer"),
         "and lets its layers go after"
     );
-    // With effects and frames switched off, neither is asked for.
+    // With effects, frames and backgrounds switched off, none is asked
+    // for.
     change(&mut app, |state| {
         state.cosmetics.effects = false;
         state.cosmetics.frames = false;
+        state.cosmetics.background = false;
     });
     assert!(!wanted(&app, "effect-still"));
     assert!(!wanted(&app, "frame-staple"));
+    assert!(!wanted(&app, BANNER));
+    assert!(!wanted(&app, MOVING_BANNER));
+}
+
+#[test]
+fn a_cards_badges_are_asked_for_only_while_badges_show() {
+    use yapfast_core::chat::{ProfileBadge, ProfileBadgeLevel};
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    change(&mut app, |state| {
+        let profile = &mut state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("open")
+            .profile;
+        profile.badges = vec![ProfileBadge {
+            description: "Quest".into(),
+            icon: "badge-icon".into(),
+            link: None,
+            level: Some(ProfileBadgeLevel {
+                kind: None,
+                title: "Level 2".into(),
+                progress: String::new(),
+                picture: "badge-level".into(),
+            }),
+        }];
+    });
+    let wanted = |app: &App, url: &str| {
+        crate::profile::profile_pictures(app.ctx())
+            .iter()
+            .any(|got| got == url)
+    };
+    assert!(wanted(&app, "badge-icon"));
+    assert!(
+        wanted(&app, "badge-level"),
+        "the level's picture, for its tooltip"
+    );
+    change(&mut app, |state| state.cosmetics.badges = false);
+    assert!(!wanted(&app, "badge-icon"), "no badge is asked for");
+    assert!(!wanted(&app, "badge-level"));
 }
 
 #[test]

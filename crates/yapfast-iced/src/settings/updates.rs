@@ -30,30 +30,7 @@ impl<'a> Page<'a> {
         if shown.status != UpdateStatus::Available {
             return None;
         }
-        let theme = self.cx.look.theme;
-        let accent = theme.accent;
-        let (rest, lit) = (
-            iced::Color { a: 0.14, ..accent },
-            iced::Color { a: 0.22, ..accent },
-        );
-        let face = iced::widget::button(
-            text(format!("Update available · {}", shown.latest))
-                .size(13)
-                .font(crate::fonts::BOLD)
-                .color(accent)
-                .wrapping(text::Wrapping::None),
-        )
-        .padding([0, 12])
-        .width(Length::Fill)
-        .height(28)
-        .on_press(crate::app::settings(SettingsEvent::Open(Section::About)))
-        .style(crate::controls::lit_style(Some(rest), lit, 4.0));
-        Some(
-            container(iced::widget::center_y(face))
-                .padding([4, 16])
-                .height(36)
-                .into(),
-        )
+        Some(notice(self.cx.look.theme.accent, &shown.latest))
     }
 
     /// About's UPDATES: what the last look found, the update's progress,
@@ -228,6 +205,61 @@ impl<'a> Page<'a> {
     }
 }
 
+/// The notice's button, in the accent. Its words wrap and it grows to fit
+/// them, so a nightly's long version stays inside the sidebar.
+fn notice<'a>(accent: iced::Color, latest: &str) -> Element<'a, Message> {
+    let (rest, lit) = (
+        iced::Color { a: 0.14, ..accent },
+        iced::Color { a: 0.22, ..accent },
+    );
+    let face = iced::widget::button(
+        text(format!("Update available · {latest}"))
+            .size(13)
+            .font(crate::fonts::BOLD)
+            .color(accent)
+            .wrapping(text::Wrapping::WordOrGlyph),
+    )
+    .padding([6, 12])
+    .width(Length::Fill)
+    .on_press(crate::app::settings(SettingsEvent::Open(Section::About)))
+    .style(crate::controls::lit_style(Some(rest), lit, 4.0));
+    container(face).padding([4, 16]).into()
+}
+
 fn update_message(event: Event) -> Message {
     Message::Updates(event)
+}
+
+#[cfg(test)]
+mod tests {
+    use iced_test::{Simulator, selector::Candidate};
+
+    /// A nightly's version is too long for the sidebar on one line: the
+    /// notice wraps it onto another and grows, rather than running off.
+    #[test]
+    fn a_long_version_wraps_inside_the_sidebar() {
+        let shown = super::notice(iced::Color::WHITE, "v0.5.0-nightly.20261124.21");
+        let mut ui = Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(super::super::NAV, 400.0),
+            shown,
+        );
+        let mut words = None;
+        let _ = ui.find(|candidate: Candidate<'_>| {
+            if let Candidate::Text {
+                content, bounds, ..
+            } = candidate
+                && content.starts_with("Update available")
+            {
+                words = Some(bounds);
+            }
+            None::<()>
+        });
+        let words = words.expect("the notice's words");
+        assert!(
+            words.x + words.width <= super::super::NAV,
+            "inside the sidebar"
+        );
+        assert!(words.height > 13.0 * 1.5, "on more than one line");
+    }
 }
