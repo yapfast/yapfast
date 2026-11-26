@@ -407,6 +407,7 @@ fn redraw(app: &App) {
     ))]);
 }
 
+mod accounts;
 mod arrange;
 mod boost_goal;
 mod calls;

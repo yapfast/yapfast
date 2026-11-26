@@ -228,6 +228,8 @@ pub struct App {
     pub backend_events: Option<iced::task::Handle>,
     pub linking: Option<iced::task::Handle>,
     pub mfa: mfa::Mfa,
+    /// Manage Accounts' Add Account step.
+    pub accounts: crate::accounts::Accounts,
 }
 
 impl App {
@@ -290,6 +292,7 @@ impl App {
         layout.voice.apply();
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
+        layout.prefs.apply_blocked_games();
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         // The window opens at its size in the desktop's pixels whatever the
         // zoom, and its layout gets fewer.
@@ -392,6 +395,7 @@ impl App {
             backend_events: None,
             linking: None,
             mfa: mfa::Mfa::default(),
+            accounts: Default::default(),
         };
         crate::window_bar::fit_window(&mut app);
         app.follow_protected();
@@ -518,6 +522,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(event, &mut cx)
             }
+            Message::Accounts(event) => crate::accounts::update(self, event),
             Message::Control(command) => crate::control_file::control(self, &command),
             Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),

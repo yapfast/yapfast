@@ -140,8 +140,10 @@ the preferences below, including changes made from another settings page.
   The running window and tray update as soon as a choice is made. On Linux,
   the window icon applies where the desktop uses X11 window icons. Desktops
   that use the application's desktop entry show the launcher icon there.
-  Then the system title bar's switch, where Yapfast can draw its own, and
-  the profile switches, which the core is told of.
+  The theme's Draw text glow switch turns off the soft edge a theme puts
+  round text, which is drawing rather than data: the shadow, the outline
+  and the ink stay. Then the system title bar's switch, where Yapfast can
+  draw its own, and the profile switches, which the core is told of.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those
@@ -151,8 +153,12 @@ the preferences below, including changes made from another settings page.
   idle while away, and goes AFK and idle on its own clock, and moving
   pictures hold still until someone is back. Input while someone is using
   it costs no message, only a time noted; one timer checks it.
-- Game Activity: sharing the game played (Discord keeps it), and the games
-  named by hand, added, edited and removed, which detection takes at once.
+- Game Activity: sharing the game played (Discord keeps it), the games
+  named by hand, added, edited and removed, and the programs never shown as
+  a game, added, removed and switched off to allow one again
+  (`blocked_games`), which detection takes at once,
+  and a menu of the games detected now to choose one from
+  (`Request::DetectedGamesMenu`, `MenuAct::BlockGame`).
 - About: the build with Copy version, the update switches, the releases
   (Updates in [the window](window.md#the-window-and-the-desktop)), and
   the links.

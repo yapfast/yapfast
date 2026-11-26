@@ -31,7 +31,7 @@ pub use theme_keys::ThemeKey;
 pub use theme_page::trial_banner;
 pub mod updates;
 
-pub use pages::message_size;
+pub use pages::{block_game, message_size, open_detected_games_menu};
 pub mod voice;
 
 use crate::widgets::scroll_view;

@@ -77,7 +77,7 @@ async fn cameras_in_call(
     let recorded = recording(Codec::H264);
     for (index, data) in recorded.iter().take(10).enumerate() {
         camera.send(Frame {
-            data: data.clone(),
+            data: data.clone().into(),
             codec: Codec::H264,
             timestamp: index as u32 * 9000,
             keyframe: index == 0,
@@ -315,9 +315,20 @@ fn watch_frames(
         }
     }
     assert_eq!(receiver.link(), Link::Connected);
-    let heard: Vec<Vec<u8>> = sounds.try_iter().collect();
+    let heard: Vec<_> = sounds.try_iter().collect();
     assert!(heard.len() >= 5, "only {} sounds arrived", heard.len());
-    assert!(heard.iter().all(|sound| sound == &[0xf8, 0xff, 0xfe]));
+    assert!(heard.iter().all(|sound| sound.opus == [0xf8, 0xff, 0xfe]));
+    // Each in its place in the streamer's numbering; a full queue drops
+    // some, so later is all that holds.
+    assert!(
+        heard.windows(2).all(|pair| pair[1]
+            .sequence
+            .wrapping_sub(pair[0].sequence)
+            .wrapping_sub(1)
+            < 0x8000),
+        "{:?}",
+        heard.iter().map(|sound| sound.sequence).collect::<Vec<_>>()
+    );
     frames
 }
 
@@ -345,7 +356,7 @@ async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
     let send = |codec, from: usize| {
         for (index, data) in recording(codec).into_iter().take(3).enumerate() {
             sender.send(Frame {
-                data,
+                data: data.into(),
                 codec,
                 timestamp: (from + index) as u32 * 3000,
                 keyframe: index == 0,
@@ -461,7 +472,7 @@ async fn send_recording(sender: &StreamSender, codec: Codec, from: usize, count:
     );
     for (index, data) in frames.into_iter().take(count).enumerate() {
         sender.send(Frame {
-            data,
+            data: data.into(),
             codec,
             timestamp: (from + index) as u32 * 3000,
             keyframe: index == 0,
@@ -932,7 +943,7 @@ async fn calls_and_goes_live() {
     let sound = sender.sound();
     for (index, data) in recording(SEND_CODEC).into_iter().take(5).enumerate() {
         sender.send(Frame {
-            data,
+            data: data.into(),
             codec: SEND_CODEC,
             timestamp: index as u32 * 3000,
             keyframe: index == 0,
