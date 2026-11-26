@@ -92,7 +92,9 @@ encryption. Yapfast offers H264, and AV1 then H265 before it where the GPU
 encodes them ([Encoding on the GPU](#encoding-on-the-gpu)), and announces its
 size with op 12, again whenever someone connects. H264 frames come from x264 (`vendor/x264-src`,
 built from source) through `native/h264.c`, with a keyframe at least every 3 s
-and whenever RTCP asks for one; [Choosing the H264
+and whenever RTCP asks for one, at most one a half second: every viewer who
+lost the same packet asks at once, and a keyframe is many times a frame, so a
+run of them at a rate that just dropped would be lost in its turn; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
 work sends H264. Each encoded frame owns the buffer it was encoded into
