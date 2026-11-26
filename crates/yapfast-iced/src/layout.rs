@@ -80,6 +80,9 @@ pub struct Layout {
     /// How calls are joined: unmuted unless turned off, and deafened.
     pub unmute_on_join: Option<bool>,
     pub deafen_on_join: bool,
+    /// The line over a call saying it stays connected while browsing,
+    /// closed for good.
+    pub hide_voice_hint: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
     /// Holding Alt over a channel or DM in the sidebar peeks at its newest
