@@ -253,9 +253,11 @@ fn profile_switches_that_are_off_ask_for_nothing() {
         decorations: false,
         moving: false,
         name_styles: false,
+        name_colours: false,
         server_tags: false,
         badges: false,
         frames: false,
+        background: false,
     };
     let (app, effect) = open(off);
     assert_eq!(
@@ -266,6 +268,21 @@ fn profile_switches_that_are_off_ask_for_nothing() {
     for url in ["ring.png", "mine.png", "plate.png"] {
         assert!(!app.requested_pictures.contains(url), "{url} isn't fetched");
     }
+    // A background that's off asks for no banner, and on asks for it.
+    let banner = |cosmetics: Cosmetics| {
+        let (mut app, _) = open(cosmetics);
+        app.apply(Event::Profile {
+            user: "7".into(),
+            result: Ok(Profile {
+                id: "7".into(),
+                banner: Some("ann-banner.png".into()),
+                ..Default::default()
+            }),
+        });
+        app.requested_pictures.contains("ann-banner.png")
+    };
+    assert!(!banner(off), "a background that's off isn't asked about");
+    assert!(banner(Cosmetics::default()), "the banner is asked about");
     // By default everything shows, as the stack draws it.
     let (app, effect) = open(Cosmetics::default());
     assert_eq!(

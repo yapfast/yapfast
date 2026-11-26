@@ -153,10 +153,14 @@ pub(super) fn customize<'a>(
     let banner_still = profile
         .banner
         .as_deref()
+        .filter(|_| ctx.state.cosmetics.background)
         .and_then(|url| crate::profile::profile_picture(ctx, shown, url, 100, 100, true));
     let banner_face: Element<'a, Message> = match banner_still {
         Some(still) => Pic::new(still, Size::new(100.0, 100.0)).radius(6.0).into(),
-        None if accent.is_none() => text("No banner").size(13).color(theme.muted).into(),
+        // One that's set but switched off isn't "no banner".
+        None if accent.is_none() && profile.banner.is_none() => {
+            text("No banner").size(13).color(theme.muted).into()
+        }
         None => Space::new().into(),
     };
     let banner = cell(

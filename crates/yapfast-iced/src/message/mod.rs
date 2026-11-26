@@ -1260,8 +1260,8 @@ fn author_line<'a>(
     // A gradient role colour runs across the name, letter by letter, as
     // Discord draws it, unless the theme inks names itself; otherwise the
     // one colour.
-    let spans = match message
-        .color_end
+    let spans = match cosmetics
+        .colours(message.color_end)
         .filter(|_| message.color.is_some() && content.is_none())
     {
         Some(end) => crate::looks::gradient_letters(
