@@ -35,7 +35,7 @@ import voice_harness
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument('--exe', type=Path, default=ROOT / 'target/local/yapfast')
+parser.add_argument('--exe', type=Path, default=ROOT / 'target/measure/yapfast')
 parser.add_argument('--participant-executable', type=Path, required=True,
                     help='yapfast-core test binary, preferably built with --release')
 parser.add_argument('--people', type=int, default=20, help='people in the full call, including Alice')

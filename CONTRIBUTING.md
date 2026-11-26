@@ -46,17 +46,17 @@ libraries; run the Cargo commands below inside that shell. Nix is optional:
 without it, [Without Nix](README.md#without-nix) lists what Linux needs. On
 Windows, use Cargo directly in PowerShell with the native prerequisites in
 [Building](docs/building.md#windows); Nix is not required.
-Build with Cargo’s default profile, and format before you check:
+Build with the `fast` profile, and format before you check:
 
 ```sh
-cargo build --locked
+cargo build --locked --profile fast
 cargo fmt --all
 ```
 
 On Linux, run these once before you ask for a review:
 
 ```sh
-scripts/check
+scripts/check --fast
 scripts/test-fake-discord
 ```
 
@@ -76,10 +76,10 @@ checks you skipped in the pull request, so someone else can run them:
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets --workspace -- -D warnings
-cargo test --locked --workspace
-cargo build --locked --workspace
-cargo run --locked -- --smoke-test
+cargo clippy --locked --profile fast --all-targets --workspace -- -D warnings
+cargo test --locked --profile fast --workspace
+cargo build --locked --profile fast --workspace
+cargo run --locked --profile fast -- --smoke-test
 ```
 
 Run the packaging font notices test with `python -B testing/test_font_notices.py`.
@@ -101,7 +101,7 @@ terminal and Yapfast in another:
 
 ```sh
 bun testing/fake_discord.ts --port 18400
-YAPFAST_DISCORD_TEST_SERVER=http://127.0.0.1:18400 cargo run --locked -- --data-dir .local/fake-discord
+YAPFAST_DISCORD_TEST_SERVER=http://127.0.0.1:18400 cargo run --locked --profile fast -- --data-dir .local/fake-discord
 ```
 
 `YAPFAST_DISCORD_TEST_SERVER` makes Yapfast use a test token kept in memory and
@@ -116,7 +116,7 @@ In PowerShell, set the fake server before the Cargo command:
 
 ```powershell
 $env:YAPFAST_DISCORD_TEST_SERVER = 'http://127.0.0.1:18400'
-cargo run --locked -- --data-dir .local/fake-discord
+cargo run --locked --profile fast -- --data-dir .local/fake-discord
 ```
 
 On Linux, `scripts/ui-session` does the same on a private display, and adds

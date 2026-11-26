@@ -16,9 +16,9 @@ WIDTH, HEIGHT = 1120, 760
 TICKS = os.sysconf("SC_CLK_TCK")
 
 
-# The other people, the fixture and the tests run from the default Cargo profile, which
+# The other people, the fixture and the tests run from the `fast` profile, which
 # everyday builds keep current. The Yapfast a script measures comes separately,
-# from the `local` profile.
+# from the `measure` profile.
 
 
 def test_binary():
@@ -28,6 +28,8 @@ def test_binary():
             "cargo",
             "test",
             "--locked",
+            "--profile",
+            "fast",
             "-p",
             "yapfast-core",
             "--features",
@@ -59,6 +61,8 @@ def provision(env=None):
             "cargo",
             "run",
             "--locked",
+            "--profile",
+            "fast",
             "--features",
             "matrix",
             "--",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Formatting only, so commits stay quick; scripts/check covers the rest.
+# Formatting only, so commits stay quick; scripts/check --fast covers the rest.
 # Enable with: git config core.hooksPath .githooks
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"

@@ -49,7 +49,7 @@ from voice_harness import (
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-parser.add_argument('--exe', type=Path, default=ROOT / 'target/local/yapfast')
+parser.add_argument('--exe', type=Path, default=ROOT / 'target/measure/yapfast')
 parser.add_argument('--renderer', choices=['gpu', 'software'], default='gpu')
 parser.add_argument('--participant-executable', type=Path, required=True,
                     help='yapfast-core test binary, preferably built with --release')

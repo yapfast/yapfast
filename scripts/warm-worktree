@@ -2,7 +2,7 @@
 # Gives a new worktree the main checkout's build, so its first build compiles
 # the crates in this repository instead of every dependency.
 # Usage: scripts/warm-worktree, inside the worktree, before its first build.
-# It copies target/debug and target/check-combinations with reflinks, which
+# It copies target/fast and target/check-combinations with reflinks, which
 # take no space until the copies diverge, and skips one the worktree already
 # has. It needs a filesystem with reflinks, such as btrfs. The copies keep
 # their timestamps: Cargo rebuilds a crate whose dependencies look newer.
@@ -36,7 +36,7 @@ if [[ ! -e target/CACHEDIR.TAG ]]; then
     '# For information about cache directory tags see https://bford.info/cachedir/' \
     >target/CACHEDIR.TAG
 fi
-for dir in debug check-combinations; do
+for dir in fast check-combinations; do
   if [[ ! -d "$main/target/$dir" ]]; then
     echo "$dir: the main checkout has none"
     continue
@@ -51,10 +51,11 @@ for dir in debug check-combinations; do
     exit 1
   fi
   mv "target/$dir.partial" "target/$dir"
-  # scripts/check builds in target/debug and target/check-combinations/debug.
+  # target/fast is the fast profile of target/; scripts/check builds
+  # target/check-combinations/fast.
   target_dir=target
-  [[ "$dir" == debug ]] || target_dir=target/$dir
-  cargo clean --profile dev --target-dir "$target_dir" "${local_crates[@]}"
+  [[ "$dir" == fast ]] || target_dir=target/$dir
+  cargo clean --profile fast --target-dir "$target_dir" "${local_crates[@]}"
   echo "$dir: copied from $main"
 done
 

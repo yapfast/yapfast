@@ -163,16 +163,15 @@ iced_wgpu = { path = "vendor/iced_wgpu" }
 # vendor/cosmic-text/README.yapfast.md.
 cosmic-text = { path = "vendor/cosmic-text" }
 
-# ── dev: fast iteration ──────────────────────────────────────────────
 [profile.dev]
 debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
 
-# DeepFilterNet (Discord mic noise suppression) runs on tract. Unoptimized
-# it can't keep up with the mic, and tract-core's debug assertions reject
-# the model graph ("duplicate name /convt3/Conv.bias")
+# DeepFilterNet, the Discord microphone's noise suppression, runs on tract.
+# Unoptimized it can't keep up with the microphone, and tract-core's debug
+# assertions reject the model's graph ("duplicate name /convt3/Conv.bias").
 [profile.dev.package.tract-core]
 opt-level = 3
 debug-assertions = false
@@ -187,17 +186,28 @@ opt-level = 3
 [profile.dev.package.rustfft]
 opt-level = 3
 
-# ── release: production builds ───────────────────────────────────────
+# Thin LTO with one codegen unit per crate. On one source, on Linux, it took
+# the stripped binary from 131.0 MiB to 115.9 (zstd 43.6 to 42.7) and the
+# cold build from 5 min 39 s to 11 min 19 s. Thin LTO with the default 16
+# units had made the binary bigger. No panic = "abort": the catch_unwind
+# guards around theme fonts and sounds need unwinding.
 [profile.release]
 codegen-units = 1
 lto = "thin"
-panic = "abort"
 strip = true
 
-# ── local: release speed + symbols, for benchmarks and profilers ───
-[profile.local]
+# Optimized like release, with symbols and incremental builds: for
+# measurements and profiling. Builds people use stay release. LTO and codegen
+# units stay as they were, so local builds stay quick: "off", as false still
+# runs LTO within each crate, and 256 is rustc's default for incremental
+# builds.
+[profile.measure]
 inherits = "release"
-debug = "line-tables-only"
-codegen-units = 16
+codegen-units = 256
+lto = "off"
 strip = false
 incremental = true
+
+# The profile for tests, local runs and checks.
+[profile.fast]
+inherits = "measure"

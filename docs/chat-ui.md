@@ -17,7 +17,7 @@ file dialogs.
 From the repository folder:
 
 ```sh
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 ```
 
 The preview has two sample servers, DMs and a group DM. The upper-left button
@@ -767,7 +767,7 @@ offline sending across a restart, and messages missed while a room was
 closed. Run them after `scripts/test-stack up`:
 
 ```sh
-nix develop path:./nix --command cargo test --locked -p yapfast-core \
+nix develop path:./nix --command cargo test --locked --profile fast -p yapfast-core \
   --features matrix matrix_chat::tests -- --ignored --test-threads=1 \
   --skip fixture_conversation --skip opening_a_discord_channel_leaves_the_matrix_room_unread
 ```

@@ -75,9 +75,9 @@ jobs:
       matrix:
         include:
           - name: clippy
-            run: cargo clippy --locked --workspace --all-targets -- -D warnings
+            run: cargo clippy --locked --profile fast --workspace --all-targets -- -D warnings
           - name: tests
-            run: cargo nextest run --locked --workspace --no-fail-fast
+            run: cargo nextest run --locked --cargo-profile fast --workspace --no-fail-fast
     steps:
       - uses: actions/checkout@v7
         with:
@@ -131,8 +131,8 @@ jobs:
       - name: cargo ${{ matrix.name }}
         run: ${{ matrix.run }}
       # The tests job then runs the Discord tests against the fake Discord
-      # (testing/fake_discord.ts), reusing the default Cargo build above.
-      # Bun is the dev shell's version.
+      # (testing/fake_discord.ts), on top of the build above. Bun is the
+      # dev shell's version.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: ${{ matrix.name == 'tests' }}
         with:

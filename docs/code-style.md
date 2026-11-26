@@ -46,7 +46,7 @@ The formatting job (prek, including rustfmt) and dependency job (cargo-audit and
 cargo-machete) in [CI](../.github/workflows/ci.yml) are temporarily commented out
 until the dependency-update and formatting-baseline PRs are merged. Active CI
 runs strict Clippy and workspace tests on Linux in parallel.
-Local `scripts/check` also checks Rust formatting and documentation links,
+Local `scripts/check --fast` also checks Rust formatting and documentation links,
 then runs Clippy, tests, a build and a smoke test.
 
 Workflows name GitHub's own actions (`actions/*`) by their major tag, such as

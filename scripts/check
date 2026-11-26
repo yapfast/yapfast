@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Formatting, doc links, Clippy, tests and a smoke run of the default build,
 # the window with Discord; --matrix adds the builds with Matrix.
-# Usage: scripts/check [--matrix]
-# Each step prints `=== step` and `rc=N` when it ends; its full output is in
+# Usage: scripts/check [--fast] [--matrix]
+# --fast builds with the `fast` profile, which local work uses. Each step
+# prints `=== step` and `rc=N` when it ends; its full output is in
 # target/check/. The script exits non-zero when any step failed, after running
 # them all.
 set -uo pipefail
@@ -13,11 +14,14 @@ if [[ -z "${IN_NIX_SHELL:-}" ]] && command -v nix >/dev/null; then
   exec nix develop path:./nix --command "$0" "$@"
 fi
 
+profile=()
+profile_dir=debug
 matrix=
 for argument in "$@"; do
   case $argument in
+    --fast) profile=(--profile fast) profile_dir=fast ;;
     --matrix) matrix=1 ;;
-    *) echo "usage: scripts/check [--matrix]" >&2; exit 2 ;;
+    *) echo "usage: scripts/check [--fast] [--matrix]" >&2; exit 2 ;;
   esac
 done
 
@@ -45,18 +49,18 @@ run() {
   printf '%s\n' "$report"
 }
 
-clippy=(cargo clippy --locked --all-targets)
+clippy=(cargo clippy --locked "${profile[@]}" --all-targets)
 steps=(fmt doc-links clippy test build smoke)
 
 run fmt cargo fmt --all -- --check
 run doc-links scripts/check-doc-links
 run clippy "${clippy[@]}" --workspace -- -D warnings
-run test cargo test --locked --workspace
-run build cargo build --locked --workspace
+run test cargo test --locked "${profile[@]}" --workspace
+run build cargo build --locked "${profile[@]}" --workspace
 # The binary the build step made: `cargo run` would resolve the dependencies'
 # features for yapfast alone, not the workspace, and compile it again.
 if [[ "$(cat "$logs/build.rc")" == 0 ]]; then
-  run smoke "target/debug/yapfast" --smoke-test
+  run smoke "target/$profile_dir/yapfast" --smoke-test
 else
   echo "=== smoke: skipped, as the build failed"
 fi
@@ -70,12 +74,12 @@ fi
 if [[ $matrix ]]; then
   full=(--workspace --features yapfast/matrix,yapfast-core/matrix)
   run clippy-matrix "${clippy[@]}" "${full[@]}" -- -D warnings
-  run test-matrix cargo test --locked "${full[@]}"
+  run test-matrix cargo test --locked "${profile[@]}" "${full[@]}"
   export CARGO_TARGET_DIR=target/check-combinations
   run clippy-matrix-only "${clippy[@]}" -p yapfast -p yapfast-core \
     --no-default-features --features yapfast/matrix,yapfast-core/matrix -- -D warnings
   run clippy-headless "${clippy[@]}" -p yapfast --no-default-features --features matrix,discord -- -D warnings
-  run smoke-headless cargo run --locked --no-default-features --features matrix,discord -- --smoke-test
+  run smoke-headless cargo run --locked "${profile[@]}" --no-default-features --features matrix,discord -- --smoke-test
   steps+=(clippy-matrix test-matrix clippy-matrix-only clippy-headless smoke-headless)
 fi
 

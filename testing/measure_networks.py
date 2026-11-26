@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare the iced client's memory with Discord alone or Discord and Matrix.
 
-Each build is a `local` profile binary with different Cargo features (see
+Each build is a `measure` profile binary with different Cargo features (see
 docs/building.md); the comparison is between builds, so LTO isn't needed. All run against test data only: Matrix against the local
 stack with a seeded fixture account, Discord against testing/fake_discord.ts.
 Both histories hold the same 60 messages with the same image, file and reply.
@@ -11,22 +11,22 @@ Each profile opens #general, warms up, samples Yapfast's process while idle, the
 samples again while Bob posts a message every 2 s in the open channel. Voice
 isn't measured: the fake Discord has no voice server.
 
-Start the local stack (scripts/test-stack up). Copy target/local/yapfast, built
+Start the local stack (scripts/test-stack up). Copy target/measure/yapfast, built
 with each feature set, into --builds (target/networks) as yapfast-discord
 and yapfast-combined; docs/measurements/README.md gives the builds.
 The desktop feature always includes Discord, so there is no Matrix-only window.
 Find the yapfast-core test binary with
-`nix develop path:./nix --command cargo test --locked -p yapfast-core --features matrix --no-run --message-format short`
+`nix develop path:./nix --command cargo test --profile fast --locked -p yapfast-core --features matrix --no-run --message-format short`
 (its "Executable unittests src/lib.rs" line), then run from the repository root:
 
     nix-shell --impure testing/display/shell.nix --run 'scripts/run-framework-isolated
         --audio --no-services --alsa-plugins "$YAPFAST_FRAMEWORK_ALSA_PLUGINS"
         --compositor-log .local/networks.weston.log --
         python3 testing/measure_networks.py --output .local/measure-networks
-        --load-executable target/debug/deps/yapfast_core-HASH'
+        --load-executable target/fast/deps/yapfast_core-HASH'
 
 (one line). Without --load-executable it runs `cargo test --no-run` itself,
-with the default Cargo profile, inside the private session. This script starts
+with the `fast` profile, inside the private session. This script starts
 testing/fake_discord.ts itself.
 """
 import argparse
@@ -220,7 +220,7 @@ def prewarm(executable, data):
 builds = {name: (args.builds / f'yapfast-{name}').resolve() for name in ('discord', 'combined')}
 for name, path in builds.items():
     if not path.exists():
-        raise SystemExit(f'missing {path}; copy each feature build of target/local/yapfast there')
+        raise SystemExit(f'missing {path}; copy each feature build of target/measure/yapfast there')
 results = []
 load = discord = None
 executable = str(args.load_executable.resolve()) if args.load_executable else test_binary()

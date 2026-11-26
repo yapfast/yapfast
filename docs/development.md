@@ -10,23 +10,24 @@ On Windows, use Cargo directly in PowerShell after installing the
 [native prerequisites](building.md#windows):
 
 ```powershell
-cargo build --locked
-cargo run --locked -- --preview
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
 ```
 
 On Linux, enter the pinned Nix environment from the project folder:
 
 ```sh
 nix develop path:./nix
-cargo run --locked
+cargo run --locked --profile fast
 ```
 
 `path:./nix` also works before files are tracked and keeps Cargo output out of
 the Nix source snapshot. On Linux, run the `cargo` commands below inside the shell;
-[the shells](building.md#shells) says what each one provides.
+[the shells](building.md#shells) says what each one provides. Local work
+builds with `--profile fast`.
 
 ```sh
-scripts/check
+scripts/check --fast
 ```
 
 `scripts/check` enters the Nix shell itself when Nix is installed; [building](building.md#checks)
@@ -36,7 +37,7 @@ lists what it covers. On Windows, run the native Cargo checks in
 ## Try the UI without an account
 
 ```sh
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 ```
 
 Use the upper-left DM button for direct messages. Server buttons sit below it;
@@ -100,7 +101,7 @@ standalone rooms outside Spaces are not shown in this navigation yet.
 With the local services running, check the desktop messaging backend with:
 
 ```sh
-cargo test --locked -p yapfast-core --features matrix \
+cargo test --locked --profile fast -p yapfast-core --features matrix \
   matrix_chat::tests::encrypted_chat_restore_send_retry_and_security_gates -- --ignored
 ```
 
