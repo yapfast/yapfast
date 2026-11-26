@@ -67,7 +67,7 @@ pub enum Pref {
     HideBlocked(bool),
     CheckUpdates(bool),
     Nightlies(bool),
-    StartOnSignIn(bool),
+    StartOnSignIn(crate::desktop::Autostart),
     DiscordLinks(bool),
     SystemTitleBar(bool),
 }
@@ -293,9 +293,9 @@ impl Settings {
                 prefs.update_nightlies = on;
                 cx.keep("update_nightlies", on);
             }
-            Pref::StartOnSignIn(on) => {
-                match crate::desktop::desktop().set_autostart(on) {
-                    Ok(()) => tracing::info!(start = on, "starting at sign-in changed"),
+            Pref::StartOnSignIn(mode) => {
+                match crate::desktop::desktop().set_autostart(mode) {
+                    Ok(()) => tracing::info!(?mode, "starting at sign-in changed"),
                     Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
                 }
                 self.read_platform_choices(cx);

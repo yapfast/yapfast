@@ -1,14 +1,18 @@
 //! Advanced: starting at sign-in, Discord links, the tray, more windows,
 //! the GPU for drawing and for streams, and Developer Mode.
 
-use iced::{Element, widget::text};
+use iced::{
+    Element, Length,
+    widget::{column, container, responsive, text},
+};
 
-use super::Pref;
+use super::{Pref, pref};
 use crate::settings::{Event, Page};
 use crate::{
     app::Message,
-    controls::{Kind, action},
-    form::{self},
+    controls::{Kind, action, choices_within},
+    desktop::Autostart,
+    form,
     pictures::Icon,
 };
 
@@ -19,12 +23,34 @@ impl<'a> Page<'a> {
         let mut parts = vec![form::title(theme, "Advanced")];
         let platform = self.s.platform;
         if let Some(start) = platform.autostart {
-            parts.push(self.flip(
-                "Start when you sign in",
-                "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you.",
-                start,
-                Pref::StartOnSignIn,
-            ));
+            const MODES: [Autostart; 3] = [Autostart::Off, Autostart::Window, Autostart::Tray];
+            let selected = MODES.iter().position(|mode| *mode == start).unwrap_or(0);
+            parts.push(
+                responsive(move |size| {
+                    let label = column![
+                        text("Start with your computer").size(15).color(theme.text),
+                        form::note(
+                            theme,
+                            "Open Yapfast when you log in, with its window or in the tray."
+                        ),
+                    ]
+                    .spacing(4);
+                    let buttons = choices_within(
+                        theme,
+                        &["Off", "With the window", "In the tray"],
+                        selected,
+                        280.0,
+                        |index| pref(Pref::StartOnSignIn(MODES[index])),
+                    );
+                    if size.width >= 540.0 {
+                        form::beside(label, container(buttons).width(280))
+                    } else {
+                        form::group([label.into(), buttons])
+                    }
+                })
+                .height(Length::Shrink)
+                .into(),
+            );
         }
         if let Some(links) = platform.discord_links {
             parts.push(self.flip(

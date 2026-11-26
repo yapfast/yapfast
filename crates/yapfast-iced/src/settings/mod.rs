@@ -227,7 +227,7 @@ pub struct Settings {
 /// the desktop can: none where they can't.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Platform {
-    pub autostart: Option<bool>,
+    pub autostart: Option<crate::desktop::Autostart>,
     pub discord_links: Option<bool>,
 }
 

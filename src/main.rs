@@ -235,7 +235,7 @@ fn help() -> String {
         "Without arguments, opens Yapfast's window and restores a saved session.\n\
          --renderer selects tiny-skia (software) or wgpu (gpu) for this start, over the setting.\n\
          If wgpu fails to start, Yapfast restarts with tiny-skia.\n\
-         --background starts in the system tray with a saved session, as starting at sign-in does.\n\
+         --background starts in the system tray with a saved session.\n\
          LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
          --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
     } else {
