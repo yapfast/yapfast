@@ -90,8 +90,11 @@ const SOUNDSHARE: u8 = 2;
 pub const SEND_CODEC: Codec = Codec::H264;
 
 /// One encoded frame to send, in `codec`, with its time in the 90 kHz clock.
+/// Its bytes are its own until it's dropped, and go back to the encoder's
+/// [`Pool`](crate::pool::Pool) then, so nothing copies them between the
+/// encoder and the packetizer.
 pub struct Frame {
-    pub data: Vec<u8>,
+    pub data: crate::pool::Encoded,
     pub codec: Codec,
     pub timestamp: u32,
     pub keyframe: bool,
