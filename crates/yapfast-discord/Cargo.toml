@@ -65,8 +65,8 @@ tokio = { workspace = true, features = [
     "io-util",
     "fs",
 ] }
-# The voice gateway.
-tokio-tungstenite = { version = "0.30", default-features = false, features = [
+# Discord WebSockets share the 0.29 branch with LiveKit.
+tokio-tungstenite = { version = "0.29", default-features = false, features = [
     "connect",
     "__rustls-tls",
 ] }
