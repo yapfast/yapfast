@@ -238,7 +238,10 @@ tick of the call's thread decodes one frame from everyone and mixes them
 (`Hearing` in `discord_audio.rs`). A packet that hasn't come yet plays as
 Opus's loss concealment, and the packet itself plays next when it comes, so
 nothing is cut; a packet lost while the next has come is rebuilt from the
-next one's forward error correction. A speaker's audio plays to its end: the
+next one's forward error correction. A packet that has come but that Opus
+can't read, or that decodes to nothing, is concealed the same way, so the
+sound carries on rather than leaving 20 ms of nothing in a word. A speaker's
+audio plays to its end: the
 five silent frames Discord's clients send as they stop, and a speaking
 message saying they stopped, change nothing, and only after 100 ms with no
 packets do they drop out of the mix until they speak again.
