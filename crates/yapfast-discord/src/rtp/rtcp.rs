@@ -101,6 +101,31 @@ pub(super) fn describe_rtcp(kind: u8, format: u8, packet: &[u8]) -> String {
             }
             shown
         }
+        // Generic NACK: the sequence each block names first, then the ones its
+        // mask adds. A viewer asks for what a gap left it missing, so the run
+        // says where and in what shape the path dropped packets.
+        (205, 1) => {
+            let mut asked = vec![];
+            for entry in packet.get(12..).unwrap_or_default().as_chunks::<4>().0 {
+                let first = u16::from_be_bytes([entry[0], entry[1]]);
+                let mask = u16::from_be_bytes([entry[2], entry[3]]);
+                asked.push(first);
+                asked.extend(
+                    (0..16)
+                        .filter(|bit| mask & (1 << bit) != 0)
+                        .map(|bit| first.wrapping_add(bit + 1)),
+                );
+            }
+            // A report can name hundreds, and the line is one per five
+            // seconds: the count says how many, a dozen says the shape.
+            let count = asked.len();
+            asked.truncate(12);
+            let mut shown = format!("{count} packets:");
+            for sequence in asked {
+                let _ = write!(shown, " {sequence}");
+            }
+            shown
+        }
         _ => String::new(),
     }
 }
@@ -140,7 +165,10 @@ pub fn bandwidth_estimate(mut rtcp: &[u8], ssrc: u32) -> Option<u64> {
 
 /// The sequence numbers of `media` packets that generic NACKs (RTCP 205,
 /// format 1) in a decrypted compound packet report lost: each entry names
-/// one, and a bitmask the 16 after it.
+/// one, and a bitmask the 16 after it. A packet named twice is named once:
+/// Discord's stream server relays every viewer's report in the same datagram,
+/// so two people who lost the same packet ask for it in two blocks, and one
+/// resend answers both.
 pub fn nacked(mut rtcp: &[u8], media: u32) -> Vec<u16> {
     let mut lost = vec![];
     while rtcp.len() >= 4 {
@@ -163,6 +191,19 @@ pub fn nacked(mut rtcp: &[u8], media: u32) -> Vec<u16> {
         }
         rtcp = rtcp.get(length..).unwrap_or_default();
     }
+    // In place and in order: a report names a few packets, and the order is
+    // the first time each was asked for rather than anything a sequence
+    // number can be sorted by across its wrap.
+    let mut kept = 0;
+    for index in 0..lost.len() {
+        let sequence = lost[index];
+        if lost[..kept].contains(&sequence) {
+            continue;
+        }
+        lost[kept] = sequence;
+        kept += 1;
+    }
+    lost.truncate(kept);
     lost
 }
 

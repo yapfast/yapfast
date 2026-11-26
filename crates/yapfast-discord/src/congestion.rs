@@ -67,6 +67,14 @@ const HOLD: Duration = Duration::from_secs(3);
 /// The lowest round trip is the lowest of those measured this long ago or
 /// since, so a path that changes gets a new one.
 const BASELINE: Duration = Duration::from_secs(60);
+/// How many times the target the packets a viewer asked for again go out at,
+/// in percent: libwebrtc's pacer's 2.5, as a frame's.
+pub(crate) const PACE: u64 = 250;
+/// The most a copy put on the wire is assumed to still be on its way: half a
+/// round trip, and no more than this. A viewer asks again every 80 ms while it
+/// holds a gap for 300, so an answer held longer than this is one the request
+/// after it should get instead.
+const IN_FLIGHT: Duration = Duration::from_millis(100);
 
 /// The bit/s a stream starts at under `cap`.
 pub fn start(cap: u64) -> u64 {
@@ -215,6 +223,14 @@ impl Controller {
     /// The bit/s to send at.
     pub fn target(&self) -> u64 {
         self.target
+    }
+
+    /// How long a copy of a packet put on the wire is assumed to be on its
+    /// way: half the fastest round trip a report measured, so a viewer's
+    /// repeat of the request that got it is not answered again. Unknown until
+    /// a report has measured one, and then nothing is held back.
+    pub fn in_flight(&self) -> Option<Duration> {
+        self.baseline().map(|trip| (trip / 2).min(IN_FLIGHT))
     }
 
     /// The lowest round trip measured lately.
@@ -703,5 +719,18 @@ mod tests {
             Some(ms(150)),
             "the path changed"
         );
+    }
+
+    #[test]
+    fn a_resend_is_assumed_on_its_way_for_half_a_round_trip() {
+        let mut uplink = Uplink::new(CAP);
+        assert_eq!(uplink.controller.in_flight(), None, "nothing measured yet");
+        uplink.busy(1, Some(ms(40)), 0);
+        assert_eq!(uplink.controller.in_flight(), Some(ms(20)));
+        // A viewer asks again every 80 ms and holds a gap for 300, so no round
+        // trip holds an answer back longer than it waits.
+        let mut slow = Uplink::new(CAP);
+        slow.busy(1, Some(ms(600)), 0);
+        assert_eq!(slow.controller.in_flight(), Some(IN_FLIGHT));
     }
 }
