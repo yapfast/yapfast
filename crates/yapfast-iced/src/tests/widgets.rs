@@ -98,6 +98,31 @@ fn every_wrapper_shows_its_childs_tooltip() {
 }
 
 #[test]
+fn a_layer_above_stays_inside_the_scrollable_it_is_in() {
+    use iced::widget::{Space, column, scrollable};
+    let red = Color::from_rgb(1.0, 0.0, 0.0);
+    // 100 px of red in a view 50 px tall, with room under it: the red may
+    // not draw there, over what the view's neighbours show.
+    let tall = container(Space::new())
+        .width(100)
+        .height(100)
+        .style(move |_| container::Style {
+            background: Some(red.into()),
+            ..Default::default()
+        });
+    let view = column![
+        scrollable(Above::new(tall, 0.0)).width(100).height(50),
+        Space::new().width(100).height(50),
+    ];
+    let mut ui = Simulator::with_size(Settings::default(), Size::new(100.0, 100.0), view);
+    let (width, _, pixels) = super::drawn(&mut ui);
+    // The simulator draws at twice the size.
+    let at = |x: usize, y: usize| &pixels[(y * 2 * width as usize + x * 2) * 4..][..3];
+    assert_eq!(at(50, 25), [255, 0, 0], "inside the view, drawn");
+    assert_ne!(at(50, 75), [255, 0, 0], "under the view, not drawn over");
+}
+
+#[test]
 fn a_held_scrub_seeks_again_only_where_it_moved_along() {
     let scrub = Scrub::new(container(text("wave")).width(80).height(40), |at| {
         Message::Menu(crate::menus::Event::Scrolled(at))
