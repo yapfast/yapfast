@@ -176,7 +176,13 @@ it to 85% of what Discord's server received, or of the target when that's
 lower, and it doesn't rise again for 3 s. What the server received comes
 from its receiver reports at least 0.4 s apart: how far the highest
 sequence number it got went, less the packets it counted lost meanwhile, at
-the size of the packets sent lately. While a queue builds that's what the
+the size of the packets sent lately. The server passes on viewers' reports
+about the same video too, counted from further back than its own, so each
+reporting SSRC (up to four, forgotten after 5 s of silence) keeps its own
+count, round trips and queue reports: the rate received is the fastest of
+their counts, a report that hasn't moved past the one it would be measured
+from says nothing, and a viewer's longer round trip is compared with that
+viewer's own lowest, not the server's. While a queue builds that's what the
 uplink carries, however much more went out, so when a calm picture turns
 busy at once and sends far past it, one back-off takes the target under
 it. Without a count, as before the second report, it backs off from what
@@ -185,8 +191,9 @@ went out over the last half second. From
 so it comes back to where the queue built slowly and stays there longer
 before the next back-off; past 115% of it the uplink carries more than it
 did, and the target rises by 8% again. It stays under the server's bandwidth
-estimate (REMB) when that's lower than the cap, and never goes below
-500 kbit/s. Without a measured round trip, as when reports don't echo a
+estimate (REMB) when that's lower than the cap, while the estimate is less
+than 5 s old (one that stops coming no longer holds it down), and never goes
+below 500 kbit/s. Without a measured round trip, as when reports don't echo a
 sender report, the target doesn't rise from where it started. The encoder
 changes its bitrate only when it differs from the target by more than a
 tenth, so a rise reaches it every second step and a fall at once.
@@ -303,7 +310,10 @@ are frames while none has come yet, and after one the decoder was too far
 behind to take. The connection asks for a keyframe with a picture loss
 indication, at most every 500 ms. It sends a receiver report every second
 (packets lost, the highest received, and the streamer's last sender report
-echoed). With `YAPFAST_LOG=debug` it logs what it received every 5 s (`stream
+echoed). A packet that comes after the frames went on without it, or a second
+time, is counted received once (the 256 sequence numbers below the highest
+are remembered), so reordering isn't reported as loss the streamer would back
+off for. With `YAPFAST_LOG=debug` it logs what it received every 5 s (`stream
 received`): packets out of order, resent, recovered, given up on, and keyframes
 asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
 libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
