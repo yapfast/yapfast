@@ -102,9 +102,17 @@ fn seals_and_opens_both_modes() {
         assert_eq!(packet.len(), plain.len() + 20);
         assert_eq!(packet[..clear], plain[..clear], "the header stays readable");
         assert_ne!(packet[clear..plain.len()], plain[clear..]);
-        assert_eq!(transport.open(&packet, clear), Some(plain));
-        packet[clear] ^= 1;
-        assert_eq!(transport.open(&packet, clear), None, "tampering fails");
+        // Opening decrypts the packet where it lies: the buffer handed
+        // over is the plaintext itself.
+        let mut opening = packet.clone();
+        assert_eq!(transport.open(&mut opening, clear), Some(&plain[..]));
+        let mut tampered = packet.clone();
+        tampered[clear] ^= 1;
+        assert_eq!(
+            transport.open(&mut tampered, clear),
+            None,
+            "tampering fails"
+        );
     }
     assert!(Transport::new("xsalsa20_poly1305", &[0; 32]).is_err());
 }
@@ -1296,4 +1304,22 @@ fn a_run_of_resends_is_paced_past_its_burst() {
     again.wrote(at);
     assert_eq!(again.due(at), at + STEP, "the next batch waits a turn");
     assert_eq!(again.batch(9_000_000, PACE, at + STEP), 2);
+}
+
+#[test]
+fn an_audio_packet_takes_the_room_the_last_one_left() {
+    // A call and a stream write a frame every 20 ms into the same buffer:
+    // the room it has is room the allocator isn't asked for again.
+    let mut packet = Vec::new();
+    write_audio_into(&mut packet, 1, 0, 0, true, b"the first frame");
+    let room = packet.capacity();
+    write_audio_into(&mut packet, 1, 1, 960, false, b"the next frame");
+    assert_eq!(packet.capacity(), room, "the room carries over");
+    assert_eq!(packet.len(), HEADER + b"the next frame".len());
+    assert_eq!(&packet[HEADER..], b"the next frame", "the frame it holds");
+    assert_eq!(packet[1] & 0x7f, OPUS);
+    assert_eq!(packet[1] & 0x80, 0, "only the first frame marks a burst");
+    assert_eq!(packet, opus_packet(1, 1, 960, false, b"the next frame"));
+    // The room past the frame is for sealing it where it lies.
+    assert!(packet.capacity() >= packet.len() + TAG + 4);
 }

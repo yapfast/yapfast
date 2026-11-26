@@ -57,52 +57,54 @@ impl Transport {
         let counter = self.counter.to_be_bytes();
         self.counter = self.counter.wrapping_add(1);
         let (header, body) = packet.split_at_mut(clear);
-        let tag = match &self.cipher {
+        let sealed = match &self.cipher {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(&counter);
-                cipher
-                    .encrypt_in_place_detached(&nonce, header, body)
-                    .map(|tag| tag.to_vec())
+                cipher.encrypt_in_place_detached(&nonce, header, body)
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(&counter);
-                cipher
-                    .encrypt_in_place_detached(&nonce, header, body)
-                    .map(|tag| tag.to_vec())
+                cipher.encrypt_in_place_detached(&nonce, header, body)
             }
-        }
-        .map_err(|_| anyhow!("could not encrypt a stream packet"))?;
+        };
+        let sealed = sealed.map_err(|_| anyhow!("could not encrypt a stream packet"))?;
+        // The tag comes back on the stack, so a packet sent allocates only
+        // for the bytes of the packet itself.
+        let mut tag = [0u8; TAG];
+        tag.copy_from_slice(&sealed);
         packet.extend_from_slice(&tag);
         packet.extend_from_slice(&counter);
         Ok(())
     }
 
-    /// Decrypts a sealed packet, returning its clear part and plaintext.
-    pub fn open(&self, packet: &[u8], clear: usize) -> Option<Vec<u8>> {
+    /// Decrypts a sealed packet where it lies, returning its clear part and
+    /// plaintext: everything but the tag and the counter, which close it.
+    /// The caller's own buffer is the plaintext, which is what makes a call's
+    /// hundreds of received packets a second cost no allocation each.
+    pub fn open<'a>(&self, packet: &'a mut [u8], clear: usize) -> Option<&'a [u8]> {
         if packet.len() < clear + TAG + 4 {
             return None;
         }
-        let (rest, counter) = packet.split_at(packet.len() - 4);
-        let (sealed, tag) = rest.split_at(rest.len() - TAG);
-        let (header, body) = sealed.split_at(clear);
-        let mut plain = body.to_vec();
+        let sealed = packet.len() - TAG - 4;
+        let (header, rest) = packet.split_at_mut(clear);
+        let (body, tail) = rest.split_at_mut(sealed - clear);
+        let (tag, counter) = tail.split_at(TAG);
+        let tag: &[u8] = tag;
         let opened = match &self.cipher {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, &mut plain, tag.into())
+                cipher.decrypt_in_place_detached(&nonce, header, body, tag.into())
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, &mut plain, tag.into())
+                cipher.decrypt_in_place_detached(&nonce, header, body, tag.into())
             }
         };
         opened.ok()?;
-        let mut whole = header.to_vec();
-        whole.extend_from_slice(&plain);
-        Some(whole)
+        Some(&packet[..sealed])
     }
 }
