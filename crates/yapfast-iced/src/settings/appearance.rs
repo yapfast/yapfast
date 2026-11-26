@@ -235,6 +235,9 @@ pub enum Event {
     Profile(Cosmetic, bool),
     /// Draws a theme's text glow, or leaves it out.
     TextGlow(bool),
+    /// Lists people's connections on the floating profile card, or leaves
+    /// them to the full profile.
+    CardConnections(bool),
 }
 
 /// Appearance's profile switches.
@@ -319,6 +322,13 @@ impl Settings {
                 cx.layout.prefs.text_glow = Some(on);
                 cx.keep("text_glow", on);
                 cx.request(Request::Changed(Shown::Theme));
+            }
+            // The window's alone: the card reads it as it's drawn, and the
+            // core is told nothing.
+            Event::CardConnections(on) => {
+                cx.layout.prefs.card_connections = on;
+                cx.keep("card_connections", on);
+                cx.touch();
             }
             Event::ThemeOption(id, option, value) => {
                 let Some(choices) = cx.themes.set_option(
@@ -995,6 +1005,17 @@ impl<'a> Page<'a> {
                     cosmetics.background,
                     Cosmetic::Background,
                 ),
+                switch(
+                    "Show connections on profile cards",
+                    prefs.card_connections,
+                    Some(theme_message(Event::CardConnections(
+                        !prefs.card_connections,
+                    ))),
+                )
+                .description(
+                    "The accounts people link, such as Steam or GitHub, on the card as on the full profile.",
+                )
+                .view(self.cx.look),
             ]
             .spacing(12)
             .into(),

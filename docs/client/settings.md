@@ -130,7 +130,10 @@ recording. Each change is kept at once in
   The theme's Draw text glow switch turns off the soft edge a theme puts
   round text, which is drawing rather than data: the shadow, the outline
   and the ink stay. Then the system title bar's switch, where Yapfast can
-  draw its own, and the profile switches, which the core is told of.
+  draw its own, and the profile switches, which the core is told of. The
+  last, "Show connections on profile cards" (off by default), is the
+  window's alone: the floating card lists the connections the profile
+  already carries.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those

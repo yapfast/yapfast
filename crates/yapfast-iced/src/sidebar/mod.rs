@@ -26,7 +26,7 @@ mod dms;
 mod rows;
 mod top;
 pub mod tree;
-mod voice;
+pub(crate) mod voice;
 
 pub(crate) use channels::listed_row_face;
 pub use rows::{Room, SideHeader, SideRow, room_icon, side_header, sidebar};

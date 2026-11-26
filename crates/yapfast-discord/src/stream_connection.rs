@@ -28,7 +28,9 @@ use crate::{
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
 
-/// How often a viewer may ask for a keyframe while frames are lost.
+/// How often a stream asks for a keyframe while frames are lost, and how
+/// often it makes one when asked: at most one a half second, whichever side
+/// of the stream it is.
 const KEYFRAME_REQUESTS: Duration = Duration::from_millis(500);
 /// How often a streamer sends an RTCP sender report.
 const SENDER_REPORTS: Duration = Duration::from_secs(1);
@@ -167,6 +169,10 @@ struct Shared {
     video_bytes: AtomicU64,
     keyframe_requests: AtomicU64,
     resent: AtomicU64,
+    /// Sending: the video's packets sent so far, not counting resends.
+    video_packets: AtomicU64,
+    /// Receiving: what came in so far, as of the last second.
+    received: Mutex<ReceivedSoFar>,
 }
 
 impl Shared {
@@ -182,6 +188,8 @@ impl Shared {
             video_bytes: AtomicU64::new(0),
             keyframe_requests: AtomicU64::new(0),
             resent: AtomicU64::new(0),
+            video_packets: AtomicU64::new(0),
+            received: Mutex::default(),
         })
     }
 }
@@ -313,6 +321,7 @@ impl StreamSender {
         let load = |count: &AtomicU64| count.load(Ordering::Relaxed);
         SentSoFar {
             video_bytes: load(&self.shared.video_bytes),
+            video_packets: load(&self.shared.video_packets),
             keyframe_requests: load(&self.shared.keyframe_requests),
             resent: load(&self.shared.resent),
         }
@@ -335,8 +344,27 @@ impl StreamSender {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SentSoFar {
     pub video_bytes: u64,
+    /// The video's packets, sent once each: resends are in `resent`.
+    pub video_packets: u64,
     pub keyframe_requests: u64,
     pub resent: u64,
+}
+
+/// What a watched stream's connection received since it started, as of the
+/// last second, as [`StreamReceiver::received`] says: the picture's packets
+/// and their bytes as RTP payloads, resends included; the packets never seen
+/// even after asking again; those a resend brought back; the keyframes asked
+/// for; frames that wouldn't decrypt; and frames dropped because the decoder
+/// was behind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReceivedSoFar {
+    pub video_packets: u64,
+    pub video_bytes: u64,
+    pub lost: u64,
+    pub repaired: u64,
+    pub keyframe_requests: u64,
+    pub unreadable: u64,
+    pub behind: u64,
 }
 
 /// Receives someone's stream on a thread of its own; dropping it ends the
@@ -400,6 +428,11 @@ impl StreamReceiver {
 
     pub fn link(&self) -> Link {
         lock(&self.shared.link).clone()
+    }
+
+    /// What came in so far, as of the last second.
+    pub fn received(&self) -> ReceivedSoFar {
+        *lock(&self.shared.received)
     }
 }
 
@@ -508,6 +541,16 @@ async fn open(
     Ok(connection)
 }
 
+/// Whether a keyframe is made for a request that came at `now`: the first
+/// is, and then one a `KEYFRAME_REQUESTS` after the keyframe last made for
+/// one, `answered`. A viewer asks at most that often while frames are lost,
+/// and a streamer makes at most that often too, because every viewer who lost
+/// the same packet asks at once and a keyframe is many times a frame: a run of
+/// them at a rate that just dropped is lost in its turn, which asks again.
+fn keyframe_due(answered: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    answered.is_none_or(|answered| now.duration_since(answered) >= KEYFRAME_REQUESTS)
+}
+
 async fn send(
     server: &StreamServer,
     user: u64,
@@ -552,6 +595,9 @@ async fn send(
     let mut history = rtp::History::default();
     // The packets viewers asked for again, waiting their turn on the wire.
     let mut again = rtp::Resends::default();
+    // When a keyframe was last made for a viewer, which is how often one may
+    // be made; see `keyframe_due`.
+    let mut answered: Option<std::time::Instant> = None;
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut datagram = vec![0u8; 1500];
@@ -632,6 +678,7 @@ async fn send(
                     connection.transport.seal(&mut packet, clear)?;
                     connection.udp.send(&packet).await?;
                     shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                    shared.video_packets.fetch_add(1, Ordering::Relaxed);
                     pacing.sent(std::time::Instant::now(), packet.len());
                 }
                 if pending.is_empty() && reported.elapsed() >= SENDER_REPORTS {
@@ -727,7 +774,11 @@ async fn send(
                 if rtp::wants_keyframe(rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
-                    shared.keyframe.store(true, Ordering::Relaxed);
+                    let now = std::time::Instant::now();
+                    if keyframe_due(answered, now) {
+                        answered = Some(now);
+                        shared.keyframe.store(true, Ordering::Relaxed);
+                    }
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
                     && let Some(reason) = pacing.set_estimate(estimate, std::time::Instant::now())
@@ -927,8 +978,24 @@ struct Received {
     keyframe_requests: u64,
     /// Frames dropped because the decoder was behind.
     behind: u64,
+    /// The picture's bytes, as RTP payloads.
+    video_bytes: u64,
     payload_types: std::collections::BTreeSet<u8>,
     ssrcs: std::collections::BTreeSet<u32>,
+}
+
+impl Received {
+    fn so_far(&self) -> ReceivedSoFar {
+        ReceivedSoFar {
+            video_packets: self.video,
+            video_bytes: self.video_bytes,
+            lost: self.given_up,
+            repaired: self.recovered,
+            keyframe_requests: self.keyframe_requests,
+            unreadable: self.unreadable,
+            behind: self.behind,
+        }
+    }
 }
 
 /// One SSRC's video on its way to frames.
@@ -1024,6 +1091,7 @@ async fn receive_stream(
             _ = keyframes.tick() => {}
             _ = repairs.tick() => {}
             _ = reports.tick() => {
+                *lock(&shared.received) = received.so_far();
                 let Some(media) = streamer.video else { continue };
                 let Some(video) = incoming.get_mut(&media) else { continue };
                 let Some((highest, lost)) = video.reorder.counts() else { continue };
@@ -1117,6 +1185,7 @@ async fn receive_stream(
                     continue;
                 };
                 received.video += 1;
+                received.video_bytes += packet.payload.len() as u64;
                 streamer.video.get_or_insert(held.ssrc);
                 // Packets can name any SSRC: past a few, a new one isn't
                 // given buffers of its own.
@@ -1283,5 +1352,36 @@ mod tests {
             "retransmissions aren't frames"
         );
         assert_eq!(streamer.codec(&packet(30, 96)), None);
+    }
+
+    #[test]
+    fn answers_one_request_for_a_keyframe_a_half_second() {
+        // Viewers who lost the same packet ask together, and a rate cut loses
+        // what it sends, so requests come in runs. One keyframe a half second
+        // answers them, the first at once: a run of keyframes at a cut's rate
+        // would be lost in its turn, which asks for another.
+        let start = std::time::Instant::now();
+        let mut answered = None;
+        let mut made = vec![];
+        for at in [0u64, 1, 499, 500, 900, 1000, 1499, 1500] {
+            let now = start + Duration::from_millis(at);
+            if keyframe_due(answered, now) {
+                answered = Some(now);
+                made.push(at);
+            }
+        }
+        assert_eq!(
+            made,
+            [0, 500, 1000, 1500],
+            "one a half second, the first at once"
+        );
+        // A request a half second after the one before it is answered, so a
+        // stream keeps up with a viewer asking as often as it may.
+        let asked = start + Duration::from_millis(2000);
+        assert!(keyframe_due(Some(asked), asked + KEYFRAME_REQUESTS));
+        assert!(!keyframe_due(
+            Some(asked),
+            asked + KEYFRAME_REQUESTS - Duration::from_millis(1)
+        ));
     }
 }

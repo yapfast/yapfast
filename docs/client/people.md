@@ -70,7 +70,10 @@ member list, the DMs, and the lists still to come build on it.
   (which opens the full profile on its tab; in the docked card with no
   mutual friend it leads with the first three mutual servers' icons, 16 px
   and overlapping, then the servers' count), the bio cut to three lines
-  with View full bio, the roles, and a box that messages them. The full
+  with View full bio, the roles, the connections when Appearance's "Show
+  connections on profile cards" is on (`Prefs.card_connections`, the
+  floating card only, drawn by the full profile's `connections`), and a box
+  that messages them. The full
   profile (`full.rs`) has the card down its left, with Friends, Message and
   More under the name, Member Since, Friends Since, the roles, connections
   and the note (saved on Enter, and as the profile closes, grows or goes

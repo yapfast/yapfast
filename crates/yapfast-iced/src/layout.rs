@@ -80,6 +80,9 @@ pub struct Layout {
     /// How calls are joined: unmuted unless turned off, and deafened.
     pub unmute_on_join: Option<bool>,
     pub deafen_on_join: bool,
+    /// The line over a call saying it stays connected while browsing,
+    /// closed for good.
+    pub hide_voice_hint: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
     /// Holding Alt over a channel or DM in the sidebar peeks at its newest
@@ -245,6 +248,9 @@ pub struct Prefs {
     pub profile_frames: Option<bool>,
     /// Profile backgrounds: the banner picture and its colour.
     pub profile_backgrounds: Option<bool>,
+    /// Connections on the floating profile card, as the full profile
+    /// shows them: the window's alone, and off until it's chosen.
+    pub card_connections: bool,
     /// A theme's text glow: the soft edge it puts round text, which is
     /// drawing rather than a profile's cosmetic.
     pub text_glow: Option<bool>,
