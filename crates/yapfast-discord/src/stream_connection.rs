@@ -28,7 +28,9 @@ use crate::{
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
 
-/// How often a viewer may ask for a keyframe while frames are lost.
+/// How often a stream asks for a keyframe while frames are lost, and how
+/// often it makes one when asked: at most one a half second, whichever side
+/// of the stream it is.
 const KEYFRAME_REQUESTS: Duration = Duration::from_millis(500);
 /// How often a streamer sends an RTCP sender report.
 const SENDER_REPORTS: Duration = Duration::from_secs(1);
@@ -495,6 +497,16 @@ async fn open(
     Ok(connection)
 }
 
+/// Whether a keyframe is made for a request that came at `now`: the first
+/// is, and then one a `KEYFRAME_REQUESTS` after the keyframe last made for
+/// one, `answered`. A viewer asks at most that often while frames are lost,
+/// and a streamer makes at most that often too, because every viewer who lost
+/// the same packet asks at once and a keyframe is many times a frame: a run of
+/// them at a rate that just dropped is lost in its turn, which asks again.
+fn keyframe_due(answered: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    answered.is_none_or(|answered| now.duration_since(answered) >= KEYFRAME_REQUESTS)
+}
+
 async fn send(
     server: &StreamServer,
     user: u64,
@@ -539,6 +551,9 @@ async fn send(
     let mut history = rtp::History::default();
     // The packets viewers asked for again, waiting their turn on the wire.
     let mut again = rtp::Resends::default();
+    // When a keyframe was last made for a viewer, which is how often one may
+    // be made; see `keyframe_due`.
+    let mut answered: Option<std::time::Instant> = None;
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut datagram = vec![0u8; 1500];
@@ -714,7 +729,11 @@ async fn send(
                 if rtp::wants_keyframe(&rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
-                    shared.keyframe.store(true, Ordering::Relaxed);
+                    let now = std::time::Instant::now();
+                    if keyframe_due(answered, now) {
+                        answered = Some(now);
+                        shared.keyframe.store(true, Ordering::Relaxed);
+                    }
                 }
                 if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video)
                     && let Some(reason) = pacing.set_estimate(estimate)
@@ -1264,5 +1283,36 @@ mod tests {
             "retransmissions aren't frames"
         );
         assert_eq!(streamer.codec(&packet(30, 96)), None);
+    }
+
+    #[test]
+    fn answers_one_request_for_a_keyframe_a_half_second() {
+        // Viewers who lost the same packet ask together, and a rate cut loses
+        // what it sends, so requests come in runs. One keyframe a half second
+        // answers them, the first at once: a run of keyframes at a cut's rate
+        // would be lost in its turn, which asks for another.
+        let start = std::time::Instant::now();
+        let mut answered = None;
+        let mut made = vec![];
+        for at in [0u64, 1, 499, 500, 900, 1000, 1499, 1500] {
+            let now = start + Duration::from_millis(at);
+            if keyframe_due(answered, now) {
+                answered = Some(now);
+                made.push(at);
+            }
+        }
+        assert_eq!(
+            made,
+            [0, 500, 1000, 1500],
+            "one a half second, the first at once"
+        );
+        // A request a half second after the one before it is answered, so a
+        // stream keeps up with a viewer asking as often as it may.
+        let asked = start + Duration::from_millis(2000);
+        assert!(keyframe_due(Some(asked), asked + KEYFRAME_REQUESTS));
+        assert!(!keyframe_due(
+            Some(asked),
+            asked + KEYFRAME_REQUESTS - Duration::from_millis(1)
+        ));
     }
 }
