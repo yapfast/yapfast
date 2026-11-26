@@ -10889,7 +10889,6 @@ dependencies = [
  "libpulse-binding",
  "libpulse-simple-binding",
  "livekit",
- "livekit-signaling",
  "matrix-rtc-call",
  "matrix-rtc-call-sdk",
  "matrix-rtc-core",

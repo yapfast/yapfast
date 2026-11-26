@@ -49,8 +49,6 @@ resvg = { version = "0.50", default-features = false }
 gif = "0.14"
 keyring = { workspace = true, optional = true }
 livekit.workspace = true
-# LiveKit 0.9.7 uses SignalOptions::use_legacy_data_streams, removed in 0.1.9.
-livekit-signaling = "=0.1.7"
 # libDF's frames, at the version it uses.
 ndarray = { version = "0.17", optional = true }
 # The FFT for taking room reverb out of the Discord microphone, and for the
