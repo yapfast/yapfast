@@ -551,6 +551,59 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
 }
 
 #[test]
+fn the_account_cards_presence_dot_sits_over_the_speaking_ring() {
+    use yapfast_core::voice::{Participant, Phase};
+    let (mut app, _folder) = preview();
+    phase(&mut app, Phase::Connected);
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_online = true;
+        state.discord_presence = Some("dnd".into());
+        state.voice.participants = vec![Participant {
+            id: "me".into(),
+            user: "me".into(),
+            person: "me".into(),
+            local: true,
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            speaking_blocked: false,
+            server_deafened: false,
+            speaking: true,
+            connected: true,
+            problem: None,
+            streaming: false,
+            video: None,
+            avatar: None,
+        }];
+    });
+    assert!(app.ctx().account.speaking, "the ring is on");
+    let (width, _, pixels) = super::drawn(&mut account_card(&app));
+    let scale = 2.0;
+    let live = app.look().theme.live;
+    let green = |x: f32, y: f32| {
+        let at = (((y * scale) as usize) * width as usize + (x * scale) as usize) * 4;
+        let drawn = &pixels[at..at + 3];
+        let near = |drawn: u8, want: f32| (drawn as f32 / 255.0 - want).abs() < 0.1;
+        near(drawn[0], live.r) && near(drawn[1], live.g) && near(drawn[2], live.b)
+    };
+    // The avatar is 16 px in, centred down the card; its dot's 16 px sit
+    // 26 px into it, where the ring crosses its lower right.
+    let top = (crate::account::HEIGHT - 40.0) / 2.0;
+    assert!(
+        green(13.5, top + 20.0),
+        "the ring still shows left of the avatar"
+    );
+    for step in 29..=39 {
+        let t = step as f32;
+        assert!(
+            !green(16.0 + t, top + t),
+            "the ring shows through the dot {t} px into the avatar"
+        );
+    }
+}
+
+#[test]
 fn the_account_cards_avatar_opens_the_status_popover_only_with_discord_linked() {
     let (mut app, _folder) = preview();
     let click_avatar = |app: &App| -> Vec<Message> {
