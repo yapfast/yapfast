@@ -44,6 +44,7 @@ use crate::{
     app::Message,
     controls::{self, bar},
     ctx::{self, Ctx, Cx, Focus, Request, Screen},
+    desktop::Autostart,
     fonts::BOLD,
     form,
     pictures::Icon,
@@ -227,7 +228,7 @@ pub struct Settings {
 /// the desktop can: none where they can't.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Platform {
-    pub autostart: Option<crate::desktop::Autostart>,
+    pub autostart: Option<Autostart>,
     pub discord_links: Option<bool>,
 }
 
@@ -444,13 +445,25 @@ impl Settings {
     }
 
     /// Reads what the desktop says of starting at sign-in and Discord's
-    /// links, for Advanced. A Discord build only offers the links.
-    fn read_platform_choices(&mut self, cx: &Cx<'_>) {
+    /// links, for Advanced. A Discord build only offers the links. A startup
+    /// entry that's on says whether Yapfast starts minimized, which is kept
+    /// for when it's turned on again, after Task Manager or the installer
+    /// changed it too.
+    fn read_platform_choices(&mut self, cx: &mut Cx<'_>) {
         let desktop = crate::desktop::desktop();
         self.platform = Platform {
             autostart: desktop.autostart(),
             discord_links: desktop.discord_links(cx.client.root()),
         };
+        let minimized = match self.platform.autostart {
+            Some(Autostart::Tray) => true,
+            Some(Autostart::Window) => false,
+            Some(Autostart::Off) | None => return,
+        };
+        if cx.layout.prefs.start_minimized != minimized {
+            cx.layout.prefs.start_minimized = minimized;
+            cx.keep("start_minimized", minimized);
+        }
     }
 }
 

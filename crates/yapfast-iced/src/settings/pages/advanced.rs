@@ -1,18 +1,15 @@
 //! Advanced: starting at sign-in, Discord links, the tray, more windows,
 //! the GPU for drawing and for streams, and Developer Mode.
 
-use iced::{
-    Element, Length,
-    widget::{column, container, responsive, text},
-};
+use iced::{Element, widget::text};
 
 use super::{Pref, pref};
 use crate::settings::{Event, Page};
 use crate::{
     app::Message,
-    controls::{Kind, action, choices_within},
+    controls::{Kind, action},
     desktop::Autostart,
-    form,
+    form::{self, switch},
     pictures::Icon,
 };
 
@@ -23,33 +20,26 @@ impl<'a> Page<'a> {
         let mut parts = vec![form::title(theme, "Advanced")];
         let platform = self.s.platform;
         if let Some(start) = platform.autostart {
-            const MODES: [Autostart; 3] = [Autostart::Off, Autostart::Window, Autostart::Tray];
-            let selected = MODES.iter().position(|mode| *mode == start).unwrap_or(0);
+            // Discord's OS_OPEN_ON_STARTUP and OS_START_MINIMIZED: the second
+            // greyed out and shown off while the first is off.
+            let open = start != Autostart::Off;
+            let minimized = start == Autostart::Tray;
             parts.push(
-                responsive(move |size| {
-                    let label = column![
-                        text("Start with your computer").size(15).color(theme.text),
-                        form::note(
-                            theme,
-                            "Open Yapfast when you log in, with its window or in the tray."
-                        ),
-                    ]
-                    .spacing(4);
-                    let buttons = choices_within(
-                        theme,
-                        &["Off", "With the window", "In the tray"],
-                        selected,
-                        280.0,
-                        |index| pref(Pref::StartOnSignIn(MODES[index])),
-                    );
-                    if size.width >= 540.0 {
-                        form::beside(label, container(buttons).width(280))
-                    } else {
-                        form::group([label.into(), buttons])
-                    }
-                })
-                .height(Length::Shrink)
-                .into(),
+                switch(
+                    "Automatically open Yapfast when your computer starts up",
+                    open,
+                    Some(pref(Pref::OpenOnStartup(!open))),
+                )
+                .view(self.cx.look),
+            );
+            parts.push(
+                switch(
+                    "Start Yapfast minimized",
+                    minimized,
+                    open.then(|| pref(Pref::StartMinimized(!minimized))),
+                )
+                .description("Start Yapfast in the background, out of your way.")
+                .view(self.cx.look),
             );
         }
         if let Some(links) = platform.discord_links {

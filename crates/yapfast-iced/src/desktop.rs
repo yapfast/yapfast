@@ -173,7 +173,8 @@ pub trait Updates {
     fn ready(&self) -> bool;
 }
 
-/// How the desktop starts Yapfast at sign-in.
+/// How the desktop starts Yapfast at sign-in, as its entry has it: not at
+/// all, with the window, or minimized to the tray (`--background`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Autostart {
     Off,
@@ -279,7 +280,7 @@ pub trait Desktop: Send + Sync {
     fn save_icon(&self, _root: &Path, _target: IconTarget, _png: &[u8]) -> Result<(), String> {
         Err("Custom icons are unavailable.".into())
     }
-    /// Whether Yapfast starts when the person signs in; none where it can't.
+    /// How Yapfast starts when the person signs in; none where it can't.
     fn autostart(&self) -> Option<Autostart> {
         None
     }

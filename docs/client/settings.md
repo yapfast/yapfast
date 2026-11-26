@@ -89,10 +89,11 @@ recording. Each change is kept at once in
   to and tracking taken out of links.
 - Notifications, Sounds (the set, which plays a sound when chosen, the
   volume, and each sound's own with its play button) and Advanced.
-  Advanced holds Start with your computer, with buttons for Off, With the
-  window and In the tray on Windows and Linux outside the preview. Existing tray
-  autostart entries keep their mode. Advanced also holds Open Discord links
-  in Yapfast (outside the preview), Close to tray, saying where
+  Advanced holds Discord's two startup switches on Windows and Linux
+  outside the preview: Automatically open Yapfast when your computer starts
+  up, and Start Yapfast minimized (to the tray), off until chosen and greyed
+  out, shown off, while the first is off. Advanced also holds Open Discord
+  links in Yapfast (outside the preview), Close to tray, saying where
   there's no tray, and the renderer's switch: while it differs from the
   renderer drawing, when it takes effect and Restart Yapfast.
 - Appearance (`appearance.rs`): each theme as a small window in its own
