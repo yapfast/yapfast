@@ -24,7 +24,11 @@ davey = "0.2.0"
 rand = "0.10"
 # Linking by QR code: Discord's remote login encrypts what it sends with the
 # client's RSA key, OAEP with SHA-256.
-rsa = { version = "0.10", default-features = false, features = ["encoding", "getrandom", "std"] }
+rsa = { version = "0.10", default-features = false, features = [
+    "encoding",
+    "getrandom",
+    "std",
+] }
 sha2 = "0.11"
 anyhow.workspace = true
 base64 = "0.23"
@@ -35,20 +39,37 @@ futures-util.workspace = true
 # already builds it.
 iana-time-zone = "0.1.65"
 keyring.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "cookies",
+    "http2",
+    "rustls-no-provider",
+] }
 cookie_store = "0.22"
 rustls.workspace = true
 # Which certificates the WebSockets trust: the same as reqwest's HTTPS.
 rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
-sysinfo = { version = "0.40.4", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40.4", default-features = false, features = [
+    "system",
+] }
 tempfile.workspace = true
 # The voice gateway's messages, DAVE's among them.
 serenity-voice-model = "0.3"
-tokio = { workspace = true, features = ["rt", "sync", "time", "net", "macros", "io-util", "fs"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "sync",
+    "time",
+    "net",
+    "macros",
+    "io-util",
+    "fs",
+] }
 # The voice gateway.
-tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "__rustls-tls"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = [
+    "connect",
+    "__rustls-tls",
+] }
 tracing.workspace = true
 url.workspace = true
 # Links Yapfast's libwebrtc archive, whose libopus calls use.

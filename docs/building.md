@@ -110,8 +110,6 @@ dependency in Cargo.toml:
   camera capture from pooled buffers and the pointer in Windows monitor shares.
 - `rusqlite`: forwards the pinned Matrix SDK's SQLite API and features to
   rusqlite 0.41, which bundles the patched SQLite library.
-- `tungstenite`: tungstenite 0.26.2, giving back the read buffer a large frame
-  such as Discord's READY grew.
 - `iced_tiny_skia`: iced 0.14's CPU renderer, 0.14.1: pictures drawn from the
   app's own pixels and copied
   onto the frame with their round corners, glyphs copied the same way, clips
