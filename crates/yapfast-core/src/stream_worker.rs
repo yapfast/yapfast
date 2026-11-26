@@ -30,7 +30,7 @@ use yapfast_discord::{
     congestion,
     rtp::Codec,
     stream::StreamServer,
-    stream_connection::{self, Link, StreamReceiver, StreamSender},
+    stream_connection::{self, Link, ReceivedSoFar, StreamReceiver, StreamSender},
 };
 
 use livekit::webrtc::{
@@ -44,7 +44,7 @@ use crate::{
     frames::{Frames, Writer},
     picture::{I420, Turn},
     stream_audio,
-    voice::{Resolution, StreamAudio, StreamQuality, StreamStats},
+    voice::{Resolution, StreamAudio, StreamQuality, StreamStats, WatchStats},
 };
 
 /// The argument that starts Yapfast as a stream worker.
@@ -74,7 +74,8 @@ const THUMBNAIL_EVERY: Duration = Duration::from_secs(5 * 60);
 /// How long a shared stream whose connection ended waits for a server
 /// Discord moved it to.
 const MOVE_GRACE: Duration = Duration::from_secs(5);
-/// How often a shared screen reports how it goes out, for the call's details.
+/// How often a shared screen reports how it goes out, and a watched stream
+/// how it comes in, for the call's details.
 const SENDING_EVERY: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -360,6 +361,8 @@ pub enum Report {
     Streaming,
     /// Sharing: how the stream goes out, once a second while it's live.
     Sending(StreamStats),
+    /// Watching: how the stream comes in and shows, once a second.
+    Receiving(WatchStats),
     /// Sharing: a preview of the stream for Discord to show, a JPEG as a
     /// data URI. The first comes once a picture isn't black, then one every
     /// 5 minutes, as Discord's client sends them.
@@ -507,6 +510,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 preview_due: None,
                 thumbnail: None,
                 lost: None,
+                captured: None,
             };
             report(Report::Ready);
             match source {
@@ -595,6 +599,9 @@ struct Sink {
     /// When the stream connection ended, while Discord may still name a
     /// server it moved the stream to.
     lost: Option<Instant>,
+    /// What's shared ("screen") and its size before it's fitted to the
+    /// stream, for the Stream tab.
+    captured: Option<(&'static str, u32, u32)>,
 }
 
 struct Video {
@@ -609,7 +616,7 @@ struct Video {
 
 impl Video {
     /// How the stream goes out, with the kbit/s sent since it last said.
-    fn sending(&mut self, fps: u32) -> StreamStats {
+    fn sending(&mut self, fps: u32, captured: Option<(&'static str, u32, u32)>) -> StreamStats {
         let sent = self.sender.sent();
         let (since, before) = self.measured;
         let bits = sent.video_bytes.saturating_sub(before) * 8;
@@ -619,12 +626,16 @@ impl Video {
         StreamStats {
             engine: self.encoder.engine().to_owned(),
             codec: self.encoder.codec().name().to_owned(),
+            captured: captured.map_or_else(String::new, |(what, width, height)| {
+                format!("{width}×{height} {what}")
+            }),
             width,
             height,
             fps,
             target_kbps: self.encoder.bitrate(),
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
+            packets: sent.video_packets,
             resent: sent.resent,
         }
     }
@@ -877,7 +888,7 @@ impl Sink {
             && self.streaming
             && video.measured.0.elapsed() >= SENDING_EVERY
         {
-            report(Report::Sending(video.sending(self.fps)));
+            report(Report::Sending(video.sending(self.fps, self.captured)));
         }
         Ok(switch)
     }
@@ -979,6 +990,10 @@ fn watch(
     let (mut scratch, mut turned) = (vec![], vec![]);
     let mut shown = false;
     let mut failures = 0u64;
+    // For the Stream tab: what had come in at the last report, and the
+    // pictures decoded and their size since.
+    let mut measured = (Instant::now(), ReceivedSoFar::default());
+    let (mut decoded, mut size) = (0u32, (0, 0));
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
@@ -986,6 +1001,30 @@ fn watch(
                 Control::Volume(volume) => sound.volume.set(volume),
                 _ => {}
             }
+        }
+        if measured.0.elapsed() >= SENDING_EVERY {
+            let received = receiver.received();
+            let (since, before) = measured;
+            let milliseconds = since.elapsed().as_millis().max(1) as u64;
+            let bits = received.video_bytes.saturating_sub(before.video_bytes) * 8;
+            report(Report::Receiving(WatchStats {
+                decoder: decoder.as_ref().map_or("", Decoder::engine).to_owned(),
+                codec: decoder
+                    .as_ref()
+                    .map_or("", |decoder| decoder.codec().name())
+                    .to_owned(),
+                width: size.0,
+                height: size.1,
+                fps: (u64::from(decoded) * 1000 / milliseconds) as u32,
+                received_kbps: (bits / milliseconds) as u32,
+                packets: received.video_packets,
+                lost: received.lost,
+                repaired: received.repaired,
+                keyframe_requests: received.keyframe_requests,
+                dropped: failures + received.unreadable + received.behind,
+            }));
+            measured = (Instant::now(), received);
+            decoded = 0;
         }
         if let Link::Ended(reason) = receiver.link() {
             bail!("Lost the stream: {reason}");
@@ -1003,7 +1042,11 @@ fn watch(
             continue;
         };
         let picture = match decoder.decode(&frame.data) {
-            Ok(Some(picture)) => picture,
+            Ok(Some(picture)) => {
+                decoded += 1;
+                size = (picture.width, picture.height);
+                picture
+            }
             Ok(None) => continue,
             Err(error) => {
                 failures += 1;
@@ -1100,6 +1143,7 @@ fn test_pattern(
             width as i32,
             height as i32,
         );
+        sink.captured = Some(("test pattern", width, height));
         sink.frame(&mut picture)?;
         // Colour bars are all it shares.
         let _switch = sink.check(report)?;
@@ -1284,6 +1328,11 @@ impl Capture {
             CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
         };
         let portal = portal_picks();
+        let what = match source {
+            _ if portal => "screen or window",
+            Source::Window(_) => "window",
+            _ => "screen",
+        };
         let kind = match source {
             // The system's screen sharing dialog picks a screen or window.
             // libwebrtc has the generic capturer only on Linux and macOS, and
@@ -1319,10 +1368,11 @@ impl Capture {
                     if size != (width, height) {
                         picture = picture.scale(size.0 as i32, size.1 as i32);
                     }
-                    let taken = into
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut picture);
+                    let taken = {
+                        let mut sink = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        sink.captured = Some((what, width, height));
+                        sink.frame(&mut picture)
+                    };
                     match taken {
                         Ok(()) => seen.size = Some(size),
                         Err(error) => seen.failed = Some(format!("{error:#}")),
@@ -1369,15 +1419,15 @@ impl Capture {
                 // The camera fits the stream already; an odd size, which
                 // codecs can't take, loses a row or a column.
                 let fitted = fit(size.0, size.1, max_width, max_height);
-                let taken = if fitted == size {
-                    into.lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(picture)
-                } else {
-                    let mut scaled = picture.scale(fitted.0 as i32, fitted.1 as i32);
-                    into.lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut scaled)
+                let mut scaled =
+                    (fitted != size).then(|| picture.scale(fitted.0 as i32, fitted.1 as i32));
+                let taken = {
+                    let mut sink = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    sink.captured = Some(("camera", size.0, size.1));
+                    match scaled.as_mut() {
+                        Some(scaled) => sink.frame(scaled),
+                        None => sink.frame(picture),
+                    }
                 };
                 let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 match taken {
@@ -2108,6 +2158,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let (offers, encoder) = sink.offers(320, 180).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
@@ -2142,6 +2193,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
@@ -2183,6 +2235,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let mut grey = |level: u8| {
             let mut picture = I420Buffer::new(PREVIEW_WIDTH, PREVIEW_HEIGHT);
@@ -2226,6 +2279,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         for audio in [StreamAudio::Off, StreamAudio::Window(42), StreamAudio::All] {
             controls.send(Control::Audio(audio)).unwrap();
@@ -2263,6 +2317,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let mut report = |_| {};
         assert_eq!(sink.check(&mut report).unwrap(), None);
@@ -2291,6 +2346,7 @@ mod tests {
             preview_due: Some(Instant::now()),
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
