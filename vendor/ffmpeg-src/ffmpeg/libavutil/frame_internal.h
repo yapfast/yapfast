@@ -1,7 +1,4 @@
 /*
- * MSVC Compatible va_copy macro
- * Copyright (c) 2012 Derek Buitenhuis
- *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -19,16 +16,22 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef COMPAT_VA_COPY_H
-#define COMPAT_VA_COPY_H
+#ifndef AVUTIL_FRAME_INTERNAL_H
+#define AVUTIL_FRAME_INTERNAL_H
 
-#include <stdarg.h>
+#include <stddef.h>
 
-#if !defined(va_copy) && defined(_MSC_VER)
-#define va_copy(dst, src) ((dst) = (src))
-#endif
-#if !defined(va_copy) && defined(__GNUC__) && __GNUC__ < 3
-#define va_copy(dst, src) __va_copy(dst, src)
-#endif
+#include "buffer.h"
+#include "frame.h"
 
-#endif /* COMPAT_VA_COPY_H */
+/**
+ * Allocate the buffer of a video frame like av_frame_get_buffer().
+ *
+ * @param alloc  allocates the buffer, av_buffer_alloc() is used if NULL
+ * @param opaque passed to alloc
+ */
+int ff_frame_get_video_buffer(AVFrame *frame, int align,
+                              AVBufferRef *(*alloc)(void *opaque, size_t size),
+                              void *opaque);
+
+#endif /* AVUTIL_FRAME_INTERNAL_H */

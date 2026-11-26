@@ -27,6 +27,8 @@
 #include "defs.h"
 #include "libavutil/refstruct.h"
 
+#define MAX_FRAGMENT_OBUS (1 << 16)
+
 
 #if CBS_READ
 static int cbs_av1_read_uvlc(CodedBitstreamContext *ctx, GetBitContext *gbc,
@@ -788,6 +790,12 @@ static int cbs_av1_split_fragment(CodedBitstreamContext *ctx,
             goto fail;
         }
 
+        if (frag->nb_units >= MAX_FRAGMENT_OBUS) {
+            av_log(ctx->log_ctx, AV_LOG_ERROR, "Too many OBUs in a fragment.\n");
+            err = AVERROR_INVALIDDATA;
+            goto fail;
+        }
+
         err = CBS_FUNC(append_unit_data)(frag, obu_header.obu_type,
                                       data, obu_length, frag->data_ref);
         if (err < 0)
@@ -1199,7 +1207,7 @@ static int cbs_av1_write_obu(CodedBitstreamContext *ctx,
     flush_put_bits(pbc);
     av_assert0(data_pos <= start_pos);
 
-    if (8 * obu->obu_size > put_bits_left(pbc)) {
+    if (obu->obu_size > put_bits_left(pbc) / 8) {
         av_refstruct_unref(&priv->sequence_header_ref);
         av_buffer_unref(&priv->frame_header_ref);
         *priv = av1ctx;

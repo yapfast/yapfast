@@ -12,8 +12,8 @@ set -euo pipefail
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd "$here/../.." && pwd)
 
-FFMPEG_VERSION=9.0.2
-FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+FFMPEG_VERSION=9.1
+FFMPEG_SHA256=1a4d394ae63d190a526cd052eb4415c156b5c5e2df37efab41a7de0b8fde2433
 # 12.0 needs NVIDIA's driver 520 or newer; newer headers raise that.
 NVH_VERSION=12.0.16.1
 NVH_SHA256=bfb3306f22c169fedcfc5489b344f414089eec796ffd528412677b0c872bc6e2
@@ -136,7 +136,7 @@ chmod +x "$work/bin/lib"
   export LIB="$xwin/crt/lib/x86_64;$xwin/sdk/lib/um/x86_64;$xwin/sdk/lib/ucrt/x86_64"
   windows="clang-cl --target=x86_64-pc-windows-msvc"
   build windows-x86_64 llvm-nm --toolchain=msvc --cc="$windows" --cxx="$windows" --ld=lld-link \
-    --ar=lib --nm=llvm-nm --target-os=win64 --arch=x86_64 --enable-cross-compile \
+    --ar=lib --nm=llvm-nm --host-cc=clang --target-os=win64 --arch=x86_64 --enable-cross-compile \
     --enable-ffnvcodec --enable-nvenc --enable-amf --enable-encoder="$WINDOWS_ENCODERS" \
     --enable-decoder=hevc
 )
@@ -152,7 +152,8 @@ sed -n 's|^src/||p' "$work/read.txt" | sort -u | while read -r file; do
   mkdir -p "$here/ffmpeg/$(dirname "$file")"
   cp "$src/$file" "$here/ffmpeg/$file"
 done
-cp "$src"/{COPYING.LGPLv2.1,LICENSE.md,CREDITS,VERSION} "$here/ffmpeg/"
+cp "$src"/{COPYING.LGPLv2.1,LICENSE.md,CREDITS} "$here/ffmpeg/"
+cp "$src/RELEASE" "$here/ffmpeg/VERSION"
 for change in "$here"/patches/*.patch; do
   patch -s -d "$here/ffmpeg" -p1 < "$change"
 done
@@ -184,8 +185,9 @@ cp -r "$work/gen" "$here/gen"
 # which src/va.c forwards to libva once it's loaded.
 # Not FFmpeg's: clang-cl's constants for Windows (string literals, vector
 # and floating point constants), which the linker merges, and the UCRT's
-# stdio functions, which its headers define inline.
-sort -u "$work/defined.txt" | grep -vxE 'av_log2(_16bit)?' |
+# stdio functions, which its headers define inline. Newer UCRT headers also
+# emit a weak AVX2 wide-memory dispatch flag shared by the CRT.
+sort -u "$work/defined.txt" | grep -vxE 'av_log2(_16bit)?|_Avx2WmemEnabledWeakValue' |
   grep -vE '^(\?\?_C@|__(xmm|ymm|real)@|__local_stdio_)|^_?v?[sf]?n?w?(printf|scanf)(_s)?$' > "$work/defined.sorted"
 mv "$work/defined.sorted" "$work/defined.txt"
 # Renamed too, though named otherwise: the GUIDs the AMF headers define in

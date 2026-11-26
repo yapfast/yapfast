@@ -97,9 +97,11 @@
 typedef struct FFCodecDefault {
     const char *key;
     const char *value;
+    int flags;
 } FFCodecDefault;
 
 struct AVCodecContext;
+struct AVDictionary;
 struct AVSubtitle;
 struct AVPacket;
 
@@ -151,6 +153,14 @@ typedef struct FFCodec {
      * Should be set to a bitmask of AVALPHA_MODE_PREMULTIPLIED and AVALPHA_MODE_STRAIGHT.
      */
     unsigned alpha_modes:2;
+
+    /**
+     * This field determines the chroma sample locations supported by an
+     * encoder, terminated by AVCHROMA_LOC_UNSPECIFIED. Only needs to be set
+     * by encoders whose format defines the chroma siting, a NULL list means
+     * the encoder accepts whatever it is given.
+     */
+    const enum AVChromaLocation *chroma_locations;
 
     /**
      * This field determines the type of the codec (decoder/encoder)
@@ -254,11 +264,19 @@ typedef struct FFCodec {
      */
     void (*flush)(struct AVCodecContext *);
 
-    /**
-     * Decoding only, a comma-separated list of bitstream filters to apply to
-     * packets before decoding.
-     */
-    const char *bsfs;
+    union {
+        /**
+        * Encoding only. Reconfigure the encoder
+        * Called by avcodec_encode_reconfigure()
+        */
+        int (*reconf)(struct AVCodecContext *avctx, struct AVDictionary **dict);
+
+        /**
+        * Decoding only, a comma-separated list of bitstream filters to apply to
+        * packets before decoding.
+        */
+        const char *bsfs;
+    };
 
     /**
      * Array of pointers to hardware configurations supported by the codec,
@@ -400,6 +418,9 @@ int ff_default_get_supported_config(const struct AVCodecContext *avctx,
 
 #define CODEC_PIXFMTS(...) CODEC_PIXFMTS_ARRAY(((const enum AVPixelFormat[]) { __VA_ARGS__, AV_PIX_FMT_NONE }))
 #define CODEC_PIXFMTS_ARRAY(array) CODEC_ARRAY(pix_fmts, (array))
+
+#define CODEC_CHROMA_LOCS(...) CODEC_CHROMA_LOCS_ARRAY(((const enum AVChromaLocation[]) { __VA_ARGS__, AVCHROMA_LOC_UNSPECIFIED }))
+#define CODEC_CHROMA_LOCS_ARRAY(array) CODEC_ARRAY(chroma_locations, (array))
 
 #define CODEC_ARRAY(field, array) \
     .field = (array)              \

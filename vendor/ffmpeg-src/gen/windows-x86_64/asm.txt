@@ -5,8 +5,9 @@ libavcodec/x86/hevc/deblock.asm
 libavcodec/x86/hevc/dequant.asm
 libavcodec/x86/hevc/idct.asm
 libavcodec/x86/hevc/mc.asm
-libavcodec/x86/hevc/sao_10bit.asm
+libavcodec/x86/hevc/pred.asm
 libavcodec/x86/hevc/sao.asm
+libavcodec/x86/hevc/sao_10bit.asm
 libavcodec/x86/idctdsp.asm
 libavcodec/x86/simple_idct10.asm
 libavcodec/x86/videodsp.asm

@@ -38,6 +38,8 @@ void ff_hevc_unref_frame(HEVCFrame *frame, int flags)
     if (!(frame->flags & ~HEVC_FRAME_FLAG_CORRUPT))
         frame->flags = 0;
     if (!frame->flags) {
+        av_refstruct_unref(&frame->hwaccel_picture_private);
+
         ff_progress_frame_unref(&frame->tf);
         av_frame_unref(frame->frame_grain);
         frame->needs_fg = 0;
@@ -49,8 +51,6 @@ void ff_hevc_unref_frame(HEVCFrame *frame, int flags)
         frame->nb_rpl_elems = 0;
         av_refstruct_unref(&frame->rpl_tab);
         frame->refPicList = NULL;
-
-        av_refstruct_unref(&frame->hwaccel_picture_private);
     }
 }
 
@@ -470,7 +470,7 @@ static HEVCFrame *generate_missing_ref(HEVCContext *s, HEVCLayerContext *l, int 
     if (!frame)
         return NULL;
 
-    if (!s->avctx->hwaccel) {
+    if (!s->avctx->hwaccel && !ff_decode_skip_all_pixels(s->avctx)) {
         int nb_planes = l->sps->chroma_format_idc ? 3 : 1;
         if (!l->sps->pixel_shift) {
             for (int i = 0; i < nb_planes; i++)

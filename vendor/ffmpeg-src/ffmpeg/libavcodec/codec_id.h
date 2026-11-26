@@ -324,6 +324,9 @@ enum AVCodecID {
     AV_CODEC_ID_PRORES_RAW,
     AV_CODEC_ID_JPEGXS,
     AV_CODEC_ID_WEBP_ANIM,
+    AV_CODEC_ID_ASTC,
+    AV_CODEC_ID_RW2,
+    AV_CODEC_ID_IMM6,
 
     /* various PCM "codecs" */
     AV_CODEC_ID_FIRST_AUDIO = 0x10000,     ///< A dummy id pointing at the start of audio codecs
@@ -364,6 +367,7 @@ enum AVCodecID {
     AV_CODEC_ID_PCM_F24LE,
     AV_CODEC_ID_PCM_VIDC,
     AV_CODEC_ID_PCM_SGA,
+    AV_CODEC_ID_PCM_DVDA,
 
     /* various ADPCM codecs */
     AV_CODEC_ID_ADPCM_IMA_QT = 0x11000,
@@ -428,6 +432,8 @@ enum AVCodecID {
     AV_CODEC_ID_ADPCM_PSXC,
     AV_CODEC_ID_ADPCM_CIRCUS,
     AV_CODEC_ID_ADPCM_IMA_ESCAPE,
+    AV_CODEC_ID_ADPCM_RHETOREX,
+    AV_CODEC_ID_ADPCM_IMA_CITRIX,
 
     /* AMR */
     AV_CODEC_ID_AMR_NB = 0x12000,
@@ -607,6 +613,7 @@ enum AVCodecID {
     AV_CODEC_ID_SMPTE_2038,
     AV_CODEC_ID_LCEVC,
     AV_CODEC_ID_SMPTE_436M_ANC,
+    AV_CODEC_ID_ITUT_T35,
 
 
     AV_CODEC_ID_PROBE = 0x19000, ///< codec_id is not known (like AV_CODEC_ID_NONE) but lavf should attempt to identify it

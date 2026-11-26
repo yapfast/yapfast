@@ -441,14 +441,18 @@ static int hw_base_encode_send_frame(AVCodecContext *avctx, FFHWBaseEncodeContex
             goto fail;
         }
 
-        if (ctx->recon_frames_ref) {
+        if (ctx->recon_frames_ref || ctx->get_recon_frame) {
             pic->recon_image = av_frame_alloc();
             if (!pic->recon_image) {
                 err = AVERROR(ENOMEM);
                 goto fail;
             }
 
-            err = av_hwframe_get_buffer(ctx->recon_frames_ref, pic->recon_image, 0);
+            if (ctx->get_recon_frame)
+                err = ctx->get_recon_frame(avctx, pic->recon_image);
+            else
+                err = av_hwframe_get_buffer(ctx->recon_frames_ref,
+                                            pic->recon_image, 0);
             if (err < 0) {
                 err = AVERROR(ENOMEM);
                 goto fail;
@@ -504,7 +508,7 @@ static int hw_base_encode_send_frame(AVCodecContext *avctx, FFHWBaseEncodeContex
 
         // Fix timestamps if we hit end-of-stream before the initial decode
         // delay has elapsed.
-        if (ctx->input_order <= ctx->decode_delay)
+        if (ctx->input_order <= ctx->decode_delay && ctx->pic_end)
             ctx->dts_pts_diff = ctx->pic_end->pts - ctx->first_pts;
     }
 

@@ -2145,6 +2145,30 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
        },
         .flags = AV_PIX_FMT_FLAG_XYZ | AV_PIX_FMT_FLAG_BE,
     },
+    [AV_PIX_FMT_XYZP12LE] = {
+        .name = "xyzp12le",
+        .nb_components = 3,
+        .log2_chroma_w = 0,
+        .log2_chroma_h = 0,
+        .comp = {
+            { 0, 2, 0, 4, 12 },       /* X */
+            { 1, 2, 0, 4, 12 },       /* Y */
+            { 2, 2, 0, 4, 12 },       /* Z */
+        },
+        .flags = AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_XYZ,
+    },
+    [AV_PIX_FMT_XYZP12BE] = {
+        .name = "xyzp12be",
+        .nb_components = 3,
+        .log2_chroma_w = 0,
+        .log2_chroma_h = 0,
+        .comp = {
+            { 0, 2, 0, 4, 12 },       /* X */
+            { 1, 2, 0, 4, 12 },       /* Y */
+            { 2, 2, 0, 4, 12 },       /* Z */
+        },
+        .flags = AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_XYZ | AV_PIX_FMT_FLAG_BE,
+    },
 
 #define BAYER8_DESC_COMMON \
         .nb_components= 3, \
@@ -2276,6 +2300,10 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
     },
     [AV_PIX_FMT_CUDA] = {
         .name = "cuda",
+        .flags = AV_PIX_FMT_FLAG_HWACCEL,
+    },
+    [AV_PIX_FMT_CUARRAY] = {
+        .name = "cuarray",
         .flags = AV_PIX_FMT_FLAG_HWACCEL,
     },
     [AV_PIX_FMT_AMF_SURFACE] = {

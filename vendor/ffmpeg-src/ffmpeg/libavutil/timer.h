@@ -57,8 +57,6 @@
 
 #if   ARCH_AARCH64
 #   include "aarch64/timer.h"
-#elif ARCH_ARM
-#   include "arm/timer.h"
 #elif ARCH_PPC
 #   include "ppc/timer.h"
 #elif ARCH_X86
@@ -140,7 +138,8 @@
 
 #define STOP_TIMER(id)                                                      \
     ioctl(linux_perf_fd, PERF_EVENT_IOC_DISABLE, 0);                        \
-    read(linux_perf_fd, &tperf, sizeof(tperf));                             \
+    if (read(linux_perf_fd, &tperf, sizeof(tperf)) != sizeof(tperf))        \
+        tperf = 0;                                                          \
     TIMER_REPORT(id, tperf)
 
 #elif CONFIG_MACOS_KPERF

@@ -24,7 +24,6 @@
 
 #include "libavutil/cpu.h"
 #include "libavutil/mem_internal.h"
-#include "libavutil/x86/asm.h"
 #include "libavutil/x86/cpu.h"
 #include "libavcodec/hevc/dsp.h"
 #include "libavcodec/x86/hevc/dsp.h"
@@ -87,6 +86,12 @@ void ff_hevc_idct_32x32_10_ ## opt(int16_t *coeffs, int col_limit);
 IDCT_FUNCS(sse2)
 IDCT_FUNCS(avx)
 
+#define TRANSFORM_LUMA_FUNCS(opt)                            \
+void ff_hevc_transform_4x4_luma_8_  ## opt(int16_t *coeffs); \
+void ff_hevc_transform_4x4_luma_10_ ## opt(int16_t *coeffs)
+
+TRANSFORM_LUMA_FUNCS(sse2);
+TRANSFORM_LUMA_FUNCS(avx);
 
 #define ff_hevc_pel_filters ff_hevc_qpel_filters
 #define DECL_HV_FILTER(f)                                  \
@@ -575,7 +580,7 @@ mc_rep_uni_w(12, 8, 64, sse4)
 #define mc_rep_bi_w(bitd, step, W, opt) \
 void ff_hevc_put_bi_w##W##_##bitd##_##opt(uint8_t *_dst, ptrdiff_t dststride, const int16_t *_src, \
                                           const int16_t *_src2, int height,                        \
-                                          int denom,  int _wx0,  int _wx1, int _ox0, int _ox1)     \
+                                          int denom, int wx0, int wx1, int ox)                     \
 {                                                                                                                       \
     int i;                                                                                                              \
     uint8_t *dst;                                                                                                       \
@@ -584,7 +589,7 @@ void ff_hevc_put_bi_w##W##_##bitd##_##opt(uint8_t *_dst, ptrdiff_t dststride, co
         const int16_t *src2 = _src2 + i;                                                                                \
         dst  = _dst  + (i * ((bitd + 7) / 8));                                                                          \
         ff_hevc_put_bi_w##step##_##bitd##_##opt(dst, dststride, src, src2,                         \
-                                                height, denom, _wx0, _wx1, _ox0, _ox1);            \
+                                                height, denom, wx0, wx1, ox);                      \
     }                                                                                                                   \
 }
 
@@ -672,13 +677,13 @@ static void hevc_put_bi_w_##name##W##_##bitd##_##opt(uint8_t *_dst, ptrdiff_t _d
                                                      const uint8_t *_src, ptrdiff_t _srcstride,      \
                                                      const int16_t *_src2,                           \
                                                      int height, int denom,                          \
-                                                     int _wx0, int _wx1, int _ox0, int _ox1,         \
+                                                     int wx0, int wx1, int ox,                       \
                                                      intptr_t mx, intptr_t my, int width)            \
 {                                                                                                    \
     LOCAL_ALIGNED_16(int16_t, temp, [71 * MAX_PB_SIZE]);                                             \
     hevc_put_##name##W##_##bitd##_##opt(temp, _src, _srcstride, height, mx, my, width);              \
     ff_hevc_put_bi_w##W##_##bitd##_##opt(_dst, _dststride, temp, _src2,                              \
-                                         height, denom, _wx0, _wx1, _ox0, _ox1);                     \
+                                         height, denom, wx0, wx1, ox);                               \
 }
 
 #define mc_bi_w_funcs(name, bitd, opt)      \
@@ -817,10 +822,9 @@ void ff_hevc_dsp_init_x86(HEVCDSPContext *c, const int bit_depth)
     int cpu_flags = av_get_cpu_flags();
 
     if (bit_depth == 8) {
-        if (EXTERNAL_MMXEXT(cpu_flags)) {
-            c->add_residual[0] = ff_hevc_add_residual_4_8_mmxext;
-        }
         if (EXTERNAL_SSE2(cpu_flags)) {
+            c->add_residual[0] = ff_hevc_add_residual_4_8_sse2;
+
             c->hevc_v_loop_filter_chroma = ff_hevc_v_loop_filter_chroma_8_sse2;
             c->hevc_h_loop_filter_chroma = ff_hevc_h_loop_filter_chroma_8_sse2;
 #if ARCH_X86_64
@@ -839,6 +843,7 @@ void ff_hevc_dsp_init_x86(HEVCDSPContext *c, const int bit_depth)
 
             c->idct[0]    = ff_hevc_idct_4x4_8_sse2;
             c->idct[1]    = ff_hevc_idct_8x8_8_sse2;
+            c->transform_4x4_luma = ff_hevc_transform_4x4_luma_8_sse2;
 
             c->add_residual[1] = ff_hevc_add_residual_8_8_sse2;
             c->add_residual[2] = ff_hevc_add_residual_16_8_sse2;
@@ -880,6 +885,7 @@ void ff_hevc_dsp_init_x86(HEVCDSPContext *c, const int bit_depth)
 
             c->idct[0] = ff_hevc_idct_4x4_8_avx;
             c->idct[1] = ff_hevc_idct_8x8_8_avx;
+            c->transform_4x4_luma = ff_hevc_transform_4x4_luma_8_avx;
         }
         if (EXTERNAL_AVX2(cpu_flags)) {
             c->sao_band_filter[0] = ff_hevc_sao_band_filter_8_8_avx2;
@@ -996,9 +1002,6 @@ void ff_hevc_dsp_init_x86(HEVCDSPContext *c, const int bit_depth)
         }
 #endif
     } else if (bit_depth == 10) {
-        if (EXTERNAL_MMXEXT(cpu_flags)) {
-            c->add_residual[0] = ff_hevc_add_residual_4_10_mmxext;
-        }
         if (EXTERNAL_SSE2(cpu_flags)) {
             c->hevc_v_loop_filter_chroma = ff_hevc_v_loop_filter_chroma_10_sse2;
             c->hevc_h_loop_filter_chroma = ff_hevc_h_loop_filter_chroma_10_sse2;
@@ -1019,7 +1022,9 @@ void ff_hevc_dsp_init_x86(HEVCDSPContext *c, const int bit_depth)
 
             c->idct[0]    = ff_hevc_idct_4x4_10_sse2;
             c->idct[1]    = ff_hevc_idct_8x8_10_sse2;
+            c->transform_4x4_luma = ff_hevc_transform_4x4_luma_10_sse2;
 
+            c->add_residual[0] = ff_hevc_add_residual_4_10_sse2;
             c->add_residual[1] = ff_hevc_add_residual_8_10_sse2;
             c->add_residual[2] = ff_hevc_add_residual_16_10_sse2;
             c->add_residual[3] = ff_hevc_add_residual_32_10_sse2;
@@ -1056,6 +1061,7 @@ void ff_hevc_dsp_init_x86(HEVCDSPContext *c, const int bit_depth)
 
             c->idct[0] = ff_hevc_idct_4x4_10_avx;
             c->idct[1] = ff_hevc_idct_8x8_10_avx;
+            c->transform_4x4_luma = ff_hevc_transform_4x4_luma_10_avx;
 
             SAO_BAND_INIT(10, avx);
         }

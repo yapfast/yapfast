@@ -444,6 +444,9 @@ typedef struct HEVCLocalContext {
      * of the deblocking filter */
     int boundary_flags;
 
+    /* decoding tiles in parallel: defer tile-boundary BS to a serial pass */
+    int tile_bs_defer;
+
     // an array of these structs is used for per-thread state - pad its size
     // to avoid false sharing
     char padding[128];
@@ -710,6 +713,8 @@ void ff_hevc_set_qPy(HEVCLocalContext *lc,
 void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayerContext *l,
                                            const HEVCPPS *pps,
                                            int x0, int y0, int log2_trafo_size);
+void ff_hevc_tile_boundary_bs(HEVCLocalContext *lc, const HEVCLayerContext *l,
+                              const HEVCPPS *pps, int x0, int y0);
 int ff_hevc_cu_qp_delta_sign_flag(HEVCLocalContext *lc);
 int ff_hevc_cu_qp_delta_abs(HEVCLocalContext *lc);
 int ff_hevc_cu_chroma_qp_offset_flag(HEVCLocalContext *lc);
@@ -722,6 +727,20 @@ void ff_hevc_hls_residual_coding(HEVCLocalContext *lc, const HEVCPPS *pps,
 void ff_hevc_hls_mvd_coding(HEVCLocalContext *lc, int x0, int y0, int log2_cb_size);
 
 int ff_hevc_is_alpha_video(const HEVCContext *s);
+
+/**
+ * Resolve the caller's view selection into layers.
+ *
+ * Depends only on the requested view IDs and the VPS, so unlike
+ * layers_active_decode it is already valid before setup_multilayer() runs and
+ * can be used from a hwaccel frame_params()/init() callback.  Auxiliary alpha
+ * video is not covered here, as its layers do not follow view selection.
+ *
+ * @param active_output receives the mask of layers to output
+ * @return number of layers that will be decoded, or a negative error code
+ */
+int ff_hevc_requested_layers(const HEVCContext *s, const HEVCVPS *vps,
+                             unsigned *active_output);
 
 extern const uint8_t ff_hevc_qpel_extra_before[4];
 extern const uint8_t ff_hevc_qpel_extra_after[4];
