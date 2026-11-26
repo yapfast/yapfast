@@ -1,7 +1,8 @@
 //! The call's dock above the account's card: what the connection is doing
 //! and for how long, its channel's line (which opens the call), noise
-//! suppression and leaving; while sharing, that it's live; the soundboard,
-//! camera and share buttons; and what went wrong, with a way to dismiss it.
+//! suppression and leaving; who's in the call, with their marks; while
+//! sharing, that it's live; the soundboard, camera and share buttons; and
+//! what went wrong, with a way to dismiss it.
 
 use std::time::{Duration, Instant};
 
@@ -15,10 +16,11 @@ use super::{Event, Popup, voice_ready};
 use crate::{
     app::{App, Message},
     controls::{self, Kind, lights},
-    fonts::BOLD,
+    elide::elide,
+    fonts::{BOLD, MEDIUM},
     pictures::Icon,
     style::{faded, fill},
-    widgets::Pic,
+    widgets::{Pic, RightPress},
 };
 
 /// The dock's left column, where its icons sit on the rail's axis.
@@ -181,6 +183,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         right: 8.0,
         left: 0.0,
     });
+    if active && let Some(people) = people(ctx, voice) {
+        dock = dock.push(people);
+    }
     if active && let Some(sharing) = &voice.sharing {
         dock = dock.push(sharing_line(ctx, voice, sharing));
     }
@@ -404,6 +409,118 @@ fn sharing_line<'a>(
         ),
     ]
     .align_y(Alignment::Center)
+    .into()
+}
+
+/// How many people the dock lists before "and N more".
+const LISTED: usize = 8;
+
+/// Who's in the call, under the dock's status, as Discord lists a call's
+/// people: the first eight and how many more.
+fn people<'a>(ctx: crate::ctx::Ctx<'a>, voice: &'a voice::State) -> Option<Element<'a, Message>> {
+    let room = voice.room.as_deref()?;
+    if voice.participants.is_empty() {
+        return None;
+    }
+    let mut list = column![].spacing(2);
+    for person in voice.participants.iter().take(LISTED) {
+        list = list.push(person_row(ctx, room, person));
+    }
+    let more = voice.participants.len().saturating_sub(LISTED);
+    if more > 0 {
+        list = list.push(
+            container(
+                text(format!("and {more} more"))
+                    .size(12)
+                    .color(ctx.look.theme.muted),
+            )
+            .padding(Padding {
+                left: 30.0,
+                ..Padding::ZERO
+            }),
+        );
+    }
+    Some(
+        container(list)
+            .padding(Padding {
+                left: 22.0,
+                ..Padding::ZERO
+            })
+            .width(Length::Fill)
+            .into(),
+    )
+}
+
+/// Someone in the call: their picture, ringed while they speak, their
+/// name, bold while they speak, and their mic and headphone marks, red
+/// when a server set them; faint while their connection is gone. A click
+/// opens their card, a right click their voice menu.
+fn person_row<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    room: &str,
+    person: &'a voice::Participant,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let speaking = super::speaking(person);
+    let opacity = if person.connected { 1.0 } else { 0.5 };
+    let ink = if speaking {
+        theme.text
+    } else {
+        theme.secondary
+    };
+    let ring = if speaking {
+        theme.live
+    } else {
+        Color::TRANSPARENT
+    };
+    let avatar = container(ctx.avatar(person.avatar.as_deref(), &person.user, 20.0, 10.0, opacity))
+        .padding(2)
+        .style(move |_| iced::widget::container::Style {
+            border: iced::Border {
+                color: ring,
+                width: 2.0,
+                radius: 12.0.into(),
+            },
+            ..Default::default()
+        });
+    let name = elide(person.user.as_str())
+        .size(14)
+        .font(if speaking { BOLD } else { MEDIUM })
+        .color(faded(ink, opacity));
+    let mut line = row![avatar, container(name).width(Length::Fill)]
+        .spacing(6)
+        .height(28)
+        .align_y(Alignment::Center);
+    let mark = |icon, server: bool| {
+        ctx.look
+            .glyph(icon, 16, if server { theme.danger } else { theme.muted })
+    };
+    if person.speaking_blocked {
+        line = line.push(mark(Icon::MicOff, true));
+    } else if person.muted || person.deafened {
+        line = line.push(mark(Icon::MicOff, person.server_muted));
+    }
+    if person.deafened {
+        line = line.push(mark(Icon::HeadphoneOff, person.server_deafened));
+    }
+    let hover = theme.hover;
+    let face = button(line)
+        .padding(Padding {
+            left: 2.0,
+            right: 6.0,
+            ..Padding::ZERO
+        })
+        .width(Length::Fill)
+        .on_press(Message::Call(Event::Profile(person.person.clone())))
+        .style(move |_, status| iced::widget::button::Style {
+            background: lights(status).then(|| hover.into()),
+            border: crate::style::round(4),
+            ..Default::default()
+        });
+    let (room, user, spot) = (room.to_owned(), person.id.clone(), ctx.pressed);
+    RightPress::new(face, move |_| {
+        Message::Call(Event::Person(room.clone(), user.clone(), spot.get()))
+    })
     .into()
 }
 

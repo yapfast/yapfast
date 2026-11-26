@@ -2,9 +2,9 @@
 //! device gone away, the share menu in a short window, its settings' rows
 //! with their choices beside them, the application remembered for the
 //! stream's audio, the microphone's
-//! level only while its menu shows, the dock's channel line, a voice
-//! channel's Join, someone's volumes and menu from their tile, a camera's
-//! tile before its first frame, the corner picture's grip resizing it,
+//! level only while its menu shows, the dock's channel line and who it
+//! lists, a voice channel's Join, someone's volumes and menu from their
+//! tile, a camera's tile before its first frame, the corner picture's grip resizing it,
 //! and the call's own order under its channel.
 
 use iced::{Point, Rectangle, Size};
@@ -652,6 +652,52 @@ fn clicking_the_docks_channel_line_opens_the_call() {
         shows(&app, &crate::call::stage::voice_description(&app)),
         "the call shows"
     );
+}
+
+#[test]
+fn the_dock_lists_whos_in_the_call_and_opens_their_menu() {
+    let (mut app, _folder, room) = in_call();
+    super::change(&mut app, |state| {
+        let mut bob = state.voice.participants[0].clone();
+        bob.id = "preview-bob".into();
+        bob.person = "bob".into();
+        bob.user = "Bobbington".into();
+        bob.local = false;
+        bob.muted = false;
+        bob.speaking = true;
+        state.voice.participants.push(bob);
+    });
+    // Away from the channel, only the dock lists them.
+    app.client
+        .dispatch(Action::Navigate(Navigation::DirectMessages));
+    let _ = app.sync();
+    assert_ne!(app.client.state().selected.as_deref(), Some(room.as_str()));
+    assert!(shows(&app, "You"));
+    assert!(shows(&app, "Bobbington"));
+    interact(&mut app, |ui| super::right_click(ui, "Bobbington"));
+    let volumes = app.win.menu.as_ref().and_then(|menu| menu.volumes.as_ref());
+    assert_eq!(
+        volumes.map(|volumes| volumes.name.as_str()),
+        Some("Bobbington")
+    );
+    // Nine and more: the first eight, and how many more.
+    super::change(&mut app, |state| {
+        let bob = state.voice.participants[1].clone();
+        for n in 0..8 {
+            let mut more = bob.clone();
+            more.id = format!("preview-more-{n}");
+            more.person = format!("more-{n}");
+            more.user = format!("Guest {n}");
+            state.voice.participants.push(more);
+        }
+    });
+    app.win.menu = None;
+    assert!(shows(&app, "Guest 5"));
+    assert!(!super::present(&app, "Guest 6"));
+    assert!(shows(&app, "and 2 more"));
+    let _ = crate::call::update(&mut app, Event::Leave);
+    let _ = app.sync();
+    assert!(!super::present(&app, "Bobbington"), "gone with the call");
 }
 
 #[test]
