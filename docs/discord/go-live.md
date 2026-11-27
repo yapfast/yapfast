@@ -171,10 +171,6 @@ second.
 
 Before sharing, the share button's menu offers 480p, 720p, 1080p, 1440p, 2160p
 and Source (the screen's own size, capped at 4K), at 15, 30 or 60 fps.
-When a screen's thumbnail arrives, Source shows the screen's dimensions and
-the menu disables presets above its height. If the saved preset is above
-that height, the menu selects Source for that stream and keeps the saved
-preset for next time.
 Its "Higher quality" checkbox, which Discord's client
 doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
@@ -190,17 +186,10 @@ and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
-encodes those. By default, the local preview fits the area the window draws it
-in, up to 720p and 30 fps.
-In Advanced, "Enhanced live preview quality" makes the next stream's preview
-use the outgoing frame size and frame rate. When the window loses focus,
-the call tile or corner picture holds the last preview frame under a message
-and the worker stops preparing local preview frames. The worker also pauses
-the preview when its tile scrolls out of view, another tile is full screen,
-or the window closes to the tray. Capture, encoding and uploads of the stream
-thumbnail continue, and the local preview resumes when it is visible in the
-focused window. If the window leaves a frame untaken for a quarter of a second,
-the worker waits for the window to take it before making another preview frame.
+encodes those. The local preview fits the tile, up to 720p and 30 fps by
+default. When hidden or unfocused, it pauses while the worker keeps streaming
+and producing Discord thumbnails. The worker also stops preparing preview
+frames after one goes untaken for a quarter of a second.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its

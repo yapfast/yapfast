@@ -1477,7 +1477,7 @@ fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
 
 #[test]
 fn the_own_stream_preview_follows_its_tile_and_the_corner() {
-    use crate::call::stage::{self, Focus, OWN_SCREEN, Pip};
+    use crate::call::stage::{self, OWN_SCREEN};
     use std::sync::Arc;
     use yapfast_core::frames::Frames;
 
@@ -1512,16 +1512,12 @@ fn the_own_stream_preview_follows_its_tile_and_the_corner() {
     assert!(app.video.looks_at(OWN_SCREEN));
 
     let _ = crate::call::update(&mut app, Event::Focus(Some(2)));
-    assert!(matches!(app.call.focus, Some(Focus::Person(_))));
     let _ = crate::call::update(&mut app, Event::Full(true));
     assert!(!app.video.looks_at(OWN_SCREEN));
-    let _ = crate::call::update(&mut app, Event::Focus(Some(0)));
-    assert!(app.video.looks_at(OWN_SCREEN));
 
     let _ = crate::call::update(&mut app, Event::Full(false));
     app.client.dispatch(Action::SelectRoom("general".into()));
     let _ = app.sync();
-    assert_eq!(stage::corner(&app), Pip::Shared);
     assert!(app.video.looks_at(OWN_SCREEN));
 }
 

@@ -337,19 +337,10 @@ pub fn frame<'a>(
 
 /// Holds the last frame under a note while the outgoing preview is paused.
 pub(super) fn paused_share_preview(content: Element<'_, Message>) -> Element<'_, Message> {
-    let note = column![
-        text("Your stream is still running!")
-            .size(15)
-            .font(crate::fonts::BOLD)
-            .color(Color::WHITE)
-            .align_x(Alignment::Center),
-        text("We've paused this preview to save your resources.")
-            .size(13)
-            .color(NOTE)
-            .align_x(Alignment::Center),
-    ]
-    .spacing(4)
-    .align_x(Alignment::Center);
+    let note = text("Preview paused. Your stream is still live.")
+        .size(13)
+        .color(NOTE)
+        .align_x(Alignment::Center);
     stack![
         content,
         container(note)

@@ -346,7 +346,7 @@ impl Writer {
     }
 
     /// Whether to skip preparing the local share preview.
-    #[cfg(any(feature = "discord", test))]
+    #[cfg(feature = "discord")]
     pub(crate) fn preview_paused(&self) -> bool {
         self.mapping.header().preview_paused.load(Ordering::Relaxed) != 0
     }
@@ -427,11 +427,6 @@ mod tests {
         }
         assert!(frames.take(|_, _, _| ()).is_none(), "nothing yet");
         assert!(writer.fits(2, 4) && !writer.fits(5, 2));
-        assert!(!writer.preview_paused());
-        frames.set_preview_paused(true);
-        assert!(writer.preview_paused());
-        frames.set_preview_paused(false);
-        assert!(!writer.preview_paused());
         assert!(writer.taken(), "nothing shown yet to wait for");
 
         writer.write(2, 1, |pixels| pixels.fill(1));

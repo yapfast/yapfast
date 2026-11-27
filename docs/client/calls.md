@@ -66,15 +66,13 @@ The call's views and what they do are in `call/`.
   button. The pointer on a setting's row, or a click, opens its choices
   beside the menu, level with the row, the one chosen ticked: a context
   menu's submenu, placed by the same `Place::beside`, on the right or the
-  left without room. Taller lists shift up to fit the window. The menu
-  neither moves nor changes size for them.
+  left without room. The menu neither moves nor changes size for them.
   One list shows at a time; a choice is taken and its list closes, as it
   does with the pointer on Higher quality, a source picked, or Escape,
   which closes the menu only after. The audio's list scrolls where many
-  windows are open. The resolution list shows the selected screen's source
-  dimensions when its preview arrives and disables presets above its height.
-  If the saved resolution exceeds that height, the menu uses Source for
-  that stream and keeps the saved preset for next time.
+  windows are open. Source shows the selected screen's dimensions once known.
+  Presets above its height are disabled. A saved preset above that height
+  falls back to Source for the current stream.
   The audio chosen is the call's at once and is kept
   for the next start; on Windows an application is kept by its program
   and found again by a window it has as the menu opens, and everything

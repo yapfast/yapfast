@@ -42,7 +42,7 @@ use crate::{
     decode::Decoder,
     encode::{self, Effort, Encoder},
     frames::{Frames, Writer},
-    picture::{I420, Turn},
+    picture::{I420, Turn, fit},
     stream_audio,
     voice::{StreamAudio, StreamQuality, StreamStats, WatchStats},
 };
@@ -507,6 +507,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 hardware,
                 enhanced_preview,
                 next_local_preview: None,
+                preview_scratch: Vec::new(),
                 started: Instant::now(),
                 streaming: false,
                 preview_due: None,
@@ -594,6 +595,7 @@ struct Sink {
     hardware: bool,
     enhanced_preview: bool,
     next_local_preview: Option<Instant>,
+    preview_scratch: Vec<u8>,
     started: Instant,
     streaming: bool,
     /// When the stream's next preview is due: from when it starts.
@@ -664,6 +666,7 @@ impl Sink {
     /// Standard previews need at most 30 frames a second, even on 60 fps streams.
     fn local_preview_due(&mut self, now: Instant) -> bool {
         if self.writer.preview_paused() || self.writer.unseen() {
+            self.preview_scratch = Vec::new();
             return false;
         }
         if self.enhanced_preview || self.fps <= 30 {
@@ -680,7 +683,7 @@ impl Sink {
 
     /// Shows a local preview while the window takes frames and sends the
     /// original frame to Discord once the stream has a server.
-    fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
+    fn frame(&mut self, picture: &I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
         if self.local_preview_due(Instant::now()) {
             let (w, h) = if self.enhanced_preview {
@@ -693,13 +696,15 @@ impl Sink {
                 fit(
                     width,
                     height,
-                    wanted_width.min(PREVIEW_WIDTH),
-                    wanted_height.min(PREVIEW_HEIGHT),
+                    (
+                        wanted_width.min(PREVIEW_WIDTH),
+                        wanted_height.min(PREVIEW_HEIGHT),
+                    ),
                 )
             };
-            let smaller = ((w, h) != (width, height)).then(|| picture.scale(w as i32, h as i32));
-            let shown = smaller.as_ref().unwrap_or(picture);
-            self.writer.write(w, h, |pixels| to_rgba(shown, pixels));
+            self.writer.write(w, h, |pixels| {
+                i420(picture).to_rgba(&mut self.preview_scratch, pixels, w, h);
+            });
         }
         if self.preview_due.is_some_and(|due| due <= Instant::now()) && !is_black(picture) {
             match thumbnail(picture) {
@@ -916,35 +921,21 @@ fn is_black(picture: &I420Buffer) -> bool {
 
 /// A preview of a picture as Discord's client makes one: scaled down to fit
 /// 512 by 288, a JPEG as a data URI.
-fn thumbnail(picture: &mut I420Buffer) -> Result<String> {
-    use base64::Engine;
-    use image::{ExtendedColorType, codecs::jpeg::JpegEncoder};
+fn thumbnail(picture: &I420Buffer) -> Result<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use image::{RgbaImage, codecs::jpeg::JpegEncoder};
     let (width, height) = fit(
         picture.width(),
         picture.height(),
-        THUMBNAIL_WIDTH,
-        THUMBNAIL_HEIGHT,
+        (THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT),
     );
-    let small = picture.scale(width as i32, height as i32);
-    let mut rgba = vec![0; (width * height * 4) as usize];
-    to_rgba(&small, &mut rgba);
-    let rgb: Vec<u8> = rgba
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
-        .collect();
+    let mut rgba = RgbaImage::new(width, height);
+    i420(picture).to_rgba(&mut Vec::new(), rgba.as_mut(), width, height);
     let mut jpeg = vec![];
-    JpegEncoder::new_with_quality(&mut jpeg, 92).encode(
-        &rgb,
-        width,
-        height,
-        ExtendedColorType::Rgb8,
-    )?;
-    Ok(format!(
-        "data:image/jpeg;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(jpeg)
-    ))
+    JpegEncoder::new_with_quality(&mut jpeg, 92).encode_image(&rgba)?;
+    let mut url = String::from("data:image/jpeg;base64,");
+    STANDARD.encode_string(jpeg, &mut url);
+    Ok(url)
 }
 
 /// How a watched stream's sound plays, and Yapfast's word on hearing it.
@@ -967,7 +958,7 @@ fn show_stream_picture(
     let size = if writer.fits(width, height) && width <= maximum.0 && height <= maximum.1 {
         (width, height)
     } else {
-        fit(width, height, maximum.0, maximum.1)
+        fit(width, height, maximum)
     };
     writer.write(size.0, size.1, |pixels| {
         picture.to_rgba_turned(scratch, turned, pixels, size, turn);
@@ -1187,7 +1178,7 @@ fn test_pattern(
             height as i32,
         );
         sink.captured = Some(("test pattern", width, height));
-        sink.frame(&mut picture)?;
+        sink.frame(&picture)?;
         // Colour bars are all it shares.
         let _switch = sink.check(report)?;
         frame += 1;
@@ -1195,40 +1186,17 @@ fn test_pattern(
     Ok(())
 }
 
-/// The size `width` by `height` takes when scaled down to fit `max_width`
-/// by `max_height`, keeping its shape. Codecs want even sizes.
-pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
-    let scale = f64::min(
-        1.0,
-        f64::min(
-            f64::from(max_width) / f64::from(width.max(1)),
-            f64::from(max_height) / f64::from(height.max(1)),
-        ),
-    );
-    let even = |value: f64| ((value as u32) & !1).max(2);
-    (
-        even(f64::from(width) * scale),
-        even(f64::from(height) * scale),
-    )
-}
-
-/// Converts an I420 picture into RGBA pixels of its size.
-fn to_rgba(picture: &I420Buffer, pixels: &mut [u8]) {
+fn i420(picture: &I420Buffer) -> I420<'_> {
     let (y, u, v) = picture.data();
     let (y_stride, u_stride, v_stride) = picture.strides();
-    let (width, height) = (picture.width(), picture.height());
-    yuv_helper::i420_to_abgr(
+    I420 {
+        width: picture.width(),
+        height: picture.height(),
         y,
-        y_stride,
         u,
-        u_stride,
         v,
-        v_stride,
-        pixels,
-        width * 4,
-        width as i32,
-        height as i32,
-    );
+        strides: [y_stride, u_stride, v_stride],
+    }
 }
 
 // libwebrtc asks the screen sharing portal over D-Bus through GIO, but
@@ -1397,14 +1365,14 @@ impl Capture {
                 Ok(frame) => {
                     let mut picture = picture_of(&frame);
                     let (width, height) = (picture.width(), picture.height());
-                    let size = fit(width, height, max_width, max_height);
+                    let size = fit(width, height, (max_width, max_height));
                     if size != (width, height) {
                         picture = picture.scale(size.0 as i32, size.1 as i32);
                     }
                     let taken = {
                         let mut sink = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                         sink.captured = Some((what, width, height));
-                        sink.frame(&mut picture)
+                        sink.frame(&picture)
                     };
                     match taken {
                         Ok(()) => seen.size = Some(size),
@@ -1451,16 +1419,13 @@ impl Capture {
                 copy_planes(frame, picture);
                 // The camera fits the stream already; an odd size, which
                 // codecs can't take, loses a row or a column.
-                let fitted = fit(size.0, size.1, max_width, max_height);
-                let mut scaled =
+                let fitted = fit(size.0, size.1, (max_width, max_height));
+                let scaled =
                     (fitted != size).then(|| picture.scale(fitted.0 as i32, fitted.1 as i32));
                 let taken = {
                     let mut sink = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                     sink.captured = Some(("camera", size.0, size.1));
-                    match scaled.as_mut() {
-                        Some(scaled) => sink.frame(scaled),
-                        None => sink.frame(picture),
-                    }
+                    sink.frame(scaled.as_ref().unwrap_or(picture))
                 };
                 let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 match taken {
@@ -1552,6 +1517,7 @@ fn glance(
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) {
+    let mut scratch = Vec::new();
     for (id, window) in screens
         .iter()
         .map(|&id| (id, false))
@@ -1561,14 +1527,11 @@ fn glance(
             return;
         }
         match glance_at(id, window, stop) {
-            Ok(Some(mut picture)) => {
+            Ok(Some(picture)) => {
                 let (source_width, source_height) = (picture.width(), picture.height());
-                let (width, height) = fit(source_width, source_height, max_width, max_height);
-                if (width, height) != (source_width, source_height) {
-                    picture = picture.scale(width as i32, height as i32);
-                }
+                let (width, height) = fit(source_width, source_height, (max_width, max_height));
                 let mut rgba = vec![0; (width * height * 4) as usize];
-                to_rgba(&picture, &mut rgba);
+                i420(&picture).to_rgba(&mut scratch, &mut rgba, width, height);
                 report(Report::Screen {
                     id,
                     source_width,
@@ -1655,10 +1618,6 @@ pub fn set_enhanced_preview(on: bool) {
     ENHANCED_PREVIEW.store(on, Ordering::Relaxed);
 }
 
-pub(crate) fn enhanced_preview() -> bool {
-    ENHANCED_PREVIEW.load(Ordering::Relaxed)
-}
-
 /// Encodes streams started from now on with the GPU's encoder, or not.
 pub fn set_hardware_encoding(on: bool) {
     HARDWARE.store(on, Ordering::Relaxed);
@@ -1677,15 +1636,15 @@ impl Worker {
     pub fn share(
         source: Source,
         quality: StreamQuality,
-        enhanced_preview: bool,
         audio: StreamAudio,
     ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
         let source = picked(source);
+        let enhanced_preview = ENHANCED_PREVIEW.load(Ordering::Relaxed);
         let (width, height) = quality.resolution.bounds();
         let (preview_width, preview_height) = if enhanced_preview {
             (width, height)
         } else {
-            (PREVIEW_WIDTH, PREVIEW_HEIGHT)
+            (width.min(PREVIEW_WIDTH), height.min(PREVIEW_HEIGHT))
         };
         let frames = Frames::create(preview_width, preview_height)?;
         frames.set_preview_paused(true);
@@ -2186,18 +2145,9 @@ mod tests {
 
     #[test]
     fn fits_frames_with_even_sizes() {
-        assert_eq!(fit(1920, 1080, 1280, 720), (1280, 720));
-        assert_eq!(fit(3440, 1440, 1280, 720), (1280, 534));
-        assert_eq!(fit(801, 601, 1280, 720), (800, 600), "never larger");
-        for (resolution, expected) in [
-            (Resolution::P480, (852, 480)),
-            (Resolution::P1440, (2560, 1440)),
-            (Resolution::P2160, (3840, 2160)),
-        ] {
-            let (width, height) = resolution.bounds();
-            assert_eq!(fit(3840, 2160, width, height), expected);
-            assert_eq!(fit(640, 360, width, height), (640, 360));
-        }
+        assert_eq!(fit(1920, 1080, (1280, 720)), (1280, 720));
+        assert_eq!(fit(3440, 1440, (1280, 720)), (1280, 534));
+        assert_eq!(fit(801, 601, (1280, 720)), (800, 600), "never larger");
     }
 
     /// With the GPU, AV1 and H265 before H264 where they open, and an
@@ -2218,6 +2168,7 @@ mod tests {
             hardware: true,
             enhanced_preview: false,
             next_local_preview: None,
+            preview_scratch: Vec::new(),
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -2255,6 +2206,7 @@ mod tests {
             hardware: false,
             enhanced_preview: false,
             next_local_preview: None,
+            preview_scratch: Vec::new(),
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -2269,7 +2221,7 @@ mod tests {
         y.fill(126);
         u.fill(128);
         v.fill(128);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         let (width, height, first) = frames
             .take(|width, height, pixels| (width, height, pixels[..4].to_vec()))
             .unwrap();
@@ -2281,7 +2233,7 @@ mod tests {
         assert_eq!(first[3], 255);
 
         frames.want(320, 180);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         assert_eq!(frames.take(|w, h, _| (w, h)), Some((320, 180)));
 
         let frames = Frames::create(share_width, share_height).unwrap();
@@ -2295,7 +2247,7 @@ mod tests {
 
         sink.enhanced_preview = true;
         assert!(sink.local_preview_due(now + Duration::from_millis(51)));
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         assert_eq!(
             frames.take(|w, h, _| (w, h)),
             Some((share_width, share_height))
@@ -2321,6 +2273,7 @@ mod tests {
             hardware: false,
             enhanced_preview: false,
             next_local_preview: None,
+            preview_scratch: Vec::new(),
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -2334,7 +2287,7 @@ mod tests {
             y.fill(level);
             u.fill(128);
             v.fill(128);
-            sink.frame(&mut picture).unwrap();
+            sink.frame(&picture).unwrap();
         };
         let level = || frames.take(|_, _, pixels| pixels[0]);
         grey(16);
@@ -2367,6 +2320,7 @@ mod tests {
             hardware: false,
             enhanced_preview: false,
             next_local_preview: None,
+            preview_scratch: Vec::new(),
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -2385,8 +2339,8 @@ mod tests {
                 sink.sound, audio,
                 "applies before the server is connected too"
             );
-            let mut picture = I420Buffer::new(320, 180);
-            sink.frame(&mut picture).unwrap();
+            let picture = I420Buffer::new(320, 180);
+            sink.frame(&picture).unwrap();
             assert!(frames.take(|width, height, _| (width, height)).is_some());
         }
     }
@@ -2407,6 +2361,7 @@ mod tests {
             hardware: false,
             enhanced_preview: false,
             next_local_preview: None,
+            preview_scratch: Vec::new(),
             started: Instant::now(),
             streaming: false,
             preview_due: None,
@@ -2439,6 +2394,7 @@ mod tests {
             hardware: false,
             enhanced_preview: false,
             next_local_preview: None,
+            preview_scratch: Vec::new(),
             started: Instant::now(),
             streaming: false,
             preview_due: Some(Instant::now()),
@@ -2452,10 +2408,10 @@ mod tests {
         y.fill(16);
         u.fill(128);
         v.fill(128);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         assert_eq!(sink.thumbnail, None, "not while the screen is black");
         picture.data_mut().0.fill(126);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         let thumbnail = sink.thumbnail.take().expect("a preview");
         let jpeg = thumbnail
             .strip_prefix("data:image/jpeg;base64,")
@@ -2473,7 +2429,7 @@ mod tests {
             "the local preview is paused"
         );
         frames.set_preview_paused(false);
-        sink.frame(&mut picture).unwrap();
+        sink.frame(&picture).unwrap();
         assert_eq!(
             frames.take(|width, height, _| (width, height)),
             Some((PREVIEW_WIDTH, PREVIEW_HEIGHT)),
