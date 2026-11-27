@@ -649,7 +649,7 @@ impl App {
                     layout,
                     &self.theme,
                     self.theme
-                        .type_size("body", crate::settings::message_size(prefs.text_size)),
+                        .type_size("body", crate::settings::message_size(prefs)),
                 )
             });
         let heights: Vec<f32> = looks

@@ -86,6 +86,10 @@ shared by installed themes; Light still permits colours, fonts, shapes and
 spacing, while package animation is disabled. Reduce motion independently
 turns off package flourish; both choices keep the stock look's short transitions
 so menus and dialogs do not lose their ordinary opening and closing feedback.
+Reduce motion is Settings → Accessibility's Enable Reduced Motion too, which
+also stills GIFs, emoji and stickers and can follow the desktop's wish (see
+[Settings](client/settings.md)); what reduces motion is
+`Layout::reduced_motion`.
 
 Resolved package metrics travel inside the kit `Theme` (`with_metrics`), so a
 theme value draws the same wherever it's copied, and a colour-only theme has

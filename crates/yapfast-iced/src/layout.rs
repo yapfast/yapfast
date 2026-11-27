@@ -52,10 +52,22 @@ pub struct Layout {
     /// Slint build's defaults: notification replacements on, interface cues off,
     /// interface volume 50%.
     pub theme_sounds: BTreeMap<String, crate::themes::SoundPrefs>,
-    /// How much of an installed theme runs, and whether its motion stays
-    /// still. Colours and fonts apply at every setting.
+    /// How much of an installed theme runs. Colours and fonts apply at
+    /// every setting.
     pub theme_performance: Performance,
+    /// Reduced motion, as Settings → Accessibility (or Themes) chose it.
+    /// While `sync_reduced_motion` is on, what the desktop asks for decides
+    /// instead (`system_reduced_motion`, read as the window opens and each
+    /// time it takes the focus), as Discord's "Sync with computer setting";
+    /// [`Layout::reduced_motion`] is the one that counts.
     pub reduce_motion: bool,
+    pub sync_reduced_motion: bool,
+    #[serde(skip)]
+    pub system_reduced_motion: bool,
+    /// Reduced motion came on and stilled GIFs, emoji and stickers, as
+    /// Discord's client overrides its animation settings then; choosing
+    /// when they play, or reduced motion going, lets go of it.
+    pub animate_stilled: bool,
     /// Whether an installed theme's channel transition is allowed. Off by
     /// default, matching the Slint build.
     pub theme_transitions: bool,
@@ -219,14 +231,18 @@ impl KeptSticker {
 #[serde(default)]
 pub struct Prefs {
     /// Messages: the clock, its seconds, the date's order (an index into
-    /// `clock::DateFormat::ALL`, following the clock unless chosen), the
-    /// text's size (0 small, 1 default, 2 large), link previews, boost gems,
-    /// mentioning those replied to, tracking taken out of links sent,
-    /// sharing that this account types, and when animations play.
+    /// `clock::DateFormat::ALL`, following the clock unless chosen), link
+    /// previews, boost gems, mentioning those replied to, tracking taken out
+    /// of links sent, sharing that this account types; and Accessibility's
+    /// text size in chat and when animations play. The text size is
+    /// `chat_text_size` in pixels; before it, older versions kept
+    /// `text_size` (0 small, 1 default, 2 large), which counts while the
+    /// pixels are unset ([`Prefs::text_px`]).
     pub twelve_hour_clock: bool,
     pub clock_seconds: bool,
     pub date_format: Option<i32>,
     pub text_size: Option<i32>,
+    pub chat_text_size: Option<u8>,
     pub link_previews: Option<bool>,
     pub boost_gems: Option<bool>,
     pub reply_ping: Option<bool>,
@@ -323,7 +339,45 @@ pub enum Animate {
     Never,
 }
 
+/// The text sizes in chat Accessibility offers, in pixels, as Discord's
+/// `FONT_SIZES`; 15 is Yapfast's default, where Discord's is 16.
+pub const TEXT_SIZES: [u8; 7] = [12, 14, 15, 16, 18, 20, 24];
+pub const DEFAULT_TEXT_SIZE: u8 = 15;
+
+impl Layout {
+    /// Whether motion is reduced: the system's wish while synced to it, the
+    /// person's choice otherwise.
+    pub fn reduced_motion(&self) -> bool {
+        if self.sync_reduced_motion {
+            self.system_reduced_motion
+        } else {
+            self.reduce_motion
+        }
+    }
+
+    /// When GIFs, emoji and stickers play: never while reduced motion
+    /// stills them, as chosen otherwise.
+    pub fn animate(&self) -> Animate {
+        if self.animate_stilled && self.reduced_motion() {
+            Animate::Never
+        } else {
+            self.prefs.animate
+        }
+    }
+}
+
 impl Prefs {
+    /// Messages' text size in pixels: the one chosen, at the nearest size
+    /// offered, or what older versions' three sizes were (14, 15 and 18).
+    pub fn text_px(&self) -> u8 {
+        match (self.chat_text_size, self.text_size) {
+            (Some(px), _) => nearest_text_size(px),
+            (None, Some(0)) => 14,
+            (None, Some(2)) => 18,
+            (None, _) => DEFAULT_TEXT_SIZE,
+        }
+    }
+
     pub fn tray_uses_application_icon(&self) -> bool {
         use crate::desktop::IconChoice;
         self.tray_uses_application_icon.unwrap_or_else(|| {
@@ -379,6 +433,29 @@ impl Prefs {
         // After the date's order, which Discord's timestamps follow.
         clock::set_twelve_hour_clock(self.twelve_hour_clock);
     }
+}
+
+/// The text size offered nearest to `px`, the smaller of two as near.
+pub fn nearest_text_size(px: u8) -> u8 {
+    TEXT_SIZES
+        .into_iter()
+        .min_by_key(|size| size.abs_diff(px))
+        .unwrap_or(DEFAULT_TEXT_SIZE)
+}
+
+#[cfg(test)]
+#[test]
+fn the_text_size_carries_over_and_snaps_to_the_sizes_offered() {
+    use serde_json::json;
+
+    let size = |value| serde_json::from_value::<Prefs>(value).unwrap().text_px();
+    assert_eq!(size(json!({})), 15, "today's default");
+    assert_eq!(size(json!({"text_size": 0})), 14, "older Small");
+    assert_eq!(size(json!({"text_size": 2})), 18, "older Large");
+    assert_eq!(size(json!({"text_size": 2, "chat_text_size": 20})), 20);
+    assert_eq!(size(json!({"chat_text_size": 22})), 20);
+    assert_eq!(size(json!({"chat_text_size": 99})), 24);
+    assert_eq!(size(json!({"chat_text_size": 1})), 12);
 }
 
 #[cfg(test)]

@@ -149,7 +149,7 @@ pub fn app_card<'a>(
                 );
                 let look = Look {
                     size: crate::message::text_size(ctx),
-                    line_height: crate::timeline::LINE_HEIGHT,
+                    line_height: crate::message::line_height(ctx),
                     ink: theme.text,
                 };
                 let mut line =

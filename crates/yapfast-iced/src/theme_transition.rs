@@ -81,7 +81,7 @@ fn wanted(app: &App) -> Option<Transition> {
     if !allowed(
         app.layout.theme_transitions,
         app.layout.theme_performance,
-        app.layout.reduce_motion,
+        app.layout.reduced_motion(),
         app.win.settings.is_open(),
     ) {
         return None;

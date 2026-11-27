@@ -79,14 +79,39 @@ recording. Each change is kept at once in
   text field captures the key (but Ctrl+E a field took stays the
   field's, which opens the picker for it); chat actions wait while a dialog takes keys,
   and all built-ins rest while recording.
-- Messages: a message as the clock and text size show it; the text size
-  (which the timeline's text takes), the clock and its seconds, the date's
-  order (message times are worked out again for each), when GIFs and emoji
-  play, link previews (hidden ones leave "A card, hidden while link
+- Messages: a message as the clock and text size show it; the clock and
+  its seconds, the date's order (message times are worked out again for
+  each), link previews (hidden ones leave "A card, hidden while link
   previews are off." where a card was the whole message), long messages
   folding, boost gems in the member list, sharing that this account types
   (off, the core's typing commands go nowhere), mentioning those replied
   to and tracking taken out of links.
+- Accessibility (`pages/accessibility.rs`), laid out as Discord's page
+  with the parts Yapfast has: a preview of two messages at the text size,
+  then Text Readability's text size in chat, a slider that stops only at
+  Discord's sizes (12, 14, 15, 16, 18, 20 and 24 px, labelled under it),
+  which the timeline's text and names take, their lines 1.3 times the
+  text where that's more than the 19.5 px (names 20 px) they keep up to
+  15 px (`message::line_height`), kept as `chat_text_size` when it's let
+  go. 15 px is the default, as Messages' Default was, where Discord's is
+  16; a layout from before keeps its Small (14), Default or Large (18)
+  from `text_size`. Then Reduced Motion: Enable Reduced Motion, the
+  `reduce_motion` the Themes page's switch keeps too, which stills
+  installed themes' animations, effects, hover motion and transitions
+  ([themes](../themes.md)) and, as Discord's client overrides its
+  animation settings, GIFs, emoji and stickers (`animate_stilled`), with
+  Discord's note under their choice, until they're chosen again or
+  reduced motion goes; Sync with computer setting (`sync_reduced_motion`,
+  off by default, where Discord's is on), which follows what the desktop
+  asks for (the root crate's `motion.rs`: the portal's
+  `enable-animations`, or KDE's animation speed at 0, on Linux, "Show
+  animations in Windows" there), read as the window opens and each time
+  it takes the focus; turning it off keeps what the desktop said, and
+  choosing reduced motion stops it. Last, when GIFs, emoji and stickers
+  play: while Yapfast is focused, always or never (`animate`). Discord's
+  Visual Density, Color & Contrast, Always underline links, its separate
+  GIF, emoji and sticker switches and Minimum notification duration aren't
+  there; its Display Name Styles is Appearance's Show name styles.
 - Notifications, Sounds (the set, which plays a sound when chosen, the
   volume, and each sound's own with its play button) and Advanced.
   Advanced holds Discord's two startup switches on Windows and Linux

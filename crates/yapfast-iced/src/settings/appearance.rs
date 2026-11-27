@@ -304,15 +304,10 @@ impl Settings {
                 cx.layout.theme_performance = performance;
                 cx.keep("theme_performance", performance);
                 cx.themes
-                    .motion_changed(performance, cx.layout.reduce_motion);
+                    .motion_changed(performance, cx.layout.reduced_motion());
                 cx.request(Request::Changed(Shown::Theme));
             }
-            Event::ReduceMotion(on) => {
-                cx.layout.reduce_motion = on;
-                cx.keep("reduce_motion", on);
-                cx.themes.motion_changed(cx.layout.theme_performance, on);
-                cx.request(Request::Changed(Shown::Theme));
-            }
+            Event::ReduceMotion(on) => super::pages::choose_reduced_motion(cx, on),
             Event::ReadableText(on) => {
                 cx.layout.readable_text = on;
                 cx.keep("readable_text", on);
@@ -339,7 +334,7 @@ impl Settings {
                     &option,
                     value,
                     cx.layout.theme_performance,
-                    cx.layout.reduce_motion,
+                    cx.layout.reduced_motion(),
                 ) else {
                     return iced::Task::none();
                 };
