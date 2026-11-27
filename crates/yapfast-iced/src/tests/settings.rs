@@ -2022,6 +2022,19 @@ fn accessibility_keeps_the_text_size_and_the_animations() {
     assert_eq!(crate::message::text_size(app.ctx()), 20.0);
 }
 
+#[test]
+fn accessibility_keeps_scroll_speed() {
+    let (mut app, folder) = preview();
+    assert_eq!(app.layout.prefs.scroll_speed(), 100);
+    open(&mut app, Section::Accessibility);
+    interact(&mut app, |ui| {
+        ui.click("300%").expect("the scroll speed preset");
+    });
+    assert_eq!(app.layout.prefs.scroll_speed(), 300);
+    assert_eq!(stored(&folder)["scroll_speed"], 300);
+    assert_eq!(start(&folder, true).layout.prefs.scroll_speed(), 300);
+}
+
 /// Enable Reduced Motion stills GIFs, emoji and stickers as Discord's
 /// client does, until they're chosen again; off, they play as chosen.
 /// Synced to the desktop, the desktop's wish decides, and unsyncing keeps

@@ -767,6 +767,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         } else {
             Reacts::Any
         },
+        voice_limit: None,
         slowmode: 0,
         slowed: false,
         timed_out_until: None,
@@ -935,6 +936,7 @@ fn server_rooms(
                 join_locked: marks.access != Access::Join,
                 read_only: !server.may_send(channel, me, &server.marks.roles),
                 reacts: reacts(server, channel, me),
+                voice_limit: channel.voice_limit,
                 slowmode: channel.slowmode,
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
@@ -989,6 +991,7 @@ fn server_rooms(
                 muted: marks.muted,
                 last_read: read_item(marks.last_read),
                 locked: marks.access == Access::Hidden,
+                voice_limit: None,
                 join_locked: false,
                 read_only: marks.access == Access::Locked,
                 reacts: reacts(server, channel, me),
@@ -1153,6 +1156,7 @@ fn thread_room(
         // Locked, or this account may not write in threads here.
         read_only: thread.marks.access == Access::Locked,
         reacts: reacts(server, &thread, me),
+        voice_limit: None,
         slowmode: thread.slowmode,
         slowed: server.slowed(&thread, me, &server.marks.roles),
         timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),

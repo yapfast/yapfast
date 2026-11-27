@@ -246,6 +246,7 @@ pub struct Prefs {
     pub date_format: Option<i32>,
     pub text_size: Option<i32>,
     pub chat_text_size: Option<u8>,
+    pub scroll_speed: Option<u16>,
     pub link_previews: Option<bool>,
     pub boost_gems: Option<bool>,
     pub reply_ping: Option<bool>,
@@ -369,7 +370,15 @@ impl Layout {
     }
 }
 
+pub const SCROLL_SPEEDS: [u16; 5] = [50, 100, 150, 200, 300];
+
 impl Prefs {
+    pub fn scroll_speed(&self) -> u16 {
+        self.scroll_speed
+            .filter(|speed| SCROLL_SPEEDS.contains(speed))
+            .unwrap_or(100)
+    }
+
     /// Messages' text size in pixels: the one chosen, at the nearest size
     /// offered, or what older versions' three sizes were (14, 15 and 18).
     pub fn text_px(&self) -> u8 {
@@ -518,9 +527,9 @@ pub struct Voice {
     pub push_to_talk_key: Option<Shortcut>,
     pub push_to_talk_release_delay: Option<u32>,
     /// How loud calls send the microphone and play, as sliders'
-    /// percentages from 0% to 200%; 100% unless changed.
-    pub microphone_volume: Option<u8>,
-    pub speaker_volume: Option<u8>,
+    /// percentages from 0% to 400%; 100% unless changed.
+    pub microphone_volume: Option<u16>,
+    pub speaker_volume: Option<u16>,
     /// People's own volumes and their streams', by Discord or Matrix id.
     pub volumes: std::collections::BTreeMap<String, f32>,
     pub stream_volumes: std::collections::BTreeMap<String, f32>,
@@ -595,9 +604,9 @@ impl Voice {
         // as it opens: one checking them holds them meanwhile.
         #[cfg(test)]
         let _held = (!tests::HOLDING.get()).then(tests::lock);
-        let gain = |value: Option<u8>| {
-            yapfast_core::volume::from_slider(f32::from(value.unwrap_or(100).min(200)))
-        };
+        use yapfast_core::volume::{MAX_PERCENT, from_slider};
+        let gain =
+            |value: Option<u16>| from_slider(f32::from(value.unwrap_or(100).min(MAX_PERCENT)));
         yapfast_core::volume::set_microphone(gain(self.microphone_volume));
         yapfast_core::volume::set_speakers(gain(self.speaker_volume));
     }

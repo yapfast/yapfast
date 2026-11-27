@@ -739,7 +739,8 @@ fn set_volumes(call: &Call, users: &HashMap<String, String>, set: &mut HashMap<S
         let Some(user) = users.get(identity.as_str()) else {
             continue;
         };
-        let volume = crate::volume::heard(crate::volume::Kind::Voice, user);
+        // WebRTC accepts source gains up to 10, even when two boosts combine.
+        let volume = crate::volume::heard(crate::volume::Kind::Voice, user).min(10.0);
         for publication in participant.track_publications().values() {
             if let Some(RemoteTrack::Audio(track)) = publication.track() {
                 let id = track.rtc_track().id();
