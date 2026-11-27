@@ -1195,8 +1195,11 @@ older images are dropped while keeping both pictures the current activity
 uses. Timestamps in
 seconds become the gateway's milliseconds, and buttons become labels with
 their addresses in the activity's `metadata`. Playing, Listening, Watching
-and Competing activities show. Yapfast copies only the fields it knows, so a
-game can't replace the custom status or claim another application.
+and Competing activities show. As in Discord's client, the activity's
+`name` shows in place of the registered name when the game sends one, and a
+name that is empty or longer than 128 characters is refused; the application
+id always comes from the handshake. Yapfast copies only the fields it knows,
+so a game can't replace the custom status or claim another application.
 
 The game that set its activity last shows. When it clears it or
 disconnects, the one before shows again, and once none is left, the game
