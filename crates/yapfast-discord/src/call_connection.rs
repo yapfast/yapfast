@@ -420,6 +420,9 @@ struct Media {
     encrypting: Option<bool>,
     /// This account's camera, while it films, and everyone else's.
     filming: Option<call_video::Sending>,
+    /// The camera stopped while the call was disconnected: a resumed
+    /// connection still shows it until it hears so.
+    camera_stopped: bool,
     watching: Receiving,
     /// How the connection is doing, for Yapfast to show, and what Discord's
     /// last receiver reports said about this account's packets.
@@ -552,6 +555,7 @@ impl Media {
             dropped: HashMap::new(),
             encrypting: None,
             filming: None,
+            camera_stopped: false,
             watching: Receiving::new(video),
             stats,
             reported: Reported::default(),
@@ -565,6 +569,7 @@ impl Media {
         self.users.clear();
         self.dropped.clear();
         self.encrypting = None;
+        self.camera_stopped = false;
         self.speaking = false;
         self.silent = 0;
         self.watching.reset();
@@ -597,8 +602,11 @@ impl Media {
         let result: Result<Ended> = async {
             // A new connection hears about the camera again, and what's
             // wanted of others'.
+            let stopped = std::mem::take(&mut self.camera_stopped);
             if let Some(filming) = self.filming.as_mut() {
                 filming.announce(connection).await?;
+            } else if stopped {
+                call_video::Sending::clear(connection).await?;
             }
             self.watching.ask(connection).await?;
             loop {
@@ -713,6 +721,7 @@ impl Media {
                 None | Some(Order::Leave) => return Ended::Left,
                 Some(Order::Move(to, reply)) => return Ended::Moved(to, reply),
                 Some(Order::Film(camera)) => {
+                    self.camera_stopped |= camera.is_none() && self.filming.is_some();
                     self.filming = camera.map(|camera| call_video::Sending::new(camera, video));
                 }
                 Some(Order::Want(wants)) => self.watching.want(wants),
