@@ -58,7 +58,8 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. POST /_control/voice-discovery?off makes the voice
+// resume with op 7. Add ?failures=N to reject the first N call reconnect
+// handshakes while the voice server restarts. POST /_control/voice-discovery?off makes the voice
 // server ignore UDP address discovery, so that joining fails as a blocked
 // network makes it, and without ?off answer again. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
@@ -3939,6 +3940,7 @@ type CallAudio = {
 };
 /** What /_control/voice-link set: a heartbeat ACK's delay, and the audio lost. */
 const voiceLink = { ping: 0, loss: 0 };
+const voiceRecovery = { failures: 0, holdResume: false, rateLimit: false, resumes: 0, limited: 0 };
 /** Address discovery asks the voice server passes over, as if lost on the
  *  way: POST /_control/discovery-drop?count=N sets how many more; GET
  *  reports those lost and answered so far. */
@@ -5030,6 +5032,16 @@ function voiceMessage(ws: Socket, text: string) {
   }
   const d = payload.d ?? {};
   const reply = (op: number, data: unknown) => ws.send(JSON.stringify({ op, d: data }));
+  if (payload.op === 7) {
+    voiceRecovery.resumes++;
+    if (voiceRecovery.holdResume) return;
+  }
+  if (voiceRecovery.failures > 0 && (payload.op === 7 ||
+      (payload.op === 0 && !String(d.token).startsWith("stream-token-")))) {
+    voiceRecovery.failures--;
+    ws.close(4015, "Voice server crashed.");
+    return;
+  }
   switch (payload.op) {
     case 0: // Identify
       if (d.token !== VOICE_TOKEN && d.token !== MOVED_VOICE_TOKEN && !String(d.token).startsWith("stream-token-") && !String(d.token).startsWith("call-token-")) {
@@ -9045,6 +9057,10 @@ const server = Bun.serve<SocketData>({
       return new Response("upgrade failed", { status: 400 });
     }
     if (path === "/voice/" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      if (voiceRecovery.rateLimit && voiceRecovery.resumes > 0) {
+        voiceRecovery.limited++;
+        return new Response("rate limited", { status: 429, headers: { "Retry-After": "60" } });
+      }
       if (server.upgrade(req, { data: { sequence: 0, identified: false, session: "", origin, voice: true } })) {
         return undefined;
       }
@@ -9315,8 +9331,18 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
-      for (const ws of calls) ws.close(4015, "Voice server crashed.");
+      voiceRecovery.failures = Number(url.searchParams.get("failures") ?? 0);
+      voiceRecovery.holdResume = url.searchParams.has("hold-resume");
+      voiceRecovery.rateLimit = url.searchParams.has("rate-limit-reconnect");
+      voiceRecovery.resumes = 0;
+      voiceRecovery.limited = 0;
+      const code = Number(url.searchParams.get("code") ?? 4015);
+      const reason = code === 4015 ? "Voice server crashed." : "Call terminated.";
+      for (const ws of calls) ws.close(code, reason);
       return new Response(`dropped ${calls.length} call connection(s)\n`, { status: calls.length ? 200 : 409 });
+    }
+    if (req.method === "GET" && path === "/_control/voice-drop") {
+      return Response.json({ resumes: voiceRecovery.resumes, limited: voiceRecovery.limited });
     }
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
