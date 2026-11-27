@@ -6,6 +6,7 @@ use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows");
+    println!("cargo:rerun-if-changed=assets/icons/app/yapfast.ico");
     build_info();
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         windows_icon();
@@ -82,7 +83,7 @@ fn git(arguments: &[&str]) -> Option<String> {
 
 fn windows_icon() {
     let resources = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("yapfast.res");
-    // The script names only the icon beside it, so it needs no preprocessor.
+    // The script has no preprocessor directives.
     let status = match Command::new("llvm-rc")
         .current_dir("packaging/windows")
         .args(["-no-preprocess", "-FO"])

@@ -1,5 +1,5 @@
 //! `yapfast theme new`: a theme's folder, made from Yapfast's template
-//! (`themes/template/`, built in), with its id, name and author filled in,
+//! (`assets/themes/template/`, built in), with its id, name and author filled in,
 //! one variant, dark or light, and the template's files that variant names.
 //! A new theme can start from another theme's colours instead of the
 //! template's.
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn the_template_is_built_in_whole() {
-        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../themes/template");
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/themes/template");
         let mut on_disk = Vec::new();
         let mut folders = vec![folder.clone()];
         while let Some(at) = folders.pop() {

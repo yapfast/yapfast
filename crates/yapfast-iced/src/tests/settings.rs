@@ -279,7 +279,7 @@ fn an_installed_theme_applies_and_turns_off_from_themes() {
     std::fs::create_dir_all(source.join("sounds")).unwrap();
     std::fs::write(
         source.join("sounds/tick.wav"),
-        include_bytes!("../../../../themes/template/sounds/tick.wav"),
+        include_bytes!("../../../../assets/themes/template/sounds/tick.wav"),
     )
     .unwrap();
     std::fs::write(
@@ -724,7 +724,7 @@ fn the_guided_creator_previews_undoes_exports_and_keeps_its_recipe() {
         generation,
         true,
         Ok(
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Medieval.otf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Medieval.otf")
                 .to_vec(),
         ),
     ))));
@@ -737,9 +737,10 @@ fn the_guided_creator_previews_undoes_exports_and_keeps_its_recipe() {
         .map(|font| font.file.clone())
         .expect("the imported font");
 
-    let picture =
-        PictureArrival::prepare(include_bytes!("../../../../themes/template/preview.png"))
-            .expect("the example picture");
+    let picture = PictureArrival::prepare(include_bytes!(
+        "../../../../assets/themes/template/preview.png"
+    ))
+    .expect("the example picture");
     let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::PictureReady(
         generation,
         Ok(picture),
@@ -929,7 +930,7 @@ fn creator_assets_follow_undo_start_over_and_async_generations() {
     assert_ne!(generation, current);
     let suggested = Suggested::read(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../themes/template/preview.png"),
+            .join("../../assets/themes/template/preview.png"),
     )
     .expect("suggested picture thumbnail");
     let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::Suggestions(
@@ -939,8 +940,10 @@ fn creator_assets_follow_undo_start_over_and_async_generations() {
     let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::Step(Step::Start))));
     assert!(shows(&app, "OR FROM A PICTURE"));
 
-    let old_picture =
-        PictureArrival::prepare(include_bytes!("../../../../themes/template/preview.png")).unwrap();
+    let old_picture = PictureArrival::prepare(include_bytes!(
+        "../../../../assets/themes/template/preview.png"
+    ))
+    .unwrap();
     let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::PictureReady(
         generation,
         Ok(old_picture),
@@ -949,7 +952,7 @@ fn creator_assets_follow_undo_start_over_and_async_generations() {
         generation,
         false,
         Ok(
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Medieval.otf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Medieval.otf")
                 .to_vec(),
         ),
     ))));
@@ -962,8 +965,10 @@ fn creator_assets_follow_undo_start_over_and_async_generations() {
             .exists()
     );
 
-    let picture =
-        PictureArrival::prepare(include_bytes!("../../../../themes/template/preview.png")).unwrap();
+    let picture = PictureArrival::prepare(include_bytes!(
+        "../../../../assets/themes/template/preview.png"
+    ))
+    .unwrap();
     let _ = app.update(theme(ThemeEvent::Creator(CreatorEvent::PictureReady(
         current,
         Ok(picture),
@@ -972,7 +977,7 @@ fn creator_assets_follow_undo_start_over_and_async_generations() {
         current,
         false,
         Ok(
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Medieval.otf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Medieval.otf")
                 .to_vec(),
         ),
     ))));

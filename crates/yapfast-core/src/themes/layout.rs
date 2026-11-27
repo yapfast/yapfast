@@ -1653,8 +1653,10 @@ mod tests {
 
     #[test]
     fn the_template_reads_without_notes() {
-        let package =
-            Package::parse(include_str!("../../../../themes/template/theme.json")).unwrap();
+        let package = Package::parse(include_str!(
+            "../../../../assets/themes/template/theme.json"
+        ))
+        .unwrap();
         assert!(package.notes.is_empty(), "{:?}", package.notes);
         assert!(!package.resolve(Mode::Dark).unwrap().layout.is_stock());
     }

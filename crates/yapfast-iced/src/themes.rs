@@ -791,25 +791,25 @@ fn load(
 fn creator_font_bytes(file: &str) -> Option<&'static [u8]> {
     match file {
         "AtkinsonHyperlegibleNext-Regular.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/AtkinsonHyperlegibleNext-Regular.ttf"
+            "../../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Regular.ttf"
         )),
         "DisplayName-Tempo.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/DisplayName-Tempo.ttf"
+            "../../../assets/fonts/display-names/DisplayName-Tempo.ttf"
         )),
         "DisplayName-Modern.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/DisplayName-Modern.ttf"
+            "../../../assets/fonts/display-names/DisplayName-Modern.ttf"
         )),
         "DisplayName-MonkeyBars.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/DisplayName-MonkeyBars.ttf"
+            "../../../assets/fonts/display-names/DisplayName-MonkeyBars.ttf"
         )),
         "DisplayName-Journal.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/DisplayName-Journal.ttf"
+            "../../../assets/fonts/display-names/DisplayName-Journal.ttf"
         )),
         "DisplayName-8Bit.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/DisplayName-8Bit.ttf"
+            "../../../assets/fonts/display-names/DisplayName-8Bit.ttf"
         )),
         "DisplayName-Mainframe.ttf" => Some(include_bytes!(
-            "../../../crates/yapfast-iced-kit/fonts/DisplayName-Mainframe.ttf"
+            "../../../assets/fonts/display-names/DisplayName-Mainframe.ttf"
         )),
         _ => None,
     }
@@ -4172,7 +4172,7 @@ mod tests {
             &derived,
             |file| match file {
                 "DisplayName-Tempo.ttf" => Some(include_bytes!(
-                    "../../../crates/yapfast-iced-kit/fonts/DisplayName-Tempo.ttf"
+                    "../../../assets/fonts/display-names/DisplayName-Tempo.ttf"
                 )),
                 _ => None,
             },

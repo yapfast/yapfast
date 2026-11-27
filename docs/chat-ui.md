@@ -250,7 +250,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   keep their size and their spacing as it widens, so what the width has over
   stays at the row's end. Each emoji is drawn from Twemoji's picture of it,
   which is the artwork Discord's client uses and which the program carries
-  (`vendor/twemoji`, CC-BY 4.0), taken once from the Twemoji font's PNG at
+  (`assets/twemoji`, CC-BY 4.0), taken once from the Twemoji font's PNG at
   its own 72px and shrunk by area to the pixels a cell draws
   (`paint::emoji`), in the renderer's own pixel format, so a frame copies it
   without scaling. It lists only the emoji Twemoji has a picture for. A
@@ -742,7 +742,7 @@ The window follows Discord's arrangement:
   and round mute, deafen and leave controls.
 
 DM Sans (SIL Open Font License, embedded in the binary; see
-`crates/yapfast-iced-kit/fonts/README.md`) sets all text in four weights and
+`docs/third-party/fonts.md`) sets all text in four weights and
 an italic. The default theme is Bonfire; Yap uses layered graphite with a
 marigold accent for selection and primary actions. See [themes](themes.md)
 for the built-in palettes and custom themes. Avatars get one of eight

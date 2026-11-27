@@ -52,9 +52,10 @@ pub const ITALIC: Font = Font {
 /// The family name of the Twemoji font `crates/yapfast-iced/build.rs` makes.
 pub const TWEMOJI: &str = "Yapfast Twemoji";
 
-const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
+const DM_SANS: &[u8] = include_bytes!("../../../assets/fonts/dm-sans/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
-const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
+const DM_SANS_ITALIC: &[u8] =
+    include_bytes!("../../../assets/fonts/dm-sans/DMSans-Italic[opsz,wght].ttf");
 
 /// The theme's body face that text asking for DM Sans takes, and the one
 /// it takes now: none while the person's own font files are loaded.
@@ -787,11 +788,11 @@ pub fn name_font(family: Option<&'static str>, weight: u16) -> Font {
     }
 }
 
-/// The bytes of a display name style's font family, from the kit's `fonts/`.
+/// The bytes of a font used by a display name style.
 fn name_font_bytes(family: &str) -> Option<&'static [u8]> {
     macro_rules! font {
         ($file:literal) => {
-            include_bytes!(concat!("../fonts/", $file)).as_slice()
+            include_bytes!(concat!("../../../assets/fonts/display-names/", $file)).as_slice()
         };
     }
     Some(match family {
@@ -1064,8 +1065,9 @@ mod tests {
     #[test]
     fn a_theme_font_is_named_loaded_and_deduplicated() {
         crate::testing::install_fonts();
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("fonts/AtkinsonHyperlegibleNext-Regular.ttf");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Regular.ttf",
+        );
         let bytes = std::fs::read(&path).expect("the checked-in readable font");
         let family = theme_font_family(&bytes).expect("its family");
         let first = load_theme_font(bytes.clone()).expect("loaded");

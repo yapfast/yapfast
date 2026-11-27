@@ -373,10 +373,13 @@ fn open(path: &str) -> Result<fontdb::Source, String> {
 mod tests {
     use super::*;
 
-    const JOURNAL: &[u8] = include_bytes!("../fonts/DisplayName-Journal.ttf");
-    const MEDIEVAL: &[u8] = include_bytes!("../fonts/DisplayName-Medieval.otf");
-    const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
-    const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
+    const JOURNAL: &[u8] =
+        include_bytes!("../../../assets/fonts/display-names/DisplayName-Journal.ttf");
+    const MEDIEVAL: &[u8] =
+        include_bytes!("../../../assets/fonts/display-names/DisplayName-Medieval.otf");
+    const DM_SANS: &[u8] = include_bytes!("../../../assets/fonts/dm-sans/DMSans[opsz,wght].ttf");
+    const DM_SANS_ITALIC: &[u8] =
+        include_bytes!("../../../assets/fonts/dm-sans/DMSans-Italic[opsz,wght].ttf");
 
     /// A database holding DM Sans's two faces, as the window's does.
     fn window_db() -> fontdb::Database {

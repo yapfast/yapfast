@@ -92,7 +92,7 @@ impl Tray {
 /// Yapfast's logo with the Windows taskbar count cut into its corner.
 #[cfg(windows)]
 pub(crate) fn taskbar_badge(size: u32, count: u8) -> Option<crate::icon::Rgba> {
-    let svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg").replacen(
+    let svg = include_str!("../assets/icons/ui/logo.svg").replacen(
         r##"fill="#fff" mask"##,
         r##"fill="#ffbf47" mask"##,
         1,

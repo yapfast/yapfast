@@ -37,7 +37,7 @@ What to know when writing one:
 - Server tests run on the Discord server `tests::server::discord_server`
   builds, with the permissions the test names.
 - Emoji draw from the Twemoji font the window carries (`tests::twemoji`),
-  which the app's `build.rs` packs from `vendor/twemoji` with
+  which the app's `build.rs` packs from `assets/twemoji` with
   `emoji_font_tables.rs`, so the emoji tests always run.
 - A test that reads the process's call volumes back holds them
   (`layout::tests::hold_volumes`), as every window plays its own as it

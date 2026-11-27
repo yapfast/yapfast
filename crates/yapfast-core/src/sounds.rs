@@ -69,14 +69,14 @@ const SAMPLE_RATE: f32 = 24_000.0;
 
 /// G4, a few cents sharp.
 static KALIMBA: Sample = Sample {
-    pcm: include_bytes!("../sounds/kalimba.pcm"),
+    pcm: include_bytes!("../../../assets/sounds/instruments/kalimba.pcm"),
     root: 67.06,
 };
 
 /// Recorded near C6 and played two octaves up from the score, its own register:
 /// from C4 the score sounds C6.
 static FLUTE: Sample = Sample {
-    pcm: include_bytes!("../sounds/flute.pcm"),
+    pcm: include_bytes!("../../../assets/sounds/instruments/flute.pcm"),
     root: 59.95,
 };
 

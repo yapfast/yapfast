@@ -287,9 +287,9 @@ changes what it serves.
 
 ## The app icon
 
-`packaging/icon.svg` is Yapfast's icon: the logo in marigold, its dots in
+`assets/icons/app/icon.svg` is Yapfast's icon: the logo in marigold, its dots in
 on-accent ink, so it reads on a light taskbar as well as a dark one. The UI
-keeps drawing `crates/yapfast-iced-kit/icons/logo.svg`.
+keeps drawing `assets/icons/ui/logo.svg`.
 
 On Linux the window's app ID is `io.github.yapfast.Yapfast` (`src/icon.rs`).
 Wayland desktops show a window's icon only through the desktop entry of that
@@ -309,5 +309,5 @@ On Windows, `build.rs` compiles `packaging/windows/yapfast.rc` with `llvm-rc`,
 or the Windows SDK's `rc.exe` where there is none,
 and links the icon into `yapfast.exe`, for Explorer and shortcuts; the window
 loads it from there for its title bar and the taskbar, each at the size
-Windows draws it. After changing `icon.svg`, run `scripts/make-windows-icon`
-to draw `yapfast.ico` again.
+Windows draws it. After changing `assets/icons/app/icon.svg`, run
+`scripts/make-windows-icon` to regenerate `assets/icons/app/yapfast.ico`.

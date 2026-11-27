@@ -239,7 +239,7 @@ const KEPT: usize = 20;
 /// The 256-pixel picture in Yapfast's icon file, which is stored as a PNG.
 #[cfg(any(windows, test))]
 fn icon_png() -> Option<&'static [u8]> {
-    const ICON: &[u8] = include_bytes!("../packaging/windows/yapfast.ico");
+    const ICON: &[u8] = include_bytes!("../assets/icons/app/yapfast.ico");
     let count = u16::from_le_bytes(ICON.get(4..6)?.try_into().ok()?);
     (0..usize::from(count)).find_map(|index| {
         let entry = ICON.get(6 + index * 16..)?.get(..16)?;

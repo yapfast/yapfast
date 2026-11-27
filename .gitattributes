@@ -1,7 +1,7 @@
 # Themes are built in and compared byte for byte (`yapfast theme new` writes
 # the template's theme.json as it is), so their text keeps `\n` line ends in
 # every checkout, Windows' `core.autocrlf` too. Pictures and sounds stay binary.
-themes/** text=auto eol=lf
+assets/themes/** text=auto eol=lf
 
 # This signed test fixture must retain its exact bytes on Windows too.
 src/update/testdata/sums.txt -text

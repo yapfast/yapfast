@@ -200,7 +200,7 @@ default, Felt piano, Soft marimba, Mellow Rhodes, Glow and Flute, all in F
 major pentatonic so any two sound well together. Felt piano, Soft marimba,
 Mellow Rhodes and Glow are synthesized; New Kalimba and Flute play the same
 notes on one recorded note each, made with ElevenLabs' sound generator and kept
-as 24 kHz samples in `crates/yapfast-core/sounds/`, played faster or slower for
+as 24 kHz samples in `assets/sounds/instruments/`, played faster or slower for
 each note. They play on the call's speakers through `audio_io.rs`, on Linux and
 Windows, like ringing. Settings › Sounds chooses the set and the volume, from
 0% to 200%. A slider's percentage becomes a gain by its square, which spreads

@@ -136,7 +136,7 @@ impl Default for Spec {
     }
 }
 
-/// A font the creator offers, which ships with Yapfast (`crates/yapfast-iced-kit/fonts/`, each
+/// A font the creator offers, which ships with Yapfast (`assets/fonts/`, each
 /// under the SIL Open Font License 1.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BuiltInFont {
@@ -146,7 +146,7 @@ pub struct BuiltInFont {
     /// The family Yapfast already registers it under, for its sample.
     pub family: &'static str,
     pub weight: i32,
-    /// Its file in `crates/yapfast-iced-kit/fonts/`; the default font has none.
+    /// Its file in `assets/fonts/`; the default font has none.
     pub file: Option<&'static str>,
     /// Its typeface's own name, for the licence.
     pub typeface: &'static str,
@@ -1221,7 +1221,7 @@ pub fn font_file(spec: &Spec, key: &str) -> Option<String> {
 }
 
 /// Every built-in font file a spec's theme ships, by its name in
-/// `crates/yapfast-iced-kit/fonts/`.
+/// `assets/fonts/`.
 pub fn built_in_files(spec: &Spec) -> Vec<&'static str> {
     let mut files = Vec::new();
     for key in std::iter::once(spec.body.as_str()).chain(spec.headings.as_deref()) {
