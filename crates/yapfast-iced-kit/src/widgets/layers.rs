@@ -326,7 +326,13 @@ impl<M> Hooks<M> for Above {
         child: &mut dyn FnMut(&mut Renderer),
     ) {
         use iced::advanced::Renderer as _;
-        renderer.with_layer(at.bounds.expand(self.reach), |renderer| child(renderer));
+        // Its layer stays within what the viewport shows: a layer reaching
+        // past a scrollable's edge would draw over what's beyond it, as a
+        // tile's ring over the call's header.
+        let Some(layer) = at.bounds.expand(self.reach).intersection(&at.viewport) else {
+            return;
+        };
+        renderer.with_layer(layer, |renderer| child(renderer));
     }
 }
 
