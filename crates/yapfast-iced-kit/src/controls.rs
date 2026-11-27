@@ -1420,7 +1420,9 @@ pub fn heading<'a, M: Clone + 'a>(theme: &Theme, label: &'a str, top: f32) -> El
 /// A volume slider: its label and the value as a percentage over a 4 px
 /// track, the accent filling it up to a round handle in the text's colour.
 /// Past 100% (a `maximum` over it) it marks 100% and snaps to it within
-/// four points, as Discord's does.
+/// four points, as Discord's does. With [`Slider::marks`] it marks those
+/// values instead, each labelled under the track, and stops only on them,
+/// as Discord's sliders that stick to their markers.
 pub struct Slider<'a, M> {
     label: std::borrow::Cow<'a, str>,
     value: u32,
@@ -1430,6 +1432,7 @@ pub struct Slider<'a, M> {
     step: u32,
     shown: Option<String>,
     mark: bool,
+    marks: Vec<(u32, String)>,
 }
 
 /// A [`Slider`] for `value` out of `maximum`.
@@ -1448,6 +1451,7 @@ pub fn slider<'a, M: Clone + 'a>(
         step: 5,
         shown: None,
         mark: maximum > 100,
+        marks: Vec::new(),
     }
 }
 
@@ -1476,6 +1480,14 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
         self
     }
 
+    /// The only values it stops on, each marked on the track and labelled
+    /// under it; a drag goes to the nearest. 100% is no longer marked.
+    pub fn marks(mut self, marks: Vec<(u32, String)>) -> Self {
+        self.marks = marks;
+        self.mark = false;
+        self
+    }
+
     pub fn view(self, theme: &Theme) -> Element<'a, M> {
         let Slider {
             label,
@@ -1486,6 +1498,7 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
             step,
             shown,
             mark,
+            marks,
         } = self;
         let head = row![
             text(label)
@@ -1499,8 +1512,11 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
                 .color(theme.text),
         ];
         let (field, accent, knob) = (theme.field, theme.accent, theme.text);
+        let stops: Vec<u32> = marks.iter().map(|(at, _)| *at).collect();
         let track = iced::widget::slider(0..=maximum, value, move |value| {
-            let value = if mark && value.abs_diff(100) <= 4 {
+            let value = if let Some(&stop) = stops.iter().min_by_key(|stop| stop.abs_diff(value)) {
+                stop
+            } else if mark && value.abs_diff(100) <= 4 {
                 100
             } else {
                 value
@@ -1526,29 +1542,73 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
             Some(message) => track.on_release(message),
             None => track,
         };
-        let track: Element<'a, M> = if mark {
-            // The handle travels the track less its own width; 100% sits
-            // where the handle's middle does there.
+        // The handle travels the track less its own width; a mark sits
+        // where the handle's middle does at its value.
+        let across =
+            move |width: f32, at: u32| 7.0 + (width - 14.0) * at as f32 / maximum.max(1) as f32;
+        let ticks: Vec<u32> = if marks.is_empty() {
+            if mark { vec![100] } else { Vec::new() }
+        } else {
+            marks.iter().map(|(at, _)| *at).collect()
+        };
+        let track: Element<'a, M> = if ticks.is_empty() {
+            track.into()
+        } else {
             let secondary = theme.secondary;
             iced::widget::stack![
                 iced::widget::responsive(move |size| {
-                    let x = 7.0 + (size.width - 14.0) * 100.0 / maximum as f32 - 1.0;
-                    container(bar(secondary, 2, 10))
-                        .padding(iced::Padding {
-                            left: x.max(0.0),
-                            top: 4.0,
-                            ..iced::Padding::ZERO
-                        })
-                        .into()
+                    iced::widget::Stack::with_children(ticks.iter().map(|&at| {
+                        container(bar(secondary, 2, 10))
+                            .padding(iced::Padding {
+                                left: (across(size.width, at) - 1.0).max(0.0),
+                                top: 4.0,
+                                ..iced::Padding::ZERO
+                            })
+                            .into()
+                    }))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
                 })
                 .height(18),
                 track,
             ]
+            .width(Length::Fill)
             .into()
-        } else {
-            track.into()
         };
-        column![head, track].spacing(6).into()
+        if marks.is_empty() {
+            return column![head, track].spacing(6).into();
+        }
+        // Each mark's label centred under it, in a box wide enough for
+        // "24px" at 12 px.
+        const LABEL: f32 = 40.0;
+        let muted = theme.muted;
+        let labels = iced::widget::responsive(move |size| {
+            iced::widget::Stack::with_children(marks.iter().map(|(at, label)| {
+                let left = (across(size.width, *at) - LABEL / 2.0)
+                    .clamp(0.0, (size.width - LABEL).max(0.0));
+                container(
+                    text(label.clone())
+                        .size(12)
+                        .color(muted)
+                        .width(LABEL)
+                        .align_x(Alignment::Center),
+                )
+                .padding(iced::Padding {
+                    left,
+                    ..iced::Padding::ZERO
+                })
+                .into()
+            }))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
+        .height(16);
+        column![head, track, labels]
+            .spacing(6)
+            .width(Length::Fill)
+            .into()
     }
 }
 

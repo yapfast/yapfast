@@ -7,15 +7,13 @@ use yapfast_core::application::{Action, DmScreen, Navigation};
 
 use super::{
     Event as SettingsEvent, Page,
-    appearance::{Cosmetic, Event as ThemeEvent},
     pages::{GameEvent, Pref},
 };
 use crate::{
     app::Message,
-    controls::{Kind, action, choices, slider},
+    controls::{Kind, action, slider},
     ctx::{Cx, Request, Screen},
     form::{self, switch},
-    layout::Animate,
 };
 
 /// Public Discord destinations, opened only on an explicit button press.
@@ -26,7 +24,6 @@ pub enum Handoff {
     DataPrivacy,
     FamilyCenter,
     FriendRequests,
-    Accessibility,
     StreamerMode,
     ActivityPrivacy,
 }
@@ -41,9 +38,6 @@ impl Handoff {
             Self::DataPrivacy => "https://discord.com/privacy/policy/",
             Self::FamilyCenter => {
                 "https://support.discord.com/hc/en-us/articles/14155043715735-Family-Center-for-Parents-and-Guardians"
-            }
-            Self::Accessibility => {
-                "https://support.discord.com/hc/en-us/articles/1500010454681-Accessibility-Settings-Tab"
             }
             Self::StreamerMode => {
                 "https://support.discord.com/hc/en-us/articles/218485407-Streamer-Mode-101"
@@ -240,51 +234,6 @@ impl<'a> Page<'a> {
             "To choose who can send you friend requests, open Discord, then User Settings > Content & Social > Friend Requests. Yapfast does not edit these permissions.",
         ));
         form::page(parts)
-    }
-
-    pub(super) fn accessibility_page(self) -> Element<'a, Message> {
-        let theme = self.cx.look.theme;
-        let prefs = &self.cx.layout.prefs;
-        let cosmetics = prefs.cosmetics();
-        let cosmetic = |label, description, on: bool, which| {
-            switch(
-                label,
-                on,
-                Some(crate::app::settings(SettingsEvent::Theme(
-                    ThemeEvent::Profile(which, !on),
-                ))),
-            )
-            .description(description)
-            .view(self.cx.look)
-        };
-        let animate = match prefs.animate {
-            Animate::Focused => 0,
-            Animate::Always => 1,
-            Animate::Never => 2,
-        };
-        form::page([
-            form::title(theme, "Accessibility"),
-            self.privacy_card("READING IN YAPFAST", [
-                form::heading(theme, "MESSAGE TEXT SIZE"),
-                choices(theme, &["Small", "Default", "Large"], prefs.text_size.unwrap_or(1).clamp(0, 2) as usize, |index| pref(Pref::TextSize(index))),
-                self.privacy_flip(
-                    "Collapse long messages",
-                    "Fold long messages and code, with Show more to expand them.",
-                    self.cx.layout.collapse_long,
-                    Pref::CollapseLong,
-                ),
-            ]),
-            self.privacy_card("MOTION IN YAPFAST", [
-                form::heading(theme, "PLAY GIFS, EMOJI AND STICKERS"),
-                choices(theme, &["While focused", "Always", "Never"], animate, |index| pref(Pref::Animate(index))),
-                cosmetic("Play profile effects", "Allow animations over profile cards.", cosmetics.effects, Cosmetic::Effects),
-                cosmetic("Animate decorations and nameplates", "Off keeps these cosmetics still, including on hover.", cosmetics.moving, Cosmetic::Moving),
-            ]),
-            self.discord_handoff(
-                Handoff::Accessibility,
-                "These controls affect Yapfast only. For Discord's own accessibility options, open Discord, then User Settings > Accessibility. Discord's text-to-speech and contrast settings do not configure Yapfast.",
-            ),
-        ])
     }
 
     pub(super) fn streamer_mode_page(self) -> Element<'a, Message> {

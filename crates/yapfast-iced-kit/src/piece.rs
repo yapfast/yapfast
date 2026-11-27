@@ -241,6 +241,13 @@ impl<'a, M> Piece<'a, M> {
                     )
                 })
                 .hash(&mut hasher);
+            span.size.map(|size| size.0.to_bits()).hash(&mut hasher);
+            span.line_height
+                .map(|height| match height {
+                    LineHeight::Relative(times) => (0u8, times.to_bits()),
+                    LineHeight::Absolute(pixels) => (1, pixels.0.to_bits()),
+                })
+                .hash(&mut hasher);
         }
         Self {
             on_link,
@@ -309,9 +316,14 @@ impl<'a, M> Piece<'a, M> {
         self
     }
 
+    /// Its text's size and line height. Text laid out at another size,
+    /// as the text size setting changes, is laid out again.
     pub fn size(mut self, size: f32, line_height: f32) -> Self {
         self.size = size;
         self.line_height = line_height;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (self.stamp, size.to_bits(), line_height.to_bits()).hash(&mut hasher);
+        self.stamp = hasher.finish();
         self
     }
 

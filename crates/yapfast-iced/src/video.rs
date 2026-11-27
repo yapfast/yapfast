@@ -423,9 +423,27 @@ impl Shared {
         self.changed.notify_one();
     }
 
+    /// Tells a worker's frames that the window draws them at `width` by
+    /// `height` pixels, so it makes them no larger; a camera's feed is
+    /// made at its tile's size already.
+    fn want(&self, key: &str, width: f32, height: f32) {
+        let sources = self.sources.lock().expect("video sources");
+        if let Some((_, frames)) = sources.mapped.iter().find(|(id, _)| id == key) {
+            frames.want(width.ceil() as u32, height.ceil() as u32);
+        }
+    }
+
     /// A source's newest frame and its size.
     pub fn frame(&self, key: &str) -> Option<(Handle, (u32, u32))> {
         self.newest.lock().expect("video frames").get(key).cloned()
+    }
+
+    /// Whether frames are looked for from the source with this key.
+    #[cfg(test)]
+    pub fn looks_at(&self, key: &str) -> bool {
+        let sources = self.sources.lock().expect("video sources");
+        sources.mapped.iter().any(|(id, _)| id == key)
+            || sources.feeds.iter().any(|(id, _)| id == key)
     }
 
     /// Whether a source has a frame to show.
@@ -677,6 +695,7 @@ impl<M> Widget<M, Theme, Renderer> for Video {
         // In the window's pixels, which the frame was made in.
         let pixels = self.scale;
         let (tile_width, tile_height) = (tile.width * pixels, tile.height * pixels);
+        self.shared.want(&self.key, tile_width, tile_height);
         let (width, height) = (size.0.max(1) as f32, size.1.max(1) as f32);
         let mut scale = (tile_width / width).min(tile_height / height);
         // The core makes a camera's frame at the tile's size, rounded down

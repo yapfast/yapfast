@@ -163,7 +163,7 @@ pub struct App {
     /// The person dialog's field and tick.
     pub person: crate::person_menu::Dialog,
     /// Video: what [`video::frames`] looks at, and the newest frame of
-    /// each camera (by participant id), of the watched stream ("stream:"
+    /// each camera (by participant id), of each watched stream ("stream:"
     /// and the streamer's id), of this account's screen and of a message's
     /// video, with its size, which `video::Video` draws.
     pub video: Arc<video::Shared>,
@@ -422,9 +422,14 @@ impl App {
         };
         let away = crate::away::watch_away();
         let system_theme = iced::system::theme().map(Message::SystemTheme);
+        let motion = if app.layout.sync_reduced_motion {
+            crate::shell::read_system_motion()
+        } else {
+            Task::none()
+        };
         (
             app,
-            Task::batch([sync, frames, focus, away, talk, system_theme]),
+            Task::batch([sync, frames, focus, away, talk, system_theme, motion]),
         )
     }
 

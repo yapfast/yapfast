@@ -3,12 +3,13 @@
 
 use iced::{Element, widget::text};
 
-use super::Pref;
+use super::{Pref, pref};
 use crate::settings::{Event, Page};
 use crate::{
     app::Message,
     controls::{Kind, action},
-    form::{self},
+    desktop::Autostart,
+    form::{self, switch},
     pictures::Icon,
 };
 
@@ -19,12 +20,27 @@ impl<'a> Page<'a> {
         let mut parts = vec![form::title(theme, "Advanced")];
         let platform = self.s.platform;
         if let Some(start) = platform.autostart {
-            parts.push(self.flip(
-                "Start when you sign in",
-                "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you.",
-                start,
-                Pref::StartOnSignIn,
-            ));
+            // Discord's OS_OPEN_ON_STARTUP and OS_START_MINIMIZED: the second
+            // greyed out and shown off while the first is off.
+            let open = start != Autostart::Off;
+            let minimized = start == Autostart::Tray;
+            parts.push(
+                switch(
+                    "Automatically open Yapfast when your computer starts up",
+                    open,
+                    Some(pref(Pref::OpenOnStartup(!open))),
+                )
+                .view(self.cx.look),
+            );
+            parts.push(
+                switch(
+                    "Start Yapfast minimized",
+                    minimized,
+                    open.then(|| pref(Pref::StartMinimized(!minimized))),
+                )
+                .description("Start Yapfast in the background, out of your way.")
+                .view(self.cx.look),
+            );
         }
         if let Some(links) = platform.discord_links {
             parts.push(self.flip(

@@ -1976,3 +1976,130 @@ fn a_cards_ground_in_a_packaged_theme_stops_at_the_cards_edge() {
         "beside the card, the chat's ground, as beside the message's text"
     );
 }
+
+#[test]
+fn a_follow_up_messages_clock_with_seconds_stays_clear_of_its_text() {
+    use yapfast_core::chat::ChatMessage;
+    let (mut app, _folder) = preview();
+    app.layout.prefs.clock_seconds = true;
+    let said = |item: &str, timestamp: u64| {
+        Arc::new(ChatMessage {
+            item: item.into(),
+            author: "Sam".into(),
+            sender: "7".into(),
+            body: format!("Then this one, {item}"),
+            timestamp,
+            ..Default::default()
+        })
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![said("i0", 1_790_000_000), said("i1", 1_790_000_045)]);
+    });
+    app.pointed.message = Some("i1".into());
+    let time = app.timeline.looks.last().expect("a message").time.clone();
+    let clock = time
+        .split_whitespace()
+        .find(|word| word.matches(':').count() == 2)
+        .unwrap_or_else(|| panic!("seconds in {time:?}"))
+        .to_owned();
+    let mut ui =
+        iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+    let found = |ui: &mut iced_test::Simulator<'_, Message>, text: &str| {
+        ui.find(text)
+            .unwrap_or_else(|_| panic!("{text:?} isn't there"))
+            .visible_bounds()
+            .expect("in view")
+    };
+    let clock = found(&mut ui, &clock);
+    let body = found(&mut ui, "Then this one, i1");
+    let (width, _, rgba) = drawn(&mut ui);
+    let scale = width as f32 / app.shell.frame.width;
+    let pixel = |x: f32, y: f32| {
+        let at = (((y * scale) as u32 * width + (x * scale) as u32) * 4) as usize;
+        [rgba[at], rgba[at + 1], rgba[at + 2]]
+    };
+    // Ink: a pixel far from the one just over the clock, in its column.
+    let inked = |from: f32, to: f32| {
+        let mut count = 0;
+        let mut x = from;
+        while x < to {
+            let ground = pixel(x, clock.y - 1.0);
+            let mut y = clock.y;
+            while y < clock.y + clock.height {
+                let here = pixel(x, y);
+                let off: i32 = (0..3)
+                    .map(|c| (i32::from(here[c]) - i32::from(ground[c])).abs())
+                    .sum();
+                count += usize::from(off > 60);
+                y += 0.5;
+            }
+            x += 0.5;
+        }
+        count
+    };
+    assert!(
+        inked(clock.x - 24.0, clock.x + clock.width) > 0,
+        "the clock shows"
+    );
+    // Between the avatar's edge and the text: nothing.
+    assert_eq!(
+        inked(clock.x + clock.width + 2.0, body.x - 2.0),
+        0,
+        "the clock {clock:?} runs into the text at {body:?}"
+    );
+}
+
+#[test]
+fn a_nitro_avatar_plays_while_any_message_of_its_group_is_pointed_at() {
+    use yapfast_core::chat::ChatMessage;
+    let (mut app, _folder) = preview();
+    let still = "https://cdn.discordapp.com/avatars/7/a_sam.png?size=128";
+    let gif = "https://cdn.discordapp.com/avatars/7/a_sam.gif?size=128";
+    let party = super::animated_emoji();
+    let said = |item: &str, timestamp: u64| {
+        Arc::new(ChatMessage {
+            item: item.into(),
+            author: "Sam".into(),
+            sender: "7".into(),
+            avatar: Some(still.into()),
+            body: format!("Message {item}"),
+            timestamp,
+            ..Default::default()
+        })
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![said("i0", 1_790_000_000), said("i1", 1_790_000_045)]);
+        state.pictures.insert(gif.into(), party.clone());
+    });
+    assert!(
+        app.timeline.looks[0].first && !app.timeline.looks[1].first,
+        "one group"
+    );
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let plays = |app: &crate::app::App| {
+        super::redraw(app);
+        let at = Arc::as_ptr(&party) as usize;
+        app.win
+            .pictures
+            .players
+            .keys()
+            .iter()
+            .any(|key| key.0 == at)
+    };
+    let wanted = |app: &crate::app::App| app.pictures_shown(false).iter().any(|url| url == gif);
+    assert!(
+        !wanted(&app) && !plays(&app),
+        "held still and not asked for"
+    );
+    // The group's second message, under its first's avatar.
+    let _ = app.update(Message::Timeline(crate::timeline::Event::PointRow(
+        "i1".into(),
+        true,
+    )));
+    assert!(wanted(&app) && plays(&app), "playing for the group");
+    let _ = app.update(Message::Timeline(crate::timeline::Event::PointRow(
+        "i1".into(),
+        false,
+    )));
+    assert!(!wanted(&app) && !plays(&app), "still again once it's left");
+}

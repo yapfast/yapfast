@@ -10,7 +10,6 @@ use yapfast_core::{
 use super::{change, interact, preview, shows, start};
 use crate::{
     app::{App, Message},
-    layout::Animate,
     settings::{
         Event, Section,
         privacy::{Event as PrivacyEvent, Handoff},
@@ -80,12 +79,6 @@ fn settings_privacy_pages_offer_explicit_official_browser_handoffs() {
             "Friend Requests",
             Handoff::FriendRequests,
             "217916488",
-        ),
-        (
-            Section::Accessibility,
-            "Accessibility",
-            Handoff::Accessibility,
-            "1500010454681",
         ),
         (
             Section::StreamerMode,
@@ -173,28 +166,6 @@ fn settings_privacy_data_choices_reach_the_core_and_survive_restart() {
     let again = start(&folder, true);
     assert!(!again.client.state().strip_tracking);
     assert!(!again.client.state().sync_discord_reads);
-}
-
-#[test]
-fn settings_privacy_accessibility_uses_the_existing_motion_and_text_preferences() {
-    let (mut app, folder) = preview();
-    open(&mut app, Section::Accessibility);
-    click(&mut app, "Large");
-    click(&mut app, "Never");
-    click(&mut app, "Collapse long messages");
-    click(&mut app, "Play profile effects");
-    click(&mut app, "Animate decorations and nameplates");
-    assert!(!app.client.state().cosmetics.effects);
-    assert!(!app.client.state().cosmetics.moving);
-    open(&mut app, Section::Messages);
-    assert_eq!(app.layout.prefs.text_size, Some(2));
-    assert_eq!(app.layout.prefs.animate, Animate::Never);
-    let again = start(&folder, true);
-    assert_eq!(again.layout.prefs.text_size, Some(2));
-    assert_eq!(again.layout.prefs.animate, Animate::Never);
-    assert!(again.layout.collapse_long);
-    assert!(!again.client.state().cosmetics.effects);
-    assert!(!again.client.state().cosmetics.moving);
 }
 
 #[test]

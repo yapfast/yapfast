@@ -60,7 +60,11 @@ what costs is kept out of the view:
   that finds the picture in view, and go after each view that no longer
   shows it; the window's are `Pictures::players`, and the emoji picker's
   tab holds its own, so they go with the tab before the heap is given
-  back. A piece of text plays the custom emoji over its spans through the
+  back. A player keeps the frames it has made, fitted to the window's
+  pixels, and replays them without decoding once it has all of them, when
+  they fit in 16 MiB and in what is left of 32 MiB shared by every player;
+  one that doesn't fit decodes each frame as it falls due. A theme's media
+  look or a scale change starts it again. A piece of text plays the custom emoji over its spans through the
   kit's `piece::Moving`, which `Animated` implements. They play as
   Messages' Animate setting says (`pictures::plays`): always, never, or
   while the window has the focus; held still, each shows its first frame.

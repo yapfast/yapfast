@@ -1,7 +1,7 @@
 # Privacy and accessibility settings
 
 The Content & Social, Data & Privacy, Family Center, Friend Requests,
-Accessibility, Streamer Mode and Activity Privacy pages live in
+Streamer Mode and Activity Privacy pages live in
 `crates/yapfast-iced/src/settings/privacy.rs`. They use native Yapfast form
 cards and the selected theme, without additional images or dependencies.
 They keep no separate preference state. Each native control uses the
@@ -16,7 +16,6 @@ page, so both pages show the same value immediately.
 | Data & Privacy | Removing known tracking parameters from sent links, sending Discord read acknowledgements |
 | Family Center | Official Discord browser handoff only |
 | Friend Requests | Open the existing Requests screen to review incoming and sent requests |
-| Accessibility | Message text size, folding long messages, GIF/emoji/sticker playback, profile effects, animation of decorations and nameplates |
 | Streamer Mode | Desktop notifications, message text in notifications, taskbar flashing and Yapfast interface sound volume |
 | Activity Privacy | Typing indicators, game sharing and reporting idle presence |
 
@@ -49,11 +48,10 @@ The following controls are completed in the official Discord app:
 - Data & Privacy: data use, personalization, profile privacy and data requests.
 - Family Center: setup, connections and activity summaries.
 - Friend Requests: who is allowed to send a request, under Content & Social.
-- Accessibility: Discord's own text-to-speech, contrast and other app settings.
 - Streamer Mode: Discord's identity and invite masking and streaming-software detection.
 - Activity Privacy: audiences, per-server sharing, connected services and activity history.
 
-Changing Discord's own accessibility or streamer settings does not
+Changing Discord's own streamer settings does not
 configure Yapfast. Yapfast's Streamer Mode page has no automatic mode or
 master privacy switch: names, messages and invite links remain visible.
 Hiding notification message text still leaves sender and conversation
@@ -66,13 +64,12 @@ Public references:
 [blocking and privacy](https://support.discord.com/hc/en-us/articles/217916488-Blocking-Privacy-Settings),
 [privacy policy](https://discord.com/privacy/policy/),
 [Family Center](https://support.discord.com/hc/en-us/articles/14155043715735-Family-Center-for-Parents-and-Guardians),
-[accessibility](https://support.discord.com/hc/en-us/articles/1500010454681-Accessibility-Settings-Tab),
 [streamer mode](https://support.discord.com/hc/en-us/articles/218485407-Streamer-Mode-101),
 [activity sharing](https://support.discord.com/hc/en-us/articles/7931156448919-Activity-Sharing-on-Discord-FAQ).
 
 ## Regression coverage
 
-`crates/yapfast-iced/src/tests/settings_privacy.rs` drives all seven pages
+`crates/yapfast-iced/src/tests/settings_privacy.rs` drives all its pages
 with headless fixtures. It checks navigation search, the button messages
 and official destinations, account gating, preference propagation and
 restart persistence, the existing game-sharing command and failure path,

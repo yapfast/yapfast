@@ -300,6 +300,21 @@ impl<'a> Lanes<'a> {
             None => self.timeline.looks.get(row),
         }
     }
+
+    /// Whether `pointed` is a message of the group row `head` starts: its
+    /// author's avatar and decoration play then, as Discord's client plays
+    /// them while the pointer is on any message of the group
+    /// (`ANIMATE_CHAT_AVATAR`, keyed by the group and its author).
+    pub fn group_pointed(self, head: usize, pointed: Option<&str>) -> bool {
+        let Some(pointed) = pointed else {
+            return false;
+        };
+        (head..)
+            .map_while(|row| self.row_look(row))
+            .enumerate()
+            .take_while(|(at, look)| *at == 0 || !look.first)
+            .any(|(_, look)| &*look.item == pointed)
+    }
 }
 
 /// The channel's timeline and the thread's, for what reads rows.

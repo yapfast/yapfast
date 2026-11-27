@@ -1335,7 +1335,8 @@ impl<'a> View<'a> {
             let face = self.cx.face(
                 Face::new(look.avatar.as_deref(), &look.name, 40.0)
                     .opacity(if look.offline() { 0.4 } else { 1.0 })
-                    .decoration(look.decoration.as_deref(), pointed),
+                    .decoration(look.decoration.as_deref(), pointed)
+                    .animate(pointed),
             );
             let area = mouse_area(face)
                 .interaction(iced::mouse::Interaction::Pointer)
@@ -1722,6 +1723,7 @@ impl<'a> View<'a> {
             Face::new(look.avatar.as_deref(), &look.name, avatar)
                 .opacity(if offline { 0.4 } else { 1.0 })
                 .decoration(look.decoration.as_deref(), pointed)
+                .animate(pointed)
                 .frame(frame)
                 .illuminated_member(pointed),
         );
@@ -2174,6 +2176,7 @@ impl<'a> View<'a> {
                 .flatten(),
                 pointed,
             )
+            .animate(pointed && avatar_size > 0.0)
             .dot(
                 (avatar_size > 0.0)
                     .then(|| {

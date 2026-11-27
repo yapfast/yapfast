@@ -31,7 +31,7 @@ pub use theme_keys::ThemeKey;
 pub use theme_page::trial_banner;
 pub mod updates;
 
-pub use pages::{block_game, message_size, open_detected_games_menu};
+pub use pages::{block_game, message_size, open_detected_games_menu, system_motion};
 pub mod voice;
 
 use crate::widgets::scroll_view;
@@ -46,6 +46,7 @@ use crate::{
     app::Message,
     controls::{self, bar},
     ctx::{self, Ctx, Cx, Focus, Request, Screen},
+    desktop::Autostart,
     fonts::BOLD,
     form,
     pictures::Icon,
@@ -64,6 +65,14 @@ pub(crate) use font::FontEvent;
 pub fn appearance_event(event: ThemeEvent) -> Message {
     crate::app::settings(Event::Theme(event))
 }
+
+/// What a preference's change sends.
+#[cfg(test)]
+pub fn pref_message(pref: Pref) -> Message {
+    crate::app::settings(Event::Pref(pref))
+}
+#[cfg(test)]
+pub(crate) use pages::Pref;
 
 /// What a Font event sends.
 #[cfg(test)]
@@ -92,11 +101,11 @@ pub enum Section {
     DataPrivacy,
     FamilyCenter,
     FriendRequests,
-    Accessibility,
     StreamerMode,
     ActivityPrivacy,
     Voice,
     Messages,
+    Accessibility,
     Notifications,
     Discord,
     Sounds,
@@ -125,11 +134,11 @@ impl Section {
             Section::DataPrivacy => "Data & Privacy",
             Section::FamilyCenter => "Family Center",
             Section::FriendRequests => "Friend Requests",
-            Section::Accessibility => "Accessibility",
             Section::StreamerMode => "Streamer Mode",
             Section::ActivityPrivacy => "Activity Privacy",
             Section::Voice => "Voice & Video",
             Section::Messages => "Messages",
+            Section::Accessibility => "Accessibility",
             Section::Notifications => "Notifications",
             Section::Discord => "Discord",
             Section::Sounds => "Sounds",
@@ -148,10 +157,10 @@ impl Section {
             Section::ContentSocial => Icon::MessageCircle,
             Section::DataPrivacy => Icon::Settings,
             Section::FamilyCenter | Section::FriendRequests => Icon::Users,
-            Section::Accessibility => Icon::Help,
             Section::StreamerMode | Section::ActivityPrivacy => Icon::Play,
             Section::Voice => Icon::Mic,
             Section::Messages => Icon::MessageCircle,
+            Section::Accessibility => Icon::Accessibility,
             Section::Notifications => Icon::Bell,
             Section::Discord => Icon::Discord,
             Section::Sounds => Icon::Volume,
@@ -261,7 +270,7 @@ pub struct Settings {
 /// the desktop can: none where they can't.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Platform {
-    pub autostart: Option<bool>,
+    pub autostart: Option<Autostart>,
     pub discord_links: Option<bool>,
 }
 
@@ -482,13 +491,25 @@ impl Settings {
     }
 
     /// Reads what the desktop says of starting at sign-in and Discord's
-    /// links, for Advanced. A Discord build only offers the links.
-    fn read_platform_choices(&mut self, cx: &Cx<'_>) {
+    /// links, for Advanced. A Discord build only offers the links. A startup
+    /// entry that's on says whether Yapfast starts minimized, which is kept
+    /// for when it's turned on again, after Task Manager or the installer
+    /// changed it too.
+    fn read_platform_choices(&mut self, cx: &mut Cx<'_>) {
         let desktop = crate::desktop::desktop();
         self.platform = Platform {
             autostart: desktop.autostart(),
             discord_links: desktop.discord_links(cx.client.root()),
         };
+        let minimized = match self.platform.autostart {
+            Some(Autostart::Tray) => true,
+            Some(Autostart::Window) => false,
+            Some(Autostart::Off) | None => return,
+        };
+        if cx.layout.prefs.start_minimized != minimized {
+            cx.layout.prefs.start_minimized = minimized;
+            cx.keep("start_minimized", minimized);
+        }
     }
 }
 
@@ -571,11 +592,11 @@ impl<'a> Page<'a> {
             Section::DataPrivacy => self.data_privacy_page(),
             Section::FamilyCenter => self.family_center_page(),
             Section::FriendRequests => self.friend_requests_page(),
-            Section::Accessibility => self.accessibility_page(),
             Section::StreamerMode => self.streamer_mode_page(),
             Section::ActivityPrivacy => self.activity_privacy_page(),
             Section::Voice => self.voice_page(),
             Section::Messages => self.messages_page(),
+            Section::Accessibility => self.accessibility_page(),
             Section::Notifications => self.notifications_page(),
             Section::Discord => self.discord_page(),
             Section::Sounds => self.sounds_page(),

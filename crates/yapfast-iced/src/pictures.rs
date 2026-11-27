@@ -398,6 +398,48 @@ impl Player {
         self.due = (due + Duration::from_millis(u64::from(delay))).max(now);
         Some(frame)
     }
+
+    /// Advances a picture playing from cached frames, returning the index of
+    /// the frame that fell due by `now`.
+    pub fn advance(&mut self, now: Instant) -> Option<usize> {
+        let due = self.due()?;
+        if now < due {
+            return None;
+        }
+        let animation = self.picture.animation.as_ref()?;
+        let total = animation.delays.len();
+        if total == 0 {
+            return None;
+        }
+        if self.index >= total {
+            self.played += 1;
+            if animation.plays != 0 && self.played >= animation.plays {
+                return None;
+            }
+            self.index = 0;
+        }
+        let current = self.index;
+        let delay = animation
+            .delays
+            .get(current)
+            .copied()
+            .unwrap_or(100)
+            .max(20);
+        self.index += 1;
+        self.due = (due + Duration::from_millis(u64::from(delay))).max(now);
+        Some(current)
+    }
+
+    /// Releases the frame iterator and underlying file when all frames have
+    /// been cached.
+    pub fn drop_frames(&mut self) {
+        self.frames = Box::new(std::iter::empty());
+    }
+
+    /// How many frames this pass through the animation has shown.
+    pub fn index(&self) -> usize {
+        self.index
+    }
 }
 
 /// Small pictures the client draws for marks: presence dots, in the
@@ -410,15 +452,15 @@ pub enum Mark {
 
 pub use crate::icons::Icon;
 
-/// Whether moving pictures play, as Messages' Animate choice and the
-/// window's focus say, and not while nobody is using Yapfast, whatever
-/// Animate says (`crate::away`); while they don't, each shows its first
-/// frame and nothing asks for frames.
+/// Whether moving pictures play, as Accessibility's Animate choice (or
+/// reduced motion stilling them) and the window's focus say, and not while
+/// nobody is using Yapfast, whatever Animate says (`crate::away`); while
+/// they don't, each shows its first frame and nothing asks for frames.
 pub fn plays(app: &App) -> bool {
     if app.away.inactive {
         return false;
     }
-    match app.layout.prefs.animate {
+    match app.layout.animate() {
         crate::layout::Animate::Focused => app.shell.focused,
         crate::layout::Animate::Always => true,
         crate::layout::Animate::Never => false,
@@ -496,6 +538,10 @@ pub struct Face<'a> {
     pub decoration: Option<&'a str>,
     /// Whether the decoration plays: its row or card is pointed at.
     pub play: bool,
+    /// Whether a Nitro avatar plays its GIF ([`looks::moving_avatar`]),
+    /// once it has come and while pictures play: its row or message group
+    /// is pointed at.
+    pub animate: bool,
     /// The presence dot, the ring's colour, and where the dot goes.
     pub dot: Option<(Presence, u32, Point)>,
     /// A group DM's fallback icon when `url` is `None`.
@@ -513,6 +559,11 @@ pub struct Face<'a> {
     /// Degrees a theme's frame turns about the face's centre (Zine's
     /// member prints); the picture in it stays straight.
     pub turn: f32,
+    /// Discord's typing badge in the presence dot's place while someone
+    /// types: the ring's colour and where the dot goes. It takes the dot's
+    /// presence's colour, or online's with no dot (a group DM's, as
+    /// Discord's).
+    pub typing: Option<(u32, Point)>,
 }
 
 impl<'a> Face<'a> {
@@ -527,6 +578,7 @@ impl<'a> Face<'a> {
             opacity: 1.0,
             decoration: None,
             play: false,
+            animate: false,
             dot: None,
             group: None,
             dot_size: None,
@@ -534,6 +586,7 @@ impl<'a> Face<'a> {
             frame: None,
             initial: None,
             turn: 0.0,
+            typing: None,
         }
     }
 
@@ -571,6 +624,10 @@ impl<'a> Face<'a> {
         }
     }
 
+    pub fn animate(self, animate: bool) -> Self {
+        Self { animate, ..self }
+    }
+
     pub fn dot(self, dot: Option<(Presence, u32, Point)>) -> Self {
         Self { dot, ..self }
     }
@@ -589,6 +646,10 @@ impl<'a> Face<'a> {
 
     pub fn frame(self, frame: Option<&'a yapfast_core::themes::lists::TileArt>) -> Self {
         Self { frame, ..self }
+    }
+
+    pub fn typing(self, typing: Option<(u32, Point)>) -> Self {
+        Self { typing, ..self }
     }
 }
 
@@ -1021,6 +1082,27 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into()
     }
 
+    /// A Nitro avatar at `url` playing its GIF, `size` across, its still
+    /// showing until the first frame; none for a still avatar, while
+    /// pictures are held still, or until the GIF has come.
+    fn moving_avatar(
+        self,
+        url: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Option<Element<'a, Message>> {
+        let square = Size::new(size, size);
+        let moving = self.moving(
+            &looks::moving_avatar(url)?,
+            square,
+            Rectangle::with_size(square),
+            true,
+        )?;
+        let still = self.picture(url, size as u32, size as u32, true);
+        Some(moving.radius(radius).opacity(opacity).still(still).into())
+    }
+
     /// Discord's group-people placeholder icon on `ground` for a group DM
     /// without a custom icon or two-avatar pair.
     pub fn group_placeholder(
@@ -1126,6 +1208,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             opacity,
             decoration,
             play,
+            animate,
             dot,
             group,
             dot_size,
@@ -1133,6 +1216,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             frame,
             initial,
             turn,
+            typing,
         } = face;
         let content = self.themes.content(
             &self.look.theme.id,
@@ -1207,14 +1291,19 @@ impl<'a> crate::ctx::Ctx<'a> {
                     self.group_placeholder(ground, avatar_size, radius, opacity)
                 }
                 (None, Some(GroupFace::Pair(pair))) => self.group_pair(pair, avatar_size, opacity),
-                _ => self.avatar_tinted_exact(
-                    url,
-                    name,
-                    key.unwrap_or(name),
-                    avatar_size,
-                    radius,
-                    opacity,
-                ),
+                _ => url
+                    .filter(|_| animate)
+                    .and_then(|url| self.moving_avatar(url, avatar_size, radius, opacity))
+                    .unwrap_or_else(|| {
+                        self.avatar_tinted_exact(
+                            url,
+                            name,
+                            key.unwrap_or(name),
+                            avatar_size,
+                            radius,
+                            opacity,
+                        )
+                    }),
             }
         };
         let avatar: Element<'a, Message> = match content.and_then(|content| content.avatars.ring) {
@@ -1303,7 +1392,19 @@ impl<'a> crate::ctx::Ctx<'a> {
         {
             layers = layers.push(art);
         }
-        if let Some((presence, ring, at)) = dot
+        if let Some((ring, at)) = typing {
+            // Discord's pill takes the status's colour: the theme's live
+            // green and faint grey, as the dot has them.
+            let theme = self.look.theme;
+            let fill = match dot.map(|(presence, ..)| presence) {
+                Some(Presence::Idle) => hex(0xf0b232),
+                Some(Presence::DoNotDisturb) => hex(0xf23f43),
+                Some(Presence::Offline) => theme.faint,
+                Some(Presence::Online | Presence::Mobile) | None => theme.live,
+            };
+            let scale = dot_size.unwrap_or(16.0).max(1.0) / 16.0;
+            layers = layers.push(crate::typing::badge(fill, hex(ring), self.plays, scale, at));
+        } else if let Some((presence, ring, at)) = dot
             && let Some(dot) = self.mark(Mark::Dot(presence, ring))
         {
             // The phone stands 5 px taller than the dot.
@@ -1420,6 +1521,31 @@ mod tests {
         assert!(player.due().is_some());
         assert!(player.next(Instant::now()).is_none(), "no frame to give");
         assert!(player.due().is_none(), "and none due");
+    }
+
+    #[test]
+    fn advance_steps_through_frames_and_loops() {
+        let gif = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testing/fixtures/gifs/hello.gif"
+        );
+        let picture = yapfast_core::chat::decode_picture_at(std::path::Path::new(gif), 220, 165)
+            .expect("decoded");
+        let total = picture.animation.as_ref().unwrap().delays.len();
+        let mut player = Player::new(&Arc::new(picture)).expect("it moves");
+        player.drop_frames();
+        let mut now = Instant::now();
+        for expected in 0..total {
+            let due = player.due().expect("due");
+            now = now.max(due);
+            let idx = player.advance(now).expect("advanced");
+            assert_eq!(idx, expected);
+        }
+        // Loops back to frame 0
+        let due = player.due().expect("due");
+        now = now.max(due);
+        let idx = player.advance(now).expect("advanced second loop");
+        assert_eq!(idx, 0);
     }
 
     #[test]

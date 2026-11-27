@@ -307,6 +307,8 @@ pub enum Icon {
     Chain,
     Eye,
     EyeOff,
+    /// Watching a stream beside those watched, as Discord's EyePlusIcon.
+    EyePlus,
     Gif,
     Sticker,
     Star,
@@ -340,6 +342,7 @@ pub enum Icon {
     NoiseBars,
     NoiseBarsOff,
     Palette,
+    Accessibility,
     Help,
     /// The window's own title bar: back and forward, minimize, restore.
     ArrowLeft,
@@ -439,6 +442,7 @@ impl Icon {
             Icon::Chain => icon!("link.svg"),
             Icon::Eye => icon!("eye.svg"),
             Icon::EyeOff => icon!("eye-off.svg"),
+            Icon::EyePlus => icon!("eye-plus.svg"),
             Icon::Gif => icon!("gif.svg"),
             Icon::Sticker => icon!("sticker.svg"),
             Icon::Star => icon!("star.svg"),
@@ -565,6 +569,7 @@ impl Icon {
             Icon::ScreenShareOff => icon!("screen-share-off.svg"),
             Icon::Soundboard => icon!("soundboard.svg"),
             Icon::Palette => icon!("palette.svg"),
+            Icon::Accessibility => icon!("accessibility.svg"),
             Icon::Help => icon!("help-circle.svg"),
             Icon::ArrowLeft => icon!("arrow-left.svg"),
             Icon::ArrowRight => icon!("arrow-right.svg"),

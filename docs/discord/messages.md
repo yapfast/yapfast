@@ -557,8 +557,10 @@ Yapfast is back, rather than showing an error.
   server shows as a mention, and clicking it opens the channel, a voice
   channel's chat without joining its call. Any other shows as `#channel`.
 - Who else is typing shows above the composer, for ten seconds after Discord
-  last said so or until their message arrives. Writing tells Discord Alice is
-  typing, at most every eight seconds, unless a setting turns it off.
+  last said so or until their message arrives, and on a DM's row in the DM
+  list, in place of the status dot, whichever conversation is open. Writing
+  tells Discord Alice is typing, at most every eight seconds, unless a
+  setting turns it off.
 - Clicking the account's avatar or name, bottom left, opens a menu of Online,
   Idle, Do Not Disturb and Invisible, as in Discord. Yapfast saves the choice in
   the settings below and sends it with opcode 3. Do Not Disturb holds back
