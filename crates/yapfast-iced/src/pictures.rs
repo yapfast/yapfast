@@ -398,6 +398,48 @@ impl Player {
         self.due = (due + Duration::from_millis(u64::from(delay))).max(now);
         Some(frame)
     }
+
+    /// Advances a picture playing from cached frames, returning the index of
+    /// the frame that fell due by `now`.
+    pub fn advance(&mut self, now: Instant) -> Option<usize> {
+        let due = self.due()?;
+        if now < due {
+            return None;
+        }
+        let animation = self.picture.animation.as_ref()?;
+        let total = animation.delays.len();
+        if total == 0 {
+            return None;
+        }
+        if self.index >= total {
+            self.played += 1;
+            if animation.plays != 0 && self.played >= animation.plays {
+                return None;
+            }
+            self.index = 0;
+        }
+        let current = self.index;
+        let delay = animation
+            .delays
+            .get(current)
+            .copied()
+            .unwrap_or(100)
+            .max(20);
+        self.index += 1;
+        self.due = (due + Duration::from_millis(u64::from(delay))).max(now);
+        Some(current)
+    }
+
+    /// Releases the frame iterator and underlying file when all frames have
+    /// been cached.
+    pub fn drop_frames(&mut self) {
+        self.frames = Box::new(std::iter::empty());
+    }
+
+    /// How many frames this pass through the animation has shown.
+    pub fn index(&self) -> usize {
+        self.index
+    }
 }
 
 /// Small pictures the client draws for marks: presence dots, in the
@@ -1420,6 +1462,31 @@ mod tests {
         assert!(player.due().is_some());
         assert!(player.next(Instant::now()).is_none(), "no frame to give");
         assert!(player.due().is_none(), "and none due");
+    }
+
+    #[test]
+    fn advance_steps_through_frames_and_loops() {
+        let gif = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testing/fixtures/gifs/hello.gif"
+        );
+        let picture = yapfast_core::chat::decode_picture_at(std::path::Path::new(gif), 220, 165)
+            .expect("decoded");
+        let total = picture.animation.as_ref().unwrap().delays.len();
+        let mut player = Player::new(&Arc::new(picture)).expect("it moves");
+        player.drop_frames();
+        let mut now = Instant::now();
+        for expected in 0..total {
+            let due = player.due().expect("due");
+            now = now.max(due);
+            let idx = player.advance(now).expect("advanced");
+            assert_eq!(idx, expected);
+        }
+        // Loops back to frame 0
+        let due = player.due().expect("due");
+        now = now.max(due);
+        let idx = player.advance(now).expect("advanced second loop");
+        assert_eq!(idx, 0);
     }
 
     #[test]
