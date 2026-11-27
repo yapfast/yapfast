@@ -10,8 +10,8 @@ use std::{
 use serde_json::Value;
 
 use super::{
-    Account, BlockedUser, Conversation, DO_NOT_DISTURB, Friend, FriendRequest, Live, Preview,
-    Snapshot, Status, VoiceMember, VoiceServer, marks::Published, now_ms, server,
+    Account, BlockedUser, Conversation, DO_NOT_DISTURB, Friend, FriendRequest, GroupMemberAvatar,
+    Live, Preview, Snapshot, Status, VoiceMember, VoiceServer, marks::Published, now_ms, server,
 };
 use crate::{
     activity::{self, Activities},
@@ -98,6 +98,7 @@ struct VoiceEntry {
     muted: bool,
     deafened: bool,
     server_muted: bool,
+    speaking_blocked: bool,
     server_deafened: bool,
     streaming: bool,
     video: bool,
@@ -154,8 +155,8 @@ pub(super) struct Tracker {
     /// When its friendships began, in Unix milliseconds, by user id.
     friends_since: HashMap<String, u64>,
     /// The server list's order and folders, from the settings.
-    order: Vec<String>,
-    folders: Vec<settings::Folder>,
+    server_list: Arc<settings::ServerList>,
+    favorites: Arc<crate::favorites::Favorites>,
     /// This account's status and custom status, from its settings.
     pub(super) status: String,
     pub(super) custom_status: Option<CustomStatus>,
@@ -246,8 +247,8 @@ impl Tracker {
             ignored: Vec::new(),
             nicknames: HashMap::new(),
             friends_since: HashMap::new(),
-            order: Vec::new(),
-            folders: Vec::new(),
+            server_list: Arc::default(),
+            favorites: Arc::default(),
             status: "online".into(),
             custom_status: None,
             afk_timeout: settings::AFK_TIMEOUT,
@@ -591,12 +592,14 @@ impl Tracker {
                 known.premium_tier = update.premium_tier;
                 known.age_restricted = update.age_restricted;
                 known.role_icons_allowed = update.role_icons_allowed;
+                known.role_gradients_allowed = update.role_gradients_allowed;
                 known.mfa_level = update.mfa_level;
                 known.default_level = update.default_level;
                 known.forwarding_disabled = update.forwarding_disabled;
                 known.verified = update.verified;
                 known.community = update.community;
                 known.rules_channel = update.rules_channel;
+                known.afk_channel = update.afk_channel;
                 // A GUILD_UPDATE may leave these out; that isn't zero boosts.
                 if !data["premium_subscription_count"].is_null() {
                     known.boosts = update.boosts;
@@ -694,8 +697,9 @@ impl Tracker {
                     return false;
                 };
                 private.recipients.retain(|known| known != user);
-                if *event == Event::ChannelRecipientAdd {
+                if *event == Event::ChannelRecipientAdd && user != self.me {
                     private.recipients.push(user.to_owned());
+                    ready::sort_snowflakes(&mut private.recipients);
                 }
                 true
             }
@@ -1124,6 +1128,7 @@ impl Tracker {
                         muted: flag("self_mute"),
                         deafened: flag("self_deaf"),
                         server_muted: flag("mute"),
+                        speaking_blocked: flag("suppress"),
                         server_deafened: flag("deaf"),
                         streaming: flag("self_stream"),
                         video: flag("self_video"),
@@ -1136,16 +1141,17 @@ impl Tracker {
         }
     }
 
-    fn learn_user(&mut self, user: &Value) {
+    fn learn_user(&self, user: &Value) {
         self.write_names().learn_user(user);
     }
 
     /// Adds a DM or group DM from a channel object, learning the users it
     /// carries.
     fn put_private(&mut self, channel: &Value) {
-        let Some(private) = ready::private_channel(channel) else {
+        let Some(mut private) = ready::private_channel(channel) else {
             return;
         };
+        private.recipients.retain(|id| id != &self.me);
         for user in channel["recipients"].as_array().into_iter().flatten() {
             self.learn_user(user);
         }
@@ -1153,15 +1159,13 @@ impl Tracker {
         self.private.push(private);
     }
 
-    /// Whether the snapshot shows `user`'s presence: the DM list shows the
-    /// person of each one-to-one DM, and the friends list each friend.
+    /// Whether the snapshot shows `user`'s presence: the DM list shows
+    /// each person in a DM or group DM, and the friends list each friend.
     fn shows_presence(&self, user: Option<&str>) -> bool {
         self.friends
             .iter()
             .any(|friend| Some(friend.as_str()) == user)
-            || self.private.iter().any(|private| {
-                !private.group && private.recipients.first().map(String::as_str) == user
-            })
+            || user.is_some_and(|user| self.in_private(user))
     }
 
     /// Whether `user` is in a DM or group DM with this account.
@@ -1297,6 +1301,7 @@ impl Tracker {
                     group_icon: None,
                     role_icon: None,
                     boosting_since: None,
+                    color_end: None,
                 }
             })
             .collect();
@@ -1331,7 +1336,11 @@ impl Tracker {
             .filter(|known| known.thread.is_none())
             .and_then(|known| known.parent.as_deref());
         let author = message["author"]["id"].as_str().unwrap_or_default();
-        let unwanted = self.blocked.iter().any(|blocked| blocked == author)
+        let unwanted = self
+            .blocked
+            .iter()
+            .chain(&self.ignored)
+            .any(|id| id == author)
             || self
                 .private
                 .iter()
@@ -1364,6 +1373,7 @@ impl Tracker {
         if let Some(offered) = read.nsfw_commands_in_dms {
             self.nsfw_commands_in_dms = offered;
         }
+        self.favorite_settings(encoded);
         let soundboard = crate::soundboard::read_settings(encoded);
         if let Some(volume) = soundboard.volume {
             self.soundboard_volume = Some(volume);
@@ -1371,11 +1381,64 @@ impl Tracker {
         if let Some(join_sounds) = soundboard.join_sounds {
             self.join_sounds = join_sounds.into();
         }
-        if let Some(list) = settings::server_list(encoded) {
-            self.order = list.order;
-            self.folders = list.folders;
-            self.sort_servers();
+        if let Some(list) = settings::server_list(encoded)
+            && *self.server_list != list
+        {
+            self.set_server_list(Arc::new(list));
         }
+    }
+
+    pub(super) fn favorite_settings(&mut self, encoded: &str) {
+        if let Ok(Some(favorites)) = crate::favorites::read(encoded)
+            && *self.favorites != favorites
+        {
+            self.favorites = Arc::new(favorites);
+        }
+    }
+
+    pub(super) fn file_server(
+        &mut self,
+        server: &str,
+        source_folder: bool,
+        target: &str,
+        folder: bool,
+        before: Option<bool>,
+    ) -> Option<super::ServerListWrite> {
+        let joined = self.servers.iter().map(|server| server.id.as_str());
+        let patch = settings::file_server(
+            &self.server_list,
+            joined,
+            server,
+            source_folder,
+            target,
+            folder,
+            before,
+        )?;
+        let shown = settings::server_list(&patch)?;
+        if *self.server_list == shown {
+            return None;
+        }
+        let shown = Arc::new(shown);
+        let previous = self.server_list.clone();
+        self.set_server_list(shown.clone());
+        Some(super::ServerListWrite {
+            patch,
+            previous,
+            shown,
+        })
+    }
+
+    pub(super) fn restore_server_list(&mut self, change: super::ServerListWrite) -> bool {
+        if !Arc::ptr_eq(&self.server_list, &change.shown) {
+            return false;
+        }
+        self.set_server_list(change.previous);
+        true
+    }
+
+    fn set_server_list(&mut self, list: Arc<settings::ServerList>) {
+        self.server_list = list;
+        self.sort_servers();
     }
 
     /// A server to change, copied first if a snapshot shares it.
@@ -1391,6 +1454,7 @@ impl Tracker {
     /// shows a server just joined.
     fn sort_servers(&mut self) {
         let place: HashMap<&str, usize> = self
+            .server_list
             .order
             .iter()
             .enumerate()
@@ -1620,11 +1684,13 @@ impl Tracker {
                     nickname,
                     since: self.friends_since.get(user).copied(),
                     avatar: names.avatar(None, user),
+                    decoration: names.decoration(None, user),
                     presence: known.map(|known| known.presence),
                     activity: known.and_then(|known| known.activity.clone()),
                     activities: known
                         .map(|known| known.activities.clone())
                         .unwrap_or_default(),
+                    style: names.style(None, user),
                 }
             })
             .collect();
@@ -1696,6 +1762,17 @@ impl Tracker {
         conversations
     }
 
+    /// Whether any other member of a group DM is actively online (desktop,
+    /// web, or mobile).
+    fn group_online(&self, private: &Private) -> bool {
+        private.group
+            && private.recipients.iter().any(|user| {
+                self.presences.get(user).is_some_and(|known| {
+                    matches!(known.presence, Presence::Online | Presence::Mobile)
+                })
+            })
+    }
+
     /// A fingerprint of all [`Self::conversation`] reads, found as it
     /// finds them, so the names it uses stay remembered.
     fn conversation_inputs(&self, private: &Private, marks: Marks, names: &Names) -> u64 {
@@ -1704,7 +1781,16 @@ impl Tracker {
         for user in &private.recipients {
             names.user_name(user).hash(&mut hasher);
         }
-        if let Some(user) = private.recipients.first() {
+        if private.group {
+            self.group_online(private).hash(&mut hasher);
+            if private.icon.is_none()
+                && let [first, second, ..] = private.recipients.as_slice()
+            {
+                for user in [first, second] {
+                    names.avatar_hash(user).hash(&mut hasher);
+                }
+            }
+        } else if let Some(user) = private.recipients.first() {
             (
                 names.avatar_hash(user),
                 self.nicknames.get(user),
@@ -1755,6 +1841,18 @@ impl Tracker {
                 .first()
                 .map(|user| names.avatar(None, user))
         };
+        let group_avatars = if private.group
+            && private.icon.is_none()
+            && let [first, second, ..] = private.recipients.as_slice()
+        {
+            Some([first, second].map(|user| GroupMemberAvatar {
+                id: user.clone(),
+                name: name(user).to_owned(),
+                avatar: names.avatar(None, user),
+            }))
+        } else {
+            None
+        };
         let call = self.calls.contains_key(&private.id);
         let known = (!private.group)
             .then(|| private.recipients.first())
@@ -1772,10 +1870,13 @@ impl Tracker {
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 streaming: false,
                 video: false,
                 elsewhere: false,
+                style: names.style(None, user),
+                tag: names.server_tag(user).cloned(),
             })
             .collect();
         let preview = private
@@ -1786,6 +1887,7 @@ impl Tracker {
             id: private.id.clone(),
             name: title,
             avatar,
+            group_avatars,
             decoration: (!private.group)
                 .then(|| private.recipients.first())
                 .flatten()
@@ -1824,7 +1926,11 @@ impl Tracker {
             muted,
             call,
             ringing,
-            presence: known.map(|known| known.presence),
+            presence: if private.group {
+                self.group_online(private).then_some(Presence::Online)
+            } else {
+                known.map(|known| known.presence)
+            },
             activity: known.and_then(|known| known.activity.clone()),
             activities: known
                 .map(|known| known.activities.clone())
@@ -1920,10 +2026,13 @@ impl Tracker {
                     muted: entry.muted || entry.server_muted,
                     deafened: entry.deafened || entry.server_deafened,
                     server_muted: entry.server_muted,
+                    speaking_blocked: entry.speaking_blocked,
                     server_deafened: entry.server_deafened,
                     streaming: entry.streaming,
                     video: entry.video,
                     elsewhere: *user == self.me && self.elsewhere(entry),
+                    style: names.style(server(guild), user),
+                    tag: names.server_tag(user).cloned(),
                 });
         }
         for members in voice.values_mut() {
@@ -2020,7 +2129,8 @@ impl Tracker {
                 nsfw_commands_in_dms: self.nsfw_commands_in_dms,
             }),
             servers,
-            folders: self.folders.clone(),
+            folders: self.server_list.folders.clone(),
+            favorites: self.favorites.clone(),
             conversations: people.conversations,
             friends: people.friends,
             friend_list: people.friend_list,
@@ -2054,6 +2164,48 @@ mod tests {
 
     use super::*;
 
+    /// Voice states carry no name style or tag: people in voice take
+    /// theirs from what the member list learned, a server's own style
+    /// over the account's, as their member rows do.
+    #[test]
+    fn voice_members_wear_their_tag_and_name_style() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "guilds": [{"id": "10", "properties": {"name": "Test"}, "channels": [
+                {"id": "11", "name": "Lounge", "type": 2, "position": 0},
+            ]}],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        tracker.apply(
+            &Event::ReadySupplemental,
+            &json!({
+                "guilds": [{"id": "10", "voice_states": [
+                    {"user_id": "2", "channel_id": "11"},
+                    {"user_id": "3", "channel_id": "11"},
+                ]}],
+                "merged_members": [[
+                    {"user_id": "2", "user": {
+                        "id": "2", "username": "ann", "global_name": "Ann",
+                        "primary_guild": {"identity_guild_id": "99", "identity_enabled": true, "tag": "GUYS"},
+                        "display_name_styles": {"font_id": 3, "effect_id": 2, "colors": [255]},
+                    }},
+                    {"user_id": "3", "user": {
+                        "id": "3", "username": "bob", "global_name": "Bob",
+                        "display_name_styles": {"font_id": 4, "effect_id": 1, "colors": [255]},
+                    }, "display_name_styles": {"font_id": 8, "effect_id": 3, "colors": [65280]}},
+                ]],
+            }),
+        );
+        let snapshot = tracker.snapshot();
+        let (ann, bob) = (&snapshot.voice["11"][0], &snapshot.voice["11"][1]);
+        assert_eq!(ann.tag.as_ref().map(|tag| &*tag.text), Some("GUYS"));
+        let style = ann.style.as_ref().expect("a name style");
+        assert_eq!((style.font, style.effect), (3, 2));
+        assert_eq!(bob.tag, None);
+        let style = bob.style.as_ref().expect("the server's style");
+        assert_eq!((style.font, style.effect), (8, 3), "the server's own wins");
+    }
+
     #[test]
     fn tracks_voice_channels_and_names() {
         let ready = json!({
@@ -2079,6 +2231,19 @@ mod tests {
         assert_eq!(lounge[0].name, "Annie");
         assert!(lounge[0].avatar.ends_with("/avatars/2/abc.png?size=128"));
         assert!(lounge[0].muted);
+        assert!(!lounge[0].speaking_blocked);
+
+        for suppress in [true, false] {
+            tracker.apply(
+                &Event::VoiceStateUpdate,
+                &json!({"guild_id": "10", "user_id": "2", "channel_id": "11", "suppress": suppress}),
+            );
+            let snapshot = tracker.snapshot();
+            let ann = &snapshot.voice["11"][0];
+            assert_eq!(ann.speaking_blocked, suppress);
+            assert!(!ann.muted);
+            assert!(!ann.server_muted);
+        }
 
         tracker.apply(
             &Event::VoiceStateUpdate,
@@ -2451,11 +2616,22 @@ mod tests {
             .iter()
             .find(|dm| dm.id == "30")
             .unwrap();
-        assert_eq!(group.presence, None, "a group has no one person");
-        // Someone with no one-to-one DM doesn't change the list.
-        assert!(!tracker.apply(
+        assert_eq!(group.presence, None, "idle does not mark a group online");
+        assert!(tracker.apply(
             &Event::PresenceUpdate,
             &json!({"user": {"id": "3"}, "status": "online"})
+        ));
+        let snapshot = tracker.snapshot();
+        let group = snapshot
+            .conversations
+            .iter()
+            .find(|dm| dm.id == "30")
+            .unwrap();
+        assert_eq!(group.presence, Some(Presence::Online));
+        // Someone with no DM or group DM doesn't change the list.
+        assert!(!tracker.apply(
+            &Event::PresenceUpdate,
+            &json!({"user": {"id": "4"}, "status": "online"})
         ));
     }
 
@@ -2510,6 +2686,36 @@ mod tests {
         );
         assert_eq!(presence(&mut tracker), Some(Presence::Online));
         assert!(!tracker.presences.contains_key("3"));
+    }
+
+    #[test]
+    fn favorites_follow_ready_and_partial_updates() {
+        let encoded = crate::favorites::change("", 42, 0, true, false)
+            .unwrap()
+            .unwrap();
+        let ready = json!({"user": {"id": "1", "username": "me"}, "guilds": [], "user_settings_proto": encoded});
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        assert!(tracker.snapshot().favorites.contains(42));
+        let before = tracker.snapshot().favorites;
+        tracker.favorite_settings(&settings::encode_status(&settings::write_status(
+            &[],
+            "idle",
+            1,
+        )));
+        assert_eq!(
+            tracker.status, "online",
+            "a Favorites refresh leaves unrelated settings alone"
+        );
+        tracker.apply(&Event::UserSettingsProtoUpdate, &json!({"settings": {"type": 1, "proto": settings::encode_status(&settings::write_custom(&[], None, 1))}, "partial": true}));
+        assert!(Arc::ptr_eq(&before, &tracker.snapshot().favorites));
+        let cleared = crate::favorites::change(&encoded, 42, 0, false, false)
+            .unwrap()
+            .unwrap();
+        tracker.apply(
+            &Event::UserSettingsProtoUpdate,
+            &json!({"settings": {"type": 1, "proto": cleared}, "partial": true}),
+        );
+        assert!(tracker.snapshot().favorites.entries.is_empty());
     }
 
     #[test]
@@ -2587,6 +2793,34 @@ mod tests {
             ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]
         );
         assert_eq!(tracker.snapshot().folders, [games]);
+
+        // Releasing a server updates the snapshot before the save completes.
+        let change = tracker.file_server("50", false, "7", true, None).unwrap();
+        assert_eq!(
+            order(&tracker),
+            ["Bravo", "Delta", "Alpha", "Echo", "Charlie"]
+        );
+        assert_eq!(tracker.snapshot().folders[0].servers, ["40", "10", "50"]);
+
+        assert!(tracker.restore_server_list(change));
+        assert_eq!(
+            order(&tracker),
+            ["Echo", "Bravo", "Delta", "Alpha", "Charlie"]
+        );
+        assert_eq!(tracker.snapshot().folders[0].servers, ["40", "10"]);
+
+        // A newer server update takes precedence over a failed save.
+        let change = tracker.file_server("50", false, "7", true, None).unwrap();
+        tracker.apply(
+            &Event::UserSettingsProtoUpdate,
+            &json!({"settings": {"type": 1, "proto":
+                settings::write_server_order(&[&[10], &[20], &[30], &[40], &[50]])}}),
+        );
+        assert!(!tracker.restore_server_list(change));
+        assert_eq!(
+            order(&tracker),
+            ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
+        );
     }
 
     #[test]
@@ -3576,5 +3810,136 @@ mod tests {
             &json!({"channel_id": "11", "message_id": "900", "mention_count": 0}),
         );
         assert_eq!(marks(&mut tracker), (false, 0, 900));
+    }
+
+    #[test]
+    fn group_dms_pick_sorted_member_pairs_keep_custom_icons_and_track_online_presence() {
+        let ready = json!({
+            "user": {"id": "1", "username": "me"},
+            "users": [
+                {"id": "2", "username": "ann", "global_name": "Ann", "avatar": "a2"},
+                {"id": "10", "username": "ten", "global_name": "Ten", "avatar": "a10"},
+                {"id": "30", "username": "bob", "global_name": "Bob", "avatar": "a30"},
+                {"id": "5", "username": "cy", "global_name": "Cy", "avatar": "a5"},
+            ],
+            "private_channels": [
+                {"id": "100", "type": 3, "name": "Two", "recipient_ids": ["2"]},
+                {"id": "101", "type": 3, "name": "Five", "recipient_ids": ["30", "10", "5", "2"]},
+                {"id": "102", "type": 3, "name": "Custom", "icon": "customhash", "recipient_ids": ["30", "10", "5"]},
+            ],
+        });
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        let snap = tracker.snapshot();
+        let dm = |id: &str| {
+            snap.conversations
+                .iter()
+                .find(|dm| dm.id == id)
+                .unwrap()
+                .clone()
+        };
+
+        // 2-member group DM (self + 1 recipient), no custom icon.
+        let two = dm("100");
+        assert!(two.group && two.people == 2);
+        assert_eq!(two.avatar, None);
+        assert_eq!(two.group_avatars, None);
+        assert_eq!(two.presence, None);
+
+        // >2-member group DM, no custom icon -> sorted snowflake pair ["2", "5"].
+        let five = dm("101");
+        assert!(five.group && five.people == 5);
+        assert_eq!(five.avatar, None);
+        let pair = five.group_avatars.as_ref().expect("two member avatars");
+        assert_eq!(pair[0].id, "2");
+        assert_eq!(pair[0].name, "Ann");
+        assert!(pair[0].avatar.ends_with("/avatars/2/a2.png?size=128"));
+        assert_eq!(pair[1].id, "5");
+        assert_eq!(pair[1].name, "Cy");
+        assert!(pair[1].avatar.ends_with("/avatars/5/a5.png?size=128"));
+
+        // Custom icon overrides fallback pair even with >2 members.
+        let custom = dm("102");
+        assert!(
+            custom
+                .avatar
+                .as_deref()
+                .is_some_and(|url| url.contains("/channel-icons/102/customhash.png"))
+        );
+        assert_eq!(custom.group_avatars, None);
+
+        // Mobile online counts as online (green dot) for group DMs; idle/dnd do not.
+        tracker.apply(
+            &Event::ReadySupplemental,
+            &json!({
+                "lazy_private_channels": [
+                    {"id": "103", "type": 3, "name": "Lazy", "recipient_ids": ["30", "5", "10"]}
+                ],
+                "merged_presences": {"friends": [], "guilds": [[
+                    {"user_id": "2", "status": "online", "client_status": {"mobile": "online"}},
+                    {"user_id": "10", "status": "dnd"},
+                ]]},
+            }),
+        );
+        let snap = tracker.snapshot();
+        let find = |id: &str| snap.conversations.iter().find(|dm| dm.id == id).unwrap();
+        assert_eq!(find("100").presence, Some(Presence::Online));
+        assert_eq!(find("101").presence, Some(Presence::Online));
+        assert_eq!(find("102").presence, None);
+        let lazy_pair = find("103").group_avatars.as_ref().unwrap();
+        assert_eq!(
+            [lazy_pair[0].id.as_str(), lazy_pair[1].id.as_str()],
+            ["5", "10"]
+        );
+
+        // Recipient add/remove updates sorted pair and falls back to 2-member when down to 1 other.
+        tracker.apply(
+            &Event::ChannelRecipientAdd,
+            &json!({"channel_id": "103", "user": {"id": "3", "username": "amy", "avatar": "a3"}}),
+        );
+        let snap = tracker.snapshot();
+        let lazy_pair = snap
+            .conversations
+            .iter()
+            .find(|dm| dm.id == "103")
+            .unwrap()
+            .group_avatars
+            .as_ref()
+            .unwrap();
+        assert_eq!(
+            [lazy_pair[0].id.as_str(), lazy_pair[1].id.as_str()],
+            ["3", "5"]
+        );
+
+        for gone in ["3", "5", "10"] {
+            tracker.apply(
+                &Event::ChannelRecipientRemove,
+                &json!({"channel_id": "103", "user": {"id": gone}}),
+            );
+        }
+        let snap = tracker.snapshot();
+        let lazy = snap.conversations.iter().find(|dm| dm.id == "103").unwrap();
+        assert_eq!(lazy.people, 2);
+        assert_eq!(lazy.group_avatars, None);
+
+        // CHANNEL_UPDATE setting or clearing custom icon toggles group_avatars.
+        tracker.apply(
+            &Event::ChannelUpdate,
+            &json!({"id": "101", "type": 3, "name": "Five", "icon": "newhash",
+                    "recipients": [{"id": "30"}, {"id": "5"}, {"id": "10"}, {"id": "2"}]}),
+        );
+        let snap = tracker.snapshot();
+        let five = snap.conversations.iter().find(|dm| dm.id == "101").unwrap();
+        assert!(five.avatar.as_deref().unwrap().contains("newhash"));
+        assert_eq!(five.group_avatars, None);
+
+        tracker.apply(
+            &Event::ChannelUpdate,
+            &json!({"id": "101", "type": 3, "name": "Five", "icon": null,
+                    "recipients": [{"id": "30"}, {"id": "5"}, {"id": "10"}, {"id": "2"}]}),
+        );
+        let snap = tracker.snapshot();
+        let five = snap.conversations.iter().find(|dm| dm.id == "101").unwrap();
+        assert_eq!(five.avatar, None);
+        assert!(five.group_avatars.is_some());
     }
 }

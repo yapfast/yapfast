@@ -36,8 +36,9 @@ pub struct Launch {
 /// A running Yapfast's hold on its folder, while it's the first there.
 #[derive(Default)]
 pub struct Instance {
-    _lock: Option<File>,
     listener: Option<Listener>,
+    // Drop the listener before another process can claim the folder.
+    _lock: Option<File>,
 }
 
 /// Starts Yapfast on `root`. With another running there and `alone`, hands
@@ -290,7 +291,7 @@ mod windows {
         event: usize,
         stop: usize,
         root: std::path::PathBuf,
-        listening: bool,
+        thread: Option<std::thread::JoinHandle<()>>,
     }
 
     impl Listener {
@@ -323,7 +324,7 @@ mod windows {
                 event: event as usize,
                 stop: stop as usize,
                 root: root.to_owned(),
-                listening: false,
+                thread: None,
             })
         }
 
@@ -334,10 +335,10 @@ mod windows {
                 .name("yapfast-instance".into())
                 .stack_size(64 * 1024)
                 .spawn(move || {
-                    let handles = [event as HANDLE, stop as HANDLE];
-                    // SAFETY: both handles stay open until this thread closes them.
+                    let handles = [stop as HANDLE, event as HANDLE];
+                    // SAFETY: the listener keeps both handles open until it joins this thread.
                     while unsafe { WaitForMultipleObjects(2, handles.as_ptr(), 0, INFINITE) }
-                        == WAIT_OBJECT_0
+                        == WAIT_OBJECT_0 + 1
                     {
                         let links = super::drain_link_queue(&root);
                         if links.is_empty() {
@@ -351,14 +352,9 @@ mod windows {
                             }
                         }
                     }
-                    // SAFETY: Drop only sets `stop` once this thread runs.
-                    unsafe {
-                        CloseHandle(handles[0]);
-                        CloseHandle(handles[1]);
-                    }
                 });
             match thread {
-                Ok(_) => self.listening = true,
+                Ok(thread) => self.thread = Some(thread),
                 Err(error) => {
                     tracing::warn!(%error, "starting Yapfast again can't show this window");
                 }
@@ -368,14 +364,15 @@ mod windows {
 
     impl Drop for Listener {
         fn drop(&mut self) {
-            // SAFETY: the handles are open: the thread closes them only after `stop`.
+            if let Some(thread) = self.thread.take() {
+                // SAFETY: this listener owns the stop handle.
+                unsafe { SetEvent(self.stop as HANDLE) };
+                let _ = thread.join();
+            }
+            // SAFETY: the listener owns the handles and the thread has stopped.
             unsafe {
-                if self.listening {
-                    SetEvent(self.stop as HANDLE);
-                } else {
-                    CloseHandle(self.event as HANDLE);
-                    CloseHandle(self.stop as HANDLE);
-                }
+                CloseHandle(self.event as HANDLE);
+                CloseHandle(self.stop as HANDLE);
             }
         }
     }
@@ -444,47 +441,14 @@ fn clear_link_queue(root: &Path) {
     let _ = std::fs::remove_dir_all(root.join(LINK_QUEUE));
 }
 
-/// The token a later start brought, for the window made next.
-#[cfg(target_os = "linux")]
-static TOKEN: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// The window made next takes the focus with `token`.
-pub fn give_next_window(token: Option<String>) {
-    #[cfg(target_os = "linux")]
-    {
-        *TOKEN
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = token;
-    }
-    #[cfg(not(target_os = "linux"))]
-    let _ = token;
-}
-
-/// Gives the window Slint makes the token a later start brought, if one waits.
-pub fn attributes(
-    attributes: slint::winit_030::winit::window::WindowAttributes,
-) -> slint::winit_030::winit::window::WindowAttributes {
-    #[cfg(target_os = "linux")]
-    if let Some(token) = TOKEN
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take()
-    {
-        use slint::winit_030::winit::{
-            platform::startup_notify::WindowAttributesExtStartupNotify, window::ActivationToken,
-        };
-        return attributes.with_activation_token(ActivationToken::from_raw(token));
-    }
-    attributes
-}
-
 /// Brings a shown window forward with the token a later start brought, on
 /// Wayland, where winit can't give one to a window it already made.
 #[cfg(target_os = "linux")]
-pub fn activate(window: &slint::winit_030::winit::window::Window, token: &str) {
-    use slint::winit_030::winit::raw_window_handle::{
-        HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-    };
+pub fn activate(
+    window: &(impl raw_window_handle::HasDisplayHandle + raw_window_handle::HasWindowHandle + ?Sized),
+    token: &str,
+) {
+    use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
     use wayland_client::{
         Connection, Dispatch, Proxy, QueueHandle,
         backend::{Backend, ObjectId},
@@ -530,6 +494,7 @@ pub fn activate(window: &slint::winit_030::winit::window::Window, token: &str) {
     let connection = Connection::from_backend(unsafe {
         Backend::from_foreign_display(display.display.as_ptr().cast())
     });
+    // SAFETY: the surface is the window's, alive as the display is.
     let surface =
         unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.surface.as_ptr().cast()) }
             .and_then(|id| WlSurface::from_id(&connection, id));

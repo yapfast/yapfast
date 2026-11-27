@@ -27,6 +27,23 @@ fn grant_mods(app: &mut Application, extra: u64) {
     });
 }
 
+#[test]
+fn scheduling_events_takes_create_events_or_administrator() {
+    use crate::chat::Permission::CreateEvents;
+    use yapfast_discord::ready::permission;
+    let mut app = discord_server();
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::CREATE_EVENTS);
+    assert!(app.may("discord:10", CreateEvents));
+    // Discord's client asks for Create Events alone.
+    grant_mods(&mut app, permission::MANAGE_EVENTS);
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::MANAGE_GUILD);
+    assert!(!app.may("discord:10", CreateEvents));
+    grant_mods(&mut app, permission::ADMINISTRATOR);
+    assert!(app.may("discord:10", CreateEvents));
+}
+
 fn profile(name: &str) -> ServerProfile {
     ServerProfile {
         name: name.into(),
@@ -471,13 +488,7 @@ fn boost_perks_unlock_each_picture_at_its_level() {
 fn a_held_back_request_asks_for_two_factor_authentication() {
     let mut app = discord_server();
     let methods = vec![MfaMethod::Passkey, MfaMethod::App, MfaMethod::Sms];
-    assert!(
-        app.apply(Event::MfaRequired {
-            id: 7,
-            methods: methods.clone()
-        })
-        .is_empty()
-    );
+    assert!(app.apply(Event::MfaRequired { id: 7, methods }).is_empty());
     let prompt = app.mfa_prompt().unwrap();
     assert_eq!(
         prompt.method,
@@ -788,12 +799,18 @@ fn making_copying_and_deleting_go_at_once_and_open_what_they_made() {
     assert!(app.state.server_settings.as_ref().unwrap().saving);
     let mut made = roles();
     made.roles.insert(3, detail("50", "new role", 1, 0));
+    for role in &mut made.roles {
+        role.members = 0;
+    }
     made.open = Some("50".into());
     app.apply(Event::ServerSettingsSaved {
         server: "discord:10".into(),
         result: Ok(ServerSettingsPage::Roles(made)),
     });
     assert_eq!(roles_of(&app).open.as_ref().unwrap().id, "50");
+    assert!(!app.state.server_settings.as_ref().unwrap().saving);
+    assert_eq!(roles_of(&app).role("30").unwrap().members, 1);
+    assert_eq!(roles_of(&app).role("50").unwrap().members, 0);
 
     // A copy is named as Discord names it; Bot, managed, has none.
     let RoleAction::Duplicate { role, name } =
@@ -844,7 +861,6 @@ fn manage_members_lists_adds_and_removes_members() {
         server: "discord:10".into(),
         role: "30".into(),
         result: Ok(vec![member("2", "Bob"), member("3", "Carol")]),
-        count: None,
     });
     app.dispatch(Action::Roles(RoleInput::MemberSearch("car".into())));
     assert_eq!(roles_of(&app).shown_members().len(), 1);
@@ -859,7 +875,11 @@ fn manage_members_lists_adds_and_removes_members() {
         server: "discord:10".into(),
         role: "30".into(),
         result: Ok(vec![member("2", "Bob")]),
-        count: Some(1),
+    });
+    app.apply(Event::RoleCount {
+        server: "discord:10".into(),
+        role: "30".into(),
+        count: 1,
     });
 
     // Add Members finds those without the role.

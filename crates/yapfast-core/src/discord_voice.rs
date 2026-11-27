@@ -27,7 +27,7 @@ use crate::{
     stream_worker::{self, Report, Worker},
     voice::{
         CameraPhase, Chosen, Command, Link, LinkStats, Participant, Phase, Quality, SharePhase,
-        Sharing, State, StreamQuality, StreamStats, Watching, devices,
+        Sharing, State, StreamQuality, StreamStats, WatchStats, Watching, devices,
     },
 };
 
@@ -57,7 +57,7 @@ impl Share {
         } else {
             stream_worker::Source::Screen
         };
-        let (worker, frames, reports) = Worker::share(source, quality)?;
+        let (worker, frames, reports) = Worker::share(source, quality, state.stream_audio)?;
         state.sharing = Some(Sharing {
             phase: SharePhase::Choosing,
             frames: Arc::new(frames),
@@ -95,7 +95,7 @@ impl Share {
                             error = format!("{error:#}"),
                             attempt,
                             "could not upload the stream's preview"
-                        )
+                        );
                     }
                 }
             }
@@ -352,20 +352,20 @@ pub(crate) async fn call(
     );
     let mut discord_states = discord.snapshots();
     let me = discord_states.borrow().user_id.clone().unwrap_or_default();
-    state.name = call_name(&discord_states.borrow(), guild, channel)
+    call_name(&discord_states.borrow(), guild, channel)
         .unwrap_or(if guild == PRIVATE {
             "Discord call"
         } else {
             "Discord voice"
         })
-        .to_owned();
+        .clone_into(&mut state.name);
     snapshots.send_replace(state.clone());
 
     let (ended, mut endings) = mpsc::unbounded_channel();
     let hearing = Arc::new(Hearing::new(ended));
     // From before joining, so that a move while connecting is heard.
     let mut live = discord.live();
-    let mut joining: Joining = Box::pin(async {
+    let mut joining: Joining<'_> = Box::pin(async {
         let server = discord
             .join(guild, channel)
             .await
@@ -447,8 +447,10 @@ pub(crate) async fn call(
     let mut ringback: Option<Ringer> = None;
     // Discord wouldn't ring them, which the call says until someone comes.
     let mut unrung = false;
-    // How the shared screen last said it goes out, and when.
+    // How the shared screen last said it goes out, and the watched stream
+    // how it comes in, and when.
     let sending: Arc<std::sync::Mutex<Option<(std::time::Instant, StreamStats)>>> = Arc::default();
+    let receiving: Arc<std::sync::Mutex<Option<(std::time::Instant, WatchStats)>>> = Arc::default();
     let mut soundboard = Soundboard::start(discord, guild);
     let (sound_events, mut sounds) = mpsc::unbounded_channel();
     {
@@ -480,10 +482,11 @@ pub(crate) async fn call(
         state.phase = Phase::Connected;
         let link = call.stats();
         state.link = Some(Link::new({
-            let (link, sending) = (link.clone(), sending.clone());
+            let (link, sending, receiving) = (link.clone(), sending.clone(), receiving.clone());
             move || {
                 let read = link.read();
                 let sending = sending.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                let receiving = receiving.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 LinkStats {
                     pings: read.pings.into(),
                     loss: read.loss,
@@ -493,13 +496,18 @@ pub(crate) async fn call(
                         .as_ref()
                         .filter(|(said, _)| said.elapsed() < SENDING_STALE)
                         .map(|(_, stats)| stats.clone()),
+                    // And while a stream is watched.
+                    watching: receiving
+                        .as_ref()
+                        .filter(|(said, _)| said.elapsed() < SENDING_STALE)
+                        .map(|(_, stats)| stats.clone()),
                 }
             }
         }));
         if guild == PRIVATE && alone(&discord_states.borrow(), &channel, &me) {
             // Starting a DM call, rather than joining one, rings the others,
             // once Discord has the call: it rings only in one.
-            let (discord, channel) = (discord.clone(), channel.to_owned());
+            let (discord, channel) = (discord.clone(), channel.clone());
             ringing = Some(Box::pin(async move {
                 let mut states = discord.snapshots();
                 let started = states.wait_for(|snapshot| {
@@ -529,7 +537,7 @@ pub(crate) async fn call(
                 &hearing.speaking(),
                 talking,
                 filming.as_ref().map(|filming| &filming.feed),
-                &mut cameras,
+                &cameras,
             );
             cameras.ask(&mut call, participants.iter().filter(|person| !person.local).count());
             if participants != state.participants {
@@ -542,7 +550,8 @@ pub(crate) async fn call(
             }
             if let Some(until) = join_sound {
                 let snapshot = discord_states.borrow().clone();
-                let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                // Discord's client also keeps the soundboard from one it suppresses.
+                let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                 let found = crate::soundboard::join_sound(&snapshot, guild).map(|join| {
                     soundboard
                         .find(&snapshot, &me, guild, &channel, &join.sound)
@@ -601,34 +610,40 @@ pub(crate) async fn call(
                         Some(Command::Mute(true)) => {
                             capture = None;
                             state.muted = true;
+                            state.unmute_on_undeafen = false;
                         }
-                        Some(Command::Mute(false)) => {
+                        Some(command @ (Command::Mute(false) | Command::Deafen(false))) => {
                             // Unmuting while deafened means wanting to talk, which needs hearing too.
+                            // Undeafening unmutes only one who wasn't muted when deafening.
+                            let unmute = std::mem::take(&mut state.unmute_on_undeafen)
+                                || matches!(command, Command::Mute(false));
                             if state.deafened {
                                 state.deafened = false;
                                 hearing.set_deafened(false);
                                 Watch::hear(&mut watches, true);
                             }
-                            match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
-                                Ok(opened) => {
-                                    capture = Some(opened);
-                                    state.muted = false;
-                                    state.error = None;
-                                }
-                                Err(error) => {
-                                    state.muted = true;
-                                    state.error = Some(error.to_string());
+                            if unmute {
+                                match open_discord_microphone(state, &reverse, &microphone, &track, &microphone_thread) {
+                                    Ok(opened) => {
+                                        capture = Some(opened);
+                                        state.muted = false;
+                                        state.error = None;
+                                    }
+                                    Err(error) => {
+                                        state.muted = true;
+                                        state.error = Some(error.to_string());
+                                    }
                                 }
                             }
                         }
-                        Some(Command::Deafen(deafened)) => {
-                            if deafened {
-                                capture = None;
-                                state.muted = true;
-                            }
-                            state.deafened = deafened;
-                            hearing.set_deafened(deafened);
-                            Watch::hear(&mut watches, !deafened);
+                        Some(command @ (Command::Deafen(true) | Command::DeafenUnmuted)) => {
+                            // The user's own mute stays as it was beneath the deafening, as in Discord's client.
+                            state.unmute_on_undeafen |= !state.muted || matches!(command, Command::DeafenUnmuted);
+                            capture = None;
+                            state.muted = true;
+                            state.deafened = true;
+                            hearing.set_deafened(true);
+                            Watch::hear(&mut watches, false);
                         }
                         Some(Command::Devices) => { let _ = devices(state); }
                         Some(Command::Microphone(id)) => {
@@ -676,6 +691,15 @@ pub(crate) async fn call(
                             }
                             state.camera_phase = CameraPhase::Off;
                         }
+                        Some(Command::StreamAudio(audio)) => {
+                            state.share_audio(audio);
+                            Chosen::write(remembered, state);
+                            if let Some(going) = share.as_mut()
+                                && let Err(error) = going.worker.tell(&stream_worker::Control::Audio(audio))
+                            {
+                                state.error = Some(format!("Could not change stream audio: {error:#}"));
+                            }
+                        }
                         Some(Command::GoLive(quality)) => {
                             if share.is_none() {
                                 state.quality = quality;
@@ -719,7 +743,7 @@ pub(crate) async fn call(
                         // Played here at once, as Discord's client does,
                         // which leaves out the effect Discord sends back.
                         Some(Command::Soundboard(id)) => {
-                            let server_muted = state.participants.iter().any(|person| person.local && person.server_muted);
+                            let server_muted = state.participants.iter().any(|person| person.local && (person.server_muted || person.speaking_blocked));
                             let found = soundboard.find(&discord_states.borrow(), &me, guild, &channel, &id);
                             if let Some(sound) = found.filter(|_| !state.deafened && !server_muted) {
                                 let gain = crate::soundboard::gain(&discord_states.borrow());
@@ -780,6 +804,7 @@ pub(crate) async fn call(
                 }
                 report = next_report(&mut share) => {
                     match report {
+                        Some(Report::AudioError(error)) => state.error = Some(error),
                         Some(Report::Ready) => {
                             if let Some(sharing) = &state.sharing {
                                 sharing.frames.unlink();
@@ -793,7 +818,7 @@ pub(crate) async fn call(
                                 if let Some(going) = share.as_mut() {
                                     going.key = Some(stream::key(guild, &channel, &me));
                                 }
-                                let (discord, guild, channel) = (discord.clone(), guild.to_owned(), channel.to_owned());
+                                let (discord, guild, channel) = (discord.clone(), guild.to_owned(), channel.clone());
                                 starting = Some(Box::pin(async move { discord.go_live(&guild, &channel).await }));
                             }
                         }
@@ -814,9 +839,10 @@ pub(crate) async fn call(
                                 Some((std::time::Instant::now(), stats));
                             continue;
                         }
-                        // Only a video's worker reports these.
+                        // Only a video's worker, or a watching one, reports these.
                         Some(
-                            Report::Opened { .. }
+                            Report::Receiving(_)
+                            | Report::Opened { .. }
                             | Report::Needs { .. }
                             | Report::Finished
                             | Report::Screen { .. },
@@ -920,9 +946,14 @@ pub(crate) async fn call(
                                 watching.opening = false;
                             }
                         }
+                        WatchEvent::Report(Some(Report::Receiving(stats))) => {
+                            *receiving.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                Some((std::time::Instant::now(), stats));
+                        }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
-                            Report::Sharing { .. }
+                            Report::AudioError(_)
+                            | Report::Sharing { .. }
                             | Report::Sending(_)
                             | Report::Preview { .. }
                             | Report::Opened { .. }
@@ -1060,7 +1091,7 @@ pub(crate) async fn call(
                     if let Some(name) = call_name(&discord_states.borrow(), guild, &channel)
                         && name != state.name
                     {
-                        state.name = name.to_owned();
+                        name.clone_into(&mut state.name);
                         snapshots.send_replace(state.clone());
                     }
                 }
@@ -1145,7 +1176,10 @@ fn open_discord_microphone(
 /// Everyone in the Discord voice channel, this account first, with a feed
 /// for each camera on: this account's `own`, and the others' from
 /// `cameras`, which keeps one for each who films.
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each says something about a different person"
+)]
 fn discord_participants(
     snapshot: &yapfast_discord::service::Snapshot,
     channel: &str,
@@ -1154,7 +1188,7 @@ fn discord_participants(
     speaking: &[u64],
     talking: bool,
     own: Option<&crate::picture::Feed>,
-    cameras: &mut Cameras,
+    cameras: &Cameras,
 ) -> Vec<Participant> {
     let members = snapshot.voice.get(channel).into_iter().flatten();
     let filming: Vec<u64> = members
@@ -1191,19 +1225,28 @@ fn discord_participants(
                     member.deafened
                 },
                 server_muted: member.server_muted,
+                speaking_blocked: member.speaking_blocked,
                 server_deafened: member.server_deafened,
-                speaking: if local {
-                    talking && !state.muted
-                } else {
-                    member
-                        .user_id
-                        .parse()
-                        .is_ok_and(|user: u64| speaking.contains(&user))
-                },
+                speaking: !member.speaking_blocked
+                    && if local {
+                        talking && !state.muted
+                    } else {
+                        member
+                            .user_id
+                            .parse()
+                            .is_ok_and(|user: u64| speaking.contains(&user))
+                    },
                 connected: true,
                 problem: None,
                 avatar: Some(member.avatar.clone()),
-                streaming: member.streaming,
+                // This account's own stream is live once its worker reports
+                // it, before Discord's voice state says so, if it does.
+                streaming: member.streaming
+                    || (local
+                        && state
+                            .sharing
+                            .as_ref()
+                            .is_some_and(|sharing| sharing.phase == SharePhase::Live)),
                 video,
             }
         })
@@ -1228,6 +1271,7 @@ fn discord_participants(
                 muted: false,
                 deafened: false,
                 server_muted: false,
+                speaking_blocked: false,
                 server_deafened: false,
                 speaking: false,
                 connected: false,
@@ -1247,7 +1291,7 @@ fn moved_to(state: &mut State, snapshot: &Snapshot, guild: &str, channel: &str) 
     tracing::info!("moved to another voice channel");
     state.room = Some(crate::discord::room_id(guild, channel));
     if let Some(name) = call_name(snapshot, guild, channel) {
-        state.name = name.to_owned();
+        name.clone_into(&mut state.name);
     }
 }
 

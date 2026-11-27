@@ -197,7 +197,7 @@ impl Application {
     /// it turns it off too, and with none followed yet, follows every
     /// channel this account sees but one cleared. The boxes change when
     /// Discord confirms it.
-    pub(super) fn browse_follow(&mut self, room: String, follow: bool) -> Vec<Effect> {
+    pub(super) fn browse_follow(&self, room: String, follow: bool) -> Vec<Effect> {
         let Some(row) = self
             .state
             .browse

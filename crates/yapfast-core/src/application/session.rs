@@ -119,7 +119,12 @@ impl Application {
             editor.error = Some(STOPPED.into());
         }
         let views = [&mut self.state.profile, &mut self.state.panel_profile];
-        for view in views.into_iter().flatten().filter(|view| view.loading) {
+        for view in views
+            .into_iter()
+            .flatten()
+            .filter(|view| view.loading)
+            .map(Arc::make_mut)
+        {
             view.loading = false;
             view.note = Some("Discord didn't share the rest of this profile.".into());
         }
@@ -141,6 +146,7 @@ impl Application {
     pub(super) fn reset(&mut self) {
         let selection_version = self.state.selection_version.wrapping_add(1);
         let reset_version = self.state.reset_version.wrapping_add(1);
+        let people_changes = self.state.people_changes.wrapping_add(1);
         let reaction_uses = std::mem::take(&mut self.reaction_uses);
         let pinned = std::mem::take(&mut self.state.pinned);
         *self = Self::default();
@@ -148,5 +154,6 @@ impl Application {
         self.state.pinned = pinned;
         self.state.selection_version = selection_version;
         self.state.reset_version = reset_version;
+        self.state.people_changes = people_changes;
     }
 }

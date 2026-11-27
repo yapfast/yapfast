@@ -23,6 +23,7 @@
 
 use std::{
     collections::HashMap,
+    fmt::Write as _,
     io::Write,
     path::{Path, PathBuf},
     sync::{
@@ -42,7 +43,11 @@ pub enum Target {
     /// The AppImage at this path.
     AppImage { asset: Asset, current: PathBuf },
     /// The installed program at this path.
-    Installer { asset: Asset, program: PathBuf },
+    Installer {
+        asset: Asset,
+        program: PathBuf,
+        download_dir: PathBuf,
+    },
 }
 
 impl Target {
@@ -57,20 +62,51 @@ impl Target {
     pub fn part(&self) -> PathBuf {
         match self {
             Target::AppImage { current, .. } => current.with_file_name(".yapfast-update.part"),
-            Target::Installer { asset, .. } => std::env::temp_dir()
-                .join("yapfast-update")
-                .join(&asset.name),
+            Target::Installer {
+                asset,
+                download_dir,
+                ..
+            } => download_dir.join(&asset.name),
         }
     }
 }
 
-/// The release's file for this install. The reason it has none is the text
-/// About shows beside Update and restart's absence.
+/// What this build's release files are named with after the version: the
+/// Matrix (full) preview's, or nothing for the release. An update installs
+/// its own flavour's file and never another's.
+pub const FLAVOUR: &str = if cfg!(feature = "matrix") {
+    "-full-preview"
+} else {
+    ""
+};
+
+/// Every flavour's suffix but the release's, which has none.
+const FLAVOURS: [&str; 1] = ["-full-preview"];
+
+/// Whether a release file `name` is `flavour`'s file for this platform,
+/// whose names end in `platform`: `Yapfast-0.5.0-x86_64.AppImage` is the
+/// release's and `Yapfast-0.5.0-full-preview-x86_64.AppImage` the full
+/// preview's, though both end the same.
+fn of_flavour(name: &str, platform: &str, flavour: &str) -> bool {
+    let Some(stem) = name.strip_suffix(platform) else {
+        return false;
+    };
+    let named = FLAVOURS
+        .into_iter()
+        .find(|known| stem.ends_with(known))
+        .unwrap_or("");
+    named == flavour
+}
+
+/// The release's file for this install, of this build's `flavour`. The
+/// reason it has none is the text About shows beside Update and restart's
+/// absence.
 pub fn target_for(
     release: &Release,
     source: Source,
     program: &Path,
     appimage: Option<&Path>,
+    flavour: &str,
 ) -> Result<Target, String> {
     let suffix = match source {
         Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
@@ -88,7 +124,7 @@ pub fn target_for(
     let asset = release
         .assets
         .iter()
-        .find(|asset| asset.name.ends_with(suffix))
+        .find(|asset| of_flavour(&asset.name, suffix, flavour))
         .ok_or_else(|| match source {
             Source::Installer => "There's no Windows installer for this version yet.".to_owned(),
             _ => "There's no AppImage for this version yet.".to_owned(),
@@ -123,6 +159,7 @@ pub fn target_for(
             Ok(Target::Installer {
                 asset,
                 program: program.to_path_buf(),
+                download_dir: std::env::temp_dir().join("yapfast-update"),
             })
         }
     }
@@ -143,7 +180,7 @@ pub fn target(release: &Release) -> Result<Target, String> {
     {
         source = Source::Installer;
     }
-    target_for(release, source, &program, appimage.as_deref())
+    target_for(release, source, &program, appimage.as_deref(), FLAVOUR)
 }
 
 /// Whether a file can be made in `folder`.
@@ -292,11 +329,16 @@ async fn download(
             .fetch_add(chunk.len() as u64, Ordering::Relaxed);
     }
     file.sync_all().map_err(|error| error.to_string())?;
-    Ok(hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect())
+    Ok(hex(&hasher.finalize()))
+}
+
+/// Bytes as lower-case hexadecimal.
+fn hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
 }
 
 /// Runs the downloaded AppImage's `--smoke-test` to see that it starts here,
@@ -333,7 +375,7 @@ fn smoke_test(program: &Path) -> Result<(), String> {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Prepared {
     /// The AppImage was replaced; start this file.
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(not(unix), allow(dead_code, reason = "only Unix replaces an AppImage"))]
     Replaced(PathBuf),
     /// The installer is checked and waiting; running it replaces the program.
     Installer {
@@ -414,7 +456,7 @@ async fn prepare_in(
                 Err("AppImages are for Linux.".into())
             }
         }
-        Target::Installer { asset, program } => {
+        Target::Installer { asset, program, .. } => {
             let installer = part.with_file_name(&asset.name);
             std::fs::rename(part, &installer).map_err(|error| error.to_string())?;
             progress.stage(Stage::Installing);
@@ -454,9 +496,10 @@ pub fn windows_command(
     }
     // Inno Setup's own switches: no pages, no message boxes, no restart, and
     // the running program closed (it has quit already, so it's belt and braces).
+    // Skip the startup task so the installer preserves the user's Run entry.
     let log_switch = format!("/LOG={log}");
     Some(format!(
-        "start \"\" /wait {installer} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS {log_switch} & start \"\" {program} & del /q {installer}"
+        "start \"\" /wait {installer} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /MERGETASKS=\"!startonsignin\" {log_switch} & start \"\" {program} & del /q {installer}"
     ))
 }
 
@@ -471,7 +514,7 @@ pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> 
         .ok_or("The update's path has a character the installer can't be started with.")?;
     // `/S` makes `cmd` strip the outer quotes only, leaving the inner ones.
     std::process::Command::new("cmd.exe")
-        .args(["/D", "/S", "/C"])
+        .args(["/D", "/V:OFF", "/S", "/C"])
         .raw_arg(format!("\"{line}\""))
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(std::process::Stdio::null())
@@ -526,7 +569,7 @@ mod tests {
         let program = folder.path().join("yapfast.exe");
         let release = release();
         let reason = |source| {
-            target_for(&release, source, &program, Some(&app)).expect_err("not updated here")
+            target_for(&release, source, &program, Some(&app), "").expect_err("not updated here")
         };
         assert!(reason(Source::Manager("Scoop")).contains("Scoop"));
         assert!(reason(Source::Other).contains("can't update itself"));
@@ -534,11 +577,11 @@ mod tests {
             return;
         }
         // An AppImage in a folder that can be written to.
-        let target = target_for(&release, Source::AppImage, &program, Some(&app)).unwrap();
+        let target = target_for(&release, Source::AppImage, &program, Some(&app), "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-x86_64.AppImage");
         assert_eq!(target.part(), folder.path().join(".yapfast-update.part"));
         assert!(
-            target_for(&release, Source::AppImage, &program, None)
+            target_for(&release, Source::AppImage, &program, None, "")
                 .unwrap_err()
                 .contains("path")
         );
@@ -548,7 +591,7 @@ mod tests {
             "no uninstaller"
         );
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
-        let target = target_for(&release, Source::Installer, &program, None).unwrap();
+        let target = target_for(&release, Source::Installer, &program, None, "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-windows-x64-setup.exe");
         assert!(
             target
@@ -560,21 +603,76 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn each_flavour_installs_its_own_file_whatever_the_order() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = folder.path().join("Yapfast.AppImage");
+        let program = folder.path().join("yapfast.exe");
+        std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
+        let names = [
+            "Yapfast-0.4.1-full-preview-x86_64.AppImage",
+            "Yapfast-0.4.1-x86_64.AppImage",
+            "Yapfast-0.4.1-full-preview-windows-x64-setup.exe",
+            "Yapfast-0.4.1-windows-x64-setup.exe",
+            "SHA256SUMS.txt",
+            "SHA256SUMS.txt.minisig",
+        ];
+        for reversed in [false, true] {
+            let mut release = release();
+            release.assets = names.iter().map(|name| asset(name)).collect();
+            if reversed {
+                release.assets.reverse();
+            }
+            let file = |source, flavour| {
+                target_for(&release, source, &program, Some(&app), flavour)
+                    .map(|target| target.asset().name.clone())
+            };
+            assert_eq!(
+                file(Source::AppImage, "").unwrap(),
+                "Yapfast-0.4.1-x86_64.AppImage"
+            );
+            assert_eq!(
+                file(Source::AppImage, "-full-preview").unwrap(),
+                "Yapfast-0.4.1-full-preview-x86_64.AppImage"
+            );
+            assert_eq!(
+                file(Source::Installer, "").unwrap(),
+                "Yapfast-0.4.1-windows-x64-setup.exe"
+            );
+            assert_eq!(
+                file(Source::Installer, "-full-preview").unwrap(),
+                "Yapfast-0.4.1-full-preview-windows-x64-setup.exe"
+            );
+        }
+        // The release alone, as every release before the previews.
+        let release = release();
+        assert!(
+            target_for(
+                &release,
+                Source::AppImage,
+                &program,
+                Some(&app),
+                "-full-preview"
+            )
+            .is_err(),
+            "the preview never takes the release's AppImage"
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn a_release_without_its_file_sums_or_signature_is_not_installed() {
         let folder = tempfile::tempdir().unwrap();
         let app = folder.path().join("Yapfast.AppImage");
         let program = folder.path().join("yapfast.exe");
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
-        if !cfg!(target_arch = "x86_64") {
-            return;
-        }
         let mut release = release();
         release
             .assets
             .retain(|asset| !asset.name.ends_with("-setup.exe"));
         assert!(
-            target_for(&release, Source::Installer, &program, None)
+            target_for(&release, Source::Installer, &program, None, "")
                 .unwrap_err()
                 .contains("no Windows installer")
         );
@@ -582,7 +680,7 @@ mod tests {
             .assets
             .retain(|asset| asset.name != "SHA256SUMS.txt.minisig");
         assert!(
-            target_for(&release, Source::AppImage, &program, Some(&app))
+            target_for(&release, Source::AppImage, &program, Some(&app), "")
                 .unwrap_err()
                 .contains("isn't signed")
         );
@@ -590,7 +688,7 @@ mod tests {
             .assets
             .retain(|asset| asset.name != "SHA256SUMS.txt");
         assert!(
-            target_for(&release, Source::AppImage, &program, Some(&app))
+            target_for(&release, Source::AppImage, &program, Some(&app), "")
                 .unwrap_err()
                 .contains("SHA256SUMS")
         );
@@ -621,7 +719,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             line,
-            "start \"\" /wait \"C:\\Temp\\yapfast-update\\Setup.exe\" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /LOG=\"C:\\Temp\\yapfast-update\\Setup.log\" & start \"\" \"C:\\Users\\Jörg Müller\\AppData\\Local\\Programs\\Yapfast\\yapfast.exe\" & del /q \"C:\\Temp\\yapfast-update\\Setup.exe\""
+            "start \"\" /wait \"C:\\Temp\\yapfast-update\\Setup.exe\" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /MERGETASKS=\"!startonsignin\" /LOG=\"C:\\Temp\\yapfast-update\\Setup.log\" & start \"\" \"C:\\Users\\Jörg Müller\\AppData\\Local\\Programs\\Yapfast\\yapfast.exe\" & del /q \"C:\\Temp\\yapfast-update\\Setup.exe\""
         );
         for odd in [r"C:\100%\yapfast.exe", "C:\\a\"b\\yapfast.exe"] {
             assert_eq!(
@@ -689,20 +787,13 @@ mod tests {
         format!("http://{address}")
     }
 
-    /// The installer's download folder is shared, so the tests that use it
-    /// take turns.
-    static INSTALLER_FOLDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn client() -> reqwest::Client {
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
         reqwest::Client::new()
     }
 
     fn sha(bytes: &[u8]) -> String {
-        Sha256::digest(bytes)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
+        super::hex(&Sha256::digest(bytes))
     }
 
     /// `testdata/NAME.minisig`, which `testdata/sign` made for what a test
@@ -718,7 +809,6 @@ mod tests {
     /// that isn't there, stops the update before the download.
     #[test]
     fn a_release_without_its_own_signature_is_not_downloaded() {
-        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = BackgroundRuntime::new().unwrap();
         runtime.block_on(async {
             let new = b"#!/bin/sh\nexit 0\n".to_vec();
@@ -741,6 +831,7 @@ mod tests {
                         .unwrap()
                         .clone(),
                     program: folder.path().join("yapfast.exe"),
+                    download_dir: folder.path().join("download"),
                 };
                 let progress = Arc::new(Progress::default());
                 let result = prepare(&runtime, &client(), &release, &target, progress.clone())
@@ -764,7 +855,6 @@ mod tests {
 
     #[test]
     fn a_download_that_matches_its_sum_is_installed() {
-        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = BackgroundRuntime::new().unwrap();
         runtime.block_on(matching_download(&runtime));
     }
@@ -789,6 +879,7 @@ mod tests {
                 .unwrap()
                 .clone(),
             program: program.clone(),
+            download_dir: folder.path().join("download"),
         };
         let progress = Arc::new(Progress::default());
         let prepared = prepare(runtime, &client(), &release, &target, progress.clone())
@@ -801,12 +892,10 @@ mod tests {
         let (stage, fraction) = progress.read();
         assert_eq!(stage, Stage::Installing);
         assert_eq!(fraction, Some(1.0));
-        let _ = std::fs::remove_dir_all(installer.parent().unwrap());
     }
 
     #[test]
     fn a_download_that_does_not_match_leaves_nothing_behind() {
-        let _turn = INSTALLER_FOLDER.lock().unwrap_or_else(|e| e.into_inner());
         let runtime = BackgroundRuntime::new().unwrap();
         runtime.block_on(mismatched_download(&runtime));
     }
@@ -832,6 +921,7 @@ mod tests {
                 .unwrap()
                 .clone(),
             program: folder.path().join("yapfast.exe"),
+            download_dir: folder.path().join("download"),
         };
         let error = prepare(
             runtime,

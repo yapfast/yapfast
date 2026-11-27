@@ -101,7 +101,7 @@ fn gif(picture: &mut Attachment, embed: &Value) {
         picture.view_url = Some(proxy.to_owned());
         picture.url = proxy.into();
         if let Some(name) = file_name(video["url"].as_str().unwrap_or(proxy)) {
-            picture.name = name.to_owned();
+            name.clone_into(&mut picture.name);
         }
     }
 }
@@ -185,12 +185,31 @@ pub fn parse(embeds: &Value) -> Parsed {
         // Articles and videos show their thumbnail large, as Discord does.
         let large_thumbnail = video || kind == "article";
         let image = embed["image"].is_object();
+        let thumbnail = embed["thumbnail"].is_object();
+        // A link straight to a video file comes as nothing but the video,
+        // which Discord's client plays under the link as if attached, its
+        // first frame from the media proxy as its poster.
+        let bare = ["title", "description", "author", "provider", "footer"]
+            .iter()
+            .all(|key| !embed[key].is_object() && text(&embed[key]).is_none())
+            && embed["fields"].as_array().is_none_or(Vec::is_empty);
+        if video && playable.is_some() && !thumbnail && !image && bare {
+            if let Some(mut file) = picture(&embed["video"], Shown::Poster(index), false) {
+                file.shown = Shown::Message;
+                file.video_url = playable.map(str::to_owned);
+                parsed.pictures.push(file);
+            }
+            continue;
+        }
         if video {
-            // A video's poster is its thumbnail, or its image without one.
-            let source = if embed["thumbnail"].is_object() || !image {
+            // A video's poster is its thumbnail, or its image without one,
+            // or without either the video's own first frame.
+            let source = if thumbnail || (!image && playable.is_none()) {
                 &embed["thumbnail"]
-            } else {
+            } else if image {
                 &embed["image"]
+            } else {
+                &embed["video"]
             };
             let mut poster = picture(source, Shown::Poster(index), false);
             if let Some(poster) = poster.as_mut() {
@@ -373,6 +392,29 @@ mod tests {
         );
         // A video the proxy hasn't leaves the card as it was.
         assert_eq!(parsed.pictures[1].shown, Shown::Thumbnail(1));
+    }
+
+    #[test]
+    fn a_link_to_a_video_file_plays_as_if_attached() {
+        // What Discord adds under a link to an .mp4: the video alone.
+        let parsed = parse(&json!([
+            {"type": "video", "url": "https://example.com/raw/clip.mp4",
+             "video": proxied("raw/clip.mp4", 1280, 720)},
+        ]));
+        assert!(parsed.embeds.is_empty(), "no card");
+        assert!(parsed.hides.is_empty(), "the link stays, as in Discord");
+        let video = &parsed.pictures[0];
+        assert_eq!(
+            (video.name.as_str(), video.shown, video.image),
+            ("clip.mp4", Shown::Message, false)
+        );
+        let proxy = "https://images-ext-1.discordapp.net/external/x/https/example.com/raw/clip.mp4";
+        assert_eq!(video.video_url.as_deref(), Some(proxy));
+        assert_eq!(
+            video.preview_url.as_deref(),
+            Some(format!("{proxy}?format=webp&width=360&height=203").as_str()),
+            "its first frame is its poster"
+        );
     }
 
     #[test]

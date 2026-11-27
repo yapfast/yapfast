@@ -63,7 +63,7 @@ CHARACTERS.update({' ': (57, False), '-': (12, False), '=': (13, False), ';': (3
                    '%': (6, True), '^': (7, True), '&': (8, True), '*': (9, True), '+': (13, True)})
 
 fake = None
-# Yapfast reads commands for its window from this file; see `test_control` in src/ui.rs.
+# Yapfast reads window commands here; see crates/yapfast-iced/src/control_file.rs.
 window_control = state / 'window-control'
 environment = dict(os.environ, YAPFAST_UI_TEST_SIZE=args.size, YAPFAST_UI_TEST_CONTROL=str(window_control))
 if args.cursor:
@@ -98,6 +98,8 @@ tray = None
 pointer = [100., 100.]
 # The recording under way: its file, record_host and ffmpeg.
 recording = None
+# The steps recording under way: its file and record_host --rows.
+stepping = None
 
 
 def start_tray():
@@ -203,15 +205,16 @@ def eased(fraction):
     return 4 * fraction ** 3 if fraction < .5 else 1 - (2 - 2 * fraction) ** 3 / 2
 
 
-def steps(seconds):
-    """Yields how far through `seconds` each 1/60 s step is, eased, on time."""
+def steps(seconds, ease=True):
+    """Yields how far through `seconds` each 1/60 s step is, eased unless
+    not, on time."""
     count = max(1, round(seconds * 60))
     begin = time.monotonic()
     for step in range(1, count + 1):
         delay = begin + step / 60 - time.monotonic()
         if delay > 0:
             time.sleep(delay)
-        yield eased(step / count)
+        yield eased(step / count) if ease else step / count
 
 
 def glide(x, y, seconds=None):
@@ -224,11 +227,22 @@ def glide(x, y, seconds=None):
         move(from_x + (x - from_x) * fraction, from_y + (y - from_y) * fraction, pause=0)
 
 
-def smooth_scroll(pixels, seconds):
+def smooth_scroll(pixels, seconds, ease=True):
     sent = 0.
-    for fraction in steps(seconds):
+    for fraction in steps(seconds, ease):
         INPUT['send'](f'scroll {pixels * fraction - sent:.3f}', 0)
         sent = pixels * fraction
+
+
+def wheel(notches, seconds):
+    """A mouse wheel turned NOTCHES notches, one at a time, evenly over
+    SECONDS."""
+    count = abs(notches)
+    step = 1 if notches > 0 else -1
+    for index in range(count):
+        INPUT['send'](f'wheel {step}', 0)
+        if index + 1 < count:
+            time.sleep(seconds / max(count - 1, 1))
 
 
 def record(rest):
@@ -242,8 +256,8 @@ def record(rest):
         raise ValueError('record start NAME | record stop')
     if args.record is None:
         raise ValueError('record needs record_host; start the session again')
-    if recording is not None:
-        raise ValueError(f'already recording {recording["path"]}')
+    if recording is not None or stepping is not None:
+        raise ValueError(f'already recording {(recording or stepping)["path"]}')
     videos = state / 'videos'
     videos.mkdir(exist_ok=True)
     path = videos / f'{name}.mp4'
@@ -279,6 +293,52 @@ def record(rest):
         stop_recording()
         raise RuntimeError(f'The recording stopped; see {log_path}')
     return str(path)
+
+
+def steps_command(rest):
+    """steps start NAME X0 X1 | steps stop: every repaint's row sums between
+    columns X0 and X1, for testing/frame_steps.py."""
+    global stepping
+    words = rest.split()
+    if words == ['stop']:
+        if stepping is None:
+            raise ValueError('no steps are recording')
+        return stop_steps()
+    if len(words) != 4 or words[0] != 'start' or '/' in words[1] or not all(w.isdigit() for w in words[2:]):
+        raise ValueError('steps start NAME X0 X1 | steps stop')
+    if args.record is None:
+        raise ValueError('steps needs record_host; start the session again')
+    if stepping is not None or recording is not None:
+        raise ValueError('already recording')
+    videos = state / 'videos'
+    videos.mkdir(exist_ok=True)
+    path = videos / f'{words[1]}.rows'
+    log = (state / 'record.log').open('ab')
+    host = subprocess.Popen([str(args.record), '--rows', words[2], words[3]], stdout=path.open('wb'),
+                            stderr=log, start_new_session=True)
+    log.close()
+    stepping = {'path': path, 'host': host}
+    time.sleep(.3)
+    if host.poll() is not None:
+        stop_steps()
+        raise RuntimeError(f'record_host --rows stopped; see {state / "record.log"}')
+    return str(path)
+
+
+def stop_steps():
+    global stepping
+    if stepping is None:
+        return None
+    current, stepping = stepping, None
+    host = current['host']
+    if host.poll() is None:
+        host.send_signal(signal.SIGINT)
+    try:
+        host.wait(10)
+    except subprocess.TimeoutExpired:
+        host.kill()
+        host.wait(5)
+    return str(current['path'])
 
 
 def stop_recording():
@@ -364,6 +424,8 @@ def perform(command):
         return tray_command(rest)
     if verb == 'record':
         return record(rest)
+    if verb == 'steps':
+        return steps_command(rest)
     if yapfast.poll() is not None:
         raise RuntimeError(f'Yapfast exited with {yapfast.returncode}; see {state / "yapfast.log"}, or relaunch')
     if verb == 'click':
@@ -428,6 +490,16 @@ def perform(command):
             smooth_scroll(float(values[0]), float(values[1]))
         else:
             INPUT['scroll'](float(rest))
+        time.sleep(.1)
+    elif verb == 'wheel':
+        # NOTCHES [SECONDS]: a mouse wheel's notches, spread over SECONDS.
+        wheel(int(values[0]), float(values[1]) if len(values) > 1 else 0.)
+        time.sleep(.1)
+    elif verb == 'fling':
+        # PIXELS SECONDS: a touchpad's scroll at one speed, as a flick's
+        # fingers go, then they lift.
+        smooth_scroll(float(values[0]), float(values[1]), ease=False)
+        INPUT['send']('lift', 0)
         time.sleep(.1)
     elif verb == 'key':
         press(rest)
@@ -505,6 +577,7 @@ try:
         time.sleep(.05)
 finally:
     stop_recording()
+    stop_steps()
     stop(yapfast)
     stop(tray)
     stop(fake)

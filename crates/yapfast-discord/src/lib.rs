@@ -18,6 +18,7 @@ pub mod cookies;
 mod dave;
 pub mod embed;
 pub mod event;
+pub mod favorites;
 pub mod forum;
 pub mod frecency;
 pub mod game_detection;
@@ -37,11 +38,12 @@ pub mod notifications;
 pub mod oauth;
 pub mod opus;
 pub mod own_activity;
+pub mod pool;
 pub mod profile;
 pub mod profile_effect;
 pub mod ready;
 pub mod remote_auth;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod rpc;
 pub mod rtp;
 pub mod scheduled_event;

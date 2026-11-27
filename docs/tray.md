@@ -3,8 +3,20 @@
 Closing the window leaves Yapfast running in the system tray: the session, a call, notifications, ringing and sounds go on. The
 tray icon is Yapfast's logo in Yap's marigold, with a red dot cut into its
 corner while a mention or a DM waits unread, as Discord counts them. Clicking
-it opens the window. Its menu has Open Yapfast, Disconnect during a call, and
-Quit.
+it opens the window. Its menu has Open Yapfast, Disconnect during a call,
+Check for updates, Restart Yapfast and Quit; Discord's has Open Discord,
+Check for Updates and Quit Discord. Check for updates runs the same
+one-time check as Check now in Settings → About, and tells of a newer
+release in a notification, as the six-hourly check does: once for each
+release, and not one that was skipped. Restart Yapfast does what Settings →
+Advanced's button does: it leaves any call and opens a new Yapfast window
+with the saved settings.
+
+Settings → Appearance uses the application icon's choice in the tray by
+default. Turn off “Use the application icon in the tray” to choose a
+separate icon while Yapfast runs. A custom image keeps the unread dot in
+its lower-right corner. A separate choice is kept as `tray_icon` in
+`layout.json`, with an imported image saved as `tray-icon.png` beside it.
 
 Settings → Advanced has "Close to tray", on unless turned off
 (`close_to_tray` in `layout.json`). Off, or with no tray to show the icon,
@@ -85,9 +97,11 @@ registry and starts no process.
 
 ## Starting at sign-in
 
-Settings → Advanced → "Start when you sign in" starts Yapfast with
-`--background` when the person signs in to their computer (`src/autostart.rs`).
-The entry is the setting, not `layout.json`: on Windows a value named
+Settings → Advanced has Discord's two switches: "Automatically open Yapfast
+when your computer starts up" starts Yapfast when the person signs in to their
+computer (`src/autostart.rs`), and "Start Yapfast minimized", greyed out while
+the first is off, adds `--background`. The entry is the setting, not
+`layout.json`: on Windows a value named
 `Yapfast` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, on Linux
 `io.github.yapfast.Yapfast.desktop` in `$XDG_CONFIG_HOME/autostart`. Each
 window reads it, so turning Yapfast off in Task Manager's Startup apps (an odd
@@ -97,42 +111,47 @@ Task Manager's record too. Each start, outside the preview, rewrites an entry
 that's on with this Yapfast's path, so moving its folder or an update keeps it
 working. The entry keeps `--data-dir` if Yapfast had one; an AppImage's entry
 names the AppImage, not its temporary mount. The preview, and platforms
-without either, don't show the switch. The Windows installer's "Start Yapfast
+without either, don't show the switches. Whether the entry has `--background`
+is the minimized switch; `layout.json`'s `start_minimized` keeps it for while
+the entry is off (as Discord keeps `START_MINIMIZED`), taken from the entry
+each time Settings reads one that's on, so one Task Manager turned off comes
+back as it was. The Windows installer's "Start Yapfast
 automatically when Windows starts" writes the same value, and uninstalling removes it.
 
 `--background` restores the saved session and goes to the tray without
 showing the window, or shows it when there's no session to restore, since
-signing in needs it. Windows knows at once whether the icon went into the
+signing in needs it, and when the start brings a link to open. Windows knows at once whether the icon went into the
 notification area; without it the window shows. On Linux the bus says a
 moment later, and a tray that's missing, or goes while the window is closed,
-opens the window. A window made late, from the tray, fails over to Skia
-Software as the first does when the GPU fails.
+opens the window. The renderer starts with the first window, so one made
+late, from the tray, with a GPU that fails ends Yapfast as a first window's
+does, and Yapfast starts again on the CPU with its window showing
+([renderers](client/window.md#building-and-running)).
 
 ## The window
 
-`src/ui/shell.rs` holds the window. Closing it drops the whole component, its
-renderer and its window, rather than hiding it: a hidden Slint window keeps
-all of that, and saves nothing ([measurements](measurements/README.md)).
-What only the window used stops with it: the microphone meters and the camera
-test that Voice settings run, the image viewer's picture and an open file
-dialog. Half a second later Yapfast gives freed memory back: `malloc_trim` on
-Linux; on Windows `HeapCompact` on the process heap, which Rust allocates
-from, and `SetProcessWorkingSetSize(-1, -1)`, which empties the working set.
-Task Manager's Memory column is the private working set, which the window's
-pages would otherwise stay in; they come back from the standby list if
-touched.
+`crates/yapfast-iced/src/shell.rs` holds the window. Yapfast runs as an iced
+daemon, which lives without one. Closing the window drops it, its renderer,
+its widgets and every picture and icon made to draw, rather than hiding it.
+What only the window used stops with it (`App::forget_window`): Settings
+close as their own button closes them, with the microphone meters and the
+camera test that Voice settings run; an open menu, the picker and a card go;
+the call's popup goes with the microphone its level reads, and the call's
+cameras make no frames until the window is back. Half a second later
+Yapfast gives freed memory back (`release_memory` in `src/desktop.rs`):
+`malloc_trim` on Linux; on Windows `HeapCompact` on the process heap, which
+Rust allocates from, and `SetProcessWorkingSetSize(-1, -1)`, which empties
+the working set. Task Manager's Memory column is the private working set,
+which the window's pages would otherwise stay in; they come back from the
+standby list if touched.
 
-The models stay with the adapter, so a new window shows them without building
-them again. Releasing the timeline's rows, the window's copies of pictures and
-Skia's caches as well saved almost nothing, so they stay.
+The core's state stays, and so does each area's own (the rail, the sidebar,
+the timeline, the composer), so a new window shows them without asking the
+core again.
 
-Opening makes the window again with the size, place and maximized state of
-the last one (Wayland ignores the place), the same conversation scrolled to
-the message that was at its top, or to the newest if that showed, and
-everything else from the application's state. The adapter remembers what it
-last set for a few properties, such as the sidebar's title and the topic, to
-set them only on a change; attaching a window forgets that, so the first
-refresh fills them in. Yapfast's event loop runs until quit, so Quit, the
+Opening makes the window again at the size of the last one, maximized if
+that was, on the same conversation, and everything else from the
+application's state. Yapfast's event loop runs until quit, so Quit, the
 renderer restart and closing without a tray end it.
 
 Without a window, backend events still apply. After each burst Yapfast rings for
@@ -166,9 +185,11 @@ Hyprland marks the window urgent, or focuses it with
 The icon is `Shell_NotifyIconW` through `windows-sys`, already in the tree for
 winit, on a hidden window of the UI thread, whose messages winit's loop
 dispatches. A left click opens Yapfast; a right click shows the menu at the
-pointer with `TrackPopupMenu`. When Explorer starts again it sends
-`TaskbarCreated`, and Yapfast adds the icon again. If the notification area
-won't take the icon, closing quits.
+pointer with `TrackPopupMenu`, without reserving a column for check marks.
+Yapfast stops listening and releases the folder lock before starting its
+replacement. When Explorer starts again it sends `TaskbarCreated`, and
+Yapfast adds the icon again. If the notification area won't take the icon,
+closing quits.
 
 The bar is a cross-build and Wine (`scripts/build-windows`, see
 [the Windows beta](windows-beta.md)). On real Windows, check:
@@ -176,8 +197,11 @@ The bar is a cross-build and Wine (`scripts/build-windows`, see
 - the icon is crisp at 100%, 125%, 150% and 200% scaling, and its dot shows
   for an unread DM or a mention;
 - a left click opens the window, at its size and place, on the same
-  conversation; a right click shows Open Yapfast, Disconnect in a call, and
-  Quit, which closes when clicking elsewhere;
+  conversation, and a right click shows the tray menu without a column for
+  check marks. Clicking elsewhere dismisses it;
+- Check for updates starts a check while the window stays closed, and a
+  newer release shows a notification; Restart Yapfast in the menu and in
+  Settings → Advanced each open a new window;
 - a call keeps going with the window closed, and Disconnect ends it;
 - Task Manager's Memory column drops when the window closes, and stays down
   for a minute;

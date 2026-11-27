@@ -127,6 +127,37 @@ impl<'a> I420<'a> {
             );
         }
     }
+
+    /// Scales to the upright dimensions, turns, then optionally flips.
+    /// Both temporary buffers are reused across frames.
+    pub(crate) fn to_rgba_turned(
+        self,
+        scratch: &mut Vec<u8>,
+        turned: &mut Vec<u8>,
+        rgba: &mut [u8],
+        size: (u32, u32),
+        turn: Turn,
+    ) {
+        let (width, height) = size;
+        let rgba = &mut rgba[..width as usize * height as usize * 4];
+        if turn.turns % 2 == 1 {
+            turned.resize(rgba.len(), 0);
+            self.to_rgba(scratch, turned, height, width);
+            turn_quarter(turned, height, width, turn.turns, rgba);
+        } else {
+            // No rotation buffer needed while upright or upside down.
+            *turned = vec![];
+            self.to_rgba(scratch, rgba, width, height);
+            if turn.turns == 2 {
+                rgba.as_chunks_mut::<4>().0.reverse();
+            }
+        }
+        if turn.flip {
+            for row in rgba.chunks_exact_mut(width as usize * 4) {
+                row.as_chunks_mut::<4>().0.reverse();
+            }
+        }
+    }
 }
 
 /// The size a `width` by `height` picture takes to fit inside `bounds`,
@@ -218,6 +249,33 @@ static MAKE_FRAME: OnceLock<MakeFrame> = OnceLock::new();
 /// it shows them without a copy.
 pub fn set_frame_buffers(make: MakeFrame) {
     let _ = MAKE_FRAME.set(make);
+}
+
+static FRAME_WAKE: OnceLock<fn()> = OnceLock::new();
+
+/// Calls `wake` each time any feed has a new frame for the UI to take, from
+/// the thread that made it: a UI that draws only when told can wait for
+/// frames rather than look for them. A stream worker's frames wake it too,
+/// from the thread that reads the worker's reports (see
+/// [`crate::frames`]).
+pub fn set_frame_wake(wake: fn()) {
+    let _ = FRAME_WAKE.set(wake);
+}
+
+/// Whether the UI asked to be woken for each frame.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
+pub(crate) fn wakes_for_frames() -> bool {
+    FRAME_WAKE.get().is_some()
+}
+
+/// Tells the UI a frame is there to take, if it asked.
+pub(crate) fn frame_made() {
+    if let Some(wake) = FRAME_WAKE.get() {
+        wake();
+    }
 }
 
 fn make_frame(width: u32, height: u32) -> Box<dyn FrameBuffer> {
@@ -368,12 +426,15 @@ impl Feed {
         };
         let mut buffer = reuse.unwrap_or_else(|| make_frame(width, height));
         fill(buffer.pixels_mut());
-        let mut buffers = self.lock();
-        // Released while this one was written: it counts again.
-        buffers.made = buffers.made.max(1);
-        if let Some(older) = buffers.fresh.replace(buffer) {
-            buffers.give_back(older);
+        {
+            let mut buffers = self.lock();
+            // Released while this one was written: it counts again.
+            buffers.made = buffers.made.max(1);
+            if let Some(older) = buffers.fresh.replace(buffer) {
+                buffers.give_back(older);
+            }
         }
+        frame_made();
     }
 
     /// Writes each picture it's given into this feed, at the size it shows.
@@ -399,33 +460,21 @@ impl Feed {
         let feed = self.clone();
         let (mut scratch, mut turned) = (vec![], vec![]);
         move |picture, turn| {
-            let quarter = turn.turns % 2 == 1;
             let (upright_width, upright_height) = turn.upright(picture.width, picture.height);
             let Some((width, height)) = feed.size_for(upright_width, upright_height) else {
                 return;
             };
-            if !quarter {
-                // Not needed while upright or upside down.
-                turned = vec![];
-            }
             feed.write(width, height, |rgba| {
-                let rgba = &mut rgba[..width as usize * height as usize * 4];
-                if quarter {
-                    // Scaled as it came, on its side, then turned.
-                    turned.resize(rgba.len(), 0);
-                    picture.to_rgba(&mut scratch, &mut turned, height, width);
-                    turn_quarter(&turned, height, width, turn.turns, rgba);
-                } else {
-                    picture.to_rgba(&mut scratch, rgba, width, height);
-                    if turn.turns == 2 {
-                        rgba.as_chunks_mut::<4>().0.reverse();
-                    }
-                }
-                if mirror != turn.flip {
-                    for row in rgba.chunks_exact_mut(width as usize * 4) {
-                        row.as_chunks_mut::<4>().0.reverse();
-                    }
-                }
+                picture.to_rgba_turned(
+                    &mut scratch,
+                    &mut turned,
+                    rgba,
+                    (width, height),
+                    Turn {
+                        flip: mirror != turn.flip,
+                        ..turn
+                    },
+                );
             });
         }
     }
@@ -507,6 +556,20 @@ mod tests {
         assert!(told(), "in focus");
         feed.show_large(true);
         assert!(!told(), "still in focus");
+    }
+
+    #[test]
+    fn each_frame_made_wakes_the_ui() {
+        use std::sync::atomic::AtomicUsize;
+        static WAKES: AtomicUsize = AtomicUsize::new(0);
+        set_frame_wake(|| {
+            WAKES.fetch_add(1, Ordering::Relaxed);
+        });
+        let feed = Feed::new();
+        let before = WAKES.load(Ordering::Relaxed);
+        feed.write(2, 2, |pixels| pixels.fill(1));
+        assert!(WAKES.load(Ordering::Relaxed) > before);
+        assert!(feed.take(|_| ()).is_some(), "the frame is there to take");
     }
 
     #[test]

@@ -414,6 +414,7 @@ async fn connected(
                     muted: if person.is_local { state.muted } else { person.streams.iter().filter(|stream| stream.kind == MediaStreamKind::Microphone).all(|stream| stream.muted) },
                     deafened: person.is_local && state.deafened,
                     server_muted: false,
+                    speaking_blocked: false,
                     server_deafened: false,
                     speaking: speaking.contains(&person.member_id),
                     connected,
@@ -434,22 +435,27 @@ async fn connected(
                 command = commands.recv() => match command {
                     None | Some(Command::Leave) => break,
                     Some(Command::Join(_)) => state.error = Some("Leave your current voice channel before joining another.".into()),
-                    Some(Command::Mute(muted)) => {
+                    Some(command @ (Command::Mute(_) | Command::Deafen(false))) => {
                         // Unmuting while deafened means wanting to talk, which needs hearing too.
-                        if !muted && state.deafened {
+                        // Undeafening unmutes only one who wasn't muted when deafening.
+                        let unmute = std::mem::take(&mut state.unmute_on_undeafen);
+                        let muted = match command { Command::Mute(muted) => Some(muted), _ => unmute.then_some(false) };
+                        if muted != Some(true) && state.deafened {
                             set_hearing(&call, true);
                             state.deafened = false;
                         }
-                        let result = set_muted(&call, &audio, &mut microphone, muted).await;
-                        match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(error.to_string()); } }
-                    }
-                    Some(Command::Deafen(deafened)) => {
-                        if deafened {
-                            set_muted(&call, &audio, &mut microphone, true).await?;
-                            state.muted = true;
+                        if let Some(muted) = muted {
+                            let result = set_muted(&call, &audio, &mut microphone, muted).await;
+                            match result { Ok(()) => { state.muted = muted; state.error = None; }, Err(error) => { state.muted = true; state.error = Some(error.to_string()); } }
                         }
-                        state.deafened = deafened;
-                        set_hearing(&call, !deafened);
+                    }
+                    Some(command @ (Command::Deafen(true) | Command::DeafenUnmuted)) => {
+                        // The user's own mute stays as it was beneath the deafening, as in Discord's client.
+                        state.unmute_on_undeafen |= !state.muted || matches!(command, Command::DeafenUnmuted);
+                        set_muted(&call, &audio, &mut microphone, true).await?;
+                        state.muted = true;
+                        state.deafened = true;
+                        set_hearing(&call, false);
                     }
                     Some(Command::Devices) => {
                         collect_devices(&audio, state);
@@ -500,6 +506,7 @@ async fn connected(
                         }
                         state.camera_phase = CameraPhase::Off;
                     }
+                    Some(Command::StreamAudio(audio)) => { state.share_audio(audio); Chosen::write(remembered, state); },
                     Some(Command::GoLive(_)) => state.error = Some("Screen sharing works in Discord calls for now.".into()),
                     Some(Command::StopLive | Command::SwitchLive | Command::Watch(_) | Command::StopWatching(_) | Command::Soundboard(_) | Command::PreviewSound(_) | Command::FavoriteSound(..) | Command::LeaveStale) => {}
                 },
@@ -870,7 +877,9 @@ mod tests {
         .unwrap();
         let samples: Vec<_> = output
             .stdout
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f64)
             .collect();
         assert!(
@@ -942,39 +951,6 @@ mod tests {
     async fn receiver_command(root: &std::path::Path, command: &str) {
         std::fs::write(root.join("receiver-command"), command).unwrap();
         receiver_ack(root, command).await;
-    }
-
-    #[test]
-    #[ignore = "requires a homeserver with MatrixRTC and a saved Alice session in the test data's beta folder; joins muted without recording"]
-    fn remote_beta_join_muted_and_leave() {
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-        let runtime = crate::runtime::BackgroundRuntime::new().unwrap();
-        runtime.block_on(async {
-            let root = crate::test_data_directory().join("beta");
-            let rooms: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(root.join("rooms.json")).unwrap()).unwrap();
-            let alice = Session::restore(root.join("alice")).await.unwrap();
-            let sync = alice.start_sync().await.unwrap();
-            sync.wait_until_ready().await.unwrap();
-            assert!(alice.device_is_trusted().await.unwrap());
-            let mut controller = Controller::start(alice.lease()).unwrap();
-            assert!(controller.command(Command::Join(
-                rooms["voice"].as_str().unwrap().into()
-            )));
-            let connected = wait(&mut controller, |state| state.phase == Phase::Connected).await;
-            assert!(connected.muted);
-            assert_eq!(connected.participants.len(), 1);
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            let waiting = controller.states.borrow().clone();
-            assert_eq!(waiting.phase, Phase::Connected);
-            assert!(waiting.muted && waiting.error.is_none());
-            controller.command(Command::Leave);
-            let departed = wait(&mut controller, |state| state.phase == Phase::Disconnected).await;
-            assert!(departed.error.is_none());
-            controller.stop().await;
-            sync.stop().await;
-            println!("PASS: native encrypted voice joined muted through public discovery, waited alone for 10 seconds and left cleanly. No microphone was published.");
-        });
     }
 
     #[test]

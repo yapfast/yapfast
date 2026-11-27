@@ -22,6 +22,8 @@ pub enum MenuChoice {
     /// Keep a DM at the top of the DM list on this device, or stop.
     Pin,
     Unpin,
+    AddFavorite,
+    RemoveFavorite,
     /// Start a DM's call, or join the one going on.
     Call,
     /// Write this account's note on a Discord DM's other person, or the
@@ -93,6 +95,12 @@ pub enum MenuChoice {
     /// A box to tick that keeps a Discord server's muted channels out of
     /// its channel list.
     HideMuted,
+    /// Mute every server of a rail folder for one of [`MUTE_TIMES`], or
+    /// unmute them all once they all are; their level and switches, in a
+    /// submenu.
+    MuteFolder,
+    UnmuteFolder,
+    FolderNotifications,
     /// Make an invite link to a Discord server or channel.
     Invite,
     /// Pin a Discord server's channel to the top of its channel list, for
@@ -146,7 +154,7 @@ impl AppState {
         if self.servers.iter().any(|server| server.id == id) {
             self.server_choices(id)
         } else if self.is_folder(id) {
-            self.folder_choices(id)
+            self.folder_choices()
         } else if self.is_category(id) {
             self.notification_choices()
         } else {
@@ -283,6 +291,17 @@ impl AppState {
                 MenuChoice::Pin
             });
         }
+        // Adding to Favorites comes early and taking it off near the end, as
+        // in Discord's menus.
+        let favorite = (room.network == Network::Discord
+            && !room.locked
+            && !room.request
+            && !self.preview
+            && self.discord_online)
+            .then(|| self.is_channel_favorite(id));
+        if favorite == Some(false) {
+            choices.push(MenuChoice::AddFavorite);
+        }
         if room.direct && !connected && self.can_join_voice(id) {
             choices.push(MenuChoice::Call);
         }
@@ -323,6 +342,9 @@ impl AppState {
             && room.parent.is_none()
         {
             choices.extend(self.notification_choices());
+        }
+        if favorite == Some(true) {
+            choices.push(MenuChoice::RemoveFavorite);
         }
         if !self.preview {
             choices.extend([MenuChoice::CopyLink, MenuChoice::CopyId]);
@@ -370,26 +392,32 @@ impl AppState {
     }
 
     /// Whether an id names a folder of servers on the rail.
-    fn is_folder(&self, id: &str) -> bool {
+    pub fn is_folder(&self, id: &str) -> bool {
         self.folder_servers(id).next().is_some()
     }
 
-    /// The servers in a rail folder.
-    fn folder_servers(&self, id: &str) -> impl Iterator<Item = &ChatServer> {
+    /// The servers in a rail folder, in the rail's order.
+    pub fn folder_servers(&self, id: &str) -> impl Iterator<Item = &ChatServer> {
         self.servers
             .iter()
             .map(Arc::as_ref)
             .filter(move |server| server.folder.as_ref().is_some_and(|folder| folder.id == id))
     }
 
-    /// What a rail folder's menu offers: marking its servers read, as
-    /// Discord's does.
-    fn folder_choices(&self, id: &str) -> Vec<MenuChoice> {
-        if !self.preview && self.unread_in_folder(id).next().is_some() {
-            vec![MenuChoice::MarkRead]
-        } else {
+    /// What a rail folder's menu offers: marking its servers read, always,
+    /// as Discord's does; [`Self::folder_unread`] says whether it does
+    /// anything, and the menu greys it when not.
+    fn folder_choices(&self) -> Vec<MenuChoice> {
+        if self.preview {
             vec![]
+        } else {
+            vec![MenuChoice::MarkRead]
         }
+    }
+
+    /// Whether any server of a rail folder has messages to read.
+    pub fn folder_unread(&self, id: &str) -> bool {
+        self.unread_in_folder(id).next().is_some()
     }
 
     /// The channels of a folder's servers with messages to read.
@@ -456,6 +484,7 @@ impl Application {
         // they go once it has.
         let effects = self.restore_selection();
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         effects
     }
@@ -677,8 +706,12 @@ impl Application {
     }
 
     /// Marks a conversation read, or every conversation of a server, a
-    /// folder of servers or a Discord category.
+    /// folder of servers or a Discord category. The open conversation's
+    /// unread banner goes with it, as Discord's does.
     pub(super) fn mark_read(&mut self, id: String) -> Vec<Effect> {
+        if self.state.selected.as_deref() == Some(id.as_str()) {
+            self.state.caught_up = true;
+        }
         if !self.menu_choices(&id).contains(&MenuChoice::MarkRead) {
             return vec![];
         }
@@ -698,10 +731,31 @@ impl Application {
         } else {
             vec![id]
         };
+        if rooms
+            .iter()
+            .any(|room| self.state.selected.as_deref() == Some(room.as_str()))
+        {
+            self.state.caught_up = true;
+        }
         rooms
             .into_iter()
             .map(|room| Effect::Backend(Command::MarkRead { room, sync }))
             .collect()
+    }
+
+    /// Adds or removes one Discord reference in the account's Favorites.
+    pub(super) fn favorite_channel(&self, room: String, favorite: bool) -> Vec<Effect> {
+        let choice = if favorite {
+            MenuChoice::AddFavorite
+        } else {
+            MenuChoice::RemoveFavorite
+        };
+        if !self.state.menu_choices(&room).contains(&choice) {
+            return vec![];
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::FavoriteChannel { room, favorite },
+        ))]
     }
 
     /// Pins a listed DM to the top of the DM list, or unpins it.
@@ -716,6 +770,7 @@ impl Application {
             if pinned {
                 self.state.pinned.push(room);
             }
+            self.state.people_changed();
         }
         vec![]
     }
@@ -730,6 +785,7 @@ impl Application {
         }
         // Closed, it isn't pinned either.
         self.state.pinned.retain(|id| *id != room);
+        self.state.people_changed();
         vec![Effect::Backend(Command::Discord(DiscordCommand::CloseDm {
             room,
         }))]
@@ -763,7 +819,7 @@ impl Application {
         vec![]
     }
 
-    pub(super) fn mute_dm(&mut self, room: String, muting: Muting) -> Vec<Effect> {
+    pub(super) fn mute_dm(&self, room: String, muting: Muting) -> Vec<Effect> {
         let choice = if muting == Muting::Off {
             MenuChoice::Unmute
         } else {
@@ -941,6 +997,7 @@ impl Application {
         self.last_selected
             .insert(self.state.navigation.clone(), id.clone());
         self.state.dm_screen = None;
+        self.state.add_friend = None;
         self.state.browse = None;
         // Showing another room forgets a stream to watch in another call.
         self.state.pending_watch.take_if(|(room, _)| *room != id);
@@ -994,6 +1051,7 @@ impl Application {
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
         // Typing is followed only in the open conversation, so what's known of others is stale.
         self.state.typing.clear();
+        self.forget_matrix_typing();
         self.state.mention_query = None;
         self.state.mention_groups.clear();
         self.state.found_members.clear();
@@ -1114,10 +1172,21 @@ impl Application {
         self.state.members = None;
         self.state.topic = None;
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
+        self.forget_matrix_typing();
         if !self.state.preview {
             effects.push(Effect::Backend(Command::CloseRoom));
         }
         effects
+    }
+
+    /// Matrix says who types only in the open room, and closing it ends
+    /// that without a word, so its DMs' typing goes as it closes. Discord
+    /// says who types in every channel, and when they stop, so its DMs'
+    /// rows keep theirs.
+    fn forget_matrix_typing(&mut self) {
+        self.state
+            .typing_dms
+            .retain(|room| Network::of(room) == Network::Discord);
     }
 
     /// Shows the Matrix and Discord lists together, leaving a server or

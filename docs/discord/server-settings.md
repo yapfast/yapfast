@@ -140,8 +140,12 @@ page: a role changed elsewhere shows unless the draft changed the same
 field, and one deleted elsewhere closes if it was open.
 
 Roles reads `GET /guilds/{id}` for the roles, boost level and features,
-and `GET /guilds/{id}/roles/member-counts`, and holds them only while it's
-open; members come by id, with names from those Yapfast already knows or
+and `GET /guilds/{id}/roles/member-counts` when it opens, and holds them
+only while it's open. Creating, copying, deleting or editing a role reads
+the roles again but not the counts, as Discord's client keeps its own: a
+role keeps the count it had, and a new one shows 0. Giving or taking a
+role shows its members again first, then its count once Discord sends
+it. Members come by id, with names from those Yapfast already knows or
 asks the gateway for. It saves with:
 
 - `PATCH /guilds/{id}/roles`, `[{id, position}]`, only the roles that
@@ -377,9 +381,7 @@ scrolling.
 A row holds its sentence as one string, with its bold and times marked
 in it, its oldest entry's id as a number, and its moderator as a place in
 the user filter's list, whose avatar its rows share; only the open row's
-lines are made for the screen. Opening either filter's list the first
-time keeps its memory until Yapfast closes, as every list of Slint's
-ComboBox does.
+lines are made for the screen.
 
 ## Bans
 
@@ -450,7 +452,8 @@ Alice's; its comment says how.
 
 Edit channel, in a channel's or category's menu, opens its settings over
 the window, as Discord's client does (`application/channel_settings/`,
-`ui/channel_settings.slint`), with the server settings' frame and
+`crates/yapfast-iced/src/channel_settings.rs`), with the server settings'
+frame and
 unsaved changes bar. The menu offers it with Manage Channels or Manage
 Permissions (Discord's Manage Roles) there, and each page shows only with
 its own: Overview with Manage Channels, Permissions with Manage
@@ -531,7 +534,8 @@ kicks, bans, and voice), channel changes and server settings' saves:
 `Discord::stepping_up` in `yapfast-discord` runs the request, and on
 60003 sends `Live::MfaRequired` and waits for the prompt's answer, then
 runs it again inside the token's scope, so whatever asked keeps waiting
-for its usual answer. The prompt (`application/mfa.rs`, `ui/mfa.slint`)
+for its usual answer. The prompt (`application/mfa.rs`,
+`crates/yapfast-iced/src/mfa.rs`)
 starts at Discord's first method and lists the rest under "Verify with
 something else", as Discord's does: a code from an authenticator app or a
 text, six digits; the password; or a backup code, eight to eleven

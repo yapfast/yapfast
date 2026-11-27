@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Writes src/discord_emoji_names.rs: the Unicode emoji Discord names
+"""Writes crates/yapfast-core/src/emoji/names.rs: the Unicode emoji Discord names
 differently from GitHub's shortcodes, which the `emojis` crate knows.
 
 Discord's settings name a favourite or used Unicode emoji by its short name,
@@ -15,7 +15,7 @@ from pathlib import Path
 
 VERSION = '15.3.0'
 BASE = f'https://cdn.jsdelivr.net/npm/emojibase-data@{VERSION}/en'
-OUT = Path(__file__).resolve().parent.parent / 'src' / 'discord_emoji_names.rs'
+OUT = Path(__file__).resolve().parent.parent / "crates" / "yapfast-core" / "src" / "emoji" / "names.rs"
 
 
 def fetch(name):

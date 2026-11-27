@@ -23,12 +23,14 @@ use tokio::{
 
 use crate::{
     congestion::{self, Controller},
-    rtp::{self, Assembler, Codec, Packetizer},
+    rtp::{self, Assembler, Codec, Orientation, Packetizer},
     stream::{self, StreamServer},
     voice_connection::{Connection, Identity, lock, receive, send_json},
 };
 
-/// How often a viewer may ask for a keyframe while frames are lost.
+/// How often a stream asks for a keyframe while frames are lost, and how
+/// often it makes one when asked: at most one a half second, whichever side
+/// of the stream it is.
 const KEYFRAME_REQUESTS: Duration = Duration::from_millis(500);
 /// How often a streamer sends an RTCP sender report.
 const SENDER_REPORTS: Duration = Duration::from_secs(1);
@@ -90,8 +92,11 @@ const SOUNDSHARE: u8 = 2;
 pub const SEND_CODEC: Codec = Codec::H264;
 
 /// One encoded frame to send, in `codec`, with its time in the 90 kHz clock.
+/// Its bytes are its own until it's dropped, and go back to the encoder's
+/// [`Pool`](crate::pool::Pool) then, so nothing copies them between the
+/// encoder and the packetizer.
 pub struct Frame {
-    pub data: Vec<u8>,
+    pub data: crate::pool::Encoded,
     pub codec: Codec,
     pub timestamp: u32,
     pub keyframe: bool,
@@ -102,6 +107,19 @@ pub struct Frame {
 pub struct Sound {
     pub opus: Vec<u8>,
     pub timestamp: u32,
+}
+
+/// One Opus frame of a watched stream's sound as it came: its payload, its
+/// place in the sender's numbering, and when it reached Yapfast.
+#[derive(Debug)]
+pub struct ReceivedSound {
+    pub opus: Vec<u8>,
+    pub sequence: u16,
+    pub timestamp: u32,
+    pub ssrc: u32,
+    /// When it arrived, on the monotonic clock that runs across threads in
+    /// this process, which is what the player compares against.
+    pub arrived: std::time::Instant,
 }
 
 /// Queues the stream's sound, from a thread of the sender's own.
@@ -120,6 +138,8 @@ pub struct ReceivedFrame {
     pub codec: Codec,
     pub data: Vec<u8>,
     pub keyframe: bool,
+    /// How to turn the decoded picture upright, as the sender last said.
+    pub orientation: Orientation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,6 +169,10 @@ struct Shared {
     video_bytes: AtomicU64,
     keyframe_requests: AtomicU64,
     resent: AtomicU64,
+    /// Sending: the video's packets sent so far, not counting resends.
+    video_packets: AtomicU64,
+    /// Receiving: what came in so far, as of the last second.
+    received: Mutex<ReceivedSoFar>,
 }
 
 impl Shared {
@@ -164,6 +188,8 @@ impl Shared {
             video_bytes: AtomicU64::new(0),
             keyframe_requests: AtomicU64::new(0),
             resent: AtomicU64::new(0),
+            video_packets: AtomicU64::new(0),
+            received: Mutex::default(),
         })
     }
 }
@@ -295,6 +321,7 @@ impl StreamSender {
         let load = |count: &AtomicU64| count.load(Ordering::Relaxed);
         SentSoFar {
             video_bytes: load(&self.shared.video_bytes),
+            video_packets: load(&self.shared.video_packets),
             keyframe_requests: load(&self.shared.keyframe_requests),
             resent: load(&self.shared.resent),
         }
@@ -317,15 +344,34 @@ impl StreamSender {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SentSoFar {
     pub video_bytes: u64,
+    /// The video's packets, sent once each: resends are in `resent`.
+    pub video_packets: u64,
     pub keyframe_requests: u64,
     pub resent: u64,
+}
+
+/// What a watched stream's connection received since it started, as of the
+/// last second, as [`StreamReceiver::received`] says: the picture's packets
+/// and their bytes as RTP payloads, resends included; the packets never seen
+/// even after asking again; those a resend brought back; the keyframes asked
+/// for; frames that wouldn't decrypt; and frames dropped because the decoder
+/// was behind.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ReceivedSoFar {
+    pub video_packets: u64,
+    pub video_bytes: u64,
+    pub lost: u64,
+    pub repaired: u64,
+    pub keyframe_requests: u64,
+    pub unreadable: u64,
+    pub behind: u64,
 }
 
 /// Receives someone's stream on a thread of its own; dropping it ends the
 /// connection.
 pub struct StreamReceiver {
     frames: channel::Receiver<ReceivedFrame>,
-    sounds: Option<channel::Receiver<Vec<u8>>>,
+    sounds: Option<channel::Receiver<ReceivedSound>>,
     shared: Arc<Shared>,
     _stop: oneshot::Sender<()>,
 }
@@ -371,7 +417,7 @@ impl StreamReceiver {
 
     /// The stream's sound, decrypted Opus frames, for a player of its own.
     /// It ends with the connection.
-    pub fn take_sounds(&mut self) -> Option<channel::Receiver<Vec<u8>>> {
+    pub fn take_sounds(&mut self) -> Option<channel::Receiver<ReceivedSound>> {
         self.sounds.take()
     }
 
@@ -382,6 +428,11 @@ impl StreamReceiver {
 
     pub fn link(&self) -> Link {
         lock(&self.shared.link).clone()
+    }
+
+    /// What came in so far, as of the last second.
+    pub fn received(&self) -> ReceivedSoFar {
+        *lock(&self.shared.received)
     }
 }
 
@@ -490,6 +541,16 @@ async fn open(
     Ok(connection)
 }
 
+/// Whether a keyframe is made for a request that came at `now`: the first
+/// is, and then one a `KEYFRAME_REQUESTS` after the keyframe last made for
+/// one, `answered`. A viewer asks at most that often while frames are lost,
+/// and a streamer makes at most that often too, because every viewer who lost
+/// the same packet asks at once and a keyframe is many times a frame: a run of
+/// them at a rate that just dropped is lost in its turn, which asks again.
+fn keyframe_due(answered: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    answered.is_none_or(|answered| now.duration_since(answered) >= KEYFRAME_REQUESTS)
+}
+
 async fn send(
     server: &StreamServer,
     user: u64,
@@ -532,6 +593,11 @@ async fn send(
     let mut withdrawn: Vec<Codec> = vec![];
     let mut packetizer = Packetizer::new(video, chosen);
     let mut history = rtp::History::default();
+    // The packets viewers asked for again, waiting their turn on the wire.
+    let mut again = rtp::Resends::default();
+    // When a keyframe was last made for a viewer, which is how often one may
+    // be made; see `keyframe_due`.
+    let mut answered: Option<std::time::Instant> = None;
     let interval = connection.interval;
     let mut heartbeat = tokio::time::interval_at(Instant::now() + interval, interval);
     let mut datagram = vec![0u8; 1500];
@@ -562,7 +628,7 @@ async fn send(
                 if wanted != size {
                     size = wanted;
                     send_json(&mut connection.ws, 12, video_attributes(ssrc, video, rtx, size, fps)).await?;
-                    if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into()) {
+                    if let Some(reason) = pacing.set_cap(max_bitrate(size.1).into(), std::time::Instant::now()) {
                         retarget(shared, &pacing, reason, None);
                     }
                 }
@@ -599,16 +665,20 @@ async fn send(
             }
             _ = tokio::time::sleep_until(pending.front().map_or_else(Instant::now, |&(due, _)| due)), if !pending.is_empty() => {
                 let now = Instant::now();
+                // One clock read for the batch: a packet's age is a coarse
+                // thing beside the window the history keeps it for.
+                let sent_at = std::time::Instant::now();
                 while pending.front().is_some_and(|&(due, _)| due <= now)
                     && let Some((_, mut packet)) = pending.pop_front()
                 {
-                    history.remember(&packet);
+                    history.remember(&packet, sent_at);
                     let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
                     packets = packets.wrapping_add(1);
                     octets = octets.wrapping_add((packet.len() - clear) as u32);
                     connection.transport.seal(&mut packet, clear)?;
                     connection.udp.send(&packet).await?;
                     shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                    shared.video_packets.fetch_add(1, Ordering::Relaxed);
                     pacing.sent(std::time::Instant::now(), packet.len());
                 }
                 if pending.is_empty() && reported.elapsed() >= SENDER_REPORTS {
@@ -686,7 +756,7 @@ async fn send(
                 }
             }
             received = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..received?];
+                let packet = &mut datagram[..received?];
                 if !rtp::is_rtcp(packet) {
                     sent.rtp_back += 1;
                     continue;
@@ -695,23 +765,27 @@ async fn send(
                     sent.unopened += 1;
                     continue;
                 };
-                for (kind, said) in rtp::rtcp_kinds(&rtcp) {
+                for (kind, said) in rtp::rtcp_kinds(rtcp) {
                     *sent.rtcp.entry(kind.clone()).or_default() += 1;
                     if !said.is_empty() {
                         sent.said.insert(kind, said);
                     }
                 }
-                if rtp::wants_keyframe(&rtcp) {
+                if rtp::wants_keyframe(rtcp) {
                     sent.requests += 1;
                     shared.keyframe_requests.fetch_add(1, Ordering::Relaxed);
-                    shared.keyframe.store(true, Ordering::Relaxed);
+                    let now = std::time::Instant::now();
+                    if keyframe_due(answered, now) {
+                        answered = Some(now);
+                        shared.keyframe.store(true, Ordering::Relaxed);
+                    }
                 }
-                if let Some(estimate) = rtp::bandwidth_estimate(&rtcp, video)
-                    && let Some(reason) = pacing.set_estimate(estimate)
+                if let Some(estimate) = rtp::bandwidth_estimate(rtcp, video)
+                    && let Some(reason) = pacing.set_estimate(estimate, std::time::Instant::now())
                 {
                     retarget(shared, &pacing, reason, None);
                 }
-                if let Some(reception) = rtp::reception(&rtcp, video) {
+                if let Some(reception) = rtp::reception(rtcp, video) {
                     let now = std::time::Instant::now();
                     let trip = echoed
                         .iter()
@@ -724,19 +798,47 @@ async fn send(
                         retarget(shared, &pacing, reason, Some((trip, reception.fraction_lost)));
                     }
                 }
-                for lost in rtp::nacked(&rtcp, video).into_iter().take(RESENDS) {
-                    let Some(mut again) = history.get(lost).and_then(|original| packetizer.retransmit(original, rtx)) else {
+                // Answered when their turn comes, a batch a turn: a NACK names
+                // up to 128 packets because a burst left the path's queue
+                // full, and one burst back would fill it again. A request
+                // repeated while its answer is still on its way is the same
+                // lost packet, not another.
+                let now = std::time::Instant::now();
+                let in_flight = pacing.in_flight();
+                for lost in rtp::nacked(rtcp, video).into_iter().take(RESENDS) {
+                    if again.ask(lost, now, in_flight) {
+                        sent.asked += 1;
+                    } else {
+                        sent.repeats += 1;
+                    }
+                }
+            }
+            // The packets viewers asked for again, a batch a turn, between the
+            // loop's other arms like one of its own.
+            _ = tokio::time::sleep_until(again.due(std::time::Instant::now()).into()), if again.waiting() => {
+                let now = std::time::Instant::now();
+                for _ in 0..again.batch(pacing.target(), congestion::PACE, now) {
+                    let Some(lost) = again.next(now) else {
+                        break;
+                    };
+                    let Some(mut packet) = history
+                        .get(lost, now)
+                        .and_then(|original| packetizer.retransmit(original, rtx))
+                    else {
                         sent.too_late += 1;
                         continue;
                     };
-                    let clear = rtp::rtp_clear_len(&again).unwrap_or(again.len());
-                    connection.transport.seal(&mut again, clear)?;
-                    connection.udp.send(&again).await?;
-                    shared.video_bytes.fetch_add(again.len() as u64, Ordering::Relaxed);
-                    pacing.sent(std::time::Instant::now(), again.len());
+                    let clear = rtp::rtp_clear_len(&packet).unwrap_or(packet.len());
+                    connection.transport.seal(&mut packet, clear)?;
+                    connection.udp.send(&packet).await?;
+                    shared.video_bytes.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                    // A resend is the stream's traffic as much as a first
+                    // send, so the rate the controller reads includes it.
+                    pacing.sent(now, packet.len());
                     shared.resent.fetch_add(1, Ordering::Relaxed);
                     sent.resent += 1;
                 }
+                again.wrote(std::time::Instant::now());
             }
             _ = log.tick() => {
                 let target_kbps = pacing.target() / 1000;
@@ -782,8 +884,12 @@ struct Sent {
     said: std::collections::BTreeMap<String, String>,
     /// Keyframe requests among them.
     requests: u32,
+    /// Packets viewers asked for again, and the requests among them that
+    /// named a packet whose copy was still on its way.
+    asked: u32,
+    repeats: u32,
     /// Packets resent when a viewer reported them lost, and those already
-    /// gone from the history.
+    /// gone from the history or too old to be worth sending.
     resent: u32,
     too_late: u32,
     /// RTCP that wouldn't decrypt.
@@ -828,7 +934,7 @@ impl Streamer {
 
     /// The codec of a packet, by its payload type or, from the streamer's
     /// video SSRC, by what Discord chose.
-    fn codec(&self, packet: &rtp::Packet) -> Option<Codec> {
+    fn codec(&self, packet: &rtp::Packet<'_>) -> Option<Codec> {
         if Some(packet.ssrc) == self.rtx {
             return None;
         }
@@ -872,8 +978,24 @@ struct Received {
     keyframe_requests: u64,
     /// Frames dropped because the decoder was behind.
     behind: u64,
+    /// The picture's bytes, as RTP payloads.
+    video_bytes: u64,
     payload_types: std::collections::BTreeSet<u8>,
     ssrcs: std::collections::BTreeSet<u32>,
+}
+
+impl Received {
+    fn so_far(&self) -> ReceivedSoFar {
+        ReceivedSoFar {
+            video_packets: self.video,
+            video_bytes: self.video_bytes,
+            lost: self.given_up,
+            repaired: self.recovered,
+            keyframe_requests: self.keyframe_requests,
+            unreadable: self.unreadable,
+            behind: self.behind,
+        }
+    }
 }
 
 /// One SSRC's video on its way to frames.
@@ -882,6 +1004,27 @@ struct Video {
     assembler: Assembler,
     /// For receiver reports: the counts at the last one.
     reported: (u32, u32),
+    orientation: Orientation,
+}
+
+impl Video {
+    fn new(codec: Codec) -> Self {
+        Self {
+            reorder: rtp::Reorder::default(),
+            assembler: Assembler::new(codec),
+            reported: (0, 0),
+            orientation: Orientation::default(),
+        }
+    }
+
+    fn push(&mut self, packet: &rtp::Packet<'_>) -> rtp::Pushed {
+        // CVO normally rides on the last packet of a frame. Absence means
+        // keep the previous orientation; an explicit zero resets it.
+        if let Some(orientation) = packet.orientation {
+            self.orientation = orientation;
+        }
+        self.assembler.push(packet)
+    }
 }
 
 async fn receive_stream(
@@ -893,7 +1036,7 @@ async fn receive_stream(
     // Where whole video frames and the sound's Opus frames go.
     (frames, sounds): (
         channel::SyncSender<ReceivedFrame>,
-        channel::SyncSender<Vec<u8>>,
+        channel::SyncSender<ReceivedSound>,
     ),
     mut stopped: oneshot::Receiver<()>,
 ) -> Result<()> {
@@ -948,6 +1091,7 @@ async fn receive_stream(
             _ = keyframes.tick() => {}
             _ = repairs.tick() => {}
             _ = reports.tick() => {
+                *lock(&shared.received) = received.so_far();
                 let Some(media) = streamer.video else { continue };
                 let Some(video) = incoming.get_mut(&media) else { continue };
                 let Some((highest, lost)) = video.reorder.counts() else { continue };
@@ -981,12 +1125,12 @@ async fn receive_stream(
                 flowing = received.decoded;
             }
             length = connection.udp.recv(&mut datagram) => {
-                let packet = &datagram[..length?];
+                let packet = &mut datagram[..length?];
                 received.packets += 1;
                 if rtp::is_rtcp(packet) {
                     received.rtcp += 1;
                     let rtcp = connection.transport.open(packet, rtp::RTCP_CLEAR).unwrap_or_default();
-                    for (sender, middle) in rtp::sender_reports(&rtcp) {
+                    for (sender, middle) in rtp::sender_reports(rtcp) {
                         if Some(sender) == streamer.video {
                             last_report = Some((middle, std::time::Instant::now()));
                         }
@@ -1001,7 +1145,7 @@ async fn receive_stream(
                     received.unopened += 1;
                     continue;
                 };
-                let Some(packet) = rtp::parse(&plain) else {
+                let Some(packet) = rtp::parse(plain) else {
                     received.unparsed += 1;
                     continue;
                 };
@@ -1011,9 +1155,15 @@ async fn receive_stream(
                 }
                 if packet.payload_type == rtp::OPUS {
                     received.sounds += 1;
-                    match connection.dave.decrypt_opus(streamer_id, packet.payload.to_vec()) {
+                    match connection.dave.decrypt_opus(streamer_id, packet.payload) {
                         // A full queue drops sound the player can't keep up with.
-                        Some(sound) => drop(sounds.try_send(sound)),
+                        Some(opus) => drop(sounds.try_send(ReceivedSound {
+                            opus: opus.into_owned(),
+                            sequence: packet.sequence,
+                            timestamp: packet.timestamp,
+                            ssrc: packet.ssrc,
+                            arrived: std::time::Instant::now(),
+                        })),
                         None => received.unheard += 1,
                     }
                     continue;
@@ -1035,6 +1185,7 @@ async fn receive_stream(
                     continue;
                 };
                 received.video += 1;
+                received.video_bytes += packet.payload.len() as u64;
                 streamer.video.get_or_insert(held.ssrc);
                 // Packets can name any SSRC: past a few, a new one isn't
                 // given buffers of its own.
@@ -1042,11 +1193,7 @@ async fn receive_stream(
                     received.other += 1;
                     continue;
                 }
-                let video = incoming.entry(held.ssrc).or_insert_with(|| Video {
-                    reorder: rtp::Reorder::default(),
-                    assembler: Assembler::new(codec),
-                    reported: (0, 0),
-                });
+                let video = incoming.entry(held.ssrc).or_insert_with(|| Video::new(codec));
                 if video.assembler.codec() != codec {
                     video.assembler = Assembler::new(codec);
                 }
@@ -1065,7 +1212,7 @@ async fn receive_stream(
             let (ready, skipped) = video.reorder.ready(now);
             received.given_up += skipped;
             for held in ready {
-                let pushed = video.assembler.push(&held.packet());
+                let pushed = video.push(&held.packet());
                 lost |= pushed.lost;
                 let Some(frame) = pushed.frame else { continue };
                 received.frames += 1;
@@ -1078,6 +1225,7 @@ async fn receive_stream(
                     codec,
                     data,
                     keyframe: frame.keyframe,
+                    orientation: video.orientation,
                 };
                 if let Err(channel::TrySendError::Full(_)) = frames.try_send(frame) {
                     // The decoder is behind; the frames after this one
@@ -1113,6 +1261,38 @@ async fn receive_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mobile_stream_orientation_changes_and_returns_upright() {
+        let mut video = Video::new(Codec::H264);
+        let mut packetizer = Packetizer::new(7, Codec::H264);
+        let mut data = vec![0, 0, 0, 1, 0x65];
+        data.resize(3000, 1); // Several RTP packets per frame.
+        for (timestamp, update, expected) in [
+            (0, Some(1), 1),
+            (3000, None, 1),
+            (6000, Some(3), 3),
+            (9000, Some(0), 0),
+            (12000, None, 0),
+        ] {
+            let packets = packetizer.packets(&data, timestamp, true);
+            assert!(packets.len() > 1);
+            for (index, bytes) in packets.iter().enumerate() {
+                let mut packet = rtp::parse(bytes).unwrap();
+                if index == packets.len() - 1 {
+                    packet.orientation = update.map(Orientation::from_cvo);
+                }
+                let pushed = video.push(&packet);
+                if index == packets.len() - 1 {
+                    assert!(pushed.frame.is_some());
+                    assert_eq!(video.orientation.turns, expected);
+                } else {
+                    assert!(pushed.frame.is_none());
+                }
+            }
+        }
+        assert_eq!(Video::new(Codec::H264).orientation, Orientation::default());
+    }
 
     #[test]
     fn paces_frames_by_the_target() {
@@ -1172,5 +1352,36 @@ mod tests {
             "retransmissions aren't frames"
         );
         assert_eq!(streamer.codec(&packet(30, 96)), None);
+    }
+
+    #[test]
+    fn answers_one_request_for_a_keyframe_a_half_second() {
+        // Viewers who lost the same packet ask together, and a rate cut loses
+        // what it sends, so requests come in runs. One keyframe a half second
+        // answers them, the first at once: a run of keyframes at a cut's rate
+        // would be lost in its turn, which asks for another.
+        let start = std::time::Instant::now();
+        let mut answered = None;
+        let mut made = vec![];
+        for at in [0u64, 1, 499, 500, 900, 1000, 1499, 1500] {
+            let now = start + Duration::from_millis(at);
+            if keyframe_due(answered, now) {
+                answered = Some(now);
+                made.push(at);
+            }
+        }
+        assert_eq!(
+            made,
+            [0, 500, 1000, 1500],
+            "one a half second, the first at once"
+        );
+        // A request a half second after the one before it is answered, so a
+        // stream keeps up with a viewer asking as often as it may.
+        let asked = start + Duration::from_millis(2000);
+        assert!(keyframe_due(Some(asked), asked + KEYFRAME_REQUESTS));
+        assert!(!keyframe_due(
+            Some(asked),
+            asked + KEYFRAME_REQUESTS - Duration::from_millis(1)
+        ));
     }
 }

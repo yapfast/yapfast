@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare Yapfast's memory with only Matrix, only Discord, or both networks built in.
+"""Compare the iced client's memory with Discord alone or Discord and Matrix.
 
 Each build is a `measure` profile binary with different Cargo features (see
 docs/building.md); the comparison is between builds, so LTO isn't needed. All run against test data only: Matrix against the local
@@ -12,8 +12,9 @@ samples again while Bob posts a message every 2 s in the open channel. Voice
 isn't measured: the fake Discord has no voice server.
 
 Start the local stack (scripts/test-stack up). Copy target/measure/yapfast, built
-with each feature set, into --builds (target/networks) as yapfast-matrix,
-yapfast-discord and yapfast-combined; docs/measurements/README.md gives the builds.
+with each feature set, into --builds (target/networks) as yapfast-discord
+and yapfast-combined; docs/measurements/README.md gives the builds.
+The desktop feature always includes Discord, so there is no Matrix-only window.
 Find the yapfast-core test binary with
 `nix develop path:./nix --command cargo test --profile fast --locked -p yapfast-core --features matrix --no-run --message-format short`
 (its "Executable unittests src/lib.rs" line), then run from the repository root:
@@ -32,7 +33,6 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import runpy
 import signal
@@ -40,23 +40,25 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from pathlib import Path
 
-from voice_harness import test_binary
+from voice_harness import LoadParticipants, test_binary
+from voice_harness import locate_rail as find_rail
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
 INPUT['require_private_display']()
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument('--builds', type=Path, default=ROOT / 'target/networks',
-                    help='folder with yapfast-matrix, yapfast-discord and yapfast-combined')
-parser.add_argument('--profile', action='append', choices=['matrix', 'discord', 'combined-discord', 'combined-matrix'])
+                    help='folder with yapfast-discord and yapfast-combined')
+parser.add_argument('--profile', action='append', choices=['discord', 'combined-discord', 'combined-matrix'])
 parser.add_argument('--renderer', default='software', choices=['gpu', 'software'])
 parser.add_argument('--warmup', type=int, default=20, help='seconds before each sample')
 parser.add_argument('--seconds', type=int, default=30, help='sample length')
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--load-executable', type=Path, help='prebuilt yapfast-core test binary for the Matrix load process')
 args = parser.parse_args()
-profiles = args.profile or ['matrix', 'discord', 'combined-discord', 'combined-matrix']
+profiles = args.profile or ['discord', 'combined-discord', 'combined-matrix']
 args.output.mkdir(parents=True, exist_ok=True)
 WIDTH, HEIGHT = 1120, 760
 # The fake's ids; see testing/fake_discord.ts.
@@ -93,20 +95,7 @@ def capture(name):
 
 
 def locate_rail(picture):
-    # The rail's exact graphite (Theme.rail, #111215) forms the window's long left edge.
-    pixels = subprocess.check_output(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-i', str(picture),
-                                      '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], timeout=10)
-    output_width, output_height = 1600, 1000
-    target = bytes([17, 18, 21])
-    columns = [sum(pixels[(y * output_width + x) * 3:(y * output_width + x) * 3 + 3] == target
-                   for y in range(output_height)) for x in range(output_width)]
-    best = max(columns)
-    if best < HEIGHT - 80:
-        raise RuntimeError(f'Yapfast rail was not found; inspect {picture}')
-    x = next(x for x, count in enumerate(columns) if count >= best - 2)
-    ys = [y for y in range(output_height)
-          if pixels[(y * output_width + x) * 3:(y * output_width + x) * 3 + 3] == target]
-    return x, min(ys)
+    return find_rail(picture, minimum_height=HEIGHT - 80)
 
 
 def sample(pid, name, notes):
@@ -116,46 +105,6 @@ def sample(pid, name, notes):
     print(json.dumps({key: result[key] for key in ('profile', 'state', 'pss_mib_mean', 'rss_mib_mean',
                                                     'cpu_percent_one_core')}), flush=True)
     return result
-
-
-class Load:
-    """Bob on the local Matrix stack, posting in #general on command."""
-
-    def __init__(self, executable, fixture):
-        self.fixture = fixture
-        self.commands = fixture / 'load.commands'
-        self.commands.write_text('')
-        self.log = (fixture / 'load.log').open('ab')
-        self.process = subprocess.Popen([executable, '--exact', 'matrix_voice::tests::load_participants', '--ignored',
-                                         '--nocapture'], cwd=ROOT, stdout=self.log, stderr=self.log,
-                                        env=dict(os.environ, YAPFAST_TEST_VOICE_ROOT=str(fixture),
-                                                 YAPFAST_TEST_EXTRA_ACCOUNTS='0'),
-                                        start_new_session=True)
-
-    def send(self, command, expect=None, timeout=240):
-        with self.commands.open('a') as commands:
-            commands.write(command + '\n')
-        if expect:
-            self.wait(expect, timeout)
-
-    def wait(self, status, timeout):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if (self.fixture / 'load.status').exists() and (self.fixture / 'load.status').read_text() == status:
-                return
-            if self.process.poll() is not None:
-                raise RuntimeError('load process exited; see load.log')
-            time.sleep(.2)
-        raise RuntimeError(f'load did not reach {status!r}')
-
-    def stop(self):
-        if self.process.poll() is None:
-            self.send('exit')
-            try:
-                self.process.wait(timeout=60)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-        self.log.close()
 
 
 class FakeDiscord:
@@ -194,10 +143,9 @@ def remember_discord_channel(data):
 
 
 def measure(profile, executable, data, discord, load):
-    environment = dict(os.environ, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}')
-    if profile != 'matrix':
-        environment['YAPFAST_DISCORD_TEST_SERVER'] = DISCORD
-        remember_discord_channel(data)
+    environment = dict(os.environ, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}',
+                       YAPFAST_DISCORD_TEST_SERVER=DISCORD)
+    remember_discord_channel(data)
     log = (args.output / f'{profile}.log').open('wb')
     process = subprocess.Popen([str(executable), '--renderer', args.renderer, '--data-dir', str(data)],
                                env=environment, stdout=log, stderr=log, start_new_session=True)
@@ -212,7 +160,7 @@ def measure(profile, executable, data, discord, load):
             INPUT['click'](origin_x + point[0], origin_y + point[1])
             time.sleep(.5)
 
-        if profile in ('matrix', 'combined-matrix'):
+        if profile == 'combined-matrix':
             click(FIRST_SERVER)
             click(MATRIX_GENERAL)
         else:
@@ -250,7 +198,8 @@ def prewarm(executable, data):
     and the heap keeps that memory. One unmeasured run does it for every profile."""
     log = (args.output / 'prewarm.log').open('wb')
     process = subprocess.Popen([str(executable), '--renderer', args.renderer, '--data-dir', str(data)],
-                               env=dict(os.environ, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}'),
+                               env=dict(os.environ, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}',
+                                        YAPFAST_DISCORD_TEST_SERVER=DISCORD),
                                stdout=log, stderr=log, start_new_session=True)
     try:
         time.sleep(12)
@@ -268,7 +217,7 @@ def prewarm(executable, data):
         log.close()
 
 
-builds = {name: (args.builds / f'yapfast-{name}').resolve() for name in ('matrix', 'discord', 'combined')}
+builds = {name: (args.builds / f'yapfast-{name}').resolve() for name in ('discord', 'combined')}
 for name, path in builds.items():
     if not path.exists():
         raise SystemExit(f'missing {path}; copy each feature build of target/measure/yapfast there')
@@ -282,9 +231,9 @@ subprocess.run([executable, '--exact', 'matrix_chat::tests::fixture_conversation
                env=dict(os.environ, YAPFAST_TEST_VOICE_ROOT=str(fixture), YAPFAST_TEST_EXTRA_MESSAGES=str(EXTRA_MESSAGES)))
 try:
     discord = FakeDiscord(args.output / 'fake-discord.log')
-    load = Load(executable, fixture)
+    load = LoadParticipants(executable, fixture)
     load.wait('ready', 600)
-    prewarm(builds['matrix'], fixture / 'alice')
+    prewarm(builds['combined'], fixture / 'alice')
     for profile in profiles:
         binary = builds['combined' if profile.startswith('combined') else profile]
         # Discord-only has no Matrix account, so it starts from an empty folder.

@@ -204,7 +204,7 @@ impl Application {
     /// or in Favorites filter them.
     pub(super) fn search_gifs(&mut self, query: String) -> Vec<Effect> {
         let picker = &mut self.state.gifs;
-        picker.query = query.clone();
+        picker.query.clone_from(&query);
         if picker.view == GifView::Favorites {
             return vec![];
         }
@@ -245,7 +245,7 @@ impl Application {
     pub(super) fn search_gif_category(&mut self, name: String) -> Vec<Effect> {
         let picker = &mut self.state.gifs;
         picker.view = GifView::Search;
-        picker.query = name.clone();
+        picker.query.clone_from(&name);
         if picker.searched() == Some(name.as_str()) && picker.error.is_none() {
             return vec![];
         }
