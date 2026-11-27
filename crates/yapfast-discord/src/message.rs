@@ -169,8 +169,7 @@ pub struct Message {
     /// shows as its own.
     #[serde(default)]
     pub forwarded: bool,
-    /// Where a forwarded message came from, from its `message_reference` and
-    /// `message_snapshots[0].message.timestamp`.
+    /// Where a forwarded message came from, from its `message_reference`.
     #[serde(default)]
     pub forward_origin: Option<ForwardOrigin>,
     /// Can be forwarded, as Discord's client decides from the message
@@ -204,8 +203,7 @@ pub struct Message {
     pub voice: Option<VoiceMessage>,
 }
 
-/// Where a forwarded message came from, from its `message_reference` and
-/// `message_snapshots[0].message.timestamp`.
+/// Where a forwarded message came from, from its `message_reference`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ForwardOrigin {
     /// The server the original message was sent in; `None` for a DM.
@@ -215,8 +213,8 @@ pub struct ForwardOrigin {
     pub channel_id: String,
     /// The original message's id.
     pub message_id: String,
-    /// When the original message was sent, in seconds since the Unix epoch;
-    /// zero when unknown.
+    /// When the original message was sent, from its id, in seconds since
+    /// the Unix epoch.
     #[serde(default)]
     pub timestamp: u64,
 }
@@ -800,11 +798,9 @@ pub fn parse(value: &Value) -> Option<Message> {
             (Some(channel_id), Some(message_id))
                 if !channel_id.is_empty() && !message_id.is_empty() =>
             {
-                let timestamp = shown["timestamp"]
-                    .as_str()
-                    .and_then(iso_ms)
-                    .map(|ms| ms / 1000)
-                    .unwrap_or_else(|| snowflake_ms(message_id) / 1000);
+                // Discord's client dates the original by its id, not by
+                // the snapshot's timestamp.
+                let timestamp = snowflake_ms(message_id) / 1000;
                 Some(ForwardOrigin {
                     guild_id: reference["guild_id"]
                         .as_str()
@@ -2828,7 +2824,6 @@ mod tests {
             "message_snapshots": [{"message": {
                 "type": 0,
                 "content": "look",
-                "timestamp": "2026-10-06T14:05:00.000000+00:00",
                 "flags": 0,
                 "attachments": [{"filename": "clip.mp4", "size": 99, "url": "https://cdn/clip.mp4",
                     "content_type": "video/mp4", "proxy_url": "https://media/clip.mp4", "width": 640, "height": 360}],
@@ -2844,7 +2839,7 @@ mod tests {
                 guild_id: Some("10".into()),
                 channel_id: "12".into(),
                 message_id: "9".into(),
-                timestamp: iso_ms("2026-10-06T14:05:00.000000+00:00").unwrap() / 1000,
+                timestamp: snowflake_ms("9") / 1000,
             })
         );
         assert_eq!(message.content, "look");
@@ -2854,8 +2849,7 @@ mod tests {
         );
         assert_eq!(message.attachments[1].shown, Shown::Sticker);
 
-        // A forward from a DM has no guild_id, and falls back to the message snowflake when
-        // no snapshot timestamp is present.
+        // A forward from a DM has no guild_id.
         let dm_forward = parse(&json!({
             "id": "1300000000000000001",
             "channel_id": "11",

@@ -61,9 +61,8 @@ impl Clock {
     /// When a forwarded message's original was sent; none when unknown.
     pub fn forwarded(self, message: &ChatMessage, now: u64) -> Option<Arc<str>> {
         let timestamp = message.forward_origin.as_ref()?.timestamp;
-        (timestamp != 0).then(|| {
-            yapfast_core::clock::sent(timestamp, now, self.twelve_hour, self.seconds).into()
-        })
+        (timestamp != 0)
+            .then(|| yapfast_core::clock::forwarded(timestamp, now, self.twelve_hour).into())
     }
 }
 
