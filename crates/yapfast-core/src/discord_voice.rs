@@ -130,6 +130,38 @@ async fn started(starting: &mut Starting) -> Result<StreamServer> {
 /// How long the join sound may wait for the sounds to come.
 const JOIN_SOUND_WAIT: Duration = Duration::from_secs(10);
 
+/// How long a one-to-one DM call may have nobody else in it before Yapfast
+/// leaves, as Discord's client's `CallIdleManager` waits.
+const IDLE_DISCONNECT: Duration = Duration::from_secs(180);
+
+/// Clyde's note in the DM as Yapfast leaves, in Discord's client's words.
+const IDLE_NOTE: &str = "It appears you've been by yourself in this call for more than 3 \
+    minutes. The bandwidth patrol has asked me to disconnect you to save bandwidth. That stuff \
+    doesn't grow on trees!";
+
+/// [`IDLE_DISCONNECT`], or the shorter wait a test sets.
+fn idle_wait() -> Duration {
+    #[cfg(test)]
+    if let Some(wait) = *tests::IDLE_WAIT.lock().unwrap() {
+        return wait;
+    }
+    IDLE_DISCONNECT
+}
+
+/// Whether Discord's client would leave this call once it has been so for
+/// [`IDLE_DISCONNECT`]: a DM, or a group DM of one other person, where
+/// nobody else is in the call. Someone it rings counts only once they
+/// answer; a group of more is never left.
+fn idle(snapshot: &Snapshot, guild: &str, channel: &str) -> bool {
+    guild == PRIVATE
+        && snapshot
+            .conversations
+            .iter()
+            .find(|found| found.id == channel)
+            .is_some_and(|found| found.people <= 2)
+        && snapshot.voice.get(channel).map_or(0, Vec::len) <= 1
+}
+
 /// What the soundboard's requests came to.
 enum SoundEvent {
     /// Discord's own sounds.
@@ -498,7 +530,17 @@ pub(crate) async fn call(
         let mut dropped = false;
         let lost = tokio::time::sleep(MOVE_GRACE);
         tokio::pin!(lost);
+        // Alone in a one-to-one call since the last time this became so,
+        // and the call ends when `alone_until` comes.
+        let mut by_myself = false;
+        let alone_until = tokio::time::sleep(IDLE_DISCONNECT);
+        tokio::pin!(alone_until);
         loop {
+            let idle_now = idle(&discord_states.borrow(), guild, &channel);
+            if idle_now && !by_myself {
+                alone_until.as_mut().reset(tokio::time::Instant::now() + idle_wait());
+            }
+            by_myself = idle_now;
             let talking = capture.as_ref().is_some_and(Capture::talking);
             let participants = discord_participants(
                 &discord_states.borrow(),
@@ -1065,6 +1107,15 @@ pub(crate) async fn call(
                 }
                 () = &mut lost, if dropped => {
                     bail!("Discord voice disconnected. Join again to reconnect.");
+                }
+                // Discord's client says why in the DM, then leaves.
+                () = &mut alone_until, if by_myself => {
+                    if idle(&discord_states.borrow(), guild, &channel) {
+                        tracing::info!("alone in a DM call for too long; leaving it");
+                        discord.bot_message(&channel, IDLE_NOTE);
+                        break;
+                    }
+                    by_myself = false;
                 }
                 changed = discord_states.changed() => {
                     if changed.is_err() || discord_states.borrow().status != Status::Online {
