@@ -962,9 +962,15 @@ fn gutter<'a>(
             .cosmetics
             .decoration(message.decoration.as_deref());
         let pointed = ctx.pointed.message.as_deref() == Some(message.item.as_str());
+        // The avatar and its decoration play while any message of the
+        // group is pointed at.
+        let group = ctx
+            .lanes
+            .group_pointed(index, ctx.pointed.message.as_deref());
         let face = ctx.face(
             Face::new(message.avatar.as_deref(), &message.author, avatar)
-                .decoration(decoration, pointed)
+                .decoration(decoration, group)
+                .animate(group)
                 .illuminated(pointed),
         );
         let face = mouse_area(face)

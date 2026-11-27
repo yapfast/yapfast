@@ -538,6 +538,10 @@ pub struct Face<'a> {
     pub decoration: Option<&'a str>,
     /// Whether the decoration plays: its row or card is pointed at.
     pub play: bool,
+    /// Whether a Nitro avatar plays its GIF ([`looks::moving_avatar`]),
+    /// once it has come and while pictures play: its row or message group
+    /// is pointed at.
+    pub animate: bool,
     /// The presence dot, the ring's colour, and where the dot goes.
     pub dot: Option<(Presence, u32, Point)>,
     /// A group DM's fallback icon when `url` is `None`.
@@ -574,6 +578,7 @@ impl<'a> Face<'a> {
             opacity: 1.0,
             decoration: None,
             play: false,
+            animate: false,
             dot: None,
             group: None,
             dot_size: None,
@@ -617,6 +622,10 @@ impl<'a> Face<'a> {
             play,
             ..self
         }
+    }
+
+    pub fn animate(self, animate: bool) -> Self {
+        Self { animate, ..self }
     }
 
     pub fn dot(self, dot: Option<(Presence, u32, Point)>) -> Self {
@@ -1073,6 +1082,27 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into()
     }
 
+    /// A Nitro avatar at `url` playing its GIF, `size` across, its still
+    /// showing until the first frame; none for a still avatar, while
+    /// pictures are held still, or until the GIF has come.
+    fn moving_avatar(
+        self,
+        url: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Option<Element<'a, Message>> {
+        let square = Size::new(size, size);
+        let moving = self.moving(
+            &looks::moving_avatar(url)?,
+            square,
+            Rectangle::with_size(square),
+            true,
+        )?;
+        let still = self.picture(url, size as u32, size as u32, true);
+        Some(moving.radius(radius).opacity(opacity).still(still).into())
+    }
+
     /// Discord's group-people placeholder icon on `ground` for a group DM
     /// without a custom icon or two-avatar pair.
     pub fn group_placeholder(
@@ -1178,6 +1208,7 @@ impl<'a> crate::ctx::Ctx<'a> {
             opacity,
             decoration,
             play,
+            animate,
             dot,
             group,
             dot_size,
@@ -1260,14 +1291,19 @@ impl<'a> crate::ctx::Ctx<'a> {
                     self.group_placeholder(ground, avatar_size, radius, opacity)
                 }
                 (None, Some(GroupFace::Pair(pair))) => self.group_pair(pair, avatar_size, opacity),
-                _ => self.avatar_tinted_exact(
-                    url,
-                    name,
-                    key.unwrap_or(name),
-                    avatar_size,
-                    radius,
-                    opacity,
-                ),
+                _ => url
+                    .filter(|_| animate)
+                    .and_then(|url| self.moving_avatar(url, avatar_size, radius, opacity))
+                    .unwrap_or_else(|| {
+                        self.avatar_tinted_exact(
+                            url,
+                            name,
+                            key.unwrap_or(name),
+                            avatar_size,
+                            radius,
+                            opacity,
+                        )
+                    }),
             }
         };
         let avatar: Element<'a, Message> = match content.and_then(|content| content.avatars.ring) {
