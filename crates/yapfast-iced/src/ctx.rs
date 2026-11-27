@@ -165,6 +165,9 @@ pub enum Request {
     /// The menu of the games detection has found, where the pointer was
     /// pressed, to choose one never to show.
     DetectedGamesMenu,
+    /// What the desktop says of reduced motion is read again, for
+    /// Accessibility's Sync with computer setting.
+    ReadSystemMotion,
 }
 
 /// Where the keys go.

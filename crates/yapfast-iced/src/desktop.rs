@@ -296,6 +296,12 @@ pub trait Desktop: Send + Sync {
     }
     /// Puts a picture, as it was downloaded, on the clipboard.
     fn copy_picture(&self, _bytes: Vec<u8>) {}
+    /// Whether the desktop asks apps for less motion, as browsers read
+    /// `prefers-reduced-motion`; none where it doesn't say. It may wait on
+    /// D-Bus, so the window asks off its thread.
+    fn reduced_motion(&self) -> Option<bool> {
+        None
+    }
     /// Gives back memory freed with the window.
     fn release_memory(&self) {}
     fn updates(&self) -> Option<&dyn Updates> {

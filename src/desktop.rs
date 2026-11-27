@@ -363,6 +363,10 @@ impl yapfast_iced::Desktop for Shell {
         release_memory();
     }
 
+    fn reduced_motion(&self) -> Option<bool> {
+        crate::motion::reduced()
+    }
+
     fn paste_reader(&self) -> Option<yapfast_iced::PasteReader> {
         let pasted = self.pasted.clone();
         Some(Box::new(move || pasted_files(&pasted)))

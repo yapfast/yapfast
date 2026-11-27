@@ -419,9 +419,14 @@ impl App {
         };
         let away = crate::away::watch_away();
         let system_theme = iced::system::theme().map(Message::SystemTheme);
+        let motion = if app.layout.sync_reduced_motion {
+            crate::shell::read_system_motion()
+        } else {
+            Task::none()
+        };
         (
             app,
-            Task::batch([sync, frames, focus, away, talk, system_theme]),
+            Task::batch([sync, frames, focus, away, talk, system_theme, motion]),
         )
     }
 

@@ -334,6 +334,7 @@ pub enum Icon {
     NoiseBars,
     NoiseBarsOff,
     Palette,
+    Accessibility,
     Help,
     /// The window's own title bar: back and forward, minimize, restore.
     ArrowLeft,
@@ -549,6 +550,7 @@ impl Icon {
             Icon::ScreenShareOff => icon!("screen-share-off.svg"),
             Icon::Soundboard => icon!("soundboard.svg"),
             Icon::Palette => icon!("palette.svg"),
+            Icon::Accessibility => icon!("accessibility.svg"),
             Icon::Help => icon!("help-circle.svg"),
             Icon::ArrowLeft => icon!("arrow-left.svg"),
             Icon::ArrowRight => icon!("arrow-right.svg"),

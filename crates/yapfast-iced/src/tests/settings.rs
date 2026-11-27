@@ -1475,9 +1475,13 @@ fn preferences_are_kept_across_a_restart() {
     interact(&mut app, |ui| {
         ui.click("Collapse long messages").expect("the switch");
     });
-    interact(&mut app, |ui| {
-        ui.click("Large").expect("the text size");
-    });
+    open(&mut app, Section::Accessibility);
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::TextPx(18),
+    ));
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::KeepTextPx,
+    ));
     assert!(app.layout.prefs.twelve_hour_clock && app.layout.prefs.clock_seconds);
     // The timeline's times follow at once: 9:41:05 PM, say.
     let time = &app.timeline.looks.last().expect("a message").time;
@@ -1497,7 +1501,7 @@ fn preferences_are_kept_across_a_restart() {
     let prefs = &again.layout.prefs;
     assert!(prefs.twelve_hour_clock && prefs.clock_seconds);
     assert!(again.layout.collapse_long && again.layout.developer_mode);
-    assert_eq!(prefs.text_size, Some(2));
+    assert_eq!(prefs.text_px(), 18);
     assert_eq!(prefs.flash_taskbar, Some(false));
     // `layout.json` keeps them under the keys older versions wrote.
     let layout = stored(&folder);
@@ -1881,6 +1885,124 @@ fn the_theme_command_switches_the_colours_and_keeps_the_choice() {
     assert_eq!(app.theme.id, "sakura");
     // The next start shows the one chosen.
     assert_eq!(start(&folder, true).theme.id, "sakura");
+}
+
+/// Accessibility shows Discord's sections, the text size at the one older
+/// versions chose, and the animations Messages had; the text size follows
+/// the slider's marks, and the rows take it.
+#[test]
+fn accessibility_keeps_the_text_size_and_the_animations() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        br#"{"text_size":2,"animate":"never"}"#,
+    )
+    .expect("an older layout");
+    let mut app = start(&folder, true);
+    let _ = app.sync();
+    open(&mut app, Section::Accessibility);
+    for words in [
+        "TEXT READABILITY",
+        "Text size in chat",
+        "18px",
+        "REDUCED MOTION",
+        "Enable Reduced Motion",
+        "Sync with computer setting",
+        "PLAY GIFS, EMOJI AND STICKERS",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    open(&mut app, Section::Messages);
+    assert!(!shows(&app, "PLAY GIFS, EMOJI AND STICKERS"), "moved");
+    open(&mut app, Section::Accessibility);
+    interact(&mut app, |ui| {
+        ui.click("Always").expect("the animations");
+    });
+    assert_eq!(app.layout.prefs.animate, crate::layout::Animate::Always);
+    // A size between two marks goes to the nearest, and is kept as the
+    // slider's let go.
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::TextPx(21),
+    ));
+    assert_eq!(app.layout.prefs.text_px(), 20);
+    assert!(
+        stored(&folder).get("chat_text_size").is_none(),
+        "not while dragged"
+    );
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::KeepTextPx,
+    ));
+    assert_eq!(stored(&folder)["chat_text_size"], 20);
+    assert_eq!(crate::message::text_size(app.ctx()), 20.0);
+}
+
+/// Enable Reduced Motion stills GIFs, emoji and stickers as Discord's
+/// client does, until they're chosen again; off, they play as chosen.
+/// Synced to the desktop, the desktop's wish decides, and unsyncing keeps
+/// what it said.
+#[test]
+fn reduced_motion_stills_animations_and_can_follow_the_desktop() {
+    use crate::layout::Animate;
+    let (mut app, folder) = preview();
+    app.layout.prefs.animate = Animate::Always;
+    open(&mut app, Section::Accessibility);
+    assert!(!app.layout.reduced_motion(), "off, as today");
+    assert!(!app.layout.sync_reduced_motion, "not synced, as today");
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert!(app.layout.reduced_motion());
+    assert_eq!(app.layout.animate(), Animate::Never, "stilled");
+    assert!(shows(
+        &app,
+        "This setting has been automatically disabled because of your Reduced Motion setting."
+    ));
+    assert_eq!(stored(&folder)["reduce_motion"], true);
+    // Chosen again, they play with reduced motion on.
+    interact(&mut app, |ui| {
+        ui.click("Always").expect("the animations");
+    });
+    assert_eq!(app.layout.animate(), Animate::Always);
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert_eq!(app.layout.animate(), Animate::Never, "stilled again");
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert_eq!(app.layout.animate(), Animate::Always, "as chosen");
+
+    // Synced, the desktop's wish counts.
+    interact(&mut app, |ui| {
+        ui.click("Sync with computer setting").expect("the switch");
+    });
+    assert!(app.layout.sync_reduced_motion);
+    let _ = app.update(Message::Shell(crate::shell::Event::SystemMotion(Some(
+        true,
+    ))));
+    assert!(app.layout.reduced_motion());
+    assert_eq!(app.layout.animate(), Animate::Never);
+    // Unsynced, the choice is what the desktop last said.
+    interact(&mut app, |ui| {
+        ui.click("Sync with computer setting").expect("the switch");
+    });
+    assert!(!app.layout.sync_reduced_motion);
+    assert!(app.layout.reduced_motion() && app.layout.reduce_motion);
+    // Choosing it stops following the desktop.
+    interact(&mut app, |ui| {
+        ui.click("Sync with computer setting").expect("the switch");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert!(!app.layout.sync_reduced_motion && !app.layout.reduced_motion());
+    let layout = stored(&folder);
+    assert_eq!(layout["sync_reduced_motion"], false);
+    assert_eq!(layout["reduce_motion"], false);
+    assert_eq!(layout["animate_stilled"], false);
 }
 
 #[test]

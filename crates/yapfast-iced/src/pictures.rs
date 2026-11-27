@@ -452,15 +452,15 @@ pub enum Mark {
 
 pub use crate::icons::Icon;
 
-/// Whether moving pictures play, as Messages' Animate choice and the
-/// window's focus say, and not while nobody is using Yapfast, whatever
-/// Animate says (`crate::away`); while they don't, each shows its first
-/// frame and nothing asks for frames.
+/// Whether moving pictures play, as Accessibility's Animate choice (or
+/// reduced motion stilling them) and the window's focus say, and not while
+/// nobody is using Yapfast, whatever Animate says (`crate::away`); while
+/// they don't, each shows its first frame and nothing asks for frames.
 pub fn plays(app: &App) -> bool {
     if app.away.inactive {
         return false;
     }
-    match app.layout.prefs.animate {
+    match app.layout.animate() {
         crate::layout::Animate::Focused => app.shell.focused,
         crate::layout::Animate::Always => true,
         crate::layout::Animate::Never => false,

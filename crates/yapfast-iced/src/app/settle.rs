@@ -33,7 +33,7 @@ impl App {
                 self.shell.focused,
                 self.win.settings.get().is_some(),
                 self.layout.theme_performance,
-                self.layout.reduce_motion,
+                self.layout.reduced_motion(),
                 self.themes.unfocused(&self.theme.id),
             ),
             account: &self.account,
@@ -235,6 +235,7 @@ impl App {
                         crate::picker::keep_emoji(self, near, first);
                     }
                     Request::Restart => tasks.push(self.restart()),
+                    Request::ReadSystemMotion => tasks.push(crate::shell::read_system_motion()),
                     Request::PlaceEmoji { target, key } => {
                         tasks.push(crate::picker::place_emoji(self, target, key));
                     }
