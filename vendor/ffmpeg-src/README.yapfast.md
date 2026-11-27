@@ -3,11 +3,11 @@
 Go Live's hardware encoders: FFmpeg 9.0.2's NVENC encoders for NVIDIA, on
 Linux and Windows, on Windows its AMF ones for AMD, and on Linux its VA-API
 ones for AMD and Intel, for H264, HEVC and AV1; and its HEVC decoder, for
-watching H265 streams, which libwebrtc's FFmpeg can't decode, with its
+watching H265 streams and video attachments, which libwebrtc's FFmpeg can't decode, with its
 x86-64 assembly. Nothing else of FFmpeg is built: no other decoders,
 formats or filters.
 `crates/yapfast-core/native/hwenc.c` drives the encoders and
-`native/hevc.c` the decoder.
+`native/hevc.c` the stream decoder and `native/video_hevc.c` the file decoder.
 
 `update.sh` makes everything here except `src/` and `patches/`. It downloads
 FFmpeg's release, nv-codec-headers 12.0.16.1 and AMD's AMF headers 1.5.2

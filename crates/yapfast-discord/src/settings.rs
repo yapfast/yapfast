@@ -2,7 +2,7 @@
 //! disturb or invisible, and a custom status; and its server list's order and
 //! folders.
 //! The settings are a protobuf message, `PreloadedUserSettings`, in base64;
-//! Yapfast reads its `status` and `guild_folders` fields and writes only `status`,
+//! Yapfast reads its `status` and `guild_folders` fields and writes each independently,
 //! by hand, always whole: Discord resets what a write of it leaves out. `status`
 //! also says whether the account shares the game it plays.
 //!
@@ -291,7 +291,6 @@ pub(crate) fn write_server_order(folders: &[&[u64]]) -> String {
 
 /// Base64 settings holding only a server list. An entry with an empty `id`
 /// is a server outside any folder.
-#[cfg(test)]
 pub(crate) fn write_server_list(entries: &[Folder]) -> String {
     let mut message = Vec::new();
     for entry in entries {
@@ -326,13 +325,118 @@ pub(crate) fn write_server_list(entries: &[Folder]) -> String {
     base64::engine::general_purpose::STANDARD.encode(settings)
 }
 
+/// Builds a patch that moves a server. With `before` set, insert beside the
+/// target. Otherwise, put the server into the target's folder.
+pub(crate) fn file_server<'a>(
+    list: &ServerList,
+    joined: impl Iterator<Item = &'a str>,
+    server: &str,
+    source_folder: bool,
+    target: &str,
+    folder: bool,
+    before: Option<bool>,
+) -> Option<String> {
+    if source_folder == folder && server == target {
+        return None;
+    }
+    let placed: std::collections::HashSet<_> = list.order.iter().map(String::as_str).collect();
+    let mut membership = std::collections::HashMap::new();
+    for (index, folder) in list.folders.iter().enumerate() {
+        for id in &folder.servers {
+            membership.insert(id.as_str(), index);
+        }
+    }
+    let mut ordered: Vec<&str> = joined
+        .filter(|id| !placed.contains(id) && id.parse::<u64>().is_ok())
+        .collect();
+    ordered.extend(list.order.iter().map(String::as_str));
+    let mut entries = Vec::new();
+    let mut emitted = std::collections::HashSet::new();
+    for id in ordered {
+        if let Some(&index) = membership.get(id) {
+            if emitted.insert(index) {
+                entries.push(list.folders[index].clone());
+            }
+        } else {
+            entries.push(Folder {
+                servers: vec![id.to_owned()],
+                ..Folder::default()
+            });
+        }
+    }
+    let destination = entries.iter().position(|entry| {
+        if folder {
+            entry.id == target
+        } else {
+            entry.servers.iter().any(|id| id == target)
+        }
+    })?;
+    if source_folder {
+        let before = before?;
+        let source = entries.iter().position(|entry| entry.id == server)?;
+        if source == destination {
+            return None;
+        }
+        let index = destination + usize::from(!before) - usize::from(source < destination);
+        if index == source {
+            return None;
+        }
+        let entry = entries.remove(source);
+        entries.insert(index, entry);
+        return Some(write_server_list(&entries));
+    }
+    let source = entries
+        .iter()
+        .position(|entry| entry.servers.iter().any(|id| id == server))?;
+    if let Some(before) = before {
+        let nested = !folder && !entries[destination].id.is_empty();
+        entries[source].servers.retain(|id| id != server);
+        if nested {
+            let servers = &mut entries[destination].servers;
+            let index = servers.iter().position(|id| id == target)?;
+            servers.insert(index + usize::from(!before), server.to_owned());
+        } else {
+            entries.insert(
+                destination + usize::from(!before),
+                Folder {
+                    servers: vec![server.to_owned()],
+                    ..Folder::default()
+                },
+            );
+        }
+        entries.retain(|entry| !entry.servers.is_empty());
+        return Some(write_server_list(&entries));
+    }
+    if source == destination {
+        return None;
+    }
+    if entries[destination].id.is_empty() {
+        let id = loop {
+            let id = rand::random::<u32>().to_string();
+            if id != "0" && entries.iter().all(|entry| entry.id != id) {
+                break id;
+            }
+        };
+        entries[destination].id = id;
+    }
+    entries[source].servers.retain(|id| id != server);
+    entries[destination].servers.push(server.to_owned());
+    if entries[source].servers.is_empty() {
+        entries.remove(source);
+    }
+    Some(write_server_list(&entries))
+}
+
 /// The values of a repeated `fixed64` field: packed, or one by one.
 fn fixed64s(value: Field<'_>) -> Vec<u64> {
     match value {
         Field::Fixed64(value) => vec![value],
         Field::Bytes(packed) => packed
-            .chunks_exact(8)
-            .map(|bytes| u64::from_le_bytes(bytes.try_into().expect("eight bytes")))
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .copied()
+            .map(u64::from_le_bytes)
             .collect(),
         _ => Vec::new(),
     }
@@ -653,6 +757,77 @@ mod tests {
     }
 
     /// Settings holding a status written over none.
+    #[test]
+    fn dropping_servers_creates_and_updates_folders() {
+        let file = |current: &str, joined: [&str; 4], server, target, folder, before| {
+            file_server(
+                &server_list(current).unwrap(),
+                joined.into_iter(),
+                server,
+                false,
+                target,
+                folder,
+                before,
+            )
+        };
+        let named = Folder {
+            id: "42".into(),
+            name: Some("Friends".into()),
+            color: Some(0x112233),
+            servers: vec!["1".into()],
+        };
+        let current = write_server_list(std::slice::from_ref(&named));
+        let joined = ["2", "3", "4", "1"];
+        let created = file(&current, joined, "2", "3", false, None).unwrap();
+        let list = server_list(&created).unwrap();
+        assert_eq!(list.order, ["3", "2", "4", "1"]);
+        assert_eq!(list.folders[0].servers, ["3", "2"]);
+        assert_eq!(list.folders[1], named);
+
+        let changed = file(&created, joined, "1", &list.folders[0].id, true, None).unwrap();
+        let list = server_list(&changed).unwrap();
+        assert_eq!(list.order, ["3", "2", "1", "4"]);
+        assert_eq!(list.folders.len(), 1);
+        assert_eq!(list.folders[0].servers, ["3", "2", "1"]);
+        assert!(file(&changed, joined, "1", "2", false, None).is_none());
+
+        let folder_id = &list.folders[0].id;
+        let moved = file(&changed, joined, "2", folder_id, true, Some(true)).unwrap();
+        let list = server_list(&moved).unwrap();
+        assert_eq!(list.order, ["2", "3", "1", "4"]);
+        assert_eq!(list.folders[0].servers, ["3", "1"]);
+
+        let moved = file(&moved, joined, "1", "3", false, Some(true)).unwrap();
+        assert_eq!(server_list(&moved).unwrap().folders[0].servers, ["1", "3"]);
+    }
+
+    #[test]
+    fn moving_a_folder_keeps_its_id_metadata_and_servers() {
+        let folder = Folder {
+            id: "42".into(),
+            name: Some("Friends".into()),
+            color: Some(0x112233),
+            servers: vec!["1".into(), "2".into()],
+        };
+        let other = Folder {
+            id: "43".into(),
+            servers: vec!["4".into(), "5".into()],
+            ..Folder::default()
+        };
+        let list = ServerList {
+            order: ["1", "2", "3", "4", "5"].map(str::to_owned).into(),
+            folders: vec![folder.clone(), other.clone()],
+        };
+        let patch =
+            file_server(&list, [].into_iter(), "42", true, "43", true, Some(false)).unwrap();
+        let moved = server_list(&patch).unwrap();
+        assert_eq!(moved.order, ["3", "4", "5", "1", "2"]);
+        assert_eq!(moved.folders, [other, folder]);
+
+        assert!(file_server(&list, [].into_iter(), "42", true, "2", false, Some(false)).is_none());
+        assert!(file_server(&list, [].into_iter(), "42", true, "43", true, None).is_none());
+    }
+
     fn status_only(status: &str) -> String {
         encode_status(&write_status(&[], status, 1))
     }
@@ -674,7 +849,7 @@ mod tests {
             read(&written),
             StatusSettings {
                 status: None,
-                custom: Some(Some(status.clone())),
+                custom: Some(Some(status)),
                 afk_timeout: None,
                 show_game: None,
                 nsfw_commands_in_dms: None,
@@ -739,7 +914,7 @@ mod tests {
         let written = write_custom(&current, Some(&custom), 100);
         let expected = StatusSettings {
             status: Some("dnd".into()),
-            custom: Some(Some(custom.clone())),
+            custom: Some(Some(custom)),
             afk_timeout: None,
             show_game: None,
             nsfw_commands_in_dms: None,

@@ -14,9 +14,10 @@ use std::{
     fs::{File, OpenOptions},
     path::{Path, PathBuf},
     sync::{
-        Mutex,
+        Mutex, OnceLock,
         atomic::{AtomicU32, AtomicU64, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, ensure};
@@ -28,6 +29,13 @@ const SLOTS: u32 = 3;
 /// Set beside the middle slot's index when the worker put a frame there that
 /// the UI hasn't taken.
 const FRESH: u32 = 4;
+/// How long a frame the UI hasn't taken means it isn't on screen: the UI
+/// takes each frame within a draw or two while it shows them.
+const UNSEEN_AFTER: Duration = Duration::from_millis(250);
+/// How long the largest size the UI drew a source at stays its wish while it
+/// draws it smaller too, as two tiles of one stream do: a second after the
+/// large one goes, the frames come at the smaller one's size.
+const WISH_HOLDS: Duration = Duration::from_secs(1);
 
 /// The header at the start of the file; slots follow it.
 #[repr(C)]
@@ -36,7 +44,9 @@ struct Header {
     capacity: u32,
     /// The middle slot's index, with [`FRESH`].
     middle: AtomicU32,
-    _reserved: u32,
+    /// The size the UI draws the frames at, in pixels, width in the high
+    /// half and height in the low; zero until it has drawn one.
+    wanted: AtomicU32,
     /// Each slot's frame size, as width and height in pixels.
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
@@ -44,6 +54,28 @@ struct Header {
 }
 
 const _: () = assert!(size_of::<Header>() <= HEADER);
+
+/// The line a worker writes among its reports after each frame, while the
+/// UI asked to be woken for frames ([`crate::picture::set_frame_wake`]):
+/// the UI's side reads the slots without a wake of its own, so the reports'
+/// pipe brings it.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
+pub(crate) const FRAME_LINE: &str = "\"frame\"";
+
+static TELL: OnceLock<fn()> = OnceLock::new();
+
+/// Calls `tell` after each frame a [`Writer`] shows, from the thread that
+/// wrote it.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
+pub(crate) fn tell_each_frame(tell: fn()) {
+    let _ = TELL.set(tell);
+}
 
 /// The largest frame `width` by `height` RGBA pixels fit in.
 fn capacity(width: u32, height: u32) -> usize {
@@ -97,6 +129,8 @@ pub struct Frames {
     /// The slot the UI reads, while it reads it.
     front: Mutex<u32>,
     name: Mutex<Option<Name>>,
+    /// The size the UI asks frames at, and when a draw last needed it.
+    wish: Mutex<Option<((u32, u32), Instant)>>,
 }
 
 /// What keeps the file's name until [`Frames::unlink`].
@@ -194,6 +228,7 @@ impl Frames {
             mapping: Mapping::open(&file)?,
             front: Mutex::new(2),
             name: Mutex::new(Some(name)),
+            wish: Mutex::new(None),
         })
     }
 
@@ -213,6 +248,32 @@ impl Frames {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
+    }
+
+    /// Says the UI draws the frames at `width` by `height` pixels, so the
+    /// worker can make them no larger. While another draw of them asked for
+    /// more in the last [`WISH_HOLDS`], the larger size stays.
+    pub fn want(&self, width: u32, height: u32) {
+        let (width, height) = (width.clamp(1, 0xffff), height.clamp(1, 0xffff));
+        let now = Instant::now();
+        let mut wish = self
+            .wish
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let size = match *wish {
+            Some(((held_width, held_height), at)) if now.duration_since(at) < WISH_HOLDS => {
+                if width < held_width && height < held_height {
+                    return;
+                }
+                (width.max(held_width), height.max(held_height))
+            }
+            _ => (width, height),
+        };
+        *wish = Some((size, now));
+        self.mapping
+            .header()
+            .wanted
+            .store(size.0 << 16 | size.1, Ordering::Relaxed);
     }
 
     /// Calls `show` with the newest frame's width, height and RGBA pixels,
@@ -250,6 +311,8 @@ impl Frames {
 pub struct Writer {
     mapping: Mapping,
     back: u32,
+    /// When it last showed a frame.
+    written: Option<Instant>,
 }
 
 impl Writer {
@@ -262,12 +325,35 @@ impl Writer {
         Ok(Self {
             mapping: Mapping::open(&file)?,
             back: 0,
+            written: None,
         })
     }
 
     /// The largest frame, in pixels, that fits.
     pub fn fits(&self, width: u32, height: u32) -> bool {
         capacity(width, height) <= self.mapping.capacity
+    }
+
+    /// Whether the UI took the last frame shown, or none was shown yet.
+    pub fn taken(&self) -> bool {
+        self.mapping.header().middle.load(Ordering::Acquire) & FRESH == 0
+    }
+
+    /// Whether the UI has left the last frame untaken for [`UNSEEN_AFTER`]:
+    /// it takes frames only while they're on screen, so nothing shows the
+    /// ones after it, and they needn't be written until it takes that one.
+    /// A UI slow to take one frame isn't this: it gets the newest.
+    pub fn unseen(&self) -> bool {
+        !self.taken()
+            && self
+                .written
+                .is_some_and(|written| written.elapsed() >= UNSEEN_AFTER)
+    }
+
+    /// The size the UI draws the frames at, once it has drawn one.
+    pub fn wanted(&self) -> Option<(u32, u32)> {
+        let wanted = self.mapping.header().wanted.load(Ordering::Relaxed);
+        (wanted != 0).then_some((wanted >> 16, wanted & 0xffff))
     }
 
     /// Writes a frame with `fill`, which gets its RGBA pixels, then shows it.
@@ -295,6 +381,10 @@ impl Writer {
         h.store(height, Ordering::Relaxed);
         header.times[self.back as usize].store(time_ms, Ordering::Relaxed);
         self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
+        self.written = Some(Instant::now());
+        if let Some(tell) = TELL.get() {
+            tell();
+        }
     }
 }
 
@@ -314,11 +404,14 @@ mod tests {
         }
         assert!(frames.take(|_, _, _| ()).is_none(), "nothing yet");
         assert!(writer.fits(2, 4) && !writer.fits(5, 2));
+        assert!(writer.taken(), "nothing shown yet to wait for");
 
         writer.write(2, 1, |pixels| pixels.fill(1));
+        assert!(!writer.taken());
         writer.write(4, 2, |pixels| pixels.fill(2));
         let newest = frames.take(|width, height, pixels| (width, height, pixels.to_vec()));
         assert_eq!(newest, Some((4, 2, vec![2; 32])), "only the newest");
+        assert!(writer.taken());
         assert!(frames.take(|_, _, _| ()).is_none(), "taken once");
 
         // Many frames while the UI holds one: it never sees a partial frame.
@@ -336,5 +429,23 @@ mod tests {
 
         drop((writer, frames));
         assert!(!path.exists(), "gone once both let go");
+    }
+
+    /// The UI's size for the frames: the largest a draw asked for lately,
+    /// then a smaller one once nothing has asked for the larger in a while.
+    #[test]
+    fn the_writer_learns_the_size_the_ui_draws_at() {
+        let frames = Frames::create(64, 64).unwrap();
+        let writer = Writer::open(&frames.path().unwrap()).unwrap();
+        assert_eq!(writer.wanted(), None, "nothing drawn yet");
+        frames.want(40, 30);
+        assert_eq!(writer.wanted(), Some((40, 30)));
+        frames.want(20, 15);
+        assert_eq!(writer.wanted(), Some((40, 30)), "another, smaller tile");
+        frames.want(50, 10);
+        assert_eq!(writer.wanted(), Some((50, 30)), "wider, not as tall");
+        *frames.wish.lock().unwrap() = Some(((50, 30), Instant::now() - WISH_HOLDS));
+        frames.want(20, 15);
+        assert_eq!(writer.wanted(), Some((20, 15)), "the large one went");
     }
 }

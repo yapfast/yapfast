@@ -1,18 +1,19 @@
 //! Commands about the account rather than a channel: finding people,
 //! profiles, role members, member search, friends, the status, calls
-//! ringing, message requests, a channel's pins and search, group DMs,
-//! notification settings and invites.
+//! ringing, message requests, a channel's pins and search, recent mentions,
+//! group DMs, notification settings and invites.
 
 use super::{
     channels::SEARCH_PAUSE,
     channels::SharedPreviews,
     commands::NOT_DISCORD,
-    render::{chat_badges, chat_profile, found_in, hits_in, with_previews},
+    render::{chat_badges, chat_profile, found_in, hits_in, mentioned, with_previews},
     *,
 };
 use crate::chat::{
     EventPreview, GiftPreview, InvitePreview, JoinedServer, MemberChange, Muting,
-    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange,
+    NotificationChange, NotifyLevel, OAuthGuild, OAuthPreview, RelationshipChange, SearchSort,
+    Searched,
 };
 
 /// Carries out a command about the account, or gives back any other.
@@ -96,6 +97,7 @@ pub(super) fn command(
                     id: user,
                     group_icon: None,
                     role_icon: None,
+                    color_end: None,
                 })
                 .collect();
             members.sort_by_key(|member| member.name.to_lowercase());
@@ -159,6 +161,7 @@ pub(super) fn command(
                         id: user,
                         group_icon: None,
                         role_icon: None,
+                        color_end: None,
                     })
                     .collect();
                 let _ = events.send(Event::MemberMatches {
@@ -200,6 +203,7 @@ pub(super) fn command(
         user,
         effect,
         frame,
+        badges: wants_badge_levels,
     }) = command
     {
         match (discord, discord::parse_room(&room)) {
@@ -269,6 +273,9 @@ pub(super) fn command(
                         }
                     };
                     let badges_task = async {
+                        if !wants_badge_levels {
+                            return;
+                        }
                         if discord.badge_levels(&guild, &user, &mut badges).await {
                             let _ = events.send(Event::BadgeLevels {
                                 user: user.clone(),
@@ -300,7 +307,25 @@ pub(super) fn command(
                             }
                         }
                     };
-                    tokio::join!(effect_task, badges_task, note_task, frame_task);
+                    // Their presence there, which the member list knows only
+                    // for the rows it has loaded, as Discord's client asks.
+                    let presence_task = async {
+                        if let Some(found) = discord.member_presence(&guild, &user).await {
+                            let _ = events.send(Event::ProfilePresence {
+                                user: user.clone(),
+                                presence: discord::presence(found.presence),
+                                activity: found.activity,
+                                activities: found.activities,
+                            });
+                        }
+                    };
+                    tokio::join!(
+                        effect_task,
+                        badges_task,
+                        note_task,
+                        frame_task,
+                        presence_task
+                    );
                 });
             }
             (discord, _) => {
@@ -517,6 +542,52 @@ pub(super) fn command(
         }
         return None;
     }
+    if let Command::Discord(DiscordCommand::FileServer {
+        server,
+        source_folder,
+        target,
+        folder,
+        before,
+    }) = command
+    {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = discord
+                        .file_server(&server, source_folder, &target, folder, before)
+                        .await
+                        .map_err(|error| error.to_string());
+                    let _ = events.send(Event::ServerFiled(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ServerFiled(Err(why.into())));
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::FavoriteChannel { room, favorite }) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    let result = match discord::parse_room(&room) {
+                        Some((_, channel)) => discord
+                            .favorite_channel(channel, favorite)
+                            .await
+                            .map_err(|error| error.to_string()),
+                        None => Err("Invalid Discord channel".into()),
+                    };
+                    let _ = events.send(Event::ChannelFavorited(result));
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::ChannelFavorited(Err(why.into())));
+            }
+        }
+        return None;
+    }
     if let Command::Discord(DiscordCommand::SetStatus(status)) = command {
         match discord {
             Ok(discord) => {
@@ -612,6 +683,36 @@ pub(super) fn command(
                 let _ = events.send(Event::Pins {
                     room,
                     result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
+                });
+            }
+        }
+        return None;
+    }
+    if let Command::Discord(DiscordCommand::RecentMentions(query)) = command {
+        match discord {
+            Ok(discord) => {
+                let (discord, events) = (discord.clone(), events.clone());
+                tokio::spawn(async move {
+                    // Only a Discord server's id names a server to ask of.
+                    let guild = query.server.as_deref().and_then(discord::parse_server);
+                    let asked = discord.recent_mentions(query.everyone, query.roles, guild);
+                    let result = match asked.await {
+                        Ok(messages) => Ok(mentioned(&discord, &messages)),
+                        Err(error) => {
+                            tracing::warn!(
+                                error = format!("{error:#}"),
+                                "could not list recent mentions"
+                            );
+                            Err(error.to_string())
+                        }
+                    };
+                    let _ = events.send(Event::RecentMentions { query, result });
+                });
+            }
+            Err(why) => {
+                let _ = events.send(Event::RecentMentions {
+                    query,
+                    result: Err(why.into()),
                 });
             }
         }
@@ -849,6 +950,7 @@ pub(super) fn command(
     if let Command::Discord(DiscordCommand::Search {
         place,
         query,
+        sort,
         offset,
     }) = command
     {
@@ -856,17 +958,35 @@ pub(super) fn command(
         let scope = discord::parse_room(&place)
             .map(|(guild, channel)| (guild.to_owned(), Some(channel.to_owned())))
             .or_else(|| discord::parse_server(&place).map(|guild| (guild.to_owned(), None)));
+        let found = {
+            let query = query.clone();
+            move |result| Event::Found {
+                place: place.clone(),
+                query: query.clone(),
+                sort,
+                offset,
+                result,
+            }
+        };
         match (discord, scope) {
             (Ok(discord), Some((guild, channel))) => {
                 let (discord, events) = (discord.clone(), events.clone());
                 let previews = previews.clone();
                 tokio::spawn(async move {
-                    let result = match discord
-                        .search(&guild, channel.as_deref(), &query, offset)
-                        .await
-                    {
-                        Ok(page) => {
-                            let mut hits = hits_in(&discord, &guild, &page.messages);
+                    let indexing = || {
+                        let _ = events.send(found(Ok(Searched::Indexing { again: true })));
+                    };
+                    let sort = match sort {
+                        SearchSort::Newest => yapfast_discord::search::Sort::Newest,
+                        SearchSort::Oldest => yapfast_discord::search::Sort::Oldest,
+                        SearchSort::Relevant => yapfast_discord::search::Sort::Relevant,
+                    };
+                    let searched = discord
+                        .search(&guild, channel.as_deref(), &query, sort, offset, &indexing)
+                        .await;
+                    let result = match searched {
+                        Ok(yapfast_discord::service::Searched::Found(page)) => {
+                            let mut hits = hits_in(&discord, &guild, &page.messages, &page.threads);
                             let mut found: Vec<_> = hits
                                 .iter_mut()
                                 .map(|hit| std::mem::take(&mut hit.message))
@@ -875,28 +995,26 @@ pub(super) fn command(
                             for (hit, message) in hits.iter_mut().zip(found) {
                                 hit.message = message;
                             }
-                            Ok((page.total, hits))
+                            Ok(Searched::Page {
+                                total: page.total,
+                                hits,
+                                words: page.words,
+                                indexing_older: page.indexing_older,
+                            })
+                        }
+                        Ok(yapfast_discord::service::Searched::Indexing) => {
+                            Ok(Searched::Indexing { again: false })
                         }
                         Err(error) => {
                             tracing::warn!(error = format!("{error:#}"), "could not search");
                             Err(error.to_string())
                         }
                     };
-                    let _ = events.send(Event::Found {
-                        place,
-                        query,
-                        offset,
-                        result,
-                    });
+                    let _ = events.send(found(result));
                 });
             }
             (discord, _) => {
-                let _ = events.send(Event::Found {
-                    place,
-                    query,
-                    offset,
-                    result: Err(discord.err().unwrap_or(NOT_DISCORD).into()),
-                });
+                let _ = events.send(found(Err(discord.err().unwrap_or(NOT_DISCORD).into())));
             }
         }
         return None;
@@ -1315,6 +1433,7 @@ pub(super) fn command(
         | DiscordCommand::CloseDm { .. }
         | DiscordCommand::Mute { .. }
         | DiscordCommand::Notifications { .. }
+        | DiscordCommand::FolderNotifications { .. }
         | DiscordCommand::PinChannel { .. }
         | DiscordCommand::MoveChannels { .. }
         | DiscordCommand::FollowChannel { .. }
@@ -1712,6 +1831,16 @@ fn change_person(
                     .change_notifications(guild, channel, notification_change(change))
                     .await;
                 (result, "change the notification settings")
+            }
+            DiscordCommand::FolderNotifications { servers, change } => {
+                let guilds: Vec<&str> = servers
+                    .iter()
+                    .filter_map(|server| discord::parse_server(server))
+                    .collect();
+                let result = discord
+                    .change_servers_notifications(&guilds, notification_change(change))
+                    .await;
+                (result, "change the folder's notification settings")
             }
             DiscordCommand::PinChannel { room, flags } => {
                 let result = match discord::parse_room(&room) {

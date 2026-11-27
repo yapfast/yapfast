@@ -5,7 +5,13 @@
 //! Four are synthesized as they play; two play the score on one recorded
 //! note each, the only sound bundled.
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc, LazyLock, RwLock,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use realfft::RealFftPlanner;
 use serde::{Deserialize, Serialize};
@@ -123,6 +129,36 @@ pub enum Sound {
     StreamStart,
     /// Someone else stopped streaming, staying in the call.
     StreamStop,
+}
+
+/// One replacement supplied by the active theme. Several files take turns,
+/// so repeated events do not always sound identical.
+#[derive(Clone)]
+pub struct ThemedSound {
+    pub samples: Vec<Arc<[i16]>>,
+    pub volume: f32,
+}
+
+static THEMED: LazyLock<RwLock<HashMap<Sound, ThemedSound>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static NEXT_THEMED: AtomicUsize = AtomicUsize::new(0);
+
+/// Replaces Yapfast's event sounds with the active theme's decoded files.
+/// An empty map restores the selected built-in sound set.
+pub fn set_themed(sounds: HashMap<Sound, ThemedSound>) {
+    if let Ok(mut themed) = THEMED.write() {
+        *themed = sounds;
+    }
+}
+
+fn themed(sound: Sound) -> Option<(Arc<[i16]>, f32)> {
+    let themed = THEMED.read().ok()?;
+    let choice = themed.get(&sound)?;
+    if choice.samples.is_empty() {
+        return None;
+    }
+    let index = NEXT_THEMED.fetch_add(1, Ordering::Relaxed) % choice.samples.len();
+    Some((choice.samples[index].clone(), choice.volume))
 }
 
 impl Sound {
@@ -402,6 +438,10 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     if volume <= 0.0 {
         return;
     }
+    if let Some((samples, themed_volume)) = themed(sound) {
+        play_decoded(samples, volume * themed_volume, speaker);
+        return;
+    }
     let speaker: Option<Arc<str>> = speaker.map(Into::into);
     let started = std::thread::Builder::new()
         .name("yapfast-sound".into())
@@ -417,6 +457,46 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
             }
         });
     if let Err(error) = started {
+        tracing::warn!(%error, "could not start a sound");
+    }
+}
+
+/// How many of a theme's sounds play at once; more are dropped, so a pointer
+/// sweeping across buttons can't pile up streams.
+const MOST_AT_ONCE: usize = 4;
+
+static PLAYING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Plays decoded 48 kHz interleaved stereo, a theme's sound decoded once and
+/// shared, at `volume` from [`gain`], as [`play`] does. Dropped while
+/// [`MOST_AT_ONCE`] are still playing.
+pub fn play_decoded(samples: Arc<[i16]>, volume: f32, speaker: Option<&str>) {
+    use std::sync::atomic::Ordering;
+    if volume <= 0.0 {
+        return;
+    }
+    if PLAYING.fetch_add(1, Ordering::AcqRel) >= MOST_AT_ONCE {
+        PLAYING.fetch_sub(1, Ordering::AcqRel);
+        return;
+    }
+    let speaker: Option<Arc<str>> = speaker.map(Into::into);
+    let started = std::thread::Builder::new()
+        .name("yapfast-sound".into())
+        .spawn(move || {
+            let scaled: Vec<f32> = samples
+                .iter()
+                .map(|sample| f32::from(*sample) / f32::from(i16::MAX) * volume)
+                .collect();
+            if let Err(error) = play_samples(&scaled, speaker.as_deref()) {
+                tracing::warn!(
+                    error = format!("{error:#}"),
+                    "could not play a theme's sound"
+                );
+            }
+            PLAYING.fetch_sub(1, Ordering::AcqRel);
+        });
+    if let Err(error) = started {
+        PLAYING.fetch_sub(1, Ordering::AcqRel);
         tracing::warn!(%error, "could not start a sound");
     }
 }

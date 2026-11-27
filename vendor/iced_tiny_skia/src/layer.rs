@@ -1,0 +1,844 @@
+use crate::Primitive;
+use crate::core::renderer::Quad;
+use crate::core::{
+    self, Background, Color, Point, Rectangle, Svg, Transformation,
+};
+use crate::graphics::damage;
+use crate::graphics::layer;
+use crate::graphics::text::{Editor, Paragraph, Text};
+use crate::graphics::{self, Image};
+
+use std::sync::Arc;
+
+pub type Stack = layer::Stack<Layer>;
+
+#[derive(Debug, Clone)]
+pub struct Layer {
+    pub bounds: Rectangle,
+    pub quads: Vec<(Quad, Background)>,
+    pub primitives: Vec<Item<Primitive>>,
+    pub images: Vec<Image>,
+    pub text: Vec<Item<Text>>,
+}
+
+impl Layer {
+    pub fn draw_quad(
+        &mut self,
+        mut quad: Quad,
+        background: Background,
+        transformation: Transformation,
+    ) {
+        quad.bounds = quad.bounds * transformation;
+        self.quads.push((quad, background));
+    }
+
+    pub fn draw_paragraph(
+        &mut self,
+        paragraph: &Paragraph,
+        position: Point,
+        color: Color,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        let paragraph = Text::Paragraph {
+            paragraph: paragraph.downgrade(),
+            position,
+            color,
+            clip_bounds,
+            transformation,
+        };
+
+        self.text.push(Item::Live(paragraph));
+    }
+
+    pub fn draw_editor(
+        &mut self,
+        editor: &Editor,
+        position: Point,
+        color: Color,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        let editor = Text::Editor {
+            editor: editor.downgrade(),
+            position,
+            color,
+            clip_bounds,
+            transformation,
+        };
+
+        self.text.push(Item::Live(editor));
+    }
+
+    pub fn draw_text(
+        &mut self,
+        text: core::Text,
+        position: Point,
+        color: Color,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        let text = Text::Cached {
+            content: text.content,
+            bounds: Rectangle::new(position, text.bounds) * transformation,
+            color,
+            size: text.size * transformation.scale_factor(),
+            line_height: text.line_height.to_absolute(text.size)
+                * transformation.scale_factor(),
+            font: text.font,
+            align_x: text.align_x,
+            align_y: text.align_y,
+            shaping: text.shaping,
+            clip_bounds: clip_bounds * transformation,
+        };
+
+        self.text.push(Item::Live(text));
+    }
+
+    pub fn draw_text_raw(
+        &mut self,
+        raw: graphics::text::Raw,
+        transformation: Transformation,
+    ) {
+        let raw = Text::Raw {
+            raw,
+            transformation,
+        };
+
+        self.text.push(Item::Live(raw));
+    }
+
+    pub fn draw_text_group(
+        &mut self,
+        text: Vec<Text>,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        self.text
+            .push(Item::Group(text, clip_bounds, transformation));
+    }
+
+    pub fn draw_text_cache(
+        &mut self,
+        text: Arc<[Text]>,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        self.text
+            .push(Item::Cached(text, clip_bounds, transformation));
+    }
+
+    pub fn draw_image(&mut self, image: Image, transformation: Transformation) {
+        match image {
+            Image::Raster {
+                image,
+                bounds,
+                clip_bounds,
+            } => {
+                self.draw_raster(image, bounds, clip_bounds, transformation);
+            }
+            Image::Vector {
+                svg,
+                bounds,
+                clip_bounds,
+            } => {
+                self.draw_svg(svg, bounds, clip_bounds, transformation);
+            }
+        }
+    }
+
+    pub fn draw_raster(
+        &mut self,
+        image: core::Image,
+        bounds: Rectangle,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        let image = Image::Raster {
+            image: core::Image {
+                border_radius: image.border_radius
+                    * transformation.scale_factor(),
+                ..image
+            },
+            bounds: bounds * transformation,
+            clip_bounds: clip_bounds * transformation,
+        };
+
+        self.images.push(image);
+    }
+
+    pub fn draw_svg(
+        &mut self,
+        svg: Svg,
+        bounds: Rectangle,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        let svg = Image::Vector {
+            svg,
+            bounds: bounds * transformation,
+            clip_bounds: clip_bounds * transformation,
+        };
+
+        self.images.push(svg);
+    }
+
+    pub fn draw_primitive_group(
+        &mut self,
+        primitives: Vec<Primitive>,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        self.primitives.push(Item::Group(
+            primitives,
+            clip_bounds * transformation,
+            transformation,
+        ));
+    }
+
+    pub fn draw_primitive_cache(
+        &mut self,
+        primitives: Arc<[Primitive]>,
+        clip_bounds: Rectangle,
+        transformation: Transformation,
+    ) {
+        self.primitives.push(Item::Cached(
+            primitives,
+            clip_bounds * transformation,
+            transformation,
+        ));
+    }
+
+    /// Yapfast port (patch 27): where this layer draws: each quad (with
+    /// its shadow's reach), text, primitive and image, inside its bounds.
+    /// A layer is often as large as the window (an overlay's, a stack's
+    /// upper children's, a picture cut to its box) though it draws a
+    /// tooltip or a picture, so a layer that came, went or changed its
+    /// bounds damages what it drew, not its bounds: a tooltip on a theme
+    /// with art no longer redraws the whole window. A stroke counts with
+    /// its width (`Primitive::drawn_bounds`).
+    pub fn extent(&self) -> Vec<Rectangle> {
+        let bounds = self.bounds;
+        let quads = self.quads.iter().map(|(quad, _)| {
+            crate::engine::shadow_reach(quad)
+                .map_or(quad.bounds, |reach| reach.union(&quad.bounds))
+                .expand(1.0)
+        });
+        let text = self.text.iter().flat_map(|item| {
+            let transformation = item.transformation();
+            item.as_slice()
+                .iter()
+                .filter_map(Text::visible_bounds)
+                .map(move |bounds| bounds * transformation)
+        });
+        let primitives = self.primitives.iter().flat_map(|item| match item {
+            Item::Live(primitive) => vec![primitive.drawn_bounds()],
+            Item::Group(primitives, group_bounds, transformation) => primitives
+                .iter()
+                .map(|primitive| primitive.drawn_bounds() * *transformation)
+                .filter_map(|bounds| bounds.intersection(group_bounds))
+                .collect(),
+            Item::Cached(_, bounds, _) => vec![*bounds],
+        });
+        let images = self.images.iter().filter_map(image_reach);
+        quads
+            .chain(text)
+            .chain(primitives)
+            .chain(images)
+            .filter_map(|drawn| drawn.intersection(&bounds))
+            .collect()
+    }
+
+    pub fn damage(previous: &Self, current: &Self) -> Vec<Rectangle> {
+        if previous.bounds != current.bounds {
+            // Yapfast port (patch 27): what each drew, not their bounds.
+            let mut damage = previous.extent();
+            damage.extend(current.extent());
+            return damage;
+        }
+
+        let mut damage = damage::list(
+            &previous.quads,
+            &current.quads,
+            // Yapfast port (15): with its shadow's reach. Stock counted the
+            // quad alone, so where a raised panel shrank or moved (mention
+            // suggestions narrowing as a name is typed), the old shadow
+            // outside the new one stayed on screen.
+            |(quad, _)| {
+                let reach = crate::engine::shadow_reach(quad)
+                    .map_or(quad.bounds, |reach| reach.union(&quad.bounds));
+                reach
+                    .expand(1.0)
+                    .intersection(&current.bounds)
+                    .into_iter()
+                    .collect()
+            },
+            |(quad_a, background_a), (quad_b, background_b)| {
+                quad_a == quad_b && background_a == background_b
+            },
+        );
+
+        let text = damage::diff(
+            &previous.text,
+            &current.text,
+            |item| {
+                item.as_slice()
+                    .iter()
+                    .filter_map(Text::visible_bounds)
+                    .map(|bounds| bounds * item.transformation())
+                    .collect()
+            },
+            |text_a, text_b| {
+                damage::list(
+                    text_a.as_slice(),
+                    text_b.as_slice(),
+                    |text| {
+                        text.visible_bounds()
+                            .into_iter()
+                            .map(|bounds| bounds * text_a.transformation())
+                            .collect()
+                    },
+                    |text_a, text_b| text_a == text_b,
+                )
+            },
+        );
+
+        let primitives = damage::list(
+            &previous.primitives,
+            &current.primitives,
+            |item| match item {
+                Item::Live(primitive) => vec![primitive.visible_bounds()],
+                Item::Group(primitives, group_bounds, transformation) => {
+                    primitives
+                        .as_slice()
+                        .iter()
+                        .map(Primitive::visible_bounds)
+                        .map(|bounds| bounds * *transformation)
+                        .filter_map(|bounds| bounds.intersection(group_bounds))
+                        .collect()
+                }
+                Item::Cached(_primitives, bounds, _transformation) => {
+                    vec![*bounds]
+                }
+            },
+            |primitive_a, primitive_b| match (primitive_a, primitive_b) {
+                (
+                    Item::Cached(cache_a, bounds_a, transformation_a),
+                    Item::Cached(cache_b, bounds_b, transformation_b),
+                ) => {
+                    Arc::ptr_eq(cache_a, cache_b)
+                        && bounds_a == bounds_b
+                        && transformation_a == transformation_b
+                }
+                _ => false,
+            },
+        );
+
+        let images = damage::list(
+            &previous.images,
+            &current.images,
+            // Yapfast port (patch 40): where it can draw, inside the layer.
+            |image| {
+                image_reach(image)
+                    .and_then(|reach| reach.intersection(&current.bounds))
+                    .into_iter()
+                    .collect()
+            },
+            same_image,
+        );
+
+        damage.extend(text);
+        damage.extend(primitives);
+        damage.extend(images);
+        damage
+    }
+}
+
+/// Yapfast port (patch 31): whether two pictures draw the same, their
+/// handles told apart by id. Stock compared them with `Image::eq`, and an
+/// `Rgba` handle's derived equality compares every byte of its pixels:
+/// each frame compared each picture's whole buffer with itself, a theme's
+/// window-sized art and glass among them (13% of a scrolled frame's work).
+/// Yapfast port (patch 41): what changed from one frame's layers to the
+/// next's. Stock paired the two frames' layers by place alone, so a layer
+/// added or gone partway (a list's picture scrolled into view) paired every
+/// layer after it with the one before it: a window-sized overlay with a
+/// pane, a pane with a picture, each pair damaging both. Under a theme's
+/// overlays, a scrolled list redrew the whole window every frame.
+pub struct Changes {
+    /// What each of the new frame's layers changed (a new one, what it
+    /// draws), in its order.
+    pub layers: Vec<Vec<Rectangle>>,
+    /// What the layers that went drew.
+    pub gone: Vec<Rectangle>,
+    /// With fewer or more layers than before, the first not paired by its
+    /// place: what was drawn up to it pairs as before, past it not.
+    pub shifted: Option<usize>,
+}
+
+impl Changes {
+    /// Everything that changed.
+    pub fn all(&self) -> impl Iterator<Item = Rectangle> + '_ {
+        self.layers.iter().flatten().chain(&self.gone).copied()
+    }
+}
+
+/// Yapfast port (patch 41): pairs `previous`'s layers with `current`'s:
+/// by place when there are as many, else those at the start that lie
+/// where they lay by place and those at the end from the end, the rest
+/// between them gone or new.
+pub fn changes(previous: &[Layer], current: &[Layer]) -> Changes {
+    let (head, tail) = if previous.len() == current.len() {
+        (current.len(), 0)
+    } else {
+        let most = previous.len().min(current.len());
+        let same = |(a, b): &(&Layer, &Layer)| a.bounds == b.bounds;
+        let tail = previous
+            .iter()
+            .rev()
+            .zip(current.iter().rev())
+            .take_while(same)
+            .count()
+            .min(most);
+        let head = previous
+            .iter()
+            .zip(current)
+            .take(most - tail)
+            .take_while(same)
+            .count();
+        (head, tail)
+    };
+    let first_tail = current.len() - tail;
+    let layers = current
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            if index < head {
+                Layer::damage(&previous[index], layer)
+            } else if index >= first_tail {
+                Layer::damage(&previous[index - first_tail + previous.len() - tail], layer)
+            } else {
+                layer.extent()
+            }
+        })
+        .collect();
+    let gone = previous[head..previous.len() - tail]
+        .iter()
+        .flat_map(Layer::extent)
+        .collect();
+    Changes {
+        layers,
+        gone,
+        shifted: (previous.len() != current.len()).then_some(head),
+    }
+}
+
+/// Yapfast port (patch 40): where a picture or SVG can draw: its turned
+/// bounds, a pixel out for an anti-aliased edge, cut to its own clip, as
+/// the engine cuts it (patch 30). Stock damaged its whole bounds: a
+/// picture laid larger than its box (`ContentFit::Cover`, a theme's
+/// leaning card) damaged far past it, and once regions merged, a list
+/// scrolled under Zine drew the whole window again each frame.
+fn image_reach(image: &Image) -> Option<Rectangle> {
+    let (Image::Raster { clip_bounds, .. } | Image::Vector { clip_bounds, .. }) = image;
+    image
+        .bounds()
+        .expand(1.0)
+        .intersection(&clip_bounds.expand(1.0))
+}
+
+fn same_image(a: &Image, b: &Image) -> bool {
+    match (a, b) {
+        (
+            Image::Raster {
+                image: a,
+                bounds: a_bounds,
+                clip_bounds: a_clip,
+            },
+            Image::Raster {
+                image: b,
+                bounds: b_bounds,
+                clip_bounds: c_clip,
+            },
+        ) => {
+            a.handle.id() == b.handle.id()
+                && std::mem::discriminant(&a.handle) == std::mem::discriminant(&b.handle)
+                && a_bounds == b_bounds
+                && a_clip == c_clip
+                && a.filter_method == b.filter_method
+                && a.rotation == b.rotation
+                && a.border_radius == b.border_radius
+                && a.opacity == b.opacity
+                && a.snap == b.snap
+        }
+        (
+            Image::Vector {
+                svg: a,
+                bounds: a_bounds,
+                clip_bounds: a_clip,
+            },
+            Image::Vector {
+                svg: b,
+                bounds: b_bounds,
+                clip_bounds: b_clip,
+            },
+        ) => {
+            a.handle.id() == b.handle.id()
+                && a_bounds == b_bounds
+                && a_clip == b_clip
+                && a.color == b.color
+                && a.rotation == b.rotation
+                && a.opacity == b.opacity
+        }
+        _ => false,
+    }
+}
+
+impl Default for Layer {
+    fn default() -> Self {
+        Self {
+            bounds: Rectangle::INFINITE,
+            quads: Vec::new(),
+            primitives: Vec::new(),
+            text: Vec::new(),
+            images: Vec::new(),
+        }
+    }
+}
+
+impl graphics::Layer for Layer {
+    fn with_bounds(bounds: Rectangle) -> Self {
+        Self {
+            bounds,
+            ..Self::default()
+        }
+    }
+
+    fn bounds(&self) -> Rectangle {
+        self.bounds
+    }
+
+    fn flush(&mut self) {}
+
+    fn resize(&mut self, bounds: Rectangle) {
+        self.bounds = bounds;
+    }
+
+    fn reset(&mut self) {
+        self.bounds = Rectangle::INFINITE;
+
+        self.quads.clear();
+        self.primitives.clear();
+        self.text.clear();
+        self.images.clear();
+    }
+
+    fn start(&self) -> usize {
+        if !self.quads.is_empty() {
+            return 1;
+        }
+
+        if !self.primitives.is_empty() {
+            return 2;
+        }
+
+        if !self.images.is_empty() {
+            return 3;
+        }
+
+        if !self.text.is_empty() {
+            return 4;
+        }
+
+        usize::MAX
+    }
+
+    fn end(&self) -> usize {
+        if !self.text.is_empty() {
+            return 4;
+        }
+
+        if !self.images.is_empty() {
+            return 3;
+        }
+
+        if !self.primitives.is_empty() {
+            return 2;
+        }
+
+        if !self.quads.is_empty() {
+            return 1;
+        }
+
+        0
+    }
+
+    fn merge(&mut self, layer: &mut Self) {
+        self.quads.append(&mut layer.quads);
+        self.primitives.append(&mut layer.primitives);
+        self.text.append(&mut layer.text);
+        self.images.append(&mut layer.images);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Item<T> {
+    Live(T),
+    Group(Vec<T>, Rectangle, Transformation),
+    Cached(Arc<[T]>, Rectangle, Transformation),
+}
+
+impl<T> Item<T> {
+    pub fn transformation(&self) -> Transformation {
+        match self {
+            Item::Live(_) => Transformation::IDENTITY,
+            Item::Group(_, _, transformation)
+            | Item::Cached(_, _, transformation) => *transformation,
+        }
+    }
+
+    pub fn clip_bounds(&self) -> Rectangle {
+        match self {
+            Item::Live(_) => Rectangle::INFINITE,
+            Item::Group(_, clip_bounds, _)
+            | Item::Cached(_, clip_bounds, _) => *clip_bounds,
+        }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        match self {
+            Item::Live(item) => std::slice::from_ref(item),
+            Item::Group(group, _, _) => group.as_slice(),
+            Item::Cached(cache, _, _) => cache,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_straight_stroke_counts_in_its_layers_extent_with_its_width() {
+        let mut builder = tiny_skia::PathBuilder::new();
+        builder.move_to(10.0, 50.0);
+        builder.line_to(90.0, 50.0);
+        let line = Primitive::Stroke {
+            path: builder.finish().expect("path"),
+            paint: tiny_skia::Paint::default(),
+            stroke: tiny_skia::Stroke {
+                width: 4.0,
+                ..Default::default()
+            },
+        };
+        let mut layer = <Layer as graphics::Layer>::with_bounds(Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 200.0,
+            height: 200.0,
+        });
+        layer.draw_primitive_group(
+            vec![line],
+            Rectangle::INFINITE,
+            Transformation::IDENTITY,
+        );
+        let extent = layer.extent();
+        assert_eq!(extent.len(), 1, "the line is in it: {extent:?}");
+        let drawn = extent[0];
+        // Its 4 px width, and a pixel round it.
+        assert!(drawn.y <= 47.0 && drawn.y + drawn.height >= 53.0, "{drawn:?}");
+        assert!(drawn.x <= 9.0 && drawn.x + drawn.width >= 91.0, "{drawn:?}");
+    }
+
+    #[test]
+    fn a_layer_that_goes_damages_what_it_drew_not_its_bounds() {
+        let window = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let mut tooltip = <Layer as graphics::Layer>::with_bounds(window);
+        let tip = Rectangle {
+            x: 100.0,
+            y: 100.0,
+            width: 80.0,
+            height: 24.0,
+        };
+        tooltip.draw_quad(
+            Quad {
+                bounds: tip,
+                ..Quad::default()
+            },
+            Background::Color(Color::BLACK),
+            Transformation::IDENTITY,
+        );
+        let gone = <Layer as graphics::Layer>::with_bounds(Rectangle {
+            width: 0.0,
+            height: 0.0,
+            ..window
+        });
+        let damage = Layer::damage(&tooltip, &gone);
+        let area: f32 = damage.iter().map(|rect| rect.width * rect.height).sum();
+        assert!(
+            damage.iter().any(|rect| tip.is_within(rect)),
+            "{damage:?}"
+        );
+        assert!(area < 100.0 * 40.0, "{area} px damaged");
+    }
+
+    #[test]
+    fn a_picture_larger_than_its_clip_damages_only_its_clip() {
+        let window = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        // A picture 400 px square, cut to the 100 by 60 px box it covers,
+        // that moves a little (a list scrolled): what changed lies in the
+        // box, not round the whole picture.
+        let clip = Rectangle {
+            x: 300.0,
+            y: 300.0,
+            width: 100.0,
+            height: 60.0,
+        };
+        let handle = core::image::Handle::from_rgba(4, 4, vec![255u8; 4 * 4 * 4]);
+        let at = |y: f32| {
+            let mut layer = <Layer as graphics::Layer>::with_bounds(window);
+            layer.draw_raster(
+                core::Image::new(handle.clone()),
+                Rectangle {
+                    x: 150.0,
+                    y,
+                    width: 400.0,
+                    height: 400.0,
+                },
+                clip,
+                Transformation::IDENTITY,
+            );
+            layer
+        };
+        let damage = Layer::damage(&at(130.0), &at(131.0));
+        assert!(!damage.is_empty());
+        let reach = clip.expand(1.0);
+        for region in &damage {
+            assert!(
+                region.intersection(&reach) == Some(*region),
+                "{region:?} lies outside {reach:?}"
+            );
+        }
+        let extent = at(130.0).extent();
+        assert_eq!(extent, vec![reach]);
+    }
+
+    #[test]
+    fn a_layer_come_partway_leaves_the_layers_after_it_paired() {
+        let window = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 1000.0,
+            height: 800.0,
+        };
+        let layer = |bounds: Rectangle, quad: Rectangle| {
+            let mut layer = <Layer as graphics::Layer>::with_bounds(bounds);
+            layer.draw_quad(
+                Quad {
+                    bounds: quad,
+                    ..Quad::default()
+                },
+                Background::Color(core::Color::WHITE),
+                Transformation::IDENTITY,
+            );
+            layer
+        };
+        let list = Rectangle {
+            x: 300.0,
+            y: 100.0,
+            width: 400.0,
+            height: 600.0,
+        };
+        let picture = |y: f32| {
+            let bounds = Rectangle {
+                x: 320.0,
+                y,
+                width: 200.0,
+                height: 100.0,
+            };
+            layer(bounds, bounds)
+        };
+        let overlay = || layer(window, window);
+        let members = || {
+            let bounds = Rectangle {
+                x: 760.0,
+                y: 100.0,
+                width: 240.0,
+                height: 600.0,
+            };
+            layer(bounds, bounds)
+        };
+        // A list scrolled by 10 px brings a third picture into view; the
+        // members and a window-sized overlay above it are unchanged.
+        let previous = vec![
+            layer(list, list),
+            picture(200.0),
+            picture(400.0),
+            members(),
+            overlay(),
+        ];
+        let current = vec![
+            layer(list, list),
+            picture(190.0),
+            picture(390.0),
+            picture(590.0),
+            members(),
+            overlay(),
+        ];
+        let changes = changes(&previous, &current);
+        assert_eq!(changes.shifted, Some(1));
+        assert!(changes.layers[4].is_empty() && changes.layers[5].is_empty());
+        let reach = list.expand(1.0);
+        for region in changes.all() {
+            assert!(
+                region.intersection(&reach) == Some(region),
+                "{region:?} lies outside the list"
+            );
+        }
+        // As many layers as before pair by place, as stock did.
+        let same = changes_of_same(&current);
+        assert_eq!(same.shifted, None);
+        assert!(same.all().next().is_none());
+    }
+
+    fn changes_of_same(layers: &[Layer]) -> Changes {
+        changes(layers, layers)
+    }
+
+    #[test]
+    fn pictures_are_told_apart_by_their_handles_not_their_pixels() {
+        let bounds = Rectangle {
+            x: 0.0,
+            y: 0.0,
+            width: 4.0,
+            height: 4.0,
+        };
+        let picture = |handle: &core::image::Handle| Image::Raster {
+            image: core::image::Image::new(handle.clone()),
+            bounds,
+            clip_bounds: bounds,
+        };
+        let pixels = vec![255u8; 4 * 4 * 4];
+        let handle = core::image::Handle::from_rgba(4, 4, pixels.clone());
+        // The same pixels under another handle (a new frame of a video).
+        let other = core::image::Handle::from_rgba(4, 4, pixels);
+        assert!(same_image(&picture(&handle), &picture(&handle)));
+        assert!(!same_image(&picture(&handle), &picture(&other)));
+        let moved = Image::Raster {
+            image: core::image::Image::new(handle.clone()),
+            bounds: Rectangle { x: 1.0, ..bounds },
+            clip_bounds: bounds,
+        };
+        assert!(!same_image(&picture(&handle), &moved));
+    }
+}

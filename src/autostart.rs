@@ -1,9 +1,11 @@
 //! Starting Yapfast when the person signs in to their computer: a value in the
 //! registry's Run key on Windows, an XDG autostart entry on Linux. The entry is
 //! the setting, so one turned off in Task Manager, or a deleted file, shows as
-//! off in Settings too. It starts Yapfast with `--background`, in the tray.
+//! off in Settings too. The tray mode adds the `--background` argument.
 
 use std::path::PathBuf;
+
+use yapfast_iced::Autostart;
 
 /// Whether this platform can start Yapfast at sign-in.
 pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
@@ -13,44 +15,73 @@ pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
 #[cfg(windows)]
 const NAME: &str = "Yapfast";
 
-/// Whether Yapfast starts when the person signs in.
-pub fn enabled() -> bool {
-    platform::enabled()
+/// How Yapfast starts when the person signs in.
+pub fn mode() -> Autostart {
+    platform::mode()
 }
 
-/// Starts Yapfast at sign-in, or stops it.
-pub fn set(on: bool) -> std::io::Result<()> {
-    match on {
-        true => platform::write(&command()?),
-        false => platform::remove(),
+/// Changes how Yapfast starts at sign-in.
+pub fn set(mode: Autostart) -> std::io::Result<()> {
+    match mode {
+        Autostart::Off => platform::remove(),
+        Autostart::Window | Autostart::Tray => platform::write(&command(mode)?),
     }
 }
 
 /// Points an entry at this Yapfast, after its folder moved or an update.
 pub fn refresh() {
-    if enabled()
-        && let Err(error) = set(true)
+    let mode = mode();
+    if mode != Autostart::Off
+        && let Err(error) = set(mode)
     {
         tracing::warn!(%error, "could not update starting at sign-in");
     }
 }
 
-/// What starts Yapfast in the tray, with the data folder this one uses.
-fn command() -> std::io::Result<Vec<String>> {
+/// What starts Yapfast with the data folder this one uses.
+fn command(mode: Autostart) -> std::io::Result<Vec<String>> {
     let program = std::env::current_exe()?;
     #[cfg(target_os = "linux")]
     let program = crate::desktop_entry::appimage(&program).unwrap_or(program);
-    let mut command = vec![path_text(program)?, "--background".to_owned()];
-    let arguments: Vec<String> = std::env::args().collect();
-    if let Some(index) = arguments
-        .iter()
-        .position(|argument| argument == "--data-dir")
-        && let Some(folder) = arguments.get(index + 1)
+    let mut command = vec![path_text(program)?];
+    if mode == Autostart::Tray {
+        command.push("--background".to_owned());
+    }
+    let mut arguments = std::env::args_os().skip(1);
+    if arguments.any(|argument| argument == "--data-dir")
+        && let Some(folder) = arguments.next()
     {
         let folder = std::path::absolute(folder)?;
         command.extend(["--data-dir".to_owned(), path_text(folder)?]);
     }
     Ok(command)
+}
+
+/// The startup entries we write put the optional tray flag immediately
+/// after the executable and before any data-folder argument.
+#[cfg(any(target_os = "linux", windows))]
+fn command_mode(command: &str) -> Autostart {
+    let command = command.trim_start();
+    let arguments = if let Some(quoted) = command.strip_prefix('"') {
+        let mut escaped = false;
+        let end = quoted.find(|character| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            escaped = character == '\\';
+            character == '"'
+        });
+        end.map_or("", |end| &quoted[end + 1..])
+    } else {
+        command
+            .find(char::is_whitespace)
+            .map_or("", |end| &command[end..])
+    };
+    match arguments.split_whitespace().next() {
+        Some("--background" | "\"--background\"") => Autostart::Tray,
+        _ => Autostart::Window,
+    }
 }
 
 pub(crate) fn path_text(path: PathBuf) -> std::io::Result<String> {
@@ -115,10 +146,11 @@ use windows as platform;
 mod linux {
     use std::path::{Path, PathBuf};
 
+    use super::{Autostart, command_mode};
     use crate::desktop_entry;
 
-    pub fn enabled() -> bool {
-        config().is_some_and(|config| entry_enabled(&config))
+    pub fn mode() -> Autostart {
+        config().map_or(Autostart::Off, |config| entry_mode(&config))
     }
 
     pub fn write(command: &[String]) -> std::io::Result<()> {
@@ -149,15 +181,25 @@ mod linux {
 
     /// The entry is there and not turned off, as desktops turn one off
     /// without deleting it.
-    pub(super) fn entry_enabled(config: &Path) -> bool {
-        std::fs::read_to_string(entry(config)).is_ok_and(|entry| {
-            !entry.lines().any(|line| {
-                matches!(
-                    line.replace(' ', "").as_str(),
-                    "Hidden=true" | "X-GNOME-Autostart-enabled=false"
-                )
+    fn entry_mode(config: &Path) -> Autostart {
+        let Ok(entry) = std::fs::read_to_string(entry(config)) else {
+            return Autostart::Off;
+        };
+        if entry.lines().any(|line| {
+            matches!(
+                line.replace(' ', "").as_str(),
+                "Hidden=true" | "X-GNOME-Autostart-enabled=false"
+            )
+        }) {
+            return Autostart::Off;
+        }
+        entry
+            .lines()
+            .find_map(|line| {
+                let (key, command) = line.split_once('=')?;
+                (key.trim() == "Exec").then(|| command_mode(command))
             })
-        })
+            .unwrap_or(Autostart::Off)
     }
 
     pub(super) fn write_entry(config: &Path, command: &[String]) -> std::io::Result<()> {
@@ -167,7 +209,7 @@ mod linux {
             .collect();
         let text = format!(
             "[Desktop Entry]\nType=Application\nName=Yapfast\n\
-             Comment=Starts Yapfast in the system tray when you sign in\n\
+             Comment=Starts Yapfast when you sign in\n\
              Exec={}\nIcon={}\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
             exec.join(" "),
             crate::icon::APP_ID,
@@ -182,7 +224,7 @@ mod linux {
         #[test]
         fn writes_an_entry_that_starts_in_the_tray() {
             let config = tempfile::tempdir().unwrap();
-            assert!(!entry_enabled(config.path()));
+            assert_eq!(entry_mode(config.path()), Autostart::Off);
             let command = [
                 "/opt/Yapfast Builds/yapfast".to_owned(),
                 "--background".to_owned(),
@@ -190,7 +232,7 @@ mod linux {
                 "/home/a/100% $data".to_owned(),
             ];
             write_entry(config.path(), &command).unwrap();
-            assert!(entry_enabled(config.path()));
+            assert_eq!(entry_mode(config.path()), Autostart::Tray);
             let text = std::fs::read_to_string(entry(config.path())).unwrap();
             assert!(text.contains(
                 r#"Exec="/opt/Yapfast Builds/yapfast" --background --data-dir "/home/a/100%% \$data""#
@@ -202,12 +244,13 @@ mod linux {
         fn an_entry_a_desktop_turned_off_is_off() {
             let config = tempfile::tempdir().unwrap();
             write_entry(config.path(), &["yapfast".to_owned()]).unwrap();
+            assert_eq!(entry_mode(config.path()), Autostart::Window);
             let path = entry(config.path());
             let text = std::fs::read_to_string(&path).unwrap();
             std::fs::write(&path, text.replace("enabled=true", "enabled=false")).unwrap();
-            assert!(!entry_enabled(config.path()));
+            assert_eq!(entry_mode(config.path()), Autostart::Off);
             std::fs::write(&path, "[Desktop Entry]\nHidden=true\n").unwrap();
-            assert!(!entry_enabled(config.path()));
+            assert_eq!(entry_mode(config.path()), Autostart::Off);
         }
     }
 }
@@ -216,6 +259,7 @@ mod linux {
 mod windows {
     use std::io;
 
+    use super::{Autostart, command_mode};
     use windows_sys::Win32::{
         Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, WIN32_ERROR},
         System::Registry::{
@@ -229,12 +273,24 @@ mod windows {
     const APPROVED: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-    pub fn enabled() -> bool {
-        let run = query(RUN, RRF_RT_REG_SZ);
+    pub fn mode() -> Autostart {
+        let Some(run) = query(RUN, RRF_RT_REG_SZ) else {
+            return Autostart::Off;
+        };
         // Its first byte is odd while Task Manager has the entry turned off.
         let off = query(APPROVED, RRF_RT_REG_BINARY)
             .is_some_and(|approved| approved.first().is_some_and(|byte| byte & 1 == 1));
-        run.is_some() && !off
+        if off {
+            return Autostart::Off;
+        }
+        let command: Vec<u16> = run
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+            .take_while(|unit| *unit != 0)
+            .collect();
+        command_mode(&String::from_utf16_lossy(&command))
     }
 
     pub fn write(command: &[String]) -> io::Result<()> {
@@ -247,6 +303,7 @@ mod windows {
             })
             .collect();
         let value = wide(&line.join(" "));
+        // SAFETY: the key and name are NUL-terminated, and value holds the stated byte count.
         let status = unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -268,6 +325,7 @@ mod windows {
     }
 
     fn delete(key: &str) -> io::Result<()> {
+        // SAFETY: both NUL-terminated strings live through the registry call.
         let status = unsafe {
             RegDeleteKeyValueW(
                 HKEY_CURRENT_USER,
@@ -285,6 +343,8 @@ mod windows {
     fn query(key: &str, kind: u32) -> Option<Vec<u8>> {
         let (key, name) = (wide(key), wide(super::NAME));
         let mut size = 0u32;
+        // SAFETY: the strings are NUL-terminated and size is writable. Null data
+        // requests the required buffer size.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -300,6 +360,7 @@ mod windows {
             return None;
         }
         let mut data = vec![0u8; size as usize];
+        // SAFETY: the strings are NUL-terminated and data is writable for size bytes.
         let status = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -338,16 +399,18 @@ mod windows {
         #[ignore = "writes the current user's Run key"]
         fn turns_on_and_off_as_task_manager_sees_it() {
             remove().unwrap();
-            assert!(!enabled());
+            assert_eq!(mode(), Autostart::Off);
             write(&[
                 r"C:\Program Files\Yapfast\yapfast.exe".into(),
                 "--background".into(),
             ])
             .unwrap();
-            assert!(enabled());
+            assert_eq!(mode(), Autostart::Tray);
             let value = query(RUN, RRF_RT_REG_SZ).unwrap();
             let text: Vec<u16> = value
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
                 .take_while(|&unit| unit != 0)
                 .collect();
@@ -357,6 +420,7 @@ mod windows {
             );
             // Task Manager turns it off with an odd first byte.
             let disabled = [3u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+            // SAFETY: the key and name are NUL-terminated, and disabled holds the stated byte count.
             let status = unsafe {
                 RegSetKeyValueW(
                     HKEY_CURRENT_USER,
@@ -368,11 +432,11 @@ mod windows {
                 )
             };
             checked(status).unwrap();
-            assert!(!enabled());
+            assert_eq!(mode(), Autostart::Off);
             write(&["yapfast.exe".into()]).unwrap();
-            assert!(enabled(), "turning it on here turns it on in Task Manager");
+            assert_eq!(mode(), Autostart::Window);
             remove().unwrap();
-            assert!(!enabled());
+            assert_eq!(mode(), Autostart::Off);
             assert!(query(APPROVED, RRF_RT_REG_BINARY).is_none());
         }
     }
@@ -380,8 +444,10 @@ mod windows {
 
 #[cfg(not(any(target_os = "linux", windows)))]
 mod none {
-    pub fn enabled() -> bool {
-        false
+    use super::Autostart;
+
+    pub fn mode() -> Autostart {
+        Autostart::Off
     }
 
     pub fn write(_: &[String]) -> std::io::Result<()> {
@@ -398,6 +464,25 @@ mod none {
 #[cfg(test)]
 mod tests {
     use super::{windows_argument, windows_program};
+
+    #[cfg(any(target_os = "linux", windows))]
+    #[test]
+    fn reads_the_startup_mode_from_the_flag_after_the_program() {
+        use super::{Autostart, command_mode};
+
+        assert_eq!(
+            command_mode(r#""C:\Program Files\Yapfast\yapfast.exe" --background"#),
+            Autostart::Tray,
+        );
+        assert_eq!(
+            command_mode(r#""/opt/Yapfast \"local\"/yapfast" --background --data-dir /tmp/data"#),
+            Autostart::Tray,
+        );
+        assert_eq!(
+            command_mode(r#"yapfast --data-dir "/tmp/ --background files""#),
+            Autostart::Window,
+        );
+    }
 
     #[test]
     fn quotes_windows_arguments_as_windows_splits_them() {

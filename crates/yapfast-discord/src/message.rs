@@ -4,6 +4,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroU64,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering::Relaxed},
@@ -112,6 +113,9 @@ pub struct Page {
 pub struct Message {
     pub id: String,
     pub channel_id: String,
+    /// The server it is in, from `guild_id`, or none in a DM.
+    #[serde(default)]
+    pub guild_id: Option<String>,
     #[serde(default)]
     pub application_id: Option<String>,
     #[serde(default)]
@@ -521,18 +525,16 @@ impl Message {
         self.names_me(me, marks) || self.replies_to(me)
     }
 
-    /// Whether it calls on `me` other than by replying: by name, a role or
-    /// @everyone, as [`Self::mentions_me`] says. A reply that pings puts
-    /// the author it replies to in `mentions` too, so for them only their
-    /// name in its text counts.
+    /// Whether it calls on `me` as Discord's client highlights it: by name,
+    /// a role or @everyone, as [`Self::mentions_me`] says. A reply that pings
+    /// puts the author it replies to in `mentions`, so it counts as a call
+    /// on them, as it does in Discord, which tints every reply that pings
+    /// you and none that doesn't.
     pub fn names_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
         if self.author_id == me {
             return false;
         }
-        let named = self.mentions.iter().any(|user| user == me)
-            && (!self.replies_to(me)
-                || self.content.contains(&format!("<@{me}>"))
-                || self.content.contains(&format!("<@!{me}>")));
+        let named = self.mentions.iter().any(|user| user == me);
         let everyone = self.mention_everyone && marks.is_some_and(|marks| !marks.suppress_everyone);
         let role = marks.is_some_and(|marks| {
             !marks.suppress_roles
@@ -542,6 +544,14 @@ impl Message {
                     .any(|role| marks.roles.contains(role))
         });
         named || everyone || role
+    }
+
+    /// Whether the timeline highlights it for `me`: as it calls on them,
+    /// or, being their own, as it names them, which Discord's client
+    /// highlights all the same though it never notifies of it.
+    pub fn highlights_me(&self, me: &str, marks: Option<&ServerMarks>) -> bool {
+        self.names_me(me, marks)
+            || (self.author_id == me && self.mentions.iter().any(|user| user == me))
     }
 
     /// Whether it replies to a message of `me`'s, not being its own.
@@ -718,6 +728,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         let mut message = parse(original)?;
         message.id = value["id"].as_str()?.into();
         message.channel_id = value["channel_id"].as_str().unwrap_or_default().into();
+        message.guild_id = value["guild_id"].as_str().map(str::to_owned);
         message.nonce = None;
         message.editable = false;
         message.forwardable = false;
@@ -869,7 +880,6 @@ pub fn parse(value: &Value) -> Option<Message> {
         let url = ready::sticker(id, format);
         attachments.push(Attachment {
             name: name.into(),
-            description: None,
             size: None,
             url: url.as_str().into(),
             image: true,
@@ -882,12 +892,14 @@ pub fn parse(value: &Value) -> Option<Message> {
             animated: false,
             shown: Shown::Sticker,
             spoiler: false,
+            description: None,
         });
     }
     attachments.extend(components.media);
     Some(Message {
         id: value["id"].as_str()?.into(),
         channel_id: value["channel_id"].as_str().unwrap_or_default().into(),
+        guild_id: value["guild_id"].as_str().map(str::to_owned),
         application_id: value["application_id"].as_str().map(str::to_owned),
         flags: value["flags"].as_u64().unwrap_or_default(),
         nonce: match &value["nonce"] {
@@ -1197,6 +1209,10 @@ pub struct Tag {
     pub text: Arc<str>,
     /// The address of the picture of the server's tag badge, when it has one.
     pub badge: Option<Arc<str>>,
+    /// The server it's from, by its id, which its card opens; none in a
+    /// profile saved before Yapfast kept it.
+    #[serde(default)]
+    pub guild: Option<NonZeroU64>,
 }
 
 impl Tag {
@@ -1207,9 +1223,8 @@ impl Tag {
         if primary["identity_enabled"].as_bool() != Some(true) {
             return None;
         }
-        let guild = primary["identity_guild_id"]
-            .as_str()
-            .filter(|g| id(g).is_some())?;
+        let guild = primary["identity_guild_id"].as_str()?;
+        let guild_id = guild.parse::<NonZeroU64>().ok()?;
         let text = primary["tag"]
             .as_str()
             .map(str::trim)
@@ -1220,9 +1235,14 @@ impl Tag {
                 .as_str()
                 .filter(|hash| !hash.is_empty())
                 .map(|hash| ready::guild_tag_badge(guild, hash).into()),
+            guild: Some(guild_id),
         })
     }
 }
+
+/// A person's tag as saved: their user id, its server's id, text and badge
+/// address.
+type SavedTag = (String, Option<String>, Arc<str>, Option<Arc<str>>);
 
 /// [`Names`] as saved to disk, where maps keyed by server and user become
 /// lists.
@@ -1238,9 +1258,14 @@ pub struct SavedNames {
     usernames: Vec<(String, String)>,
     #[serde(default)]
     bots: Vec<String>,
-    /// Each person's tag: user id, text and badge address.
-    #[serde(default)]
+    /// Each person's tag, as saved before its server was kept: user id, text
+    /// and badge address. Only read, for tags that show until their server
+    /// comes with the next user objects.
+    #[serde(default, skip_serializing)]
     tags: Vec<(String, Arc<str>, Option<Arc<str>>)>,
+    /// Each person's tag.
+    #[serde(default)]
+    server_tags: Vec<SavedTag>,
     /// Avatar decorations' SKUs by user id.
     #[serde(default)]
     decorations: Vec<(String, String)>,
@@ -1329,12 +1354,12 @@ impl serde::Serialize for SavingNames<'_> {
         )?;
         saved.serialize_field("bots", &List(|| names.bots.iter().copied().map(Text)))?;
         saved.serialize_field(
-            "tags",
+            "server_tags",
             &List(|| {
-                names
-                    .tags
-                    .iter()
-                    .map(|(user, tag)| (Text(*user), &tag.text, &tag.badge))
+                names.tags.iter().map(|(user, tag)| {
+                    let guild = tag.guild.map(|guild| Text(guild.get()));
+                    (Text(*user), guild, &tag.text, &tag.badge)
+                })
             }),
         )?;
         saved.serialize_field(
@@ -1469,6 +1494,10 @@ pub struct Names {
     /// Since when members have boosted their server, in Unix milliseconds,
     /// by server and user id: only those boosting it, while Yapfast runs.
     boosts: HashMap<(Id, Id), u64>,
+    /// When members joined their server, in Unix milliseconds, by server and
+    /// user id, where Discord's member objects say; none for one who left
+    /// and rejoined.
+    joins: HashMap<(Id, Id), u64>,
     /// Changes whenever a name, avatar or role of someone known changes, so
     /// what was shown with them can tell it's out of date. Someone new
     /// changes nothing shown, which was rendered after learning them.
@@ -1540,7 +1569,12 @@ impl Names {
             tags: saved
                 .tags
                 .into_iter()
-                .filter_map(|(user, text, badge)| Some((id(&user)?, Tag { text, badge })))
+                .map(|(user, text, badge)| (user, None, text, badge))
+                .chain(saved.server_tags)
+                .filter_map(|(user, guild, text, badge)| {
+                    let guild = guild.and_then(|guild| guild.parse().ok());
+                    Some((id(&user)?, Tag { text, badge, guild }))
+                })
                 .collect(),
             decorations: saved
                 .decorations
@@ -1654,6 +1688,7 @@ impl Names {
         self.roles.retain(|(_, user), _| seen.contains_key(user));
         self.timeouts.retain(|(_, user), _| seen.contains_key(user));
         self.boosts.retain(|(_, user), _| seen.contains_key(user));
+        self.joins.retain(|(_, user), _| seen.contains_key(user));
     }
 
     /// Changes whenever what [`Names::name`], [`Names::avatar`],
@@ -1781,8 +1816,39 @@ impl Names {
             let since = since.as_str().and_then(iso_ms);
             changed(&mut self.boosts, key, since);
         }
+        // One who left and came back (flag DID_REJOIN) isn't new, as
+        // Discord's client marks them.
+        if let Some(joined) = member.get("joined_at") {
+            let rejoined = member["flags"].as_u64().is_some_and(|flags| flags & 1 != 0);
+            let joined = joined.as_str().and_then(iso_ms).filter(|_| !rejoined);
+            changed(&mut self.joins, key, joined);
+        }
         self.members.insert(key);
         self.version += u64::from(known && learned);
+    }
+
+    /// Applies a confirmed role change to a member whose roles are known.
+    pub(crate) fn change_member_role(
+        &mut self,
+        guild: &str,
+        user: &str,
+        role: &str,
+        add: bool,
+    ) -> bool {
+        let Some(held) = member_key(guild, user).and_then(|key| self.roles.get_mut(&key)) else {
+            return false;
+        };
+        if held.iter().any(|known| known == role) == add {
+            return false;
+        }
+        *held = held
+            .iter()
+            .filter(|known| known.as_str() != role)
+            .cloned()
+            .chain(add.then(|| role.to_owned()))
+            .collect();
+        self.version += 1;
+        true
     }
 
     /// Forgets what's known of someone as a member of a server they left,
@@ -1799,6 +1865,7 @@ impl Names {
             | self.member_styles.remove(&key).is_some();
         self.timeouts.remove(&key);
         self.boosts.remove(&key);
+        self.joins.remove(&key);
         self.members.remove(&key);
         self.version += u64::from(learned);
     }
@@ -1813,6 +1880,12 @@ impl Names {
     /// if they do as far as Yapfast knows.
     pub fn boosting_since(&self, guild: &str, user: &str) -> Option<u64> {
         self.boosts.get(&member_key(guild, user)?).copied()
+    }
+
+    /// When a member joined their server, in Unix milliseconds, if Discord
+    /// has said.
+    pub fn joined_at(&self, guild: &str, user: &str) -> Option<u64> {
+        self.joins.get(&member_key(guild, user)?).copied()
     }
 
     /// The members known to hold `role` in a server, by user id.
@@ -1851,24 +1924,30 @@ impl Names {
 
     /// Learns the author and the mentioned users of a message object, and
     /// those of the message it replies to.
+    ///
+    /// A user and their member object are learned together, so someone seen
+    /// for the first time doesn't change [`Names::version`]: nothing shown
+    /// yet named them.
     pub fn learn_message(&mut self, guild: Option<&str>, message: &Value) {
-        self.learn_user(&message["author"]);
+        self.learn_with_member(guild, &message["author"], &message["member"]);
         // Discord doesn't nest a reply's original inside the original.
         if message["referenced_message"].is_object() {
             self.learn_message(guild, &message["referenced_message"]);
         }
-        if let (Some(guild), Value::Object(member)) = (guild, &message["member"]) {
-            let mut member = Value::Object(member.clone());
-            member["user"] = message["author"].clone();
-            self.learn_member(guild, &member);
-        }
         for user in message["mentions"].as_array().into_iter().flatten() {
-            self.learn_user(user);
-            if let (Some(guild), Value::Object(member)) = (guild, &user["member"]) {
+            self.learn_with_member(guild, user, &user["member"]);
+        }
+    }
+
+    /// Learns a user, and their member object in `guild` when there is one.
+    fn learn_with_member(&mut self, guild: Option<&str>, user: &Value, member: &Value) {
+        match (guild, member) {
+            (Some(guild), Value::Object(member)) => {
                 let mut member = Value::Object(member.clone());
                 member["user"] = user.clone();
                 self.learn_member(guild, &member);
             }
+            _ => self.learn_user(user),
         }
     }
 
@@ -1900,6 +1979,15 @@ impl Names {
             .collect();
         found.sort();
         found.into_iter().map(|(_, _, id)| id).collect()
+    }
+
+    /// The known user whose username is `username`, any letter case, as a
+    /// search's `from:` names them.
+    pub fn user_called(&self, username: &str) -> Option<String> {
+        self.usernames
+            .iter()
+            .find(|(_, known)| known.eq_ignore_ascii_case(username))
+            .map(|(user, _)| user.to_string())
     }
 
     /// A user's display name or username, outside any server.
@@ -2589,8 +2677,7 @@ mod tests {
             "edited_timestamp": "2026-10-06T10:00:00.000000+00:00",
             "referenced_message": {"id": "9", "author": {"id": "2", "username": "ann"}, "content": "hello"},
             "attachments": [{"filename": "cat.png", "size": 10, "url": "https://cdn/cat.png", "content_type": "image/png",
-                "proxy_url": "https://media/cat.png?ex=1", "width": 1440, "height": 540,
-                "description": "A cat sitting beside a laptop"},
+                "proxy_url": "https://media/cat.png?ex=1", "width": 1440, "height": 540},
                 {"filename": "clip.mp4", "size": 99, "url": "https://cdn/clip.mp4", "content_type": "video/mp4",
                 "proxy_url": "https://media/clip.mp4", "width": 1920, "height": 1080}],
             "reactions": [
@@ -2611,10 +2698,6 @@ mod tests {
             })
         );
         assert!(message.attachments[0].image);
-        assert_eq!(
-            message.attachments[0].description.as_deref(),
-            Some("A cat sitting beside a laptop")
-        );
         assert_eq!(
             message.attachments[0].preview_url.as_deref(),
             Some("https://media/cat.png?ex=1&animated=true&format=webp&width=550&height=206")
@@ -3010,6 +3093,19 @@ mod tests {
     }
 
     #[test]
+    fn a_member_who_rejoined_has_no_join_time_to_be_new_by() {
+        let mut names = Names::default();
+        let member = |user: &str, flags: u64| {
+            json!({"user": {"id": user, "username": user},
+                   "joined_at": "2026-11-18T12:00:00.000000+00:00", "flags": flags})
+        };
+        names.learn_member("10", &member("1", 0));
+        names.learn_member("10", &member("2", 1));
+        assert!(names.joined_at("10", "1").is_some());
+        assert_eq!(names.joined_at("10", "2"), None, "DID_REJOIN");
+    }
+
+    #[test]
     fn learns_the_author_a_reply_quotes() {
         let mut names = Names::default();
         names.learn_message(
@@ -3027,6 +3123,28 @@ mod tests {
                 .avatar(None, "2")
                 .ends_with("/avatars/2/abc.png?size=128")
         );
+    }
+
+    #[test]
+    fn someone_new_posting_keeps_the_names_version() {
+        let mut names = Names::default();
+        let post = |nick: Option<&str>| {
+            json!({
+                "author": {"id": "7", "username": "ann", "global_name": "Ann", "avatar": "a"},
+                "member": {"roles": ["30"], "nick": nick},
+                "mentions": [{"id": "8", "username": "bo", "member": {"roles": ["31"]}}],
+            })
+        };
+        names.learn_message(Some("10"), &post(None));
+        assert_eq!(names.version(), 0);
+        assert_eq!(names.roles("10", "7"), ["30"]);
+        assert_eq!(names.roles("10", "8"), ["31"]);
+        names.learn_message(Some("10"), &post(None));
+        assert_eq!(names.version(), 0);
+        // What they're shown by changing does.
+        names.learn_message(Some("10"), &post(Some("Annie")));
+        assert_eq!(names.version(), 1);
+        assert_eq!(names.name("10", "7"), Some("Annie"));
     }
 
     #[test]
@@ -3335,6 +3453,7 @@ mod tests {
         names.learn_user(&wears(true));
         let tag = names.server_tag("2").unwrap();
         assert_eq!(&*tag.text, "CODE");
+        assert_eq!(tag.guild, NonZeroU64::new(10), "its card opens its server");
         assert!(
             tag.badge
                 .as_deref()
@@ -3350,6 +3469,16 @@ mod tests {
         // It survives a restart.
         let saved = serde_json::to_vec(&names.saving()).unwrap();
         let restored = Names::restore(serde_json::from_slice(&saved).unwrap());
+        assert_eq!(restored.server_tag("2"), names.server_tag("2"));
+        // Names saved before tags kept their server still show them, without
+        // it, until the next user objects bring it.
+        let earlier = json!({
+            "users": [], "nicknames": [], "members": [], "avatars": [],
+            "member_avatars": [], "roles": [], "tags": [["2", "CODE", null]]});
+        let mut restored = Names::restore(serde_json::from_value(earlier).unwrap());
+        let old = restored.server_tag("2").expect("an older saved tag");
+        assert_eq!((&*old.text, old.guild), ("CODE", None));
+        restored.learn_user(&wears(true));
         assert_eq!(restored.server_tag("2"), names.server_tag("2"));
 
         // Leaving it off, or taking it away, removes it, and redraws them.
@@ -3436,8 +3565,8 @@ mod tests {
         };
         assert!(pings(reply("1")), "a reply to Alice, pinging her or not");
         assert!(!pings(reply("3")));
-        // A reply to her names her only when its text does: a ping lists
-        // her in `mentions` all the same.
+        // A reply to her calls on her, as Discord tints it, when it pings her
+        // (which lists her in `mentions`), and not when its ping is off.
         let names = |extra: Value| message(extra).names_me(me, Some(&server));
         let ping = |content: &str| {
             let mut value = reply("1");
@@ -3446,7 +3575,7 @@ mod tests {
             value
         };
         assert!(!names(reply("1")));
-        assert!(!names(ping("sure")), "a ping reply");
+        assert!(names(ping("sure")), "a ping reply");
         assert!(names(ping("sure <@1>")));
         assert!(names(ping("sure <@!1>")));
         assert!(names(
@@ -3471,6 +3600,12 @@ mod tests {
         let own = message(json!({"author": {"id": "1", "username": "alice"},
             "mention_everyone": true}));
         assert!(!own.mentions_me(me, Some(&server)));
+        assert!(!own.highlights_me(me, Some(&server)));
+        // Naming herself, it's highlighted though it doesn't call on her.
+        let named = message(json!({"author": {"id": "1", "username": "alice"},
+            "mentions": [{"id": "1", "username": "alice"}], "content": "<@1>"}));
+        assert!(!named.mentions_me(me, Some(&server)));
+        assert!(named.highlights_me(me, Some(&server)));
         // A DM has no server: @everyone means nothing there.
         assert!(!message(json!({"mention_everyone": true})).mentions_me(me, None));
     }
@@ -3573,5 +3708,52 @@ mod tests {
         assert_eq!(ago(-90 * day), "in 3 months");
         assert_eq!(ago(320 * day), "a year ago");
         assert_eq!(ago(3 * 365 * day), "3 years ago");
+    }
+
+    #[test]
+    fn replies_preserve_static_and_animated_custom_emoji_markup() {
+        let message = parse(&json!({
+            "id": "1300000000000000010",
+            "channel_id": "11",
+            "type": 19,
+            "content": "replying",
+            "author": {"id": "1", "username": "me"},
+            "referenced_message": {
+                "id": "1300000000000000001",
+                "author": {"id": "2", "username": "desu"},
+                "content": "<:AMkiss:123> and <a:party:7>",
+            },
+        }))
+        .unwrap();
+        let Some(Reply::Message { content, .. }) = message.reply else {
+            panic!("expected reply message");
+        };
+        assert_eq!(content, "<:AMkiss:123> and <a:party:7>");
+        assert_eq!(
+            custom_emoji(&content),
+            [
+                CustomEmoji {
+                    name: "AMkiss".into(),
+                    id: "123".into(),
+                    animated: false,
+                },
+                CustomEmoji {
+                    name: "party".into(),
+                    id: "7".into(),
+                    animated: true,
+                },
+            ]
+        );
+        let original = Message {
+            id: "42".into(),
+            author_id: "2".into(),
+            author: "desu".into(),
+            content,
+            ..Default::default()
+        };
+        assert!(matches!(
+            Reply::quoting(&original),
+            Reply::Message { content, .. } if content == "<:AMkiss:123> and <a:party:7>"
+        ));
     }
 }

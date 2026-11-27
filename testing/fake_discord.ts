@@ -23,7 +23,8 @@
 // busy account has, for measuring; POST /_control/busy-start makes Bob post
 // in their channels ten times a second, and /_control/busy-stop stops him.
 // `--folders` puts them in folders in Alice's server list: the first three in
-// a red "Games" folder, the next two in one without a name or colour.
+// a red "Games" folder, or as many as `--folder-size N` says, for a big
+// folder's menu, the next two in one without a name or colour.
 // `--dms N` adds N older DMs, each with a person of its own, every other one
 // a friend, as a busy account has. `--images N` attaches a picture of its own
 // to every Nth extra history message, for a channel heavy with previews.
@@ -33,7 +34,10 @@
 // `--members N` adds N people, online, to Server's member list, as a busy
 // server's first hundred rows are. POST /_control/churn-start takes one of
 // them offline or back online ten times a second, each a member list update,
-// and /_control/churn-stop stops it.
+// and /_control/churn-stop stops it. `--member-looks` dresses them, and the
+// crowd's posters, as a busy server's people are: name styles, decorations,
+// nameplates, server tags, mixed statuses with custom statuses and games,
+// every eighth in Mods (with a role icon), and banners on their profiles.
 // POST /_control/crowd-start makes someone new post in the last of them, or
 // in #general, 50 times a second, and /_control/crowd-stop stops them.
 // POST /_control/burst?count=N posts N messages, 150 every 10 ms, for
@@ -110,12 +114,19 @@
 // #general, his question in his DM and Carol's in the group. PUT and DELETE
 // /channels/{id}/messages/pins/{message} pin a message and unpin it, which
 // takes Pin Messages in "Server", as Alice's Crew role gives; pinning posts
-// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE. GET
-// /channels/{id}/messages/search finds a DM's messages by their text, 25 at
+// Discord's notice, and both send MESSAGE_UPDATE and CHANNEL_PINS_UPDATE.
+// GET /users/@me/mentions lists the messages that mentioned her, newest
+// first: 1 to 100 with `limit`, before a message with `before`, in one server
+// with `guild_id`, and with role and @everyone mentions as `roles` and
+// `everyone` say.
+// GET /channels/{id}/messages/search finds a DM's messages by their text, 25 at
 // a time, and GET /guilds/{id}/messages/search a server's, in the channels
 // channel_id names or in all of them; both take author_id, mentions, has
-// (has=poll among them), min_id, max_id and pinned too. The first search of each DM or server
-// answers 202, as Discord's does while it indexes it.
+// (has=poll among them, -link without links), author_type, link_hostname,
+// attachment_extension, attachment_filename, min_id, max_id, pinned and
+// sort_by/sort_order too. The first search of each DM or server answers
+// 202 with Retry-After: 1, as Discord's does while it indexes it. GET
+// /_control/searches lists each search's query string, oldest first.
 // POST /_control/typing makes Bob start typing in #general, or with ?dm in
 // his DM; GET /_control/typed lists the channels Alice said she was typing in.
 // GET /channels/{id}/messages takes `before`, `after` or `around` a snowflake,
@@ -143,6 +154,12 @@
 // as `since` on each relationship says. GET /users/{id}/badges gives Bob's playing time its level,
 // GET /_control/badge-reads counts those requests, and /assets/content/ serves
 // the level's SVGs.
+// Bob's Factorio has two Rich Presence buttons, "Join the factory" and "Mod
+// list", whose labels alone his presence carries, with its session_id, as
+// others' presences mostly come. GET
+// /users/{id}/sessions/{session}/activities/{application}/metadata answers
+// both addresses for his session's Factorio, and 204 with nothing for any
+// other; GET /_control/activity-metadata-reads counts those requests.
 // POST /_control/components makes Discord's own account write Alice a
 // notice made of components (IS_COMPONENTS_V2), as it writes its notices:
 // a container with a heading, a picture, sections beside a thumbnail and a
@@ -204,7 +221,9 @@
 // /users/@me/settings-proto/1 replaces each top-level field it sends, and GET
 // /_control/presence shows the presence her session last sent with op 3, GET
 // /_control/settings her settings as GET /users/@me/settings-proto/1 gives them,
-// and how many times that was asked.
+// and how many times that was asked. It also returns `writes`, each submitted
+// settings-proto/1 patch. POST /_control/settings with {settings: base64} simulates
+// another client's partial update; {reject_next: true} rejects the next PATCH.
 // POST /_control/other-session brings her phone online playing a song, with
 // SESSIONS_REPLACE. POST /users/@me/relationships sends
 // a friend request by username: Frank takes none, and unknown names fail.
@@ -225,7 +244,8 @@
 // /users/@me/guilds/{id}/settings changes her notification settings for a
 // server and its channels, and USER_GUILD_SETTINGS_UPDATE says so; PATCH
 // /users/@me/guilds/settings changes several servers' at once, as Discord's
-// client pins a channel to the top with its override's flags. POST
+// client pins a channel to the top with its override's flags and Yapfast's
+// folder menu changes all of a folder's servers. POST
 // /channels/{id}/invites makes an invite to a channel of "Server" or of a
 // `--servers` filler, which @everyone may, as on Discord, and GET
 // /_control/invites lists them, each with the location its
@@ -310,16 +330,23 @@
 // response the PUT sent.
 // Linking by QR code goes through a remote login gateway at /remote-auth/, as
 // remote-auth-gateway.discord.gg speaks it. POST /_control/qr-scan scans the
-// code shown as Alice, /_control/qr-confirm confirms it, /_control/qr-cancel
+// code shown as Alice, /_control/qr-confirm confirms it (?close also ends
+// the gateway connection), /_control/qr-cancel
 // says no, and /_control/qr-expire ends the code as the real one does after
 // two minutes. POST /_control/qr-captcha makes the next ticket's trade ask
 // for an hCaptcha, as Discord does of a login it doesn't trust, until a try
-// brings X-Captcha-Key "solved" with the rqtoken and session it was given. Start Yapfast with YAPFAST_DISCORD_TEST_UNLINKED=1 to link. POST
+// brings X-Captcha-Key "solved" with the rqtoken and session it was given.
+// Add ?twice to ask for a second challenge with different request data.
+// Add ?reject to reject the ticket after its challenges are answered.
+// Start Yapfast with YAPFAST_DISCORD_TEST_UNLINKED=1 to link. POST
 // /auth/logout ends the session, and GET /_control/logouts counts them.
 // A gateway session whose connection drops resumes with op 6, getting the
 // events it missed; a close with 1000 or 1001 ends it instead. POST
 // /_control/gateway-reconnect sends op 7, and GET /_control/sessions counts
-// identifies and resumes. POST /_control/refresh-token with a token ends
+// identifies and resumes. A second login, yapfast-test-token-two, is Bea: the
+// API and gateway take it beside Alice's and answer as Bea (id
+// 1400000000000000099), who sees the same server, for the account switcher.
+// POST /_control/refresh-token with a token ends
 // the session with op 9, and the READY after it refreshes the login to that
 // token in auth_token, as Discord does; from then on only that token works.
 // The API sets a device cookie, as Discord's does, and
@@ -396,8 +423,10 @@ const { values: args } = parseArgs({
     authors: { type: "string", default: "0" },
     members: { type: "string", default: "0" },
     "name-styles": { type: "boolean", default: false },
+    "member-looks": { type: "boolean", default: false },
     nitro: { type: "boolean", default: false },
     folders: { type: "boolean", default: false },
+    "folder-size": { type: "string", default: "3" },
     "cdn-delay": { type: "string", default: "0" },
     unread: { type: "string", default: "5" },
     env: { type: "string" },
@@ -409,6 +438,12 @@ const env = args.env ? await readEnv(args.env) : undefined;
 let world: World | undefined;
 
 const TOKEN = "yapfast-test-token";
+// Bea, a second account for the account switcher: her login is
+// `yapfast-test-token-two`, and the API and gateway answer her as the signed
+// in user when she presents it. She sees the same server as Alice; only who
+// she is differs. Yapfast links her with YAPFAST_DISCORD_TEST_SECOND_ACCOUNT=1.
+const SECOND_TOKEN = "yapfast-test-token-two";
+const BEA: User = { id: "1400000000000000099", username: "bea", global_name: "Bea", avatar: "bea1" };
 // The login the API and gateway take, which POST /_control/refresh-token
 // changes through the next READY.
 let apiToken = TOKEN;
@@ -422,12 +457,16 @@ const CHAT_INTERVAL = 2_000;
 
 // Fixed ids, so runs compare.
 const GUILD = "1400000000000000100";
+/** A server Alice isn't in, which shows its profile only to its members. */
+const PRIVATE_GUILD = "1400000000000000990";
 const CATEGORY = "1400000000000000101";
 const GENERAL = "1400000000000000102";
 const LOUNGE = "1400000000000000103";
 // A bot makes a room for whoever joins Create Room and moves them there.
 const CREATE_ROOM = "1400000000000000104";
 const ALICES_ROOM = "1400000000000000105";
+// The Leads' voice channel, hidden from Alice; see /_control/hidden-voice.
+const LEADS_ROOM = "1400000000000000107";
 // #ideas, a forum: its posts are threads.
 const FORUM = "1400000000000000106";
 const MODS = "1400000000000000110";
@@ -684,6 +723,8 @@ function joinSound(guild: string | null): [string, bigint] | undefined {
 }
 // How many times GET /users/@me/settings-proto/1 was asked.
 let settingsReads = 0;
+const settingsWrites: string[] = [];
+let rejectSettings = false;
 let settings = Buffer.from(
   protoBytes(11, protoBytes(2, new Uint8Array([...protoBytes(1, text("Testing Yapfast")), ...protoBytes(3, text("🧪"))]))),
 ).toString("base64");
@@ -1036,7 +1077,7 @@ function wireProfile(user: User, guild: string | null, origin: string) {
   const inServer = (Object.values(users).includes(user) && user.id !== ALICE) || user.id === statusBot.id;
   const isMember = Object.values(users).includes(user);
   const dave = user.id === users.dave.id;
-  const profile = user.id === ALICE ? aliceProfile : {
+  const profile = user.id === ALICE ? aliceProfile : lookProfiles.get(user.id) ?? {
     bio: bob ? "Plays bass in a **ska** band. Ask me about https://example.com/gigs" : "",
     pronouns: bob ? "he/him" : "",
     banner: bob ? "bob-banner" : dave ? "a_davebanner" : null,
@@ -1262,7 +1303,6 @@ type File = {
   id: string;
   channel: string;
   filename: string;
-  description?: string;
   contentType: string;
   data: Uint8Array;
   width?: number;
@@ -1285,7 +1325,6 @@ function wireAttachment(file: File, origin: string) {
   return {
     id: file.id,
     filename: file.filename,
-    description: file.description,
     size: file.data.length,
     url: `${origin}/${path}`,
     proxy_url: `${origin}/media/${path}`,
@@ -1642,7 +1681,6 @@ const sunsetFile = addFile({
   id: snowflake(HISTORY_START + 60_000, 1),
   channel: GENERAL,
   filename: "sunset.png",
-  description: "An orange sunset over the water",
   contentType: "image/png",
   data: sunset(800, 500),
   width: 800,
@@ -1804,17 +1842,34 @@ const pins = new Map<string, { message: Message; at: number }[]>([
   [WEEKEND, [{ message: hike, at: DM_START + 10_000 }]],
 ]);
 /** What a search's query string asks of a message, as Discord's search
- *  takes it: `content`, and each of `author_id`, `mentions` and `has`
- *  repeated for several, `min_id`, `max_id` and `pinned`. */
+ *  takes it: `content`, and each of `author_id`, `mentions`, `has`,
+ *  `author_type`, `link_hostname`, `attachment_extension` and
+ *  `attachment_filename` repeated for several, a `has` or `author_type`
+ *  with a leading `-` asking for messages without it, `min_id`, `max_id`
+ *  and `pinned`. */
 function searchFilter(url: URL): (message: Message) => boolean {
   const params = url.searchParams;
   const content = (params.get("content") ?? "").toLowerCase();
   const authors = params.getAll("author_id");
   const mentioned = params.getAll("mentions");
   const has = params.getAll("has");
+  const authorTypes = params.getAll("author_type");
+  const hosts = params.getAll("link_hostname").map((host) => host.toLowerCase());
+  const extensions = params.getAll("attachment_extension").map((extension) => extension.toLowerCase());
+  const filenames = params.getAll("attachment_filename").map((name) => name.toLowerCase());
   const min = params.get("min_id");
   const max = params.get("max_id");
   const pinned = params.get("pinned");
+  // The fake has no webhooks' messages.
+  const authorType = (message: Message) => (message.author.bot ? "bot" : "user");
+  const linksTo = (message: Message, host: string) =>
+    [...message.content.matchAll(/https?:\/\/([^\/\s]+)/g)].some(([, found]) => {
+      const name = found!.toLowerCase();
+      return name === host || name.endsWith(`.${host}`);
+    });
+  const asks = (values: string[], holds: (value: string) => boolean) =>
+    values.filter((value) => !value.startsWith("-")).every(holds) &&
+    values.filter((value) => value.startsWith("-")).every((value) => !holds(value.slice(1)));
   const carries = (message: Message, what: string) => {
     const types = message.files.map((file) => file.contentType);
     switch (what) {
@@ -1833,13 +1888,44 @@ function searchFilter(url: URL): (message: Message) => boolean {
     message.content.toLowerCase().includes(content) &&
     (!authors.length || authors.includes(message.author.id)) &&
     mentioned.every((id) => message.content.includes(`<@${id}>`)) &&
-    has.every((what) => carries(message, what)) &&
+    asks(has, (what) => carries(message, what)) &&
+    (!authorTypes.filter((type) => !type.startsWith("-")).length ||
+      authorTypes.includes(authorType(message))) &&
+    !authorTypes.includes(`-${authorType(message)}`) &&
+    hosts.every((host) => linksTo(message, host)) &&
+    extensions.every((extension) => message.files.some((file) => file.filename.toLowerCase().endsWith(`.${extension}`))) &&
+    filenames.every((name) => message.files.some((file) => file.filename.toLowerCase().includes(name))) &&
     (!min || BigInt(message.id) > BigInt(min)) &&
     (!max || BigInt(message.id) < BigInt(max)) &&
     (pinned === null || (pins.get(message.channel)?.some((pin) => pin.message.id === message.id) ?? false) === (pinned === "true"));
 }
-// DMs searched once, which Discord has indexed.
+// DMs and servers searched once, which Discord has indexed.
 const indexed = new Set<string>();
+/** Each message search's query string, as GET /_control/searches lists them. */
+const searches: string[] = [];
+/** Discord's answer while it indexes what's searched: 202, with the
+ *  Retry-After its client reads. */
+const stillIndexing = () =>
+  Response.json(
+    { message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 1 },
+    { status: 202, headers: { "Retry-After": "1" } },
+  );
+/** A search's page of what it found, newest first unless it asks for the
+ *  oldest; by relevance the fake keeps the newest first. */
+function searchPage(url: URL, found: Message[], wire: (message: Message) => unknown) {
+  if (url.searchParams.get("sort_by") === "timestamp" && url.searchParams.get("sort_order") === "asc") found.reverse();
+  const offset = Number(url.searchParams.get("offset") ?? 0);
+  const page = found.slice(offset, offset + 25);
+  return json({
+    analytics_id: "fake",
+    doing_deep_historical_index: false,
+    total_results: found.length,
+    messages: page.map((message) => [wire(message)]),
+    // The threads the page's messages are in, as Discord sends them.
+    threads: [...new Set(page.map((message) => message.channel))]
+      .flatMap((id) => (threads.has(id) ? [wireThread(threads.get(id)!)] : [])),
+  });
+}
 const readBob = post(DM_BOB, users.alice, "Yes, bringing snacks", DM_START + 180_000);
 post(DM_BOB, users.bob, "Great", DM_START + 240_000);
 post(DM_BOB, users.bob, "See you at nine", DM_START + 300_000);
@@ -2100,7 +2186,7 @@ const readStates = new Map<string, { last: string; mentions: number }>([
 // `mute` and `deaf` are the server's, which a moderator sets.
 type VoiceState = {
   guild: string | null; channel: string; self_mute: boolean; self_deaf: boolean; session: string; self_stream?: boolean; self_video?: boolean;
-  mute?: boolean; deaf?: boolean;
+  mute?: boolean; deaf?: boolean; suppress?: boolean;
 };
 /** The session of Alice's other client, such as her phone. */
 const OTHER_CLIENT = "voice-alice-phone";
@@ -2167,7 +2253,7 @@ function wireVoiceState(userId: string, state: VoiceState | undefined, left: str
     self_stream: state?.self_stream ?? false,
     mute: state?.mute ?? false,
     deaf: state?.deaf ?? false,
-    suppress: false,
+    suppress: state?.suppress ?? false,
     request_to_speak_timestamp: null,
   };
 }
@@ -2177,6 +2263,8 @@ function wireVoiceState(userId: string, state: VoiceState | undefined, left: str
 type SocketData = {
   sequence: number;
   identified: boolean;
+  /** Whether the session logged in as Bea, with the second token. */
+  bea?: boolean;
   session: string;
   origin: string;
   voice?: boolean;
@@ -2451,6 +2539,7 @@ function guildChannels(): GuildChannel[] {
     channel(LOUNGE, "Lounge", 2, 1, CATEGORY),
     channel(CREATE_ROOM, "Create Room", 2, 2, CATEGORY),
     ...(roomMade ? [channel(ALICES_ROOM, "Alice's room", 2, 3, CATEGORY)] : []),
+    ...(leadsRoomMade ? [leadsRoom()] : []),
     ...rooms.map((id, n) => channel(id, `room-${n + 1}`, 0, 2 + n, CATEGORY)),
     ...madeChannels.values(),
   ]
@@ -2459,8 +2548,11 @@ function guildChannels(): GuildChannel[] {
 }
 
 // Server Settings. GET /guilds/{id}/profile gives "Server"'s profile as
-// Server Profile shows it, and PATCH changes its name, icon (a data URI,
-// served back from the CDN as it came, or null) and description, as
+// Server Profile and the card of Bob's tag, "BOB", show it, with its tag and
+// badge. PRIVATE_GUILD, a server Alice isn't in that shows its profile only
+// to its members, answers 403 Missing Access, as Discord does, and any other
+// server 404. PATCH changes its name, icon (a data URI, served back from the
+// CDN as it came, or null) and description, as
 // Manage Server allows, answering with the profile and GUILD_UPDATE. POST
 // /_control/guild-reset puts "Server" back as it started.
 // Two-factor authentication: POST /_control/mfa, with an optional JSON body
@@ -2646,11 +2738,21 @@ function guildProfile() {
     member_count: Object.keys(users).length,
     online_count: 1,
     brand_color_primary: null,
+    banner_hash: null,
+    game_application_ids: [],
+    game_activity: {},
+    // The tag Bob wears; see wireUser.
+    tag: "BOB",
+    badge: 0,
+    badge_color_primary: "#ff0000",
+    badge_color_secondary: "#800000",
+    badge_hash: "bobtag",
     traits: [],
     features: serverSettings.features,
     visibility: 1,
     premium_tier: serverSettings.premium_tier,
     premium_subscription_count: 0,
+    custom_banner_hash: null,
   };
 }
 
@@ -2860,11 +2962,12 @@ function folderEntry(servers: string[], id?: number, name?: string, color?: numb
 if (args.folders && !env) {
   const entry = folderEntry;
   const ids = fillers.map((filler) => filler.id);
+  const size = Math.max(1, Number(args["folder-size"]));
   const list = [
     entry([GUILD]),
-    entry(ids.slice(0, 3), 1, "Games", 0xed4245),
-    entry(ids.slice(3, 5), 2),
-    ...ids.slice(5).map((id) => entry([id])),
+    entry(ids.slice(0, size), 1, "Games", 0xed4245),
+    entry(ids.slice(size, size + 2), 2),
+    ...ids.slice(size + 2).map((id) => entry([id])),
   ];
   const folders = new Uint8Array(list.flatMap((bytes) => [...bytes]));
   settings = Buffer.concat([Buffer.from(settings, "base64"), protoBytes(14, folders)]).toString("base64");
@@ -2879,8 +2982,8 @@ function ready(ws: Socket) {
   return {
     v: 9,
     user: {
-      ...wireUser(users.alice),
-      email: world?.email ?? "alice@example.org",
+      ...wireUser(ws.data.bea ? BEA : users.alice),
+      email: ws.data.bea ? "bea@example.org" : world?.email ?? "alice@example.org",
       verified: true,
       mfa_enabled: serverSettings.alice_mfa,
       premium_type: nitro ? 2 : 0,
@@ -2999,6 +3102,11 @@ function readySupplemental() {
 // Factorio, as Discord knows the game: Bob plays it, and its icon comes
 // from GET /applications/public and the CDN's /app-icons/.
 const FACTORIO = "1400000000000000900";
+// The gateway session Bob plays Factorio in, which his buttons' addresses
+// are asked by, and those addresses.
+const BOB_SESSION = "b0b5e551000000000000000000fac70f";
+const FACTORIO_BUTTONS = ["https://factorio.com/", "https://mods.factorio.com/"];
+let activityMetadataReads = 0;
 const applications: Record<string, { id: string; name: string; icon: string | null }> = {
   [FACTORIO]: { id: FACTORIO, name: "Factorio", icon: "factorioicon" },
 };
@@ -3011,7 +3119,11 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.alice.id]: { status: "online", activities: [] },
   [users.bob.id]: {
     status: "dnd",
-    activities: [{ type: 0, name: "Factorio", application_id: FACTORIO, timestamps: { start: fakeStarted - 42 * 60_000 } }],
+    activities: [{
+      type: 0, name: "Factorio", application_id: FACTORIO, session_id: BOB_SESSION,
+      timestamps: { start: fakeStarted - 42 * 60_000 },
+      buttons: ["Join the factory", "Mod list"],
+    }],
   },
   [users.carol.id]: {
     status: "idle",
@@ -3028,17 +3140,64 @@ const presences: Record<string, { status: string; activities: unknown[]; client_
   [users.dave.id]: { status: "offline", activities: [] },
 };
 
+/** With `--member-looks`, what the nth person of `--members` or the crowd
+ *  wears: every second a name style, every third a decoration, every fourth
+ *  a nameplate, every fifth a server tag. */
+function memberLook(n: number): Pick<User, "style" | "decoration" | "nameplate"> & { clan?: unknown } {
+  if (!args["member-looks"]) return {};
+  const palettes = ["bubble_gum", "sky", "violet", "teal", "forest", "sunset"];
+  const decorations = ["1500000000000000001", "1500000000000000003", "1500000000000000005"];
+  const nameplate = n % 4 === 1 ? { sku: String(1_500_000_000_000_000_100n + BigInt(n % 6)), palette: palettes[n % 6]! } : undefined;
+  if (nameplate) nameplateSkus.add(nameplate.sku);
+  return {
+    ...(n % 2 === 0 ? { style: nameStyleSample(n / 2).style } : {}),
+    ...(n % 3 === 0 ? { decoration: decorations[(n / 3) % 3] } : {}),
+    ...(nameplate ? { nameplate } : {}),
+    ...(n % 5 === 2
+      ? { clan: { identity_guild_id: GUILD, identity_enabled: true, tag: ["GG", "ZAP", "MOON", "404"][n % 4], badge: "bobtag" } }
+      : {}),
+  };
+}
+
+/** With `--member-looks`, the nth listed person's presence: online, idle,
+ *  do not disturb or on a phone in turn, with a custom status or a game. */
+function lookPresence(n: number): any {
+  if (!args["member-looks"]) return { status: "online", activities: [] };
+  const status = ["online", "idle", "dnd", "online"][n % 4]!;
+  const activities =
+    n % 3 === 1
+      ? [{ type: 4, name: "Custom Status", state: `status line ${n}`, emoji: { name: "🌙", id: null } }]
+      : n % 3 === 2
+        ? [{ type: 0, name: ["Factorio", "Celeste", "Hades", "Balatro"][n % 4] }]
+        : [];
+  return { status, activities, ...(n % 4 === 3 ? { client_status: { mobile: status } } : {}) };
+}
+
+/** With `--member-looks`, the listed people's profiles: every tenth a moving
+ *  banner, the other even ones a banner picture, the odd ones a colour. */
+const lookProfiles = new Map<string, { bio: string; pronouns: string; banner: string | null; accent_color: number | null }>();
+
 // The people of `--members`, in Server's member list alone.
 const listed: User[] = Array.from({ length: Number(args.members) }, (_, n) => ({
   id: (1_750_000_000_000_000_000n + BigInt(n)).toString(),
   username: `member${n}`,
   global_name: `Member ${n}`,
   avatar: `m${n}`,
+  ...memberLook(n),
 }));
-for (const person of listed) {
+for (const [n, person] of listed.entries()) {
   userById.set(person.id, person);
-  presences[person.id] = { status: "online", activities: [] };
+  presences[person.id] = lookPresence(n);
+  if (!args["member-looks"]) continue;
+  if (n % 8 === 0) memberRoles.set(person.id, [MODS]);
+  lookProfiles.set(person.id, {
+    bio: `Member ${n} of a busy server. Likes **bold** things and \`code\`.`,
+    pronouns: ["they/them", "she/her", "he/him"][n % 3]!,
+    banner: n % 10 === 0 ? "a_memberbanner" : n % 2 === 0 ? `mbanner${n}` : null,
+    accent_color: n % 2 === 1 ? 0x5865f2 + n * 997 : null,
+  });
 }
+if (args["member-looks"]) serverRoles.find((role) => role.id === MODS)!.icon = "modsicon";
 
 // The member list's Activity feed, as /content-inventory/users/@me answers:
 // Bob and Carol now, Dave's game earlier, this week's top ones, then what no
@@ -3195,10 +3354,6 @@ const REMOTE_AUTH_TIMEOUT_MS = 120_000;
 const remoteLogins = new Set<Socket>();
 // How many times Alice signed out with POST /auth/logout.
 let logouts = 0;
-// Each confirmed login's ticket, with the key to encrypt the login to.
-const tickets = new Map<string, CryptoKey>();
-/** Whether trading a ticket asks for a captcha first. */
-let ticketCaptcha = false;
 /** Whether joining by an invite asks for a captcha first, and answers that
  *  the server has a verification form. */
 let inviteCaptcha = false;
@@ -3211,6 +3366,22 @@ const TICKET_CAPTCHA = {
   captcha_rqtoken: "fake-rqtoken",
   captcha_session_id: "fake-session",
 };
+const SECOND_TICKET_CAPTCHA = {
+  ...TICKET_CAPTCHA,
+  captcha_rqdata: "second-rqdata",
+  captcha_rqtoken: "second-rqtoken",
+  captcha_session_id: "second-session",
+};
+type TicketExchange = {
+  captchas: { challenge: typeof TICKET_CAPTCHA; solution: string }[];
+  reject: boolean;
+};
+let nextTicket: TicketExchange = { captchas: [], reject: false };
+const tickets = new Map<string, TicketExchange & { key: CryptoKey }>();
+
+function invalidRemoteTicket() {
+  return json({ message: "Invalid remote authentication ticket", code: 20042 }, 404);
+}
 
 async function seal(key: CryptoKey, data: Uint8Array | string): Promise<string> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
@@ -3269,14 +3440,15 @@ function gatewayMessage(ws: Socket, text: string) {
       send(ws, 11, null);
       break;
     case 2: // Identify
-      if (d.token !== apiToken) {
+      if (d.token !== apiToken && d.token !== SECOND_TOKEN) {
         console.error("gateway: identify with an unexpected token; closing");
         ws.close(4004, "Authentication failed.");
         return;
       }
+      ws.data.bea = d.token === SECOND_TOKEN;
       ws.data.identified = true;
       sessionCounts.identifies++;
-      if (refreshingTo) {
+      if (refreshingTo && !ws.data.bea) {
         apiToken = refreshingTo;
         refreshingTo = null;
         send(ws, 0, { ...ready(ws), auth_token: apiToken }, "READY");
@@ -3294,8 +3466,9 @@ function gatewayMessage(ws: Socket, text: string) {
       // allow the handoff directly from that connection as well as parked.
       const previous = [...sockets].find(other => other !== ws && other.data.identified && other.data.session === d.session_id);
       const session = parked.get(d.session_id) ?? (previous ? { sequence: previous.data.sequence, missed: [] } : undefined);
-      if (d.token !== apiToken || !session || d.seq !== session.sequence) {
-        console.error(`gateway: can't resume ${d.session_id} at ${d.seq} (parked sequence ${session?.sequence}, token matches: ${d.token === apiToken})`);
+      const tokenOk = d.token === apiToken || d.token === SECOND_TOKEN;
+      if (!tokenOk || !session || d.seq !== session.sequence) {
+        console.error(`gateway: can't resume ${d.session_id} at ${d.seq} (parked sequence ${session?.sequence}, token matches: ${tokenOk})`);
         send(ws, 9, false);
         return;
       }
@@ -3306,6 +3479,7 @@ function gatewayMessage(ws: Socket, text: string) {
       }
       ws.data.session = d.session_id;
       ws.data.sequence = session.sequence;
+      ws.data.bea = d.token === SECOND_TOKEN;
       ws.data.identified = true;
       sessionCounts.resumes++;
       console.log(`gateway: resumed ${d.session_id}, replaying ${session.missed.length} events`);
@@ -3332,6 +3506,7 @@ function gatewayMessage(ws: Socket, text: string) {
           session: ws.data.session,
           self_stream: before?.channel === channel && before.self_stream,
           self_video: !!d.self_video,
+          suppress: before?.channel === channel && before.suppress,
         });
       } else {
         voice.delete(ALICE);
@@ -3527,6 +3702,27 @@ function endStream(key: string, reason: string) {
 
 /** Whether the bot made Alice's room. */
 let roomMade = false;
+
+// POST /_control/hidden-voice makes the Leads' voice channel, which only
+// Leads see, and moves Carol and Dave into it from the Lounge. Alice isn't a
+// Lead, so Discord sends it to her as it sends a channel she may not view:
+// with the OBFUSCATED flag (1 << 17), its name and topic as "___hidden___",
+// and who is in it all the same, in READY's voice states and
+// VOICE_STATE_UPDATE. POST /_control/voice-reset moves them back.
+let leadsRoomMade = false;
+
+/** The Leads' voice channel, as Discord sends it to Alice. */
+function leadsRoom() {
+  return {
+    ...guildChannel(LEADS_ROOM, "___hidden___", 2, 4, CATEGORY),
+    flags: bit(17),
+    topic: "___hidden___",
+    permission_overwrites: [
+      { id: GUILD, type: 0, allow: "0", deny: String(bit(10)) },
+      { id: LEADS, type: 0, allow: String(bit(10)), deny: "0" },
+    ],
+  };
+}
 
 /** The bot moves Alice from Create Room to her own room, making it the first
  *  time, which puts her call on another voice server. */
@@ -4743,6 +4939,12 @@ function spsSize(nal: Buffer): [number, number] | undefined {
 const udp = await Bun.udpSocket({
   hostname: args.host,
   socket: {
+    error(socketOrError, error) {
+      // Bun can report an ICMP error after a viewer closes its UDP port.
+      // Bun 1.4.4 passes the error as the only argument.
+      const failure = (error ?? socketOrError) as Error & { code?: string; syscall?: string };
+      if (failure.code !== "ECONNREFUSED" || failure.syscall !== "recv") throw failure;
+    },
     data(socket, data, port, address) {
       // IP discovery: type 1, length 70, SSRC, then the answer fills in the address.
       if (discoveryOff && data.length === 74 && data.readUInt16BE(0) === 1) return;
@@ -5603,19 +5805,24 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // A confirmed remote login's ticket, traded for the login without one.
   if (req.method === "POST" && path === "/users/@me/remote-auth/login") {
     const body: any = await req.json().catch(() => ({}));
-    const key = tickets.get(String(body.ticket));
-    if (!key) return json({ message: "Invalid ticket", code: 50035 }, 400);
-    if (ticketCaptcha) {
-      const solved = req.headers.get("x-captcha-key") === "solved"
-        && req.headers.get("x-captcha-rqtoken") === TICKET_CAPTCHA.captcha_rqtoken
-        && req.headers.get("x-captcha-session-id") === TICKET_CAPTCHA.captcha_session_id;
-      if (!solved) return json(TICKET_CAPTCHA, 400);
-      ticketCaptcha = false;
+    const ticket = tickets.get(String(body.ticket));
+    if (!ticket) return invalidRemoteTicket();
+    const next = ticket.captchas[0];
+    if (next) {
+      const { challenge, solution } = next;
+      const solved = req.headers.get("x-captcha-key") === solution
+        && req.headers.get("x-captcha-rqtoken") === challenge.captcha_rqtoken
+        && req.headers.get("x-captcha-session-id") === challenge.captcha_session_id;
+      if (!solved) return json(challenge, 400);
+      ticket.captchas.shift();
+      if (ticket.captchas[0]) return json(ticket.captchas[0].challenge, 400);
     }
     tickets.delete(String(body.ticket));
-    return json({ encrypted_token: await seal(key, TOKEN) });
+    if (ticket.reject) return invalidRemoteTicket();
+    return json({ encrypted_token: await seal(ticket.key, TOKEN) });
   }
-  if (req.headers.get("authorization") !== apiToken) {
+  const login = req.headers.get("authorization");
+  if (login !== apiToken && login !== SECOND_TOKEN) {
     return json({ message: "401: Unauthorized", code: 0 }, 401);
   }
   const url = new URL(req.url);
@@ -5644,6 +5851,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
 
   // "Server"'s profile in Server Settings; see "Server Settings" above.
   if ((m = path.match(/^\/guilds\/(\d+)\/profile$/))) {
+    if (m[1] === PRIVATE_GUILD && method === "GET") return json({ message: "Missing Access", code: 50001 }, 403);
     if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
     if (method === "GET") return json(guildProfile());
     if (method === "PATCH") {
@@ -6293,6 +6501,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     });
   }
 
+  // The addresses behind someone's Rich Presence buttons, as the client asks
+  // for them on a click: Bob's Factorio has both, anything else none.
+  if (method === "GET" && (m = path.match(/^\/users\/(\d+)\/sessions\/([^/]+)\/activities\/([^/]+)\/metadata$/))) {
+    if (!userById.get(m[1]!)) return notFound("Unknown User", 10013);
+    activityMetadataReads += 1;
+    if (m[1] === users.bob.id && m[2] === BOB_SESSION && m[3] === FACTORIO) {
+      return json({ button_urls: FACTORIO_BUTTONS });
+    }
+    return empty();
+  }
+
   // Opening a DM finds the one Alice has with them, or starts one; with
   // several people, it makes a group.
   if (method === "POST" && path === "/users/@me/channels") {
@@ -6320,6 +6539,7 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
 
   if (method === "GET" && path === "/users/@me") {
+    if (login === SECOND_TOKEN) return json({ ...wireUser(BEA), email: "bea@example.org", verified: true });
     return json({ ...wireUser(users.alice), email: world?.email ?? "alice@example.org", verified: true });
   }
 
@@ -6699,18 +6919,12 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "GET" && (m = path.match(/^\/channels\/(\d+)\/messages\/search$/))) {
     const list = messages.get(m[1]!);
     if (!list || !privates.has(m[1]!)) return notFound("Unknown Channel", 10003);
+    searches.push(url.search.slice(1));
     if (!indexed.has(m[1]!)) {
       indexed.add(m[1]!);
-      return json({ message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 0 }, 202);
+      return stillIndexing();
     }
-    const offset = Number(url.searchParams.get("offset") ?? 0);
-    const found = list.filter(searchFilter(url)).reverse();
-    return json({
-      analytics_id: "fake",
-      doing_deep_historical_index: false,
-      total_results: found.length,
-      messages: found.slice(offset, offset + 25).map((message) => [wireMessage(message, origin)]),
-    });
+    return searchPage(url, list.filter(searchFilter(url)).reverse(), (message) => wireMessage(message, origin));
   }
 
   // Starting a thread from a message: a public one, or an announcement
@@ -6876,22 +7090,17 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     if (!channels.length) return notFound("Unknown Guild", 10004);
     const asked = url.searchParams.getAll("channel_id");
     if (asked.some((id) => !channels.includes(id))) return notFound("Unknown Channel", 10003);
+    searches.push(url.search.slice(1));
     if (!indexed.has(guild)) {
       indexed.add(guild);
-      return json({ message: "Index not yet available. Try again later", code: 110000, documents_indexed: 0, retry_after: 0 }, 202);
+      return stillIndexing();
     }
-    const offset = Number(url.searchParams.get("offset") ?? 0);
     const found = (asked.length ? asked : channels)
       .flatMap((id) => messages.get(id)!)
       .filter((message) => message.type === 0 || message.type === 19)
       .filter(searchFilter(url))
       .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1));
-    return json({
-      analytics_id: "fake",
-      doing_deep_historical_index: false,
-      total_results: found.length,
-      messages: found.slice(offset, offset + 25).map((message) => [{ ...wireMessage(message, origin), guild_id: guild }]),
-    });
+    return searchPage(url, found, (message) => ({ ...wireMessage(message, origin), guild_id: guild }));
   }
 
   // Each message request's latest message, for the requests list: 1 to 25
@@ -6905,6 +7114,44 @@ async function api(req: Request, path: string, origin: string): Promise<Response
         return last ? [{ channel_id: id, message_preview: wireMessage(last, origin) }] : [];
       }),
     );
+  }
+
+  // This account's recent mentions, as Discord's Mentions inbox lists them:
+  // the newest first, up to 100, only before `before`, and in one server with
+  // `guild_id`. A role counts for Alice when she has it, and @everyone and
+  // @here when the author may use them, as `roles` and `everyone` say.
+  if (method === "GET" && path === "/users/@me/mentions") {
+    const limit = Number(url.searchParams.get("limit") ?? 25);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const before = url.searchParams.get("before");
+    const beforeId = before && /^\d+$/.test(before) ? BigInt(before) : null;
+    const inGuild = url.searchParams.get("guild_id");
+    const withRoles = url.searchParams.get("roles") !== "false";
+    const withEveryone = url.searchParams.get("everyone") !== "false";
+    const herRoles = new Set(memberRoles.get(ALICE) ?? []);
+    const found = [...byId.values()]
+      .filter((message) => beforeId === null || BigInt(message.id) < beforeId)
+      .filter((message) => !inGuild || guildOf(message.channel).guild_id === inGuild)
+      .filter((message) => {
+        if (message.author.id === ALICE) return false;
+        // A reply that pings her names her in its metadata rather than its
+        // text, as Discord's own inbox lists it: `reply` is the id of the
+        // message it answers.
+        if (message.reply && byId.get(message.reply)?.author.id === ALICE) return true;
+        const named = [...message.content.matchAll(/<@!?(\d+)>/g)].map((match) => match[1]);
+        if (named.includes(ALICE)) return true;
+        // As Discord, only roles and @everyone that the author may mention count.
+        if (message.author.id !== users.bob.id && !message.author.bot && !world) return false;
+        if (withEveryone && /@(everyone|here)\b/.test(message.content)) return true;
+        return withRoles
+          && [...message.content.matchAll(/<@&(\d+)>/g)].some((match) => herRoles.has(match[1]!));
+      })
+      .sort((a, b) => (BigInt(b.id) > BigInt(a.id) ? 1 : -1))
+      .slice(0, limit)
+      .map((message) => ({ ...wireMessage(message, origin), ...guildOf(message.channel) }));
+    return json(found);
   }
 
   // Accepting a message request makes it a DM; ignoring it closes the DM.
@@ -6962,6 +7209,11 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   if (method === "PATCH" && path === "/users/@me/settings-proto/1") {
     const body: any = await req.json().catch(() => ({}));
     if (typeof body.settings !== "string") return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    settingsWrites.push(body.settings);
+    if (rejectSettings) {
+      rejectSettings = false;
+      return json({ message: "Missing Access", code: 50001 }, 403);
+    }
     settings = mergeSettings(settings, body.settings);
     dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
     return json({ settings });
@@ -7865,7 +8117,7 @@ function unknown(req: Request, path: string): Response {
   return notFound();
 }
 
-function serveFile(path: string, url: URL): Response {
+function serveFile(path: string, url: URL, range: string | null): Response {
   const file = files.get(decodeURIComponent(path));
   if (!file) return notFound();
   let data = file.data;
@@ -7876,7 +8128,25 @@ function serveFile(path: string, url: URL): Response {
     data = scaled.get(key) ?? file.draw(width, height);
     scaled.set(key, data);
   }
-  return new Response(data, { headers: { "content-type": file.contentType } });
+  return servePart(data, file.contentType, range);
+}
+
+// A file, or the part a Range header asks for, as Discord's CDN answers it:
+// 206 with Content-Range for `bytes=FROM-` or `bytes=FROM-TO`, 416 past
+// the end.
+function servePart(data: Uint8Array, contentType: string, range: string | null): Response {
+  const headers = { "content-type": contentType, "accept-ranges": "bytes" };
+  const asked = range?.match(/^bytes=(\d+)-(\d*)$/);
+  if (!asked) return new Response(data, { headers });
+  const from = Number(asked[1]);
+  const to = Math.min(asked[2] ? Number(asked[2]) : data.length - 1, data.length - 1);
+  if (from >= data.length || to < from) {
+    return new Response(null, { status: 416, headers: { "content-range": `bytes */${data.length}` } });
+  }
+  return new Response(data.subarray(from, to + 1), {
+    status: 206,
+    headers: { ...headers, "content-range": `bytes ${from}-${to}/${data.length}` },
+  });
 }
 
 // --- Embeds -----------------------------------------------------------------
@@ -7903,7 +8173,7 @@ const gifVideo = readFileSync(new URL("gif-mandelbrot.mp4", fixtures));
 // at /external/{name}/video.mp4, the linked post's clip at
 // /external/post/video.mp4, and a GIF provider's file linked directly at
 // /external/klipy/https/static.klipy.com/ii/{name}.{webp,gif}.
-function serveExternal(path: string, url: URL): Response | undefined {
+function serveExternal(path: string, url: URL, range: string | null): Response | undefined {
   const linked = path.match(/^\/external\/klipy\/https\/static\.klipy\.com\/ii\/([a-z]+)\.(webp|gif)$/);
   if (linked) {
     try {
@@ -7915,7 +8185,7 @@ function serveExternal(path: string, url: URL): Response | undefined {
   }
   if (/^\/external\/[\w-]+\/video\.mp4$/.test(path)) {
     const data = path === "/external/post/video.mp4" ? clip : gifVideo;
-    return new Response(data, { headers: { "content-type": "video/mp4" } });
+    return servePart(data, "video/mp4", range);
   }
   const m = path.match(/^\/external\/([\w-]+)\/(\d+)x(\d+)\.png$/);
   if (!m) return undefined;
@@ -8446,7 +8716,7 @@ function applyEnv({ env, dir }: { env: Env; dir: string }): World {
           join(user);
           voice.set(user.id, {
             guild: id, channel: channelId, self_mute: !!seat.mute, self_deaf: !!seat.deaf, session: `voice-${user.id}`,
-            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf,
+            self_video: !!seat.video, self_stream: !!seat.stream, mute: !!seat.serverMute, deaf: !!seat.serverDeaf, suppress: !!seat.suppress,
           });
           if (!seat.stream) continue;
           const key = streamKey(id, channelId, user.id);
@@ -8784,7 +9054,7 @@ const server = Bun.serve<SocketData>({
       return withDeviceCookie(req, response);
     }
     if (req.method === "GET" && path.startsWith("/attachments/")) {
-      return serveFile(path.slice("/attachments/".length), url);
+      return serveFile(path.slice("/attachments/".length), url, req.headers.get("range"));
     }
     // The games Discord detects, from its CDN as the desktop client asks:
     // with the version it has, the answer is that it's unchanged.
@@ -8807,7 +9077,7 @@ const server = Bun.serve<SocketData>({
     }
     if (path === "/_control/gif-selects") return Response.json(gifSelects);
     if (req.method === "GET" && path.startsWith("/media/attachments/")) {
-      return serveFile(path.slice("/media/attachments/".length), url);
+      return serveFile(path.slice("/media/attachments/".length), url, req.headers.get("range"));
     }
     // Discord's CDN: server icons, avatars and banners, and those uploaded
     // as they came.
@@ -8899,7 +9169,17 @@ const server = Bun.serve<SocketData>({
       }]);
       return new Response("online\n");
     }
-    if (path === "/_control/settings") return Response.json({ settings, reads: settingsReads });
+    if (path === "/_control/settings") {
+      if (req.method === "POST") {
+        const body: any = await req.json();
+        if (body.reject_next === true) rejectSettings = true;
+        if (typeof body.settings === "string") {
+          settings = mergeSettings(settings, body.settings);
+          dispatch("USER_SETTINGS_PROTO_UPDATE", { settings: { type: 1, proto: body.settings }, partial: true });
+        }
+      }
+      return Response.json({ settings, reads: settingsReads, writes: settingsWrites });
+    }
     if (req.method === "POST" && path === "/_control/bob-away") {
       // Bob goes idle with a custom status, as his friends hear it.
       presences[users.bob.id] = {
@@ -8920,8 +9200,9 @@ const server = Bun.serve<SocketData>({
       churn = setInterval(() => {
         const person = listed[(turn++ * 7) % listed.length]!;
         changeMembers(() => {
-          const status = presences[person.id]!.status === "offline" ? "online" : "offline";
-          presences[person.id] = { status, activities: [] };
+          presences[person.id] = presences[person.id]!.status === "offline"
+            ? lookPresence(listed.indexOf(person))
+            : { status: "offline", activities: [] };
           dispatch("PRESENCE_UPDATE", { user: { id: person.id }, client_status: {}, ...presences[person.id] });
         });
       }, 100);
@@ -8940,6 +9221,20 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/voice-identifies") return Response.json(voiceIdentifies);
     if (path === "/_control/voice-changes") return Response.json(voiceChanges);
     if (path === "/_control/channel-info") return Response.json(channelInfoRequests);
+    if (req.method === "POST" && path === "/_control/hidden-voice") {
+      if (!leadsRoomMade) {
+        leadsRoomMade = true;
+        dispatch("CHANNEL_CREATE", guildChannels().find((made) => made.id === LEADS_ROOM));
+      }
+      for (const user of [users.carol.id, users.dave.id]) {
+        const before = voice.get(user);
+        if (!before) continue;
+        voice.set(user, { ...before, guild: GUILD, channel: LEADS_ROOM });
+        moved(user, before, origin);
+      }
+      syncVoiceStarted();
+      return new Response("Carol and Dave are in the Leads' hidden voice channel\n");
+    }
     if (req.method === "POST" && path === "/_control/voice-reset") {
       // Bob, Carol and Dave back in the Lounge as they started, after a
       // test moved or disconnected them.
@@ -9115,6 +9410,7 @@ const server = Bun.serve<SocketData>({
     if (path === "/_control/list-requests") return Response.json(listRequests);
     if (path === "/_control/note-reads") return Response.json(noteReads);
     if (path === "/_control/badge-reads") return Response.json(badgeReads);
+    if (path === "/_control/activity-metadata-reads") return Response.json(activityMetadataReads);
     if (path === "/_control/collectible-animations") return Response.json(collectibleAnimations);
     if (req.method === "POST" && path === "/_control/note-elsewhere") {
       const id = url.searchParams.get("user") ?? "";
@@ -9182,7 +9478,13 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/gateway-reconnect") {
       // Discord's op 7: the client should drop the connection and resume.
-      for (const ws of sockets) if (ws.data.identified) send(ws, 7, null);
+      for (const ws of sockets) {
+        if (!ws.data.identified) continue;
+        // Later dispatches belong to the replay, even before the old socket closes.
+        parked.set(ws.data.session, { sequence: ws.data.sequence, missed: [] });
+        ws.data.identified = false;
+        send(ws, 7, null);
+      }
       return new Response("asked gateways to reconnect\n");
     }
     if (req.method === "POST" && path === "/_control/refresh-token") {
@@ -9203,12 +9505,18 @@ const server = Bun.serve<SocketData>({
       return eachRemoteLogin((ws, key) => {
         if (!ws.data.remoteAuth!.scanned) return;
         const ticket = `fake-ticket-${crypto.randomUUID()}`;
-        tickets.set(ticket, key);
+        tickets.set(ticket, { key, ...nextTicket });
+        nextTicket = { captchas: [], reject: false };
         ws.send(JSON.stringify({ op: "pending_login", ticket }));
+        if (url.searchParams.has("close")) ws.close(1000);
       });
     }
     if (req.method === "POST" && path === "/_control/qr-captcha") {
-      ticketCaptcha = true;
+      const captchas = [{ challenge: TICKET_CAPTCHA, solution: "solved" }];
+      if (url.searchParams.has("twice")) {
+        captchas.push({ challenge: SECOND_TICKET_CAPTCHA, solution: "second-solution" });
+      }
+      nextTicket = { captchas, reject: url.searchParams.has("reject") };
       return new Response("the next ticket asks for a captcha\n");
     }
     if (req.method === "POST" && path === "/_control/qr-cancel") {
@@ -9243,7 +9551,7 @@ const server = Bun.serve<SocketData>({
       return new Response("chat started\n");
     }
     if (req.method === "GET" && path.startsWith("/external/")) {
-      return serveExternal(path, url) ?? notFound();
+      return serveExternal(path, url, req.headers.get("range")) ?? notFound();
     }
     // Discord's CDN: soundboard sounds.
     const sound = req.method === "GET" ? path.match(/^\/soundboard-sounds\/(\d+)$/) : null;
@@ -9383,6 +9691,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/reactor-removals") {
       return Response.json(reactorRemovals);
+    }
+    if (req.method === "GET" && path === "/_control/searches") {
+      return Response.json(searches);
     }
     if (req.method === "GET" && path === "/_control/thread-searches") {
       return Response.json(threadSearches);
@@ -9674,6 +9985,7 @@ const server = Bun.serve<SocketData>({
           username: `crowd${n}`,
           global_name: `Crowd ${n}`,
           avatar: `c${n}`,
+          ...memberLook(n),
         };
         const message = post(rooms.at(-1) ?? GENERAL, person, `Hello from ${person.global_name}`, Date.now());
         dispatch("MESSAGE_CREATE", dispatched(message, origin));

@@ -6,7 +6,7 @@
 use super::*;
 use crate::chat::{
     DiscordCommand, NotificationChange, Notifications, Permission, ServerNotifications,
-    ServerPreview, ServerRole,
+    ServerPreview, ServerRole, TagServerAnswer,
 };
 
 #[cfg(feature = "discord")]
@@ -63,6 +63,7 @@ fn bits(permission: Permission) -> u64 {
         Permission::CreateExpressions => permission::CREATE_GUILD_EXPRESSIONS,
         Permission::UseExternalEmojis => permission::USE_EXTERNAL_EMOJIS,
         Permission::UseExternalStickers => permission::USE_EXTERNAL_STICKERS,
+        Permission::CreateEvents => permission::CREATE_EVENTS,
     }
 }
 
@@ -288,12 +289,27 @@ impl Application {
     /// Asks Discord to change a server's, channel's or category's
     /// notification settings; snapshots show it once Discord confirms it.
     /// A server's own switches change only for a server, and only while
-    /// Discord is connected.
+    /// Discord is connected. A rail folder, by its id, changes all its
+    /// servers at once.
     pub(super) fn change_notifications(
-        &mut self,
+        &self,
         place: String,
         change: NotificationChange,
     ) -> Vec<Effect> {
+        if self.state.is_folder(&place) {
+            let servers: Vec<String> = self
+                .state
+                .folder_servers(&place)
+                .filter(|server| server.discord)
+                .map(|server| server.id.clone())
+                .collect();
+            if !self.state.discord_online || servers.is_empty() {
+                return vec![];
+            }
+            return vec![Effect::Backend(Command::Discord(
+                DiscordCommand::FolderNotifications { servers, change },
+            ))];
+        }
         let server_only = matches!(
             change,
             NotificationChange::HideMuted(_)
@@ -317,7 +333,7 @@ impl Application {
     /// Asks Discord what a server's card shows, for the card an emoji of it
     /// opens: how many of its members are online, and whether Discover lists
     /// it. A server's answer stands, so a card opened again asks nothing.
-    pub(super) fn preview_server(&mut self, server: String) -> Vec<Effect> {
+    pub(super) fn preview_server(&self, server: String) -> Vec<Effect> {
         if self.state.preview
             || !self.state.discord_online
             || self.state.server_previews.contains_key(&server)
@@ -345,5 +361,49 @@ impl Application {
                 tracing::warn!(%error, "could not show what a server's card shows");
             }
         }
+    }
+
+    /// Asks Discord for the profile of the server a tag is from, for the
+    /// tag's card, which loads until it answers; opened again after a
+    /// failure, it tries again. Discord's service answers from what it
+    /// fetched in the last minute, so a card opened again soon asks Discord
+    /// nothing.
+    pub(super) fn open_server_tag(&mut self, server: String) -> Vec<Effect> {
+        if self.state.preview || Network::of(&server) != Network::Discord {
+            return vec![];
+        }
+        if !self.state.discord_online {
+            let failed = Err("Discord is out of reach".to_owned());
+            self.state.tag_server = Some((server, failed));
+            return vec![];
+        }
+        if self
+            .state
+            .tag_server
+            .as_ref()
+            .is_some_and(|(asked, answer)| *asked == server && answer.is_err())
+        {
+            self.state.tag_server = None;
+        }
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::TagServer { server },
+        ))]
+    }
+
+    /// Keeps what Discord said of a tag's server, for its card. A failure
+    /// leaves what an earlier answer for the same server said.
+    pub(super) fn show_tag_server(&mut self, server: String, result: TagServerAnswer) {
+        if let Err(error) = &result {
+            tracing::debug!(%error, "Discord didn't show a server tag's server");
+            if self
+                .state
+                .tag_server
+                .as_ref()
+                .is_some_and(|(shown, answer)| *shown == server && answer.is_ok())
+            {
+                return;
+            }
+        }
+        self.state.tag_server = Some((server, result));
     }
 }

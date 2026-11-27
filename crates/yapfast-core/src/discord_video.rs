@@ -126,7 +126,7 @@ impl Filming {
             let pts = started.elapsed().as_micros() as u64 * CLOCK / 1_000_000;
             match encoder.encode_picture(picture, pts, keyframe) {
                 Ok(Some(frame)) => sender.send(Frame {
-                    data: frame.data.to_vec(),
+                    data: frame.data,
                     codec: SEND_CODEC,
                     timestamp: pts as u32,
                     keyframe: frame.keyframe,
@@ -169,7 +169,7 @@ impl Watching {
     }
 
     /// Keeps a feed for each of `filming`, and lets go of the others'.
-    pub fn film(&mut self, filming: &[u64]) {
+    pub fn film(&self, filming: &[u64]) {
         let mut feeds = lock(&self.feeds);
         feeds.retain(|user, feed| {
             let kept = filming.contains(user);
@@ -196,7 +196,7 @@ impl Watching {
     pub fn ask(&mut self, call: &mut Call, others: usize) {
         let wants = wants(&lock(&self.feeds), others);
         if wants != self.asked {
-            self.asked = wants.clone();
+            self.asked.clone_from(&wants);
             call.want_video(wants);
         }
     }

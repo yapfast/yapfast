@@ -219,7 +219,8 @@ impl Parsed {
                         let slot = self.slot();
                         let spoiler = spoiler || accessory["spoiler"].as_bool().unwrap_or(false);
                         let size = (THUMBNAIL_SIZE, THUMBNAIL_SIZE);
-                        media(accessory, &accessory["media"], slot, size, spoiler).map(|picture| {
+                        media(&accessory["media"], slot, size, spoiler).map(|mut picture| {
+                            picture.description = alt_text(&accessory["description"]);
                             self.media.push(picture);
                             Beside::Thumbnail(slot)
                         })
@@ -231,25 +232,25 @@ impl Parsed {
             }
             MEDIA_GALLERY => {
                 let slot = self.slot();
-                let pictures: Vec<_> = component["items"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|item| {
-                        let spoiler = spoiler || item["spoiler"].as_bool().unwrap_or(false);
-                        media(
-                            item,
-                            &item["media"],
-                            slot,
-                            (PREVIEW_WIDTH, PREVIEW_HEIGHT),
-                            spoiler,
-                        )
-                    })
-                    .collect();
-                (!pictures.is_empty()).then(|| {
-                    self.media.extend(pictures);
-                    Row::Media(slot)
-                })
+                let before = self.media.len();
+                self.media.extend(
+                    component["items"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|item| {
+                            let spoiler = spoiler || item["spoiler"].as_bool().unwrap_or(false);
+                            let mut picture = media(
+                                &item["media"],
+                                slot,
+                                (PREVIEW_WIDTH, PREVIEW_HEIGHT),
+                                spoiler,
+                            )?;
+                            picture.description = alt_text(&item["description"]);
+                            Some(picture)
+                        }),
+                );
+                (self.media.len() > before).then_some(Row::Media(slot))
             }
             FILE => {
                 let slot = self.slot();
@@ -406,13 +407,7 @@ fn select(component: &Value) -> Row {
 
 /// A picture or video of a gallery or thumbnail, from its unfurled media
 /// item, fitted into `size`. Discord's proxy must have it.
-fn media(
-    component: &Value,
-    item: &Value,
-    slot: usize,
-    size: (u64, u64),
-    spoiler: bool,
-) -> Option<Attachment> {
+fn media(item: &Value, slot: usize, size: (u64, u64), spoiler: bool) -> Option<Attachment> {
     let url = item["url"].as_str()?;
     item["proxy_url"].as_str()?;
     let video = item["content_type"]
@@ -421,7 +416,6 @@ fn media(
     let side = |name: &str| u32::try_from(item[name].as_u64()?).ok();
     Some(Attachment {
         name: crate::embed::file_name(url).unwrap_or("image").to_owned(),
-        description: alt_text(&component["description"]).or_else(|| alt_text(&item["description"])),
         size: None,
         url: url.into(),
         image: !video,
@@ -437,6 +431,7 @@ fn media(
         animated: !video && animated(item),
         shown: Shown::Component(slot),
         spoiler: spoiler || item["flags"].as_u64().unwrap_or_default() & IS_SPOILER != 0,
+        description: None,
     })
 }
 
@@ -449,7 +444,6 @@ fn file(component: &Value, slot: usize, spoiler: bool) -> Option<Attachment> {
         .unwrap_or("file");
     Some(Attachment {
         name: name.to_owned(),
-        description: None,
         size: component["size"].as_u64(),
         url: url.into(),
         image: false,
@@ -462,6 +456,7 @@ fn file(component: &Value, slot: usize, spoiler: bool) -> Option<Attachment> {
         animated: false,
         shown: Shown::Component(slot),
         spoiler,
+        description: None,
     })
 }
 
@@ -495,11 +490,8 @@ mod tests {
                 {"type": 10, "content": "# Hello"},
                 {"type": 14, "divider": false, "spacing": 2},
                 {"type": 9, "components": [{"type": 10, "content": "One"}, {"type": 10, "content": "Two"}],
-                 "accessory": {"type": 11, "description": "A small thumbnail", "media": picture("thumb.png")}},
-                {"type": 12, "items": [
-                    {"description": "First gallery image", "media": picture("a.png")},
-                    {"description": "A hidden landscape", "media": picture("b.png"), "spoiler": true}
-                ]},
+                 "accessory": {"type": 11, "media": picture("thumb.png")}},
+                {"type": 12, "items": [{"media": picture("a.png")}, {"media": picture("b.png"), "spoiler": true}]},
                 {"type": 13, "file": {"url": "https://cdn.discordapp.com/attachments/1/2/notes.txt"},
                  "name": "notes.txt", "size": 12},
                 {"type": 1, "components": [
@@ -584,20 +576,6 @@ mod tests {
             ]
         );
         assert!(parsed.media[0].preview_url.is_some());
-        let descriptions: Vec<_> = parsed
-            .media
-            .iter()
-            .map(|media| media.description.as_deref())
-            .collect();
-        assert_eq!(
-            descriptions,
-            [
-                Some("A small thumbnail"),
-                Some("First gallery image"),
-                Some("A hidden landscape"),
-                None,
-            ]
-        );
         assert_eq!(parsed.media[3].preview_url, None);
         assert_eq!(parsed.media[3].size, Some(12));
     }

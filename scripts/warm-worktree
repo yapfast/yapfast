@@ -22,7 +22,7 @@ fi
 
 # The crates whose sources are in the repository: the workspace and vendor/.
 # Cargo would reuse their copied builds, and a build script that names its
-# inputs by absolute path, as Slint's does, would go on watching the main
+# inputs by absolute path would go on watching the main
 # checkout's files. Cleaning them makes them build from this worktree's.
 mapfile -t local_crates < <(cargo metadata --locked --format-version 1 |
   jq -r '.packages[] | select(.source == null) | "-p\n\(.name)"')

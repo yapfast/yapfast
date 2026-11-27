@@ -7,7 +7,12 @@ Yapfast lists the linked account's Discord servers in the rail with their
 channels. Channels the account's roles and channel overwrites keep it out of
 show greyed out with a lock, as in Discord; channels hidden from it appear the
 same way only with the "Show channels you can't access" setting, which is off
-by default. Server text channels are listed under their Discord categories and
+by default. Discord sends a hidden channel with the `OBFUSCATED` flag
+(`1 << 17`) and its name and topic as `___hidden___`, so such a channel, or
+category, is named "No Access", as Discord's client names it, has no topic,
+and counts as hidden whatever its overwrites say. A hidden voice channel
+still lists who is in it, from the voice states Discord sends for every
+voice channel, as any voice channel does; a click on it joins nothing. Server text channels are listed under their Discord categories and
 open in Yapfast's timeline. Clicking a category's heading collapses it, leaving
 the open channel, unread ones and voice channels with people in them, as in
 Discord; Yapfast remembers which categories are collapsed, per server. History
@@ -71,8 +76,10 @@ The open channel renders each message for the timeline once, with its
 author's name, colour and avatar and its mentions as names, and keeps it. A
 new message, an edit, a reaction or a preview that arrived renders only that
 message again; a change to someone's name, avatar or roles, to the
-server's roles or channel names, or to who's blocked, renders them all. A closed channel drops its rendered messages,
-since they hold its previews.
+server's roles or channel names, or to who's blocked, renders them all.
+Learning someone seen for the first time, as a busy channel's new posters
+are, changes no name shown, so it renders only their message. A closed
+channel drops its rendered messages, since they hold its previews.
 
 Unread dots and mention counts follow Discord's read states, mutes and
 @everyone and role suppression, including passive updates from large servers.
@@ -81,12 +88,16 @@ Discord: one that mentions it, one of its roles in the server, or @everyone
 or @here, from a message's `mentions`, `mention_roles` and
 `mention_everyone`, which count only what the author may mention. The
 account's settings for the server can suppress @everyone and @here, and
-roles. A reply to its message is highlighted too, whether it pings or not,
-but only while it's new: after the last message read when the channel or
-thread opened, by snowflake. A ping reply puts the account in `mentions`,
-so it's a mention only when its `content` names it, `<@id>` or `<@!id>`.
+roles. A ping reply puts the account in `mentions`, so it is a mention,
+highlighted always, as Discord's client does. A reply to its message with the
+ping off is highlighted too, but only while it's new: after the last message
+read when the channel or thread opened, by snowflake.
+The account's own message that names it is highlighted as well, as
+Discord's client does, though it counts as no mention.
 Each server in the rail shows its mentions as a count, and the DM button
-counts DM mentions and the friend requests waiting for an answer.
+counts DM mentions and the friend requests waiting for an answer. A voice
+channel's unread chat marks its server in the rail only by mentions, as
+Discord's client does.
 Reading an unread channel marks it read, as Discord's client does: once its
 newest message is in view, with the window in front and the "New" divider
 placed, so opening a channel at its divider and leaving it doesn't. A
@@ -196,8 +207,14 @@ Yapfast is back, rather than showing an error.
   open folders on this device, in `layout.json`, as Discord's client keeps
   them per device. Settings entries with an id are folders, read with their
   name and colour (`GuildFolder` fields 2 to 4, each in a wrapper); one
-  without is a server on its own. Folders can't be made or changed in Yapfast
-  yet.
+  without is a server on its own. Dropping a server on another server or
+  folder, or moving a server or a whole folder between tiles, saves the new
+  arrangement through `PATCH /users/@me/settings-proto/1`.
+  The rail applies the move immediately from the last known server list.
+  The update replaces the `guild_folders` field. A failed save restores the
+  previous arrangement unless Discord has since sent a newer one.
+  A folder's menu leaves out Discord's Move to and Folder Settings; what it
+  offers is in [Notification settings](#notification-settings).
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`
@@ -244,14 +261,24 @@ Yapfast is back, rather than showing an error.
   moment after sending, and the preview arrives in a message update. A card
   shows the site, author, title, description, fields and footer behind a bar
   of its colour, with its picture large for articles and videos and small
-  beside the text otherwise. A video the media proxy has (`video.proxy_url`)
+  beside the text otherwise. In the iced client the card on a dark theme is a
+  darker ground (#242429) with a 1px line (#313137) round it that its 4px bar
+  covers at the left, the bar #3a3a40 when the embed gives no colour; the
+  padding is 10px above, 16px below, 12px at the left and 16px at the right,
+  the site 1px and the title 2px above what follows, the description, fields
+  and footer in the text colour, a large picture 5px under a title (8px with
+  none), and 3px under the card as measured against the next message. A video the media proxy has (`video.proxy_url`)
   plays in place, as an attached one does, under the card's thumbnail as its
   poster, whatever the card's type: vxtwitter's posts come as `rich` cards
-  with one. Others, such as YouTube's, open in the browser. Other pictures open in the image viewer, where a right click on the picture
+  with one. Others, such as YouTube's, show a play mark on the poster and
+  open in the browser. Other pictures, the thumbnail beside the text too,
+  open in the image viewer, where a right click on the picture
   offers Copy Image, Save Image, Copy Link and Open Link, as the message's
   menu does. A linked image or GIF
   shows with the message's images, without its address when that's all the
-  message says. Pictures come through Discord's
+  message says. A link straight to a video file, which Discord embeds as the
+  video alone, plays under the message as an attached video does, its first
+  frame from the media proxy as its poster. Pictures come through Discord's
   media proxy (`images-ext-*.discordapp.net`), so Yapfast never contacts the
   linked site, and embeds of a message marked to hide them don't show.
 - Discord's own links to a server, channel, message or person open that
@@ -306,21 +333,33 @@ Yapfast is back, rather than showing an error.
   named and saved as its video, not its picture.
 - Attached videos show their poster, which the media proxy makes from the
   first frame (`proxy_url?format=webp`), with a play button; they play in
-  place, with sound, under a bar to pause, move through them, mute and show
-  them full screen. Full screen, as the image viewer shows a picture, the
+  place, with sound, under a bar to pause, move through them, mute (the
+  wheel over the button or its slider turns the volume 5%) and show them
+  full screen. Full screen, as the image viewer shows a picture, the
   video is enlarged to fit the window with its bar under it; Space plays or
   pauses it, the arrow keys move five seconds, and Escape brings it back to
   its cell. A right click on it offers Save Video, Copy Link and Open Link. The worker draws its pictures at the size they show: playing,
   the next ones come at a new size; paused, the one showing is redrawn,
   which moving back to it would hold up while playing. MP4, MOV and WebM
-  play, with H264, VP8, VP9 or AV1 pictures in 4:2:0, 4:2:2 or 4:4:4 at
-  8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound;
-  HEVC, which iPhones record, doesn't, as libwebrtc's FFmpeg lacks it.
+  play, with H264, VP8, VP9, AV1 or HEVC pictures in 4:2:0, 4:2:2 or 4:4:4
+  at 8 or 10 bits, or 4:2:0 at 12, and AAC, Opus, MP3, Vorbis or FLAC sound.
+  HEVC uses the separate FFmpeg decoder on Windows and Linux x86-64.
+  MP4 and MOV display matrices with quarter turns and reflections are applied
+  to the picture and its display size.
   A WebM's transparency shows, at 8 bits: it's a second video, in each block's
   BlockAdditional, whose brightness is the picture's alpha, which
   `native/video.c` decodes with a second libvpx decoder when a packet has one.
   The file downloads into `discord-videos/` beside the account file, and
-  plays as it arrives: the worker's reads wait for the download. It goes
+  plays as it arrives. It downloads in parts, with HTTP Range requests, as
+  a browser plays a video (`playback.rs`): from its start, and from any byte
+  the worker waits for more than 4 MB past the part arriving, which the
+  worker reports (`Report::Needs`) and is told of as bytes arrive
+  (`Control::Arrived`). An MP4 whose index comes after its pictures, as OBS
+  and many recorders write them, so opens once its last bytes arrive rather
+  than the whole file, and moving ahead plays from there; the gaps fill in
+  after. A part asked for where the worker waited runs at least 1 MB before
+  another wait moves the download. A server that ignores ranges sends the
+  whole file, which then downloads from its start as it comes. It goes
   when the video stops, as when its channel, or its thread beside the
   channel, closes. Sound plays on the
   call's speakers through `audio_io.rs`, on Linux and Windows. Over the
@@ -338,17 +377,16 @@ Yapfast is back, rather than showing an error.
   Playing, the bars fill up to where it has played and the time counts down
   what's left of the recording, at any speed. The time keeps the width of
   its widest, so the pill doesn't change width as it counts. While the
-  pointer or the keyboard is on the pill, or its volume is open, a speed
-  button and a volume button slide out after the time; with animations off
-  in the settings they always show. The speed button goes from 1x to 1.5x to
+  pointer is on the pill, or its volume is open, a speed button and a volume
+  button show after the time; with animations off they always show. The
+  speed button goes from 1x to 1.5x to
   2x and back. The volume button mutes and unmutes, keeping the volume to
-  unmute to, as Discord's does; the pointer on it opens an upright slider in
-  a popup over it, as Discord's desktop player has, or under it without room
-  above, from 0 to 100%, squared as a video's is. While a popup is open
-  Slint gives the window no pointer events, so the popup covers the button
-  too, with its own mute button in the same place, and closes as the pointer
-  leaves it, or with Escape. Up and Down move the slider 5%, Page Up and Page
-  Down 20%, and the wheel over the popup 5%. Moving it unmutes, and 0 mutes.
+  unmute to, as Discord's does; the pointer on it opens an upright slider
+  over it, as Discord's desktop player has, from 0 to 100%, squared as a
+  video's is. The slider stays while the pointer is on the button or on it,
+  and goes once the pointer has left both; the wheel over it turns it 5%.
+  Once pressed it takes the keys: Up and Down turn it 5%, Page Up and Page
+  Down 20%, and Escape closes it. Moving it unmutes, and 0 mutes.
   All of them apply to the one playing at once and to the next, until
   Yapfast closes. The recording downloads whole, up to 16
   MiB, and is kept in memory while it's the last one played; it decodes a
@@ -365,7 +403,9 @@ Yapfast is back, rather than showing an error.
   recording 80 ms early, Opus's pre-roll, and leaves out what's before the
   time.
 - Markdown shows as Discord's client shows it. Bold, italics, strikethrough,
-  inline code, lists and links are Slint's Markdown. Headings (`#` to `###`),
+  inline code, lists and links are runs of styled text
+  (`crates/yapfast-iced/src/markdown.rs`, which reads them with
+  pulldown-cmark). Headings (`#` to `###`),
   subtext (`-# `), quotes (`> ` lines, or `>>> ` and the rest) and code fenced
   by three backticks are blocks that `blocks.rs` in `yapfast-core` splits out
   by Discord's rules, read from its web client, before anything else changes
@@ -378,8 +418,10 @@ Yapfast is back, rather than showing an error.
   results show blocks too, a found message's up to 8 lines each. A reply's
   quote of the message above shows it on one line.
 - Spoilers, `||like this||`, show under an opaque cover that a click lifts.
-  The cover is drawn by Yapfast's patched Slint text renderer over a link to
-  `yapfast:spoiler/{item}/{n}`; see [building](../building.md). A spoiler in a reply
+  A covered run is drawn blank on a ground of its own colour, with a link to
+  `yapfast:spoiler/{item}/{n}` that the click follows
+  (`Ctx::run_span` in `crates/yapfast-iced/src/markdown.rs`). A spoiler in
+  a reply
   or a notification reads "(spoiler)". Attachments named `SPOILER_...` or
   flagged as spoilers, and pictures linked inside a spoiler, show blurred with
   a "Spoiler" label until clicked. Revealing lasts while Yapfast runs. The eye
@@ -388,24 +430,23 @@ Yapfast is back, rather than showing an error.
   does. Matrix has no spoiler for a file, so its rooms don't offer the eye.
 - Custom emoji show as pictures: in messages, as reactions and in the emoji
   picker, which lists them by server after the frequently used ones, the open
-  server's first. In messages Yapfast draws them as text: each emoji whose
-  picture arrived gets a code point in the Supplementary Private Use Area B,
-  and each batch of them a colour bitmap (CBDT) font made on the fly, which
-  text falls back to after Satoshi, so they wrap and select like letters.
-  A message's Unicode emoji are drawn the same way, from Twemoji's pictures,
-  in the top of that area, counting down so the two stay apart. They need no
-  font at runtime: `build.rs` makes one font of all of them, which the program
-  carries and maps rather than copies, so an emoji is as cheap as a letter. An
-  emoji of one character answers to its own code point as well as to the one
-  the rewrite gives it, so text that keeps it as typed, as the composer's draft
-  does, draws Twemoji's picture too, and a sequence, such as a flag or a skin
-  tone, is joined into its one picture by the font's ligatures. A
+  server's first. In a message each is a run of its own in the text
+  (`markdown::with_emoji`), which keeps the picture's room on the line, so
+  the text wraps and selects round it, and the picture is drawn there; a copy
+  gives back its `:name:`. A message's Unicode emoji are text, drawn from
+  Twemoji's pictures. They need no font at runtime:
+  `crates/yapfast-iced/build.rs` makes one colour bitmap (CBDT) font of all
+  of them (`emoji_font_tables.rs`), which the program carries and every text
+  falls back to after DM Sans, so an emoji is as cheap as a letter. An
+  emoji of one character answers to its own code point, so text that keeps
+  it as typed, as the composer's draft does, draws Twemoji's picture too,
+  and a sequence, such as a flag or a skin tone, is joined into its one
+  picture by the font's ligatures. A
   `:shortcode:` sent without taking its completion draws as its emoji. A
   picture is 22px in the 16px text, and 48px in the large text a message of
-  emoji alone shows. That is taller than the line, so a `StyledText` and the
-  composer let text past its box by 4px rather than cutting an emoji off, and
-  each bitmap has a transparent margin, as Skia scales one without smoothing its
-  edges. A click on an emoji, custom or Unicode, opens its card: its name
+  emoji alone shows. Each bitmap has a transparent margin, so a picture that
+  reaches its edge keeps its own fading edge when the renderer scales it.
+  A click on an emoji, custom or Unicode, opens its card: its name
   between colons, a line saying what it is, and, for a server's, the server it
   is from, which opens on a click. `GET /guilds/{guild.id}/preview` says how
   many of the server's members are online and whether Discover lists it, so
@@ -415,27 +456,14 @@ Yapfast is back, rather than showing an error.
   emoji of a server that can't be reached, one this account never joined or
   one that's gone, draws no server: its card says it is from a server that is
   either invite-only or unavailable, as Discord's does. The card
-  follows the emoji through a link
-  text falls back to (`yapfast:emoji/` and the emoji's code points, or `c/`
+  follows the emoji through a link on its run
+  (`yapfast:emoji/` and the emoji's code points, or `c/`
   and a custom emoji's id), as a mention follows its own.
-  The picker, suggestions and reaction buttons show the picture itself, so
-  the hundreds a picker lists add no fonts; a quiet square holds each place
-  until its picture arrives. A message of only
+  The picker, suggestions and reaction buttons show the picture itself; a
+  quiet square holds each place until its picture arrives. A message of only
   emoji, up to 30, shows them large, as Discord does. Without Nitro, the
   picker offers only the open server's emoji, none animated, and sending
-  turns `:name:` into Discord's `<:name:id>` only for those. Animated emoji
-  play in message text, in a reaction chip and in the picker's grid. In the
-  text the current frame is drawn over the glyph already there, so no
-  paragraph is shaped again for a frame. Frames decode off the thread that
-  draws, ahead of the draw: the ones a refresh shows first, one decode for
-  each picture however many messages and cells show it, and a job for an
-  emoji that scrolled away before it started is dropped. The cache keeps 6 MiB
-  of frames, letting go the least recently shown while preserving message
-  animations pinned by the current view, and never one on screen. Eviction
-  removes the renderer's registry entry as well as the cache entry, so both
-  release their shared pixels. Closing the picker drops its unpinned frames and
-  queued jobs; a late decoder result for those rows is discarded. An emoji
-  shows its still first frame until its frames arrive, and if they never do.
+  turns `:name:` into Discord's `<:name:id>` only for those.
 - The emoji picker's Favorites and the start of its Frequently used are the
   account's own, as every Discord client of it shows them: `favorite_emojis`,
   `emoji_frecency` and, for a reaction's picker, `emoji_reaction_frecency` in
@@ -447,7 +475,7 @@ Yapfast is back, rather than showing an error.
   place's. This computer's reaction counts follow them. The settings name a
   custom emoji by its id, shown greyed if it's locked here and not at all if
   the account has left its server, and a Unicode emoji by Discord's name, such
-  as `slight_smile`; `src/discord_emoji_names.rs`, which
+  as `slight_smile`; `crates/yapfast-core/src/emoji/names.rs`, which
   `scripts/discord-emoji-names` writes from emojibase-data (MIT, whose licence
   packages carry), holds those that differ from GitHub's shortcodes, which the
   `emojis` crate knows. A flag comes from its country's two letters. Yapfast
@@ -464,6 +492,8 @@ Yapfast is back, rather than showing an error.
   message", which "Show it" opens, and they don't notify or show typing.
   Yapfast learns the blocked from READY's relationships (type 2) and keeps them
   current from RELATIONSHIP_ADD and RELATIONSHIP_REMOVE.
+- Messages from ignored users show collapsed in the timeline with a Show
+  button and don't notify. Yapfast reads `user_ignored` from relationships.
 - A reply's quoted line jumps to the original and highlights it for a
   moment, as described under [jumping to a message](#jumping-to-a-message).
   It says the original was deleted only when `referenced_message` is
@@ -477,15 +507,17 @@ Yapfast is back, rather than showing an error.
   another, with one request for an original at a time; if Discord doesn't
   answer, the line says it couldn't be loaded and still jumps there, and asks
   again the next time the channel opens.
-  In Discord's style the quote reads "@Name" in the author's role colour
+  The quote reads "@Name" in the author's role colour
   (`Reply.color`, from the member's roles when the original is known), in
-  regular weight, before 13px text in the secondary colour.
+  regular weight, before 13px text in the secondary colour, with any custom emoji
+  in its first line shown inline at 16px (falling back to `:name:` until loaded).
 - A picture in a message sits straight on the message background: a
   transparent PNG or GIF shows no backdrop, as in Discord. Only the
   loading skeleton draws a fill.
 - The context menus (channel, server, member and message) use Discord's
-  shades (`Theme.menu`, `Theme.menu-line`, `Theme.danger-text`), a 255px
-  minimum width, icons only on the rows Discord gives them, and a greyed
+  shades (`menu`, `menu_line` and `danger_text` of the kit's `Theme`), a
+  255px minimum width (224px for a message's), icons only on the rows
+  Discord gives them, and a greyed
   "Mark as read" first row when there is nothing to read.
 - Desktop notifications follow the person's Discord settings: each channel's,
   category's or server's level (every message, mentions only or nothing),
@@ -506,11 +538,14 @@ Yapfast is back, rather than showing an error.
   card beside the mention, and a role's lists the members Yapfast has seen with it (from member lists, messages
   and member requests), each opening their card in turn.
 - Typing `@` suggests who to mention: the channel's listed members, those who
-  wrote lately, and server members a search by name finds (the gateway's
+  wrote lately, this account among them as in Discord's client, and server
+  members a search by name finds (the gateway's
   member request with a query, as Discord's client does), then the roles
   anyone may mention, and every role with @everyone and @here for those
   allowed to mention everyone. Sending turns each `@Name` into Discord's
-  `<@id>` or `<@&id>`.
+  `<@id>` or `<@&id>`. Saving an edit also turns the `@Name` of anyone the
+  message mentioned into their `<@id>`, even someone no longer suggested; a
+  name two of them share stays text.
 - Typing `#` in a server channel suggests the server's text and voice
   channels this account can see, in Discord's order, under CHANNELS, voice
   channels with a speaker. Sending turns each `#name` into Discord's `<#id>`;
@@ -519,8 +554,10 @@ Yapfast is back, rather than showing an error.
   server shows as a mention, and clicking it opens the channel, a voice
   channel's chat without joining its call. Any other shows as `#channel`.
 - Who else is typing shows above the composer, for ten seconds after Discord
-  last said so or until their message arrives. Writing tells Discord Alice is
-  typing, at most every eight seconds, unless a setting turns it off.
+  last said so or until their message arrives, and on a DM's row in the DM
+  list, in place of the status dot, whichever conversation is open. Writing
+  tells Discord Alice is typing, at most every eight seconds, unless a
+  setting turns it off.
 - Clicking the account's avatar or name, bottom left, opens a menu of Online,
   Idle, Do Not Disturb and Invisible, as in Discord. Yapfast saves the choice in
   the settings below and sends it with opcode 3. Do Not Disturb holds back
@@ -551,6 +588,49 @@ Yapfast is back, rather than showing an error.
   as when another device clears it or it runs out there. Each session shows the status to others itself, so Yapfast sends it with
   opcode 3 once connected, whenever the settings change, and clears it when
   it ends. A custom emoji in a status needs Nitro.
+
+## Recent mentions
+
+When the inbox's Mentions tab first shows, as Discord's client asks, Yapfast
+asks Discord for this account's recent mentions,
+`GET /users/@me/mentions?limit=100&roles=…&everyone=…[&guild_id=…]`: the
+messages that called on it in the past week, by name, by a reply that
+pinged it, through one of its roles in the message's server, or with
+@everyone or @here, newest first (docs.discord.food, "List Recent
+Mentions", where `roles` and `everyone` default to true). Discord keeps
+only that week, so an older ping never comes from this page: opening its
+channel brings it into the Mentions tab instead, which merges the open
+rooms' pings with the fetch, newest first. A reply that didn't ping, or
+the account's own message, isn't one. It keeps up to 100 of each in
+memory, one per message, and shows the newest 30 as a pinned message or a
+search result shows: the author's name, colour and avatar in their server,
+and the message's text, files and embeds, their pictures coming when they
+show. Nothing is acknowledged at Discord, so the inbox there stays as it
+is.
+
+The tab's Filter button (Discord's `navId:"mentions-filter"` menu) holds
+three boxes, as Discord's client words them and starts them, all on:
+"Include @everyone mentions", sent as `everyone`; "Include @role
+mentions", sent as `roles`; and, only while the open room is in a server,
+"Include all servers": off, the request names that server as `guild_id`.
+The client sends `roles` and `everyone` with every request and `guild_id`
+only for one server. A box changed asks again at once; so does the tab
+showing after Discord reconnects, and, while only one server's list,
+after another channel opened, as the client marks its list unloaded on
+selecting a channel. Asked without a server (in a DM, say), "Include all
+servers" turns back on, as the client's store does. A narrower filter
+keeps the list until the answer replaces it, and hides meanwhile what it
+leaves out, as does every ping the open rooms bring: one in another server
+while only this one's list, one that calls on the account only with
+@everyone or @here, or only through a role, while that kind is left out;
+naming it or replying to it always shows. A wider one empties the list
+until the answer comes, as the client clears its own. Like the client's
+`recentMentionFilterSettings` in local storage, the filter stays on the
+device (`recent_mention_filter` in `layout.json`), not with the account.
+All of this is from the client's code (the menu, the store's defaults and
+its `SET_RECENT_MENTIONS_FILTER` and `CHANNEL_SELECT` handlers, and
+`fetchRecentMentions`); which kind a ping in the open rooms is comes from
+the mentions its text shows, Yapfast's own reading.
 
 ## Bots' buttons, menus and forms
 
@@ -613,8 +693,9 @@ click or a submit sends one, and none is sent again on its own.
 - Link buttons open their address. A premium button says "Open in Discord"
   and opens the SKU's store page in the browser,
   `discord.com/application-directory/{app}/store/{sku}` (Discord's own docs,
-  "Managing SKUs"); nothing is bought through Yapfast, and the SKU's name and
-  price aren't asked for.
+  "Managing SKUs"), `{app}` the message's application, or the bot's own id
+  when the message doesn't name one; nothing is bought through Yapfast, and
+  the SKU's name and price aren't asked for.
 - Pictures in a gallery or beside a section are read by a screen reader by
   their alt text (`description`), as an attached picture's is.
 - An app that answers with a web page in a window
@@ -743,7 +824,8 @@ does.
 The same rules decide which the person may use there as for slash commands.
 
 - A message's menu has Apps on a Discord message that was sent, not on one
-  still sending or failed, an answer only the account sees, or Yapfast's
+  still sending or failed, an answer only the account sees or one still
+  thinking (flag LOADING), or Yapfast's
   "Sending command…" row. It opens beside the menu on hover or a click, on
   the left near the window's right edge. A message in the thread beside the
   channel has none: Apps offers the open channel's commands.
@@ -828,7 +910,8 @@ who used which command, as Discord's client heads one:
   message the button updated, which names itself there, quotes nothing.
 
 Clicking the name opens the person's card. Clicking a slash command in a
-channel's timeline writes `/` and its name in the composer, as typing it
+channel's timeline, where one may write, writes `/` and its name in the
+composer, as typing it
 would, so the picker offers it again; subcommands are left for the picker.
 The names are the server's, as the timeline's are. Discord's exact
 wording for a user command's target, and whether its client writes a
@@ -1018,11 +1101,11 @@ the width is the same for all three tabs and comes back at the next start
 
 ## Jumping to a message
 
-A reply's quote, a pin, a search result and the bar over the "New" divider
+A reply's quote, a pin, a search result and the banner over the messages
 jump to a message. A loaded one scrolls into view. Otherwise Yapfast asks for
 `GET /channels/{id}/messages?around={id}&limit=50`, as Discord's client does,
 and the messages around it show in place of the timeline: a window of older
-messages, with "You're viewing older messages" and "Jump to present" in a bar
+messages, with "You're viewing older messages" and "Jump to present" in a pill
 over its end. Discord answers around a snowflake even when no message has it,
 so a deleted message's place shows, and Yapfast says it couldn't find the
 message. A jump into another channel opens that channel at the message.
@@ -1151,7 +1234,8 @@ server's switches. A server's menu and its header's dropdown offer the
 server's own.
 
 A server text channel and a category offer their own mute and level, as
-Discord's do, built alike in `src/ui/menus.rs` (`Notify`):
+Discord's do, built alike in `crates/yapfast-iced/src/place_menus.rs`
+(`Notify`):
 
 - The bell in the channel's header opens a menu of "Mute channel", whose
   submenu mutes for 15 minutes, 1, 3, 8 or 24 hours, or until unmuted, or
@@ -1169,6 +1253,20 @@ Discord's do, built alike in `src/ui/menus.rs` (`Notify`):
   heading names its first channel, and Yapfast finds the channel's category
   (`Application::category_of`); an empty category's heading names the
   category itself.
+
+A folder's menu changes its servers together, which Discord's own folder
+menu doesn't offer: `Action::ChangeNotifications` with the folder's id sends
+`DiscordCommand::FolderNotifications`, one `PATCH
+/users/@me/guilds/settings` with the same partial settings for each server,
+`{"guilds": {"<id>": {"muted": true, "mute_config": {...}}, ...}}`, the
+request Discord's client sends a server's own settings through. A mute with
+an end ends at the same moment for each. Discord answers with a
+USER_GUILD_SETTINGS_UPDATE for each server. A server right-clicked under
+Servers opens its own choices, which change that server alone with the
+same request its own menu sends.
+Mark folder as read marks every server's unread channels read, as each
+server's Mark as read does, which is what Discord's client does for a
+folder.
 
 ## Writing without permission
 

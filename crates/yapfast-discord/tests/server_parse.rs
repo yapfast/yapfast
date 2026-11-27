@@ -22,18 +22,22 @@ struct Counting;
 static ALLOCATIONS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
 
+// SAFETY: every call goes straight to the system allocator.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Relaxed);
         BYTES.fetch_add(layout.size() as u64, Relaxed);
+        // SAFETY: the caller keeps GlobalAlloc's contract, which this passes on.
         unsafe { System.alloc(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: the caller keeps GlobalAlloc's contract, which this passes on.
         unsafe { System.dealloc(ptr, layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         ALLOCATIONS.fetch_add(1, Relaxed);
         BYTES.fetch_add(size as u64, Relaxed);
+        // SAFETY: the caller keeps GlobalAlloc's contract, which this passes on.
         unsafe { System.realloc(ptr, layout, size) }
     }
 }

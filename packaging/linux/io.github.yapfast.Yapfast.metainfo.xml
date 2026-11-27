@@ -11,8 +11,8 @@
   </developer>
   <description>
     <p>
-      Yapfast talks to Discord's API itself and draws its own window with Slint
-      and Skia, so it runs in about 30 MB of RAM, where Discord's own app takes 720.
+      Yapfast talks to Discord's API itself and draws its own window with iced,
+      so it runs in about 30 MB of RAM, where Discord's own app takes 720.
     </p>
     <p>
       Servers, DMs, threads, forums, friends, voice, screen sharing and GIFs are
@@ -39,6 +39,8 @@
     <content_attribute id="social-contacts">intense</content_attribute>
   </content_rating>
   <releases>
+    <release version="0.4.1" date="2026-11-15"/>
+    <release version="0.4.0" date="2026-11-15"/>
     <release version="0.3.0" date="2026-11-05"/>
     <release version="0.2.0" date="2026-10-24"/>
     <release version="0.1.0" date="2026-10-16"/>

@@ -107,7 +107,7 @@ impl Accounts {
                 .map(|a| &a.id)
                 .eq(linked.iter().map(|a| &a.id));
         if !same {
-            self.me = me.to_owned();
+            me.clone_into(&mut self.me);
             self.linked = linked;
         }
         !same
@@ -491,20 +491,22 @@ async fn open(url: String) -> Result<Socket, Option<StatusCode>> {
     );
     match timeout(REQUEST_TIMEOUT, websocket::connect(request)).await {
         Ok(Ok((socket, _))) => Ok(socket),
-        Ok(Err(tungstenite::Error::Http(response))) => {
-            let status = response.status();
-            tracing::warn!(%status, "Spotify refused its socket");
-            Err(StatusCode::from_u16(status.as_u16()).ok())
-        }
-        // A URL error may quote the address.
-        Ok(Err(tungstenite::Error::Url(_))) => {
-            tracing::warn!("couldn't reach Spotify's socket: a bad address");
-            Err(None)
-        }
-        Ok(Err(error)) => {
-            tracing::warn!(%error, "couldn't reach Spotify's socket");
-            Err(None)
-        }
+        Ok(Err(error)) => match *error {
+            tungstenite::Error::Http(response) => {
+                let status = response.status();
+                tracing::warn!(%status, "Spotify refused its socket");
+                Err(StatusCode::from_u16(status.as_u16()).ok())
+            }
+            // A URL error may quote the address.
+            tungstenite::Error::Url(_) => {
+                tracing::warn!("couldn't reach Spotify's socket: a bad address");
+                Err(None)
+            }
+            error => {
+                tracing::warn!(%error, "couldn't reach Spotify's socket");
+                Err(None)
+            }
+        },
         Err(_) => {
             tracing::warn!("couldn't reach Spotify's socket: no answer in time");
             Err(None)
@@ -762,7 +764,7 @@ mod tests {
         // As other people's cards read it.
         let read = crate::activity::activities(&json!([shared]));
         assert!(read[0].spotify());
-        assert_eq!(read[0].heading(), "Listening to Spotify");
+        assert_eq!(read[0].heading().as_deref(), Some("Listening to Spotify"));
         assert_eq!(
             read[0].large_image.as_deref(),
             Some("https://i.scdn.co/image/cover")
@@ -954,7 +956,10 @@ mod tests {
     }
 
     /// Takes the next connection to a fake dealer, and the address it asked for.
-    #[allow(clippy::result_large_err)] // The size of tungstenite's callback.
+    #[expect(
+        clippy::result_large_err,
+        reason = "the size of tungstenite's callback"
+    )]
     async fn dealer_connects(listener: &TcpListener) -> (WebSocketStream<TcpStream>, String) {
         let (stream, _) = timeout(WAIT, listener.accept()).await.unwrap().unwrap();
         let asked = Arc::new(Mutex::new(String::new()));
