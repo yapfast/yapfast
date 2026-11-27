@@ -122,6 +122,8 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
     );
     (moving, state.busy, state.online, state.trusted).hash(&mut hasher);
     (state.people_changes, state.reading, theme).hash(&mut hasher);
+    // The DMs someone types in, which their rows show.
+    state.typing_dms.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -647,7 +649,7 @@ impl App {
                     layout,
                     &self.theme,
                     self.theme
-                        .type_size("body", crate::settings::message_size(prefs.text_size)),
+                        .type_size("body", crate::settings::message_size(prefs)),
                 )
             });
         let heights: Vec<f32> = looks
@@ -771,6 +773,10 @@ impl App {
             });
         let hide_nameplates =
             !crate::members::show_nameplate(nameplate_policy, state.hide_nameplates);
+        // A Nitro avatar's GIF is asked for only while it would play.
+        let plays = crate::pictures::plays(self);
+        let moving_avatar =
+            |url: Option<&str>| url.filter(|_| plays).and_then(looks::moving_avatar);
         let mut urls: Vec<String> = Vec::new();
         let mut want = |url: Option<&str>| {
             if let Some(url) = url
@@ -848,6 +854,9 @@ impl App {
                             .map(looks::animated_url)
                             .as_deref(),
                     );
+                }
+                if self.pointed.side.as_deref() == Some(room.id.as_str()) {
+                    want(moving_avatar(room.avatar.as_deref()).as_deref());
                 }
                 for person in &room.people {
                     want(person.avatar.as_deref());
@@ -946,15 +955,22 @@ impl App {
         let (first, last) = self.timeline.in_view(MARGIN);
         let main = (first..last).map(|index| {
             (
+                index,
                 &self.timeline.messages[index],
                 self.timeline.looks.get(index),
             )
         });
         let aside = self.aside.iter().flat_map(|aside| {
-            crate::thread::aside_rows_in_view(self)
-                .map(move |index| (&aside.messages[index], aside.looks.get(index)))
+            crate::thread::aside_rows_in_view(self).map(move |index| {
+                (
+                    crate::timeline::ASIDE + index,
+                    &aside.messages[index],
+                    aside.looks.get(index),
+                )
+            })
         });
-        for (message, look) in main.chain(aside) {
+        let lanes = crate::timeline::lanes(self);
+        for (row, message, look) in main.chain(aside) {
             if let Some(reply) = &message.reply {
                 want(reply.avatar.as_deref());
                 for emoji in &reply.emoji {
@@ -978,8 +994,9 @@ impl App {
                     .tag(message.tag.as_ref())
                     .and_then(|tag| tag.badge.as_deref()),
             );
-            if self.pointed.message.as_deref() == Some(message.item.as_str()) {
+            if lanes.group_pointed(row, self.pointed.message.as_deref()) {
                 want(decoration.map(looks::animated_url).as_deref());
+                want(moving_avatar(message.avatar.as_deref()).as_deref());
             }
         }
         for line in crate::members::lines_shown(self) {
@@ -995,6 +1012,7 @@ impl App {
                     want(look.tag.as_ref().and_then(|(_, badge)| badge.as_deref()));
                     want(look.status.emoji.as_deref());
                     if self.pointed.member.as_ref() == Some(&look.id) {
+                        want(moving_avatar(look.avatar.as_deref()).as_deref());
                         want(
                             look.decoration
                                 .as_deref()

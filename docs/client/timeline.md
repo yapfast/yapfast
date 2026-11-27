@@ -98,7 +98,7 @@ slash command, where one may write, is written in the composer
 - Pictures (`media.rs`): one shows at its own size, several as square
   tiles two to a row, scaled down to the room there is. A picture's corners are 4 px round. A moving picture the star
   could favourite wears a "GIF" badge in its top left while it isn't
-  playing (Appearance's animations off, or the window not in front) and isn't
+  playing (Accessibility's animations off, or the window not in front) and isn't
   pointed at, covered or loading, as Discord's does, the star taking its place
   under the pointer. A spoiler's
   picture is blurred under a cover until clicked. Copies at a tile's size

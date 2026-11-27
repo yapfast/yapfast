@@ -14,9 +14,7 @@ use std::sync::Arc;
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Size, Task,
-    widget::{
-        Space, column, container, mouse_area, row, scrollable::Viewport, stack, text, tooltip,
-    },
+    widget::{Space, column, container, mouse_area, row, stack, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, AppState, Navigation},
@@ -32,8 +30,7 @@ use crate::{
     fonts::{BOLD, MEDIUM},
     pictures::{GroupIcon, Icon, initials, room_group_icon},
     style::{corners, hex, rounded, scrollbar},
-    sync::MARGIN,
-    sync::Scroll,
+    sync::{MARGIN, Scroll},
     widgets::{Drags, Pic, RightPress, Rows},
 };
 
@@ -159,7 +156,7 @@ const CARD_WIDTH: f32 = 220.0;
 /// What's done on the rail.
 #[derive(Clone, Debug)]
 pub enum Event {
-    Scrolled(Viewport),
+    Scrolled(Scroll),
     /// The pointer came onto a tile or left it, by its id ("" for the home,
     /// "+" for the add-a-server tile).
     Point(String, bool),
@@ -799,11 +796,15 @@ pub fn drag_subscription(app: &App) -> Option<iced::Subscription<Message>> {
     }))
 }
 
+fn scrolled(offset: f32, height: f32) -> Message {
+    Message::Rail(Event::Scrolled(Scroll { offset, height }))
+}
+
 /// What's done on the rail.
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
-            app.rail.scroll = Scroll::of(viewport);
+            app.rail.scroll = viewport;
             return app.ask();
         }
         Event::Point(id, entered) => {
@@ -1067,7 +1068,7 @@ impl<'a> View<'a> {
             );
         }
         let list = scroll_view(rows)
-            .on_scroll(|viewport| Message::Rail(Event::Scrolled(viewport)))
+            .on_vertical_viewport(scrolled)
             .height(Length::Fill)
             .style(scrollbar(theme));
         // As Slint lays a theme's tiles: the home tile in a slot of its own

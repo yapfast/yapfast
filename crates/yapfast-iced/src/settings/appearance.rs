@@ -254,6 +254,9 @@ pub enum Cosmetic {
     Badges,
     Frames,
     Background,
+    /// The member list's activity cards, which keep their own pref,
+    /// `activity_cards_hidden`, the panel's eye also writes.
+    MemberActivity,
 }
 
 pub(super) fn theme_message(event: Event) -> Message {
@@ -301,15 +304,10 @@ impl Settings {
                 cx.layout.theme_performance = performance;
                 cx.keep("theme_performance", performance);
                 cx.themes
-                    .motion_changed(performance, cx.layout.reduce_motion);
+                    .motion_changed(performance, cx.layout.reduced_motion());
                 cx.request(Request::Changed(Shown::Theme));
             }
-            Event::ReduceMotion(on) => {
-                cx.layout.reduce_motion = on;
-                cx.keep("reduce_motion", on);
-                cx.themes.motion_changed(cx.layout.theme_performance, on);
-                cx.request(Request::Changed(Shown::Theme));
-            }
+            Event::ReduceMotion(on) => super::pages::choose_reduced_motion(cx, on),
             Event::ReadableText(on) => {
                 cx.layout.readable_text = on;
                 cx.keep("readable_text", on);
@@ -336,7 +334,7 @@ impl Settings {
                     &option,
                     value,
                     cx.layout.theme_performance,
-                    cx.layout.reduce_motion,
+                    cx.layout.reduced_motion(),
                 ) else {
                     return iced::Task::none();
                 };
@@ -797,6 +795,15 @@ fn change_sound_prefs(
 
 /// A profile switch: kept, and the core told what may now show.
 fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
+    // The member list's activity cards aren't a profile's cosmetic: the
+    // core holds whether they show, as the panel's eye leaves it, and the
+    // layout keeps it under the eye's key.
+    if cosmetic == Cosmetic::MemberActivity {
+        cx.keep("activity_cards_hidden", !on);
+        cx.dispatch(Action::ActivityCardsHidden(!on));
+        cx.request(Request::Changed(Shown::Roster));
+        return;
+    }
     let prefs = &mut cx.layout.prefs;
     let (slot, key) = match cosmetic {
         Cosmetic::Effects => (&mut prefs.profile_effects, "profile_effects"),
@@ -809,6 +816,7 @@ fn cosmetic(cx: &mut Cx<'_>, cosmetic: Cosmetic, on: bool) {
         Cosmetic::Badges => (&mut prefs.badges, "badges"),
         Cosmetic::Frames => (&mut prefs.profile_frames, "profile_frames"),
         Cosmetic::Background => (&mut prefs.profile_backgrounds, "profile_backgrounds"),
+        Cosmetic::MemberActivity => return,
     };
     *slot = Some(on);
     cx.keep(key, on);
@@ -1016,6 +1024,13 @@ impl<'a> Page<'a> {
                     "The accounts people link, such as Steam or GitHub, on the card as on the full profile.",
                 )
                 .view(self.cx.look),
+                form::heading(theme, "MEMBER LIST"),
+                profile(
+                    "Show activity cards",
+                    "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again.",
+                    !self.cx.state.activity_cards_hidden,
+                    Cosmetic::MemberActivity,
+                ),
             ]
             .spacing(12)
             .into(),

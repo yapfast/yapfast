@@ -153,7 +153,9 @@ semibold in the text colour and the rest medium in the secondary one:
 One to three names too long for the strip give "**Multiple people** are
 typing..." (`typing_line_short`). While nobody types there are no dots
 and no frames are asked for; while moving pictures don't play
-(`pictures::plays`) the dots stand full and still.
+(`pictures::plays`) the dots stand full and still. The same dots, smaller
+and white, stand in a DM row's status dot while someone else types there
+(`typing::badge`; see [navigation](navigation.md)).
 
 On the strip's right, wherever the channel has a slowmode
 (`ChatRoom::slowmode`), Discord's note by a stopwatch: "Slowmode Immune"

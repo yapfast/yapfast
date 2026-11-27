@@ -153,8 +153,8 @@ use yapfast_core::{application::Action, runtime::BackgroundRuntime};
 
 use crate::{app::App, client::Client};
 pub use desktop::{
-    Desktop, Drag, Heard, IconChoice, IconTarget, Notifier, Offered, PasteReader, PointerAt, Tell,
-    Toggled, Tray, TrayChoice, UpdateChoices, UpdateStatus, Updates, UpdatesShown,
+    Autostart, Desktop, Drag, Heard, IconChoice, IconTarget, Notifier, Offered, PasteReader,
+    PointerAt, Tell, Toggled, Tray, TrayChoice, UpdateChoices, UpdateStatus, Updates, UpdatesShown,
 };
 /// The window the desktop's parts act on, by its handles.
 pub use iced::window::Window;
@@ -173,8 +173,7 @@ pub struct Options {
     pub gpu_failure: Option<String>,
     /// Which build this is, as Settings shows it.
     pub build: settings::Build,
-    /// `--background`: start in the tray with a saved session, as starting
-    /// at sign-in does.
+    /// `--background`: start in the tray with a saved session.
     pub background: bool,
     /// `--default-theme`: this start shows the default look, keeping the
     /// theme chosen, a way back from a theme that makes the window hard to

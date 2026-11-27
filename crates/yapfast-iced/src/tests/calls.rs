@@ -1468,3 +1468,86 @@ fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
         }
     }
 }
+
+/// Several streams watched at once, as Discord's client allows: one
+/// watched in place of another shows large, one beside it leaves what's
+/// large, one stopped while large leaves the grid; each tile's frames are
+/// looked for only while it's in sight, and the corner shows the stream
+/// watched last.
+#[test]
+fn several_streams_watched_share_the_stage_and_only_those_in_sight_decode() {
+    use crate::call::stage::{Focus, Pip, stream_key};
+    use std::sync::Arc;
+    use yapfast_core::frames::Frames;
+
+    let (mut app, _folder, _) = in_call();
+    let bob_frames = Arc::new(Frames::create(16, 16).unwrap());
+    let cy_frames = Arc::new(Frames::create(16, 16).unwrap());
+    let streamer = |state: &yapfast_core::application::AppState, id: &str, name: &str| {
+        let mut person = state.voice.participants[0].clone();
+        person.id = id.into();
+        person.person = id.into();
+        person.user = name.into();
+        person.local = false;
+        person.streaming = true;
+        person.video = None;
+        person
+    };
+    let watching = |id: &str, name: &str, frames: &Arc<Frames>| voice::Watching {
+        user: id.into(),
+        name: name.into(),
+        opening: false,
+        frames: Some(frames.clone()),
+        viewers: vec![],
+    };
+    let (bob, cy) = ("preview-bob", "preview-cy");
+    super::change(&mut app, |state| {
+        let people = [streamer(state, bob, "Bob"), streamer(state, cy, "Cy")];
+        state.voice.participants.extend(people);
+    });
+    app.shell.frame = Size::new(1400.0, 760.0);
+    crate::window_bar::fit_window(&mut app);
+
+    // Bob's alone: it shows large.
+    let bob_watched = watching(bob, "Bob", &bob_frames);
+    super::change(&mut app, move |state| {
+        state.voice.watching = vec![bob_watched];
+    });
+    assert_eq!(app.call.focus, Some(Focus::Stream(bob.into())));
+    // Cy's beside it leaves Bob's large, and both decode for their tiles.
+    let cy_watched = watching(cy, "Cy", &cy_frames);
+    super::change(&mut app, move |state| state.voice.watching.push(cy_watched));
+    assert_eq!(app.call.focus, Some(Focus::Stream(bob.into())));
+    assert!(app.video.looks_at(&stream_key(bob)));
+    assert!(app.video.looks_at(&stream_key(cy)), "in the strip");
+    // Full screen shows Bob's alone, and Cy's isn't looked at.
+    let _ = crate::call::update(&mut app, Event::Full(true));
+    assert!(app.video.looks_at(&stream_key(bob)));
+    assert!(!app.video.looks_at(&stream_key(cy)), "nothing shows it");
+    let _ = crate::call::update(&mut app, Event::Full(false));
+    assert!(app.video.looks_at(&stream_key(cy)));
+
+    // Off screen, the corner shows the one watched last.
+    let _ = crate::call::update(&mut app, Event::Focus(None));
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    let corner = crate::call::stage::corner(&app);
+    let cy_place = app
+        .client
+        .state()
+        .voice
+        .participants
+        .iter()
+        .position(|person| person.id == cy);
+    assert_eq!(Some(corner), cy_place.map(Pip::Watched));
+    assert!(app.video.looks_at(&stream_key(cy)));
+    assert!(!app.video.looks_at(&stream_key(bob)), "not in the corner");
+
+    // Back in the call, Bob's large; stopping it leaves the grid.
+    let _ = crate::call::update(&mut app, Event::OpenCall);
+    app.call.focus = Some(Focus::Stream(bob.into()));
+    super::change(&mut app, |state| {
+        state.voice.watching.retain(|watching| watching.user != bob);
+    });
+    assert_eq!(app.call.focus, None, "the grid, with Cy's in it");
+}

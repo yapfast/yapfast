@@ -1,8 +1,11 @@
 //! Settings' pages of switches and choices: My account, Messages,
-//! Notifications, Sounds, Advanced, About, Discord and Game Activity; and
-//! what their preferences do when changed.
+//! Accessibility, Notifications, Sounds, Advanced, About, Discord and Game
+//! Activity; and what their preferences do when changed.
 
-use iced::Element;
+use iced::{
+    Alignment, Element, Length,
+    widget::{column, container, row, text},
+};
 use yapfast_core::{
     application::Action,
     sounds::{Sound, SoundSet},
@@ -12,11 +15,16 @@ use super::{Event, Page, Settings};
 use crate::{
     app::Message,
     ctx::{Cx, Pref as Shown, Request},
+    desktop::Autostart,
+    fonts::BOLD,
     form::switch,
     layout::Animate,
 };
 
 mod about;
+mod accessibility;
+pub(super) use accessibility::choose_reduced_motion;
+pub use accessibility::system_motion;
 mod account;
 pub(super) use account::BLOCKED_STEP;
 mod advanced;
@@ -27,8 +35,7 @@ mod messages;
 mod notifications;
 mod sounds;
 
-/// The choices of Messages' animations, of the date's order, of the sound
-/// set and of the text's size, in the order they show.
+/// The choices of Accessibility's animations, in the order they show.
 const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Never];
 
 /// A preference changed, by a switch, a choice or a slider (with whether
@@ -38,8 +45,13 @@ pub enum Pref {
     TwelveHour(bool),
     Seconds(bool),
     DateFormat(usize),
-    TextSize(usize),
+    /// Accessibility's text size in chat, in pixels, as it's dragged; and
+    /// kept, as the slider is let go.
+    TextPx(u8),
+    KeepTextPx,
     Animate(usize),
+    ReducedMotion(bool),
+    SyncReducedMotion(bool),
     LinkPreviews(bool),
     CollapseLong(bool),
     PeekChannels(bool),
@@ -67,7 +79,8 @@ pub enum Pref {
     HideBlocked(bool),
     CheckUpdates(bool),
     Nightlies(bool),
-    StartOnSignIn(bool),
+    OpenOnStartup(bool),
+    StartMinimized(bool),
     DiscordLinks(bool),
     SystemTitleBar(bool),
 }
@@ -144,16 +157,31 @@ impl Settings {
                 cx.keep("date_format", index);
                 cx.request(Request::Changed(Shown::Clock));
             }
-            Pref::TextSize(index) => {
-                prefs.text_size = Some(index as i32);
-                cx.keep("text_size", index);
-                cx.request(Request::Changed(Shown::Rows));
+            Pref::TextPx(px) => {
+                let px = crate::layout::nearest_text_size(px);
+                if prefs.text_px() != px {
+                    prefs.chat_text_size = Some(px);
+                    cx.request(Request::Changed(Shown::Rows));
+                }
+            }
+            // Kept as it's let go; the drag only shows it.
+            Pref::KeepTextPx => {
+                if let Some(px) = prefs.chat_text_size {
+                    cx.keep("chat_text_size", px);
+                }
             }
             Pref::Animate(index) => {
                 let animate = ANIMATES[index.min(2)];
                 prefs.animate = animate;
                 cx.keep("animate", animate);
+                // Chosen again: reduced motion no longer stills them.
+                if cx.layout.animate_stilled {
+                    cx.layout.animate_stilled = false;
+                    cx.keep("animate_stilled", false);
+                }
             }
+            Pref::ReducedMotion(on) => accessibility::choose_reduced_motion(cx, on),
+            Pref::SyncReducedMotion(on) => accessibility::sync_reduced_motion(cx, on),
             Pref::LinkPreviews(on) => {
                 prefs.link_previews = Some(on);
                 cx.keep("link_previews", on);
@@ -293,10 +321,26 @@ impl Settings {
                 prefs.update_nightlies = on;
                 cx.keep("update_nightlies", on);
             }
-            Pref::StartOnSignIn(on) => {
-                match crate::desktop::desktop().set_autostart(on) {
-                    Ok(()) => tracing::info!(start = on, "starting at sign-in changed"),
-                    Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
+            Pref::OpenOnStartup(on) => {
+                set_autostart(match on {
+                    false => Autostart::Off,
+                    true if prefs.start_minimized => Autostart::Tray,
+                    true => Autostart::Window,
+                });
+                self.read_platform_choices(cx);
+            }
+            Pref::StartMinimized(on) => {
+                prefs.start_minimized = on;
+                cx.keep("start_minimized", on);
+                // Greyed out while the entry is off; one turned off since
+                // Settings read it stays off, keeping the choice for later.
+                let entry = crate::desktop::desktop().autostart();
+                if entry.is_some_and(|entry| entry != Autostart::Off) {
+                    set_autostart(if on {
+                        Autostart::Tray
+                    } else {
+                        Autostart::Window
+                    });
                 }
                 self.read_platform_choices(cx);
             }
@@ -318,6 +362,14 @@ impl Settings {
     }
 }
 
+/// Writes how Yapfast starts at sign-in, or removes the entry.
+fn set_autostart(mode: Autostart) {
+    match crate::desktop::desktop().set_autostart(mode) {
+        Ok(()) => tracing::info!(?mode, "starting at sign-in changed"),
+        Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
+    }
+}
+
 /// One of Yapfast's sounds, to try a setting, on the call's speakers.
 fn try_sound(cx: &Cx<'_>, sound: Sound) {
     let voice = &cx.state().voice;
@@ -330,6 +382,44 @@ fn try_sound(cx: &Cx<'_>, sound: Sound) {
 }
 
 impl<'a> Page<'a> {
+    /// Sam's message, its name and the time as the clock shows it, over
+    /// `lines`, in a frame: Messages' and Accessibility's previews.
+    fn sample(self, lines: Vec<Element<'a, Message>>) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        let prefs = &self.cx.layout.prefs;
+        let size = message_size(prefs);
+        let twelve = prefs.twelve_hour_clock;
+        let clock = format!(
+            "{}{}{}",
+            if twelve { "9:41" } else { "21:41" },
+            if prefs.clock_seconds { ":05" } else { "" },
+            if twelve { " PM" } else { "" }
+        );
+        let edge = theme.line;
+        let name = row![
+            text("Sam").size(size).font(BOLD).color(theme.text),
+            text(clock).size(size - 3.0).color(theme.muted)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        container(
+            row![
+                container(self.cx.avatar(None, "Sam", 40.0, 20.0, 1.0)).align_top(Length::Shrink),
+                column(std::iter::once(name.into()).chain(lines))
+                    .spacing(3)
+                    .width(Length::Fill)
+            ]
+            .spacing(16),
+        )
+        .padding(16)
+        .width(Length::Fill)
+        .style(move |_| iced::widget::container::Style {
+            border: crate::style::edge(edge, 8.0),
+            ..Default::default()
+        })
+        .into()
+    }
+
     /// A switch that flips a preference.
     fn flip(
         self,
@@ -348,11 +438,7 @@ fn account_message(event: AccountEvent) -> Message {
     crate::app::settings(Event::Account(event))
 }
 
-/// Messages' text at a size: 14 px small, 15 default, 18 large.
-pub fn message_size(text_size: Option<i32>) -> f32 {
-    match text_size {
-        Some(0) => 14.0,
-        Some(2) => 18.0,
-        _ => 15.0,
-    }
+/// Messages' text size, as Accessibility's text size in chat chose it.
+pub fn message_size(prefs: &crate::layout::Prefs) -> f32 {
+    f32::from(prefs.text_px())
 }

@@ -185,6 +185,37 @@ fn a_right_click_on_an_activity_card_opens_its_menu_at_the_pointer() {
     );
 }
 
+/// Hidden, the Activity panel drops its cards but keeps "Activity — N" and
+/// its eye, as Discord's does, so a click there brings them back.
+#[test]
+fn hidden_activity_cards_keep_the_panels_heading() {
+    let (mut app, _folder) = preview();
+    app.show_roster(false);
+    app.roster.activity_cards = vec![crate::members::ActivityCard {
+        id: "riley".into(),
+        name: "Riley".into(),
+        avatar: None,
+        game: "Stardew Valley".into(),
+        since: "for 5m".into(),
+        thumb: None,
+        icon: 0,
+        live: true,
+    }];
+    let heading = "Activity \u{2014} 1";
+    sent(&app, |ui| {
+        ui.find("Stardew Valley").expect("the card");
+        ui.find(heading).expect("the panel's heading");
+    });
+    let open = app.roster.activity_height(app.client.state(), true);
+    change(&mut app, |state| state.activity_cards_hidden = true);
+    sent(&app, |ui| {
+        assert!(ui.find("Stardew Valley").is_err(), "no card");
+        ui.find(heading).expect("the heading stays");
+    });
+    let hidden = app.roster.activity_height(app.client.state(), true);
+    assert!(hidden > 0.0 && hidden < open, "the heading's height alone");
+}
+
 #[test]
 fn the_hover_bar_of_a_grouped_message_keeps_it_where_it_reaches_over_the_row_above() {
     let (mut app, _folder) = preview();

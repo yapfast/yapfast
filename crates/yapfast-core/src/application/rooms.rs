@@ -1051,6 +1051,7 @@ impl Application {
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
         // Typing is followed only in the open conversation, so what's known of others is stale.
         self.state.typing.clear();
+        self.forget_matrix_typing();
         self.state.mention_query = None;
         self.state.mention_groups.clear();
         self.state.found_members.clear();
@@ -1171,10 +1172,21 @@ impl Application {
         self.state.members = None;
         self.state.topic = None;
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
+        self.forget_matrix_typing();
         if !self.state.preview {
             effects.push(Effect::Backend(Command::CloseRoom));
         }
         effects
+    }
+
+    /// Matrix says who types only in the open room, and closing it ends
+    /// that without a word, so its DMs' typing goes as it closes. Discord
+    /// says who types in every channel, and when they stop, so its DMs'
+    /// rows keep theirs.
+    fn forget_matrix_typing(&mut self) {
+        self.state
+            .typing_dms
+            .retain(|room| Network::of(room) == Network::Discord);
     }
 
     /// Shows the Matrix and Discord lists together, leaving a server or

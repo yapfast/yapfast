@@ -2048,3 +2048,58 @@ fn a_follow_up_messages_clock_with_seconds_stays_clear_of_its_text() {
         "the clock {clock:?} runs into the text at {body:?}"
     );
 }
+
+#[test]
+fn a_nitro_avatar_plays_while_any_message_of_its_group_is_pointed_at() {
+    use yapfast_core::chat::ChatMessage;
+    let (mut app, _folder) = preview();
+    let still = "https://cdn.discordapp.com/avatars/7/a_sam.png?size=128";
+    let gif = "https://cdn.discordapp.com/avatars/7/a_sam.gif?size=128";
+    let party = super::animated_emoji();
+    let said = |item: &str, timestamp: u64| {
+        Arc::new(ChatMessage {
+            item: item.into(),
+            author: "Sam".into(),
+            sender: "7".into(),
+            avatar: Some(still.into()),
+            body: format!("Message {item}"),
+            timestamp,
+            ..Default::default()
+        })
+    };
+    change(&mut app, |state| {
+        state.messages = Arc::new(vec![said("i0", 1_790_000_000), said("i1", 1_790_000_045)]);
+        state.pictures.insert(gif.into(), party.clone());
+    });
+    assert!(
+        app.timeline.looks[0].first && !app.timeline.looks[1].first,
+        "one group"
+    );
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let plays = |app: &crate::app::App| {
+        super::redraw(app);
+        let at = Arc::as_ptr(&party) as usize;
+        app.win
+            .pictures
+            .players
+            .keys()
+            .iter()
+            .any(|key| key.0 == at)
+    };
+    let wanted = |app: &crate::app::App| app.pictures_shown(false).iter().any(|url| url == gif);
+    assert!(
+        !wanted(&app) && !plays(&app),
+        "held still and not asked for"
+    );
+    // The group's second message, under its first's avatar.
+    let _ = app.update(Message::Timeline(crate::timeline::Event::PointRow(
+        "i1".into(),
+        true,
+    )));
+    assert!(wanted(&app) && plays(&app), "playing for the group");
+    let _ = app.update(Message::Timeline(crate::timeline::Event::PointRow(
+        "i1".into(),
+        false,
+    )));
+    assert!(!wanted(&app) && !plays(&app), "still again once it's left");
+}

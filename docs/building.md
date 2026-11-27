@@ -74,9 +74,10 @@ SDK and the C++ media bindings do not exhaust it.
 Development builds omit debug symbols for dependencies; the app keeps line
 tables. They optimize DeepFilterNet's crates and turn off tract-core's debug
 assertions, which reject its model; see Cargo.toml. Release builds strip
-symbols and use no LTO, which made both platforms' binaries bigger for no
-measured speed. Use them for builds people run. The `measure` profile
-optimizes like release, keeps symbols and builds incrementally. Use it for
+symbols and use thin LTO with one codegen unit per crate, for a smaller
+binary at about twice the cold build time. Use them for builds people run.
+The `measure` profile optimizes like release, without LTO and with many
+codegen units so it builds quickly, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
 measure`. The `fast` profile has the same settings in a target folder of its
 own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
