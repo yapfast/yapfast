@@ -95,9 +95,10 @@ recording. Each change is kept at once in
   15 px (`message::line_height`), kept as `chat_text_size` when it's let
   go. 15 px is the default, as Messages' Default was, where Discord's is
   16; a layout from before keeps its Small (14), Default or Large (18)
-  from `text_size`. Scroll Speed sets how far the mouse wheel or touchpad
-  moves lists and message fields, from 50% to 300%. It defaults to 100%
-  and is saved as `scroll_speed`. Then Reduced Motion: Enable Reduced Motion, the
+  from `text_size`. Then Scroll Speed, which Discord's client hasn't: how
+  far the mouse wheel or touchpad moves lists and message fields, 50% to
+  300% (`flick::set_scroll_speed`), 100% by default and kept as
+  `scroll_speed`. Then Reduced Motion: Enable Reduced Motion, the
   `reduce_motion` the Themes page's switch keeps too, which stills
   installed themes' animations, effects, hover motion and transitions
   ([themes](../themes.md)) and, as Discord's client overrides its
