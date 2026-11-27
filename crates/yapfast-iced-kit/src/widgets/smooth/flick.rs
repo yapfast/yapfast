@@ -13,15 +13,6 @@ use iced::{Point, Vector};
 
 /// How far a wheel's notch scrolls (Slint's winit backend's).
 pub const WHEEL_NOTCH: f32 = 60.0;
-
-thread_local! {
-    static SCROLL_SPEED: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
-}
-
-/// The window's scroll distance multiplier, set on its UI thread.
-pub fn set_scroll_speed(multiplier: f32) {
-    SCROLL_SPEED.set(multiplier);
-}
 /// How long a notch's move takes.
 pub const WHEEL_DURATION: Duration = Duration::from_millis(180);
 /// Notches a second past which each notch scrolls farther, in proportion.
@@ -36,6 +27,18 @@ const SPEED_MEMORY: Duration = Duration::from_millis(200);
 const SCROLL_FILTER: Duration = Duration::from_millis(800);
 /// How far, squared, the pointer may move and still count as put.
 const FILTER_DISTANCE_SQUARED: f32 = 4.0;
+
+thread_local! {
+    /// How far the wheel and the touchpad scroll, as a multiple of their
+    /// own distance: Settings → Accessibility's Scroll Speed.
+    static SCROLL_SPEED: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+/// The window's scroll distance multiplier, set on its UI thread.
+pub fn set_scroll_speed(multiplier: f32) {
+    SCROLL_SPEED.set(multiplier);
+}
+
 /// How far a list is scrolled on one axis, and the farthest it goes
 /// (none, or less, when what it holds fits).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
