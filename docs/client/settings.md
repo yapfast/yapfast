@@ -131,7 +131,10 @@ recording. Each change is kept at once in
   draw its own, and the profile switches, which the core is told of. The
   last, "Show connections on profile cards" (off by default), is the
   window's alone: the floating card lists the connections the profile
-  already carries.
+  already carries. The member list's own section has Show activity cards,
+  which keeps `activity_cards_hidden`, the pref the panel's eye writes. Off,
+  the panel keeps its "Activity — N" heading and its eye, as Discord's does,
+  and a click there shows the cards again.
 - Discord: linking, as the sign-in screen's panel, while none is linked;
   then Unlink in a build with Matrix, hidden channels, reads marked on
   Discord, idle while away, blocked people's messages hidden, and those
