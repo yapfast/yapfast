@@ -926,10 +926,13 @@ fn active_now_is_made_only_while_the_friends_screen_has_room_for_it() {
         let size = iced::Size::new(width, app.shell.frame.height);
         let _ = app.update(Message::Shell(crate::shell::Event::Resized(size)));
     };
-    width(&mut app, 1500.0);
+    width(&mut app, crate::SIZE.0 as f32);
     dm_screen(&mut app, DmScreen::Friends);
-    assert!(!app.active_now.is_empty(), "wide, Ann's card is made");
-    width(&mut app, 1100.0);
+    assert!(
+        !app.active_now.is_empty(),
+        "Ann's card is made at the default window width"
+    );
+    width(&mut app, 1000.0);
     assert!(app.active_now.is_empty(), "too narrow to show, none is");
     assert!(!crate::active_now::active_now_minutes(&app));
     width(&mut app, 1500.0);
