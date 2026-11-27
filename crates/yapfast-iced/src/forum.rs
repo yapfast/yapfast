@@ -100,7 +100,7 @@ struct Card {
     name: String,
     pinned: bool,
     new: bool,
-    unread: bool,
+    read: bool,
     tags: Vec<(String, Option<ShownEmoji>)>,
     more_tags: usize,
     /// Who wrote its first message, in their role colour, and its text.
@@ -468,7 +468,9 @@ fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
         name: thread.name.clone(),
         pinned: thread.pinned,
         new: post.new,
-        unread: thread.unread,
+        // Discord's client brightens a card only for an active post with
+        // messages to read, and a post never opened has them all to read.
+        read: thread.archived || (thread.opened && !thread.unread),
         tags: post
             .tags
             .iter()
@@ -477,7 +479,11 @@ fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
             .collect(),
         more_tags: post.tags.len().saturating_sub(SHOWN_TAGS),
         person: person.map(|person| (person.name.clone(), person.color)),
-        text: words.to_owned(),
+        text: if person.is_some() && !words.is_empty() {
+            format!(": {words}")
+        } else {
+            words.to_owned()
+        },
         reaction,
         replies: thread.replies,
         time: crate::header_popovers::ago(at, now),
@@ -647,11 +653,7 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
         }
         words = words.push(tags);
     }
-    let ink = if card.unread || card.new {
-        theme.text
-    } else {
-        theme.secondary
-    };
+    let ink = if card.read { theme.muted } else { theme.text };
     let mut title = row![elide(card.name.as_str()).size(16).font(BOLD).color(ink)]
         .spacing(8)
         .align_y(Alignment::Center);
@@ -672,16 +674,12 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
             elide(person.as_str())
                 .size(14)
                 .font(SEMIBOLD)
-                .color(color.map_or(theme.secondary, hex))
+                // Discord's client keeps the role colour on read cards too.
+                .color(color.map_or(ink, hex))
                 .shrink(),
         );
     }
-    let lead = if card.person.is_some() && !card.text.is_empty() {
-        format!(": {}", card.text)
-    } else {
-        card.text.clone()
-    };
-    said = said.push(elide(lead).size(14).color(theme.muted));
+    said = said.push(elide(card.text.as_str()).size(14).color(ink));
     words = words.push(said);
     let mut foot = row![].spacing(8).height(22).align_y(Alignment::Center);
     if let Some((emoji, count)) = &card.reaction {
@@ -1048,6 +1046,21 @@ mod tests {
         // Without reactions, the forum's own, without a count.
         assert_eq!(shown.reaction, Some((forum_reaction, String::new())));
         assert_eq!(shown.person.map(|(name, _)| name).as_deref(), Some("Carol"));
+        assert_eq!(shown.text, ": Hello");
+
+        assert!(!shown.read);
+        post.new = false;
+        assert!(!card(&post, &info, now).read);
+        post.thread.opened = true;
+        assert!(card(&post, &info, now).read);
+        post.thread.unread = true;
+        assert!(!card(&post, &info, now).read);
+        // Archived posts are muted, read or not.
+        post.thread.archived = true;
+        assert!(card(&post, &info, now).read);
+        post.thread.opened = false;
+        assert!(card(&post, &info, now).read);
+
         post.starter = Some(None);
         let deleted = card(&post, &info, now);
         assert_eq!(deleted.text, "Original message was deleted");
