@@ -433,7 +433,11 @@ pub fn row_height(
     if message.forwarded {
         content += LINE_HEIGHT;
     }
-    if message.forward_origin.is_some() {
+    // Discord's client has no footer under a forward from a DM.
+    if message.forward_origin.as_ref().is_some_and(|origin| {
+        yapfast_core::discord::parse_room(&origin.room)
+            .is_none_or(|(guild, _)| guild != yapfast_core::discord::DM_GUILD)
+    }) {
         content += 22.0;
     }
     let gallery = Gallery::of(&message.attachments, Placement::Message, text_width);

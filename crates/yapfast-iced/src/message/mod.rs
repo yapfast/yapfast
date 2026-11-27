@@ -21,7 +21,7 @@ use crate::{
     looks::{self, Chip},
     markdown::{FIRST_PART, Look},
     media::Gallery,
-    pictures::{Face, GroupIcon, Icon, room_group_icon},
+    pictures::{Face, Icon},
     piece::Piece,
     style::{CHIP, hex},
     timeline::{AUTHOR_GAP, AUTHOR_LINE, CONTENT_PAD, END_PAD, LINE_HEIGHT, RowLook},
@@ -1688,9 +1688,12 @@ fn delivery_line<'a>(
     Some(line.into())
 }
 
-/// A forwarded message's footer: the origin server's icon (or DM avatar),
-/// its name, `• [timestamp]`, and a right chevron that jumps to the original
-/// message when this account can open that conversation.
+/// A forwarded message's footer, as Discord's client words where the
+/// original came from: from this server, its channel (`#general`); from
+/// another server this account is in, or a channel of this one it doesn't
+/// list, that server's icon and name; then `•` and when the original was
+/// sent, and a chevron. Clicking it opens the original. A forward from a
+/// DM, or from a channel this account can't read, has none.
 fn forward_footer<'a>(
     ctx: crate::ctx::Ctx<'a>,
     look: &'a RowLook,
@@ -1699,98 +1702,72 @@ fn forward_footer<'a>(
     let theme = ctx.look.theme;
     let state = ctx.state;
     let room = state.rooms.iter().find(|room| room.id == origin.room);
+    if room.is_some_and(|room| room.direct) {
+        return None;
+    }
     let server = match room {
-        Some(room) if !room.direct => state
+        Some(room) => state
             .servers
             .iter()
             .find(|server| server.channels.contains(&room.id)),
-        Some(_) => None,
         None => yapfast_core::discord::parse_room(&origin.room)
             .filter(|(guild, _)| *guild != yapfast_core::discord::DM_GUILD)
             .and_then(|(guild, _)| {
                 let id = yapfast_core::discord::server_id(guild);
                 state.servers.iter().find(|server| server.id == id)
             }),
+    }?;
+    let same_server = state
+        .selected
+        .as_ref()
+        .is_some_and(|open| server.channels.contains(open));
+    let (icon, label) = match room {
+        Some(room) if same_server => {
+            if room.locked {
+                return None;
+            }
+            let label = if room.parent.is_some() {
+                format!("\"{}\"", room.name)
+            } else if room.voice {
+                room.name.clone()
+            } else {
+                format!("#{}", room.name)
+            };
+            (None, label)
+        }
+        _ => (
+            Some(ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 5.0, 1.0)),
+            server.name.clone(),
+        ),
     };
     let can_jump = match room {
         Some(room) => !room.locked,
-        None => server.is_some() && state.discord_online && !state.preview,
+        None => state.discord_online && !state.preview,
     };
-    let size = theme.type_size("small", 12.0);
-    let font = theme.font("small", MEDIUM);
-    if !can_jump {
-        let time = look.forward_time.as_deref()?;
-        return Some(
-            text(time)
-                .size(size)
-                .font(theme.font("small", REGULAR))
-                .color(theme.muted)
-                .wrapping(text::Wrapping::None)
-                .into(),
-        );
-    }
-    let same_server = server.is_some_and(|server| {
-        state
-            .selected
-            .as_ref()
-            .is_some_and(|open| server.channels.contains(open))
-    });
+    let label = match look.forward_time.as_deref() {
+        Some(time) => format!("{label}  \u{2022}  {time}"),
+        None => label,
+    };
     let mut line = row![].spacing(6).align_y(Alignment::Center);
-    if let Some(server) = server {
-        line = line.push(ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 5.0, 1.0));
-        let label = match room {
-            Some(room) if same_server => format!("#{}", room.name),
-            _ => server.name.clone(),
-        };
-        line = line.push(
+    if let Some(icon) = icon {
+        line = line.push(icon);
+    }
+    let line = line
+        .push(
             text(label)
-                .size(size)
-                .font(font)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", MEDIUM))
                 .wrapping(text::Wrapping::None),
-        );
-    } else if let Some(room) = room {
-        if room.direct {
-            line = line.push(
-                ctx.face(
-                    Face::new(room.avatar.as_deref(), &room.name, 16.0)
-                        .group(room_group_icon(room).as_ref().map(GroupIcon::as_face)),
-                ),
-            );
-        } else {
-            line = line.push(
-                ctx.look
-                    .glyph(crate::sidebar::room_icon(room), 14, theme.muted),
-            );
-        }
-        line = line.push(
-            text(room.name.as_str())
-                .size(size)
-                .font(font)
-                .wrapping(text::Wrapping::None),
-        );
-    }
-    if let Some(time) = look.forward_time.as_deref() {
-        line = line
-            .push(
-                text("•")
-                    .size(size)
-                    .font(theme.font("small", REGULAR))
-                    .wrapping(text::Wrapping::None),
-            )
-            .push(
-                text(time)
-                    .size(size)
-                    .font(theme.font("small", REGULAR))
-                    .wrapping(text::Wrapping::None),
-            );
-    }
-    line = line.push(ctx.look.glyph(Icon::ChevronRight, 14, theme.muted));
+        )
+        .push(ctx.look.glyph(Icon::ChevronRight, 14, theme.muted));
     Some(
         button(line)
             .padding(0)
-            .on_press(Message::Timeline(crate::timeline::Event::JumpInRoom {
-                room: origin.room.clone(),
-                item: origin.item.clone(),
+            .on_press_maybe(can_jump.then(|| {
+                Message::Timeline(crate::timeline::Event::JumpInRoom {
+                    room: origin.room.clone(),
+                    item: origin.item.clone(),
+                })
             }))
             .style(controls::ink_style(theme.muted, theme.text))
             .into(),
